@@ -1,8 +1,8 @@
 /* wolftpm_example.c
  *
- * Copyright (C) 2006-2017 wolfSSL Inc.
+ * Copyright (C) 2006-2018 wolfSSL Inc.
  *
- * This file is part of wolfSSL. (formerly known as CyaSSL)
+ * This file is part of wolfTPM.
  *
  * wolfTPM is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
  */
 
 
-#include "wolfssl_example.h"
+#include "wolftpm_example.h"
 
 /*****************************************************************************
  * Private types/enumerations/variables
@@ -58,7 +58,7 @@ const char menu1[] = "\r\n"
 /*****************************************************************************
  * Public functions
  ****************************************************************************/
-void wolfCryptDemo(void const * argument)
+void wolfTPMDemo(void const * argument)
 {
     uint8_t buffer[2];
     func_args args;
