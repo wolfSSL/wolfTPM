@@ -1,0 +1,8 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+#
+
+nobase_include_HEADERS+= \
+                         wolftpm/tpm2.h \
+                         wolftpm/version.h \
+                         wolftpm/visibility.h
