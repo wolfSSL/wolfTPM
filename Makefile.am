@@ -78,7 +78,7 @@ maintainer-clean-local:
 
 # !!!! first line of rule has to start with a hard (real) tab, not spaces
 egs:
-	$(MAKE) examples/mqttclient/mqttclient;
+	$(MAKE) examples/tpm/tpm2_demo;
 
 install-exec-local:	install-generic-config
 

@@ -1,6 +1,6 @@
 /* tpm2_demo.c
  *
- * Copyright (C) 2006-2017 wolfSSL Inc.
+ * Copyright (C) 2006-2018 wolfSSL Inc.
  *
  * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
@@ -30,13 +30,25 @@
 #include <wolfssl/wolfcrypt/logging.h>
 
 #include <wolftpm/tpm2.h>
+#include <examples/tpm/tpm2_demo.h>
 
 /* Local variables */
 static TPM2_CTX gTpm2Ctx;
+
+/* Configuration for the SPI interface */
 #ifdef WOLFSSL_STM32_CUBEMX
     extern SPI_HandleTypeDef hspi1;
     #define TPM2_USER_CTX &hspi1
+#elif defined(__linux__)
+    #include <sys/ioctl.h>
+    #include <linux/spi/spidev.h>
+    #include <fcntl.h>
+    #define TPM2_SPI_DEV "/dev/spidev0.1"
+
+    static int gSpiDev = -1;
+    #define TPM2_USER_CTX &gSpiDev
 #else
+    /* TODO: Add your platform here for HW interface */
     #define TPM2_USER_CTX NULL
 #endif
 
@@ -44,7 +56,9 @@ static TPM2_CTX gTpm2Ctx;
 static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
+    int ret = TPM_RC_FAILURE;
 #ifdef WOLFSSL_STM32_CUBEMX
+    /* STM32 CubeMX Hal */
     SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)userCtx;
     HAL_StatusTypeDef status;
 
@@ -52,23 +66,55 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf, xferSz, 5000);
     __HAL_SPI_DISABLE(hspi);
     if (status == HAL_OK)
-        return TPM_RC_SUCCESS;
+        ret = TPM_RC_SUCCESS;
 
+#elif defined(__linux__)
+    /* Use Linux SPI synchronous access */
+    int* spiDev = (int*)userCtx;
+
+    if (*spiDev == -1) {
+        unsigned int maxSpeed = 10000000; /* 10Mhz */
+        int mode = 0; /* mode 0 */
+        int bits_per_word = 0; /* 8-bits */
+
+        *spiDev = open(TPM2_SPI_DEV, O_RDWR);
+        if (*spiDev >= 0) {
+            ioctl(*spiDev, SPI_IOC_WR_MODE, &mode);
+            ioctl(*spiDev, SPI_IOC_RD_MAX_SPEED_HZ, &maxSpeed);
+            ioctl(*spiDev, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word);
+        }
+    }
+
+    if (*spiDev >= 0) {
+        struct spi_ioc_transfer spi;
+        size_t size;
+
+        memset(&spi, 0, sizeof(spi));
+        spi.tx_buf   = (unsigned long)txBuf;
+        spi.rx_buf   = (unsigned long)rxBuf;
+        spi.len      = xferSz;
+        spi.cs_change= 1; /* strobe CS between transfers */
+
+        size = ioctl(*spiDev, SPI_IOC_MESSAGE(1), &spi);
+        if (size == xferSz)
+            ret = TPM_RC_SUCCESS;
+    }
 #else
     /* TODO: Add your platform here for HW interface */
-    (void)ctx;
     (void)txBuf;
     (void)rxBuf;
     (void)xferSz;
     (void)userCtx;
-
 #endif
-    return TPM_RC_FAILURE;
+
+    (void)ctx;
+
+    return ret;
 }
 
 #define RAND_GET_SZ 32
 
-int TPM2_Demo(void)
+int TPM2_Demo(void* userCtx)
 {
     TPM_RC rc;
     union {
@@ -104,13 +150,12 @@ int TPM2_Demo(void)
     } cmdOut;
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
-    TPM_HANDLE ek;
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
 #endif
 
-    rc = TPM2_Init(&gTpm2Ctx, TPM2_IoCb, TPM2_USER_CTX);
+    rc = TPM2_Init(&gTpm2Ctx, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Init failed %d: %s\n", rc, TPM2_GetRCString(rc));
         return rc;
@@ -261,5 +306,18 @@ int TPM2_Demo(void)
         return rc;
     }
 
+#ifdef TPM2_SPI_DEV
+    /* close handle */
+    if (gSpiDev >= 0)
+        close(gSpiDev);
+#endif
+
     return rc;
 }
+
+#ifndef NO_MAIN_DRIVER
+int main(void)
+{
+    return TPM2_Demo(TPM2_USER_CTX);
+}
+#endif

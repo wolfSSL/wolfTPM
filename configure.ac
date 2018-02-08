@@ -1,5 +1,5 @@
 # wolftpm
-# Copyright (C) 2016 wolfSSL Inc.
+# Copyright (C) 2018 wolfSSL Inc.
 # All right reserved.
 
 AC_INIT([wolftpm],[0.1.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
@@ -18,7 +18,7 @@ AC_ARG_PROGRAM
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFMQTT_LIBRARY_VERSION=1:0:0
+WOLFTPM_LIBRARY_VERSION=1:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -30,7 +30,7 @@ WOLFMQTT_LIBRARY_VERSION=1:0:0
 #                 |        +- increment if source code has changed
 #                 |           set to zero if current is incremented
 #                 +- increment if interfaces have been added, removed or changed
-AC_SUBST([WOLFMQTT_LIBRARY_VERSION])
+AC_SUBST([WOLFTPM_LIBRARY_VERSION])
 
 LT_PREREQ([2.2])
 LT_INIT([disable-static], [win32-dll])
@@ -67,7 +67,7 @@ AC_CHECK_LIB(network,socket)
 
 # DEBUG
 DEBUG_CFLAGS="-g -O0"
-DEBUG_CPPFLAGS="-DDEBUG -DDEBUG_WOLFMQTT"
+DEBUG_CPPFLAGS="-DDEBUG -DDEBUG_WOLFTPM"
 
 AX_DEBUG
 AS_IF([test "x$ax_enable_debug" = "xyes"],

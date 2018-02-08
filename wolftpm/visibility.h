@@ -2,14 +2,14 @@
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
- * This file is part of wolfMQTT.
+ * This file is part of wolfTPM.
  *
- * wolfMQTT is free software; you can redistribute it and/or modify
+ * wolfTPM is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * wolfMQTT is distributed in the hope that it will be useful,
+ * wolfTPM is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
@@ -21,41 +21,41 @@
 
 /* Visibility control macros */
 
-#ifndef WOLFMQTT_VISIBILITY_H
-#define WOLFMQTT_VISIBILITY_H
+#ifndef WOLFTPM_VISIBILITY_H
+#define WOLFTPM_VISIBILITY_H
 
-/* WOLFMQTT_API is used for the public API symbols.
+/* WOLFTPM_API is used for the public API symbols.
         It either imports or exports (or does nothing for static builds)
 
-   WOLFMQTT_LOCAL is used for non-API symbols (private).
+   WOLFTPM_LOCAL is used for non-API symbols (private).
 */
 
-#if defined(BUILDING_WOLFMQTT)
+#if defined(BUILDING_WOLFTPM)
     #if defined(HAVE_VISIBILITY) && HAVE_VISIBILITY
-        #define WOLFMQTT_API   __attribute__ ((visibility("default")))
-        #define WOLFMQTT_LOCAL __attribute__ ((visibility("hidden")))
+        #define WOLFTPM_API   __attribute__ ((visibility("default")))
+        #define WOLFTPM_LOCAL __attribute__ ((visibility("hidden")))
     #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-        #define WOLFMQTT_API   __global
-        #define WOLFMQTT_LOCAL __hidden
+        #define WOLFTPM_API   __global
+        #define WOLFTPM_LOCAL __hidden
     #elif defined(_MSC_VER)
         #ifdef _WINDLL
-            #define WOLFMQTT_API __declspec(dllexport)
+            #define WOLFTPM_API __declspec(dllexport)
         #else
-            #define WOLFMQTT_API
+            #define WOLFTPM_API
         #endif
-        #define WOLFMQTT_LOCAL
+        #define WOLFTPM_LOCAL
     #else
-        #define WOLFMQTT_API
-        #define WOLFMQTT_LOCAL
+        #define WOLFTPM_API
+        #define WOLFTPM_LOCAL
     #endif /* HAVE_VISIBILITY */
-#else /* BUILDING_WOLFMQTT */
+#else /* BUILDING_WOLFTPM */
     #if defined(_MSC_VER)
-        #define WOLFMQTT_API __declspec(dllimport)
-        #define WOLFMQTT_LOCAL
+        #define WOLFTPM_API __declspec(dllimport)
+        #define WOLFTPM_LOCAL
     #else
-        #define WOLFMQTT_API
-        #define WOLFMQTT_LOCAL
+        #define WOLFTPM_API
+        #define WOLFTPM_LOCAL
     #endif
-#endif /* BUILDING_WOLFMQTT */
+#endif /* BUILDING_WOLFTPM */
 
-#endif /* WOLFMQTT_VISIBILITY_H */
+#endif /* WOLFTPM_VISIBILITY_H */
