@@ -31,6 +31,11 @@
 			<locationURI>virtual:/virtual</locationURI>
 		</link>
 		<link>
+			<name>wolfTPM/examples</name>
+			<type>2</type>
+			<locationURI>$%7BPARENT-2-PROJECT_LOC%7D/examples</locationURI>
+		</link>
+		<link>
 			<name>wolfTPM/include</name>
 			<type>2</type>
 			<locationURI>WORKSPACE_LOC/wolftpm</locationURI>

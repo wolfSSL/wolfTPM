@@ -27,8 +27,9 @@
     #include <wolfssl/options.h>
 #endif
 #include <wolfssl/wolfcrypt/settings.h>
-#include <wolfssl/wolfcrypt/tpm2.h>
 #include <wolfssl/wolfcrypt/logging.h>
+
+#include <wolftpm/tpm2.h>
 
 /* Local variables */
 static TPM2_CTX gTpm2Ctx;
