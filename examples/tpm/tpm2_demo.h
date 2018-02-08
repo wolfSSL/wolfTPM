@@ -23,7 +23,7 @@
 #define _TPM2_DEMO_H_
 
 
-int TPM2_Demo(void);
+int TPM2_Demo(void* userCtx);
 
 
 #endif /* _TPM2_DEMO_H_ */

@@ -9,7 +9,8 @@ This example demonstrates calling the various TPM 2.0 API's.
 
 ```
 ./autogen.sh
-./configure --enable-ecc --enable-sha512 && make && sudo make install
+./configure --enable-ecc --enable-sha512 && make
+sudo make install
 ```
 
 2. Build wolfTPM:
@@ -21,18 +22,15 @@ This example demonstrates calling the various TPM 2.0 API's.
 
 ## Platform
 
-This example was written for use on Raspberry Pi or the STM32 with the CubeMX HAL. To add additional SPI hardware support insert your own interface call in `tpm2_demo.c` for the `TPM2_IoCb` function.
+This example was written for use on Raspberry Pi® 3 or the STM32 with the CubeMX HAL. This was tested using the Infineon OPTIGATM Trusted Platform Module 2.0 SLB 9670.
+
+To add additional SPI hardware support insert your own interface call in `tpm2_demo.c` for the `TPM2_IoCb` function.
 
 
 ## Sample Output
 
 ```
-MENU
-	t. WolfCrypt Test
-	b. WolfCrypt Benchmark
-	m. WolfCrypt TPM 2.0 Test
-Please select one of the above options: m
-
+./examples/tpm/tpm_demo
 TPM 2.0 Test
 TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10 
 TPM2_Startup pass
@@ -73,13 +71,7 @@ TPM 2.0 Test: Return code 0
 ### With Debug Enabled:
 
 ```
-MENU
-	t. WolfCrypt Test
-	b. WolfCrypt Benchmark
-	m. WolfCrypt TPM 2.0 Test
-Please select one of the above options: m
-
-Please select one of the above options: 
+./examples/tpm/tpm_demo
 TPM 2.0 Test
 TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10 
 TPM2_Startup pass
