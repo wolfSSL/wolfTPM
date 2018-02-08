@@ -22,6 +22,7 @@
 #ifndef __TPM2_H__
 #define __TPM2_H__
 
+#include <wolftpm/visibility.h>
 #include <wolfssl/wolfcrypt/types.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/rsa.h>
@@ -1833,17 +1834,17 @@ typedef struct TPM2_CTX {
 /* Functions */
 
 #define _TPM_Init TPM2_Init
-WOLFSSL_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 
 typedef struct {
     TPM_SU startupType;
 } Startup_In;
-WOLFSSL_API TPM_RC TPM2_Startup(Startup_In* in);
+WOLFTPM_API TPM_RC TPM2_Startup(Startup_In* in);
 
 typedef struct {
     TPM_SU shutdownType;
 } Shutdown_In;
-WOLFSSL_API TPM_RC TPM2_Shutdown(Shutdown_In* in);
+WOLFTPM_API TPM_RC TPM2_Shutdown(Shutdown_In* in);
 
 
 typedef struct {
@@ -1855,14 +1856,14 @@ typedef struct {
     TPMI_YES_NO moreData;
     TPMS_CAPABILITY_DATA capabilityData;
 } GetCapability_Out;
-WOLFSSL_API TPM_RC TPM2_GetCapability(GetCapability_In* in,
+WOLFTPM_API TPM_RC TPM2_GetCapability(GetCapability_In* in,
     GetCapability_Out* out);
 
 
 typedef struct {
     TPMI_YES_NO fullTest;
 } SelfTest_In;
-WOLFSSL_API TPM_RC TPM2_SelfTest(SelfTest_In* in);
+WOLFTPM_API TPM_RC TPM2_SelfTest(SelfTest_In* in);
 
 typedef struct {
     TPML_ALG toTest;
@@ -1870,14 +1871,14 @@ typedef struct {
 typedef struct {
     TPML_ALG toDoList;
 } IncrementalSelfTest_Out;
-WOLFSSL_API TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
+WOLFTPM_API TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
     IncrementalSelfTest_Out* out);
 
 typedef struct {
     TPM2B_MAX_BUFFER outData;
     TPM_RC testResult;
 } GetTestResult_Out;
-WOLFSSL_API TPM_RC TPM2_GetTestResult(GetTestResult_Out* out);
+WOLFTPM_API TPM_RC TPM2_GetTestResult(GetTestResult_Out* out);
 
 
 typedef struct {
@@ -1886,12 +1887,12 @@ typedef struct {
 typedef struct {
     TPM2B_DIGEST randomBytes;
 } GetRandom_Out;
-WOLFSSL_API TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out);
+WOLFTPM_API TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out);
 
 typedef struct {
     TPM2B_SENSITIVE_DATA inData;
 } StirRandom_In;
-WOLFSSL_API TPM_RC TPM2_StirRandom(StirRandom_In* in);
+WOLFTPM_API TPM_RC TPM2_StirRandom(StirRandom_In* in);
 
 typedef struct {
     TPML_PCR_SELECTION pcrSelectionIn;
@@ -1901,7 +1902,7 @@ typedef struct {
     TPML_PCR_SELECTION pcrSelectionOut;
     TPML_DIGEST pcrValues;
 } PCR_Read_Out;
-WOLFSSL_API TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out);
+WOLFTPM_API TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out);
 
 
 typedef struct {
@@ -1909,7 +1910,7 @@ typedef struct {
     TPMS_AUTH_COMMAND auth;
     TPML_DIGEST_VALUES digests;
 } PCR_Extend_In;
-WOLFSSL_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
+WOLFTPM_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
 
 
 typedef struct {
@@ -1927,7 +1928,7 @@ typedef struct {
     TPM2B_DIGEST creationHash;
     TPMT_TK_CREATION creationTicket;
 } Create_Out;
-WOLFSSL_API TPM_RC TPM2_Create(Create_In* in, Create_Out* out);
+WOLFTPM_API TPM_RC TPM2_Create(Create_In* in, Create_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
@@ -1941,7 +1942,7 @@ typedef struct {
     TPM2B_PUBLIC outPublic;
     TPM2B_NAME name;
 } CreateLoaded_Out;
-WOLFSSL_API TPM_RC TPM2_CreateLoaded(CreateLoaded_In* in,
+WOLFTPM_API TPM_RC TPM2_CreateLoaded(CreateLoaded_In* in,
     CreateLoaded_Out* out);
 
 
@@ -1960,7 +1961,7 @@ typedef struct {
     TPMT_TK_CREATION creationTicket;
     TPM2B_NAME name;
 } CreatePrimary_Out;
-WOLFSSL_API TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in,
+WOLFTPM_API TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in,
     CreatePrimary_Out* out);
 
 typedef struct {
@@ -1973,13 +1974,13 @@ typedef struct {
     TPM_HANDLE objectHandle;
     TPM2B_NAME name;
 } Load_Out;
-WOLFSSL_API TPM_RC TPM2_Load(Load_In* in, Load_Out* out);
+WOLFTPM_API TPM_RC TPM2_Load(Load_In* in, Load_Out* out);
 
 
 typedef struct {
     TPMI_DH_CONTEXT flushHandle;
 } FlushContext_In;
-WOLFSSL_API TPM_RC TPM2_FlushContext(FlushContext_In* in);
+WOLFTPM_API TPM_RC TPM2_FlushContext(FlushContext_In* in);
 
 
 typedef struct {
@@ -1989,7 +1990,7 @@ typedef struct {
 typedef struct {
     TPM2B_SENSITIVE_DATA outData;
 } Unseal_Out;
-WOLFSSL_API TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out);
+WOLFTPM_API TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out);
 
 
 typedef struct {
@@ -2005,13 +2006,13 @@ typedef struct {
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonceTPM;
 } StartAuthSession_Out;
-WOLFSSL_API TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in,
+WOLFTPM_API TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in,
     StartAuthSession_Out* out);
 
 typedef struct {
     TPMI_SH_POLICY sessionHandle;
 } PolicyRestart_In;
-WOLFSSL_API TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in);
 
 
 typedef struct {
@@ -2023,7 +2024,7 @@ typedef struct {
     TPM_HANDLE objectHandle;
     TPM2B_NAME name;
 } LoadExternal_Out;
-WOLFSSL_API TPM_RC TPM2_LoadExternal(LoadExternal_In* in,
+WOLFTPM_API TPM_RC TPM2_LoadExternal(LoadExternal_In* in,
     LoadExternal_Out* out);
 
 typedef struct {
@@ -2034,7 +2035,7 @@ typedef struct {
     TPM2B_NAME name;
     TPM2B_NAME qualifiedName;
 } ReadPublic_Out;
-WOLFSSL_API TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out);
+WOLFTPM_API TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT activateHandle;
@@ -2045,7 +2046,7 @@ typedef struct {
 typedef struct {
     TPM2B_DIGEST certInfo;
 } ActivateCredential_Out;
-WOLFSSL_API TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
+WOLFTPM_API TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
     ActivateCredential_Out* out);
 
 typedef struct {
@@ -2057,7 +2058,7 @@ typedef struct {
     TPM2B_ID_OBJECT credentialBlob;
     TPM2B_ENCRYPTED_SECRET secret;
 } MakeCredential_Out;
-WOLFSSL_API TPM_RC TPM2_MakeCredential(MakeCredential_In* in,
+WOLFTPM_API TPM_RC TPM2_MakeCredential(MakeCredential_In* in,
     MakeCredential_Out* out);
 
 typedef struct {
@@ -2068,7 +2069,7 @@ typedef struct {
 typedef struct {
     TPM2B_PRIVATE outPrivate;
 } ObjectChangeAuth_Out;
-WOLFSSL_API TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in,
+WOLFTPM_API TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in,
     ObjectChangeAuth_Out* out);
 
 
@@ -2083,7 +2084,7 @@ typedef struct {
     TPM2B_PRIVATE duplicate;
     TPM2B_ENCRYPTED_SECRET outSymSeed;
 } Duplicate_Out;
-WOLFSSL_API TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out);
+WOLFTPM_API TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT oldParent;
@@ -2096,7 +2097,7 @@ typedef struct {
     TPM2B_PRIVATE outDuplicate;
     TPM2B_ENCRYPTED_SECRET outSymSeed;
 } Rewrap_Out;
-WOLFSSL_API TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out);
+WOLFTPM_API TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
@@ -2109,7 +2110,7 @@ typedef struct {
 typedef struct {
     TPM2B_PRIVATE outPrivate;
 } Import_Out;
-WOLFSSL_API TPM_RC TPM2_Import(Import_In* in, Import_Out* out);
+WOLFTPM_API TPM_RC TPM2_Import(Import_In* in, Import_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
@@ -2120,7 +2121,7 @@ typedef struct {
 typedef struct {
     TPM2B_PUBLIC_KEY_RSA outData;
 } RSA_Encrypt_Out;
-WOLFSSL_API TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out);
+WOLFTPM_API TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out);
 
 
 typedef struct {
@@ -2132,7 +2133,7 @@ typedef struct {
 typedef struct {
     TPM2B_PUBLIC_KEY_RSA message;
 } RSA_Decrypt_Out;
-WOLFSSL_API TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out);
+WOLFTPM_API TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out);
 
 
 typedef struct {
@@ -2142,7 +2143,7 @@ typedef struct {
     TPM2B_ECC_POINT zPoint;
     TPM2B_ECC_POINT pubPoint;
 } ECDH_KeyGen_Out;
-WOLFSSL_API TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out);
+WOLFTPM_API TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out);
 
 
 typedef struct {
@@ -2152,7 +2153,7 @@ typedef struct {
 typedef struct {
     TPM2B_ECC_POINT outPoint;
 } ECDH_ZGen_Out;
-WOLFSSL_API TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out);
+WOLFTPM_API TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out);
 
 typedef struct {
     TPMI_ECC_CURVE curveID;
@@ -2160,7 +2161,7 @@ typedef struct {
 typedef struct {
     TPMS_ALGORITHM_DETAIL_ECC parameters;
 } ECC_Parameters_Out;
-WOLFSSL_API TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
+WOLFTPM_API TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
     ECC_Parameters_Out* out);
 
 typedef struct {
@@ -2174,7 +2175,7 @@ typedef struct {
     TPM2B_ECC_POINT outZ1;
     TPM2B_ECC_POINT outZ2;
 } ZGen_2Phase_Out;
-WOLFSSL_API TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out);
+WOLFTPM_API TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out);
 
 
 typedef struct {
@@ -2188,7 +2189,7 @@ typedef struct {
     TPM2B_MAX_BUFFER outData;
     TPM2B_IV ivOut;
 } EncryptDecrypt_Out;
-WOLFSSL_API TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in,
+WOLFTPM_API TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in,
     EncryptDecrypt_Out* out);
 
 typedef struct {
@@ -2202,7 +2203,7 @@ typedef struct {
     TPM2B_MAX_BUFFER outData;
     TPM2B_IV ivOut;
 } EncryptDecrypt2_Out;
-WOLFSSL_API TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in,
+WOLFTPM_API TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in,
     EncryptDecrypt2_Out* out);
 
 
@@ -2215,7 +2216,7 @@ typedef struct {
     TPM2B_DIGEST outHash;
     TPMT_TK_HASHCHECK validation;
 } Hash_Out;
-WOLFSSL_API TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out);
+WOLFTPM_API TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT handle;
@@ -2225,7 +2226,7 @@ typedef struct {
 typedef struct {
     TPM2B_DIGEST outHMAC;
 } HMAC_Out;
-WOLFSSL_API TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out);
+WOLFTPM_API TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out);
 
 
 typedef struct {
@@ -2236,7 +2237,7 @@ typedef struct {
 typedef struct {
     TPMI_DH_OBJECT sequenceHandle;
 } HMAC_Start_Out;
-WOLFSSL_API TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out);
+WOLFTPM_API TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out);
 
 
 typedef struct {
@@ -2246,14 +2247,14 @@ typedef struct {
 typedef struct {
     TPMI_DH_OBJECT sequenceHandle;
 } HashSequenceStart_Out;
-WOLFSSL_API TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
+WOLFTPM_API TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
     HashSequenceStart_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT sequenceHandle;
     TPM2B_MAX_BUFFER buffer;
 } SequenceUpdate_In;
-WOLFSSL_API TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in);
+WOLFTPM_API TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT sequenceHandle;
@@ -2264,7 +2265,7 @@ typedef struct {
     TPM2B_DIGEST result;
     TPMT_TK_HASHCHECK validation;
 } SequenceComplete_Out;
-WOLFSSL_API TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in,
+WOLFTPM_API TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in,
     SequenceComplete_Out* out);
 
 
@@ -2276,7 +2277,7 @@ typedef struct {
 typedef struct {
     TPML_DIGEST_VALUES results;
 } EventSequenceComplete_Out;
-WOLFSSL_API TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
+WOLFTPM_API TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
     EventSequenceComplete_Out* out);
 
 
@@ -2290,7 +2291,7 @@ typedef struct {
     TPM2B_ATTEST certifyInfo;
     TPMT_SIGNATURE signature;
 } Certify_Out;
-WOLFSSL_API TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out);
+WOLFTPM_API TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out);
 
 
 typedef struct {
@@ -2305,7 +2306,7 @@ typedef struct {
     TPM2B_ATTEST certifyInfo;
     TPMT_SIGNATURE signature;
 } CertifyCreation_Out;
-WOLFSSL_API TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out);
+WOLFTPM_API TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out);
 
 
 typedef struct {
@@ -2318,7 +2319,7 @@ typedef struct {
     TPM2B_ATTEST quoted;
     TPMT_SIGNATURE signature;
 } Quote_Out;
-WOLFSSL_API TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out);
+WOLFTPM_API TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out);
 
 typedef struct {
     TPMI_RH_ENDORSEMENT privacyAdminHandle;
@@ -2331,7 +2332,7 @@ typedef struct {
     TPM2B_ATTEST auditInfo;
     TPMT_SIGNATURE signature;
 } GetSessionAuditDigest_Out;
-WOLFSSL_API TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
+WOLFTPM_API TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
     GetSessionAuditDigest_Out* out);
 
 typedef struct {
@@ -2344,7 +2345,7 @@ typedef struct {
     TPM2B_ATTEST auditInfo;
     TPMT_SIGNATURE signature;
 } GetCommandAuditDigest_Out;
-WOLFSSL_API TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
+WOLFTPM_API TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
     GetCommandAuditDigest_Out* out);
 
 typedef struct {
@@ -2357,7 +2358,7 @@ typedef struct {
     TPM2B_ATTEST timeInfo;
     TPMT_SIGNATURE signature;
 } GetTime_Out;
-WOLFSSL_API TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out);
+WOLFTPM_API TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT signHandle;
@@ -2371,7 +2372,7 @@ typedef struct {
     TPM2B_ECC_POINT E;
     UINT16 counter;
 } Commit_Out;
-WOLFSSL_API TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out);
+WOLFTPM_API TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out);
 
 
 typedef struct {
@@ -2381,7 +2382,7 @@ typedef struct {
     TPM2B_ECC_POINT Q;
     UINT16 counter;
 } EC_Ephemeral_Out;
-WOLFSSL_API TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in,
+WOLFTPM_API TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in,
     EC_Ephemeral_Out* out);
 
 typedef struct {
@@ -2392,7 +2393,7 @@ typedef struct {
 typedef struct {
     TPMT_TK_VERIFIED validation;
 } VerifySignature_Out;
-WOLFSSL_API TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
+WOLFTPM_API TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
     VerifySignature_Out* out);
 
 
@@ -2405,7 +2406,7 @@ typedef struct {
 typedef struct {
     TPMT_SIGNATURE signature;
 } Sign_Out;
-WOLFSSL_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
+WOLFTPM_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
 
 
 typedef struct {
@@ -2414,7 +2415,7 @@ typedef struct {
     TPML_CC setList;
     TPML_CC clearList;
 } SetCommandCodeAuditStatus_In;
-WOLFSSL_API TPM_RC TPM2_SetCommandCodeAuditStatus(
+WOLFTPM_API TPM_RC TPM2_SetCommandCodeAuditStatus(
     SetCommandCodeAuditStatus_In* in);
 
 
@@ -2425,7 +2426,7 @@ typedef struct {
 typedef struct {
     TPML_DIGEST_VALUES digests;
 } PCR_Event_Out;
-WOLFSSL_API TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out);
+WOLFTPM_API TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out);
 
 
 typedef struct {
@@ -2438,7 +2439,7 @@ typedef struct {
     UINT32 sizeNeeded;
     UINT32 sizeAvailable;
 } PCR_Allocate_Out;
-WOLFSSL_API TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in,
+WOLFTPM_API TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in,
     PCR_Allocate_Out* out);
 
 typedef struct {
@@ -2447,18 +2448,18 @@ typedef struct {
     TPMI_ALG_HASH hashAlg;
     TPMI_DH_PCR pcrNum;
 } PCR_SetAuthPolicy_In;
-WOLFSSL_API TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in);
+WOLFTPM_API TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in);
 
 typedef struct {
     TPMI_DH_PCR pcrHandle;
     TPM2B_DIGEST auth;
 } PCR_SetAuthValue_In;
-WOLFSSL_API TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in);
+WOLFTPM_API TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in);
 
 typedef struct {
     TPMI_DH_PCR pcrHandle;
 } PCR_Reset_In;
-WOLFSSL_API TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in);
+WOLFTPM_API TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in);
 
 
 typedef struct {
@@ -2474,7 +2475,7 @@ typedef struct {
     TPM2B_TIMEOUT timeout;
     TPMT_TK_AUTH policyTicket;
 } PolicySigned_Out;
-WOLFSSL_API TPM_RC TPM2_PolicySigned(PolicySigned_In* in,
+WOLFTPM_API TPM_RC TPM2_PolicySigned(PolicySigned_In* in,
     PolicySigned_Out* out);
 
 typedef struct {
@@ -2489,7 +2490,7 @@ typedef struct {
     TPM2B_TIMEOUT timeout;
     TPMT_TK_AUTH policyTicket;
 } PolicySecret_Out;
-WOLFSSL_API TPM_RC TPM2_PolicySecret(PolicySecret_In* in,
+WOLFTPM_API TPM_RC TPM2_PolicySecret(PolicySecret_In* in,
     PolicySecret_Out* out);
 
 typedef struct {
@@ -2500,26 +2501,26 @@ typedef struct {
     TPM2B_NAME authName;
     TPMT_TK_AUTH ticket;
 } PolicyTicket_In;
-WOLFSSL_API TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPML_DIGEST pHashList;
 } PolicyOR_In;
-WOLFSSL_API TPM_RC TPM2_PolicyOR(PolicyOR_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyOR(PolicyOR_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM2B_DIGEST pcrDigest;
     TPML_PCR_SELECTION pcrs;
 } PolicyPCR_In;
-WOLFSSL_API TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPMA_LOCALITY locality;
 } PolicyLocality_In;
-WOLFSSL_API TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
@@ -2529,7 +2530,7 @@ typedef struct {
     UINT16 offset;
     TPM_EO operation;
 } PolicyNV_In;
-WOLFSSL_API TPM_RC TPM2_PolicyNV(PolicyNV_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyNV(PolicyNV_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
@@ -2537,30 +2538,30 @@ typedef struct {
     UINT16 offset;
     TPM_EO operation;
 } PolicyCounterTimer_In;
-WOLFSSL_API TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM_CC code;
 } PolicyCommandCode_In;
-WOLFSSL_API TPM_RC TPM2_PolicyCommandCode(PolicyCommandCode_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyCommandCode(PolicyCommandCode_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
 } PolicyPhysicalPresence_In;
-WOLFSSL_API TPM_RC TPM2_PolicyPhysicalPresence(PolicyPhysicalPresence_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyPhysicalPresence(PolicyPhysicalPresence_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM2B_DIGEST cpHashA;
 } PolicyCpHash_In;
-WOLFSSL_API TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM2B_DIGEST nameHash;
 } PolicyNameHash_In;
-WOLFSSL_API TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
@@ -2568,7 +2569,7 @@ typedef struct {
     TPM2B_NAME newParentName;
     TPMI_YES_NO includeObject;
 } PolicyDuplicationSelect_In;
-WOLFSSL_API TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
@@ -2577,17 +2578,17 @@ typedef struct {
     TPM2B_NAME keySign;
     TPMT_TK_VERIFIED checkTicket;
 } PolicyAuthorize_In;
-WOLFSSL_API TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
 } PolicyAuthValue_In;
-WOLFSSL_API TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
 } PolicyPassword_In;
-WOLFSSL_API TPM_RC TPM2_PolicyPassword(PolicyPassword_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyPassword(PolicyPassword_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
@@ -2595,32 +2596,32 @@ typedef struct {
 typedef struct {
     TPM2B_DIGEST policyDigest;
 } PolicyGetDigest_Out;
-WOLFSSL_API TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out);
+WOLFTPM_API TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPMI_YES_NO writtenSet;
 } PolicyNvWritten_In;
-WOLFSSL_API TPM_RC TPM2_PolicyNvWritten(PolicyNvWritten_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyNvWritten(PolicyNvWritten_In* in);
 
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM2B_DIGEST templateHash;
 } PolicyTemplate_In;
-WOLFSSL_API TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
     TPMI_SH_POLICY policySession;
 } PolicyAuthorizeNV_In;
-WOLFSSL_API TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in);
+WOLFTPM_API TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in);
 
 
 
-WOLFSSL_API void _TPM_Hash_Start(void);
-WOLFSSL_API void _TPM_Hash_Data(UINT32 dataSize, BYTE *data);
-WOLFSSL_API void _TPM_Hash_End(void);
+WOLFTPM_API void _TPM_Hash_Start(void);
+WOLFTPM_API void _TPM_Hash_Data(UINT32 dataSize, BYTE *data);
+WOLFTPM_API void _TPM_Hash_End(void);
 
 
 typedef struct {
@@ -2628,48 +2629,48 @@ typedef struct {
     TPMI_RH_ENABLES enable;
     TPMI_YES_NO state;
 } HierarchyControl_In;
-WOLFSSL_API TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in);
+WOLFTPM_API TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in);
 
 typedef struct {
     TPMI_RH_HIERARCHY_AUTH authHandle;
     TPM2B_DIGEST authPolicy;
     TPMI_ALG_HASH hashAlg;
 } SetPrimaryPolicy_In;
-WOLFSSL_API TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in);
+WOLFTPM_API TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in);
 
 
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
 } ChangePPS_In;
-WOLFSSL_API TPM_RC TPM2_ChangePPS(ChangePPS_In* in);
+WOLFTPM_API TPM_RC TPM2_ChangePPS(ChangePPS_In* in);
 
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
 } ChangeEPS_In;
-WOLFSSL_API TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in);
+WOLFTPM_API TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in);
 
 
 typedef struct {
     TPMI_RH_CLEAR authHandle;
 } Clear_In;
-WOLFSSL_API TPM_RC TPM2_Clear(Clear_In* in);
+WOLFTPM_API TPM_RC TPM2_Clear(Clear_In* in);
 
 typedef struct {
     TPMI_RH_CLEAR auth;
     TPMI_YES_NO disable;
 } ClearControl_In;
-WOLFSSL_API TPM_RC TPM2_ClearControl(ClearControl_In* in);
+WOLFTPM_API TPM_RC TPM2_ClearControl(ClearControl_In* in);
 
 typedef struct {
     TPMI_RH_HIERARCHY_AUTH authHandle;
     TPM2B_AUTH newAuth;
 } HierarchyChangeAuth_In;
-WOLFSSL_API TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in);
+WOLFTPM_API TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in);
 
 typedef struct {
     TPMI_RH_LOCKOUT lockHandle;
 } DictionaryAttackLockReset_In;
-WOLFSSL_API TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in);
+WOLFTPM_API TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in);
 
 typedef struct {
     TPMI_RH_LOCKOUT lockHandle;
@@ -2677,7 +2678,7 @@ typedef struct {
     UINT32 newRecoveryTime;
     UINT32 lockoutRecovery;
 } DictionaryAttackParameters_In;
-WOLFSSL_API TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in);
+WOLFTPM_API TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in);
 
 
 typedef struct {
@@ -2685,13 +2686,13 @@ typedef struct {
     TPML_CC setList;
     TPML_CC clearList;
 } PP_Commands_In;
-WOLFSSL_API TPM_RC TPM2_PP_Commands(PP_Commands_In* in);
+WOLFTPM_API TPM_RC TPM2_PP_Commands(PP_Commands_In* in);
 
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
     UINT32 algorithmSet;
 } SetAlgorithmSet_In;
-WOLFSSL_API TPM_RC TPM2_SetAlgorithmSet(SetAlgorithmSet_In* in);
+WOLFTPM_API TPM_RC TPM2_SetAlgorithmSet(SetAlgorithmSet_In* in);
 
 typedef struct {
     TPMI_RH_PLATFORM authorization;
@@ -2699,7 +2700,7 @@ typedef struct {
     TPM2B_DIGEST fuDigest;
     TPMT_SIGNATURE manifestSignature;
 } FieldUpgradeStart_In;
-WOLFSSL_API TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in);
+WOLFTPM_API TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in);
 
 typedef struct {
     TPM2B_MAX_BUFFER fuData;
@@ -2708,7 +2709,7 @@ typedef struct {
     TPMT_HA nextDigest;
     TPMT_HA firstDigest;
 } FieldUpgradeData_Out;
-WOLFSSL_API TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in,
+WOLFTPM_API TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in,
     FieldUpgradeData_Out* out);
 
 typedef struct {
@@ -2717,7 +2718,7 @@ typedef struct {
 typedef struct {
     TPM2B_MAX_BUFFER fuData;
 } FirmwareRead_Out;
-WOLFSSL_API TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out);
+WOLFTPM_API TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out);
 
 
 typedef struct {
@@ -2726,7 +2727,7 @@ typedef struct {
 typedef struct {
     TPMS_CONTEXT context;
 } ContextSave_Out;
-WOLFSSL_API TPM_RC TPM2_ContextSave(ContextSave_In* in, ContextSave_Out* out);
+WOLFTPM_API TPM_RC TPM2_ContextSave(ContextSave_In* in, ContextSave_Out* out);
 
 typedef struct {
     TPMS_CONTEXT context;
@@ -2734,7 +2735,7 @@ typedef struct {
 typedef struct {
     TPMI_DH_CONTEXT loadedHandle;
 } ContextLoad_Out;
-WOLFSSL_API TPM_RC TPM2_ContextLoad(ContextLoad_In* in, ContextLoad_Out* out);
+WOLFTPM_API TPM_RC TPM2_ContextLoad(ContextLoad_In* in, ContextLoad_Out* out);
 
 
 typedef struct {
@@ -2742,31 +2743,31 @@ typedef struct {
     TPMI_DH_OBJECT objectHandle;
     TPMI_DH_PERSISTENT persistentHandle;
 } EvictControl_In;
-WOLFSSL_API TPM_RC TPM2_EvictControl(EvictControl_In* in);
+WOLFTPM_API TPM_RC TPM2_EvictControl(EvictControl_In* in);
 
 
 typedef struct {
     TPMS_TIME_INFO currentTime;
 } ReadClock_Out;
-WOLFSSL_API TPM_RC TPM2_ReadClock(ReadClock_Out* out);
+WOLFTPM_API TPM_RC TPM2_ReadClock(ReadClock_Out* out);
 
 typedef struct {
     TPMI_RH_PROVISION auth;
     UINT64 newTime;
 } ClockSet_In;
-WOLFSSL_API TPM_RC TPM2_ClockSet(ClockSet_In* in);
+WOLFTPM_API TPM_RC TPM2_ClockSet(ClockSet_In* in);
 
 typedef struct {
     TPMI_RH_PROVISION auth;
     TPM_CLOCK_ADJUST rateAdjust;
 } ClockRateAdjust_In;
-WOLFSSL_API TPM_RC TPM2_ClockRateAdjust(ClockRateAdjust_In* in);
+WOLFTPM_API TPM_RC TPM2_ClockRateAdjust(ClockRateAdjust_In* in);
 
 
 typedef struct {
     TPMT_PUBLIC_PARMS parameters;
 } TestParms_In;
-WOLFSSL_API TPM_RC TPM2_TestParms(TestParms_In* in);
+WOLFTPM_API TPM_RC TPM2_TestParms(TestParms_In* in);
 
 
 typedef struct {
@@ -2774,19 +2775,19 @@ typedef struct {
     TPM2B_AUTH auth;
     TPM2B_NV_PUBLIC publicInfo;
 } NV_DefineSpace_In;
-WOLFSSL_API TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in);
 
 typedef struct {
     TPMI_RH_PROVISION authHandle;
     TPMI_RH_NV_INDEX nvIndex;
 } NV_UndefineSpace_In;
-WOLFSSL_API TPM_RC TPM2_NV_UndefineSpace(NV_UndefineSpace_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_UndefineSpace(NV_UndefineSpace_In* in);
 
 typedef struct {
     TPMI_RH_NV_INDEX nvIndex;
     TPMI_RH_PLATFORM platform;
 } NV_UndefineSpaceSpecial_In;
-WOLFSSL_API TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in);
 
 typedef struct {
     TPMI_RH_NV_INDEX nvIndex;
@@ -2795,7 +2796,7 @@ typedef struct {
     TPM2B_NV_PUBLIC nvPublic;
     TPM2B_NAME nvName;
 } NV_ReadPublic_Out;
-WOLFSSL_API TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out);
+WOLFTPM_API TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
@@ -2803,38 +2804,38 @@ typedef struct {
     TPM2B_MAX_NV_BUFFER data;
     UINT16 offset;
 } NV_Write_In;
-WOLFSSL_API TPM_RC TPM2_NV_Write(NV_Write_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_Write(NV_Write_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
 } NV_Increment_In;
-WOLFSSL_API TPM_RC TPM2_NV_Increment(NV_Increment_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_Increment(NV_Increment_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
     TPM2B_MAX_NV_BUFFER data;
 } NV_Extend_In;
-WOLFSSL_API TPM_RC TPM2_NV_Extend(NV_Extend_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_Extend(NV_Extend_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
     UINT64 bits;
 } NV_SetBits_In;
-WOLFSSL_API TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
 } NV_WriteLock_In;
-WOLFSSL_API TPM_RC TPM2_NV_WriteLock(NV_WriteLock_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_WriteLock(NV_WriteLock_In* in);
 
 typedef struct {
     TPMI_RH_PROVISION authHandle;
 } NV_GlobalWriteLock_In;
-WOLFSSL_API TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
@@ -2845,19 +2846,19 @@ typedef struct {
 typedef struct {
     TPM2B_MAX_NV_BUFFER data;
 } NV_Read_Out;
-WOLFSSL_API TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out);
+WOLFTPM_API TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out);
 
 typedef struct {
     TPMI_RH_NV_AUTH authHandle;
     TPMI_RH_NV_INDEX nvIndex;
 } NV_ReadLock_In;
-WOLFSSL_API TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in);
 
 typedef struct {
     TPMI_RH_NV_INDEX nvIndex;
     TPM2B_AUTH newAuth;
 } NV_ChangeAuth_In;
-WOLFSSL_API TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in);
+WOLFTPM_API TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT signHandle;
@@ -2872,13 +2873,13 @@ typedef struct {
     TPM2B_ATTEST certifyInfo;
     TPMT_SIGNATURE signature;
 } NV_Certify_Out;
-WOLFSSL_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
+WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Helper API's - Not based on spec */
-WOLFSSL_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
-WOLFSSL_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFSSL_API const char* TPM2_GetRCString(TPM_RC rc);
-WOLFSSL_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
+WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
+WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
+WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
+WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
 
 #endif /* __TPM2_H__ */

@@ -5,12 +5,23 @@ This example demonstrates calling the various TPM 2.0 API's.
 
 ## Building
 
-`./configure && make`
+1. Build wolfSSL:
+
+```
+./autogen.sh
+./configure --enable-ecc --enable-sha512 && make && sudo make install
+```
+
+2. Build wolfTPM:
+
+```
+./configure && make
+```
 
 
 ## Platform
 
-This example was written for the STM32 with the CubeMX HAL. To add additional SPI hardware support insert your own interface call in `tpm2_demo.c` for the `TPM2_IoCb` function.
+This example was written for use on Raspberry Pi or the STM32 with the CubeMX HAL. To add additional SPI hardware support insert your own interface call in `tpm2_demo.c` for the `TPM2_IoCb` function.
 
 
 ## Sample Output

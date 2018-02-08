@@ -1,6 +1,6 @@
 /* tpm2_demo.c
  *
- * Copyright (C) 2006-2017 wolfSSL Inc.
+ * Copyright (C) 2006-2018 wolfSSL Inc.
  *
  * This file is part of wolfSSL. (formerly known as CyaSSL)
  *
@@ -30,21 +30,30 @@
 #include <wolfssl/wolfcrypt/logging.h>
 
 #include <wolftpm/tpm2.h>
+#include <examples/tpm/tpm2_demo.h>
 
 /* Local variables */
 static TPM2_CTX gTpm2Ctx;
+
+/* Configuration for the SPI interface */
 #ifdef WOLFSSL_STM32_CUBEMX
     extern SPI_HandleTypeDef hspi1;
     #define TPM2_USER_CTX &hspi1
 #else
-    #define TPM2_USER_CTX NULL
+    #include <stdio.h>
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #define TPM2_USER_CTX (void*)"/dev/spidev0.0"
 #endif
 
 /* IO Callback */
 static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
+    int ret = TPM_RC_FAILURE;
 #ifdef WOLFSSL_STM32_CUBEMX
+    /* STM32 CubeMX Hal */
     SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)userCtx;
     HAL_StatusTypeDef status;
 
@@ -52,18 +61,26 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf, xferSz, 5000);
     __HAL_SPI_DISABLE(hspi);
     if (status == HAL_OK)
-        return TPM_RC_SUCCESS;
+        ret = TPM_RC_SUCCESS;
 
 #else
-    /* TODO: Add your platform here for HW interface */
-    (void)ctx;
-    (void)txBuf;
-    (void)rxBuf;
-    (void)xferSz;
-    (void)userCtx;
-
+    /* Use Linux Style SPI access */
+    const char* devPath = (const char*)userCtx;
+    size_t size;
+    int devFile = open(devPath, O_RDWR);
+    if (devFile >= 0) {
+        size = write(devFile, txBuf, xferSz);
+        if (size == xferSz) {
+            size = read(devFile, rxBuf, xferSz);
+            ret = TPM_RC_SUCCESS;
+        }
+        close(devFile);
+    }
 #endif
-    return TPM_RC_FAILURE;
+
+    (void)ctx;
+
+    return ret;
 }
 
 #define RAND_GET_SZ 32
@@ -104,7 +121,6 @@ int TPM2_Demo(void)
     } cmdOut;
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
-    TPM_HANDLE ek;
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -263,3 +279,10 @@ int TPM2_Demo(void)
 
     return rc;
 }
+
+#ifndef NO_MAIN_DRIVER
+int main(void)
+{
+    return TPM2_Demo();
+}
+#endif

@@ -32,7 +32,7 @@ extern SPI_HandleTypeDef hspi1;
 
 
 #ifdef WOLF_TPM2
-extern int TPM2_Demo(void);
+#include <examples/tpm/tpm2_demo.h>
 #endif
 
 
