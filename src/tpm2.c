@@ -1424,8 +1424,14 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
+
+        if (in->tpmKey != TPM_RH_NULL) {
+            /* TODO: Encrypt salt using "SECRET" */
+        }
+
         TPM2_Packet_AppendU32(&packet, in->tpmKey);
         TPM2_Packet_AppendU32(&packet, in->bind);
+
         TPM2_Packet_AppendU16(&packet, in->nonceCaller.size);
         TPM2_Packet_AppendBytes(&packet, in->nonceCaller.buffer, in->nonceCaller.size);
 
