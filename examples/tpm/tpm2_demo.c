@@ -184,6 +184,8 @@ int TPM2_Demo(void* userCtx)
         Load_In load;
         FlushContext_In flushCtx;
         Unseal_In unseal;
+        PolicyGetDigest_In policyGetDigest;
+        PolicyPCR_In policyPCR;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -197,6 +199,7 @@ int TPM2_Demo(void* userCtx)
         StartAuthSession_Out authSes;
         Load_Out load;
         Unseal_Out unseal;
+        PolicyGetDigest_Out policyGetDigest;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
     int pcrCount, pcrIndex, i;
@@ -371,6 +374,30 @@ int TPM2_Demo(void* userCtx)
     sessionHandle = cmdOut.authSes.sessionHandle;
     printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", sessionHandle);
 
+    /* Policy Get Digest */
+    cmdIn.policyGetDigest.policySession = sessionHandle;
+    rc = TPM2_PolicyGetDigest(&cmdIn.policyGetDigest, &cmdOut.policyGetDigest);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PolicyGetDigest failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_PolicyGetDigest: size %d\n", cmdOut.policyGetDigest.policyDigest.size);
+    print_bin(cmdOut.policyGetDigest.policyDigest.buffer,
+        cmdOut.policyGetDigest.policyDigest.size);
+
+#if 0
+    /* Policy PCR */
+    pcrIndex = 0;
+    cmdIn.policyPCR.policySession = sessionHandle;
+    pcrDigest.size
+    pcrDigest.buffer
+    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA256, pcrIndex);
+    rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PolicyPCR failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+#endif
 
     /* TODO: Add tests for API's */
     //rc = TPM2_CreatePrimary(&cmdIn.create, &cmdOut.create);
