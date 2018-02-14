@@ -89,7 +89,11 @@ static void print_bin(const byte* buffer, word32 length)
         print_bin(buffer + LINE_LEN, length - LINE_LEN);
 }
 #else
-static void print_bin(const byte* buffer, word32 length) { return 0; }
+static void print_bin(const byte* buffer, word32 length) {
+    (void)buffer;
+    (void)length;
+    return;
+}
 #endif
 
 
@@ -149,9 +153,9 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 #endif
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_IoCb: %d\n", xferSz);
-    print_bin(txBuf, xferSz);
-    print_bin(rxBuf, xferSz);
+    //printf("TPM2_IoCb: %d\n", xferSz);
+    //print_bin(txBuf, xferSz);
+    //print_bin(rxBuf, xferSz);
 #endif
 
     (void)ctx;
@@ -321,7 +325,6 @@ int TPM2_Demo(void* userCtx)
     pcrIndex = 0;
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
-    cmdIn.pcrExtend.auth.sessionHandle = TPM_RS_PW;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
     for (i=0; i<WC_SHA256_DIGEST_SIZE; i++) {
