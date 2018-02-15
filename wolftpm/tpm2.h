@@ -28,6 +28,7 @@
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
+
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
 #endif
@@ -2874,6 +2875,12 @@ WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
 WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
+
+#ifdef DEBUG_WOLFTPM
+WOLFTPM_API void TPM2_Util_PrintBin(const byte* buffer, word32 length);
+#else
+#define TPM2_Util_PrintBin(b, l)
+#endif
 
 
 #endif /* __TPM2_H__ */

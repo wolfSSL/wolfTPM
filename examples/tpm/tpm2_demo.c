@@ -30,8 +30,10 @@
 #include <wolfssl/wolfcrypt/logging.h>
 #include <wolfssl/wolfcrypt/random.h>
 #include <wolfssl/wolfcrypt/error-crypt.h>
+#include <wolfssl/wolfcrypt/hash.h>
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_wrap.h>
 #include <examples/tpm/tpm2_demo.h>
 
 /* Local variables */
@@ -52,48 +54,6 @@ static TPM2_CTX gTpm2Ctx;
 #else
     /* TODO: Add your platform here for HW interface */
     #define TPM2_USER_CTX NULL
-#endif
-
-/* Util / Debug */
-#ifdef DEBUG_WOLFTPM
-#define LINE_LEN 16
-static void print_bin(const byte* buffer, word32 length)
-{
-    word32 i;
-    char line[80];
-
-    if (!buffer) {
-        printf("\tNULL");
-        return;
-    }
-
-    sprintf(line, "\t");
-
-    for (i = 0; i < LINE_LEN; i++) {
-        if (i < length)
-            sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
-        else
-            sprintf(line + 1 + i * 3, "   ");
-    }
-
-    sprintf(line + 1 + LINE_LEN * 3, "| ");
-
-    for (i = 0; i < LINE_LEN; i++)
-        if (i < length)
-            sprintf(line + 3 + LINE_LEN * 3 + i,
-                 "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
-
-    printf("%s\n", line);
-
-    if (length > LINE_LEN)
-        print_bin(buffer + LINE_LEN, length - LINE_LEN);
-}
-#else
-static void print_bin(const byte* buffer, word32 length) {
-    (void)buffer;
-    (void)length;
-    return;
-}
 #endif
 
 
@@ -154,8 +114,8 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 #ifdef DEBUG_WOLFTPM
     //printf("TPM2_IoCb: %d\n", xferSz);
-    //print_bin(txBuf, xferSz);
-    //print_bin(rxBuf, xferSz);
+    //TPM2_Util_PrintBin(txBuf, xferSz);
+    //TPM2_Util_PrintBin(rxBuf, xferSz);
 #endif
 
     (void)ctx;
@@ -204,8 +164,10 @@ int TPM2_Demo(void* userCtx)
     } cmdOut;
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
-    TPMI_SH_POLICY sessionHandle;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
     WC_RNG rng;
+    byte hash[WC_SHA256_DIGEST_SIZE];
+    int hash_len = WC_SHA256_DIGEST_SIZE;
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -215,7 +177,7 @@ int TPM2_Demo(void* userCtx)
 
     rc = wc_InitRng(&rng);
     if (rc < 0) {
-        printf("wc_InitRng failed: %d\n", rc);
+        printf("wc_InitRng failed %d: %s\n", rc, wc_GetErrorString(rc));
         return rc;
     }
 
@@ -253,7 +215,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_GetTestResult: Size %d, Rc 0x%x\n", cmdOut.tr.outData.size,
         cmdOut.tr.testResult);
-    print_bin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
+    TPM2_Util_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
 
     /* Incremental Test */
     cmdIn.incSelfTest.toTest.count = 1;
@@ -303,7 +265,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
-    print_bin(cmdOut.getRand.randomBytes.buffer,
+    TPM2_Util_PrintBin(cmdOut.getRand.randomBytes.buffer,
                    cmdOut.getRand.randomBytes.size);
 
 
@@ -320,7 +282,7 @@ int TPM2_Demo(void* userCtx)
             pcrIndex,
             (int)cmdOut.pcrRead.pcrValues.digests[0].size,
             (int)cmdOut.pcrRead.pcrUpdateCounter);
-        print_bin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+        TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                        cmdOut.pcrRead.pcrValues.digests[0].size);
     }
 
@@ -348,7 +310,7 @@ int TPM2_Demo(void* userCtx)
         pcrIndex,
         (int)cmdOut.pcrRead.pcrValues.digests[0].size,
         (int)cmdOut.pcrRead.pcrUpdateCounter);
-    print_bin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+    TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
 
@@ -382,22 +344,64 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyGetDigest: size %d\n", cmdOut.policyGetDigest.policyDigest.size);
-    print_bin(cmdOut.policyGetDigest.policyDigest.buffer,
+    TPM2_Util_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
-#if 0
+    /* Read PCR[0] SHA1 */
+    rc = wolfTPM_ReadPCR(0, TPM_ALG_SHA1, hash, &hash_len);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+    /* Hash SHA256 PCR[0] */
+    rc = wc_Hash(WC_HASH_TYPE_SHA256, cmdOut.pcrRead.pcrValues.digests[0].buffer,
+        cmdOut.pcrRead.pcrValues.digests[0].size, hash, hash_len);
+    if (rc < 0) {
+        printf("wc_Hash failed %d: %s\n", rc, wc_GetErrorString(rc));
+        goto exit;
+    }
+    printf("wc_Hash of PCR[0]: size %d\n", hash_len);
+    TPM2_Util_PrintBin(hash, hash_len);
+
     /* Policy PCR */
     pcrIndex = 0;
     cmdIn.policyPCR.policySession = sessionHandle;
-    pcrDigest.size
-    pcrDigest.buffer
-    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA256, pcrIndex);
+    cmdIn.policyPCR.pcrDigest.size = hash_len;
+    memcpy(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
+    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-#endif
+    printf("TPM2_PolicyPCR: Updated\n");
+
+    /* Read PCR[0] SHA1 */
+    pcrIndex = 0;
+    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
+    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+        pcrIndex,
+        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+        (int)cmdOut.pcrRead.pcrUpdateCounter);
+    TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                   cmdOut.pcrRead.pcrValues.digests[0].size);
+
+    /* Close session (TPM2_FlushContext) */
+    cmdIn.flushCtx.flushHandle = sessionHandle;
+    rc = TPM2_FlushContext(&cmdIn.flushCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_FlushContext failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", sessionHandle);
+    sessionHandle = TPM_RH_NULL;
+
 
     /* TODO: Add tests for API's */
     //rc = TPM2_CreatePrimary(&cmdIn.create, &cmdOut.create);
@@ -405,6 +409,8 @@ int TPM2_Demo(void* userCtx)
     //TPM_RC TPM2_Load(Load_In* in, Load_Out* out);
     //TPM_RC TPM2_FlushContext(FlushContext_In* in);
     //TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out);
+
+
 
 
     /* Shutdown */

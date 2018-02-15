@@ -5065,3 +5065,39 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
         pcr->pcrSelections[0].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
     }
 }
+
+
+#ifdef DEBUG_WOLFTPM
+#define LINE_LEN 16
+void TPM2_Util_PrintBin(const byte* buffer, word32 length)
+{
+    word32 i;
+    char line[80];
+
+    if (!buffer) {
+        printf("\tNULL");
+        return;
+    }
+
+    sprintf(line, "\t");
+
+    for (i = 0; i < LINE_LEN; i++) {
+        if (i < length)
+            sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
+        else
+            sprintf(line + 1 + i * 3, "   ");
+    }
+
+    sprintf(line + 1 + LINE_LEN * 3, "| ");
+
+    for (i = 0; i < LINE_LEN; i++)
+        if (i < length)
+            sprintf(line + 3 + LINE_LEN * 3 + i,
+                 "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
+
+    printf("%s\n", line);
+
+    if (length > LINE_LEN)
+        TPM2_Util_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
+}
+#endif
