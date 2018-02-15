@@ -473,6 +473,10 @@ typedef struct TPM2_Packet {
     int size;
 } TPM2_Packet;
 
+static byte* TPM2_Packet_GetPtr(TPM2_Packet* packet) {
+    return &packet->buf[packet->pos];
+}
+
 static void TPM2_Packet_Init(TPM2_CTX* ctx, TPM2_Packet* packet) {
     if (ctx && packet) {
         packet->buf  = ctx->cmdBuf;
@@ -524,16 +528,21 @@ static void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size) {
 }
 static void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
 {
-    word32 authCmdSz = sizeof(UINT32) + /* session handle */
+    word32 sz;
+
+    if (auth == NULL)
+        return;
+
+    sz = sizeof(UINT32) + /* session handle */
         sizeof(UINT16) + auth->nonce.size + 1 +  /* none and session attribute */
-        sizeof(UINT16) + auth->hmac.size;        /* hmac */
-    TPM2_Packet_AppendU32(packet, authCmdSz);
+        sizeof(UINT16) + auth->auth.size;        /* auth */
+    TPM2_Packet_AppendU32(packet, sz);
     TPM2_Packet_AppendU32(packet, auth->sessionHandle);
     TPM2_Packet_AppendU16(packet, auth->nonce.size);
     TPM2_Packet_AppendBytes(packet, auth->nonce.buffer, auth->nonce.size);
     TPM2_Packet_AppendU8(packet, auth->sessionAttributes);
-    TPM2_Packet_AppendU16(packet, auth->hmac.size);
-    TPM2_Packet_AppendBytes(packet, auth->hmac.buffer, auth->hmac.size);
+    TPM2_Packet_AppendU16(packet, auth->auth.size);
+    TPM2_Packet_AppendBytes(packet, auth->auth.buffer, auth->auth.size);
 }
 static void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr) {
     int i;
@@ -581,6 +590,24 @@ static void TPM2_Packet_AppendAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* 
     TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
 }
 
+static void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive) {
+    if (sensitive->sensitive.userAuth.size == 0 &&
+        sensitive->sensitive.data.size == 0) {
+        TPM2_Packet_AppendU16(packet, 0);
+    }
+    else {
+        word32 sz = 2 + sensitive->sensitive.userAuth.size +
+                    2 + sensitive->sensitive.data.size;
+        TPM2_Packet_AppendU16(packet, sz);
+        TPM2_Packet_AppendU16(packet, sensitive->sensitive.userAuth.size);
+        TPM2_Packet_AppendBytes(packet, sensitive->sensitive.userAuth.buffer,
+            sensitive->sensitive.userAuth.size);
+        TPM2_Packet_AppendU16(packet, sensitive->sensitive.data.size);
+        TPM2_Packet_AppendBytes(packet, sensitive->sensitive.data.buffer,
+            sensitive->sensitive.data.size);
+    }
+}
+
 static void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
     TPMU_PUBLIC_PARMS* parameters)
 {
@@ -614,7 +641,14 @@ static void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC t
 
 static void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
 {
-    TPM2_Packet_AppendU16(packet, public->size);
+    byte* sizePtr;
+    int sz;
+
+    /* placeholder for final size */
+    sizePtr = TPM2_Packet_GetPtr(packet);
+    TPM2_Packet_AppendU16(packet, 0);
+    sz = packet->pos;
+
     TPM2_Packet_AppendU16(packet, public->publicArea.type);
     TPM2_Packet_AppendU16(packet, public->publicArea.nameAlg);
     TPM2_Packet_AppendU32(packet, public->publicArea.objectAttributes);
@@ -639,9 +673,14 @@ static void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
         default:
             break;
     }
+
+    /* update with actual size */
+    sz = packet->pos - sz;
+    *((UINT16*)sizePtr) = sz;
 }
 static void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point) {
-    TPM2_Packet_AppendU16(packet, point->size);
+    int sz = point->point.x.size + point->point.y.size;
+    TPM2_Packet_AppendU16(packet, sz);
     TPM2_Packet_AppendU16(packet, point->point.x.size);
     TPM2_Packet_AppendBytes(packet, point->point.x.buffer, point->point.x.size);
     TPM2_Packet_AppendU16(packet, point->point.y.size);
@@ -828,9 +867,6 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
     ctx->ioCb = ioCb;
     ctx->userCtx = userCtx;
-
-    /* Setup default auth session */
-    ctx->auth.sessionHandle = TPM_RS_PW;
 
 #ifndef SINGLE_THREADED
     if (wc_InitMutex(&ctx->hwLock) != 0) {
@@ -1167,7 +1203,6 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->pcrHandle);
-        TPM2_Packet_AppendAuth(&packet, &ctx->auth);
         TPM2_Packet_AppendU32(&packet, in->digests.count);
         for (i=0; i<(int)in->digests.count; i++) {
             UINT16 hashAlg = in->digests.digests[i].hashAlg;
@@ -1176,6 +1211,7 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
             TPM2_Packet_AppendBytes(&packet, in->digests.digests[i].digest.H,
                 digestSz);
         }
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Extend);
 
         /* send command */
@@ -1203,23 +1239,12 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
-        TPM2_Packet_AppendAuth(&packet, &ctx->auth);
-
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.size);
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.sensitive.userAuth.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSensitive.sensitive.userAuth.buffer,
-            in->inSensitive.sensitive.userAuth.size);
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.sensitive.data.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSensitive.sensitive.data.buffer,
-            in->inSensitive.sensitive.data.size);
-
+        TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
-
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
-
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
-
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Create);
 
         /* send command */
@@ -1284,23 +1309,13 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->primaryHandle);
-
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.size);
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.sensitive.userAuth.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSensitive.sensitive.userAuth.buffer,
-            in->inSensitive.sensitive.userAuth.size);
-        TPM2_Packet_AppendU16(&packet, in->inSensitive.sensitive.data.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSensitive.sensitive.data.buffer,
-            in->inSensitive.sensitive.data.size);
-
+        TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
-
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
-
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
-
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_CreatePrimary);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CreatePrimary);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -1367,13 +1382,10 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
-        TPM2_Packet_AppendAuth(&packet, &ctx->auth);
-
         TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
         TPM2_Packet_AppendBytes(&packet, in->inPrivate.buffer, in->inPrivate.size);
-
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
-
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Load);
 
         /* send command */
@@ -1430,8 +1442,8 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->itemHandle);
-        TPM2_Packet_AppendAuth(&packet, &ctx->auth);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_Unseal);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Unseal);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -4761,8 +4773,24 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
 }
 
 
-
 /* Utility functions not part of the specification */
+
+int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* auth)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL)
+        return TPM_RC_BAD_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->auth = auth;
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
 
 int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
 {
@@ -5067,9 +5095,10 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 }
 
 
+
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
-void TPM2_Util_PrintBin(const byte* buffer, word32 length)
+void TPM2_PrintBin(const byte* buffer, word32 length)
 {
     word32 i;
     char line[80];
@@ -5098,6 +5127,6 @@ void TPM2_Util_PrintBin(const byte* buffer, word32 length)
     printf("%s\n", line);
 
     if (length > LINE_LEN)
-        TPM2_Util_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
+        TPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
 }
 #endif

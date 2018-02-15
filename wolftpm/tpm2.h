@@ -1298,13 +1298,13 @@ typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
+    TPM2B_AUTH auth;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
+    TPM2B_AUTH auth;
 } TPMS_AUTH_RESPONSE;
 
 
@@ -1823,7 +1823,7 @@ typedef struct TPM2_CTX {
     byte rid;
 
     /* Current TPM auth session */
-    TPMS_AUTH_COMMAND auth;
+    TPMS_AUTH_COMMAND* auth;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
@@ -2871,15 +2871,16 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Helper API's - Not based on spec */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* auth);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
 WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
 
 #ifdef DEBUG_WOLFTPM
-WOLFTPM_API void TPM2_Util_PrintBin(const byte* buffer, word32 length);
+WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
 #else
-#define TPM2_Util_PrintBin(b, l)
+#define TPM2_PrintBin(b, l)
 #endif
 
 

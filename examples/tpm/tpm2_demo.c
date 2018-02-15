@@ -94,7 +94,7 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         struct spi_ioc_transfer spi;
         size_t size;
 
-        memset(&spi, 0, sizeof(spi));
+        XMEMSET(&spi, 0, sizeof(spi));
         spi.tx_buf   = (unsigned long)txBuf;
         spi.rx_buf   = (unsigned long)rxBuf;
         spi.len      = xferSz;
@@ -114,14 +114,22 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 #ifdef DEBUG_WOLFTPM
     //printf("TPM2_IoCb: %d\n", xferSz);
-    //TPM2_Util_PrintBin(txBuf, xferSz);
-    //TPM2_Util_PrintBin(rxBuf, xferSz);
+    //TPM2_PrintBin(txBuf, xferSz);
+    //TPM2_PrintBin(rxBuf, xferSz);
 #endif
 
     (void)ctx;
 
     return ret;
 }
+
+/* 'PolicySecret(TPM_RH_ENDORSEMENT)' */
+const BYTE TPM_20_EK_AUTH_POLICY[] = {
+    0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8,
+    0x1a, 0x90, 0xcc, 0x8d, 0x46, 0xa5, 0xd7, 0x24,
+    0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52, 0x0b, 0x64,
+    0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
+};
 
 #define RAND_GET_SZ 32
 
@@ -165,9 +173,15 @@ int TPM2_Demo(void* userCtx)
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    TPM_HANDLE ekObject;
     WC_RNG rng;
+
+    byte pcr[WC_SHA256_DIGEST_SIZE];
+    int pcr_len = WC_SHA256_DIGEST_SIZE;
     byte hash[WC_SHA256_DIGEST_SIZE];
     int hash_len = WC_SHA256_DIGEST_SIZE;
+
+    TPMS_AUTH_COMMAND session;
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -187,6 +201,11 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
 
+    /* define the default session auth */
+    XMEMSET(&session, 0, sizeof(session));
+    session.sessionHandle = TPM_RS_PW;
+    session.auth.size = 32;
+    TPM2_SetSessionAuth(&session);
 
     cmdIn.startup.startupType = TPM_SU_CLEAR;
     rc = TPM2_Startup(&cmdIn.startup);
@@ -215,7 +234,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_GetTestResult: Size %d, Rc 0x%x\n", cmdOut.tr.outData.size,
         cmdOut.tr.testResult);
-    TPM2_Util_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
+    TPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
 
     /* Incremental Test */
     cmdIn.incSelfTest.toTest.count = 1;
@@ -265,7 +284,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
-    TPM2_Util_PrintBin(cmdOut.getRand.randomBytes.buffer,
+    TPM2_PrintBin(cmdOut.getRand.randomBytes.buffer,
                    cmdOut.getRand.randomBytes.size);
 
 
@@ -282,7 +301,7 @@ int TPM2_Demo(void* userCtx)
             pcrIndex,
             (int)cmdOut.pcrRead.pcrValues.digests[0].size,
             (int)cmdOut.pcrRead.pcrUpdateCounter);
-        TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                        cmdOut.pcrRead.pcrValues.digests[0].size);
     }
 
@@ -300,6 +319,7 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_PCR_Extend failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
@@ -310,7 +330,7 @@ int TPM2_Demo(void* userCtx)
         pcrIndex,
         (int)cmdOut.pcrRead.pcrValues.digests[0].size,
         (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
 
@@ -318,6 +338,9 @@ int TPM2_Demo(void* userCtx)
     XMEMSET(&cmdIn.authSes, 0, sizeof(cmdIn.authSes));
     cmdIn.authSes.tpmKey = TPM_RH_NULL;
     cmdIn.authSes.bind = TPM_RH_NULL;
+    cmdIn.authSes.sessionType = TPM_SE_POLICY;
+    cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
+    cmdIn.authSes.authHash = TPM_ALG_SHA256;
     cmdIn.authSes.nonceCaller.size = WC_SHA256_DIGEST_SIZE;
     rc = wc_RNG_GenerateBlock(&rng, cmdIn.authSes.nonceCaller.buffer,
                                                 cmdIn.authSes.nonceCaller.size);
@@ -325,9 +348,6 @@ int TPM2_Demo(void* userCtx)
         printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
     }
-    cmdIn.authSes.sessionType = TPM_SE_POLICY;
-    cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.authSes.authHash = TPM_ALG_SHA256;
     rc = TPM2_StartAuthSession(&cmdIn.authSes, &cmdOut.authSes);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_StartAuthSession failed %d: %s\n", rc, TPM2_GetRCString(rc));
@@ -344,31 +364,31 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyGetDigest: size %d\n", cmdOut.policyGetDigest.policyDigest.size);
-    TPM2_Util_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
+    TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
     /* Read PCR[0] SHA1 */
-    rc = wolfTPM_ReadPCR(0, TPM_ALG_SHA1, hash, &hash_len);
+    pcrIndex = 0;
+    rc = wolfTPM_ReadPCR(pcrIndex, TPM_ALG_SHA1, pcr, &pcr_len);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("wolfTPM_ReadPCR failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
 
     /* Hash SHA256 PCR[0] */
-    rc = wc_Hash(WC_HASH_TYPE_SHA256, cmdOut.pcrRead.pcrValues.digests[0].buffer,
-        cmdOut.pcrRead.pcrValues.digests[0].size, hash, hash_len);
+    rc = wc_Hash(WC_HASH_TYPE_SHA256, pcr, pcr_len, hash, hash_len);
     if (rc < 0) {
         printf("wc_Hash failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
     }
     printf("wc_Hash of PCR[0]: size %d\n", hash_len);
-    TPM2_Util_PrintBin(hash, hash_len);
+    TPM2_PrintBin(hash, hash_len);
 
     /* Policy PCR */
     pcrIndex = 0;
     cmdIn.policyPCR.policySession = sessionHandle;
     cmdIn.policyPCR.pcrDigest.size = hash_len;
-    memcpy(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
+    XMEMCPY(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
     TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
     if (rc != TPM_RC_SUCCESS) {
@@ -376,21 +396,6 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyPCR: Updated\n");
-
-    /* Read PCR[0] SHA1 */
-    pcrIndex = 0;
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
-    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex,
-        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-        (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_Util_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                   cmdOut.pcrRead.pcrValues.digests[0].size);
 
     /* Close session (TPM2_FlushContext) */
     cmdIn.flushCtx.flushHandle = sessionHandle;
@@ -403,8 +408,36 @@ int TPM2_Demo(void* userCtx)
     sessionHandle = TPM_RH_NULL;
 
 
+    /* Create Primary (CreateEkObject) */
+    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
+    cmdIn.create.primaryHandle = TPM_RH_ENDORSEMENT;
+    XMEMCPY(cmdIn.create.inPublic.publicArea.authPolicy.buffer,
+        TPM_20_EK_AUTH_POLICY, sizeof(TPM_20_EK_AUTH_POLICY));
+    cmdIn.create.inPublic.publicArea.authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+    cmdIn.create.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    cmdIn.create.inPublic.publicArea.type = TPM_ALG_RSA;
+    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.objectAttributes = (TPMA_OBJECT_fixedTPM |
+        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+        TPMA_OBJECT_adminWithPolicy | TPMA_OBJECT_restricted |
+        TPMA_OBJECT_decrypt);
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    rc = TPM2_CreatePrimary(&cmdIn.create, &cmdOut.create);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_CreatePrimary failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    ekObject = cmdOut.create.objectHandle;
+    printf("TPM2_CreatePrimary: ekObject 0x%x\n", ekObject);
+
+
+
     /* TODO: Add tests for API's */
-    //rc = TPM2_CreatePrimary(&cmdIn.create, &cmdOut.create);
     //rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
     //TPM_RC TPM2_Load(Load_In* in, Load_Out* out);
     //TPM_RC TPM2_FlushContext(FlushContext_In* in);
