@@ -319,6 +319,7 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_PCR_Extend failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+    printf("TPM2_PCR_Extend success\n");
 
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);

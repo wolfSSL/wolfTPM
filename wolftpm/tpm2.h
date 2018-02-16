@@ -882,11 +882,12 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_sensitiveDataOrigin = 0x00000020,
     TPMA_OBJECT_userWithAuth        = 0x00000040,
     TPMA_OBJECT_adminWithPolicy     = 0x00000080,
+    TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
     TPMA_OBJECT_noDA                = 0x00000400,
     TPMA_OBJECT_encryptedDuplication= 0x00000800,
-    TPMA_OBJECT_restricted          = 0x00008000,
-    TPMA_OBJECT_decrypt             = 0x00010000,
-    TPMA_OBJECT_sign                = 0x00020000,
+    TPMA_OBJECT_restricted          = 0x00010000,
+    TPMA_OBJECT_decrypt             = 0x00020000,
+    TPMA_OBJECT_sign                = 0x00040000,
 };
 
 typedef BYTE TPMA_SESSION;

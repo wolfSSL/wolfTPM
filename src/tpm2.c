@@ -363,6 +363,11 @@ static int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     byte access;
     word16 rspSz;
 
+#ifdef DEBUG_WOLFTPM
+    printf("Command: %d\n", cmdSz);
+    TPM2_PrintBin(cmd, cmdSz);
+#endif
+
     /* Make sure TPM is ready for command */
     status = TPM2_TIS_Status(ctx);
     if ((status & TPM_STS_COMMAND_READY) == 0) {
@@ -449,6 +454,11 @@ static int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         }
     }
 
+#ifdef DEBUG_WOLFTPM
+    printf("Response: %d\n", rspSz);
+    TPM2_PrintBin(cmd, rspSz);
+#endif
+
     rc = 0;
 
 exit:
@@ -533,11 +543,18 @@ static void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
     if (auth == NULL)
         return;
 
+    /* make sure continueSession is set for TPM_RS_PW */
+    if (auth->sessionHandle == TPM_RS_PW &&
+       (auth->sessionAttributes & TPMA_SESSION_continueSession) == 0) {
+        auth->sessionAttributes |= TPMA_SESSION_continueSession;
+    }
+
     sz = sizeof(UINT32) + /* session handle */
         sizeof(UINT16) + auth->nonce.size + 1 +  /* none and session attribute */
         sizeof(UINT16) + auth->auth.size;        /* auth */
     TPM2_Packet_AppendU32(packet, sz);
     TPM2_Packet_AppendU32(packet, auth->sessionHandle);
+
     TPM2_Packet_AppendU16(packet, auth->nonce.size);
     TPM2_Packet_AppendBytes(packet, auth->nonce.buffer, auth->nonce.size);
     TPM2_Packet_AppendU8(packet, auth->sessionAttributes);
@@ -555,10 +572,12 @@ static void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr) 
             pcr->pcrSelections[i].sizeofSelect);
     }
 }
-static void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
+static void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet,
+    TPMT_SYM_DEF* symmetric, int incDetailsForNull)
 {
     TPM2_Packet_AppendU16(packet, symmetric->algorithm);
-    if (symmetric->algorithm != TPM_ALG_NULL) {
+    if (symmetric->algorithm != TPM_ALG_NULL ||
+            (incDetailsForNull && symmetric->algorithm == TPM_ALG_NULL)) {
         TPM2_Packet_AppendU16(packet, symmetric->keyBits.sym);
         TPM2_Packet_AppendU16(packet, symmetric->mode.sym);
     }
@@ -566,36 +585,36 @@ static void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symme
 static void TPM2_Packet_AppendSigScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
+    if (scheme->scheme != TPM_ALG_NULL)
+        TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
 }
 #define TPM2_Packet_AppendEccScheme TPM2_Packet_AppendSigScheme
 static void TPM2_Packet_AppendRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
+    if (scheme->scheme != TPM_ALG_NULL)
+        TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
 }
 static void TPM2_Packet_AppendKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    TPM2_Packet_AppendU16(packet, scheme->details.hmac.hashAlg);
+    if (scheme->scheme != TPM_ALG_NULL)
+        TPM2_Packet_AppendU16(packet, scheme->details.hmac.hashAlg);
 }
 static void TPM2_Packet_AppendKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
+    if (scheme->scheme != TPM_ALG_NULL)
+        TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
 }
 static void TPM2_Packet_AppendAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
+    if (scheme->scheme != TPM_ALG_NULL)
+        TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
 }
 
 static void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive) {
-    if (sensitive->sensitive.userAuth.size == 0 &&
-        sensitive->sensitive.data.size == 0) {
-        TPM2_Packet_AppendU16(packet, 0);
-    }
-    else {
         word32 sz = 2 + sensitive->sensitive.userAuth.size +
                     2 + sensitive->sensitive.data.size;
         TPM2_Packet_AppendU16(packet, sz);
@@ -605,7 +624,6 @@ static void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE_CRE
         TPM2_Packet_AppendU16(packet, sensitive->sensitive.data.size);
         TPM2_Packet_AppendBytes(packet, sensitive->sensitive.data.buffer,
             sensitive->sensitive.data.size);
-    }
 }
 
 static void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
@@ -621,19 +639,19 @@ static void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC t
             TPM2_Packet_AppendU16(packet, parameters->symDetail.sym.mode.sym);
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->rsaDetail.symmetric);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->rsaDetail.symmetric, 1);
             TPM2_Packet_AppendRsaScheme(packet, &parameters->rsaDetail.scheme);
             TPM2_Packet_AppendU16(packet, parameters->rsaDetail.keyBits);
             TPM2_Packet_AppendU32(packet, parameters->rsaDetail.exponent);
             break;
         case TPM_ALG_ECC:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->eccDetail.symmetric);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->eccDetail.symmetric, 1);
             TPM2_Packet_AppendEccScheme(packet, &parameters->eccDetail.scheme);
             TPM2_Packet_AppendU16(packet, parameters->eccDetail.curveID);
             TPM2_Packet_AppendKdfScheme(packet, &parameters->eccDetail.kdf);
             break;
         default:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->asymDetail.symmetric);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->asymDetail.symmetric, 1);
             TPM2_Packet_AppendAsymScheme(packet, &parameters->asymDetail.scheme);
             break;
     }
@@ -658,25 +676,13 @@ static void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
 
     TPM2_Packet_AppendPublicParms(packet, public->publicArea.type, &public->publicArea.parameters);
 
-    switch (public->publicArea.type) {
-        case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_AppendU16(packet, public->publicArea.unique.keyedHash.size);
-            TPM2_Packet_AppendBytes(packet, public->publicArea.unique.keyedHash.buffer,
-                public->publicArea.unique.keyedHash.size);
-            break;
-        case TPM_ALG_SYMCIPHER:
-            break;
-        case TPM_ALG_RSA:
-            break;
-        case TPM_ALG_ECC:
-            break;
-        default:
-            break;
-    }
+    TPM2_Packet_AppendU16(packet, public->publicArea.unique.keyedHash.size);
+    TPM2_Packet_AppendBytes(packet, public->publicArea.unique.keyedHash.buffer,
+        public->publicArea.unique.keyedHash.size);
 
     /* update with actual size */
     sz = packet->pos - sz;
-    *((UINT16*)sizePtr) = sz;
+    *((UINT16*)sizePtr) = cpu_to_be16(sz);
 }
 static void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point) {
     int sz = point->point.x.size + point->point.y.size;
@@ -779,53 +785,54 @@ static void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr) {
 }
 static void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* public) {
     TPM2_Packet_ParseU16(packet, &public->size);
-    TPM2_Packet_ParseU16(packet, &public->publicArea.type);
-    TPM2_Packet_ParseU32(packet, &public->publicArea.objectAttributes);
-    TPM2_Packet_ParseU16(packet, &public->publicArea.authPolicy.size);
-    TPM2_Packet_ParseBytes(packet,
-        public->publicArea.authPolicy.buffer,
-        public->publicArea.authPolicy.size);
-    switch (public->publicArea.type) {
-        case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.keyedHashDetail.scheme.scheme);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg);
+    if (public->size > 0) {
+        TPM2_Packet_ParseU16(packet, &public->publicArea.type);
+        TPM2_Packet_ParseU32(packet, &public->publicArea.objectAttributes);
+        TPM2_Packet_ParseU16(packet, &public->publicArea.authPolicy.size);
+        TPM2_Packet_ParseBytes(packet,
+            public->publicArea.authPolicy.buffer,
+            public->publicArea.authPolicy.size);
+        switch (public->publicArea.type) {
+            case TPM_ALG_KEYEDHASH:
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.keyedHashDetail.scheme.scheme);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg);
 
-            TPM2_Packet_ParseU16(packet, &public->publicArea.unique.keyedHash.size);
-            TPM2_Packet_ParseBytes(packet, public->publicArea.unique.keyedHash.buffer,
-                public->publicArea.unique.keyedHash.size);
-            break;
-        case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.algorithm);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.keyBits.sym);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.mode.sym);
-            break;
-        case TPM_ALG_RSA:
-            TPM2_Packet_AppendSymmetric(packet, &public->publicArea.parameters.rsaDetail.symmetric);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.scheme.scheme);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.keyBits);
-
-            TPM2_Packet_ParseU32(packet, &public->publicArea.parameters.rsaDetail.exponent);
-            break;
-        case TPM_ALG_ECC:
-            TPM2_Packet_AppendSymmetric(packet, &public->publicArea.parameters.eccDetail.symmetric);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.scheme.scheme);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.scheme.details.any.hashAlg);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.curveID);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.kdf.scheme);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.kdf.details.any.hashAlg);
-            break;
-        default:
-            TPM2_Packet_AppendSymmetric(packet, &public->publicArea.parameters.asymDetail.symmetric);
-
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.scheme.scheme);
-            TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.scheme.details.anySig.hashAlg);
-            break;
+                TPM2_Packet_ParseU16(packet, &public->publicArea.unique.keyedHash.size);
+                TPM2_Packet_ParseBytes(packet, public->publicArea.unique.keyedHash.buffer,
+                    public->publicArea.unique.keyedHash.size);
+                break;
+            case TPM_ALG_SYMCIPHER:
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.algorithm);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.keyBits.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.symDetail.sym.mode.sym);
+                break;
+            case TPM_ALG_RSA:
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.symmetric.algorithm);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.symmetric.keyBits.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.symmetric.mode.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.scheme.scheme);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.rsaDetail.keyBits);
+                TPM2_Packet_ParseU32(packet, &public->publicArea.parameters.rsaDetail.exponent);
+                break;
+            case TPM_ALG_ECC:
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.symmetric.algorithm);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.symmetric.keyBits.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.symmetric.mode.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.scheme.scheme);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.scheme.details.any.hashAlg);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.curveID);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.kdf.scheme);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.eccDetail.kdf.details.any.hashAlg);
+                break;
+            default:
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.symmetric.algorithm);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.symmetric.keyBits.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.symmetric.mode.sym);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.scheme.scheme);
+                TPM2_Packet_ParseU16(packet, &public->publicArea.parameters.asymDetail.scheme.details.anySig.hashAlg);
+                break;
+        }
     }
 }
 static void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point) {
@@ -1203,6 +1210,7 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->pcrHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU32(&packet, in->digests.count);
         for (i=0; i<(int)in->digests.count; i++) {
             UINT16 hashAlg = in->digests.digests[i].hashAlg;
@@ -1211,7 +1219,6 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
             TPM2_Packet_AppendBytes(&packet, in->digests.digests[i].digest.H,
                 digestSz);
         }
-        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Extend);
 
         /* send command */
@@ -1239,12 +1246,12 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
-        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Create);
 
         /* send command */
@@ -1309,12 +1316,12 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->primaryHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
-        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CreatePrimary);
 
         /* send command */
@@ -1382,10 +1389,10 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
         TPM2_Packet_AppendBytes(&packet, in->inPrivate.buffer, in->inPrivate.size);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
-        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Load);
 
         /* send command */
@@ -1441,8 +1448,8 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
-        TPM2_Packet_AppendU32(&packet, in->itemHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->auth);
+        TPM2_Packet_AppendU32(&packet, in->itemHandle);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Unseal);
 
         /* send command */
@@ -1478,19 +1485,13 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
 
         TPM2_Packet_AppendU32(&packet, in->tpmKey);
         TPM2_Packet_AppendU32(&packet, in->bind);
-
         TPM2_Packet_AppendU16(&packet, in->nonceCaller.size);
         TPM2_Packet_AppendBytes(&packet, in->nonceCaller.buffer, in->nonceCaller.size);
-
         TPM2_Packet_AppendU16(&packet, in->encryptedSalt.size);
         TPM2_Packet_AppendBytes(&packet, in->encryptedSalt.secret, in->encryptedSalt.size);
-
         TPM2_Packet_AppendU8(&packet, in->sessionType);
-
-        TPM2_Packet_AppendSymmetric(&packet, &in->symmetric);
-
+        TPM2_Packet_AppendSymmetric(&packet, &in->symmetric, 0);
         TPM2_Packet_AppendU16(&packet, in->authHash);
-
         TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_StartAuthSession);
 
         /* send command */
@@ -1826,19 +1827,14 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
-
         TPM2_Packet_AppendU16(&packet, in->encryptionKey.size);
         TPM2_Packet_AppendBytes(&packet, in->encryptionKey.buffer, in->encryptionKey.size);
-
         TPM2_Packet_AppendPublic(&packet, &in->objectPublic);
-
         TPM2_Packet_AppendU16(&packet, in->duplicate.size);
         TPM2_Packet_AppendBytes(&packet, in->duplicate.buffer, in->duplicate.size);
-
         TPM2_Packet_AppendU16(&packet, in->inSymSeed.size);
         TPM2_Packet_AppendBytes(&packet, in->inSymSeed.secret, in->inSymSeed.size);
-
-        TPM2_Packet_AppendSymmetric(&packet, &in->symmetricAlg);
+        TPM2_Packet_AppendSymmetric(&packet, &in->symmetricAlg, 0);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_Import);
 
