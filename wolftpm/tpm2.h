@@ -28,6 +28,13 @@
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
+/* KEY REFERENCE */
+/* EK: Endorsement Keys */
+/* EPS: Endorsement Primary Seed */
+/* PPS: Platform Primary Seed */
+/* SRK: Storage Root Keys */
+/* SPS: Storage Primary Seed */
+
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
