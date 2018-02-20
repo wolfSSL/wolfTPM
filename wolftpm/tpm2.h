@@ -28,12 +28,13 @@
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
+
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 100000
+#define TPM_TIMEOUT_TRIES 10000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
@@ -881,11 +882,12 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_sensitiveDataOrigin = 0x00000020,
     TPMA_OBJECT_userWithAuth        = 0x00000040,
     TPMA_OBJECT_adminWithPolicy     = 0x00000080,
+    TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
     TPMA_OBJECT_noDA                = 0x00000400,
     TPMA_OBJECT_encryptedDuplication= 0x00000800,
-    TPMA_OBJECT_restricted          = 0x00008000,
-    TPMA_OBJECT_decrypt             = 0x00010000,
-    TPMA_OBJECT_sign                = 0x00020000,
+    TPMA_OBJECT_restricted          = 0x00010000,
+    TPMA_OBJECT_decrypt             = 0x00020000,
+    TPMA_OBJECT_sign                = 0x00040000,
 };
 
 typedef BYTE TPMA_SESSION;
@@ -1297,13 +1299,13 @@ typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
+    TPM2B_AUTH auth;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
+    TPM2B_AUTH auth;
 } TPMS_AUTH_RESPONSE;
 
 
@@ -1335,12 +1337,7 @@ typedef struct TPMT_SYM_DEF {
     //TPMU_SYM_DETAILS details;
 } TPMT_SYM_DEF;
 
-typedef struct TPMT_SYM_DEF_OBJECT {
-    TPMI_ALG_SYM_OBJECT algorithm;
-    TPMU_SYM_KEY_BITS keyBits;
-    TPMU_SYM_MODE mode;
-    //TPMU_SYM_DETAILS details;
-} TPMT_SYM_DEF_OBJECT;
+typedef TPMT_SYM_DEF TPMT_SYM_DEF_OBJECT;
 
 typedef struct TPM2B_SYM_KEY {
     UINT16 size;
@@ -1826,6 +1823,9 @@ typedef struct TPM2_CTX {
     word32 did_vid;
     byte rid;
 
+    /* Current TPM auth session */
+    TPMS_AUTH_COMMAND* auth;
+
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 } TPM2_CTX;
@@ -1907,7 +1907,6 @@ WOLFTPM_API TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out);
 
 typedef struct {
     TPMI_DH_PCR pcrHandle;
-    TPMS_AUTH_COMMAND auth;
     TPML_DIGEST_VALUES digests;
 } PCR_Extend_In;
 WOLFTPM_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
@@ -1915,7 +1914,6 @@ WOLFTPM_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_PUBLIC inPublic;
     TPM2B_DATA outsideInfo;
@@ -1932,7 +1930,6 @@ WOLFTPM_API TPM_RC TPM2_Create(Create_In* in, Create_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_PUBLIC inPublic;
 } CreateLoaded_In;
@@ -1966,7 +1963,6 @@ WOLFTPM_API TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in,
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_PRIVATE inPrivate;
     TPM2B_PUBLIC inPublic;
 } Load_In;
@@ -1985,7 +1981,6 @@ WOLFTPM_API TPM_RC TPM2_FlushContext(FlushContext_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT itemHandle;
-    TPMS_AUTH_COMMAND auth;
 } Unseal_In;
 typedef struct {
     TPM2B_SENSITIVE_DATA outData;
@@ -2877,9 +2872,17 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Helper API's - Not based on spec */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* auth);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
 WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
+
+#ifdef DEBUG_WOLFTPM
+WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
+#else
+#define TPM2_PrintBin(b, l)
+#endif
+
 
 #endif /* __TPM2_H__ */
