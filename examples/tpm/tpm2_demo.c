@@ -193,6 +193,7 @@ int TPM2_Demo(void* userCtx)
     TpmEccKey eccKey;
 
     const char usageAuth[] = "ThisIsASecretUsageAuth";
+    //const char keyCreationNonce[32] = "RandomServerPickedCreationNonce";
 
     TPMS_AUTH_COMMAND session;
 
@@ -217,7 +218,6 @@ int TPM2_Demo(void* userCtx)
     /* define the default session auth */
     XMEMSET(&session, 0, sizeof(session));
     session.sessionHandle = TPM_RS_PW;
-    session.auth.size = 32;
     TPM2_SetSessionAuth(&session);
 
     cmdIn.startup.startupType = TPM_SU_CLEAR;
@@ -472,15 +472,14 @@ int TPM2_Demo(void* userCtx)
     /* Create an ECC key */
     XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
     cmdIn.create.parentHandle = srkObject;
-    XMEMCPY(cmdIn.createPri.inPublic.publicArea.authPolicy.buffer,
-        usageAuth, sizeof(usageAuth));
-    cmdIn.create.inPublic.publicArea.authPolicy.size = sizeof(usageAuth);
+    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
+        usageAuth, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
     cmdIn.create.inPublic.publicArea.type = TPM_ALG_ECC;
     cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
     cmdIn.create.inPublic.publicArea.objectAttributes = (TPMA_OBJECT_fixedTPM |
         TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
         TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA | TPMA_OBJECT_sign);
-    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_NULL;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;

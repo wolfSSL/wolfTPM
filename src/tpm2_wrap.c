@@ -63,7 +63,7 @@ int wolfTPM_UnloadHandle(word32* handle)
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", *handle);
+        printf("TPM2_FlushContext: Closed handle 0x%x\n", *handle);
     #endif
 
         *handle = TPM_RH_NULL;

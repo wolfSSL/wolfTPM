@@ -615,8 +615,8 @@ static void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
     }
 
     sz = sizeof(UINT32) + /* session handle */
-        sizeof(UINT16) + auth->nonce.size + 1 +  /* none and session attribute */
-        sizeof(UINT16) + auth->auth.size;        /* auth */
+         sizeof(UINT16) + auth->nonce.size + 1 +  /* none and session attribute */
+         sizeof(UINT16) + auth->auth.size;        /* auth */
     TPM2_Packet_AppendU32(packet, sz);
     TPM2_Packet_AppendU32(packet, auth->sessionHandle);
 
@@ -692,7 +692,7 @@ static void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet,
 static void TPM2_Packet_AppendSigScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    //if (scheme->scheme != TPM_ALG_NULL)
         TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
 }
 static void TPM2_Packet_ParseSigScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
@@ -731,7 +731,7 @@ static void TPM2_Packet_ParseKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH
 static void TPM2_Packet_AppendKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    //if (scheme->scheme != TPM_ALG_NULL)
         TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
 }
 static void TPM2_Packet_ParseKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
@@ -779,19 +779,19 @@ static void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC t
             TPM2_Packet_AppendU16(packet, parameters->symDetail.sym.mode.sym);
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->rsaDetail.symmetric, 1);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->rsaDetail.symmetric, 0);
             TPM2_Packet_AppendRsaScheme(packet, &parameters->rsaDetail.scheme);
             TPM2_Packet_AppendU16(packet, parameters->rsaDetail.keyBits);
             TPM2_Packet_AppendU32(packet, parameters->rsaDetail.exponent);
             break;
         case TPM_ALG_ECC:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->eccDetail.symmetric, 1);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->eccDetail.symmetric, 0);
             TPM2_Packet_AppendEccScheme(packet, &parameters->eccDetail.scheme);
             TPM2_Packet_AppendU16(packet, parameters->eccDetail.curveID);
             TPM2_Packet_AppendKdfScheme(packet, &parameters->eccDetail.kdf);
             break;
         default:
-            TPM2_Packet_AppendSymmetric(packet, &parameters->asymDetail.symmetric, 1);
+            TPM2_Packet_AppendSymmetric(packet, &parameters->asymDetail.symmetric, 0);
             TPM2_Packet_AppendAsymScheme(packet, &parameters->asymDetail.scheme);
             break;
     }
@@ -809,19 +809,19 @@ static void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC ty
             TPM2_Packet_ParseU16(packet, &parameters->symDetail.sym.mode.sym);
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_ParseSymmetric(packet, &parameters->rsaDetail.symmetric, 1);
+            TPM2_Packet_ParseSymmetric(packet, &parameters->rsaDetail.symmetric, 0);
             TPM2_Packet_ParseRsaScheme(packet, &parameters->rsaDetail.scheme);
             TPM2_Packet_ParseU16(packet, &parameters->rsaDetail.keyBits);
             TPM2_Packet_ParseU32(packet, &parameters->rsaDetail.exponent);
             break;
         case TPM_ALG_ECC:
-            TPM2_Packet_ParseSymmetric(packet, &parameters->eccDetail.symmetric, 1);
+            TPM2_Packet_ParseSymmetric(packet, &parameters->eccDetail.symmetric, 0);
             TPM2_Packet_ParseEccScheme(packet, &parameters->eccDetail.scheme);
             TPM2_Packet_ParseU16(packet, &parameters->eccDetail.curveID);
             TPM2_Packet_ParseKdfScheme(packet, &parameters->eccDetail.kdf);
             break;
         default:
-            TPM2_Packet_ParseSymmetric(packet, &parameters->asymDetail.symmetric, 1);
+            TPM2_Packet_ParseSymmetric(packet, &parameters->asymDetail.symmetric, 0);
             TPM2_Packet_ParseAsymScheme(packet, &parameters->asymDetail.scheme);
             break;
     }
