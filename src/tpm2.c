@@ -3885,7 +3885,8 @@ TPM_RC TPM2_Clear(Clear_In* in)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_Clear);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Clear);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -3911,8 +3912,9 @@ TPM_RC TPM2_ClearControl(ClearControl_In* in)
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->auth);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU8(&packet, in->disable);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_ClearControl);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ClearControl);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
