@@ -41,7 +41,7 @@
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 10000
+#define TPM_TIMEOUT_TRIES 1000000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE

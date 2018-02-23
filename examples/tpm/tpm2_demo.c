@@ -123,13 +123,12 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     return ret;
 }
 
-/* 'PolicySecret(TPM_RH_ENDORSEMENT)' */
+/* Endorsement Auth */
 const BYTE TPM_20_EK_AUTH_POLICY[] = {
     0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
     0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
     0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
 };
-#define TPM_20_SRK_HANDLE 0x81000001
 
 #define RAND_GET_SZ 32
 
@@ -197,8 +196,9 @@ int TPM2_Demo(void* userCtx)
 
     TpmEccKey eccKey;
     TpmRsaKey endorse;
-    //TpmRsaKey owner;
+    TpmRsaKey plat;
 
+    const char platformPwd[] = "WolfTPMPlatPswd";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
     //const char keyCreationNonce[32] = "RandomServerPickedCreationNonce";
 
@@ -355,30 +355,62 @@ int TPM2_Demo(void* userCtx)
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
 
-
+#if 0
     /* Clear Owner */
-    cmdIn.clear.authHandle = TPM_RH_LOCKOUT;
+    cmdIn.clear.authHandle = TPM_RH_PLATFORM;
     rc = TPM2_Clear(&cmdIn.clear);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Clear failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Clear Owner\n");
+#endif
+
+
+    /* Create Primary (Platform/Storage) */
+    XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
+    cmdIn.createPri.primaryHandle = TPM_RH_PLATFORM;
+    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(platformPwd)-1;
+    XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
+        platformPwd, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
+    cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
+    cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.createPri.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_CreatePrimary: Platform failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    plat.handle = cmdOut.createPri.objectHandle;
+    printf("TPM2_CreatePrimary: Platform 0x%x\n", plat.handle);
+    plat.public = cmdOut.createPri.outPublic;
 
 
     /* Create Primary (Endorsement) */
     XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
     cmdIn.createPri.primaryHandle = TPM_RH_ENDORSEMENT;
+    cmdIn.createPri.inPublic.publicArea.authPolicy.size =
+        sizeof(TPM_20_EK_AUTH_POLICY);
     XMEMCPY(cmdIn.createPri.inPublic.publicArea.authPolicy.buffer,
-        TPM_20_EK_AUTH_POLICY, sizeof(TPM_20_EK_AUTH_POLICY));
-    cmdIn.createPri.inPublic.publicArea.authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+        TPM_20_EK_AUTH_POLICY,
+        cmdIn.createPri.inPublic.publicArea.authPolicy.size);
     cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
     cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
     cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.createPri.inPublic.publicArea.objectAttributes = (TPMA_OBJECT_fixedTPM |
-        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
-        TPMA_OBJECT_adminWithPolicy | TPMA_OBJECT_restricted |
-        TPMA_OBJECT_decrypt);
+    cmdIn.createPri.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
@@ -394,61 +426,24 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_CreatePrimary: Endorsement 0x%x\n", endorse.handle);
     endorse.public = cmdOut.createPri.outPublic;
 
-#if 0
-    /* Create Primary (Owner) */
-    XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
-    cmdIn.createPri.primaryHandle = TPM_RH_OWNER;
-    cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
-    cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.createPri.inPublic.publicArea.objectAttributes = (TPMA_OBJECT_fixedTPM |
-        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
-        TPMA_OBJECT_restricted | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
-    rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Owner failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    owner.handle = cmdOut.createPri.objectHandle;
-    printf("TPM2_CreatePrimary: Owner 0x%x\n", owner.handle);
-    owner.public = cmdOut.createPri.outPublic;
-
-
-    /* Load endorsement public key */
-    cmdIn.readPub.objectHandle = TPM_20_SRK_HANDLE;
-    rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        //goto exit;
-    }
-    else {
-        printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
-            cmdIn.readPub.objectHandle,
-            cmdOut.readPub.outPublic.size, cmdOut.readPub.name.size,
-            cmdOut.readPub.qualifiedName.size);
-    }
-#endif
 
     /* Create an ECC key */
+    session.auth.size = sizeof(platformPwd)-1;
+    XMEMCPY(session.auth.buffer, platformPwd, session.auth.size);
+
     XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
-    cmdIn.create.parentHandle = endorse.handle;
-    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
-    XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
-        usageAuth, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
+    cmdIn.create.parentHandle = plat.handle;
+    cmdIn.createPri.inPublic.publicArea.authPolicy.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.createPri.inPublic.publicArea.authPolicy.buffer, usageAuth,
+        cmdIn.createPri.inPublic.publicArea.authPolicy.size);
     cmdIn.create.inPublic.publicArea.type = TPM_ALG_ECC;
     cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.create.inPublic.publicArea.objectAttributes = (TPMA_OBJECT_fixedTPM |
-        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
-        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA | TPMA_OBJECT_sign);
+    cmdIn.create.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
@@ -564,7 +559,7 @@ exit:
 
     /* Cleanup key objects */
     wolfTPM_UnloadHandle(&endorse.handle);
-    //wolfTPM_UnloadHandle(&owner.handle);
+    wolfTPM_UnloadHandle(&plat.handle);
 
     /* Shutdown */
     cmdIn.shutdown.shutdownType = TPM_SU_CLEAR;
