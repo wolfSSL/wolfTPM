@@ -2408,11 +2408,10 @@ TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in)
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->sequenceHandle);
-
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU16(&packet, in->buffer.size);
         TPM2_Packet_AppendBytes(&packet, in->buffer.buffer, in->buffer.size);
-
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_SequenceUpdate);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SequenceUpdate);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -2439,13 +2438,13 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->sequenceHandle);
-
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU16(&packet, in->buffer.size);
         TPM2_Packet_AppendBytes(&packet, in->buffer.buffer, in->buffer.size);
 
         TPM2_Packet_AppendU32(&packet, in->hierarchy);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_SequenceComplete);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SequenceComplete);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
