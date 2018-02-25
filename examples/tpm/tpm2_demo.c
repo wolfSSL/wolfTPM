@@ -187,6 +187,7 @@ int TPM2_Demo(void* userCtx)
         NV_DefineSpace_In nvDefine;
         RSA_Encrypt_In rsaEnc;
         RSA_Decrypt_In rsaDec;
+        Sign_In sign;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -210,6 +211,7 @@ int TPM2_Demo(void* userCtx)
         NV_ReadPublic_Out nvReadPub;
         RSA_Encrypt_Out rsaEnc;
         RSA_Decrypt_Out rsaDec;
+        Sign_Out sign;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
@@ -250,6 +252,9 @@ int TPM2_Demo(void* userCtx)
     hmacKey.handle = TPM_RH_NULL;
     eccKey.handle = TPM_RH_NULL;
 
+    message.size = WC_SHA256_DIGEST_SIZE;
+    XMEMSET(message.buffer, 0x11, message.size);
+
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
 #endif
@@ -273,6 +278,7 @@ int TPM2_Demo(void* userCtx)
     session[0].sessionHandle = TPM_RS_PW;
     TPM2_SetSessionAuth(session, NULL);
 
+    XMEMSET(&cmdIn.startup, 0, sizeof(cmdIn.startup));
     cmdIn.startup.startupType = TPM_SU_CLEAR;
     rc = TPM2_Startup(&cmdIn.startup);
     if (rc != TPM_RC_SUCCESS &&
@@ -284,6 +290,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Full self test */
+    XMEMSET(&cmdIn.selfTest, 0, sizeof(cmdIn.selfTest));
     cmdIn.selfTest.fullTest = YES;
     rc = TPM2_SelfTest(&cmdIn.selfTest);
     if (rc != TPM_RC_SUCCESS) {
@@ -303,6 +310,7 @@ int TPM2_Demo(void* userCtx)
     TPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
 
     /* Incremental Test */
+    XMEMSET(&cmdIn.incSelfTest, 0, sizeof(cmdIn.incSelfTest));
     cmdIn.incSelfTest.toTest.count = 1;
     cmdIn.incSelfTest.toTest.algorithms[0] = TPM_ALG_RSA;
 	rc = TPM2_IncrementalSelfTest(&cmdIn.incSelfTest, &cmdOut.incSelfTest);
@@ -312,6 +320,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Get Capability for Property */
+    XMEMSET(&cmdIn.cap, 0, sizeof(cmdIn.cap));
     cmdIn.cap.capability = TPM_CAP_TPM_PROPERTIES;
     cmdIn.cap.property = TPM_PT_FAMILY_INDICATOR;
     cmdIn.cap.propertyCount = 1;
@@ -338,6 +347,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Random */
+    XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
     cmdIn.getRand.bytesRequested = WC_SHA256_DIGEST_SIZE;
     rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
     if (rc != TPM_RC_SUCCESS) {
@@ -355,6 +365,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Stir Random */
+    XMEMSET(&cmdIn.stirRand, 0, sizeof(cmdIn.stirRand));
     cmdIn.stirRand.inData.size = cmdOut.getRand.randomBytes.size;
     XMEMCPY(cmdIn.stirRand.inData.buffer,
         cmdOut.getRand.randomBytes.buffer, cmdIn.stirRand.inData.size);
@@ -438,6 +449,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Policy Get Digest */
+    XMEMSET(&cmdIn.policyGetDigest, 0, sizeof(cmdIn.policyGetDigest));
     cmdIn.policyGetDigest.policySession = sessionHandle;
     rc = TPM2_PolicyGetDigest(&cmdIn.policyGetDigest, &cmdOut.policyGetDigest);
     if (rc != TPM_RC_SUCCESS) {
@@ -467,6 +479,7 @@ int TPM2_Demo(void* userCtx)
 
     /* Policy PCR */
     pcrIndex = 0;
+    XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
     cmdIn.policyPCR.policySession = sessionHandle;
     cmdIn.policyPCR.pcrDigest.size = hash_len;
     XMEMCPY(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
@@ -480,6 +493,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Policy Restart (for session) */
+    XMEMSET(&cmdIn.policyRestart, 0, sizeof(cmdIn.policyRestart));
     cmdIn.policyRestart.sessionHandle = sessionHandle;
     rc = TPM2_PolicyRestart(&cmdIn.policyRestart);
     if (rc != TPM_RC_SUCCESS) {
@@ -656,6 +670,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Load public key */
+    XMEMSET(&cmdIn.readPub, 0, sizeof(cmdIn.readPub));
     cmdIn.readPub.objectHandle = handle;
     rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
     if (rc != TPM_RC_SUCCESS) {
@@ -712,6 +727,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Allow object change auth */
+    XMEMSET(&cmdIn.policyCC, 0, sizeof(cmdIn.policyCC));
     cmdIn.policyCC.policySession = sessionHandle;
     cmdIn.policyCC.code = TPM_CC_ObjectChangeAuth;
     rc = TPM2_PolicyCommandCode(&cmdIn.policyCC);
@@ -782,12 +798,29 @@ int TPM2_Demo(void* userCtx)
     eccKey.handle = cmdOut.load.objectHandle;
     printf("TPM2_Load New ECC Key Handle 0x%x\n", eccKey.handle);
 
+
+
+    /* Sign with ECC key */
+    XMEMSET(&cmdIn.sign, 0, sizeof(cmdIn.sign));
+    cmdIn.sign.keyHandle = eccKey.handle;
+    cmdIn.sign.digest.size = message.size;
+    XMEMCPY(cmdIn.sign.digest.buffer, message.buffer, message.size);
+    cmdIn.sign.inScheme.scheme = TPM_ALG_ECDSA;
+    cmdIn.sign.inScheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;
+    cmdIn.sign.validation.tag = TPM_ST_HASHCHECK;
+    cmdIn.sign.validation.hierarchy = TPM_RH_NULL;
+    rc = TPM2_Sign(&cmdIn.sign, &cmdOut.sign);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Sign failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_Sign: ECC S %d\n", cmdOut.sign.signature.signature.ecdsa.signatureS.size);
+
+
     wolfTPM_UnloadHandle(&eccKey.handle);
 
 
     /* RSA Encrypt */
-    message.size = WC_SHA256_DIGEST_SIZE;
-    XMEMSET(message.buffer, 0x11, message.size);
     XMEMSET(&cmdIn.rsaEnc, 0, sizeof(cmdIn.rsaEnc));
     cmdIn.rsaEnc.keyHandle = storage.handle;
     cmdIn.rsaEnc.message = message;
@@ -844,6 +877,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_NV_DefineSpace: 0x%x\n", nvIndex);
 
+    XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
     cmdIn.nvReadPub.nvIndex = nvIndex;
     rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
     if (rc != TPM_RC_SUCCESS) {
