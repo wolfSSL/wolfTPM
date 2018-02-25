@@ -136,6 +136,7 @@ typedef struct tpmKey {
     TPM_HANDLE    handle;
     TPM2B_PRIVATE private;
     TPM2B_PUBLIC  public;
+    TPM2B_NAME    name;
 } TpmKey;
 
 typedef TpmKey TpmRsaKey;
@@ -167,10 +168,13 @@ int TPM2_Demo(void* userCtx)
         PolicyGetDigest_In policyGetDigest;
         PolicyPCR_In policyPCR;
         PolicyRestart_In policyRestart;
+        PolicyCommandCode_In policyCC;
         Clear_In clear;
         HashSequenceStart_In hashSeqStart;
         SequenceUpdate_In seqUpdate;
         SequenceComplete_In seqComp;
+        MakeCredential_In makeCred;
+        ObjectChangeAuth_In objChgAuth;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -189,11 +193,14 @@ int TPM2_Demo(void* userCtx)
         PolicyGetDigest_Out policyGetDigest;
         HashSequenceStart_Out hashSeqStart;
         SequenceComplete_Out seqComp;
+        MakeCredential_Out makeCred;
+        ObjectChangeAuth_Out objChgAuth;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE handle = TPM_RH_NULL;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
     WC_RNG rng;
 
     byte pcr[WC_SHA256_DIGEST_SIZE];
@@ -217,7 +224,7 @@ int TPM2_Demo(void* userCtx)
         "\x39\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB"
         "\x06\xC1";
 
-    TPMS_AUTH_COMMAND session;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -238,9 +245,9 @@ int TPM2_Demo(void* userCtx)
     }
 
     /* define the default session auth */
-    XMEMSET(&session, 0, sizeof(session));
-    session.sessionHandle = TPM_RS_PW;
-    TPM2_SetSessionAuth(&session);
+    XMEMSET(session, 0, sizeof(session));
+    session[0].sessionHandle = TPM_RS_PW;
+    TPM2_SetSessionAuth(session);
 
     cmdIn.startup.startupType = TPM_SU_CLEAR;
     rc = TPM2_Startup(&cmdIn.startup);
@@ -332,6 +339,7 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_StirRandom failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+    printf("TPM2_StirRandom: success\n");
 
 
     /* PCR Read */
@@ -401,12 +409,12 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_StartAuthSession failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    handle = cmdOut.authSes.sessionHandle;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", handle);
+    sessionHandle = cmdOut.authSes.sessionHandle;
+    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", sessionHandle);
 
 
     /* Policy Get Digest */
-    cmdIn.policyGetDigest.policySession = handle;
+    cmdIn.policyGetDigest.policySession = sessionHandle;
     rc = TPM2_PolicyGetDigest(&cmdIn.policyGetDigest, &cmdOut.policyGetDigest);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyGetDigest failed %d: %s\n", rc, TPM2_GetRCString(rc));
@@ -435,7 +443,7 @@ int TPM2_Demo(void* userCtx)
 
     /* Policy PCR */
     pcrIndex = 0;
-    cmdIn.policyPCR.policySession = handle;
+    cmdIn.policyPCR.policySession = sessionHandle;
     cmdIn.policyPCR.pcrDigest.size = hash_len;
     XMEMCPY(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
     TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
@@ -448,7 +456,7 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Policy Restart (for session) */
-    cmdIn.policyRestart.sessionHandle = handle;
+    cmdIn.policyRestart.sessionHandle = sessionHandle;
     rc = TPM2_PolicyRestart(&cmdIn.policyRestart);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyRestart failed %d: %s\n", rc, TPM2_GetRCString(rc));
@@ -456,16 +464,6 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_PolicyRestart: Done\n");
 
-
-    /* Close session (TPM2_FlushContext) */
-    cmdIn.flushCtx.flushHandle = handle;
-    rc = TPM2_FlushContext(&cmdIn.flushCtx);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_FlushContext failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", handle);
-    handle = TPM_RH_NULL;
 
 
 
@@ -487,8 +485,8 @@ int TPM2_Demo(void* userCtx)
     handle = cmdOut.hashSeqStart.sequenceHandle;
     printf("TPM2_HashSequenceStart: sequenceHandle 0x%x\n", handle);
 
-    session.auth.size = sizeof(usageAuth)-1;
-    XMEMCPY(session.auth.buffer, usageAuth, session.auth.size);
+    session[0].auth.size = sizeof(usageAuth)-1;
+    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
 
     XMEMSET(&cmdIn.seqUpdate, 0, sizeof(cmdIn.seqUpdate));
     cmdIn.seqUpdate.sequenceHandle = handle;
@@ -516,8 +514,8 @@ int TPM2_Demo(void* userCtx)
     printf("Hash SHA256 test success\n");
 
     /* clear session auth */
-    session.auth.size = 0;
-    XMEMSET(session.auth.buffer, 0, sizeof(session.auth.buffer));
+    session[0].auth.size = 0;
+    XMEMSET(session[0].auth.buffer, 0, sizeof(session[0].auth.buffer));
 
 
 
@@ -561,6 +559,7 @@ int TPM2_Demo(void* userCtx)
     }
     endorse.handle = cmdOut.createPri.objectHandle;
     endorse.public = cmdOut.createPri.outPublic;
+    endorse.name = cmdOut.createPri.name;
     printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
         endorse.handle, endorse.public.size);
 
@@ -591,6 +590,7 @@ int TPM2_Demo(void* userCtx)
     }
     storage.handle = cmdOut.createPri.objectHandle;
     storage.public = cmdOut.createPri.outPublic;
+    storage.name = cmdOut.createPri.name;
     printf("TPM2_CreatePrimary: Platform 0x%x (%d bytes)\n",
         storage.handle, storage.public.size);
 
@@ -604,8 +604,8 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Setup auth session for parent handle */
-    session.auth.size = sizeof(platformPwd)-1;
-    XMEMCPY(session.auth.buffer, platformPwd, session.auth.size);
+    session[0].auth.size = sizeof(platformPwd)-1;
+    XMEMCPY(session[0].auth.buffer, platformPwd, session[0].auth.size);
 
 
     /* Loading RSA public key */
@@ -620,9 +620,37 @@ int TPM2_Demo(void* userCtx)
     handle = cmdOut.loadExt.objectHandle;
     printf("TPM2_LoadExternal: 0x%x\n", handle);
 
-    //TPM2_MakeCredential
+    /* Make a credential */
+    XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
+    cmdIn.makeCred.handle = handle;
+    cmdIn.makeCred.credential.size = WC_SHA256_DIGEST_SIZE;
+    XMEMSET(cmdIn.makeCred.credential.buffer, 0x11,
+        cmdIn.makeCred.credential.size);
+    cmdIn.makeCred.objectName = endorse.name;
+    rc = TPM2_MakeCredential(&cmdIn.makeCred, &cmdOut.makeCred);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_MakeCredential: failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_MakeCredential: credentialBlob %d, secret %d\n",
+        cmdOut.makeCred.credentialBlob.size,
+        cmdOut.makeCred.secret.size);
+
+
+    /* Load public key */
+    cmdIn.readPub.objectHandle = handle;
+    rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
+        cmdIn.readPub.objectHandle,
+        cmdOut.readPub.outPublic.size, cmdOut.readPub.name.size,
+        cmdOut.readPub.qualifiedName.size);
 
     wolfTPM_UnloadHandle(&handle);
+
 
 
     /* Create an HMAC-SHA256 Key */
@@ -662,6 +690,35 @@ int TPM2_Demo(void* userCtx)
     }
     hmacKey.handle = cmdOut.load.objectHandle;
     printf("TPM2_Load New HMAC Key Handle 0x%x\n", hmacKey.handle);
+
+
+    /* Allow object change auth */
+    cmdIn.policyCC.policySession = sessionHandle;
+    cmdIn.policyCC.code = TPM_CC_ObjectChangeAuth;
+    rc = TPM2_PolicyCommandCode(&cmdIn.policyCC);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PolicyCommandCode failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+    /* Change Object Auth */
+    XMEMSET(&cmdIn.objChgAuth, 0, sizeof(cmdIn.objChgAuth));
+    cmdIn.objChgAuth.objectHandle = hmacKey.handle;
+    cmdIn.objChgAuth.parentHandle = storage.handle;
+    cmdIn.objChgAuth.newAuth.size = WC_SHA256_DIGEST_SIZE;
+    rc = wc_RNG_GenerateBlock(&rng, cmdIn.objChgAuth.newAuth.buffer,
+        cmdIn.objChgAuth.newAuth.size);
+    if (rc < 0) {
+        printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
+        goto exit;
+    }
+    rc = TPM2_ObjectChangeAuth(&cmdIn.objChgAuth, &cmdOut.objChgAuth);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        //goto exit;
+    }
+    hmacKey.private = cmdOut.objChgAuth.outPrivate;
+    printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.private.size);
 
     wolfTPM_UnloadHandle(&hmacKey.handle);
 
@@ -711,17 +768,32 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Clear auth buffer */
-    session.auth.size = 0;
-    XMEMSET(session.auth.buffer, 0, sizeof(session.auth.buffer));
+    session[0].auth.size = 0;
+    XMEMSET(session[0].auth.buffer, 0, sizeof(session[0].auth.buffer));
 
 
 exit:
 
-    /* Cleanup key objects */
+    /* Close session */
+    if (sessionHandle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = sessionHandle;
+        rc = TPM2_FlushContext(&cmdIn.flushCtx);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_FlushContext failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", sessionHandle);
+        sessionHandle = TPM_RH_NULL;
+    }
+
+    /* Close object handle */
+    wolfTPM_UnloadHandle(&handle);
+    wolfTPM_UnloadHandle(&eccKey.handle);
+    wolfTPM_UnloadHandle(&hmacKey.handle);
+
+    /* Cleanup key handles */
     wolfTPM_UnloadHandle(&endorse.handle);
     wolfTPM_UnloadHandle(&storage.handle);
-    if (handle != TPM_RH_NULL)
-        wolfTPM_UnloadHandle(&handle);
 
 
     /* Shutdown */

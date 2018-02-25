@@ -1826,6 +1826,7 @@ typedef struct TPM2_CTX {
 
     /* Current TPM auth session */
     TPMS_AUTH_COMMAND* auth;
+    TPMS_AUTH_RESPONSE* respAuth;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
@@ -2634,15 +2635,14 @@ typedef struct {
 } SetPrimaryPolicy_In;
 WOLFTPM_API TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in);
 
-
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
-} ChangePPS_In;
+} ChangeSeed_In;
+
+typedef ChangeSeed_In ChangePPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangePPS(ChangePPS_In* in);
 
-typedef struct {
-    TPMI_RH_PLATFORM authHandle;
-} ChangeEPS_In;
+typedef ChangeSeed_In ChangeEPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in);
 
 
