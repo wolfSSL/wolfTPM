@@ -2,6 +2,25 @@
 
 This example demonstrates calling the various TPM 2.0 API's.
 
+## TPM 2.0 Overview
+
+
+### Hierarchies
+
+Platform    TPM_RH_PLATFORM
+Storage     TPM_RH_OWNER
+Endorsement TPM_RH_ENDORSEMENT
+Ephemeral   TPM_RH_NULL (no seed, lost on reboot)
+
+Each hierarchy has their own manufacture generated seed.
+
+The arguments used on TPM2_Create or TPM2_CreatePrimary create a template which is fed into a KDF to produce the same key based hierarchy used. This same key is generated the same each time and even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds, so typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
+
+
+### Platform Configuration Registers (PCRs)
+
+Contains hash digests for SHA-1 and SHA-256 with an index 0-23.
+
 
 ## Building
 

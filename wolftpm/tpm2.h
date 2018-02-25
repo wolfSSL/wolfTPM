@@ -28,12 +28,6 @@
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
-/* KEY REFERENCE */
-/* EK: Endorsement Keys */
-/* EPS: Endorsement Primary Seed */
-/* PPS: Platform Primary Seed */
-/* SRK: Storage Root Keys */
-/* SPS: Storage Primary Seed */
 
 
 #ifndef MAX_SPI_FRAMESIZE
@@ -408,9 +402,9 @@ typedef enum {
     TPM_CC_ECDH_KeyGen              = 0x00000163,
     TPM_CC_EncryptDecrypt           = 0x00000164,
     TPM_CC_FlushContext             = 0x00000165,
-    TPM_CC_LoadExternal             = 0x00000166,
-    TPM_CC_MakeCredential           = 0x00000167,
-    TPM_CC_NV_ReadPublic            = 0x00000168,
+    TPM_CC_LoadExternal             = 0x00000167,
+    TPM_CC_MakeCredential           = 0x00000168,
+    TPM_CC_NV_ReadPublic            = 0x00000169,
     TPM_CC_PolicyAuthorize          = 0x0000016A,
     TPM_CC_PolicyAuthValue          = 0x0000016B,
     TPM_CC_PolicyCommandCode        = 0x0000016C,

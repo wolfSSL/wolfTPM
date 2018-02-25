@@ -1580,17 +1580,21 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
-        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_AppendU32(&packet, in->itemHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->auth);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Unseal);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            rc = TPM2_Packet_Parse(rc, &packet);
+            TPMS_AUTH_RESPONSE respAuth;
+            UINT32 paramSz = 0;
 
+            rc = TPM2_Packet_Parse(rc, &packet);
+            TPM2_Packet_ParseU32(&packet, &paramSz);
             TPM2_Packet_ParseU16(&packet, &out->outData.size);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer, out->outData.size);
+            TPM2_Packet_ParseAuth(&packet, &respAuth);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1671,42 +1675,78 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st = TPM_ST_NO_SESSIONS;
 
     if (ctx == NULL || in == NULL || out == NULL)
         return TPM_RC_BAD_ARG;
+
+    if (ctx->auth &&
+        (ctx->auth->sessionAttributes &
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt))) {
+        st = TPM_ST_SESSIONS;
+    }
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
-        TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
-        TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitiveType);
-        TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.authValue.size);
-        TPM2_Packet_AppendBytes(&packet,
-            in->inPrivate.sensitiveArea.authValue.buffer,
-            in->inPrivate.sensitiveArea.authValue.size);
-        TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.seedValue.size);
-        TPM2_Packet_AppendBytes(&packet,
-            in->inPrivate.sensitiveArea.seedValue.buffer,
-            in->inPrivate.sensitiveArea.seedValue.size);
 
-        TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitive.any.size);
-        TPM2_Packet_AppendBytes(&packet,
-            in->inPrivate.sensitiveArea.sensitive.any.buffer,
-            in->inPrivate.sensitiveArea.sensitive.any.size);
+        if (st == TPM_ST_SESSIONS) {
+            TPM2_Packet_AppendAuth(&packet, ctx->auth);
+        }
+
+        if (in->inPrivate.sensitiveArea.authValue.size > 0 ||
+            in->inPrivate.sensitiveArea.seedValue.size > 0 ||
+            in->inPrivate.sensitiveArea.sensitive.any.size > 0) {
+
+            in->inPrivate.size = 2 + /* sensitiveType */
+                2 + in->inPrivate.sensitiveArea.authValue.size +
+                2 + in->inPrivate.sensitiveArea.seedValue.size +
+                2 + in->inPrivate.sensitiveArea.sensitive.any.size;
+            TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
+
+            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitiveType);
+            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.authValue.size);
+            TPM2_Packet_AppendBytes(&packet,
+                in->inPrivate.sensitiveArea.authValue.buffer,
+                in->inPrivate.sensitiveArea.authValue.size);
+            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.seedValue.size);
+            TPM2_Packet_AppendBytes(&packet,
+                in->inPrivate.sensitiveArea.seedValue.buffer,
+                in->inPrivate.sensitiveArea.seedValue.size);
+
+            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitive.any.size);
+            TPM2_Packet_AppendBytes(&packet,
+                in->inPrivate.sensitiveArea.sensitive.any.buffer,
+                in->inPrivate.sensitiveArea.sensitive.any.size);
+        }
+        else {
+            TPM2_Packet_AppendU16(&packet, 0);
+        }
 
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU32(&packet, in->hierarchy);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_LoadExternal);
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_LoadExternal);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            rc = TPM2_Packet_Parse(rc, &packet);
+            TPMS_AUTH_RESPONSE respAuth;
+            UINT32 paramSz = 0;
 
+            rc = TPM2_Packet_Parse(rc, &packet);
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+
             TPM2_Packet_ParseU16(&packet, &out->name.size);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseAuth(&packet, &respAuth);
+            }
         }
 
         TPM2_ReleaseLock(ctx);

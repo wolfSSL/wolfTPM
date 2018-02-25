@@ -130,7 +130,7 @@ const BYTE TPM_20_EK_AUTH_POLICY[] = {
     0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
 };
 
-#define RAND_GET_SZ 32
+#define RAND_GET_SZ WC_SHA256_DIGEST_SIZE
 
 typedef struct tpmKey {
     TPM_HANDLE    handle;
@@ -150,6 +150,7 @@ int TPM2_Demo(void* userCtx)
         Shutdown_In shutdown;
         SelfTest_In selfTest;
         GetRandom_In getRand;
+        StirRandom_In stirRand;
         GetCapability_In cap;
         IncrementalSelfTest_In incSelfTest;
         PCR_Read_In pcrRead;
@@ -160,10 +161,12 @@ int TPM2_Demo(void* userCtx)
         ReadPublic_In readPub;
         StartAuthSession_In authSes;
         Load_In load;
+        LoadExternal_In loadExt;
         FlushContext_In flushCtx;
         Unseal_In unseal;
         PolicyGetDigest_In policyGetDigest;
         PolicyPCR_In policyPCR;
+        PolicyRestart_In policyRestart;
         Clear_In clear;
         HashSequenceStart_In hashSeqStart;
         SequenceUpdate_In seqUpdate;
@@ -181,6 +184,7 @@ int TPM2_Demo(void* userCtx)
         ReadPublic_Out readPub;
         StartAuthSession_Out authSes;
         Load_Out load;
+        LoadExternal_Out loadExt;
         Unseal_Out unseal;
         PolicyGetDigest_Out policyGetDigest;
         HashSequenceStart_Out hashSeqStart;
@@ -319,6 +323,17 @@ int TPM2_Demo(void* userCtx)
                    cmdOut.getRand.randomBytes.size);
 
 
+    /* Stir Random */
+    cmdIn.stirRand.inData.size = cmdOut.getRand.randomBytes.size;
+    XMEMCPY(cmdIn.stirRand.inData.buffer,
+        cmdOut.getRand.randomBytes.buffer, cmdIn.stirRand.inData.size);
+    rc = TPM2_StirRandom(&cmdIn.stirRand);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_StirRandom failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+
     /* PCR Read */
     for (i=0; i<pcrCount; i++) {
         pcrIndex = i;
@@ -430,6 +445,16 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyPCR: Updated\n");
+
+
+    /* Policy Restart (for session) */
+    cmdIn.policyRestart.sessionHandle = handle;
+    rc = TPM2_PolicyRestart(&cmdIn.policyRestart);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PolicyRestart failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_PolicyRestart: Done\n");
 
 
     /* Close session (TPM2_FlushContext) */
@@ -569,12 +594,35 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_CreatePrimary: Platform 0x%x (%d bytes)\n",
         storage.handle, storage.public.size);
 
+#if 0
     /* Move new primary key into NV to persist */
-    //rc = TPM2_EvictControl(&cmdIn.evict);
+    cmdIn.evict.auth = endorse.handle;
+    cmdIn.evict.objectHandle = storage.handle;
+    cmdIn.evict.persistentHandle;
+    rc = TPM2_EvictControl(&cmdIn.evict);
+#endif
+
 
     /* Setup auth session for parent handle */
     session.auth.size = sizeof(platformPwd)-1;
     XMEMCPY(session.auth.buffer, platformPwd, session.auth.size);
+
+
+    /* Loading RSA public key */
+    XMEMSET(&cmdIn.loadExt, 0, sizeof(cmdIn.loadExt));
+    cmdIn.loadExt.inPublic = endorse.public;
+    cmdIn.loadExt.hierarchy = TPM_RH_NULL;
+    rc = TPM2_LoadExternal(&cmdIn.loadExt, &cmdOut.loadExt);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_LoadExternal: failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    handle = cmdOut.loadExt.objectHandle;
+    printf("TPM2_LoadExternal: 0x%x\n", handle);
+
+    //TPM2_MakeCredential
+
+    wolfTPM_UnloadHandle(&handle);
 
 
     /* Create an HMAC-SHA256 Key */
