@@ -45,3 +45,29 @@ int wolfTPM_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len)
 
     return rc;
 }
+
+int wolfTPM_UnloadHandle(word32* handle)
+{
+    int rc = TPM_RC_SUCCESS;
+    FlushContext_In flushCtxIn;
+
+    if (handle == NULL)
+        return TPM_RC_FAILURE;
+
+    if (*handle != TPM_RH_NULL) {
+        flushCtxIn.flushHandle = *handle;
+        rc = TPM2_FlushContext(&flushCtxIn);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_FlushContext failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            return rc;
+        }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_FlushContext: Closed handle 0x%x\n", *handle);
+    #endif
+
+        *handle = TPM_RH_NULL;
+    }
+
+    return rc;
+}

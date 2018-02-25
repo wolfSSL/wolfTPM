@@ -29,12 +29,13 @@
 #include <wolfssl/wolfcrypt/ecc.h>
 
 
+
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 10000
+#define TPM_TIMEOUT_TRIES 1000000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
@@ -401,9 +402,9 @@ typedef enum {
     TPM_CC_ECDH_KeyGen              = 0x00000163,
     TPM_CC_EncryptDecrypt           = 0x00000164,
     TPM_CC_FlushContext             = 0x00000165,
-    TPM_CC_LoadExternal             = 0x00000166,
-    TPM_CC_MakeCredential           = 0x00000167,
-    TPM_CC_NV_ReadPublic            = 0x00000168,
+    TPM_CC_LoadExternal             = 0x00000167,
+    TPM_CC_MakeCredential           = 0x00000168,
+    TPM_CC_NV_ReadPublic            = 0x00000169,
     TPM_CC_PolicyAuthorize          = 0x0000016A,
     TPM_CC_PolicyAuthValue          = 0x0000016B,
     TPM_CC_PolicyCommandCode        = 0x0000016C,
@@ -1824,7 +1825,8 @@ typedef struct TPM2_CTX {
     byte rid;
 
     /* Current TPM auth session */
-    TPMS_AUTH_COMMAND* auth;
+    TPMS_AUTH_COMMAND*  authCmd;
+    TPMS_AUTH_RESPONSE* authResp;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
@@ -2633,15 +2635,14 @@ typedef struct {
 } SetPrimaryPolicy_In;
 WOLFTPM_API TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in);
 
-
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
-} ChangePPS_In;
+} ChangeSeed_In;
+
+typedef ChangeSeed_In ChangePPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangePPS(ChangePPS_In* in);
 
-typedef struct {
-    TPMI_RH_PLATFORM authHandle;
-} ChangeEPS_In;
+typedef ChangeSeed_In ChangeEPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in);
 
 
@@ -2872,7 +2873,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Helper API's - Not based on spec */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* auth);
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
