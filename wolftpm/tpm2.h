@@ -1825,8 +1825,8 @@ typedef struct TPM2_CTX {
     byte rid;
 
     /* Current TPM auth session */
-    TPMS_AUTH_COMMAND* auth;
-    TPMS_AUTH_RESPONSE* respAuth;
+    TPMS_AUTH_COMMAND*  authCmd;
+    TPMS_AUTH_RESPONSE* authResp;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
@@ -2873,7 +2873,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Helper API's - Not based on spec */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* auth);
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);

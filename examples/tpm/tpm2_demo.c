@@ -247,7 +247,7 @@ int TPM2_Demo(void* userCtx)
     /* define the default session auth */
     XMEMSET(session, 0, sizeof(session));
     session[0].sessionHandle = TPM_RS_PW;
-    TPM2_SetSessionAuth(session);
+    TPM2_SetSessionAuth(session, NULL);
 
     cmdIn.startup.startupType = TPM_SU_CLEAR;
     rc = TPM2_Startup(&cmdIn.startup);
@@ -463,8 +463,6 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyRestart: Done\n");
-
-
 
 
     /* NVRAM Access */
