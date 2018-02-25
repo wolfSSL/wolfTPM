@@ -185,6 +185,8 @@ int TPM2_Demo(void* userCtx)
         ObjectChangeAuth_In objChgAuth;
         NV_ReadPublic_In nvReadPub;
         NV_DefineSpace_In nvDefine;
+        RSA_Encrypt_In rsaEnc;
+        RSA_Decrypt_In rsaDec;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -206,6 +208,8 @@ int TPM2_Demo(void* userCtx)
         MakeCredential_Out makeCred;
         ObjectChangeAuth_Out objChgAuth;
         NV_ReadPublic_Out nvReadPub;
+        RSA_Encrypt_Out rsaEnc;
+        RSA_Decrypt_Out rsaDec;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
@@ -215,6 +219,7 @@ int TPM2_Demo(void* userCtx)
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
     TPMI_RH_NV_INDEX nvIndex;
     WC_RNG rng;
+    TPM2B_PUBLIC_KEY_RSA message;
 
     byte pcr[WC_SHA256_DIGEST_SIZE];
     int pcr_len = WC_SHA256_DIGEST_SIZE;
@@ -229,6 +234,7 @@ int TPM2_Demo(void* userCtx)
     const char storagePwd[] = "WolfTPMPassword";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
     const char userKey[] = "ThisIsMyHmacKey";
+    const char label[] = "ThisIsMyLabel";
 
     const char* hashTestData =
         "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
@@ -779,6 +785,45 @@ int TPM2_Demo(void* userCtx)
     wolfTPM_UnloadHandle(&eccKey.handle);
 
 
+    /* RSA Encrypt */
+    message.size = WC_SHA256_DIGEST_SIZE;
+    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(&cmdIn.rsaEnc, 0, sizeof(cmdIn.rsaEnc));
+    cmdIn.rsaEnc.keyHandle = storage.handle;
+    cmdIn.rsaEnc.message = message;
+    cmdIn.rsaEnc.inScheme.scheme = TPM_ALG_OAEP;
+    cmdIn.rsaEnc.inScheme.details.oaep.hashAlg = TPM_ALG_SHA256;
+    cmdIn.rsaEnc.label.size = sizeof(label); /* Null term required */
+    XMEMCPY(cmdIn.rsaEnc.label.buffer, label, cmdIn.rsaEnc.label.size);
+    rc = TPM2_RSA_Encrypt(&cmdIn.rsaEnc, &cmdOut.rsaEnc);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_RSA_Encrypt failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_RSA_Encrypt: %d\n", cmdOut.rsaEnc.outData.size);
+
+    XMEMSET(&cmdIn.rsaDec, 0, sizeof(cmdIn.rsaDec));
+    cmdIn.rsaDec.keyHandle = storage.handle;
+    cmdIn.rsaDec.cipherText = cmdOut.rsaEnc.outData;
+    cmdIn.rsaDec.inScheme.scheme = TPM_ALG_OAEP;
+    cmdIn.rsaDec.inScheme.details.oaep.hashAlg = TPM_ALG_SHA256;
+    cmdIn.rsaDec.label.size = sizeof(label); /* Null term required */
+    XMEMCPY(cmdIn.rsaDec.label.buffer, label, cmdIn.rsaEnc.label.size);
+    rc = TPM2_RSA_Decrypt(&cmdIn.rsaDec, &cmdOut.rsaDec);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_RSA_Decrypt failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_RSA_Decrypt: %d\n", cmdOut.rsaDec.message.size);
+
+    if (cmdOut.rsaDec.message.size != message.size ||
+        XMEMCMP(cmdOut.rsaDec.message.buffer, message.buffer,
+            cmdOut.rsaDec.message.size)) {
+        printf("RSA Test failed!\n");
+    }
+    else {
+        printf("RSA Encrypt/Decrypt test passed\n");
+    }
 
 
     /* NVRAM Access */
