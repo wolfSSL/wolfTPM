@@ -5011,6 +5011,7 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
 
+        in->publicInfo.size = 4 + 2 + 4 + 2 + in->publicInfo.nvPublic.authPolicy.size + 2;
         TPM2_Packet_AppendU16(&packet, in->publicInfo.size);
         TPM2_Packet_AppendU32(&packet, in->publicInfo.nvPublic.nvIndex);
         TPM2_Packet_AppendU16(&packet, in->publicInfo.nvPublic.nameAlg);
@@ -5124,7 +5125,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
             TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         }
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_ReadPublic);
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_NV_ReadPublic);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);

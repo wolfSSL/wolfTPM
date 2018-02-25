@@ -130,7 +130,14 @@ const BYTE TPM_20_EK_AUTH_POLICY[] = {
     0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
 };
 
-#define RAND_GET_SZ WC_SHA256_DIGEST_SIZE
+#define TPM_20_TCG_NV_SPACE ((TPM_HT_NV_INDEX << 24) | (0x00 << 22)
+#define TPM_20_OWNER_NV_SPACE ((TPM_HT_NV_INDEX << 24) | (0x01 << 22))
+#define TPM_20_PLATFORM_MANUFACTURER_NV_SPACE ((TPM_HT_NV_INDEX << 24) | (0x02 << 22))
+#define TPM_20_TPM_MANUFACTURER_NV_SPACE ((TPM_HT_NV_INDEX << 24) | (0x03 << 22))
+#define TPM_20_NV_INDEX_EK_CERTIFICATE (TPM_20_PLATFORM_MANUFACTURER_NV_SPACE + 2)
+#define TPM_20_NV_INDEX_EK_NONCE (TPM_20_PLATFORM_MANUFACTURER_NV_SPACE + 3)
+#define TPM_20_NV_INDEX_EK_TEMPLATE (TPM_20_PLATFORM_MANUFACTURER_NV_SPACE + 4)
+
 
 typedef struct tpmKey {
     TPM_HANDLE    handle;
@@ -142,6 +149,7 @@ typedef struct tpmKey {
 typedef TpmKey TpmRsaKey;
 typedef TpmKey TpmEccKey;
 typedef TpmKey TpmHmacKey;
+
 
 int TPM2_Demo(void* userCtx)
 {
@@ -175,6 +183,8 @@ int TPM2_Demo(void* userCtx)
         SequenceComplete_In seqComp;
         MakeCredential_In makeCred;
         ObjectChangeAuth_In objChgAuth;
+        NV_ReadPublic_In nvReadPub;
+        NV_DefineSpace_In nvDefine;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -195,12 +205,15 @@ int TPM2_Demo(void* userCtx)
         SequenceComplete_Out seqComp;
         MakeCredential_Out makeCred;
         ObjectChangeAuth_Out objChgAuth;
+        NV_ReadPublic_Out nvReadPub;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
+
     int pcrCount, pcrIndex, i;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE handle = TPM_RH_NULL;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    TPMI_RH_NV_INDEX nvIndex;
     WC_RNG rng;
 
     byte pcr[WC_SHA256_DIGEST_SIZE];
@@ -208,12 +221,12 @@ int TPM2_Demo(void* userCtx)
     byte hash[WC_SHA256_DIGEST_SIZE];
     int hash_len = WC_SHA256_DIGEST_SIZE;
 
-    TpmEccKey eccKey;
     TpmRsaKey endorse;
     TpmRsaKey storage;
     TpmHmacKey hmacKey;
+    TpmEccKey eccKey;
 
-    const char platformPwd[] = "WolfTPMPlatPswd";
+    const char storagePwd[] = "WolfTPMPassword";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
     const char userKey[] = "ThisIsMyHmacKey";
 
@@ -225,6 +238,11 @@ int TPM2_Demo(void* userCtx)
         "\x06\xC1";
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+
+    endorse.handle = TPM_RH_NULL;
+    storage.handle = TPM_RH_NULL;
+    hmacKey.handle = TPM_RH_NULL;
+    eccKey.handle = TPM_RH_NULL;
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -314,15 +332,15 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Random */
-    cmdIn.getRand.bytesRequested = RAND_GET_SZ;
+    cmdIn.getRand.bytesRequested = WC_SHA256_DIGEST_SIZE;
     rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetRandom failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.getRand.randomBytes.size != RAND_GET_SZ) {
+    if (cmdOut.getRand.randomBytes.size != WC_SHA256_DIGEST_SIZE) {
         printf("TPM2_GetRandom length mismatch %d != %d\n",
-            cmdOut.getRand.randomBytes.size, RAND_GET_SZ);
+            cmdOut.getRand.randomBytes.size, WC_SHA256_DIGEST_SIZE);
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
@@ -465,10 +483,6 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_PolicyRestart: Done\n");
 
 
-    /* NVRAM Access */
-
-
-
     /* Hashing */
     XMEMSET(&cmdIn.hashSeqStart, 0, sizeof(cmdIn.hashSeqStart));
     cmdIn.hashSeqStart.auth.size = sizeof(usageAuth)-1;
@@ -564,10 +578,10 @@ int TPM2_Demo(void* userCtx)
 
     /* Create (Storage) */
     XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
-    cmdIn.createPri.primaryHandle = TPM_RH_ENDORSEMENT;
-    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(platformPwd)-1;
+    cmdIn.createPri.primaryHandle = TPM_RH_ENDORSEMENT; /*TPM_RH_OWNER*/
+    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(storagePwd)-1;
     XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
-        platformPwd, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
+        storagePwd, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
     cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
     cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
     cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
@@ -583,13 +597,13 @@ int TPM2_Demo(void* userCtx)
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
     rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Platform failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_CreatePrimary: Storage failed %d: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
     storage.handle = cmdOut.createPri.objectHandle;
     storage.public = cmdOut.createPri.outPublic;
     storage.name = cmdOut.createPri.name;
-    printf("TPM2_CreatePrimary: Platform 0x%x (%d bytes)\n",
+    printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
         storage.handle, storage.public.size);
 
 #if 0
@@ -602,8 +616,8 @@ int TPM2_Demo(void* userCtx)
 
 
     /* Setup auth session for parent handle */
-    session[0].auth.size = sizeof(platformPwd)-1;
-    XMEMCPY(session[0].auth.buffer, platformPwd, session[0].auth.size);
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
 
     /* Loading RSA public key */
@@ -690,6 +704,7 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_Load New HMAC Key Handle 0x%x\n", hmacKey.handle);
 
 
+
     /* Allow object change auth */
     cmdIn.policyCC.policySession = sessionHandle;
     cmdIn.policyCC.code = TPM_CC_ObjectChangeAuth;
@@ -762,6 +777,42 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_Load New ECC Key Handle 0x%x\n", eccKey.handle);
 
     wolfTPM_UnloadHandle(&eccKey.handle);
+
+
+
+
+    /* NVRAM Access */
+    nvIndex = TPM_20_OWNER_NV_SPACE + 0x003FFFFF; /* Last owner Index */
+    XMEMSET(&cmdIn.nvDefine, 0, sizeof(cmdIn.nvDefine));
+    cmdIn.nvDefine.authHandle = storage.handle;
+    cmdIn.nvDefine.auth.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.nvDefine.auth.buffer, usageAuth, cmdIn.nvDefine.auth.size);
+    cmdIn.nvDefine.publicInfo.nvPublic.nvIndex = nvIndex;
+    cmdIn.nvDefine.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
+    cmdIn.nvDefine.publicInfo.nvPublic.attributes = (
+        TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA | TPMA_NV_ORDERLY);
+    cmdIn.nvDefine.publicInfo.nvPublic.dataSize = WC_SHA256_DIGEST_SIZE;
+    rc = TPM2_NV_DefineSpace(&cmdIn.nvDefine);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_DefineSpace failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_NV_DefineSpace: 0x%x\n", nvIndex);
+
+    cmdIn.nvReadPub.nvIndex = nvIndex;
+    rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, authPol %d, dataSz %d, name %d\n",
+        cmdOut.nvReadPub.nvPublic.size,
+        cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
+        cmdOut.nvReadPub.nvPublic.nvPublic.nameAlg,
+        cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
+        cmdOut.nvReadPub.nvPublic.nvPublic.authPolicy.size,
+        cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
+        cmdOut.nvReadPub.nvName.size);
 
 
 
