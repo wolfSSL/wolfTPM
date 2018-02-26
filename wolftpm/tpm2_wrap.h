@@ -48,6 +48,6 @@
 /* Wrapper API's to simplify TPM use */
 WOLFTPM_API int wolfTPM_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len);
 WOLFTPM_API int wolfTPM_UnloadHandle(word32* handle);
-
+WOLFTPM_API int wolfTPM_NVReadPublic(word32 nvIndex);
 
 #endif /* __TPM2_WRAP_H__ */

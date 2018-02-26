@@ -1247,3 +1247,9 @@ Command: 12
 Response: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
 ```
+
+## Todo
+
+* Add more wrappers
+* Add support for encrypting / decrypting parameters.
+* Improve the command and response auth handling.

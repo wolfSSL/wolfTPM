@@ -1027,6 +1027,39 @@ int TPM2_Demo(void* userCtx)
 
 
     /* NVRAM Access */
+
+    /* Read Public NV */
+    wolfTPM_NVReadPublic(TPM_20_TPM_MFG_NV_SPACE);
+    wolfTPM_NVReadPublic(TPM_20_PLATFORM_MFG_NV_SPACE);
+    wolfTPM_NVReadPublic(TPM_20_OWNER_NV_SPACE);
+    wolfTPM_NVReadPublic(TPM_20_TCG_NV_SPACE);
+    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_CERTIFICATE);
+    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_NONCE);
+    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_TEMPLATE);
+
+#if 0
+    for (nvIndex=TPM_20_TPM_MFG_NV_SPACE; nvIndex<TPM_20_TPM_MFG_NV_SPACE+10; nvIndex++) {
+        XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
+        cmdIn.nvReadPub.nvIndex = nvIndex;
+        rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            //goto exit;
+        }
+        else if (cmdOut.nvReadPub.nvPublic.size > 0) {
+            printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, authPol %d, dataSz %d, name %d\n",
+                cmdOut.nvReadPub.nvPublic.size,
+                cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
+                cmdOut.nvReadPub.nvPublic.nvPublic.nameAlg,
+                cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
+                cmdOut.nvReadPub.nvPublic.nvPublic.authPolicy.size,
+                cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
+                cmdOut.nvReadPub.nvName.size);
+        }
+    }
+#endif
+
+    /* Define new NV */
     nvIndex = TPM_20_OWNER_NV_SPACE + 0x003FFFFF; /* Last owner Index */
     XMEMSET(&cmdIn.nvDefine, 0, sizeof(cmdIn.nvDefine));
     cmdIn.nvDefine.authHandle = storage.handle;
@@ -1044,6 +1077,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_NV_DefineSpace: 0x%x\n", nvIndex);
 
+    /* Read NV */
     XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
     cmdIn.nvReadPub.nvIndex = nvIndex;
     rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
@@ -1060,6 +1094,7 @@ int TPM2_Demo(void* userCtx)
         cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
         cmdOut.nvReadPub.nvName.size);
 
+    /* Undefine NV */
     XMEMSET(&cmdIn.nvUndefine, 0, sizeof(cmdIn.nvUndefine));
     cmdIn.nvUndefine.authHandle = storage.handle;
     cmdIn.nvUndefine.nvIndex = nvIndex;

@@ -71,3 +71,30 @@ int wolfTPM_UnloadHandle(word32* handle)
 
     return rc;
 }
+
+int wolfTPM_NVReadPublic(word32 nvIndex)
+{
+    int rc = TPM_RC_SUCCESS;
+    NV_ReadPublic_In in;
+    NV_ReadPublic_Out out;
+
+    in.nvIndex = nvIndex;
+    rc = TPM2_NV_ReadPublic(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, authPol %d, dataSz %d, name %d\n",
+        out.nvPublic.size,
+        out.nvPublic.nvPublic.nvIndex,
+        out.nvPublic.nvPublic.nameAlg,
+        out.nvPublic.nvPublic.attributes,
+        out.nvPublic.nvPublic.authPolicy.size,
+        out.nvPublic.nvPublic.dataSize,
+        out.nvName.size);
+#endif
+
+    return rc;
+}
