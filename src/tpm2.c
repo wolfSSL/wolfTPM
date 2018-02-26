@@ -929,6 +929,78 @@ static void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
     }
 }
 
+static void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
+{
+    int digestSz;
+
+    TPM2_Packet_AppendU16(packet, sig->sigAlgo);
+
+    switch (sig->sigAlgo) {
+    case TPM_ALG_ECDSA:
+    case TPM_ALG_ECDAA:
+        TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.hash);
+
+        TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.signatureR.size);
+        TPM2_Packet_AppendBytes(packet, sig->signature.ecdsa.signatureR.buffer,
+            sig->signature.ecdsa.signatureR.size);
+
+        TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.signatureS.size);
+        TPM2_Packet_AppendBytes(packet, sig->signature.ecdsa.signatureS.buffer,
+            sig->signature.ecdsa.signatureS.size);
+        break;
+    case TPM_ALG_RSASSA:
+    case TPM_ALG_RSAPSS:
+        TPM2_Packet_AppendU16(packet, sig->signature.rsassa.hash);
+
+        TPM2_Packet_AppendU16(packet, sig->signature.rsassa.sig.size);
+        TPM2_Packet_AppendBytes(packet, sig->signature.rsassa.sig.buffer,
+            sig->signature.rsassa.sig.size);
+        break;
+    case TPM_ALG_HMAC:
+        TPM2_Packet_AppendU16(packet, sig->signature.hmac.hashAlg);
+        digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
+        TPM2_Packet_AppendBytes(packet, sig->signature.hmac.digest.H, digestSz);
+        break;
+    default:
+        break;
+    }
+}
+static void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
+{
+    int digestSz;
+
+    TPM2_Packet_ParseU16(packet, &sig->sigAlgo);
+
+    switch (sig->sigAlgo) {
+    case TPM_ALG_ECDSA:
+    case TPM_ALG_ECDAA:
+        TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.hash);
+
+        TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.signatureR.size);
+        TPM2_Packet_ParseBytes(packet, sig->signature.ecdsa.signatureR.buffer,
+            sig->signature.ecdsa.signatureR.size);
+
+        TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.signatureS.size);
+        TPM2_Packet_ParseBytes(packet, sig->signature.ecdsa.signatureS.buffer,
+            sig->signature.ecdsa.signatureS.size);
+        break;
+    case TPM_ALG_RSASSA:
+    case TPM_ALG_RSAPSS:
+        TPM2_Packet_ParseU16(packet, &sig->signature.rsassa.hash);
+
+        TPM2_Packet_ParseU16(packet, &sig->signature.rsassa.sig.size);
+        TPM2_Packet_ParseBytes(packet, sig->signature.rsassa.sig.buffer,
+            sig->signature.rsassa.sig.size);
+        break;
+    case TPM_ALG_HMAC:
+        TPM2_Packet_ParseU16(packet, &sig->signature.hmac.hashAlg);
+        digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
+        TPM2_Packet_ParseBytes(packet, sig->signature.hmac.digest.H, digestSz);
+        break;
+    default:
+        break;
+    }
+}
 
 static TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet) {
     if (rc == TPM_RC_SUCCESS && packet) {
@@ -2267,10 +2339,12 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
             TPM2_Packet_ParseU16(&packet, &out->parameters.keySize);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.kdf.scheme);
-            TPM2_Packet_ParseU16(&packet, &out->parameters.kdf.details.any.hashAlg);
+            if (out->parameters.kdf.scheme != TPM_ALG_NULL)
+                TPM2_Packet_ParseU16(&packet, &out->parameters.kdf.details.any.hashAlg);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.sign.scheme);
-            TPM2_Packet_ParseU16(&packet, &out->parameters.sign.details.any.hashAlg);
+            if (out->parameters.sign.scheme != TPM_ALG_NULL)
+                TPM2_Packet_ParseU16(&packet, &out->parameters.sign.details.any.hashAlg);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.p.size);
             TPM2_Packet_ParseBytes(&packet, out->parameters.p.buffer, out->parameters.p.size);
@@ -2788,8 +2862,7 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -2846,8 +2919,7 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -2895,8 +2967,7 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->quoted.size);
             TPM2_Packet_ParseBytes(&packet, out->quoted.attestationData, out->quoted.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -2946,8 +3017,7 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
             TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData, out->auditInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -2996,8 +3066,7 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
             TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData, out->auditInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -3045,8 +3114,7 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->timeInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->timeInfo.attestationData, out->timeInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
@@ -3172,8 +3240,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
         TPM2_Packet_AppendU16(&packet, in->digest.size);
         TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
 
-        TPM2_Packet_AppendU16(&packet, in->signature.sigAlgo);
-        TPM2_Packet_AppendU16(&packet, in->signature.signature.any.hashAlg);
+        TPM2_Packet_AppendSignature(&packet, &in->signature);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifySignature);
 
@@ -3231,7 +3298,8 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
         TPM2_Packet_AppendU32(&packet, in->validation.hierarchy);
 
         TPM2_Packet_AppendU16(&packet, in->validation.digest.size);
-        TPM2_Packet_AppendBytes(&packet, in->validation.digest.buffer, in->validation.digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->validation.digest.buffer,
+            in->validation.digest.size);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Sign);
 
@@ -3242,10 +3310,7 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
 
             rc = TPM2_Packet_Parse(rc, &packet);
             TPM2_Packet_ParseU32(&packet, &paramSz);
-
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
-
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
 
@@ -3530,8 +3595,7 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
 
         TPM2_Packet_AppendS32(&packet, in->expiration);
 
-        TPM2_Packet_AppendU16(&packet, in->auth.sigAlgo);
-        TPM2_Packet_AppendU16(&packet, in->auth.signature.any.hashAlg);
+        TPM2_Packet_AppendSignature(&packet, &in->auth);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicySigned);
 
@@ -4630,8 +4694,7 @@ TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in)
         TPM2_Packet_AppendU16(&packet, in->fuDigest.size);
         TPM2_Packet_AppendBytes(&packet, in->fuDigest.buffer, in->fuDigest.size);
 
-        TPM2_Packet_AppendU16(&packet, in->manifestSignature.sigAlgo);
-        TPM2_Packet_AppendU16(&packet, in->manifestSignature.signature.any.hashAlg);
+        TPM2_Packet_AppendSignature(&packet, &in->manifestSignature);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_FieldUpgradeStart);
 
@@ -5016,7 +5079,8 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
 
-        in->publicInfo.size = 4 + 2 + 4 + 2 + in->publicInfo.nvPublic.authPolicy.size + 2;
+        in->publicInfo.size = 4 + 2 + 4 + 2 +
+            in->publicInfo.nvPublic.authPolicy.size + 2;
         TPM2_Packet_AppendU16(&packet, in->publicInfo.size);
         TPM2_Packet_AppendU32(&packet, in->publicInfo.nvPublic.nvIndex);
         TPM2_Packet_AppendU16(&packet, in->publicInfo.nvPublic.nameAlg);
@@ -5519,8 +5583,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->signature.sigAlgo);
-            TPM2_Packet_ParseU16(&packet, &out->signature.signature.any.hashAlg);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
 
             TPM2_Packet_ParseAuth(&packet, ctx->authResp);
         }
