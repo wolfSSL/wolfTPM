@@ -3,19 +3,34 @@
 Portable TPM 2.0 project designed for embedded use.
 
 
+## Project Features
+
+* This implementation provides all TPM 2.0 API’s in compliance with the specification.
+* This uses the TPM Interface Specification (TIS) to communicate over SPI.
+* The design allows for easy portability to different platforms:
+	* Native C code designed for embedded use.
+	* Single IO callback for hardware SPI interface.
+	* No external dependencies.
+	* Compact code size and minimal memory use.
+* Examples for the Raspberry Pi and STM32 with CubeMX.
+* Includes demo code for the most commonly used API’s.
+* Includes wrappers for Key Generation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
+* Testing done using the Infineon OPTIGA SLB9670 module.
+
+
 ## TPM 2.0 Overview
 
 ### Hierarchies
 
 Platform    TPM_RH_PLATFORM
-Storage     TPM_RH_OWNER
+Owner       TPM_RH_OWNER
 Endorsement TPM_RH_ENDORSEMENT
-Ephemeral   TPM_RH_NULL (no seed, lost on reboot)
 
 Each hierarchy has their own manufacture generated seed.
 
-The arguments used on TPM2_Create or TPM2_CreatePrimary create a template which is fed into a KDF to produce the same key based hierarchy used. This same key is generated the same each time and even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds, so typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
+The arguments used on TPM2_Create or TPM2_CreatePrimary create a template which is fed into a KDF to produce the same key based hierarchy used. The key generated is the same each time; even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds. Typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
 
+There is also an Ephemeral hierarchy (TPM_RH_NULL), which can be used to create ephemeral keys.
 
 ### Platform Configuration Registers (PCRs)
 
@@ -24,11 +39,12 @@ Contains hash digests for SHA-1 and SHA-256 with an index 0-23.
 
 ### Terminology
 
-This project uses the terms append (vs. marshall) and parse (vs. unmarshall).
+This project uses the terms append vs. marshall and parse vs. unmarshall.
+
 
 ## Building
 
-1. Build wolfSSL:
+Build wolfSSL:
 
 ```
 ./autogen.sh
@@ -36,7 +52,7 @@ This project uses the terms append (vs. marshall) and parse (vs. unmarshall).
 sudo make install
 ```
 
-2. Build wolfTPM:
+Build wolfTPM:
 
 ```
 ./configure && make
@@ -51,7 +67,7 @@ The Raspberry 3 uses the native `spi_dev` interface and defaults to `/dev/spidev
 
 This has only been tested and confirmed working with Rasbian 4.4.x.
 
-To add additional SPI hardware support insert your own interface call in `tpm2_demo.c` for the `TPM2_IoCb` function.
+For interfacing to your hardware platform see the example `tpm2_demo.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
 
 
 ## Sample Output
@@ -67,32 +83,32 @@ TPM2_GetCapability: Property FamilyIndicator 0x322e3000
 TPM2_GetCapability: Property PCR Count 24
 TPM2_GetRandom: Got 32 bytes
 TPM2_StirRandom: success
-TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 1, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 2, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 3, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 4, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 5, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 6, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 7, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 8, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 9, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 10, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 11, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 12, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 13, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 14, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 15, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 16, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 17, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 18, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 19, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 20, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 21, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 22, Digest Sz 32, Update Counter 21
-TPM2_PCR_Read: Index 23, Digest Sz 32, Update Counter 21
+TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 1, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 2, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 3, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 4, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 5, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 6, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 7, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 8, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 9, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 10, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 11, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 12, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 13, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 14, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 15, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 16, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 17, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 18, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 19, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 20, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 21, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 22, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 23, Digest Sz 32, Update Counter 20
 TPM2_PCR_Extend success
-TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 22
+TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 21
 TPM2_StartAuthSession: sessionHandle 0x3000000
 TPM2_PolicyGetDigest: size 32
 wc_Hash of PCR[0]: size 32
@@ -117,16 +133,19 @@ TPM2_VerifySignature: Tag 32802
 TPM2_Create: New ECDH Key: pub 88, priv 126
 TPM2_Load ECDH Key Handle 0x80000002
 TPM2_ECDH_KeyGen: zPt 68, pubPt 68
+TPM2_Create: New RSA Key: pub 278, priv 222
+TPM2_Load RSA Key Handle 0x80000002
 TPM2_RSA_Encrypt: 256
-TPM2_RSA_Decrypt failed 386: Unknown
-TPM2_RSA_Decrypt: 0
-RSA Test failed!
+TPM2_RSA_Decrypt: 32
+RSA Encrypt/Decrypt test passed
 TPM2_NV_DefineSpace failed 388: Unknown
 TPM2_FlushContext: Closed sessionHandle 0x3000000
 ```
 
 
 ### With Debug Enabled:
+
+Built with `./configure --enable-debug` or `#define WOLFTPM_DEBUG`
 
 ```
 ./examples/tpm/tpm_demo
@@ -170,16 +189,16 @@ TPM2_GetCapability: Property PCR Count 24
 Command: 12
 	80 01 00 00 00 0c 00 00 01 7b 00 20             | .........{. 
 Response: 44
-	80 01 00 00 00 2c 00 00 00 00 00 20 2d 36 18 e7 | .....,..... -6..
-	69 8d c7 1f 70 61 3f dd 86 bd a9 8a b3 61 2a 35 | i...pa?......a*5
-	f0 39 64 fd fe 25 5a 12 c6 23 2b 27             | .9d..%Z..#+'
+	80 01 00 00 00 2c 00 00 00 00 00 20 78 89 cf 84 | .....,..... x...
+	60 12 08 46 95 8a 1f e5 0b 60 3e ba 55 8c c5 55 | `..F.....`>.U..U
+	a2 ad 0a a1 7e 84 b7 40 f4 83 09 dc             | ....~..@....
 TPM2_GetRandom: Got 32 bytes
-	2d 36 18 e7 69 8d c7 1f 70 61 3f dd 86 bd a9 8a | -6..i...pa?.....
-	b3 61 2a 35 f0 39 64 fd fe 25 5a 12 c6 23 2b 27 | .a*5.9d..%Z..#+'
+	78 89 cf 84 60 12 08 46 95 8a 1f e5 0b 60 3e ba | x...`..F.....`>.
+	55 8c c5 55 a2 ad 0a a1 7e 84 b7 40 f4 83 09 dc | U..U....~..@....
 Command: 44
-	80 01 00 00 00 2c 00 00 01 46 00 20 2d 36 18 e7 | .....,...F. -6..
-	69 8d c7 1f 70 61 3f dd 86 bd a9 8a b3 61 2a 35 | i...pa?......a*5
-	f0 39 64 fd fe 25 5a 12 c6 23 2b 27             | .9d..%Z..#+'
+	80 01 00 00 00 2c 00 00 01 46 00 20 78 89 cf 84 | .....,...F. x...
+	60 12 08 46 95 8a 1f e5 0b 60 3e ba 55 8c c5 55 | `..F.....`>.U..U
+	a2 ad 0a a1 7e 84 b7 40 f4 83 09 dc             | ....~..@....
 Response: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
 TPM2_StirRandom: success
@@ -470,13 +489,13 @@ TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 21
 	8c 7a 3b a2 6f 97 6e 8e cb be 7a 53 69 18 dc 73 | .z;.o.n...zSi..s
 Command: 59
 	80 01 00 00 00 3b 00 00 01 76 40 00 00 07 40 00 | .....;...v@...@.
-	00 07 00 20 85 3c 20 38 8d d1 a4 c8 ef 9b 07 93 | ... .< 8........
-	a8 7a 20 e9 5c db 9d 53 b4 f3 67 11 b1 1b 9c fd | .z .\..S..g.....
-	a6 09 7f 2b 00 00 01 00 10 00 0b                | ...+.......
+	00 07 00 20 ec 9d 34 34 33 55 1a 76 2d 9b 28 63 | ... ..443U.v-.(c
+	a5 29 4c 4e 60 96 90 9f 61 5e 31 b7 72 f8 f8 82 | .)LN`...a^1.r...
+	e4 18 bd 6f 00 00 01 00 10 00 0b                | ...o.......
 Response: 48
 	80 01 00 00 00 30 00 00 00 00 03 00 00 00 00 20 | .....0......... 
-	c8 2b b4 df c3 a8 23 7f 44 b5 f4 a3 b1 86 06 e7 | .+....#.D.......
-	85 97 93 db a6 96 47 d9 a0 16 25 ee cb d9 a2 0e | ......G...%.....
+	b2 47 e1 ef 51 86 6f 47 fb 19 14 7e 2c 0f 27 1e | .G..Q.oG...~,.'.
+	3a ba 12 7f d8 f1 25 fb a1 c0 4b 90 f3 c9 bc 8e | :.....%...K.....
 TPM2_StartAuthSession: sessionHandle 0x3000000
 Command: 14
 	80 01 00 00 00 0e 00 00 01 89 03 00 00 00       | ..............
@@ -692,28 +711,28 @@ Command: 84
 	7c af eb c5 17 f3 a6 bd f7 36 ca bd af 29 20 91 | |........6...) .
 	5a 12 f6 7c                                     | Z..|
 Response: 338
-	80 01 00 00 01 52 00 00 00 00 00 44 00 20 99 36 | .....R.....D. .6
-	e2 16 b7 a0 06 95 40 88 5c 19 45 02 4a 97 09 81 | ......@.\.E.J...
-	b6 61 7f 96 54 6a ce 47 e0 b3 e5 69 3c 8e 0f 82 | .a..Tj.G...i<...
-	d8 40 2e 1d db 7e da 04 d4 65 4d 99 47 b0 12 51 | .@...~...eM.G..Q
-	fd 98 14 29 b5 74 59 5b db 7b af a1 11 ca ed 7e | ...).tY[.{.....~
-	01 00 70 72 1b c4 e2 51 3d 65 14 c5 48 24 57 b4 | ..pr...Q=e..H$W.
-	2c 42 f4 67 3a 20 59 47 65 a0 07 ea eb a4 f3 fc | ,B.g: YGe.......
-	32 12 ac 71 e3 4d 6e d3 a9 4d ed 02 a0 5c 3f bb | 2..q.Mn..M...\?.
-	63 b9 57 fe 46 e2 90 c9 4c e2 80 3d d6 90 b3 89 | c.W.F...L..=....
-	a7 6a 90 7b 31 2c cc 5b 3b a5 90 b8 32 a7 4b 89 | .j.{1,.[;...2.K.
-	0d 65 e7 e0 31 d4 4b 5b 1c f4 c4 e2 17 0e 75 79 | .e..1.K[......uy
-	7f 32 ce ac 41 ad d4 6d bb 95 82 7d e4 5a 28 58 | .2..A..m...}.Z(X
-	97 19 bd c5 a2 8f 3b c8 6a 1a a4 c6 a9 55 88 33 | ......;.j....U.3
-	c5 d4 a1 ed e7 75 f7 67 bc bb e3 07 29 fc a3 9b | .....u.g....)...
-	39 07 ae 84 97 d1 b9 66 4c 3f ce 22 9b 12 75 d0 | 9......fL?."..u.
-	e8 e5 20 a1 37 cb 9b 34 bd 70 9f 25 d0 ad a8 89 | .. .7..4.p.%....
-	4e 1b 83 e4 8f b9 df f4 b2 b6 eb 3e eb 59 6c f6 | N..........>.Yl.
-	58 10 97 2c cb ec 61 a3 3b 00 ac fb 38 c7 78 84 | X..,..a.;...8.x.
-	85 29 b8 ae 5d c7 c6 6d 53 13 04 16 4d 7e f2 60 | .)..]..mS...M~.`
-	94 7f 80 dd ce 4f 34 8e 71 38 1d 92 38 57 74 f9 | .....O4.q8..8Wt.
-	0f 52 9c 10 89 9f 88 8a 7c db fd b1 d3 25 5f f8 | .R......|....%_.
-	8d 8e                                           | ..
+	80 01 00 00 01 52 00 00 00 00 00 44 00 20 c7 db | .....R.....D. ..
+	27 4b 22 f9 26 6d de 71 25 13 fc 39 75 1f 54 78 | 'K".&m.q%..9u.Tx
+	0e b8 5b 29 4b 04 61 61 fd c8 4c 54 d3 3e d5 03 | ..[)K.aa..LT.>..
+	b2 72 2d 04 e6 f1 a8 14 e4 85 b8 50 3d 10 75 c8 | .r-........P=.u.
+	ae e3 81 53 ad 3f a5 81 d4 47 28 45 47 b2 fa 94 | ...S.?...G(EG...
+	01 00 37 a2 60 45 68 0f 09 48 61 44 27 90 f2 1e | ..7.`Eh..HaD'...
+	a6 36 6c 9b 48 1e 7f 21 6b d4 a1 49 14 02 0e 87 | .6l.H..!k..I....
+	25 8f d3 79 76 cf 6f 87 a9 99 0e 60 ca bf f9 3a | %..yv.o....`...:
+	04 f6 a4 00 9d c9 7b 70 ff a3 62 e7 44 e6 60 a7 | ......{p..b.D.`.
+	8c ce db f1 22 a5 56 63 77 d1 55 5d ac a8 9c 6b | ....".Vcw.U]...k
+	f3 44 1e fe 6a 97 8c 93 2b 97 ff f0 a1 a6 32 a6 | .D..j...+.....2.
+	a7 1c a3 c3 fb 17 3a 5c ea a8 e4 b5 39 dd 75 69 | ......:\....9.ui
+	3e d8 33 ef 50 fb 44 f5 4b 95 00 9a 5c ee 13 89 | >.3.P.D.K...\...
+	f5 a1 cb f4 68 ca e7 e1 39 f6 30 89 67 b1 05 8a | ....h...9.0.g...
+	f2 c2 c2 56 b5 2c 3e 32 2f 36 d4 c1 44 30 79 af | ...V.,>2/6..D0y.
+	bc 7a 8d 19 bb f1 44 16 16 bc e7 da 81 86 a4 8c | .z....D.........
+	11 c9 ee ee b9 22 6f b7 ee 62 4f 15 d5 54 ce e8 | ....."o..bO..T..
+	5e ac f7 6a 3a a1 a4 56 71 1a 0c f9 f2 ea ac 63 | ^..j:..Vq......c
+	a3 18 d6 53 44 fb 4b ce 3e 40 56 e5 ea 69 d4 13 | ...SD.K.>@V..i..
+	cb a0 2c 94 f5 f6 16 d6 5a 98 d0 e2 d2 2b 39 67 | ..,.....Z....+9g
+	ad a5 f5 5a 7c ab 55 62 0a 4c 9f 28 92 ac 57 18 | ...Z|.Ub.L.(..W.
+	c1 3d                                           | .=
 TPM2_MakeCredential: credentialBlob 68, secret 256
 Command: 14
 	80 01 00 00 00 0e 00 00 01 73 80 00 00 02       | .........s....
@@ -759,18 +778,18 @@ Command: 109
 	00 00 05 00 0b 00 00 00 00 00 00 00 00          | .............
 Response: 403
 	80 02 00 00 01 93 00 00 00 00 00 00 01 80 00 8d | ................
-	00 20 6b e6 8a db aa 51 7a cd 27 90 72 3c db 9d | . k....Qz.'.r<..
-	d8 b1 48 98 40 c2 78 81 97 32 8f 57 e7 92 4d 5f | ..H.@.x..2.W..M_
-	f3 e4 00 10 06 9a b5 4c 07 3a 30 82 45 c8 a4 41 | .......L.:0.E..A
-	eb 8b 1a 28 7c 56 7d 31 84 f2 5a 42 5e 4c cd cc | ...(|V}1..ZB^L..
-	8b b6 74 3a b7 09 32 4d ff 39 59 bd fa 37 8e c2 | ..t:..2M.9Y..7..
-	ed 84 31 ac 37 2a 84 83 35 92 85 3d 19 f4 de 39 | ..1.7*..5..=...9
-	6b 48 90 9c d0 97 10 d8 2a 5a bb b0 e8 9a b1 94 | kH......*Z......
-	b8 dd 64 70 f9 c7 52 51 50 8b b9 9c 3c 10 05 63 | ..dp..RQP...<..c
-	be c1 d6 de 0c 09 10 9c 26 4b 0c c1 70 00 30 00 | ........&K..p.0.
-	08 00 0b 00 04 04 40 00 00 00 05 00 0b 00 20 f9 | ......@....... .
-	c6 b0 8c de 9a 6c 8e 9f 4a 59 dc 1e b6 0d 40 2e | .....l..JY....@.
-	4c aa e4 5e 0c 76 a9 88 29 eb 07 d5 9e ed 71 00 | L..^.v..).....q.
+	00 20 90 f2 f9 5a c5 5b 95 d3 34 61 a1 67 ff 14 | . ...Z.[..4a.g..
+	ad 30 ca a5 f8 3e c2 37 ca f6 84 e1 82 85 ca d1 | .0...>.7........
+	a7 28 00 10 40 1a ff d4 d6 2a d2 89 6a e1 38 9e | .(..@....*..j.8.
+	24 76 ef 0d 7c 1b e6 5d 85 e0 ea 91 2f ff 12 f2 | $v..|..]..../...
+	80 21 00 37 3c ff 59 5d 90 3c e3 08 a9 43 80 40 | .!.7<.Y].<...C.@
+	68 2c 2c a8 61 ce b8 d4 ec 29 91 20 88 95 8c 48 | h,,.a....). ...H
+	cc 62 39 bf 5c 89 85 a3 5d 6c 42 ed 16 1a f3 45 | .b9.\...]lB....E
+	60 c0 a7 8a 2e 0d 22 1d ff ac af 5e 00 13 86 10 | `....."....^....
+	c9 d7 f9 48 d4 a5 fe 67 19 ed 79 40 be 00 30 00 | ...H...g..y@..0.
+	08 00 0b 00 04 04 40 00 00 00 05 00 0b 00 20 f0 | ......@....... .
+	a6 57 b5 55 bf 7f 66 66 0e 9c 51 85 c0 97 10 e7 | .W.U..ff..Q.....
+	b8 0f 36 5a f7 70 fa 68 bb 25 c5 af dd 44 3d 00 | ..6Z.p.h.%...D=.
 	73 00 00 00 00 00 20 e3 b0 c4 42 98 fc 1c 14 9a | s..... ...B.....
 	fb f4 c8 99 6f b9 24 27 ae 41 e4 64 9b 93 4c a4 | ....o.$'.A.d..L.
 	95 99 1b 78 52 b8 55 01 00 0b 00 22 00 0b f0 9f | ...xR.U...."....
@@ -780,32 +799,32 @@ Response: 403
 	d0 6a 4b 30 56 05 91 a7 a6 5f eb fd f4 16 58 72 | .jK0V...._....Xr
 	bb 2c 00 00 00 20 64 54 1a ca b6 55 0b ed 4a 91 | .,... dT...U..J.
 	9d 39 fa 58 75 24 85 1a 6e a8 0d cb 1d 4a 46 64 | .9.Xu$..n....JFd
-	3c 36 1c e2 a2 97 80 21 40 00 00 01 00 20 d8 cb | <6.....!@.... ..
-	c5 d2 fe 5f 9d 89 3a 51 72 ce 7c fe 6c 32 ab 1d | ..._..:Qr.|.l2..
-	4b dd 51 21 47 af e7 0a 1c aa b7 24 7f 17 00 00 | K.Q!G......$....
+	3c 36 1c e2 a2 97 80 21 40 00 00 01 00 20 e7 3d | <6.....!@.... .=
+	e1 16 06 9b 92 5d 8f f6 a2 32 78 2e e2 cc 66 8d | .....]...2x...f.
+	c4 65 df 37 22 70 48 14 95 1d 5a ac 19 be 00 00 | .e.7"pH...Z.....
 	01 00 00                                        | ...
 Create HMAC-SHA256 Key success, public 48, Private 141
 Command: 235
 	80 02 00 00 00 eb 00 00 01 57 80 00 00 01 00 00 | .........W......
 	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
-	50 4d 50 61 73 73 77 6f 72 64 00 8d 00 20 6b e6 | PMPassword... k.
-	8a db aa 51 7a cd 27 90 72 3c db 9d d8 b1 48 98 | ...Qz.'.r<....H.
-	40 c2 78 81 97 32 8f 57 e7 92 4d 5f f3 e4 00 10 | @.x..2.W..M_....
-	06 9a b5 4c 07 3a 30 82 45 c8 a4 41 eb 8b 1a 28 | ...L.:0.E..A...(
-	7c 56 7d 31 84 f2 5a 42 5e 4c cd cc 8b b6 74 3a | |V}1..ZB^L....t:
-	b7 09 32 4d ff 39 59 bd fa 37 8e c2 ed 84 31 ac | ..2M.9Y..7....1.
-	37 2a 84 83 35 92 85 3d 19 f4 de 39 6b 48 90 9c | 7*..5..=...9kH..
-	d0 97 10 d8 2a 5a bb b0 e8 9a b1 94 b8 dd 64 70 | ....*Z........dp
-	f9 c7 52 51 50 8b b9 9c 3c 10 05 63 be c1 d6 de | ..RQP...<..c....
-	0c 09 10 9c 26 4b 0c c1 70 00 30 00 08 00 0b 00 | ....&K..p.0.....
-	04 04 40 00 00 00 05 00 0b 00 20 f9 c6 b0 8c de | ..@....... .....
-	9a 6c 8e 9f 4a 59 dc 1e b6 0d 40 2e 4c aa e4 5e | .l..JY....@.L..^
-	0c 76 a9 88 29 eb 07 d5 9e ed 71                | .v..).....q
+	50 4d 50 61 73 73 77 6f 72 64 00 8d 00 20 90 f2 | PMPassword... ..
+	f9 5a c5 5b 95 d3 34 61 a1 67 ff 14 ad 30 ca a5 | .Z.[..4a.g...0..
+	f8 3e c2 37 ca f6 84 e1 82 85 ca d1 a7 28 00 10 | .>.7.........(..
+	40 1a ff d4 d6 2a d2 89 6a e1 38 9e 24 76 ef 0d | @....*..j.8.$v..
+	7c 1b e6 5d 85 e0 ea 91 2f ff 12 f2 80 21 00 37 | |..]..../....!.7
+	3c ff 59 5d 90 3c e3 08 a9 43 80 40 68 2c 2c a8 | <.Y].<...C.@h,,.
+	61 ce b8 d4 ec 29 91 20 88 95 8c 48 cc 62 39 bf | a....). ...H.b9.
+	5c 89 85 a3 5d 6c 42 ed 16 1a f3 45 60 c0 a7 8a | \...]lB....E`...
+	2e 0d 22 1d ff ac af 5e 00 13 86 10 c9 d7 f9 48 | .."....^.......H
+	d4 a5 fe 67 19 ed 79 40 be 00 30 00 08 00 0b 00 | ...g..y@..0.....
+	04 04 40 00 00 00 05 00 0b 00 20 f0 a6 57 b5 55 | ..@....... ..W.U
+	bf 7f 66 66 0e 9c 51 85 c0 97 10 e7 b8 0f 36 5a | ..ff..Q.......6Z
+	f7 70 fa 68 bb 25 c5 af dd 44 3d                | .p.h.%...D=
 Response: 59
 	80 02 00 00 00 3b 00 00 00 00 80 00 00 02 00 00 | .....;..........
-	00 24 00 22 00 0b 9f b0 13 44 3c 0b 58 ff 32 fd | .$.".....D<.X.2.
-	ca 6b 4a 44 a4 a5 ef 30 02 2c a4 b0 4f 2b fd 06 | .kJD...0.,..O+..
-	9c 6e 02 ae 8f 62 00 00 01 00 00                | .n...b.....
+	00 24 00 22 00 0b cf 61 38 e3 94 d9 f2 3c 03 a0 | .$."...a8....<..
+	f8 ea 00 b6 81 5c dc 52 30 4a c2 bf 0a 48 5c fe | .....\.R0J...H\.
+	37 c4 17 91 6c bf 00 00 01 00 00                | 7...l......
 TPM2_Load New HMAC Key Handle 0x80000002
 Command: 18
 	80 01 00 00 00 12 00 00 01 6c 03 00 00 00 00 00 | .........l......
@@ -816,8 +835,8 @@ Command: 80
 	80 02 00 00 00 50 00 00 01 50 80 00 00 02 80 00 | .....P...P......
 	00 01 00 00 00 18 40 00 00 09 00 00 01 00 0f 57 | ......@........W
 	6f 6c 66 54 50 4d 50 61 73 73 77 6f 72 64 00 20 | olfTPMPassword. 
-	fe 4d aa e9 3a 7c 9a 82 99 1a df f0 42 e0 18 ec | .M..:|......B...
-	42 99 f8 6b 33 9f 8b 18 65 38 9d 67 e9 ee 53 4e | B..k3...e8.g..SN
+	99 7c 5a 3b ca 55 40 21 64 bc 30 7d 95 8a 73 5d | .|Z;.U@!d.0}..s]
+	72 97 2d f4 4d 71 8d 99 1a cc 80 87 9c 54 61 93 | r.-.Mq.......Ta.
 Response: 10
 	80 01 00 00 00 0a 00 00 09 a2                   | ..........
 TPM2_ObjectChangeAuth failed 2466: Unknown
@@ -856,20 +875,20 @@ Command: 102
 	00 00 00 00 00 00                               | ......
 Response: 428
 	80 02 00 00 01 ac 00 00 00 00 00 00 01 99 00 7e | ...............~
-	00 20 8b 33 9b fd 3e 84 10 e0 f0 c6 7d 64 01 68 | . .3..>.....}d.h
-	da 11 54 2e f5 61 5c 3c 38 df 24 59 06 1d b1 3d | ..T..a\<8.$Y...=
-	ce b1 00 10 2a f9 e3 60 89 d2 e2 f9 b4 f7 3d 18 | ....*..`......=.
-	8c a3 ea 22 dd 79 b4 a3 9c 57 ea 20 f8 37 f1 9b | ...".y...W. .7..
-	7a ce cb c1 20 e9 14 62 f7 16 aa eb c1 a0 38 ae | z... ..b......8.
-	d4 51 c2 9c 5b 41 a2 fc 66 91 99 71 7c 0c 5e 68 | .Q..[A..f..q|.^h
-	5f 2b 4c 2a 8f b1 b8 95 9a ad c8 27 d1 16 a9 f3 | _+L*.......'....
-	c0 93 ff 86 41 77 a4 c9 d8 ea 63 99 50 46 00 58 | ....Aw....c.PF.X
+	00 20 31 11 c5 a7 8d 39 0a d6 23 0d 02 8b 92 04 | . 1....9..#.....
+	5e 32 ca 09 e4 08 fe 1a b1 b3 ca 26 21 ab be fa | ^2.........&!...
+	34 9c 00 10 98 54 b2 11 8b b5 ab a0 b3 1b cf 7f | 4....T..........
+	fb 7b f1 52 0a b4 98 3e 6a 03 01 b6 73 e4 9e 00 | .{.R...>j...s...
+	49 06 d2 94 7d e3 74 19 60 c8 50 f0 04 c4 ef 11 | I...}.t.`.P.....
+	e2 e5 c4 90 f8 84 d8 09 7b 7b ce 47 3a 67 cd b4 | ........{{.G:g..
+	d7 58 df 0c 8a e6 d0 1d 0a 23 15 23 a2 aa 12 d7 | .X.......#.#....
+	25 65 cc 9c ec c5 ea 21 36 a3 d6 4a 50 b2 00 58 | %e.....!6..JP..X
 	00 23 00 0b 00 04 04 60 00 00 00 10 00 18 00 0b | .#.....`........
-	00 03 00 10 00 20 a9 98 c0 68 5d ef e2 e2 7f dc | ..... ...h].....
-	a8 a8 91 a2 c6 5e 29 93 76 dc ea f0 00 fb 1a d6 | .....^).v.......
-	5a 0c 3a 61 54 cc 00 20 5e 3c e1 72 f4 c5 94 66 | Z.:aT.. ^<.r...f
-	6c 58 f5 a6 0f 2f 2e 1d 25 a8 87 ec 5d fc 0e 51 | lX.../..%...]..Q
-	90 64 ea 63 12 9d de 32 00 73 00 00 00 00 00 20 | .d.c...2.s..... 
+	00 03 00 10 00 20 f5 8d 2a 63 6c f7 90 02 7f f3 | ..... ..*cl.....
+	3e dc a6 6b a2 91 5b 88 d9 2c 22 31 97 76 5f f7 | >..k..[..,"1.v_.
+	3e a0 c7 58 cc 2b 00 20 ae b3 7a 91 df de 03 9c | >..X.+. ..z.....
+	28 40 5b 82 19 b6 92 6f 44 9b 33 42 cc 9e 75 c9 | (@[....oD.3B..u.
+	ea 0c dd de 80 a1 3f f6 00 73 00 00 00 00 00 20 | ......?..s..... 
 	e3 b0 c4 42 98 fc 1c 14 9a fb f4 c8 99 6f b9 24 | ...B.........o.$
 	27 ae 41 e4 64 9b 93 4c a4 95 99 1b 78 52 b8 55 | '.A.d..L....xR.U
 	01 00 0b 00 22 00 0b f0 9f e1 fe 4a e8 53 30 bb | ...."......J.S0.
@@ -879,33 +898,33 @@ Response: 428
 	a7 a6 5f eb fd f4 16 58 72 bb 2c 00 00 00 20 64 | .._....Xr.,... d
 	54 1a ca b6 55 0b ed 4a 91 9d 39 fa 58 75 24 85 | T...U..J..9.Xu$.
 	1a 6e a8 0d cb 1d 4a 46 64 3c 36 1c e2 a2 97 80 | .n....JFd<6.....
-	21 40 00 00 01 00 20 02 69 45 38 f5 ae e6 89 d6 | !@.... .iE8.....
-	f1 b4 7a 6a aa 1d f4 fe 49 b5 76 77 f5 25 f9 79 | ..zj....I.vw.%.y
-	6a 0a 6b 7a 9e cd 78 00 00 01 00 00             | j.kz..x.....
+	21 40 00 00 01 00 20 9d 4d d2 5c 6d c4 8d 6e 7a | !@.... .M.\m..nz
+	62 b4 3d 17 d2 fa e1 d6 42 07 a1 24 f1 c6 57 2e | b.=.....B..$..W.
+	5e e2 d4 d6 05 fc 55 00 00 01 00 00             | ^.....U.....
 TPM2_Create: New ECDSA Key: pub 88, priv 126
 Command: 260
 	80 02 00 00 01 04 00 00 01 57 80 00 00 01 00 00 | .........W......
 	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
-	50 4d 50 61 73 73 77 6f 72 64 00 7e 00 20 8b 33 | PMPassword.~. .3
-	9b fd 3e 84 10 e0 f0 c6 7d 64 01 68 da 11 54 2e | ..>.....}d.h..T.
-	f5 61 5c 3c 38 df 24 59 06 1d b1 3d ce b1 00 10 | .a\<8.$Y...=....
-	2a f9 e3 60 89 d2 e2 f9 b4 f7 3d 18 8c a3 ea 22 | *..`......=...."
-	dd 79 b4 a3 9c 57 ea 20 f8 37 f1 9b 7a ce cb c1 | .y...W. .7..z...
-	20 e9 14 62 f7 16 aa eb c1 a0 38 ae d4 51 c2 9c |  ..b......8..Q..
-	5b 41 a2 fc 66 91 99 71 7c 0c 5e 68 5f 2b 4c 2a | [A..f..q|.^h_+L*
-	8f b1 b8 95 9a ad c8 27 d1 16 a9 f3 c0 93 ff 86 | .......'........
-	41 77 a4 c9 d8 ea 63 99 50 46 00 58 00 23 00 0b | Aw....c.PF.X.#..
+	50 4d 50 61 73 73 77 6f 72 64 00 7e 00 20 31 11 | PMPassword.~. 1.
+	c5 a7 8d 39 0a d6 23 0d 02 8b 92 04 5e 32 ca 09 | ...9..#.....^2..
+	e4 08 fe 1a b1 b3 ca 26 21 ab be fa 34 9c 00 10 | .......&!...4...
+	98 54 b2 11 8b b5 ab a0 b3 1b cf 7f fb 7b f1 52 | .T...........{.R
+	0a b4 98 3e 6a 03 01 b6 73 e4 9e 00 49 06 d2 94 | ...>j...s...I...
+	7d e3 74 19 60 c8 50 f0 04 c4 ef 11 e2 e5 c4 90 | }.t.`.P.........
+	f8 84 d8 09 7b 7b ce 47 3a 67 cd b4 d7 58 df 0c | ....{{.G:g...X..
+	8a e6 d0 1d 0a 23 15 23 a2 aa 12 d7 25 65 cc 9c | .....#.#....%e..
+	ec c5 ea 21 36 a3 d6 4a 50 b2 00 58 00 23 00 0b | ...!6..JP..X.#..
 	00 04 04 60 00 00 00 10 00 18 00 0b 00 03 00 10 | ...`............
-	00 20 a9 98 c0 68 5d ef e2 e2 7f dc a8 a8 91 a2 | . ...h].........
-	c6 5e 29 93 76 dc ea f0 00 fb 1a d6 5a 0c 3a 61 | .^).v.......Z.:a
-	54 cc 00 20 5e 3c e1 72 f4 c5 94 66 6c 58 f5 a6 | T.. ^<.r...flX..
-	0f 2f 2e 1d 25 a8 87 ec 5d fc 0e 51 90 64 ea 63 | ./..%...]..Q.d.c
-	12 9d de 32                                     | ...2
+	00 20 f5 8d 2a 63 6c f7 90 02 7f f3 3e dc a6 6b | . ..*cl.....>..k
+	a2 91 5b 88 d9 2c 22 31 97 76 5f f7 3e a0 c7 58 | ..[..,"1.v_.>..X
+	cc 2b 00 20 ae b3 7a 91 df de 03 9c 28 40 5b 82 | .+. ..z.....(@[.
+	19 b6 92 6f 44 9b 33 42 cc 9e 75 c9 ea 0c dd de | ...oD.3B..u.....
+	80 a1 3f f6                                     | ..?.
 Response: 59
 	80 02 00 00 00 3b 00 00 00 00 80 00 00 02 00 00 | .....;..........
-	00 24 00 22 00 0b 3e 37 c7 36 da 23 25 57 62 a3 | .$."..>7.6.#%Wb.
-	05 cb fc 5b 5d 6e 1d 7d 72 f0 86 d2 6c ca 14 f8 | ...[]n.}r...l...
-	82 78 bd cc 70 40 00 00 01 00 00                | .x..p@.....
+	00 24 00 22 00 0b 17 c8 e9 b5 79 6e 93 e0 d7 e1 | .$."......yn....
+	d4 22 20 7e 36 8e 70 6e 36 ca 06 f7 47 ba 50 07 | ." ~6.pn6...G.P.
+	51 f9 72 50 10 ac 00 00 01 00 00                | Q.rP.......
 TPM2_Load ECDSA Key Handle 0x80000002
 Command: 95
 	80 02 00 00 00 5f 00 00 01 5d 80 00 00 02 00 00 | ....._...]......
@@ -916,26 +935,26 @@ Command: 95
 	11 11 11 00 18 00 0b 80 24 40 00 00 07 00 00    | ........$@.....
 Response: 91
 	80 02 00 00 00 5b 00 00 00 00 00 00 00 48 00 18 | .....[.......H..
-	00 0b 00 20 48 1d 96 e0 05 0f bc 27 06 68 87 6e | ... H......'.h.n
-	fc 85 ea 2c e9 c9 3f e9 de 69 df f2 67 6c 1d 6c | ...,..?..i..gl.l
-	9c 46 cd 23 00 20 f3 1c 0e b1 ff 95 0f 76 f1 df | .F.#. .......v..
-	a1 49 8e f6 99 9a 9e 8c 20 bd 62 77 15 57 6c 4e | .I...... .bw.WlN
-	f4 75 ef 57 17 92 00 00 01 00 00                | .u.W.......
+	00 0b 00 20 b8 0a 0a 58 64 1d dc a7 6f d3 23 81 | ... ...Xd...o.#.
+	69 d2 46 ad 4f 78 31 8f 54 78 93 83 c3 8d 46 f5 | i.F.Ox1.Tx....F.
+	28 68 93 1e 00 20 53 a5 47 da 60 ba 2c ce f7 31 | (h... S.G.`.,..1
+	4e 18 47 0f 1d 67 c9 79 c0 8a 59 a0 92 6e 82 e5 | N.G..g.y..Y..n..
+	33 41 37 53 8a a3 00 00 01 00 00                | 3A7S.......
 TPM2_Sign: ECC S 32, R 32
 Command: 120
 	80 01 00 00 00 78 00 00 01 77 80 00 00 02 00 20 | .....x...w..... 
 	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
 	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
-	00 18 00 0b 00 20 48 1d 96 e0 05 0f bc 27 06 68 | ..... H......'.h
-	87 6e fc 85 ea 2c e9 c9 3f e9 de 69 df f2 67 6c | .n...,..?..i..gl
-	1d 6c 9c 46 cd 23 00 20 f3 1c 0e b1 ff 95 0f 76 | .l.F.#. .......v
-	f1 df a1 49 8e f6 99 9a 9e 8c 20 bd 62 77 15 57 | ...I...... .bw.W
-	6c 4e f4 75 ef 57 17 92                         | lN.u.W..
+	00 18 00 0b 00 20 b8 0a 0a 58 64 1d dc a7 6f d3 | ..... ...Xd...o.
+	23 81 69 d2 46 ad 4f 78 31 8f 54 78 93 83 c3 8d | #.i.F.Ox1.Tx....
+	46 f5 28 68 93 1e 00 20 53 a5 47 da 60 ba 2c ce | F.(h... S.G.`.,.
+	f7 31 4e 18 47 0f 1d 67 c9 79 c0 8a 59 a0 92 6e | .1N.G..g.y..Y..n
+	82 e5 33 41 37 53 8a a3                         | ..3A7S..
 Response: 50
 	80 01 00 00 00 32 00 00 00 00 80 22 40 00 00 01 | .....2....."@...
-	00 20 3d f6 f0 73 fe a3 80 d1 88 e5 0c 39 41 21 | . =..s.......9A!
-	fb 33 39 46 86 01 e9 25 37 9f e9 1c c2 a4 cc 0d | .39F...%7.......
-	dc af                                           | ..
+	00 20 61 25 0c 6c dc 28 08 79 27 18 bd 10 30 1d | . a%.l.(.y'...0.
+	9c 72 d2 80 e5 8c ef 35 40 80 bb e8 1c fe d8 06 | .r.....5@.......
+	24 ff                                           | $.
 TPM2_VerifySignature: Tag 32802
 Command: 14
 	80 01 00 00 00 0e 00 00 01 65 80 00 00 02       | .........e....
@@ -952,20 +971,20 @@ Command: 102
 	00 00 00 00 00 00                               | ......
 Response: 428
 	80 02 00 00 01 ac 00 00 00 00 00 00 01 99 00 7e | ...............~
-	00 20 81 9d 3c bc f8 92 06 64 4e f9 8a 32 66 b6 | . ..<....dN..2f.
-	fe 2e bf eb 04 51 97 95 c0 1d 04 be 16 8d 2c 9d | .....Q........,.
-	22 86 00 10 e8 f1 8e 1f e5 74 54 21 50 dd b8 57 | "........tT!P..W
-	6c 49 6f 69 33 a1 83 8d 70 03 65 ab fa 78 a7 b7 | lIoi3...p.e..x..
-	4f 76 46 90 37 6b 52 14 ba 7b 0d bc c4 99 88 71 | OvF.7kR..{.....q
-	a8 25 3a c2 80 b1 3b 04 41 cb 7e 4b 28 36 60 8e | .%:...;.A.~K(6`.
-	f1 1c 7c f9 cd 7d c7 dd 8c d3 18 66 62 93 ce 73 | ..|..}.....fb..s
-	45 9f e1 7f ca f9 68 0e c3 40 0a 2b 4f ff 00 58 | E.....h..@.+O..X
+	00 20 34 d5 b5 26 49 fd 5f c7 fc cc 1f 93 f3 bc | . 4..&I._.......
+	9b 23 52 9b 66 8f 77 a8 3d d4 81 e0 10 51 63 ef | .#R.f.w.=....Qc.
+	90 94 00 10 94 75 d9 b8 f2 80 15 c7 6c ec 8e 45 | .....u......l..E
+	f9 47 07 74 ab 17 07 32 fa 0d 98 79 5a ef e1 24 | .G.t...2...yZ..$
+	35 90 eb e9 c4 00 52 af 0d c1 62 36 6d 7d b7 fb | 5.....R...b6m}..
+	18 e4 c6 27 5c 73 84 f9 f5 ba 69 01 81 aa 35 4f | ...'\s....i...5O
+	e7 b3 83 ac fb 0c 0c f9 c8 11 f7 06 c1 d1 60 c8 | ..............`.
+	47 cc ab 10 0e c5 54 8f 33 0d 41 dd 3f a4 00 58 | G.....T.3.A.?..X
 	00 23 00 0b 00 02 04 60 00 00 00 10 00 19 00 0b | .#.....`........
-	00 03 00 10 00 20 8a a6 ec 25 f9 48 b3 78 d1 de | ..... ...%.H.x..
-	6d 34 5f 60 3a ec 20 1d 64 10 fd 10 33 7a 29 db | m4_`:. .d...3z).
-	00 28 1e d1 83 0a 00 20 f8 b6 6f cd e7 43 38 f5 | .(..... ..o..C8.
-	e8 97 99 e6 2e 60 40 11 69 db 02 d2 ff 95 1e 20 | .....`@.i...... 
-	3e ea 4a 95 12 0f c7 31 00 73 00 00 00 00 00 20 | >.J....1.s..... 
+	00 03 00 10 00 20 8f dc e5 9c 54 95 59 54 31 30 | ..... ....T.YT10
+	4e d5 e9 e0 6c c6 b4 2b ed 2a b4 85 2a d7 a5 bf | N...l..+.*..*...
+	da 2a b8 2b 64 93 00 20 e9 71 60 49 e2 7c 32 8c | .*.+d.. .q`I.|2.
+	2d 21 52 0d 22 ee 3b 39 9d 22 3f 3e 4a 0e 7f ac | -!R.".;9."?>J...
+	db 0f 5f ea f2 2f 44 f3 00 73 00 00 00 00 00 20 | .._../D..s..... 
 	e3 b0 c4 42 98 fc 1c 14 9a fb f4 c8 99 6f b9 24 | ...B.........o.$
 	27 ae 41 e4 64 9b 93 4c a4 95 99 1b 78 52 b8 55 | '.A.d..L....xR.U
 	01 00 0b 00 22 00 0b f0 9f e1 fe 4a e8 53 30 bb | ...."......J.S0.
@@ -975,104 +994,229 @@ Response: 428
 	a7 a6 5f eb fd f4 16 58 72 bb 2c 00 00 00 20 64 | .._....Xr.,... d
 	54 1a ca b6 55 0b ed 4a 91 9d 39 fa 58 75 24 85 | T...U..J..9.Xu$.
 	1a 6e a8 0d cb 1d 4a 46 64 3c 36 1c e2 a2 97 80 | .n....JFd<6.....
-	21 40 00 00 01 00 20 3a ca 69 16 69 37 42 82 42 | !@.... :.i.i7B.B
-	95 bf cd 7e 6e f0 c4 49 4b 1f 2e a1 3a 95 87 85 | ...~n..IK...:...
-	e6 f5 ef 67 6e ec cf 00 00 01 00 00             | ...gn.......
+	21 40 00 00 01 00 20 30 ea f6 1c c3 2c e0 4d 85 | !@.... 0....,.M.
+	f1 55 33 d3 cf 24 d8 7b 5b 4b 92 62 98 5c b7 89 | .U3..$.{[K.b.\..
+	41 cb 0e d1 18 21 f9 00 00 01 00 00             | A....!......
 TPM2_Create: New ECDH Key: pub 88, priv 126
 Command: 260
 	80 02 00 00 01 04 00 00 01 57 80 00 00 01 00 00 | .........W......
 	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
-	50 4d 50 61 73 73 77 6f 72 64 00 7e 00 20 81 9d | PMPassword.~. ..
-	3c bc f8 92 06 64 4e f9 8a 32 66 b6 fe 2e bf eb | <....dN..2f.....
-	04 51 97 95 c0 1d 04 be 16 8d 2c 9d 22 86 00 10 | .Q........,."...
-	e8 f1 8e 1f e5 74 54 21 50 dd b8 57 6c 49 6f 69 | .....tT!P..WlIoi
-	33 a1 83 8d 70 03 65 ab fa 78 a7 b7 4f 76 46 90 | 3...p.e..x..OvF.
-	37 6b 52 14 ba 7b 0d bc c4 99 88 71 a8 25 3a c2 | 7kR..{.....q.%:.
-	80 b1 3b 04 41 cb 7e 4b 28 36 60 8e f1 1c 7c f9 | ..;.A.~K(6`...|.
-	cd 7d c7 dd 8c d3 18 66 62 93 ce 73 45 9f e1 7f | .}.....fb..sE...
-	ca f9 68 0e c3 40 0a 2b 4f ff 00 58 00 23 00 0b | ..h..@.+O..X.#..
+	50 4d 50 61 73 73 77 6f 72 64 00 7e 00 20 34 d5 | PMPassword.~. 4.
+	b5 26 49 fd 5f c7 fc cc 1f 93 f3 bc 9b 23 52 9b | .&I._........#R.
+	66 8f 77 a8 3d d4 81 e0 10 51 63 ef 90 94 00 10 | f.w.=....Qc.....
+	94 75 d9 b8 f2 80 15 c7 6c ec 8e 45 f9 47 07 74 | .u......l..E.G.t
+	ab 17 07 32 fa 0d 98 79 5a ef e1 24 35 90 eb e9 | ...2...yZ..$5...
+	c4 00 52 af 0d c1 62 36 6d 7d b7 fb 18 e4 c6 27 | ..R...b6m}.....'
+	5c 73 84 f9 f5 ba 69 01 81 aa 35 4f e7 b3 83 ac | \s....i...5O....
+	fb 0c 0c f9 c8 11 f7 06 c1 d1 60 c8 47 cc ab 10 | ..........`.G...
+	0e c5 54 8f 33 0d 41 dd 3f a4 00 58 00 23 00 0b | ..T.3.A.?..X.#..
 	00 02 04 60 00 00 00 10 00 19 00 0b 00 03 00 10 | ...`............
-	00 20 8a a6 ec 25 f9 48 b3 78 d1 de 6d 34 5f 60 | . ...%.H.x..m4_`
-	3a ec 20 1d 64 10 fd 10 33 7a 29 db 00 28 1e d1 | :. .d...3z)..(..
-	83 0a 00 20 f8 b6 6f cd e7 43 38 f5 e8 97 99 e6 | ... ..o..C8.....
-	2e 60 40 11 69 db 02 d2 ff 95 1e 20 3e ea 4a 95 | .`@.i...... >.J.
-	12 0f c7 31                                     | ...1
+	00 20 8f dc e5 9c 54 95 59 54 31 30 4e d5 e9 e0 | . ....T.YT10N...
+	6c c6 b4 2b ed 2a b4 85 2a d7 a5 bf da 2a b8 2b | l..+.*..*....*.+
+	64 93 00 20 e9 71 60 49 e2 7c 32 8c 2d 21 52 0d | d.. .q`I.|2.-!R.
+	22 ee 3b 39 9d 22 3f 3e 4a 0e 7f ac db 0f 5f ea | ".;9."?>J....._.
+	f2 2f 44 f3                                     | ./D.
 Response: 59
 	80 02 00 00 00 3b 00 00 00 00 80 00 00 02 00 00 | .....;..........
-	00 24 00 22 00 0b c3 f3 12 21 ac 15 1a 87 eb ab | .$.".....!......
-	7f 3e 37 60 3f b5 39 53 1a b4 17 fc a9 d0 c2 6e | .>7`?.9S.......n
-	cc c6 75 0d bd d0 00 00 01 00 00                | ..u........
+	00 24 00 22 00 0b 49 23 5e e2 1e 35 fd cc 79 61 | .$."..I#^..5..ya
+	cc 26 12 25 52 72 47 47 cf 8c 3d db ca 67 e7 db | .&.%RrGG..=..g..
+	5d ba 6b c4 b7 c7 00 00 01 00 00                | ].k........
 TPM2_Load ECDH Key Handle 0x80000002
 Command: 14
 	80 01 00 00 00 0e 00 00 01 63 80 00 00 02       | .........c....
 Response: 150
-	80 01 00 00 00 96 00 00 00 00 00 44 00 20 e6 d5 | ...........D. ..
-	bb 9d 7b c6 cf c8 72 f1 f3 1e 87 e8 95 4c 35 59 | ..{...r......L5Y
-	bb 61 d6 0a 13 8a 33 8c ce 8b 4d 70 d3 e1 00 20 | .a....3...Mp... 
-	e0 d6 62 05 62 bd 7f da 8c 89 e5 2f be 06 7b 1c | ..b.b....../..{.
-	d0 20 81 99 eb 6a 12 5d 03 c8 aa 2c 33 46 24 70 | . ...j.]...,3F$p
-	00 44 00 20 92 17 80 68 4f 7e ba 09 b8 42 03 5c | .D. ...hO~...B.\
-	d5 7d eb a8 1c be 1f b7 4b 14 0c 78 8b d9 23 d3 | .}......K..x..#.
-	69 9c c6 71 00 20 52 5c 8a 57 4d 90 d8 82 23 b5 | i..q. R\.WM...#.
-	8b 63 db bb 18 9a d3 34 d5 0c ae 71 d8 14 51 94 | .c.....4...q..Q.
-	a9 03 c2 21 1c 4c                               | ...!.L
+	80 01 00 00 00 96 00 00 00 00 00 44 00 20 7c 9c | ...........D. |.
+	f1 26 ed 10 5f 18 d0 2b 3b ec 37 90 b2 3c 29 e7 | .&.._..+;.7..<).
+	cb ad 98 ab ba 28 ed bb 0c b9 7e e0 2e 6b 00 20 | .....(....~..k. 
+	90 cf 2c fd 96 d8 f4 b7 5b c0 db ce f8 93 5f 6d | ..,.....[....._m
+	d2 0c e6 c4 8b 68 6e 6f 5c ed d6 2b ee 76 24 a9 | .....hno\..+.v$.
+	00 44 00 20 c9 d8 42 ca 9b e7 f5 03 8a 5e 3b c4 | .D. ..B......^;.
+	f7 89 50 c6 a7 92 f3 f5 f6 9a d1 f6 ca d7 c9 43 | ..P............C
+	95 1e b7 c8 00 20 88 5c 56 31 4f e1 8f ee 50 a7 | ..... .\V1O...P.
+	6c c6 79 60 c8 fe 5a 48 3f 3a ff 0a 26 17 33 bb | l.y`..ZH?:..&.3.
+	48 47 ea 1e ba fc                               | HG....
 TPM2_ECDH_KeyGen: zPt 68, pubPt 68
 Command: 14
 	80 01 00 00 00 0e 00 00 01 65 80 00 00 02       | .........e....
 Response: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
 TPM2_FlushContext: Closed handle 0x80000002
+Command: 387
+	80 02 00 00 01 83 00 00 01 53 80 00 00 01 00 00 | .........S......
+	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
+	50 4d 50 61 73 73 77 6f 72 64 00 1a 00 16 54 68 | PMPassword....Th
+	69 73 49 73 41 53 65 63 72 65 74 55 73 61 67 65 | isIsASecretUsage
+	41 75 74 68 00 00 01 16 00 01 00 0b 00 06 04 60 | Auth...........`
+	00 00 00 10 00 10 08 00 00 00 00 00 01 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
+	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 1f | ................
+	52 61 6e 64 6f 6d 53 65 72 76 65 72 50 69 63 6b | RandomServerPick
+	65 64 43 72 65 61 74 69 6f 6e 4e 6f 6e 63 65 00 | edCreationNonce.
+	00 00 00                                        | ...
+Response: 745
+	80 02 00 00 02 e9 00 00 00 00 00 00 02 d6 00 de | ................
+	00 20 ac a7 27 ec 19 da 89 0c 36 97 11 d7 e2 26 | . ..'.....6....&
+	e3 16 2f 43 09 9e 50 51 11 48 3b a0 7c 86 25 83 | ../C..PQ.H;.|.%.
+	2e 2f 00 10 56 92 c8 a9 9a ac c0 7e ff 66 cb 98 | ./..V......~.f..
+	4b 9c 23 0e a5 7d 9d f8 4c 67 09 02 66 b6 af 0e | K.#..}..Lg..f...
+	01 19 98 b8 7a a6 53 c0 62 1e 3d d5 c8 a4 4d 34 | ....z.S.b.=...M4
+	19 a8 5b 50 10 f6 ae 67 4d 93 d3 07 6b 48 a0 72 | ..[P...gM...kH.r
+	6f 92 81 64 a6 71 a9 8e 40 c3 c8 3f f8 68 0b d1 | o..d.q..@..?.h..
+	8e 7d e6 42 bb c5 74 fc 41 d3 15 c2 8a fe 43 31 | .}.B..t.A.....C1
+	e1 a9 80 4a f4 49 85 aa 5c 49 06 af cc 34 ea 62 | ...J.I..\I...4.b
+	a8 31 fd 9d 49 07 d4 ea 8f 65 d6 b2 a1 10 ff 68 | .1..I....e.....h
+	f7 bf d6 7b 67 71 78 1f 35 20 5f a6 70 2e ff 47 | ...{gqx.5 _.p..G
+	59 7a 0c 5b 65 99 2d 6a 4a e5 6a bf eb ec dc 3a | Yz.[e.-jJ.j....:
+	a5 a2 ce 0d 1b 7c b5 cf 4f b4 12 2c c8 cd 34 6a | .....|..O..,..4j
+	08 3e a6 c0 af a2 0b 31 16 fd 1a dd dc a5 01 16 | .>.....1........
+	00 01 00 0b 00 06 04 60 00 00 00 10 00 10 08 00 | .......`........
+	00 00 00 00 01 00 9f fc 1e df df cf c4 6e d0 ec | .............n..
+	08 42 c4 af 12 05 f1 a3 3e 30 1d df 7b 5b 95 29 | .B......>0..{[.)
+	eb 9b e5 47 4e f7 37 44 e2 2a c7 c8 4c 73 be e2 | ...GN.7D.*..Ls..
+	10 25 9b de e4 07 d7 b9 14 fa 56 0d 6d 90 cc f2 | .%........V.m...
+	74 8b f2 c6 e1 b0 53 5f 86 ff 42 34 f9 55 dd 58 | t.....S_..B4.U.X
+	c0 81 91 29 cf b0 23 91 df 04 a7 10 3d 6e 2a 72 | ...)..#.....=n*r
+	55 85 e9 77 60 e8 ef 1b 4d 37 56 2a 39 25 cd d2 | U..w`...M7V*9%..
+	1e 92 37 41 1b 78 c0 45 2e bd 24 3a 2c af 82 33 | ..7A.x.E..$:,..3
+	70 bf 47 7e a5 ca ee 0a 8f ee bc 61 1b 63 2c e5 | p.G~.......a.c,.
+	7d 3c e3 ce cb 06 c7 7e ed 8e af be bb ef 86 51 | }<.....~.......Q
+	0c b3 c5 d1 27 dd 66 97 8e 54 79 36 07 1a c9 84 | ....'.f..Ty6....
+	79 2a 79 f5 25 ea a6 30 8f e2 19 fa a8 2b d5 9a | y*y.%..0.....+..
+	6b be 7d b5 c9 93 20 ff 37 dd 56 28 e2 08 7a 93 | k.}... .7.V(..z.
+	37 7c 3b 88 33 9f 9b 00 38 7e 34 ab 7b bd 67 0d | 7|;.3...8~4.{.g.
+	ec 94 a3 7d 32 a6 a2 22 f3 ed 98 c6 1a c6 43 28 | ...}2.."......C(
+	d8 2b e4 2f 95 5d dd 59 75 7c 8b 26 14 23 c1 4d | .+./.].Yu|.&.#.M
+	8a 0d c4 30 d2 37 00 92 00 00 00 00 00 20 e3 b0 | ...0.7....... ..
+	c4 42 98 fc 1c 14 9a fb f4 c8 99 6f b9 24 27 ae | .B.........o.$'.
+	41 e4 64 9b 93 4c a4 95 99 1b 78 52 b8 55 01 00 | A.d..L....xR.U..
+	0b 00 22 00 0b f0 9f e1 fe 4a e8 53 30 bb 0b 63 | .."......J.S0..c
+	ee 99 d6 5d 00 29 b1 62 ce 1c 48 5e 59 43 4e dc | ...].).b..H^YCN.
+	cb e4 e8 56 d6 00 22 00 0b 0b f1 54 5c e9 91 21 | ...V.."....T\..!
+	36 1d cd 5a 13 bf 43 d0 6a 4b 30 56 05 91 a7 a6 | 6..Z..C.jK0V....
+	5f eb fd f4 16 58 72 bb 2c 00 1f 52 61 6e 64 6f | _....Xr.,..Rando
+	6d 53 65 72 76 65 72 50 69 63 6b 65 64 43 72 65 | mServerPickedCre
+	61 74 69 6f 6e 4e 6f 6e 63 65 00 20 84 3d 7a ee | ationNonce. .=z.
+	9a 4e 1d 62 18 1c f8 1f bb 23 30 96 79 9c 68 40 | .N.b.....#0.y.h@
+	fa 77 27 96 0f a0 56 bd b6 b3 84 f9 80 21 40 00 | .w'...V......!@.
+	00 01 00 20 40 30 07 d8 b3 66 7d 35 a9 e4 12 e4 | ... @0...f}5....
+	3d e6 3b 91 c3 97 b8 ad a9 f7 f6 a7 bf 7d f7 2f | =.;..........}./
+	24 7d e2 3b 00 00 01 00 00                      | $}.;.....
+TPM2_Create: New RSA Key: pub 278, priv 222
+Command: 546
+	80 02 00 00 02 22 00 00 01 57 80 00 00 01 00 00 | ....."...W......
+	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
+	50 4d 50 61 73 73 77 6f 72 64 00 de 00 20 ac a7 | PMPassword... ..
+	27 ec 19 da 89 0c 36 97 11 d7 e2 26 e3 16 2f 43 | '.....6....&../C
+	09 9e 50 51 11 48 3b a0 7c 86 25 83 2e 2f 00 10 | ..PQ.H;.|.%../..
+	56 92 c8 a9 9a ac c0 7e ff 66 cb 98 4b 9c 23 0e | V......~.f..K.#.
+	a5 7d 9d f8 4c 67 09 02 66 b6 af 0e 01 19 98 b8 | .}..Lg..f.......
+	7a a6 53 c0 62 1e 3d d5 c8 a4 4d 34 19 a8 5b 50 | z.S.b.=...M4..[P
+	10 f6 ae 67 4d 93 d3 07 6b 48 a0 72 6f 92 81 64 | ...gM...kH.ro..d
+	a6 71 a9 8e 40 c3 c8 3f f8 68 0b d1 8e 7d e6 42 | .q..@..?.h...}.B
+	bb c5 74 fc 41 d3 15 c2 8a fe 43 31 e1 a9 80 4a | ..t.A.....C1...J
+	f4 49 85 aa 5c 49 06 af cc 34 ea 62 a8 31 fd 9d | .I..\I...4.b.1..
+	49 07 d4 ea 8f 65 d6 b2 a1 10 ff 68 f7 bf d6 7b | I....e.....h...{
+	67 71 78 1f 35 20 5f a6 70 2e ff 47 59 7a 0c 5b | gqx.5 _.p..GYz.[
+	65 99 2d 6a 4a e5 6a bf eb ec dc 3a a5 a2 ce 0d | e.-jJ.j....:....
+	1b 7c b5 cf 4f b4 12 2c c8 cd 34 6a 08 3e a6 c0 | .|..O..,..4j.>..
+	af a2 0b 31 16 fd 1a dd dc a5 01 16 00 01 00 0b | ...1............
+	00 06 04 60 00 00 00 10 00 10 08 00 00 00 00 00 | ...`............
+	01 00 9f fc 1e df df cf c4 6e d0 ec 08 42 c4 af | .........n...B..
+	12 05 f1 a3 3e 30 1d df 7b 5b 95 29 eb 9b e5 47 | ....>0..{[.)...G
+	4e f7 37 44 e2 2a c7 c8 4c 73 be e2 10 25 9b de | N.7D.*..Ls...%..
+	e4 07 d7 b9 14 fa 56 0d 6d 90 cc f2 74 8b f2 c6 | ......V.m...t...
+	e1 b0 53 5f 86 ff 42 34 f9 55 dd 58 c0 81 91 29 | ..S_..B4.U.X...)
+	cf b0 23 91 df 04 a7 10 3d 6e 2a 72 55 85 e9 77 | ..#.....=n*rU..w
+	60 e8 ef 1b 4d 37 56 2a 39 25 cd d2 1e 92 37 41 | `...M7V*9%....7A
+	1b 78 c0 45 2e bd 24 3a 2c af 82 33 70 bf 47 7e | .x.E..$:,..3p.G~
+	a5 ca ee 0a 8f ee bc 61 1b 63 2c e5 7d 3c e3 ce | .......a.c,.}<..
+	cb 06 c7 7e ed 8e af be bb ef 86 51 0c b3 c5 d1 | ...~.......Q....
+	27 dd 66 97 8e 54 79 36 07 1a c9 84 79 2a 79 f5 | '.f..Ty6....y*y.
+	25 ea a6 30 8f e2 19 fa a8 2b d5 9a 6b be 7d b5 | %..0.....+..k.}.
+	c9 93 20 ff 37 dd 56 28 e2 08 7a 93 37 7c 3b 88 | .. .7.V(..z.7|;.
+	33 9f 9b 00 38 7e 34 ab 7b bd 67 0d ec 94 a3 7d | 3...8~4.{.g....}
+	32 a6 a2 22 f3 ed 98 c6 1a c6 43 28 d8 2b e4 2f | 2.."......C(.+./
+	95 5d dd 59 75 7c 8b 26 14 23 c1 4d 8a 0d c4 30 | .].Yu|.&.#.M...0
+	d2 37                                           | .7
+Response: 59
+	80 02 00 00 00 3b 00 00 00 00 80 00 00 02 00 00 | .....;..........
+	00 24 00 22 00 0b e4 4c 50 33 f4 16 e3 52 39 e2 | .$."...LP3...R9.
+	1f 37 aa 03 e6 4b 0a 4a 2c a6 78 5d 35 ae e8 00 | .7...K.J,.x]5...
+	c3 ba 58 52 15 91 00 00 01 00 00                | ..XR.......
+TPM2_Load RSA Key Handle 0x80000002
 Command: 68
-	80 01 00 00 00 44 00 00 01 74 80 00 00 01 00 20 | .....D...t..... 
+	80 01 00 00 00 44 00 00 01 74 80 00 00 02 00 20 | .....D...t..... 
 	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
 	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
 	00 17 00 0b 00 0e 54 68 69 73 49 73 4d 79 4c 61 | ......ThisIsMyLa
 	62 65 6c 00                                     | bel.
 Response: 268
-	80 01 00 00 01 0c 00 00 00 00 01 00 9b c5 dc a2 | ................
-	93 4a 1b 2b 33 c4 7b d0 75 68 3e b4 02 f2 e4 76 | .J.+3.{.uh>....v
-	51 3d 4f 51 d5 85 92 7b c3 56 09 25 3c 74 7f 54 | Q=OQ...{.V.%<t.T
-	ae dc 08 5d 09 53 27 dc 3e 65 b4 95 0a a1 00 bf | ...].S'.>e......
-	be f3 f3 49 8e 44 64 f7 87 27 ee bf 4f 4a a4 21 | ...I.Dd..'..OJ.!
-	cb 57 db 1c db d1 97 f9 7f c7 46 fd 87 43 1c 10 | .W........F..C..
-	53 37 0c d6 c2 17 3f ad be a7 be e6 25 ff 07 37 | S7....?.....%..7
-	b6 78 34 43 9b 63 ae 76 d5 d0 d8 78 76 8c 12 44 | .x4C.c.v...xv..D
-	4b 73 4b e1 39 ed 31 84 e3 d7 ba 1a 74 c9 c4 3b | KsK.9.1.....t..;
-	48 eb 25 37 2b 07 10 9f 7e af ff a5 e4 0d 39 c9 | H.%7+...~.....9.
-	8e 54 0c 2d 45 e2 ab 1c 9c e3 55 70 2f 4c df df | .T.-E.....Up/L..
-	86 c1 5f b9 cd 14 32 7b fc 61 f5 9e b6 d9 53 92 | .._...2{.a....S.
-	e5 8a 09 9f af 56 fc 56 9a 6f bb f1 31 05 a5 a2 | .....V.V.o..1...
-	cd d6 e2 22 b0 0d fd d0 0e 43 64 df f8 00 5b a4 | ...".....Cd...[.
-	ba ab 51 3b e5 4b 23 51 86 77 3b 55 80 37 09 51 | ..Q;.K#Q.w;U.7.Q
-	01 bf 8e aa 4e c9 8f 97 0e 00 c0 c4 8c 5e f7 c2 | ....N........^..
-	a6 c6 1b 21 85 b9 17 ae 39 bf 04 0a             | ...!....9...
+	80 01 00 00 01 0c 00 00 00 00 01 00 95 72 7b 5d | .............r{]
+	29 80 59 21 0d c3 6b d4 65 a8 a2 07 4b 2a d6 26 | ).Y!..k.e...K*.&
+	bd 26 b4 22 17 cb 3d ac 11 44 ee b5 df 5a bc 82 | .&."..=..D...Z..
+	1c 49 9e 77 05 14 5c 61 a5 4a 26 76 80 42 3d b7 | .I.w..\a.J&v.B=.
+	ac 5f 5d 0a 7b 3d a7 4e 37 30 84 5c 9d 56 2d 09 | ._].{=.N70.\.V-.
+	4b 60 a1 62 06 ff d0 7e 36 f1 52 e1 ee 46 bb 26 | K`.b...~6.R..F.&
+	d1 08 67 9d 2d 4e 0b e5 d4 8e bb 51 53 49 23 0f | ..g.-N.....QSI#.
+	d2 8d 02 44 b3 b7 97 29 31 9c 34 66 a8 68 ac d3 | ...D...)1.4f.h..
+	7c ad af 58 6b 62 4d d3 8c a8 7f 8c 2b da 81 e6 | |..XkbM.....+...
+	24 08 a5 4b b0 4c 20 70 b2 c0 20 41 86 b9 5f 6e | $..K.L p.. A.._n
+	d8 b5 2d 91 7c 6a 3b a5 ff 7a 9d 13 d9 78 91 46 | ..-.|j;..z...x.F
+	84 36 2e 7b 21 a5 65 9d b4 d1 3b a9 04 d3 fe dd | .6.{!.e...;.....
+	d5 ce 71 bd ff 1c 6c c9 d3 50 52 e0 3e 69 da 61 | ..q...l..PR.>i.a
+	44 a2 9f 7e c2 25 1b 09 dd 0a 1f 57 c0 5b b8 ea | D..~.%.....W.[..
+	ca 1e 40 ca 0c 13 1c 3c 9d 24 5a 07 57 98 e6 1f | ..@....<.$Z.W...
+	bd b3 33 b0 f3 66 99 2e cb 51 24 46 09 7c a6 a8 | ..3..f...Q$F.|..
+	2a 98 3f 49 73 82 1e d8 1c bc bb ef             | *.?Is.......
 TPM2_RSA_Encrypt: 256
-Command: 320
-	80 02 00 00 01 40 00 00 01 59 80 00 00 01 00 00 | .....@...Y......
-	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
-	50 4d 50 61 73 73 77 6f 72 64 01 00 9b c5 dc a2 | PMPassword......
-	93 4a 1b 2b 33 c4 7b d0 75 68 3e b4 02 f2 e4 76 | .J.+3.{.uh>....v
-	51 3d 4f 51 d5 85 92 7b c3 56 09 25 3c 74 7f 54 | Q=OQ...{.V.%<t.T
-	ae dc 08 5d 09 53 27 dc 3e 65 b4 95 0a a1 00 bf | ...].S'.>e......
-	be f3 f3 49 8e 44 64 f7 87 27 ee bf 4f 4a a4 21 | ...I.Dd..'..OJ.!
-	cb 57 db 1c db d1 97 f9 7f c7 46 fd 87 43 1c 10 | .W........F..C..
-	53 37 0c d6 c2 17 3f ad be a7 be e6 25 ff 07 37 | S7....?.....%..7
-	b6 78 34 43 9b 63 ae 76 d5 d0 d8 78 76 8c 12 44 | .x4C.c.v...xv..D
-	4b 73 4b e1 39 ed 31 84 e3 d7 ba 1a 74 c9 c4 3b | KsK.9.1.....t..;
-	48 eb 25 37 2b 07 10 9f 7e af ff a5 e4 0d 39 c9 | H.%7+...~.....9.
-	8e 54 0c 2d 45 e2 ab 1c 9c e3 55 70 2f 4c df df | .T.-E.....Up/L..
-	86 c1 5f b9 cd 14 32 7b fc 61 f5 9e b6 d9 53 92 | .._...2{.a....S.
-	e5 8a 09 9f af 56 fc 56 9a 6f bb f1 31 05 a5 a2 | .....V.V.o..1...
-	cd d6 e2 22 b0 0d fd d0 0e 43 64 df f8 00 5b a4 | ...".....Cd...[.
-	ba ab 51 3b e5 4b 23 51 86 77 3b 55 80 37 09 51 | ..Q;.K#Q.w;U.7.Q
-	01 bf 8e aa 4e c9 8f 97 0e 00 c0 c4 8c 5e f7 c2 | ....N........^..
-	a6 c6 1b 21 85 b9 17 ae 39 bf 04 0a 00 17 00 0b | ...!....9.......
-	00 0e 54 68 69 73 49 73 4d 79 4c 61 62 65 6c 00 | ..ThisIsMyLabel.
+Command: 327
+	80 02 00 00 01 47 00 00 01 59 80 00 00 02 00 00 | .....G...Y......
+	00 1f 40 00 00 09 00 00 01 00 16 54 68 69 73 49 | ..@........ThisI
+	73 41 53 65 63 72 65 74 55 73 61 67 65 41 75 74 | sASecretUsageAut
+	68 01 00 95 72 7b 5d 29 80 59 21 0d c3 6b d4 65 | h...r{]).Y!..k.e
+	a8 a2 07 4b 2a d6 26 bd 26 b4 22 17 cb 3d ac 11 | ...K*.&.&."..=..
+	44 ee b5 df 5a bc 82 1c 49 9e 77 05 14 5c 61 a5 | D...Z...I.w..\a.
+	4a 26 76 80 42 3d b7 ac 5f 5d 0a 7b 3d a7 4e 37 | J&v.B=.._].{=.N7
+	30 84 5c 9d 56 2d 09 4b 60 a1 62 06 ff d0 7e 36 | 0.\.V-.K`.b...~6
+	f1 52 e1 ee 46 bb 26 d1 08 67 9d 2d 4e 0b e5 d4 | .R..F.&..g.-N...
+	8e bb 51 53 49 23 0f d2 8d 02 44 b3 b7 97 29 31 | ..QSI#....D...)1
+	9c 34 66 a8 68 ac d3 7c ad af 58 6b 62 4d d3 8c | .4f.h..|..XkbM..
+	a8 7f 8c 2b da 81 e6 24 08 a5 4b b0 4c 20 70 b2 | ...+...$..K.L p.
+	c0 20 41 86 b9 5f 6e d8 b5 2d 91 7c 6a 3b a5 ff | . A.._n..-.|j;..
+	7a 9d 13 d9 78 91 46 84 36 2e 7b 21 a5 65 9d b4 | z...x.F.6.{!.e..
+	d1 3b a9 04 d3 fe dd d5 ce 71 bd ff 1c 6c c9 d3 | .;.......q...l..
+	50 52 e0 3e 69 da 61 44 a2 9f 7e c2 25 1b 09 dd | PR.>i.aD..~.%...
+	0a 1f 57 c0 5b b8 ea ca 1e 40 ca 0c 13 1c 3c 9d | ..W.[....@....<.
+	24 5a 07 57 98 e6 1f bd b3 33 b0 f3 66 99 2e cb | $Z.W.....3..f...
+	51 24 46 09 7c a6 a8 2a 98 3f 49 73 82 1e d8 1c | Q$F.|..*.?Is....
+	bc bb ef 00 17 00 0b 00 0e 54 68 69 73 49 73 4d | .........ThisIsM
+	79 4c 61 62 65 6c 00                            | yLabel.
+Response: 53
+	80 02 00 00 00 35 00 00 00 00 00 00 00 22 00 20 | .....5.......". 
+	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
+	11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 | ................
+	00 00 01 00 00                                  | .....
+TPM2_RSA_Decrypt: 32
+RSA Encrypt/Decrypt test passed
+Command: 14
+	80 01 00 00 00 0e 00 00 01 65 80 00 00 02       | .........e....
 Response: 10
-	80 01 00 00 00 0a 00 00 01 82                   | ..........
-TPM2_RSA_Decrypt failed 386: Unknown
-TPM2_RSA_Decrypt: 0
-RSA Test failed!
+	80 01 00 00 00 0a 00 00 00 00                   | ..........
+TPM2_FlushContext: Closed handle 0x80000002
 Command: 82
 	80 02 00 00 00 52 00 00 01 2a 80 00 00 01 00 00 | .....R...*......
 	00 18 40 00 00 09 00 00 01 00 0f 57 6f 6c 66 54 | ..@........WolfT
@@ -1102,5 +1246,4 @@ Command: 12
 	80 01 00 00 00 0c 00 00 01 45 00 00             | .........E..
 Response: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
-
 ```

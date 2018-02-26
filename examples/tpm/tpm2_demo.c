@@ -242,11 +242,13 @@ int TPM2_Demo(void* userCtx)
     TpmRsaKey storage;
     TpmHmacKey hmacKey;
     TpmEccKey eccKey;
+    TpmRsaKey rsaKey;
 
     const char storagePwd[] = "WolfTPMPassword";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
     const char userKey[] = "ThisIsMyHmacKey";
     const char label[] = "ThisIsMyLabel";
+    const char keyCreationNonce[] = "RandomServerPickedCreationNonce";
 
     const char* hashTestData =
         "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
@@ -551,7 +553,7 @@ int TPM2_Demo(void* userCtx)
     if (cmdOut.seqComp.result.size != WC_SHA256_DIGEST_SIZE &&
         XMEMCMP(cmdOut.seqComp.result.buffer, hashTestDig, WC_SHA256_DIGEST_SIZE) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");
-        //goto exit;
+        goto exit;
     }
     printf("Hash SHA256 test success\n");
 
@@ -702,7 +704,6 @@ int TPM2_Demo(void* userCtx)
     cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
     XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
         cmdIn.create.inSensitive.sensitive.userAuth.size);
-
     cmdIn.create.inSensitive.sensitive.data.size = sizeof(userKey)-1;
     XMEMCPY(cmdIn.create.inSensitive.sensitive.data.buffer, userKey,
         cmdIn.create.inSensitive.sensitive.data.size);
@@ -844,7 +845,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_Sign(&cmdIn.sign, &cmdOut.sign);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Sign failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     printf("TPM2_Sign: ECC S %d, R %d\n",
         cmdOut.sign.signature.signature.ecdsa.signatureS.size,
@@ -859,7 +860,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_VerifySignature(&cmdIn.verifySign, &cmdOut.verifySign);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_VerifySignature failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     printf("TPM2_VerifySignature: Tag %d\n", cmdOut.verifySign.validation.tag);
 
@@ -919,7 +920,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         cmdOut.ecdh.zPoint.size,
@@ -932,9 +933,55 @@ int TPM2_Demo(void* userCtx)
     session[0].auth.size = sizeof(storagePwd)-1;
     XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
+    /* Create an RSA key for encrypt/decrypt */
+    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
+    cmdIn.create.parentHandle = storage.handle;
+    cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
+        cmdIn.create.inSensitive.sensitive.userAuth.size);
+    cmdIn.create.inPublic.publicArea.type = TPM_ALG_RSA;
+    cmdIn.create.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    cmdIn.create.outsideInfo.size = sizeof(keyCreationNonce)-1;
+    XMEMCPY(cmdIn.create.outsideInfo.buffer, keyCreationNonce,
+        cmdIn.create.outsideInfo.size);
+    rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Create RSA failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_Create: New RSA Key: pub %d, priv %d\n", cmdOut.create.outPublic.size,
+        cmdOut.create.outPrivate.size);
+    rsaKey.public = cmdOut.create.outPublic;
+    rsaKey.private = cmdOut.create.outPrivate;
+
+    /* Load new key */
+    XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
+    cmdIn.load.parentHandle = storage.handle;
+    cmdIn.load.inPrivate = rsaKey.private;
+    cmdIn.load.inPublic = rsaKey.public;
+    rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Load RSA key failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    rsaKey.handle = cmdOut.load.objectHandle;
+    printf("TPM2_Load RSA Key Handle 0x%x\n", rsaKey.handle);
+
+    /* set session auth for RSA key */
+    session[0].auth.size = sizeof(usageAuth)-1;
+    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
+
+
     /* RSA Encrypt */
     XMEMSET(&cmdIn.rsaEnc, 0, sizeof(cmdIn.rsaEnc));
-    cmdIn.rsaEnc.keyHandle = storage.handle;
+    cmdIn.rsaEnc.keyHandle = rsaKey.handle;
     cmdIn.rsaEnc.message = message;
     cmdIn.rsaEnc.inScheme.scheme = TPM_ALG_OAEP;
     cmdIn.rsaEnc.inScheme.details.oaep.hashAlg = TPM_ALG_SHA256;
@@ -947,8 +994,9 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_RSA_Encrypt: %d\n", cmdOut.rsaEnc.outData.size);
 
+    /* RSA Decrypt */
     XMEMSET(&cmdIn.rsaDec, 0, sizeof(cmdIn.rsaDec));
-    cmdIn.rsaDec.keyHandle = storage.handle;
+    cmdIn.rsaDec.keyHandle = rsaKey.handle;
     cmdIn.rsaDec.cipherText = cmdOut.rsaEnc.outData;
     cmdIn.rsaDec.inScheme.scheme = TPM_ALG_OAEP;
     cmdIn.rsaDec.inScheme.details.oaep.hashAlg = TPM_ALG_SHA256;
@@ -957,7 +1005,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_RSA_Decrypt(&cmdIn.rsaDec, &cmdOut.rsaDec);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_RSA_Decrypt failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     printf("TPM2_RSA_Decrypt: %d\n", cmdOut.rsaDec.message.size);
 
@@ -969,6 +1017,13 @@ int TPM2_Demo(void* userCtx)
     else {
         printf("RSA Encrypt/Decrypt test passed\n");
     }
+
+    wolfTPM_UnloadHandle(&rsaKey.handle);
+
+
+    /* set session auth for storage key */
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
 
     /* NVRAM Access */
@@ -994,7 +1049,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
+        //goto exit;
     }
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, authPol %d, dataSz %d, name %d\n",
         cmdOut.nvReadPub.nvPublic.size,
@@ -1039,6 +1094,7 @@ exit:
     wolfTPM_UnloadHandle(&handle);
     wolfTPM_UnloadHandle(&eccKey.handle);
     wolfTPM_UnloadHandle(&hmacKey.handle);
+    wolfTPM_UnloadHandle(&rsaKey.handle);
 
     /* Cleanup key handles */
     wolfTPM_UnloadHandle(&endorse.handle);
