@@ -544,6 +544,7 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
+    RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
     RC_WARN = 0x900,
     TPM_RC_CONTEXT_GAP      = RC_WARN + 0x001,
@@ -574,7 +575,9 @@ typedef enum {
     TPM_RC_LOCKOUT          = RC_WARN + 0x021,
     TPM_RC_RETRY            = RC_WARN + 0x022,
     TPM_RC_NV_UNAVAILABLE   = RC_WARN + 0x023,
-    TPM_RC_NOT_USED         = RC_WARN + 0x7F,
+    RC_MAX_WARN             = RC_WARN + 0x03F,
+
+    TPM_RC_NOT_USED         = RC_WARN + 0x07F,
 
     TPM_RC_H        = 0x000,
     TPM_RC_P        = 0x040,

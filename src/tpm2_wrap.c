@@ -177,7 +177,10 @@ const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg)
 
 const char* wolfTPM2_GetRCString(TPM_RC rc)
 {
-    switch (rc) {
+    if (rc & RC_VER1) {
+        rc &= RC_MAX_FM0;
+
+        switch (rc) {
         case TPM_RC_SUCCESS:
             return "Success";
         case TPM_RC_BAD_TAG:
@@ -259,6 +262,15 @@ const char* wolfTPM2_GetRCString(TPM_RC rc)
         case TPM_RC_SENSITIVE:
             return "The sensitive area did not unmarshal correctly after "
                 "decryption";
+        default:
+            break;
+        }
+    }
+
+    if (rc & RC_FMT1) {
+        rc &= RC_MAX_FMT1;
+
+        switch (rc) {
         case TPM_RC_ASYMMETRIC:
             return "Asymmetric algorithm not supported or not correct";
         case TPM_RC_ATTRIBUTES:
@@ -332,6 +344,15 @@ const char* wolfTPM2_GetRCString(TPM_RC rc)
             return "Curve not supported";
         case TPM_RC_ECC_POINT:
             return "Point is not on the required curve";
+        default:
+            break;
+        }
+    }
+
+    if (rc & RC_WARN) {
+        rc &= RC_MAX_WARN;
+
+        switch (rc) {
         case TPM_RC_CONTEXT_GAP:
             return "Gap for context ID is too large";
         case TPM_RC_OBJECT_MEMORY:
@@ -369,6 +390,7 @@ const char* wolfTPM2_GetRCString(TPM_RC rc)
                 "TPM";
         default:
             break;
+        }
     }
     return "Unknown";
 }
