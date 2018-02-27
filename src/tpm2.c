@@ -61,15 +61,56 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 }
 
 /* Send Command Wrapper */
-static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
+    int authCnt, int inHandleCnt, int outHandleCnt)
 {
+    TPM_RC rc = TPM_RC_FAILURE;
     if (ctx && packet) {
         byte* cmd = packet->buf;
         word16 cmdSz = packet->pos;
+        TPM_ST* tag = (TPM_ST*)cmd;
+
         packet->pos = 0; /* reset size */
-        return (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
+
+        if (*tag == TPM_ST_SESSIONS && ctx->authCmd) {
+            TPMS_AUTH_COMMAND* auth;
+            byte* param = cmd + sizeof(TPM2_HEADER) +
+                (inHandleCnt * sizeof(TPM_HANDLE));
+            word16* paramSz = (word16*)param;
+            int i;
+
+            for (i=0; i<authCnt; i++) {
+                auth = &ctx->authCmd[i];
+
+                /* check if encrypting parameters */
+                if (auth->sessionAttributes & TPMA_SESSION_decrypt) {
+                    if (ctx->authCmd->sessionHandle != TPM_RS_PW && auth->nonce.size > 0) {
+                        /* Generate new random nonce */
+                        rc = TPM2_GetNonce(ctx, auth->nonce.buffer, auth->nonce.size);
+                        if (rc != 0)
+                            return rc;
+                    }
+
+                    /* Key is auth value - concatenate keys if multiple encrypt sessions */
+                    /* Nonce */
+                    /* Encrypt param for paramSz */
+
+                    (void)paramSz;
+                    (void)param;
+                }
+            }
+        }
+
+        rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
+
+        (void)outHandleCnt;
     }
-    return TPM_RC_FAILURE;
+
+    return rc;
+}
+static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    return TPM2_SendCommandAuth(ctx, packet, 0, 0, 0);
 }
 
 static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
@@ -112,6 +153,21 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
         return TPM_RC_FAILURE;
     }
 
+
+#ifdef DEBUG_WOLFSSL
+    wolfSSL_Debugging_ON();
+#endif
+
+    wolfCrypt_Init();
+
+    rc = wc_InitRng(&ctx->rng);
+    if (rc < 0) {
+#ifdef WOLFTPM_DEBUG
+        printf("wc_InitRng failed %d: %s\n", rc, wc_GetErrorString(rc));
+#endif
+        return rc;
+    }
+
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
     ctx->ioCb = ioCb;
     ctx->userCtx = userCtx;
@@ -130,6 +186,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
         /* Set the active TPM global */
         gActiveTPM = ctx;
 
+
         /* Wait for chip startup to complete */
         rc = TPM2_TIS_StartupWait(ctx, TPM_TIMEOUT_TRIES);
         if (rc == TPM_RC_SUCCESS) {
@@ -146,6 +203,33 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
         TPM2_ReleaseLock(ctx);
     }
     return rc;
+}
+
+TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
+{
+    TPM_RC rc;
+
+    if (ctx == NULL)
+        return TPM_RC_FAILURE;
+
+    /* clear global */
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+
+        if (gActiveTPM == ctx)
+            gActiveTPM = NULL;
+
+        TPM2_ReleaseLock(ctx);
+    }
+
+    wc_FreeRng(&ctx->rng);
+#ifndef SINGLE_THREADED
+    wc_FreeMutex(&ctx->hwLock);
+#endif
+
+    wolfCrypt_Cleanup();
+
+    return TPM_RC_SUCCESS;
 }
 
 
@@ -467,7 +551,7 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Extend);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             rc = TPM2_Packet_Parse(rc, &packet);
         }
@@ -500,7 +584,7 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Create);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -576,7 +660,7 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CreatePrimary);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 1);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -653,7 +737,7 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Load);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 1);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -713,7 +797,7 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Unseal);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -851,7 +935,7 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_LoadExternal);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 1);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -933,7 +1017,7 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ActivateCredential);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1011,7 +1095,7 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ObjectChangeAuth);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1056,7 +1140,7 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Duplicate);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1110,7 +1194,7 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Rewrap);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1158,7 +1242,7 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Import);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1209,7 +1293,7 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_RSA_Encrypt);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1260,7 +1344,7 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_RSA_Decrypt);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1300,7 +1384,7 @@ TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_ECDH_KeyGen);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1345,7 +1429,7 @@ TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ECDH_ZGen);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1445,7 +1529,7 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ZGen_2Phase);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1490,7 +1574,7 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EncryptDecrypt);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1538,7 +1622,7 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EncryptDecrypt2);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1587,7 +1671,7 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_Hash);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1640,7 +1724,7 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_HMAC);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1682,7 +1766,7 @@ TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_HMAC_Start);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 1);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1725,7 +1809,7 @@ TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
         TPM2_Packet_Finalize(&packet, st, TPM_CC_HashSequenceStart);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 1);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1766,7 +1850,7 @@ TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SequenceUpdate);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -1803,7 +1887,7 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SequenceComplete);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -1853,7 +1937,7 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EventSequenceComplete);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             int i, digestSz;
             UINT32 paramSz = 0;
@@ -1903,7 +1987,7 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Certify);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -1960,7 +2044,7 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CertifyCreation);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2008,7 +2092,7 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Quote);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2058,7 +2142,7 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetSessionAuditDigest);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2107,7 +2191,7 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetCommandAuditDigest);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2155,7 +2239,7 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetTime);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2203,7 +2287,7 @@ TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Commit);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2244,7 +2328,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_EC_Ephemeral);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2296,7 +2380,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
         TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifySignature);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2355,7 +2439,7 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Sign);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 2, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2404,7 +2488,7 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetCommandCodeAuditStatus);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2440,7 +2524,7 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Event);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             int i;
             UINT32 paramSz = 0;
@@ -2485,7 +2569,7 @@ TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in, PCR_Allocate_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Allocate);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2530,7 +2614,7 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_SetAuthPolicy);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2566,7 +2650,7 @@ TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_SetAuthValue);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2599,7 +2683,7 @@ TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Reset);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2651,7 +2735,7 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicySigned);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2712,7 +2796,7 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PolicySecret);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2773,7 +2857,7 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTicket);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2855,7 +2939,7 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyPCR);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2928,7 +3012,7 @@ TPM_RC TPM2_PolicyNV(PolicyNV_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PolicyNV);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 3, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -2972,7 +3056,7 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyCounterTimer);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3044,7 +3128,7 @@ TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyCpHash);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3086,7 +3170,7 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyNameHash);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3133,7 +3217,7 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyDuplicationSelect);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3188,7 +3272,7 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyAuthorize);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3268,7 +3352,7 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyGetDigest);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3340,7 +3424,7 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTemplate);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -3375,7 +3459,7 @@ TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PolicyAuthorizeNV);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 3, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3408,7 +3492,7 @@ TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_HierarchyControl);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3441,7 +3525,7 @@ TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetPrimaryPolicy);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3471,7 +3555,7 @@ static TPM_RC TPM2_ChangeSeed(ChangeSeed_In* in, TPM_CC cc)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, cc);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3511,7 +3595,7 @@ TPM_RC TPM2_Clear(Clear_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Clear);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3542,7 +3626,7 @@ TPM_RC TPM2_ClearControl(ClearControl_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ClearControl);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3574,7 +3658,7 @@ TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_HierarchyChangeAuth);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3604,7 +3688,7 @@ TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_DictionaryAttackLockReset);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3637,7 +3721,7 @@ TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_DictionaryAttackParameters);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3678,7 +3762,7 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PP_Commands);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3712,7 +3796,7 @@ TPM_RC TPM2_SetAlgorithmSet(SetAlgorithmSet_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetAlgorithmSet);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3750,7 +3834,7 @@ TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_FieldUpgradeStart);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3788,7 +3872,7 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_FieldUpgradeData);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
             int digestSz;
             UINT32 paramSz = 0;
@@ -3838,9 +3922,8 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_FirmwareRead);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
-            rc = TPM2_Packet_Parse(rc, &packet);
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
 
@@ -3951,7 +4034,7 @@ TPM_RC TPM2_EvictControl(EvictControl_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EvictControl);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 3, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -3985,7 +4068,7 @@ TPM_RC TPM2_ReadClock(ReadClock_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_ReadClock);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4028,7 +4111,7 @@ TPM_RC TPM2_ClockSet(ClockSet_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ClockSet);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4059,7 +4142,7 @@ TPM_RC TPM2_ClockRateAdjust(ClockRateAdjust_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ClockRateAdjust);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4096,7 +4179,7 @@ TPM_RC TPM2_TestParms(TestParms_In* in)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_TestParms);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 0, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4146,7 +4229,7 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_DefineSpace);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4179,7 +4262,7 @@ TPM_RC TPM2_NV_UndefineSpace(NV_UndefineSpace_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_UndefineSpace);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4212,7 +4295,7 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_UndefineSpaceSpecial);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4248,7 +4331,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
         TPM2_Packet_Finalize(&packet, st, TPM_CC_NV_ReadPublic);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4305,7 +4388,7 @@ TPM_RC TPM2_NV_Write(NV_Write_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_Write);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4338,7 +4421,7 @@ TPM_RC TPM2_NV_Increment(NV_Increment_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_Increment);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4374,7 +4457,7 @@ TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_Extend);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4409,7 +4492,7 @@ TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_SetBits);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4442,7 +4525,7 @@ TPM_RC TPM2_NV_WriteLock(NV_WriteLock_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_WriteLock);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4474,7 +4557,7 @@ TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_GlobalWriteLock);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4510,7 +4593,7 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_Read);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4547,7 +4630,7 @@ TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_ReadLock);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4582,7 +4665,7 @@ TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_ChangeAuth);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4625,7 +4708,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_Certify);
 
         /* send command */
-        rc = TPM2_SendCommand(ctx, &packet);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 3, 0);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             rc = TPM2_Packet_Parse(rc, &packet);
@@ -4644,6 +4727,17 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
     return rc;
 }
 
+/******************************************************************************/
+/* --- END Standard TPM API's -- */
+/******************************************************************************/
+
+
+
+
+/******************************************************************************/
+/* --- BEGIN Helpful API's -- */
+/******************************************************************************/
+
 int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
 {
     switch (hashAlg) {
@@ -4661,6 +4755,17 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
+int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz)
+{
+    int rc;
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = wc_RNG_GenerateBlock(&ctx->rng, nonceBuf, nonceSz);
+
+    return rc;
+}
+
 /******************************************************************************/
-/* --- END Standard TPM API's -- */
+/* --- END Helpful API's -- */
 /******************************************************************************/

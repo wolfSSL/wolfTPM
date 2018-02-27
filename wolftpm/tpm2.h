@@ -1833,6 +1833,7 @@ typedef struct TPM2_CTX {
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
 #endif
+    WC_RNG rng;
 
     /* TPM TIS Info */
     int locality;
@@ -1854,6 +1855,7 @@ WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* 
 
 #define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 typedef struct {
     TPM_SU startupType;
@@ -2889,5 +2891,6 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
+WOLFTPM_API int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz);
 
 #endif /* __TPM2_H__ */

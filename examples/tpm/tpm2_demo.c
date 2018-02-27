@@ -230,7 +230,6 @@ int TPM2_Demo(void* userCtx)
     TPM_HANDLE handle = TPM_RH_NULL;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
     TPMI_RH_NV_INDEX nvIndex;
-    WC_RNG rng;
     TPM2B_PUBLIC_KEY_RSA message;
 
     byte pcr[WC_SHA256_DIGEST_SIZE];
@@ -267,17 +266,6 @@ int TPM2_Demo(void* userCtx)
     message.size = WC_SHA256_DIGEST_SIZE;
     XMEMSET(message.buffer, 0x11, message.size);
 
-#ifdef DEBUG_WOLFSSL
-    wolfSSL_Debugging_ON();
-#endif
-
-    wolfCrypt_Init();
-
-    rc = wc_InitRng(&rng);
-    if (rc < 0) {
-        printf("wc_InitRng failed %d: %s\n", rc, wc_GetErrorString(rc));
-        return rc;
-    }
 
     rc = TPM2_Init(&gTpm2Ctx, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -445,8 +433,8 @@ int TPM2_Demo(void* userCtx)
     cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
     cmdIn.authSes.authHash = TPM_ALG_SHA256;
     cmdIn.authSes.nonceCaller.size = WC_SHA256_DIGEST_SIZE;
-    rc = wc_RNG_GenerateBlock(&rng, cmdIn.authSes.nonceCaller.buffer,
-                                                cmdIn.authSes.nonceCaller.size);
+    rc = TPM2_GetNonce(&gTpm2Ctx, cmdIn.authSes.nonceCaller.buffer,
+                                  cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
@@ -752,8 +740,8 @@ int TPM2_Demo(void* userCtx)
     cmdIn.objChgAuth.objectHandle = hmacKey.handle;
     cmdIn.objChgAuth.parentHandle = storage.handle;
     cmdIn.objChgAuth.newAuth.size = WC_SHA256_DIGEST_SIZE;
-    rc = wc_RNG_GenerateBlock(&rng, cmdIn.objChgAuth.newAuth.buffer,
-        cmdIn.objChgAuth.newAuth.size);
+    rc = TPM2_GetNonce(&gTpm2Ctx, cmdIn.objChgAuth.newAuth.buffer,
+                                  cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
@@ -1144,8 +1132,7 @@ exit:
         goto exit;
     }
 
-    wc_FreeRng(&rng);
-    wolfCrypt_Cleanup();
+    TPM2_Cleanup(&gTpm2Ctx);
 
 #ifdef TPM2_SPI_DEV
     /* close handle */
