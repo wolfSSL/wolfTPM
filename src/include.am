@@ -6,6 +6,8 @@
 lib_LTLIBRARIES+=  src/libwolftpm.la
 src_libwolftpm_la_SOURCES      = \
 								src/tpm2.c \
+								src/tpm2_packet.c \
+								src/tpm2_tis.c \
 								src/tpm2_wrap.c 
 src_libwolftpm_la_CFLAGS       = -DBUILDING_WOLFTPM $(AM_CFLAGS)
 src_libwolftpm_la_CPPFLAGS     = -DBUILDING_WOLFTPM $(AM_CPPFLAGS)

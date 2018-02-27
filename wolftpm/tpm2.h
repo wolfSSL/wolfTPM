@@ -22,13 +22,27 @@
 #ifndef __TPM2_H__
 #define __TPM2_H__
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifndef WOLFSSL_USER_SETTINGS
+    #include <wolfssl/options.h>
+#else
+    #include <wolfssl/wolfcrypt/settings.h>
+#endif
+
 #include <wolftpm/visibility.h>
+
 #include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
 
+/* Reconfigurable Elements */
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
@@ -1836,6 +1850,7 @@ typedef struct TPM2_CTX {
 
 
 /* Functions */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
 
 #define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
@@ -2873,19 +2888,6 @@ typedef struct {
 } NV_Certify_Out;
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
-
-/* Helper API's - Not based on spec */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
-WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
-WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
-
-#ifdef DEBUG_WOLFTPM
-WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
-#else
-#define TPM2_PrintBin(b, l)
-#endif
-
 
 #endif /* __TPM2_H__ */

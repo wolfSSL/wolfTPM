@@ -22,13 +22,15 @@ Portable TPM 2.0 project designed for embedded use.
 
 ### Hierarchies
 
+```
 Platform    TPM_RH_PLATFORM
 Owner       TPM_RH_OWNER
 Endorsement TPM_RH_ENDORSEMENT
+```
 
 Each hierarchy has their own manufacture generated seed.
 
-The arguments used on TPM2_Create or TPM2_CreatePrimary create a template which is fed into a KDF to produce the same key based hierarchy used. The key generated is the same each time; even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds. Typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
+The arguments used on TPM2_Create or TPM2_CreatePrimary create a template, which is fed into a KDF to produce the same key based hierarchy used. The key generated is the same each time; even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds. Typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
 
 There is also an Ephemeral hierarchy (TPM_RH_NULL), which can be used to create ephemeral keys.
 
@@ -50,27 +52,38 @@ Build wolfSSL:
 ./autogen.sh
 ./configure --enable-ecc --enable-sha512 && make
 sudo make install
+sudo ldconfig
 ```
 
 Build wolfTPM:
 
 ```
+./autogen.sh
 ./configure && make
 ```
 
 
 ## Platform
 
-This example was written for use on Raspberry Pi® 3 or the STM32 with the CubeMX HAL. This was tested using the Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
+This example was written for use on Raspberry Pi® 3 or the STM32 with the CubeMX HAL. This was tested using the 
 
 The Raspberry 3 uses the native `spi_dev` interface and defaults to `/dev/spidev0.1`. If you are running the Infineon patches it overrides the kernel SPI interface with their `spi_tis_dev`, which currently causes this demo to fail.
 
 This has only been tested and confirmed working with Rasbian 4.4.x.
 
+### SPI IO Callback
+
 For interfacing to your hardware platform see the example `tpm2_demo.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
 
 
-## Sample Output
+### Hardware
+
+Tested with:
+* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
+* LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
+
+
+## Examples
 
 ```
 ./examples/tpm/tpm_demo
@@ -1248,8 +1261,11 @@ Response: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
 ```
 
-## Todo
 
-* Add more wrappers
+## Todo
+* Add spi_tis_dev support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Add more wrappers for simplfying key creation (ephemeral and storage), ECC sign/verify and shared secret and RSA sign/verify.
 * Add support for encrypting / decrypting parameters.
 * Improve the command and response auth handling.
+* Add support for using the TPM with wolfSSL.
+* Benchmark TPM

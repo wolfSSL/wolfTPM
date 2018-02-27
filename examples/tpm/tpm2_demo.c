@@ -32,7 +32,6 @@
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/hash.h>
 
-#include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 #include <examples/tpm/tpm2_demo.h>
 
@@ -78,7 +77,8 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     int* spiDev = (int*)userCtx;
 
     if (*spiDev == -1) {
-        unsigned int maxSpeed = 10000000; /* 10Mhz */
+        /* 33Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
+        unsigned int maxSpeed = 33000000;
         int mode = 0; /* mode 0 */
         int bits_per_word = 0; /* 8-bits */
 
@@ -114,8 +114,8 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 #ifdef DEBUG_WOLFTPM
     //printf("TPM2_IoCb: %d\n", xferSz);
-    //TPM2_PrintBin(txBuf, xferSz);
-    //TPM2_PrintBin(rxBuf, xferSz);
+    //wolfTPM2_PrintBin(txBuf, xferSz);
+    //wolfTPM2_PrintBin(rxBuf, xferSz);
 #endif
 
     (void)ctx;
@@ -281,7 +281,7 @@ int TPM2_Demo(void* userCtx)
 
     rc = TPM2_Init(&gTpm2Ctx, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Init failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
@@ -295,7 +295,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_Startup(&cmdIn.startup);
     if (rc != TPM_RC_SUCCESS &&
         rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
-        printf("TPM2_Startup failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Startup pass\n");
@@ -306,7 +306,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.selfTest.fullTest = YES;
     rc = TPM2_SelfTest(&cmdIn.selfTest);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_SelfTest failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_SelfTest failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_SelfTest pass\n");
@@ -314,12 +314,12 @@ int TPM2_Demo(void* userCtx)
     /* Get Test Result */
     rc = TPM2_GetTestResult(&cmdOut.tr);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetTestResult failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_GetTestResult failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_GetTestResult: Size %d, Rc 0x%x\n", cmdOut.tr.outData.size,
         cmdOut.tr.testResult);
-    TPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
+    wolfTPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
 
     /* Incremental Test */
     XMEMSET(&cmdIn.incSelfTest, 0, sizeof(cmdIn.incSelfTest));
@@ -338,7 +338,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.cap.propertyCount = 1;
     rc = TPM2_GetCapability(&cmdIn.cap, &cmdOut.cap);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetCapability failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     tpmProp = &cmdOut.cap.capabilityData.data.tpmProperties;
@@ -350,7 +350,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.cap.propertyCount = 1;
     rc = TPM2_GetCapability(&cmdIn.cap, &cmdOut.cap);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetCapability failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     tpmProp = &cmdOut.cap.capabilityData.data.tpmProperties;
@@ -363,7 +363,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.getRand.bytesRequested = WC_SHA256_DIGEST_SIZE;
     rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetRandom failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_GetRandom failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     if (cmdOut.getRand.randomBytes.size != WC_SHA256_DIGEST_SIZE) {
@@ -372,7 +372,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
-    TPM2_PrintBin(cmdOut.getRand.randomBytes.buffer,
+    wolfTPM2_PrintBin(cmdOut.getRand.randomBytes.buffer,
                    cmdOut.getRand.randomBytes.size);
 
 
@@ -383,7 +383,7 @@ int TPM2_Demo(void* userCtx)
         cmdOut.getRand.randomBytes.buffer, cmdIn.stirRand.inData.size);
     rc = TPM2_StirRandom(&cmdIn.stirRand);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_StirRandom failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_StirRandom failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_StirRandom: success\n");
@@ -392,17 +392,17 @@ int TPM2_Demo(void* userCtx)
     /* PCR Read */
     for (i=0; i<pcrCount; i++) {
         pcrIndex = i;
-        TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
+        wolfTPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
         rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
         if (rc != TPM_RC_SUCCESS) {
-            printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            printf("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
             goto exit;
         }
         printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
             pcrIndex,
             (int)cmdOut.pcrRead.pcrValues.digests[0].size,
             (int)cmdOut.pcrRead.pcrUpdateCounter);
-        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+        wolfTPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                        cmdOut.pcrRead.pcrValues.digests[0].size);
     }
 
@@ -417,22 +417,22 @@ int TPM2_Demo(void* userCtx)
     }
     rc = TPM2_PCR_Extend(&cmdIn.pcrExtend);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Extend failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PCR_Extend failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_PCR_Extend success\n");
 
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
+    wolfTPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PCR_Read failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
         pcrIndex,
         (int)cmdOut.pcrRead.pcrValues.digests[0].size,
         (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+    wolfTPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
 
@@ -453,7 +453,7 @@ int TPM2_Demo(void* userCtx)
     }
     rc = TPM2_StartAuthSession(&cmdIn.authSes, &cmdOut.authSes);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_StartAuthSession failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_StartAuthSession failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     sessionHandle = cmdOut.authSes.sessionHandle;
@@ -465,18 +465,18 @@ int TPM2_Demo(void* userCtx)
     cmdIn.policyGetDigest.policySession = sessionHandle;
     rc = TPM2_PolicyGetDigest(&cmdIn.policyGetDigest, &cmdOut.policyGetDigest);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyGetDigest failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PolicyGetDigest failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_PolicyGetDigest: size %d\n", cmdOut.policyGetDigest.policyDigest.size);
-    TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
+    wolfTPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
     /* Read PCR[0] SHA1 */
     pcrIndex = 0;
-    rc = wolfTPM_ReadPCR(pcrIndex, TPM_ALG_SHA1, pcr, &pcr_len);
+    rc = wolfTPM2_ReadPCR(pcrIndex, TPM_ALG_SHA1, pcr, &pcr_len);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM_ReadPCR failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("wolfTPM2_ReadPCR failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
@@ -487,7 +487,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("wc_Hash of PCR[0]: size %d\n", hash_len);
-    TPM2_PrintBin(hash, hash_len);
+    wolfTPM2_PrintBin(hash, hash_len);
 
     /* Policy PCR */
     pcrIndex = 0;
@@ -495,10 +495,10 @@ int TPM2_Demo(void* userCtx)
     cmdIn.policyPCR.policySession = sessionHandle;
     cmdIn.policyPCR.pcrDigest.size = hash_len;
     XMEMCPY(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
-    TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
+    wolfTPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyPCR failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PolicyPCR failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_PolicyPCR: Updated\n");
@@ -509,7 +509,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.policyRestart.sessionHandle = sessionHandle;
     rc = TPM2_PolicyRestart(&cmdIn.policyRestart);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyRestart failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PolicyRestart failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_PolicyRestart: Done\n");
@@ -523,7 +523,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.hashSeqStart.hashAlg = TPM_ALG_SHA256;
     rc = TPM2_HashSequenceStart(&cmdIn.hashSeqStart, &cmdOut.hashSeqStart);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_HashSequenceStart failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_HashSequenceStart failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     handle = cmdOut.hashSeqStart.sequenceHandle;
@@ -538,7 +538,7 @@ int TPM2_Demo(void* userCtx)
     XMEMCPY(cmdIn.seqUpdate.buffer.buffer, hashTestData, cmdIn.seqUpdate.buffer.size);
     rc = TPM2_SequenceUpdate(&cmdIn.seqUpdate);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_SequenceUpdate failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_SequenceUpdate failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
@@ -547,7 +547,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.seqComp.hierarchy = TPM_RH_NULL;
     rc = TPM2_SequenceComplete(&cmdIn.seqComp, &cmdOut.seqComp);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_SequenceComplete failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_SequenceComplete failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     if (cmdOut.seqComp.result.size != WC_SHA256_DIGEST_SIZE &&
@@ -568,7 +568,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.clear.authHandle = TPM_RH_PLATFORM;
     rc = TPM2_Clear(&cmdIn.clear);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Clear failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Clear failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Clear Owner\n");
@@ -598,7 +598,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
     rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Endorsement failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_CreatePrimary: Endorsement failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     endorse.handle = cmdOut.createPri.objectHandle;
@@ -629,7 +629,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
     rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Storage failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_CreatePrimary: Storage failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     storage.handle = cmdOut.createPri.objectHandle;
@@ -658,7 +658,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.loadExt.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&cmdIn.loadExt, &cmdOut.loadExt);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_LoadExternal: failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_LoadExternal: failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     handle = cmdOut.loadExt.objectHandle;
@@ -673,7 +673,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.makeCred.objectName = endorse.name;
     rc = TPM2_MakeCredential(&cmdIn.makeCred, &cmdOut.makeCred);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_MakeCredential: failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_MakeCredential: failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_MakeCredential: credentialBlob %d, secret %d\n",
@@ -686,7 +686,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.readPub.objectHandle = handle;
     rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
@@ -694,7 +694,7 @@ int TPM2_Demo(void* userCtx)
         cmdOut.readPub.outPublic.size, cmdOut.readPub.name.size,
         cmdOut.readPub.qualifiedName.size);
 
-    wolfTPM_UnloadHandle(&handle);
+    wolfTPM2_UnloadHandle(&handle);
 
 
 
@@ -715,7 +715,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.create.inPublic.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg = TPM_ALG_SHA256;
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create HMAC failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Create HMAC failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     hmacKey.public = cmdOut.create.outPublic;
@@ -729,7 +729,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.load.inPublic = hmacKey.public;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Load failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     hmacKey.handle = cmdOut.load.objectHandle;
@@ -743,7 +743,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.policyCC.code = TPM_CC_ObjectChangeAuth;
     rc = TPM2_PolicyCommandCode(&cmdIn.policyCC);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_PolicyCommandCode failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_PolicyCommandCode failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
@@ -760,13 +760,13 @@ int TPM2_Demo(void* userCtx)
     }
     rc = TPM2_ObjectChangeAuth(&cmdIn.objChgAuth, &cmdOut.objChgAuth);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         //goto exit;
     }
     hmacKey.private = cmdOut.objChgAuth.outPrivate;
     printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.private.size);
 
-    wolfTPM_UnloadHandle(&hmacKey.handle);
+    wolfTPM2_UnloadHandle(&hmacKey.handle);
 
 
 
@@ -775,7 +775,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.eccParam.curveID = TPM_ECC_NIST_P256;
     rc = TPM2_ECC_Parameters(&cmdIn.eccParam, &cmdOut.eccParam);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ECC_Parameters failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_ECC_Parameters failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_ECC_Parameters: CurveID %d, sz %d, p %d, a %d, b %d, gX %d, gY %d, n %d, h %d\n",
@@ -808,7 +808,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create ECDSA failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Create ECDSA failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Create: New ECDSA Key: pub %d, priv %d\n", cmdOut.create.outPublic.size,
@@ -823,7 +823,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.load.inPublic = eccKey.public;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load ECDSA failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Load ECDSA failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     eccKey.handle = cmdOut.load.objectHandle;
@@ -844,7 +844,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.sign.validation.hierarchy = TPM_RH_NULL;
     rc = TPM2_Sign(&cmdIn.sign, &cmdOut.sign);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Sign failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Sign failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Sign: ECC S %d, R %d\n",
@@ -859,12 +859,12 @@ int TPM2_Demo(void* userCtx)
     cmdIn.verifySign.signature = cmdOut.sign.signature;
     rc = TPM2_VerifySignature(&cmdIn.verifySign, &cmdOut.verifySign);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_VerifySignature failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_VerifySignature failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_VerifySignature: Tag %d\n", cmdOut.verifySign.validation.tag);
 
-    wolfTPM_UnloadHandle(&eccKey.handle);
+    wolfTPM2_UnloadHandle(&eccKey.handle);
 
 
     /* set session auth for storage key */
@@ -889,7 +889,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create ECDH failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Create ECDH failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Create: New ECDH Key: pub %d, priv %d\n", cmdOut.create.outPublic.size,
@@ -904,7 +904,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.load.inPublic = eccKey.public;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load ECDH key failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Load ECDH key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     eccKey.handle = cmdOut.load.objectHandle;
@@ -919,14 +919,14 @@ int TPM2_Demo(void* userCtx)
     cmdIn.ecdh.keyHandle = eccKey.handle;
     rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         cmdOut.ecdh.zPoint.size,
         cmdOut.ecdh.pubPoint.size);
 
-    wolfTPM_UnloadHandle(&eccKey.handle);
+    wolfTPM2_UnloadHandle(&eccKey.handle);
 
 
     /* set session auth for storage key */
@@ -953,7 +953,7 @@ int TPM2_Demo(void* userCtx)
         cmdIn.create.outsideInfo.size);
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create RSA failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Create RSA failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Create: New RSA Key: pub %d, priv %d\n", cmdOut.create.outPublic.size,
@@ -968,7 +968,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.load.inPublic = rsaKey.public;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load RSA key failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Load RSA key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     rsaKey.handle = cmdOut.load.objectHandle;
@@ -989,7 +989,7 @@ int TPM2_Demo(void* userCtx)
     XMEMCPY(cmdIn.rsaEnc.label.buffer, label, cmdIn.rsaEnc.label.size);
     rc = TPM2_RSA_Encrypt(&cmdIn.rsaEnc, &cmdOut.rsaEnc);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_RSA_Encrypt failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_RSA_Encrypt failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_RSA_Encrypt: %d\n", cmdOut.rsaEnc.outData.size);
@@ -1004,7 +1004,7 @@ int TPM2_Demo(void* userCtx)
     XMEMCPY(cmdIn.rsaDec.label.buffer, label, cmdIn.rsaEnc.label.size);
     rc = TPM2_RSA_Decrypt(&cmdIn.rsaDec, &cmdOut.rsaDec);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_RSA_Decrypt failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_RSA_Decrypt failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_RSA_Decrypt: %d\n", cmdOut.rsaDec.message.size);
@@ -1018,7 +1018,7 @@ int TPM2_Demo(void* userCtx)
         printf("RSA Encrypt/Decrypt test passed\n");
     }
 
-    wolfTPM_UnloadHandle(&rsaKey.handle);
+    wolfTPM2_UnloadHandle(&rsaKey.handle);
 
 
     /* set session auth for storage key */
@@ -1029,13 +1029,13 @@ int TPM2_Demo(void* userCtx)
     /* NVRAM Access */
 
     /* Read Public NV */
-    wolfTPM_NVReadPublic(TPM_20_TPM_MFG_NV_SPACE);
-    wolfTPM_NVReadPublic(TPM_20_PLATFORM_MFG_NV_SPACE);
-    wolfTPM_NVReadPublic(TPM_20_OWNER_NV_SPACE);
-    wolfTPM_NVReadPublic(TPM_20_TCG_NV_SPACE);
-    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_CERTIFICATE);
-    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_NONCE);
-    wolfTPM_NVReadPublic(TPM_20_NV_INDEX_EK_TEMPLATE);
+    wolfTPM2_NVReadPublic(TPM_20_TPM_MFG_NV_SPACE);
+    wolfTPM2_NVReadPublic(TPM_20_PLATFORM_MFG_NV_SPACE);
+    wolfTPM2_NVReadPublic(TPM_20_OWNER_NV_SPACE);
+    wolfTPM2_NVReadPublic(TPM_20_TCG_NV_SPACE);
+    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_CERTIFICATE);
+    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_NONCE);
+    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_TEMPLATE);
 
 #if 0
     for (nvIndex=TPM_20_TPM_MFG_NV_SPACE; nvIndex<TPM_20_TPM_MFG_NV_SPACE+10; nvIndex++) {
@@ -1043,7 +1043,7 @@ int TPM2_Demo(void* userCtx)
         cmdIn.nvReadPub.nvIndex = nvIndex;
         rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
         if (rc != TPM_RC_SUCCESS) {
-            printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
             //goto exit;
         }
         else if (cmdOut.nvReadPub.nvPublic.size > 0) {
@@ -1072,7 +1072,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.nvDefine.publicInfo.nvPublic.dataSize = WC_SHA256_DIGEST_SIZE;
     rc = TPM2_NV_DefineSpace(&cmdIn.nvDefine);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_DefineSpace failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_NV_DefineSpace failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_NV_DefineSpace: 0x%x\n", nvIndex);
@@ -1082,7 +1082,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.nvReadPub.nvIndex = nvIndex;
     rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         //goto exit;
     }
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, authPol %d, dataSz %d, name %d\n",
@@ -1100,7 +1100,7 @@ int TPM2_Demo(void* userCtx)
     cmdIn.nvUndefine.nvIndex = nvIndex;
     rc = TPM2_NV_UndefineSpace(&cmdIn.nvUndefine);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_UndefineSpace failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_NV_UndefineSpace failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
@@ -1118,7 +1118,7 @@ exit:
         cmdIn.flushCtx.flushHandle = sessionHandle;
         rc = TPM2_FlushContext(&cmdIn.flushCtx);
         if (rc != TPM_RC_SUCCESS) {
-            printf("TPM2_FlushContext failed %d: %s\n", rc, TPM2_GetRCString(rc));
+            printf("TPM2_FlushContext failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
             goto exit;
         }
         printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", sessionHandle);
@@ -1126,21 +1126,21 @@ exit:
     }
 
     /* Close object handle */
-    wolfTPM_UnloadHandle(&handle);
-    wolfTPM_UnloadHandle(&eccKey.handle);
-    wolfTPM_UnloadHandle(&hmacKey.handle);
-    wolfTPM_UnloadHandle(&rsaKey.handle);
+    wolfTPM2_UnloadHandle(&handle);
+    wolfTPM2_UnloadHandle(&eccKey.handle);
+    wolfTPM2_UnloadHandle(&hmacKey.handle);
+    wolfTPM2_UnloadHandle(&rsaKey.handle);
 
     /* Cleanup key handles */
-    wolfTPM_UnloadHandle(&endorse.handle);
-    wolfTPM_UnloadHandle(&storage.handle);
+    wolfTPM2_UnloadHandle(&endorse.handle);
+    wolfTPM2_UnloadHandle(&storage.handle);
 
 
     /* Shutdown */
     cmdIn.shutdown.shutdownType = TPM_SU_CLEAR;
     rc = TPM2_Shutdown(&cmdIn.shutdown);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Shutdown failed %d: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_Shutdown failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
