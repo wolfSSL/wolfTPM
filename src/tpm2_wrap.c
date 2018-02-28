@@ -178,9 +178,9 @@ const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg)
 const char* wolfTPM2_GetRCString(TPM_RC rc)
 {
     if (rc & RC_VER1) {
-        rc &= RC_MAX_FM0;
+        int rc_fm0 = rc & RC_MAX_FM0;
 
-        switch (rc) {
+        switch (rc_fm0) {
         case TPM_RC_SUCCESS:
             return "Success";
         case TPM_RC_BAD_TAG:
@@ -268,9 +268,9 @@ const char* wolfTPM2_GetRCString(TPM_RC rc)
     }
 
     if (rc & RC_FMT1) {
-        rc &= RC_MAX_FMT1;
+        int rc_fmt1 = rc & RC_MAX_FMT1;
 
-        switch (rc) {
+        switch (rc_fmt1) {
         case TPM_RC_ASYMMETRIC:
             return "Asymmetric algorithm not supported or not correct";
         case TPM_RC_ATTRIBUTES:
@@ -350,9 +350,9 @@ const char* wolfTPM2_GetRCString(TPM_RC rc)
     }
 
     if (rc & RC_WARN) {
-        rc &= RC_MAX_WARN;
+        int rc_warn = rc & RC_MAX_WARN;
 
-        switch (rc) {
+        switch (rc_warn) {
         case TPM_RC_CONTEXT_GAP:
             return "Gap for context ID is too large";
         case TPM_RC_OBJECT_MEMORY:
@@ -405,40 +405,3 @@ void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
         pcr->pcrSelections[0].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
     }
 }
-
-
-
-#ifdef DEBUG_WOLFTPM
-#define LINE_LEN 16
-void wolfTPM2_PrintBin(const byte* buffer, word32 length)
-{
-    word32 i;
-    char line[80];
-
-    if (!buffer) {
-        printf("\tNULL");
-        return;
-    }
-
-    sprintf(line, "\t");
-
-    for (i = 0; i < LINE_LEN; i++) {
-        if (i < length)
-            sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
-        else
-            sprintf(line + 1 + i * 3, "   ");
-    }
-
-    sprintf(line + 1 + LINE_LEN * 3, "| ");
-
-    for (i = 0; i < LINE_LEN; i++)
-        if (i < length)
-            sprintf(line + 3 + LINE_LEN * 3 + i,
-                 "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
-
-    printf("%s\n", line);
-
-    if (length > LINE_LEN)
-        wolfTPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
-}
-#endif

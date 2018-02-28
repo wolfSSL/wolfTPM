@@ -2893,7 +2893,16 @@ typedef struct {
 } NV_Certify_Out;
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
+
+/* Other API's - Not TPM Spec */
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz);
+
+#ifdef DEBUG_WOLFTPM
+WOLFTPM_API void wolfTPM2_PrintBin(const byte* buffer, word32 length);
+#else
+#define wolfTPM2_PrintBin(b, l)
+#endif
+
 
 #endif /* __TPM2_H__ */

@@ -31,17 +31,9 @@ WOLFTPM_API int wolfTPM2_ReadPCR(int pcrIndex, int alg, byte* digest, int* diges
 WOLFTPM_API int wolfTPM2_UnloadHandle(word32* handle);
 WOLFTPM_API int wolfTPM2_NVReadPublic(word32 nvIndex);
 
-
-WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);
 WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
-
-#ifdef DEBUG_WOLFTPM
-WOLFTPM_API void wolfTPM2_PrintBin(const byte* buffer, word32 length);
-#else
-#define wolfTPM2_PrintBin(b, l)
-#endif
 
 
 #endif /* __TPM2_WRAP_H__ */

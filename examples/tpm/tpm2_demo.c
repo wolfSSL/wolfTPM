@@ -734,6 +734,7 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_PolicyCommandCode failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
+    printf("TPM2_PolicyCommandCode: success\n");
 
     /* Change Object Auth */
     XMEMSET(&cmdIn.objChgAuth, 0, sizeof(cmdIn.objChgAuth));

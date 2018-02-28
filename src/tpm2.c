@@ -147,7 +147,7 @@ int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp)
 
 TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 {
-    TPM_RC rc;
+    int rc;
 
     if (ctx == NULL) {
         return TPM_RC_FAILURE;
@@ -160,6 +160,10 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     wolfCrypt_Init();
 
+    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
+    ctx->ioCb = ioCb;
+    ctx->userCtx = userCtx;
+
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
 #ifdef WOLFTPM_DEBUG
@@ -167,10 +171,6 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 #endif
         return rc;
     }
-
-    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
-    ctx->ioCb = ioCb;
-    ctx->userCtx = userCtx;
 
 #ifndef SINGLE_THREADED
     if (wc_InitMutex(&ctx->hwLock) != 0) {
@@ -202,7 +202,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
         TPM2_ReleaseLock(ctx);
     }
-    return rc;
+    return (TPM_RC)rc;
 }
 
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
@@ -4765,6 +4765,42 @@ int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz)
 
     return rc;
 }
+
+
+#ifdef DEBUG_WOLFTPM
+#define LINE_LEN 16
+void wolfTPM2_PrintBin(const byte* buffer, word32 length)
+{
+    word32 i;
+    char line[80];
+
+    if (!buffer) {
+        printf("\tNULL");
+        return;
+    }
+
+    sprintf(line, "\t");
+
+    for (i = 0; i < LINE_LEN; i++) {
+        if (i < length)
+            sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
+        else
+            sprintf(line + 1 + i * 3, "   ");
+    }
+
+    sprintf(line + 1 + LINE_LEN * 3, "| ");
+
+    for (i = 0; i < LINE_LEN; i++)
+        if (i < length)
+            sprintf(line + 3 + LINE_LEN * 3 + i,
+                 "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
+
+    printf("%s\n", line);
+
+    if (length > LINE_LEN)
+        wolfTPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
+}
+#endif
 
 /******************************************************************************/
 /* --- END Helpful API's -- */
