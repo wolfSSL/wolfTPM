@@ -1827,7 +1827,7 @@ typedef struct TPM2B_CREATION_DATA {
 /* HAL IO Callbacks */
 struct TPM2_CTX;
 
-typedef TPM_RC (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
     void* userCtx);
 
 typedef struct TPM2_CTX {
@@ -2899,9 +2899,11 @@ WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz);
 
 #ifdef DEBUG_WOLFTPM
-WOLFTPM_API void wolfTPM2_PrintBin(const byte* buffer, word32 length);
+WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
+
+
 #else
-#define wolfTPM2_PrintBin(b, l)
+#define TPM2_PrintBin(b, l)
 #endif
 
 

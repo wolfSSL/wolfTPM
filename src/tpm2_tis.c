@@ -120,7 +120,7 @@ int TPM2_TIS_SpiWrite(TPM2_CTX* ctx, word32 addr, const byte* value,
 int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
 {
     int rc;
-    byte access;
+    byte access = 0;
 
     do {
         rc = TPM2_TIS_SpiRead(ctx, TPM_ACCESS(0), &access, sizeof(access));
@@ -191,9 +191,6 @@ int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
         ctx->rid = reg;
     }
 
-    printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
-        ctx->caps, ctx->did_vid >> 16, ctx->did_vid & 0xFFFF, ctx->rid);
-
     return rc;
 }
 
@@ -219,8 +216,7 @@ byte TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
 int TPM2_TIS_Ready(TPM2_CTX* ctx)
 {
     byte status = TPM_STS_COMMAND_READY;
-    TPM2_TIS_SpiWrite(ctx, TPM_STS(ctx->locality), &status, sizeof(status));
-    return 0;
+    return TPM2_TIS_SpiWrite(ctx, TPM_STS(ctx->locality), &status, sizeof(status));
 }
 
 int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx)
@@ -253,18 +249,22 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
 #ifdef DEBUG_WOLFTPM
     printf("Command: %d\n", cmdSz);
-    wolfTPM2_PrintBin(cmd, cmdSz);
+    TPM2_PrintBin(cmd, cmdSz);
 #endif
 
     /* Make sure TPM is ready for command */
     status = TPM2_TIS_Status(ctx);
     if ((status & TPM_STS_COMMAND_READY) == 0) {
         /* Tell TPM chip to expect a command */
-        TPM2_TIS_Ready(ctx);
+        rc = TPM2_TIS_Ready(ctx);
+        if (rc != 0)
+            goto exit;
 
         /* Wait for command ready (TPM_STS_COMMAND_READY = 1) */
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_COMMAND_READY,
                                          TPM_STS_COMMAND_READY);
+        if (rc != 0)
+            goto exit;
     }
 
     /* Write Command */
@@ -290,7 +290,9 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
             rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT,
                                              TPM_STS_DATA_EXPECT);
             if (rc != 0) {
+            #ifdef DEBUG_WOLFTPM
                 printf("TPM2_TIS_SendCommand write expected more data!\n");
+            #endif
                 goto exit;
             }
         }
@@ -299,6 +301,12 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
     rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,
                                      TPM_STS_VALID);
+    if (rc != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_TIS_SendCommand status valid timeout!\n");
+    #endif
+        goto exit;
+    }
 
     /* Execute Command */
     access = TPM_STS_GO;
@@ -315,7 +323,9 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_AVAIL,
                                          TPM_STS_DATA_AVAIL);
         if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
             printf("TPM2_TIS_SendCommand read no data available!\n");
+        #endif
             goto exit;
         }
 
@@ -344,14 +354,16 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
 #ifdef DEBUG_WOLFTPM
     printf("Response: %d\n", rspSz);
-    wolfTPM2_PrintBin(cmd, rspSz);
+    TPM2_PrintBin(cmd, rspSz);
 #endif
 
     rc = 0;
 
 exit:
+
     /* Tell TPM we are done */
-    TPM2_TIS_Ready(ctx);
+    if (rc == 0)
+        rc = TPM2_TIS_Ready(ctx);
 
     return rc;
 }

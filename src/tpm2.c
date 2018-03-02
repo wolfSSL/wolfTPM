@@ -419,8 +419,10 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     break;
                 }
                 default:
+            #ifdef DEBUG_WOLFTPM
                     printf("Unknown capability type 0x%x\n",
                         (unsigned int)out->capabilityData.capability);
+            #endif
                     rc = -1;
                     break;
             }
@@ -4769,7 +4771,7 @@ int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz)
 
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
-void wolfTPM2_PrintBin(const byte* buffer, word32 length)
+void TPM2_PrintBin(const byte* buffer, word32 length)
 {
     word32 i;
     char line[80];
@@ -4798,7 +4800,7 @@ void wolfTPM2_PrintBin(const byte* buffer, word32 length)
     printf("%s\n", line);
 
     if (length > LINE_LEN)
-        wolfTPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
+        TPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
 }
 #endif
 

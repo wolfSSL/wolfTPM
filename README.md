@@ -1309,9 +1309,10 @@ Response: 10
 
 
 ## Todo
-* Add spi_tis_dev support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Document return codes expected
 * Add more wrappers for simplfying key creation (ephemeral and storage), ECC sign/verify and shared secret and RSA sign/verify.
-* Add support for encrypting / decrypting parameters.
-* Improve the command and response auth handling.
 * Add support for using the TPM with wolfSSL.
+* Add support for encrypting / decrypting parameters.
+* Add spi_tis_dev support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Improve the command and response auth handling.
 * Benchmark TPM

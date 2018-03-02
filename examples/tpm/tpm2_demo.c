@@ -57,7 +57,7 @@ static TPM2_CTX gTpm2Ctx;
 
 
 /* IO Callback */
-static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+static int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
@@ -114,8 +114,8 @@ static TPM_RC TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 #ifdef DEBUG_WOLFTPM
     //printf("TPM2_IoCb: %d\n", xferSz);
-    //wolfTPM2_PrintBin(txBuf, xferSz);
-    //wolfTPM2_PrintBin(rxBuf, xferSz);
+    //TPM2_PrintBin(txBuf, xferSz);
+    //TPM2_PrintBin(rxBuf, xferSz);
 #endif
 
     (void)ctx;
@@ -273,6 +273,12 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
 
+    printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
+        gTpm2Ctx.caps,
+        gTpm2Ctx.did_vid >> 16,
+        gTpm2Ctx.did_vid & 0xFFFF,
+        gTpm2Ctx.rid);
+
     /* define the default session auth */
     XMEMSET(session, 0, sizeof(session));
     session[0].sessionHandle = TPM_RS_PW;
@@ -307,7 +313,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_GetTestResult: Size %d, Rc 0x%x\n", cmdOut.tr.outData.size,
         cmdOut.tr.testResult);
-    wolfTPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
+    TPM2_PrintBin(cmdOut.tr.outData.buffer, cmdOut.tr.outData.size);
 
     /* Incremental Test */
     XMEMSET(&cmdIn.incSelfTest, 0, sizeof(cmdIn.incSelfTest));
@@ -360,7 +366,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
-    wolfTPM2_PrintBin(cmdOut.getRand.randomBytes.buffer,
+    TPM2_PrintBin(cmdOut.getRand.randomBytes.buffer,
                    cmdOut.getRand.randomBytes.size);
 
 
@@ -390,7 +396,7 @@ int TPM2_Demo(void* userCtx)
             pcrIndex,
             (int)cmdOut.pcrRead.pcrValues.digests[0].size,
             (int)cmdOut.pcrRead.pcrUpdateCounter);
-        wolfTPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                        cmdOut.pcrRead.pcrValues.digests[0].size);
     }
 
@@ -420,7 +426,7 @@ int TPM2_Demo(void* userCtx)
         pcrIndex,
         (int)cmdOut.pcrRead.pcrValues.digests[0].size,
         (int)cmdOut.pcrRead.pcrUpdateCounter);
-    wolfTPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
 
@@ -457,7 +463,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("TPM2_PolicyGetDigest: size %d\n", cmdOut.policyGetDigest.policyDigest.size);
-    wolfTPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
+    TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
 
     /* Read PCR[0] SHA1 */
@@ -475,7 +481,7 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     printf("wc_Hash of PCR[0]: size %d\n", hash_len);
-    wolfTPM2_PrintBin(hash, hash_len);
+    TPM2_PrintBin(hash, hash_len);
 
     /* Policy PCR */
     pcrIndex = 0;

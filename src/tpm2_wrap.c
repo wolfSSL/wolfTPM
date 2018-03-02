@@ -40,7 +40,7 @@ int wolfTPM2_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len)
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
         pcrIndex, *digest_len, (int)pcrReadOut.pcrUpdateCounter);
-    wolfTPM2_PrintBin(digest, *digest_len);
+    TPM2_PrintBin(digest, *digest_len);
 #endif
 
     return rc;
