@@ -22,13 +22,27 @@
 #ifndef __TPM2_H__
 #define __TPM2_H__
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifndef WOLFSSL_USER_SETTINGS
+    #include <wolfssl/options.h>
+#else
+    #include <wolfssl/wolfcrypt/settings.h>
+#endif
+
 #include <wolftpm/visibility.h>
+
 #include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 
 
+/* Reconfigurable Elements */
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
@@ -530,6 +544,7 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
+    RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
     RC_WARN = 0x900,
     TPM_RC_CONTEXT_GAP      = RC_WARN + 0x001,
@@ -560,7 +575,9 @@ typedef enum {
     TPM_RC_LOCKOUT          = RC_WARN + 0x021,
     TPM_RC_RETRY            = RC_WARN + 0x022,
     TPM_RC_NV_UNAVAILABLE   = RC_WARN + 0x023,
-    TPM_RC_NOT_USED         = RC_WARN + 0x7F,
+    RC_MAX_WARN             = RC_WARN + 0x03F,
+
+    TPM_RC_NOT_USED         = RC_WARN + 0x07F,
 
     TPM_RC_H        = 0x000,
     TPM_RC_P        = 0x040,
@@ -1810,7 +1827,7 @@ typedef struct TPM2B_CREATION_DATA {
 /* HAL IO Callbacks */
 struct TPM2_CTX;
 
-typedef TPM_RC (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
     void* userCtx);
 
 typedef struct TPM2_CTX {
@@ -1819,6 +1836,7 @@ typedef struct TPM2_CTX {
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
 #endif
+    WC_RNG rng;
 
     /* TPM TIS Info */
     int locality;
@@ -1836,9 +1854,11 @@ typedef struct TPM2_CTX {
 
 
 /* Functions */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
 
 #define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 typedef struct {
     TPM_SU startupType;
@@ -2874,15 +2894,14 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
-/* Helper API's - Not based on spec */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
+/* Other API's - Not TPM Spec */
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
-WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
-WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
+WOLFTPM_API int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
+
+
 #else
 #define TPM2_PrintBin(b, l)
 #endif

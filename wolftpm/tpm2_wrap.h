@@ -1,4 +1,4 @@
-/* tpm2_wolf.h
+/* tpm2_wrap.h
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
@@ -23,31 +23,17 @@
 #define __TPM2_WRAP_H__
 
 
-#ifdef HAVE_CONFIG_H
-    #include <config.h>
-#endif
-
-#ifndef WOLFSSL_USER_SETTINGS
-    #include <wolfssl/options.h>
-#else
-    #include <wolfssl/wolfcrypt/settings.h>
-#endif
-
-#include <wolftpm/visibility.h>
 #include <wolftpm/tpm2.h>
-
-#include <wolfssl/wolfcrypt/types.h>
-#include <wolfssl/wolfcrypt/logging.h>
-#include <wolfssl/wolfcrypt/error-crypt.h>
-#include <wolfssl/wolfcrypt/hash.h>
-#include <wolfssl/wolfcrypt/rsa.h>
-#include <wolfssl/wolfcrypt/ecc.h>
-
 
 
 /* Wrapper API's to simplify TPM use */
-WOLFTPM_API int wolfTPM_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len);
-WOLFTPM_API int wolfTPM_UnloadHandle(word32* handle);
+WOLFTPM_API int wolfTPM2_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len);
+WOLFTPM_API int wolfTPM2_UnloadHandle(word32* handle);
+WOLFTPM_API int wolfTPM2_NVReadPublic(word32 nvIndex);
+
+WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
+WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);
+WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
 
 
 #endif /* __TPM2_WRAP_H__ */
