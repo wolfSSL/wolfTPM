@@ -123,7 +123,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
             if (auth->sessionAttributes & TPMA_SESSION_decrypt) {
                 /* get new nonce if required */
                 if (ctx->authCmd->sessionHandle != TPM_RS_PW && auth->nonce.size > 0) {
-                    rc = TPM2_GetNonce(ctx, auth->nonce.buffer, auth->nonce.size);
+                    rc = TPM2_GetNonce(auth->nonce.buffer, auth->nonce.size);
                     if (rc != 0)
                         return rc;
                 }
@@ -242,13 +242,13 @@ static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
 /******************************************************************************/
 /* --- Public Functions -- */
 /******************************************************************************/
-int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
+TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -260,7 +260,7 @@ int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
 
 TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 {
-    int rc;
+    TPM_RC rc;
 
     if (ctx == NULL) {
         return TPM_RC_FAILURE;
@@ -279,7 +279,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
-#ifdef WOLFTPM_DEBUG
+#ifdef DEBUG_WOLFTPM
         printf("wc_InitRng failed %d: %s\n", rc, wc_GetErrorString(rc));
 #endif
         return rc;
@@ -315,7 +315,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
         TPM2_ReleaseLock(ctx);
     }
-    return (TPM_RC)rc;
+    return rc;
 }
 
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
@@ -355,7 +355,7 @@ TPM_RC TPM2_Startup(Startup_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -378,7 +378,7 @@ TPM_RC TPM2_Shutdown(Shutdown_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -402,7 +402,7 @@ TPM_RC TPM2_SelfTest(SelfTest_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -426,7 +426,7 @@ TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -460,7 +460,7 @@ TPM_RC TPM2_GetTestResult(GetTestResult_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -488,7 +488,7 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -540,7 +540,7 @@ TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -568,7 +568,7 @@ TPM_RC TPM2_StirRandom(StirRandom_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -593,7 +593,7 @@ TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -628,7 +628,7 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -662,7 +662,7 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -734,7 +734,7 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -809,7 +809,7 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -843,7 +843,7 @@ TPM_RC TPM2_FlushContext(FlushContext_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -866,7 +866,7 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -896,7 +896,7 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -937,7 +937,7 @@ TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -961,7 +961,7 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1032,7 +1032,7 @@ TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1065,7 +1065,7 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1101,7 +1101,7 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1138,7 +1138,7 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1175,7 +1175,7 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1223,7 +1223,7 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1270,7 +1270,7 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1312,7 +1312,7 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1360,7 +1360,7 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1404,7 +1404,7 @@ TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1444,7 +1444,7 @@ TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1479,7 +1479,7 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1536,7 +1536,7 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1572,7 +1572,7 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1617,7 +1617,7 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1663,7 +1663,7 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1713,7 +1713,7 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1752,7 +1752,7 @@ TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1791,7 +1791,7 @@ TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1827,7 +1827,7 @@ TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1856,7 +1856,7 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1902,7 +1902,7 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1947,7 +1947,7 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -1991,7 +1991,7 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2045,7 +2045,7 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2091,7 +2091,7 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2138,7 +2138,7 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2183,7 +2183,7 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2228,7 +2228,7 @@ TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2274,7 +2274,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2313,7 +2313,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2362,7 +2362,7 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2409,7 +2409,7 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2449,7 +2449,7 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2492,7 +2492,7 @@ TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in, PCR_Allocate_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2530,7 +2530,7 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2562,7 +2562,7 @@ TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2591,7 +2591,7 @@ TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2618,7 +2618,7 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2679,7 +2679,7 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2734,7 +2734,7 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2776,7 +2776,7 @@ TPM_RC TPM2_PolicyOR(PolicyOR_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2811,7 +2811,7 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2846,7 +2846,7 @@ TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2872,7 +2872,7 @@ TPM_RC TPM2_PolicyNV(PolicyNV_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2908,7 +2908,7 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2944,7 +2944,7 @@ TPM_RC TPM2_PolicyCommandCode(PolicyCommandCode_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -2972,7 +2972,7 @@ TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3005,7 +3005,7 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3038,7 +3038,7 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3076,7 +3076,7 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3122,7 +3122,7 @@ static TPM_RC TPM2_PolicySessionOnly(TPM_CC cc, TPMI_SH_POLICY policy)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3162,7 +3162,7 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3199,7 +3199,7 @@ TPM_RC TPM2_PolicyNvWritten(PolicyNvWritten_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3224,7 +3224,7 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3253,7 +3253,7 @@ TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3280,7 +3280,7 @@ TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3306,7 +3306,7 @@ TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3333,7 +3333,7 @@ static TPM_RC TPM2_ChangeSeed(ChangeSeed_In* in, TPM_CC cc)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3367,7 +3367,7 @@ TPM_RC TPM2_Clear(Clear_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3391,7 +3391,7 @@ TPM_RC TPM2_ClearControl(ClearControl_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3416,7 +3416,7 @@ TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3442,7 +3442,7 @@ TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3466,7 +3466,7 @@ TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3493,7 +3493,7 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3528,7 +3528,7 @@ TPM_RC TPM2_SetAlgorithmSet(SetAlgorithmSet_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3556,7 +3556,7 @@ TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3589,7 +3589,7 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3637,7 +3637,7 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3675,7 +3675,7 @@ TPM_RC TPM2_ContextSave(ContextSave_In* in, ContextSave_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3707,7 +3707,7 @@ TPM_RC TPM2_ContextLoad(ContextLoad_In* in, ContextLoad_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3741,7 +3741,7 @@ TPM_RC TPM2_EvictControl(EvictControl_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3769,7 +3769,7 @@ TPM_RC TPM2_ReadClock(ReadClock_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3809,7 +3809,7 @@ TPM_RC TPM2_ClockSet(ClockSet_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3835,7 +3835,7 @@ TPM_RC TPM2_ClockRateAdjust(ClockRateAdjust_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3861,7 +3861,7 @@ TPM_RC TPM2_TestParms(TestParms_In* in)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3891,7 +3891,7 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3933,7 +3933,7 @@ TPM_RC TPM2_NV_UndefineSpace(NV_UndefineSpace_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3960,7 +3960,7 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -3988,7 +3988,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
     TPM_ST st;
 
     if (ctx == NULL || in == NULL || out == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4038,7 +4038,7 @@ TPM_RC TPM2_NV_Write(NV_Write_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4070,7 +4070,7 @@ TPM_RC TPM2_NV_Increment(NV_Increment_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4097,7 +4097,7 @@ TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4127,7 +4127,7 @@ TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4156,7 +4156,7 @@ TPM_RC TPM2_NV_WriteLock(NV_WriteLock_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4183,7 +4183,7 @@ TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4209,7 +4209,7 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4247,7 +4247,7 @@ TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4274,7 +4274,7 @@ TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4303,7 +4303,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
     if (ctx == NULL || in == NULL || out == NULL || ctx->authCmd == NULL)
-        return TPM_RC_BAD_ARG;
+        return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
@@ -4372,10 +4372,12 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
-int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz)
+int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
     int rc;
-    if (ctx == NULL)
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || nonceBuf == NULL)
         return BAD_FUNC_ARG;
 
     rc = wc_RNG_GenerateBlock(&ctx->rng, nonceBuf, nonceSz);

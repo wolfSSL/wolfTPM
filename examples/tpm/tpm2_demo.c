@@ -448,8 +448,8 @@ int TPM2_Demo(void* userCtx)
     cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
     cmdIn.authSes.authHash = TPM_ALG_SHA256;
     cmdIn.authSes.nonceCaller.size = WC_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(&gTpm2Ctx, cmdIn.authSes.nonceCaller.buffer,
-                                  cmdIn.authSes.nonceCaller.size);
+    rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
+                       cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
@@ -758,8 +758,8 @@ int TPM2_Demo(void* userCtx)
     cmdIn.objChgAuth.objectHandle = hmacKey.handle;
     cmdIn.objChgAuth.parentHandle = storage.handle;
     cmdIn.objChgAuth.newAuth.size = WC_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(&gTpm2Ctx, cmdIn.objChgAuth.newAuth.buffer,
-                                  cmdIn.objChgAuth.newAuth.size);
+    rc = TPM2_GetNonce(cmdIn.objChgAuth.newAuth.buffer,
+                       cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed %d: %s\n", rc, wc_GetErrorString(rc));
         goto exit;
