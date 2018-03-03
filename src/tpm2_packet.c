@@ -262,7 +262,7 @@ void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth)
 {
     if (auth == NULL)
-        return; /* skip since its the last part and we aren't returning it */
+        return;
 
     TPM2_Packet_ParseU16(packet, &auth->nonce.size);
     TPM2_Packet_ParseBytes(packet, auth->nonce.buffer, auth->nonce.size);

@@ -143,15 +143,24 @@ const BYTE TPM_20_EK_AUTH_POLICY[] = {
 
 
 typedef struct tpmKey {
-    TPM_HANDLE    handle;
-    TPM2B_PRIVATE private;
-    TPM2B_PUBLIC  public;
-    TPM2B_NAME    name;
+    TPM_HANDLE          handle;
+    TPM2B_AUTH          auth;
+    TPMT_SYM_DEF_OBJECT symmetric; /* used for parameter encrypt/decrypt */
+    TPM2B_PRIVATE       private;
+    TPM2B_PUBLIC        public;
+    TPM2B_NAME          name;
 } TpmKey;
 
 typedef TpmKey TpmRsaKey;
 typedef TpmKey TpmEccKey;
 typedef TpmKey TpmHmacKey;
+
+
+typedef struct tmpHandle {
+    TPM_HANDLE         handle;
+    TPM2B_AUTH         auth;
+} TpmHandle;
+
 
 
 int TPM2_Demo(void* userCtx)
@@ -282,7 +291,7 @@ int TPM2_Demo(void* userCtx)
     /* define the default session auth */
     XMEMSET(session, 0, sizeof(session));
     session[0].sessionHandle = TPM_RS_PW;
-    TPM2_SetSessionAuth(session, NULL);
+    TPM2_SetSessionAuth(session);
 
     XMEMSET(&cmdIn.startup, 0, sizeof(cmdIn.startup));
     cmdIn.startup.startupType = TPM_SU_CLEAR;
@@ -596,8 +605,10 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     endorse.handle = cmdOut.createPri.objectHandle;
+    endorse.auth = cmdIn.createPri.inPublic.publicArea.authPolicy;
     endorse.public = cmdOut.createPri.outPublic;
     endorse.name = cmdOut.createPri.name;
+    endorse.symmetric = cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric;
     printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
         endorse.handle, endorse.public.size);
 
