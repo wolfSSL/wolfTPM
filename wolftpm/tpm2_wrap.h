@@ -26,7 +26,7 @@
 #include <wolftpm/tpm2.h>
 
 typedef struct WOLFTPM2_HANDLE {
-    TPM_HANDLE      handle;
+    TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
     TPMT_SYM_DEF    symmetric; /* used for parameter encrypt/decrypt */
 } WOLFTPM2_HANDLE;
@@ -43,29 +43,45 @@ typedef struct WOLFTPM2_KEY {
     TPM2B_NAME      name;
 } WOLFTPM2_KEY;
 
+typedef struct WOLFTPM2_DEV {
+    TPM2_CTX ctx;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+} WOLFTPM2_DEV;
 
 /* Wrapper API's to simplify TPM use */
 
-WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate, TPMA_OBJECT objectAttributes);
-WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate, TPMA_OBJECT objectAttributes,
-    TPM_ECC_CURVE curve);
+WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 
-WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
+WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
     WOLFTPM2_HANDLE* bind, TPM_SE sesType, int useEncrypDecrypt);
-WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_KEY* key, TPM_HANDLE primaryHandle,
-    TPMT_PUBLIC* publicTemplate);
-WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent,
+WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, TPM_HANDLE primaryHandle, TPMT_PUBLIC* publicTemplate);
+WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent,
     TPMT_PUBLIC* publicTemplate, const byte* auth, int authSz);
 
-WOLFTPM_API int wolfTPM2_ReadPCR(int pcrIndex, int alg, byte* digest, int* digest_len);
+WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz,
+    byte* r, int* rSz, byte* s, int* sSz);
+
+
+WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
+    int pcrIndex, int alg, byte* digest, int* digest_len);
+
+WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex);
+WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
+
+
+/* Utility functions */
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve);
 WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
-
-WOLFTPM_API int wolfTPM2_NVReadPublic(word32 nvIndex);
-
 WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);
-
-WOLFTPM_API int wolfTPM2_UnloadHandle(word32* handle);
 
 
 #endif /* __TPM2_WRAP_H__ */

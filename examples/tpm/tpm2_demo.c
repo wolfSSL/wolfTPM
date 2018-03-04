@@ -395,6 +395,7 @@ int TPM2_Demo(void* userCtx)
     /* PCR Read */
     for (i=0; i<pcrCount; i++) {
         pcrIndex = i;
+        XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
         wolfTPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
         rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
         if (rc != TPM_RC_SUCCESS) {
@@ -425,6 +426,7 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_PCR_Extend success\n");
 
+    XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
     wolfTPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
@@ -477,11 +479,19 @@ int TPM2_Demo(void* userCtx)
 
     /* Read PCR[0] SHA1 */
     pcrIndex = 0;
-    rc = wolfTPM2_ReadPCR(pcrIndex, TPM_ALG_SHA1, pcr, &pcr_len);
+    XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
+    wolfTPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TPM_ALG_SHA1, pcrIndex);
+    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_ReadPCR failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
+    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+        pcrIndex,
+        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+        (int)cmdOut.pcrRead.pcrUpdateCounter);
+    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                   cmdOut.pcrRead.pcrValues.digests[0].size);
 
     /* Hash SHA256 PCR[0] */
     rc = wc_Hash(WC_HASH_TYPE_SHA256, pcr, pcr_len, hash, hash_len);
@@ -699,7 +709,8 @@ int TPM2_Demo(void* userCtx)
         cmdOut.readPub.outPublic.size, cmdOut.readPub.name.size,
         cmdOut.readPub.qualifiedName.size);
 
-    wolfTPM2_UnloadHandle(&handle);
+    cmdIn.flushCtx.flushHandle = handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
 
@@ -772,7 +783,8 @@ int TPM2_Demo(void* userCtx)
     hmacKey.private = cmdOut.objChgAuth.outPrivate;
     printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.private.size);
 
-    wolfTPM2_UnloadHandle(&hmacKey.handle);
+    cmdIn.flushCtx.flushHandle = hmacKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
 
@@ -870,7 +882,8 @@ int TPM2_Demo(void* userCtx)
     }
     printf("TPM2_VerifySignature: Tag %d\n", cmdOut.verifySign.validation.tag);
 
-    wolfTPM2_UnloadHandle(&eccKey.handle);
+    cmdIn.flushCtx.flushHandle = eccKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* set session auth for storage key */
@@ -932,7 +945,8 @@ int TPM2_Demo(void* userCtx)
         cmdOut.ecdh.zPoint.size,
         cmdOut.ecdh.pubPoint.size);
 
-    wolfTPM2_UnloadHandle(&eccKey.handle);
+    cmdIn.flushCtx.flushHandle = eccKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* set session auth for storage key */
@@ -1024,7 +1038,8 @@ int TPM2_Demo(void* userCtx)
         printf("RSA Encrypt/Decrypt test passed\n");
     }
 
-    wolfTPM2_UnloadHandle(&rsaKey.handle);
+    cmdIn.flushCtx.flushHandle = rsaKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* set session auth for storage key */
@@ -1034,16 +1049,6 @@ int TPM2_Demo(void* userCtx)
 
     /* NVRAM Access */
 
-    /* Read Public NV */
-    wolfTPM2_NVReadPublic(TPM_20_TPM_MFG_NV_SPACE);
-    wolfTPM2_NVReadPublic(TPM_20_PLATFORM_MFG_NV_SPACE);
-    wolfTPM2_NVReadPublic(TPM_20_OWNER_NV_SPACE);
-    wolfTPM2_NVReadPublic(TPM_20_TCG_NV_SPACE);
-    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_CERTIFICATE);
-    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_NONCE);
-    wolfTPM2_NVReadPublic(TPM_20_NV_INDEX_EK_TEMPLATE);
-
-#if 0
     for (nvIndex=TPM_20_TPM_MFG_NV_SPACE; nvIndex<TPM_20_TPM_MFG_NV_SPACE+10; nvIndex++) {
         XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
         cmdIn.nvReadPub.nvIndex = nvIndex;
@@ -1063,7 +1068,6 @@ int TPM2_Demo(void* userCtx)
                 cmdOut.nvReadPub.nvName.size);
         }
     }
-#endif
 
     /* Define new NV */
     nvIndex = TPM_20_OWNER_NV_SPACE + 0x003FFFFF; /* Last owner Index */
@@ -1122,24 +1126,24 @@ exit:
     /* Close session */
     if (sessionHandle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = sessionHandle;
-        rc = TPM2_FlushContext(&cmdIn.flushCtx);
-        if (rc != TPM_RC_SUCCESS) {
-            printf("TPM2_FlushContext failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-            goto exit;
-        }
-        printf("TPM2_FlushContext: Closed sessionHandle 0x%x\n", sessionHandle);
-        sessionHandle = TPM_RH_NULL;
+        TPM2_FlushContext(&cmdIn.flushCtx);
     }
 
     /* Close object handle */
-    wolfTPM2_UnloadHandle(&handle);
-    wolfTPM2_UnloadHandle(&eccKey.handle);
-    wolfTPM2_UnloadHandle(&hmacKey.handle);
-    wolfTPM2_UnloadHandle(&rsaKey.handle);
+    cmdIn.flushCtx.flushHandle = handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
+    cmdIn.flushCtx.flushHandle = eccKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
+    cmdIn.flushCtx.flushHandle = hmacKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
+    cmdIn.flushCtx.flushHandle = rsaKey.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
     /* Cleanup key handles */
-    wolfTPM2_UnloadHandle(&endorse.handle);
-    wolfTPM2_UnloadHandle(&storage.handle);
+    cmdIn.flushCtx.flushHandle = endorse.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
+    cmdIn.flushCtx.flushHandle = storage.handle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* Shutdown */

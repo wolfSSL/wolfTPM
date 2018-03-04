@@ -1864,13 +1864,7 @@ typedef struct TPM2_CTX {
 } TPM2_CTX;
 
 
-/* Functions */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd);
-
-#define _TPM_Init TPM2_Init
-WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
-
+/* TPM Specification Functions */
 typedef struct {
     TPM_SU startupType;
 } Startup_In;
@@ -2905,7 +2899,16 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
+/* Non-standard API's */
+#define _TPM_Init TPM2_Init
+WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
+
+
 /* Other API's - Not TPM Spec */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd);
+WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
+
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
 

@@ -34,11 +34,6 @@ static TPM2_CTX* gActiveTPM;
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/
-static INLINE TPM2_CTX* TPM2_GetActiveCtx(void)
-{
-    return gActiveTPM;
-}
-
 static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
 #ifdef SINGLE_THREADED
@@ -242,6 +237,11 @@ static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
 /******************************************************************************/
 /* --- Public Functions -- */
 /******************************************************************************/
+TPM2_CTX* TPM2_GetActiveCtx(void)
+{
+    return gActiveTPM;
+}
+
 TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
 {
     TPM_RC rc;
