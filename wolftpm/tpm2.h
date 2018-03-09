@@ -471,7 +471,6 @@ typedef UINT32 TPM_CC;
 typedef enum {
     TPM_RC_SUCCESS  = 0x000,
     TPM_RC_BAD_TAG  = 0x01E,
-    TPM_RC_BAD_ARG  = 0x01D,
 
     RC_VER1 = 0x100,
     TPM_RC_INITIALIZE           = RC_VER1 + 0x000,
@@ -599,7 +598,7 @@ typedef enum {
     TPM_RC_F        = 0xF00,
     TPM_RC_N_MASK   = 0xF00,
 } TPM_RC_T;
-typedef UINT16 TPM_RC;
+typedef INT32 TPM_RC; /* type is unsigned 16-bits, but internally use signed 32-bit */
 
 typedef enum {
     TPM_CLOCK_COARSE_SLOWER = -3,
@@ -1311,22 +1310,6 @@ typedef struct TPM2B_ATTEST {
 } TPM2B_ATTEST;
 
 
-/* Authorization Structures */
-
-typedef struct TPMS_AUTH_COMMAND {
-    TPMI_SH_AUTH_SESSION sessionHandle;
-    TPM2B_NONCE nonce;
-    TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
-} TPMS_AUTH_COMMAND;
-
-typedef struct TPMS_AUTH_RESPONSE {
-    TPM2B_NONCE nonce;
-    TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
-} TPMS_AUTH_RESPONSE;
-
-
 /* Algorithm Parameters and Structures */
 
 /* Symmetric */
@@ -1824,6 +1807,35 @@ typedef struct TPM2B_CREATION_DATA {
 } TPM2B_CREATION_DATA;
 
 
+/* Authorization Structures */
+
+typedef struct TPMS_AUTH_COMMAND {
+    TPMI_SH_AUTH_SESSION sessionHandle;
+    TPM2B_NONCE nonce;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+
+    /* Implementation specific */
+    /* These are used for parameter encrypt/decrypt */
+
+    /* The symmetric and hash alorithms to use */
+    TPMT_SYM_DEF symmetric;
+    TPMI_ALG_HASH authHash;
+
+    /* Optional object auth to append with session auth for encrypt/decrypt key */
+    TPM_HANDLE objHandle;
+    TPM2B_AUTH objAuth;
+} TPMS_AUTH_COMMAND;
+
+typedef struct TPMS_AUTH_RESPONSE {
+    TPM2B_NONCE nonce;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+} TPMS_AUTH_RESPONSE;
+
+
+
+
 /* HAL IO Callbacks */
 struct TPM2_CTX;
 
@@ -1846,20 +1858,13 @@ typedef struct TPM2_CTX {
 
     /* Current TPM auth session */
     TPMS_AUTH_COMMAND*  authCmd;
-    TPMS_AUTH_RESPONSE* authResp;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 } TPM2_CTX;
 
 
-/* Functions */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd, TPMS_AUTH_RESPONSE* resp);
-
-#define _TPM_Init TPM2_Init
-WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
-
+/* TPM Specification Functions */
 typedef struct {
     TPM_SU startupType;
 } Startup_In;
@@ -1900,7 +1905,7 @@ WOLFTPM_API TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
 
 typedef struct {
     TPM2B_MAX_BUFFER outData;
-    TPM_RC testResult;
+    UINT16 testResult; /* TPM_RC */
 } GetTestResult_Out;
 WOLFTPM_API TPM_RC TPM2_GetTestResult(GetTestResult_Out* out);
 
@@ -2894,9 +2899,18 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
+/* Non-standard API's */
+#define _TPM_Init TPM2_Init
+WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
+
+
 /* Other API's - Not TPM Spec */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd);
+WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
+
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
-WOLFTPM_API int TPM2_GetNonce(TPM2_CTX* ctx, byte* nonceBuf, int nonceSz);
+WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);

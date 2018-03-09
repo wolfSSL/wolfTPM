@@ -24,6 +24,6 @@
 
 
 int TPM2_Demo(void* userCtx);
-
+int TPM2_Wrapper_Demo(void* userCtx);
 
 #endif /* _TPM2_DEMO_H_ */
