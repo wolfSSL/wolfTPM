@@ -2,7 +2,7 @@
 # Copyright (C) 2018 wolfSSL Inc.
 # All right reserved.
 
-AC_INIT([wolftpm],[0.1.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[1.1.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -18,7 +18,7 @@ AC_ARG_PROGRAM
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=1:0:0
+WOLFTPM_LIBRARY_VERSION=2:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
