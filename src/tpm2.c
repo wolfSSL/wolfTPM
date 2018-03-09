@@ -117,7 +117,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
             /* check if encrypting parameters */
             if (auth->sessionAttributes & TPMA_SESSION_decrypt) {
                 /* get new nonce if required */
-                if (ctx->authCmd->sessionHandle != TPM_RS_PW && auth->nonce.size > 0) {
+                if (ctx->authCmd->sessionHandle !=
+                                            TPM_RS_PW && auth->nonce.size > 0) {
                     rc = TPM2_GetNonce(auth->nonce.buffer, auth->nonce.size);
                     if (rc != 0)
                         return rc;
@@ -133,7 +134,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
                         sizeof(TPM2_HEADER) + (i * sizeof(TPM_HANDLE)));
                     if (*objHandle == auth->objHandle) {
                         /* append to key */
-                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer, auth->objAuth.size);
+                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,
+                            auth->objAuth.size);
                         key.size += auth->objAuth.size;
                     }
                 }
@@ -189,7 +191,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
                         sizeof(TPM2_HEADER) + (i * sizeof(TPM_HANDLE)));
                     if (*objHandle == auth->objHandle) {
                         /* append to key */
-                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer, auth->objAuth.size);
+                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,
+                            auth->objAuth.size);
                         key.size += auth->objAuth.size;
                     }
                 }
@@ -673,7 +676,8 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
-        TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
+        TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer,
+            in->outsideInfo.size);
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Create);
 
@@ -685,35 +689,42 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
-            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer, out->outPrivate.size);
+            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
+                out->outPrivate.size);
 
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
             TPM2_Packet_ParseU16(&packet, &out->creationData.size);
-            TPM2_Packet_ParsePCR(&packet, &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParsePCR(&packet,
+                &out->creationData.creationData.pcrSelect);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.pcrDigest.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.pcrDigest.buffer,
-                        out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseU8(&packet, &out->creationData.creationData.locality);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentName.size);
+                out->creationData.creationData.pcrDigest.buffer,
+                out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParseU8(&packet,
+                &out->creationData.creationData.locality);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentNameAlg);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentName.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.parentName.name,
-                        out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentQualifiedName.size);
+                out->creationData.creationData.parentName.name,
+                out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentQualifiedName.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.parentQualifiedName.name,
-                        out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.outsideInfo.size);
+                out->creationData.creationData.parentQualifiedName.name,
+                out->creationData.creationData.parentQualifiedName.size);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.outsideInfo.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.outsideInfo.buffer,
-                        out->creationData.creationData.outsideInfo.size);
+                out->creationData.creationData.outsideInfo.buffer,
+                out->creationData.creationData.outsideInfo.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
-            TPM2_Packet_ParseBytes(&packet,
-                        out->creationHash.buffer,
-                        out->creationHash.size);
+            TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
+                out->creationHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
@@ -745,7 +756,8 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
-        TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer, in->outsideInfo.size);
+        TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer,
+            in->outsideInfo.size);
         TPM2_Packet_AppendPCR(&packet, &in->creationPCR);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CreatePrimary);
 
@@ -761,30 +773,36 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
             TPM2_Packet_ParseU16(&packet, &out->creationData.size);
-            TPM2_Packet_ParsePCR(&packet, &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParsePCR(&packet,
+                &out->creationData.creationData.pcrSelect);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.pcrDigest.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.pcrDigest.buffer,
-                        out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseU8(&packet, &out->creationData.creationData.locality);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentName.size);
+                out->creationData.creationData.pcrDigest.buffer,
+                out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParseU8(&packet,
+                &out->creationData.creationData.locality);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentNameAlg);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentName.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.parentName.name,
-                        out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.parentQualifiedName.size);
+                out->creationData.creationData.parentName.name,
+                out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.parentQualifiedName.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.parentQualifiedName.name,
-                        out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet, &out->creationData.creationData.outsideInfo.size);
+                out->creationData.creationData.parentQualifiedName.name,
+                out->creationData.creationData.parentQualifiedName.size);
+            TPM2_Packet_ParseU16(&packet,
+                &out->creationData.creationData.outsideInfo.size);
             TPM2_Packet_ParseBytes(&packet,
-                        out->creationData.creationData.outsideInfo.buffer,
-                        out->creationData.creationData.outsideInfo.size);
+                out->creationData.creationData.outsideInfo.buffer,
+                out->creationData.creationData.outsideInfo.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
-            TPM2_Packet_ParseBytes(&packet,
-                        out->creationHash.buffer,
-                        out->creationHash.size);
+            TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
+                out->creationHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
@@ -818,7 +836,8 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
-        TPM2_Packet_AppendBytes(&packet, in->inPrivate.buffer, in->inPrivate.size);
+        TPM2_Packet_AppendBytes(&packet, in->inPrivate.buffer,
+            in->inPrivate.size);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Load);
 
@@ -882,7 +901,8 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
             UINT32 paramSz = 0;
             TPM2_Packet_ParseU32(&packet, &paramSz);
             TPM2_Packet_ParseU16(&packet, &out->outData.size);
-            TPM2_Packet_ParseBytes(&packet, out->outData.buffer, out->outData.size);
+            TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
+                out->outData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -910,20 +930,24 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
         TPM2_Packet_AppendU32(&packet, in->tpmKey);
         TPM2_Packet_AppendU32(&packet, in->bind);
         TPM2_Packet_AppendU16(&packet, in->nonceCaller.size);
-        TPM2_Packet_AppendBytes(&packet, in->nonceCaller.buffer, in->nonceCaller.size);
+        TPM2_Packet_AppendBytes(&packet, in->nonceCaller.buffer,
+            in->nonceCaller.size);
         TPM2_Packet_AppendU16(&packet, in->encryptedSalt.size);
-        TPM2_Packet_AppendBytes(&packet, in->encryptedSalt.secret, in->encryptedSalt.size);
+        TPM2_Packet_AppendBytes(&packet, in->encryptedSalt.secret,
+            in->encryptedSalt.size);
         TPM2_Packet_AppendU8(&packet, in->sessionType);
         TPM2_Packet_AppendSymmetric(&packet, &in->symmetric);
         TPM2_Packet_AppendU16(&packet, in->authHash);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_StartAuthSession);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_StartAuthSession);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
             TPM2_Packet_ParseU32(&packet, &out->sessionHandle);
             TPM2_Packet_ParseU16(&packet, &out->nonceTPM.size);
-            TPM2_Packet_ParseBytes(&packet, out->nonceTPM.buffer, out->nonceTPM.size);
+            TPM2_Packet_ParseBytes(&packet, out->nonceTPM.buffer,
+                out->nonceTPM.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -983,17 +1007,21 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
                 2 + in->inPrivate.sensitiveArea.sensitive.any.size;
             TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
 
-            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitiveType);
-            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.authValue.size);
+            TPM2_Packet_AppendU16(&packet,
+                in->inPrivate.sensitiveArea.sensitiveType);
+            TPM2_Packet_AppendU16(&packet,
+                in->inPrivate.sensitiveArea.authValue.size);
             TPM2_Packet_AppendBytes(&packet,
                 in->inPrivate.sensitiveArea.authValue.buffer,
                 in->inPrivate.sensitiveArea.authValue.size);
-            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.seedValue.size);
+            TPM2_Packet_AppendU16(&packet,
+                in->inPrivate.sensitiveArea.seedValue.size);
             TPM2_Packet_AppendBytes(&packet,
                 in->inPrivate.sensitiveArea.seedValue.buffer,
                 in->inPrivate.sensitiveArea.seedValue.size);
 
-            TPM2_Packet_AppendU16(&packet, in->inPrivate.sensitiveArea.sensitive.any.size);
+            TPM2_Packet_AppendU16(&packet,
+                in->inPrivate.sensitiveArea.sensitive.any.size);
             TPM2_Packet_AppendBytes(&packet,
                 in->inPrivate.sensitiveArea.sensitive.any.buffer,
                 in->inPrivate.sensitiveArea.sensitive.any.size);
@@ -1050,7 +1078,8 @@ TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out)
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
 
             TPM2_Packet_ParseU16(&packet, &out->qualifiedName.size);
-            TPM2_Packet_ParseBytes(&packet, out->qualifiedName.name, out->qualifiedName.size);
+            TPM2_Packet_ParseBytes(&packet, out->qualifiedName.name,
+                out->qualifiedName.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1076,10 +1105,12 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
         TPM2_Packet_AppendAuth(&packet, &ctx->authCmd[0]);
         TPM2_Packet_AppendAuth(&packet, &ctx->authCmd[1]);
         TPM2_Packet_AppendU16(&packet, in->credentialBlob.size);
-        TPM2_Packet_AppendBytes(&packet, in->credentialBlob.buffer, in->credentialBlob.size);
+        TPM2_Packet_AppendBytes(&packet, in->credentialBlob.buffer,
+            in->credentialBlob.size);
         TPM2_Packet_AppendU16(&packet, in->secret.size);
         TPM2_Packet_AppendBytes(&packet, in->secret.secret, in->secret.size);
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ActivateCredential);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_ActivateCredential);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
@@ -1087,7 +1118,8 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
             UINT32 paramSz = 0;
             TPM2_Packet_ParseU32(&packet, &paramSz);
             TPM2_Packet_ParseU16(&packet, &out->certInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->certInfo.buffer, out->certInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->certInfo.buffer,
+                out->certInfo.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1110,21 +1142,26 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
         TPM2_Packet_AppendU32(&packet, in->handle);
 
         TPM2_Packet_AppendU16(&packet, in->credential.size);
-        TPM2_Packet_AppendBytes(&packet, in->credential.buffer, in->credential.size);
+        TPM2_Packet_AppendBytes(&packet, in->credential.buffer,
+            in->credential.size);
 
         TPM2_Packet_AppendU16(&packet, in->objectName.size);
-        TPM2_Packet_AppendBytes(&packet, in->objectName.name, in->objectName.size);
+        TPM2_Packet_AppendBytes(&packet, in->objectName.name,
+            in->objectName.size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_MakeCredential);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_MakeCredential);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
             TPM2_Packet_ParseU16(&packet, &out->credentialBlob.size);
-            TPM2_Packet_ParseBytes(&packet, out->credentialBlob.buffer, out->credentialBlob.size);
+            TPM2_Packet_ParseBytes(&packet, out->credentialBlob.buffer,
+                out->credentialBlob.size);
 
             TPM2_Packet_ParseU16(&packet, &out->secret.size);
-            TPM2_Packet_ParseBytes(&packet, out->secret.secret, out->secret.size);
+            TPM2_Packet_ParseBytes(&packet, out->secret.secret,
+                out->secret.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1150,7 +1187,8 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->newAuth.size);
-        TPM2_Packet_AppendBytes(&packet, in->newAuth.buffer, in->newAuth.size);
+        TPM2_Packet_AppendBytes(&packet, in->newAuth.buffer,
+            in->newAuth.size);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_ObjectChangeAuth);
 
@@ -1161,7 +1199,8 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
-            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer, out->outPrivate.size);
+            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
+                out->outPrivate.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1187,7 +1226,8 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->encryptionKeyIn.size);
-        TPM2_Packet_AppendBytes(&packet, in->encryptionKeyIn.buffer, in->encryptionKeyIn.size);
+        TPM2_Packet_AppendBytes(&packet, in->encryptionKeyIn.buffer,
+            in->encryptionKeyIn.size);
 
         TPM2_Packet_AppendU16(&packet, in->symmetricAlg.algorithm);
         TPM2_Packet_AppendU16(&packet, in->symmetricAlg.keyBits.sym);
@@ -1203,13 +1243,16 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->encryptionKeyOut.size);
-            TPM2_Packet_ParseBytes(&packet, out->encryptionKeyOut.buffer, out->encryptionKeyOut.size);
+            TPM2_Packet_ParseBytes(&packet, out->encryptionKeyOut.buffer,
+                out->encryptionKeyOut.size);
 
             TPM2_Packet_ParseU16(&packet, &out->duplicate.size);
-            TPM2_Packet_ParseBytes(&packet, out->duplicate.buffer, out->duplicate.size);
+            TPM2_Packet_ParseBytes(&packet, out->duplicate.buffer,
+                out->duplicate.size);
 
             TPM2_Packet_ParseU16(&packet, &out->outSymSeed.size);
-            TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret, out->outSymSeed.size);
+            TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret,
+                out->outSymSeed.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1235,13 +1278,15 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->inDuplicate.size);
-        TPM2_Packet_AppendBytes(&packet, in->inDuplicate.buffer, in->inDuplicate.size);
+        TPM2_Packet_AppendBytes(&packet, in->inDuplicate.buffer,
+            in->inDuplicate.size);
 
         TPM2_Packet_AppendU16(&packet, in->name.size);
         TPM2_Packet_AppendBytes(&packet, in->name.name, in->name.size);
 
         TPM2_Packet_AppendU16(&packet, in->inSymSeed.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSymSeed.secret, in->inSymSeed.size);
+        TPM2_Packet_AppendBytes(&packet, in->inSymSeed.secret,
+            in->inSymSeed.size);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Rewrap);
 
@@ -1253,10 +1298,12 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outDuplicate.size);
-            TPM2_Packet_ParseBytes(&packet, out->outDuplicate.buffer, out->outDuplicate.size);
+            TPM2_Packet_ParseBytes(&packet, out->outDuplicate.buffer,
+                out->outDuplicate.size);
 
             TPM2_Packet_ParseU16(&packet, &out->outSymSeed.size);
-            TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret, out->outSymSeed.size);
+            TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret,
+                out->outSymSeed.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1279,12 +1326,15 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         TPM2_Packet_AppendU16(&packet, in->encryptionKey.size);
-        TPM2_Packet_AppendBytes(&packet, in->encryptionKey.buffer, in->encryptionKey.size);
+        TPM2_Packet_AppendBytes(&packet, in->encryptionKey.buffer,
+            in->encryptionKey.size);
         TPM2_Packet_AppendPublic(&packet, &in->objectPublic);
         TPM2_Packet_AppendU16(&packet, in->duplicate.size);
-        TPM2_Packet_AppendBytes(&packet, in->duplicate.buffer, in->duplicate.size);
+        TPM2_Packet_AppendBytes(&packet, in->duplicate.buffer,
+            in->duplicate.size);
         TPM2_Packet_AppendU16(&packet, in->inSymSeed.size);
-        TPM2_Packet_AppendBytes(&packet, in->inSymSeed.secret, in->inSymSeed.size);
+        TPM2_Packet_AppendBytes(&packet, in->inSymSeed.secret,
+            in->inSymSeed.size);
         TPM2_Packet_AppendSymmetric(&packet, &in->symmetricAlg);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Import);
@@ -1297,7 +1347,8 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
-            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer, out->outPrivate.size);
+            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
+                out->outPrivate.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1346,7 +1397,8 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
             }
 
             TPM2_Packet_ParseU16(&packet, &out->outData.size);
-            TPM2_Packet_ParseBytes(&packet, out->outData.buffer, out->outData.size);
+            TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
+                out->outData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1371,7 +1423,8 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->cipherText.size);
-        TPM2_Packet_AppendBytes(&packet, in->cipherText.buffer, in->cipherText.size);
+        TPM2_Packet_AppendBytes(&packet, in->cipherText.buffer,
+            in->cipherText.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
@@ -1389,7 +1442,8 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->message.size);
-            TPM2_Packet_ParseBytes(&packet, out->message.buffer, out->message.size);
+            TPM2_Packet_ParseBytes(&packet, out->message.buffer,
+                out->message.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1487,7 +1541,8 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU16(&packet, in->curveID);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_ECC_Parameters);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_ECC_Parameters);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -1497,32 +1552,41 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.kdf.scheme);
             if (out->parameters.kdf.scheme != TPM_ALG_NULL)
-                TPM2_Packet_ParseU16(&packet, &out->parameters.kdf.details.any.hashAlg);
+                TPM2_Packet_ParseU16(&packet,
+                    &out->parameters.kdf.details.any.hashAlg);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.sign.scheme);
             if (out->parameters.sign.scheme != TPM_ALG_NULL)
-                TPM2_Packet_ParseU16(&packet, &out->parameters.sign.details.any.hashAlg);
+                TPM2_Packet_ParseU16(&packet,
+                    &out->parameters.sign.details.any.hashAlg);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.p.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.p.buffer, out->parameters.p.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.p.buffer,
+                out->parameters.p.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.a.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.a.buffer, out->parameters.a.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.a.buffer,
+                out->parameters.a.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.b.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.b.buffer, out->parameters.b.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.b.buffer,
+                out->parameters.b.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.gX.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.gX.buffer, out->parameters.gX.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.gX.buffer,
+                out->parameters.gX.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.gY.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.gY.buffer, out->parameters.gY.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.gY.buffer,
+                out->parameters.gY.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.n.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.n.buffer, out->parameters.n.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.n.buffer,
+                out->parameters.n.size);
 
             TPM2_Packet_ParseU16(&packet, &out->parameters.h.size);
-            TPM2_Packet_ParseBytes(&packet, out->parameters.h.buffer, out->parameters.h.size);
+            TPM2_Packet_ParseBytes(&packet, out->parameters.h.buffer,
+                out->parameters.h.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1600,7 +1664,8 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outData.size);
-            TPM2_Packet_ParseBytes(&packet, out->outData.buffer, out->outData.size);
+            TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
+                out->outData.size);
 
             TPM2_Packet_ParseU16(&packet, &out->ivOut.size);
             TPM2_Packet_ParseBytes(&packet, out->ivOut.buffer, out->ivOut.size);
@@ -1645,7 +1710,8 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outData.size);
-            TPM2_Packet_ParseBytes(&packet, out->outData.buffer, out->outData.size);
+            TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
+                out->outData.size);
 
             TPM2_Packet_ParseU16(&packet, &out->ivOut.size);
             TPM2_Packet_ParseBytes(&packet, out->ivOut.buffer, out->ivOut.size);
@@ -1693,13 +1759,15 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
             }
 
             TPM2_Packet_ParseU16(&packet, &out->outHash.size);
-            TPM2_Packet_ParseBytes(&packet, out->outHash.buffer, out->outHash.size);
+            TPM2_Packet_ParseBytes(&packet, out->outHash.buffer,
+                out->outHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
-            TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer, out->validation.digest.size);
+            TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer,
+                out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1738,7 +1806,8 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->outHMAC.size);
-            TPM2_Packet_ParseBytes(&packet, out->outHMAC.buffer, out->outHMAC.size);
+            TPM2_Packet_ParseBytes(&packet, out->outHMAC.buffer,
+                out->outHMAC.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1881,13 +1950,15 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->result.size);
-            TPM2_Packet_ParseBytes(&packet, out->result.buffer, out->result.size);
+            TPM2_Packet_ParseBytes(&packet, out->result.buffer,
+                out->result.size);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
-            TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer, out->validation.digest.size);
+            TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer,
+                out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1918,7 +1989,8 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
         TPM2_Packet_AppendU16(&packet, in->buffer.size);
         TPM2_Packet_AppendBytes(&packet, in->buffer.buffer, in->buffer.size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EventSequenceComplete);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_EventSequenceComplete);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
@@ -1930,9 +2002,12 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
 
             TPM2_Packet_ParseU32(&packet, &out->results.count);
             for (i=0; i<(int)out->results.count; i++) {
-                TPM2_Packet_ParseU16(&packet, &out->results.digests[i].hashAlg);
-                digestSz = TPM2_GetHashDigestSize(out->results.digests[i].hashAlg);
-                TPM2_Packet_ParseBytes(&packet, out->results.digests[i].digest.H, digestSz);
+                TPM2_Packet_ParseU16(&packet,
+                    &out->results.digests[i].hashAlg);
+                digestSz = TPM2_GetHashDigestSize(
+                    out->results.digests[i].hashAlg);
+                TPM2_Packet_ParseBytes(&packet,
+                    out->results.digests[i].digest.H, digestSz);
             }
         }
 
@@ -1960,7 +2035,8 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
@@ -1975,7 +2051,8 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
+                out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2004,10 +2081,12 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->creationHash.size);
-        TPM2_Packet_AppendBytes(&packet, in->creationHash.buffer, in->creationHash.size);
+        TPM2_Packet_AppendBytes(&packet, in->creationHash.buffer,
+            in->creationHash.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
@@ -2029,7 +2108,8 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
+                out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2057,7 +2137,8 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
@@ -2074,7 +2155,8 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->quoted.size);
-            TPM2_Packet_ParseBytes(&packet, out->quoted.attestationData, out->quoted.size);
+            TPM2_Packet_ParseBytes(&packet, out->quoted.attestationData,
+                out->quoted.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2106,12 +2188,14 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
         TPM2_Packet_AppendAuth(&packet, &ctx->authCmd[1]);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetSessionAuditDigest);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_GetSessionAuditDigest);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
@@ -2121,7 +2205,8 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData, out->auditInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData,
+                out->auditInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2152,12 +2237,14 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
         TPM2_Packet_AppendAuth(&packet, &ctx->authCmd[1]);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetCommandAuditDigest);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_GetCommandAuditDigest);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 2, 2, 0);
@@ -2167,7 +2254,8 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData, out->auditInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData,
+                out->auditInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2197,7 +2285,8 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
         TPM2_Packet_AppendAuth(&packet, &ctx->authCmd[1]);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
@@ -2212,7 +2301,8 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->timeInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->timeInfo.attestationData, out->timeInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->timeInfo.attestationData,
+                out->timeInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2433,7 +2523,8 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(
             TPM2_Packet_AppendU32(&packet, in->clearList.commandCodes[i]);
         }
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetCommandCodeAuditStatus);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_SetCommandCodeAuditStatus);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -2460,7 +2551,8 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->eventData.size);
-        TPM2_Packet_AppendBytes(&packet, in->eventData.buffer, in->eventData.size);
+        TPM2_Packet_AppendBytes(&packet, in->eventData.buffer,
+            in->eventData.size);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_Event);
 
@@ -2476,8 +2568,10 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
             for (i=0; (int)out->digests.count; i++) {
                 int digestSz;
                 TPM2_Packet_ParseU16(&packet, &out->digests.digests[i].hashAlg);
-                digestSz = TPM2_GetHashDigestSize(out->digests.digests[i].hashAlg);
-                TPM2_Packet_ParseBytes(&packet, out->digests.digests[i].digest.H, digestSz);
+                digestSz = TPM2_GetHashDigestSize(
+                    out->digests.digests[i].hashAlg);
+                TPM2_Packet_ParseBytes(&packet,
+                    out->digests.digests[i].digest.H, digestSz);
             }
         }
 
@@ -2541,12 +2635,14 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->authPolicy.size);
-        TPM2_Packet_AppendBytes(&packet, in->authPolicy.buffer, in->authPolicy.size);
+        TPM2_Packet_AppendBytes(&packet, in->authPolicy.buffer,
+            in->authPolicy.size);
 
         TPM2_Packet_AppendU16(&packet, in->hashAlg);
         TPM2_Packet_AppendU32(&packet, in->pcrNum);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PCR_SetAuthPolicy);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_PCR_SetAuthPolicy);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -2634,13 +2730,16 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
         }
 
         TPM2_Packet_AppendU16(&packet, in->nonceTPM.size);
-        TPM2_Packet_AppendBytes(&packet, in->nonceTPM.buffer, in->nonceTPM.size);
+        TPM2_Packet_AppendBytes(&packet, in->nonceTPM.buffer,
+            in->nonceTPM.size);
 
         TPM2_Packet_AppendU16(&packet, in->cpHashA.size);
-        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer, in->cpHashA.size);
+        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer,
+            in->cpHashA.size);
 
         TPM2_Packet_AppendU16(&packet, in->policyRef.size);
-        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer, in->policyRef.size);
+        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer,
+            in->policyRef.size);
 
         TPM2_Packet_AppendS32(&packet, in->expiration);
 
@@ -2658,7 +2757,8 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
             }
 
             TPM2_Packet_ParseU16(&packet, &out->timeout.size);
-            TPM2_Packet_ParseBytes(&packet, out->timeout.buffer, out->timeout.size);
+            TPM2_Packet_ParseBytes(&packet, out->timeout.buffer,
+                out->timeout.size);
 
             TPM2_Packet_ParseU16(&packet, &out->policyTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->policyTicket.hierarchy);
@@ -2692,13 +2792,16 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->nonceTPM.size);
-        TPM2_Packet_AppendBytes(&packet, in->nonceTPM.buffer, in->nonceTPM.size);
+        TPM2_Packet_AppendBytes(&packet, in->nonceTPM.buffer,
+            in->nonceTPM.size);
 
         TPM2_Packet_AppendU16(&packet, in->cpHashA.size);
-        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer, in->cpHashA.size);
+        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer,
+            in->cpHashA.size);
 
         TPM2_Packet_AppendU16(&packet, in->policyRef.size);
-        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer, in->policyRef.size);
+        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer,
+            in->policyRef.size);
 
         TPM2_Packet_AppendS32(&packet, in->expiration);
 
@@ -2712,7 +2815,8 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->timeout.size);
-            TPM2_Packet_ParseBytes(&packet, out->timeout.buffer, out->timeout.size);
+            TPM2_Packet_ParseBytes(&packet, out->timeout.buffer,
+                out->timeout.size);
 
             TPM2_Packet_ParseU16(&packet, &out->policyTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->policyTicket.hierarchy);
@@ -2749,16 +2853,20 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->timeout.size);
-        TPM2_Packet_AppendBytes(&packet, in->timeout.buffer, in->timeout.size);
+        TPM2_Packet_AppendBytes(&packet, in->timeout.buffer,
+            in->timeout.size);
 
         TPM2_Packet_AppendU16(&packet, in->cpHashA.size);
-        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer, in->cpHashA.size);
+        TPM2_Packet_AppendBytes(&packet, in->cpHashA.buffer,
+            in->cpHashA.size);
 
         TPM2_Packet_AppendU16(&packet, in->policyRef.size);
-        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer, in->policyRef.size);
+        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer,
+            in->policyRef.size);
 
         TPM2_Packet_AppendU16(&packet, in->authName.size);
-        TPM2_Packet_AppendBytes(&packet, in->authName.name, in->authName.size);
+        TPM2_Packet_AppendBytes(&packet, in->authName.name,
+            in->authName.size);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTicket);
 
@@ -2826,7 +2934,8 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->pcrDigest.size);
-        TPM2_Packet_AppendBytes(&packet, in->pcrDigest.buffer, in->pcrDigest.size);
+        TPM2_Packet_AppendBytes(&packet, in->pcrDigest.buffer,
+            in->pcrDigest.size);
 
         TPM2_Packet_AppendPCR(&packet, &in->pcrs);
 
@@ -2856,7 +2965,8 @@ TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in)
         TPM2_Packet_AppendU32(&packet, in->policySession);
         TPM2_Packet_AppendU8(&packet, in->locality);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_PolicyLocality);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_PolicyLocality);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -2886,7 +2996,8 @@ TPM_RC TPM2_PolicyNV(PolicyNV_In* in)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->operandB.size);
-        TPM2_Packet_AppendBytes(&packet, in->operandB.buffer, in->operandB.size);
+        TPM2_Packet_AppendBytes(&packet, in->operandB.buffer,
+            in->operandB.size);
 
         TPM2_Packet_AppendU16(&packet, in->offset);
         TPM2_Packet_AppendU16(&packet, in->operation);
@@ -2923,7 +3034,8 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->operandB.size);
-        TPM2_Packet_AppendBytes(&packet, in->operandB.buffer, in->operandB.size);
+        TPM2_Packet_AppendBytes(&packet, in->operandB.buffer,
+            in->operandB.size);
 
         TPM2_Packet_AppendU16(&packet, in->offset);
         TPM2_Packet_AppendU16(&packet, in->operation);
@@ -2955,7 +3067,8 @@ TPM_RC TPM2_PolicyCommandCode(PolicyCommandCode_In* in)
 
         TPM2_Packet_AppendU32(&packet, in->code);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_PolicyCommandCode);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_PolicyCommandCode);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -3019,7 +3132,8 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->nameHash.size);
-        TPM2_Packet_AppendBytes(&packet, in->nameHash.buffer, in->nameHash.size);
+        TPM2_Packet_AppendBytes(&packet, in->nameHash.buffer,
+            in->nameHash.size);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyNameHash);
 
@@ -3052,10 +3166,12 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->objectName.size);
-        TPM2_Packet_AppendBytes(&packet, in->objectName.name, in->objectName.size);
+        TPM2_Packet_AppendBytes(&packet, in->objectName.name,
+            in->objectName.size);
 
         TPM2_Packet_AppendU16(&packet, in->newParentName.size);
-        TPM2_Packet_AppendBytes(&packet, in->newParentName.name, in->newParentName.size);
+        TPM2_Packet_AppendBytes(&packet, in->newParentName.name,
+            in->newParentName.size);
 
         TPM2_Packet_AppendU8(&packet, in->includeObject);
 
@@ -3090,10 +3206,12 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->approvedPolicy.size);
-        TPM2_Packet_AppendBytes(&packet, in->approvedPolicy.buffer, in->approvedPolicy.size);
+        TPM2_Packet_AppendBytes(&packet, in->approvedPolicy.buffer,
+            in->approvedPolicy.size);
 
         TPM2_Packet_AppendU16(&packet, in->policyRef.size);
-        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer, in->policyRef.size);
+        TPM2_Packet_AppendBytes(&packet, in->policyRef.buffer,
+            in->policyRef.size);
 
         TPM2_Packet_AppendU16(&packet, in->keySign.size);
         TPM2_Packet_AppendBytes(&packet, in->keySign.name, in->keySign.size);
@@ -3142,7 +3260,8 @@ static TPM_RC TPM2_PolicySessionOnly(TPM_CC cc, TPMI_SH_POLICY policy)
 
 TPM_RC TPM2_PolicyPhysicalPresence(PolicyPhysicalPresence_In* in)
 {
-    return TPM2_PolicySessionOnly(TPM_CC_PolicyPhysicalPresence, in->policySession);
+    return TPM2_PolicySessionOnly(TPM_CC_PolicyPhysicalPresence,
+        in->policySession);
 }
 
 TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in)
@@ -3185,7 +3304,8 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
             }
 
             TPM2_Packet_ParseU16(&packet, &out->policyDigest.size);
-            TPM2_Packet_ParseBytes(&packet, out->policyDigest.buffer, out->policyDigest.size);
+            TPM2_Packet_ParseBytes(&packet, out->policyDigest.buffer,
+                out->policyDigest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3207,7 +3327,8 @@ TPM_RC TPM2_PolicyNvWritten(PolicyNvWritten_In* in)
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
         TPM2_Packet_AppendU8(&packet, in->writtenSet);
-        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_PolicyNvWritten);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+            TPM_CC_PolicyNvWritten);
 
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
@@ -3236,7 +3357,8 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
             TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         }
         TPM2_Packet_AppendU16(&packet, in->templateHash.size);
-        TPM2_Packet_AppendBytes(&packet, in->templateHash.buffer, in->templateHash.size);
+        TPM2_Packet_AppendBytes(&packet, in->templateHash.buffer,
+            in->templateHash.size);
         TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTemplate);
 
         /* send command */
@@ -3263,7 +3385,8 @@ TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in)
         TPM2_Packet_AppendU32(&packet, in->nvIndex);
         TPM2_Packet_AppendU32(&packet, in->policySession);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_PolicyAuthorizeNV);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_PolicyAuthorizeNV);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 3, 0);
@@ -3315,7 +3438,8 @@ TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in)
         TPM2_Packet_AppendU32(&packet, in->authHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         TPM2_Packet_AppendU16(&packet, in->authPolicy.size);
-        TPM2_Packet_AppendBytes(&packet, in->authPolicy.buffer, in->authPolicy.size);
+        TPM2_Packet_AppendBytes(&packet, in->authPolicy.buffer,
+            in->authPolicy.size);
         TPM2_Packet_AppendU16(&packet, in->hashAlg);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetPrimaryPolicy);
 
@@ -3426,7 +3550,8 @@ TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
         TPM2_Packet_AppendU16(&packet, in->newAuth.size);
         TPM2_Packet_AppendBytes(&packet, in->newAuth.buffer, in->newAuth.size);
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_HierarchyChangeAuth);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_HierarchyChangeAuth);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -3450,7 +3575,8 @@ TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in)
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->lockHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_DictionaryAttackLockReset);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_DictionaryAttackLockReset);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -3477,7 +3603,8 @@ TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in)
         TPM2_Packet_AppendU32(&packet, in->newMaxTries);
         TPM2_Packet_AppendU32(&packet, in->newRecoveryTime);
         TPM2_Packet_AppendU32(&packet, in->lockoutRecovery);
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_DictionaryAttackParameters);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_DictionaryAttackParameters);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -3568,11 +3695,13 @@ TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->fuDigest.size);
-        TPM2_Packet_AppendBytes(&packet, in->fuDigest.buffer, in->fuDigest.size);
+        TPM2_Packet_AppendBytes(&packet, in->fuDigest.buffer,
+            in->fuDigest.size);
 
         TPM2_Packet_AppendSignature(&packet, &in->manifestSignature);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_FieldUpgradeStart);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_FieldUpgradeStart);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
@@ -3622,7 +3751,8 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
 
             TPM2_Packet_ParseU16(&packet, &out->firstDigest.hashAlg);
             digestSz = TPM2_GetHashDigestSize(out->firstDigest.hashAlg);
-            TPM2_Packet_ParseBytes(&packet, out->firstDigest.digest.H, digestSz);
+            TPM2_Packet_ParseBytes(&packet,
+                out->firstDigest.digest.H, digestSz);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3661,7 +3791,8 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
             }
 
             TPM2_Packet_ParseU16(&packet, &out->fuData.size);
-            TPM2_Packet_ParseBytes(&packet, out->fuData.buffer, out->fuData.size);
+            TPM2_Packet_ParseBytes(&packet, out->fuData.buffer,
+                out->fuData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3793,8 +3924,10 @@ TPM_RC TPM2_ReadClock(ReadClock_Out* out)
 
             TPM2_Packet_ParseU64(&packet, &out->currentTime.time);
             TPM2_Packet_ParseU64(&packet, &out->currentTime.clockInfo.clock);
-            TPM2_Packet_ParseU32(&packet, &out->currentTime.clockInfo.resetCount);
-            TPM2_Packet_ParseU32(&packet, &out->currentTime.clockInfo.restartCount);
+            TPM2_Packet_ParseU32(&packet,
+                &out->currentTime.clockInfo.resetCount);
+            TPM2_Packet_ParseU32(&packet,
+                &out->currentTime.clockInfo.restartCount);
             TPM2_Packet_ParseU8(&packet, &out->currentTime.clockInfo.safe);
         }
 
@@ -3874,7 +4007,8 @@ TPM_RC TPM2_TestParms(TestParms_In* in)
         }
 
         TPM2_Packet_AppendU16(&packet, in->parameters.type);
-        TPM2_Packet_AppendPublicParms(&packet, in->parameters.type, &in->parameters.parameters);
+        TPM2_Packet_AppendPublicParms(&packet, in->parameters.type,
+            &in->parameters.parameters);
         TPM2_Packet_Finalize(&packet, st, TPM_CC_TestParms);
 
         /* send command */
@@ -3912,7 +4046,8 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_AppendU32(&packet, in->publicInfo.nvPublic.attributes);
 
         TPM2_Packet_AppendU16(&packet, in->publicInfo.nvPublic.authPolicy.size);
-        TPM2_Packet_AppendBytes(&packet, in->publicInfo.nvPublic.authPolicy.buffer,
+        TPM2_Packet_AppendBytes(&packet,
+            in->publicInfo.nvPublic.authPolicy.buffer,
             in->publicInfo.nvPublic.authPolicy.size);
 
         TPM2_Packet_AppendU16(&packet, in->publicInfo.nvPublic.dataSize);
@@ -3971,7 +4106,8 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
         TPM2_Packet_AppendU32(&packet, in->platform);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_UndefineSpaceSpecial);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_NV_UndefineSpaceSpecial);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 2, 0);
@@ -4017,8 +4153,10 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->nvPublic.nvPublic.nameAlg);
             TPM2_Packet_ParseU32(&packet, &out->nvPublic.nvPublic.attributes);
 
-            TPM2_Packet_ParseU16(&packet, &out->nvPublic.nvPublic.authPolicy.size);
-            TPM2_Packet_ParseBytes(&packet, out->nvPublic.nvPublic.authPolicy.buffer,
+            TPM2_Packet_ParseU16(&packet,
+                &out->nvPublic.nvPublic.authPolicy.size);
+            TPM2_Packet_ParseBytes(&packet,
+                out->nvPublic.nvPublic.authPolicy.buffer,
                 out->nvPublic.nvPublic.authPolicy.size);
 
             TPM2_Packet_ParseU16(&packet, &out->nvPublic.nvPublic.dataSize);
@@ -4193,7 +4331,8 @@ TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in)
         TPM2_Packet_AppendU32(&packet, in->authHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NV_GlobalWriteLock);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_NV_GlobalWriteLock);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
@@ -4316,7 +4455,8 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
 
         TPM2_Packet_AppendU16(&packet, in->qualifyingData.size);
-        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer, in->qualifyingData.size);
+        TPM2_Packet_AppendBytes(&packet, in->qualifyingData.buffer,
+            in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
@@ -4334,7 +4474,8 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
-            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData, out->certifyInfo.size);
+            TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
+                out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }

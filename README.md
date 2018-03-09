@@ -92,6 +92,9 @@ Build wolfTPM:
 ```
 ./examples/tpm/tpm_demo
 TPM2 Demo for Wrapper API's
+RSA Encrypt Test Passed
+ECC Sign/Verify Passed
+ECC DH Generation Passed
 
 TPM2 Demo using Native API's
 wolfSSL Entering wolfCrypt_Init
