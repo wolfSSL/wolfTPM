@@ -13,9 +13,9 @@ Portable TPM 2.0 project designed for embedded use.
 	* No external dependencies.
 	* Compact code size and minimal memory use.
 * Examples for the Raspberry Pi and STM32 with CubeMX.
-* Includes demo code for the most commonly used API’s.
+* Includes example code for most TPM2 native API’s.
 * Includes wrappers for Key Generation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
-* Testing done using the Infineon OPTIGA SLB9670 module.
+* Testing done using the Infineon OPTIGA SLB9670 module and LetsTrust TPM for Raspberry Pi.
 
 
 ## TPM 2.0 Overview
@@ -61,6 +61,7 @@ For interfacing to your hardware platform see the example `tpm2_demo.c` callback
 ### Hardware
 
 Tested with:
+
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
 * LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 
@@ -81,8 +82,30 @@ Build wolfTPM:
 ```
 ./autogen.sh
 ./configure && make
+./examples/tpm/tpm2_demo
 ```
 
+
+## Release Notes
+
+### wolfTPM Release 1.1 (03/09/2018)
+
+* Added TPM2 wrapper layer to simplify key creation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
+* Added TPM2 wrapper example code.
+* Added Linux SPI support for running on Raspberry Pi.
+* Fixes for TPM2 command and response assembly and parsing.
+* Fixes to support authentication for command and response.
+* Progress on supporting parameter encryption/decryption.
+* Refactor of TIS and Packet layers into new files.
+* Fixes/improvements to `wolfTPM2_GetRCString` for error code and string reporting.
+* Added new `TPM2_Cleanup` function.
+* New tests for TPM2 native API's (test coverage is about 75%).
+
+### wolfTPM Release 1.0 (02/06/2018)
+
+* Support for all TPM2 native API's using TIS and SPI IO callback.
+* Helper for getting TPM return code string `TPM2_GetRCString`.
+* TPM 2.0 demo code in `examples/tpm/tpm2_demo.c` with support for STM32 CubeMX SPI as reference.
 
 
 ## Examples
@@ -1772,8 +1795,8 @@ Response: 10
 
 
 ## Todo
-* Improve documentation overall including possible return codes.
-* Add support for using the TPM with wolfSSL.
+* Improve overall documentation.
+* Add support for using the TPM with wolfSSL for TLS.
 * Add support for encrypting / decrypting parameters. (90% complete)
 * Add spi_tis_dev support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
 * Benchmark TPM
