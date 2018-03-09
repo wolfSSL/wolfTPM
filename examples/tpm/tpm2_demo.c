@@ -19,6 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+/* This demo shows using the TPM2_ specification API's in TPM2_Demo() and
+    the TPM2 wrapper API's in TPM2_Wrapper_Demo() below. */
+
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -32,11 +35,15 @@
 #include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/hash.h>
 
+#include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
+
 #include <examples/tpm/tpm2_demo.h>
 
-/* Local variables */
-static TPM2_CTX gTpm2Ctx;
+
+/******************************************************************************/
+/* --- BEGIN IO Callback Logic -- */
+/******************************************************************************/
 
 /* Configuration for the SPI interface */
 #ifdef WOLFSSL_STM32_CUBEMX
@@ -123,12 +130,146 @@ static int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     return ret;
 }
 
-/* Endorsement Auth */
-const BYTE TPM_20_EK_AUTH_POLICY[] = {
-    0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
-    0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
-    0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
-};
+/******************************************************************************/
+/* --- END IO Callback Logic -- */
+/******************************************************************************/
+
+
+
+/******************************************************************************/
+/* --- BEGIN Wrapper API Demo -- */
+/******************************************************************************/
+
+#ifndef WOLFTPM2_NO_WRAPPER
+int TPM2_Wrapper_Demo(void* userCtx)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storageKey;
+    WOLFTPM2_KEY rsaKey;
+    WOLFTPM2_KEY eccKey;
+    WOLFTPM2_BUFFER message;
+    WOLFTPM2_BUFFER cipher;
+    TPMT_PUBLIC publicTemplate;
+    TPM2B_ECC_POINT pubPoint;
+    const char storageKeyAuth[] = "ThisIsMyStorageKeyAuth";
+    const char keyAuth[] = "ThisIsMyKeyAuth";
+
+    printf("TPM2 Demo for Wrapper API's\n");
+
+
+    /* Init the TPM2 device */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
+    if (rc != 0) return rc;
+
+    /* Create primary storage key */
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
+        &publicTemplate, (byte*)storageKeyAuth, sizeof(storageKeyAuth)-1);
+    if (rc != 0) goto exit;
+
+
+    /* Create RSA key for encrypt/decrypt */
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
+        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+    if (rc != 0) goto exit;
+
+    /* Perform RSA encrypt / decrypt */
+    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* encrypted data */
+    rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
+        message.buffer, message.size, cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+
+    message.size = sizeof(message.buffer);
+    rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
+        cipher.buffer, cipher.size, message.buffer, &message.size);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    if (rc != 0) goto exit;
+
+
+    /* Create an ECC key for ECDSA */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
+        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+    if (rc != 0) goto exit;
+
+    /* Perform sign / verify */
+    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* signature */
+    rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,
+        cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_VerifyHash(&dev, &eccKey, cipher.buffer, cipher.size,
+        message.buffer, message.size);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    if (rc != 0) goto exit;
+
+
+    /* Create an ECC key for DH */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
+        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+    if (rc != 0) goto exit;
+
+    /* Create ephemeral ECC key and generate a shared secret */
+    cipher.size = sizeof(cipher.buffer);
+    rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
+        cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    if (rc != 0) goto exit;
+
+
+exit:
+
+    if (rc != 0) {
+        printf("Failure %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    }
+
+    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+    wolfTPM2_Cleanup(&dev);
+
+    return rc;
+}
+#endif /* !WOLFTPM2_NO_WRAPPER */
+
+/******************************************************************************/
+/* --- END Wrapper API Demo -- */
+/******************************************************************************/
+
+
+
+
+/******************************************************************************/
+/* --- BEGIN TPM Native API Demo -- */
+/******************************************************************************/
 
 
 #define TPM_20_TPM_MFG_NV_SPACE        ((TPM_HT_NV_INDEX << 24) | (0x00 << 22))
@@ -155,17 +296,23 @@ typedef TpmKey TpmRsaKey;
 typedef TpmKey TpmEccKey;
 typedef TpmKey TpmHmacKey;
 
-
 typedef struct tmpHandle {
     TPM_HANDLE         handle;
     TPM2B_AUTH         auth;
 } TpmHandle;
 
 
-
 int TPM2_Demo(void* userCtx)
 {
     int rc;
+    TPM2_CTX tpm2Ctx;
+
+    const BYTE TPM_20_EK_AUTH_POLICY[] = {
+        0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
+        0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
+        0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
+    };
+
     union {
         Startup_In startup;
         Shutdown_In shutdown;
@@ -204,6 +351,7 @@ int TPM2_Demo(void* userCtx)
         VerifySignature_In verifySign;
         ECC_Parameters_In eccParam;
         ECDH_KeyGen_In ecdh;
+        ECDH_ZGen_In ecdhZ;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -231,6 +379,7 @@ int TPM2_Demo(void* userCtx)
         VerifySignature_Out verifySign;
         ECC_Parameters_Out eccParam;
         ECDH_KeyGen_Out ecdh;
+        ECDH_ZGen_Out ecdhZ;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
@@ -267,6 +416,9 @@ int TPM2_Demo(void* userCtx)
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
+
+    printf("TPM2 Demo using Native API's\n");
+
     endorse.handle = TPM_RH_NULL;
     storage.handle = TPM_RH_NULL;
     hmacKey.handle = TPM_RH_NULL;
@@ -276,17 +428,17 @@ int TPM2_Demo(void* userCtx)
     XMEMSET(message.buffer, 0x11, message.size);
 
 
-    rc = TPM2_Init(&gTpm2Ctx, TPM2_IoCb, userCtx);
+    rc = TPM2_Init(&tpm2Ctx, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
     printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
-        gTpm2Ctx.caps,
-        gTpm2Ctx.did_vid >> 16,
-        gTpm2Ctx.did_vid & 0xFFFF,
-        gTpm2Ctx.rid);
+        tpm2Ctx.caps,
+        tpm2Ctx.did_vid >> 16,
+        tpm2Ctx.did_vid & 0xFFFF,
+        tpm2Ctx.rid);
 
     /* define the default session auth */
     XMEMSET(session, 0, sizeof(session));
@@ -512,7 +664,7 @@ int TPM2_Demo(void* userCtx)
     rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-        goto exit;
+        //goto exit;
     }
     printf("TPM2_PolicyPCR: Updated\n");
 
@@ -667,7 +819,7 @@ int TPM2_Demo(void* userCtx)
     XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
 
-    /* Loading RSA public key */
+    /* Load public key */
     XMEMSET(&cmdIn.loadExt, 0, sizeof(cmdIn.loadExt));
     cmdIn.loadExt.inPublic = endorse.public;
     cmdIn.loadExt.hierarchy = TPM_RH_NULL;
@@ -696,7 +848,7 @@ int TPM2_Demo(void* userCtx)
         cmdOut.makeCred.secret.size);
 
 
-    /* Load public key */
+    /* Read public key */
     XMEMSET(&cmdIn.readPub, 0, sizeof(cmdIn.readPub));
     cmdIn.readPub.objectHandle = handle;
     rc = TPM2_ReadPublic(&cmdIn.readPub, &cmdOut.readPub);
@@ -933,7 +1085,7 @@ int TPM2_Demo(void* userCtx)
     session[0].auth.size = sizeof(usageAuth)-1;
     XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
 
-    /* ECDH Key Gen */
+    /* ECDH Key Gen (gen public point and shared secret) */
     XMEMSET(&cmdIn.ecdh, 0, sizeof(cmdIn.ecdh));
     cmdIn.ecdh.keyHandle = eccKey.handle;
     rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
@@ -944,6 +1096,22 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         cmdOut.ecdh.zPoint.size,
         cmdOut.ecdh.pubPoint.size);
+
+
+#if 0
+    XMEMSET(&cmdIn.ecdhZ, 0, sizeof(cmdIn.ecdhZ));
+    cmdIn.ecdhZ.keyHandle = eccKey.handle;
+    cmdIn.ecdhZ.inPoint = cmdOut.ecdh.pubPoint;
+    rc = TPM2_ECDH_ZGen(&cmdIn.ecdhZ, &cmdOut.ecdhZ);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_ECDH_KeyGen: zPt %d\n",
+        cmdOut.ecdhZ.outPoint.size);
+
+    /* verify shared secret is the same */
+#endif
 
     cmdIn.flushCtx.flushHandle = eccKey.handle;
     TPM2_FlushContext(&cmdIn.flushCtx);
@@ -1154,7 +1322,7 @@ exit:
         goto exit;
     }
 
-    TPM2_Cleanup(&gTpm2Ctx);
+    TPM2_Cleanup(&tpm2Ctx);
 
 #ifdef TPM2_SPI_DEV
     /* close handle */
@@ -1165,9 +1333,24 @@ exit:
     return rc;
 }
 
+/******************************************************************************/
+/* --- BEGIN TPM Native API Demo -- */
+/******************************************************************************/
+
+
 #ifndef NO_MAIN_DRIVER
 int main(void)
 {
-    return TPM2_Demo(TPM2_USER_CTX);
+    int rc;
+
+#ifndef WOLFTPM2_NO_WRAPPER
+    rc = TPM2_Wrapper_Demo(TPM2_USER_CTX);
+    if (rc != 0)
+        return rc;
+#endif
+
+    rc = TPM2_Demo(TPM2_USER_CTX);
+
+    return rc;
 }
 #endif
