@@ -183,12 +183,12 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     key->handle.hndl = createPriOut.objectHandle;
     key->handle.auth = createPriIn.inSensitive.sensitive.userAuth;
 
-    key->public = createPriOut.outPublic;
+    key->pub = createPriOut.outPublic;
     key->name = createPriOut.name;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
-        key->handle.hndl, key->public.size);
+        key->handle.hndl, key->pub.size);
 #endif
 
     return rc;
@@ -238,14 +238,14 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
         createOut.outPrivate.size);
 #endif
-    key->public = createOut.outPublic;
-    key->private = createOut.outPrivate;
+    key->pub = createOut.outPublic;
+    key->priv = createOut.outPrivate;
 
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = key->private;
-    loadIn.inPublic = key->public;
+    loadIn.inPrivate = key->priv;
+    loadIn.inPublic = key->pub;
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
@@ -262,18 +262,18 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 
 int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const TPM2B_PUBLIC* public)
+    const TPM2B_PUBLIC* pub)
 {
     int rc;
     LoadExternal_In  loadExtIn;
     LoadExternal_Out loadExtOut;
 
-    if (dev == NULL || key == NULL || public == NULL)
+    if (dev == NULL || key == NULL || pub == NULL)
         return BAD_FUNC_ARG;
 
     /* Loading public key */
     XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
-    loadExtIn.inPublic = *public;
+    loadExtIn.inPublic = *pub;
     loadExtIn.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -282,7 +282,7 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
     key->handle.hndl = loadExtOut.objectHandle;
-    key->public = loadExtIn.inPublic;
+    key->pub = loadExtIn.inPublic;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_LoadExternal: 0x%x\n", loadExtOut.objectHandle);
@@ -311,7 +311,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
     key->handle.hndl = readPubIn.objectHandle;
-    key->public = readPubOut.outPublic;
+    key->pub = readPubOut.outPublic;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
@@ -339,7 +339,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* get curve size */
     curveSize = wolfTPM2_GetCurveSize(
-        key->public.publicArea.parameters.eccDetail.curveID);
+        key->pub.publicArea.parameters.eccDetail.curveID);
     if (curveSize <= 0 || *sigSz < (curveSize * 2)) {
         return BAD_FUNC_ARG;
     }
@@ -347,7 +347,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
     dev->session[0].symmetric =
-        key->public.publicArea.parameters.eccDetail.symmetric;
+        key->pub.publicArea.parameters.eccDetail.symmetric;
 
     /* Sign with ECC key */
     XMEMSET(&signIn, 0, sizeof(signIn));
@@ -396,7 +396,7 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* get curve size */
     curveSize = wolfTPM2_GetCurveSize(
-        key->public.publicArea.parameters.eccDetail.curveID);
+        key->pub.publicArea.parameters.eccDetail.curveID);
     if (curveSize <= 0 || sigSz < (curveSize * 2)) {
         return BAD_FUNC_ARG;
     }
@@ -404,14 +404,14 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
     dev->session[0].symmetric =
-        key->public.publicArea.parameters.eccDetail.symmetric;
+        key->pub.publicArea.parameters.eccDetail.symmetric;
 
     XMEMSET(&verifySigIn, 0, sizeof(verifySigIn));
     verifySigIn.keyHandle = key->handle.hndl;
     verifySigIn.digest.size = digestSz;
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     verifySigIn.signature.sigAlgo =
-        key->public.publicArea.parameters.eccDetail.scheme.scheme;
+        key->pub.publicArea.parameters.eccDetail.scheme.scheme;
     verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
 
     /* Signature is R then S */
@@ -450,7 +450,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
 
     /* get curve size */
     curveSize = wolfTPM2_GetCurveSize(
-        privKey->public.publicArea.parameters.eccDetail.curveID);
+        privKey->pub.publicArea.parameters.eccDetail.curveID);
     if (curveSize <= 0 || *outSz < curveSize) {
         return BAD_FUNC_ARG;
     }
@@ -458,7 +458,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     /* set session auth for key */
     dev->session[0].auth = privKey->handle.auth;
     dev->session[0].symmetric =
-        privKey->public.publicArea.parameters.eccDetail.symmetric;
+        privKey->pub.publicArea.parameters.eccDetail.symmetric;
 
     XMEMSET(&ecdhIn, 0, sizeof(ecdhIn));
     ecdhIn.keyHandle = privKey->handle.hndl;
@@ -498,7 +498,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
     dev->session[0].symmetric =
-        key->public.publicArea.parameters.rsaDetail.symmetric;
+        key->pub.publicArea.parameters.rsaDetail.symmetric;
 
     /* RSA Encrypt */
     XMEMSET(&rsaEncIn, 0, sizeof(rsaEncIn));
@@ -546,7 +546,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
     dev->session[0].symmetric =
-        key->public.publicArea.parameters.rsaDetail.symmetric;
+        key->pub.publicArea.parameters.rsaDetail.symmetric;
 
     /* RSA Decrypt */
     XMEMSET(&rsaDecIn, 0, sizeof(rsaDecIn));

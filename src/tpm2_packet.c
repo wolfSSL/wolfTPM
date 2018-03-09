@@ -479,7 +479,7 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
     }
 }
 
-void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
+void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
     byte* sizePtr;
     int sz;
@@ -489,34 +489,34 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
     TPM2_Packet_AppendU16(packet, 0);
     sz = packet->pos;
 
-    TPM2_Packet_AppendU16(packet, public->publicArea.type);
-    TPM2_Packet_AppendU16(packet, public->publicArea.nameAlg);
-    TPM2_Packet_AppendU32(packet, public->publicArea.objectAttributes);
-    TPM2_Packet_AppendU16(packet, public->publicArea.authPolicy.size);
-    TPM2_Packet_AppendBytes(packet, public->publicArea.authPolicy.buffer,
-        public->publicArea.authPolicy.size);
+    TPM2_Packet_AppendU16(packet, pub->publicArea.type);
+    TPM2_Packet_AppendU16(packet, pub->publicArea.nameAlg);
+    TPM2_Packet_AppendU32(packet, pub->publicArea.objectAttributes);
+    TPM2_Packet_AppendU16(packet, pub->publicArea.authPolicy.size);
+    TPM2_Packet_AppendBytes(packet, pub->publicArea.authPolicy.buffer,
+        pub->publicArea.authPolicy.size);
 
-    TPM2_Packet_AppendPublicParms(packet, public->publicArea.type,
-        &public->publicArea.parameters);
+    TPM2_Packet_AppendPublicParms(packet, pub->publicArea.type,
+        &pub->publicArea.parameters);
 
-    switch (public->publicArea.type) {
+    switch (pub->publicArea.type) {
     case TPM_ALG_KEYEDHASH:
-        TPM2_Packet_AppendU16(packet, public->publicArea.unique.keyedHash.size);
-        TPM2_Packet_AppendBytes(packet, public->publicArea.unique.keyedHash.buffer,
-            public->publicArea.unique.keyedHash.size);
+        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.keyedHash.size);
+        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.keyedHash.buffer,
+            pub->publicArea.unique.keyedHash.size);
         break;
     case TPM_ALG_SYMCIPHER:
-        TPM2_Packet_AppendU16(packet, public->publicArea.unique.sym.size);
-        TPM2_Packet_AppendBytes(packet, public->publicArea.unique.sym.buffer,
-            public->publicArea.unique.sym.size);
+        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.sym.size);
+        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.sym.buffer,
+            pub->publicArea.unique.sym.size);
         break;
     case TPM_ALG_RSA:
-        TPM2_Packet_AppendU16(packet, public->publicArea.unique.rsa.size);
-        TPM2_Packet_AppendBytes(packet, public->publicArea.unique.rsa.buffer,
-            public->publicArea.unique.rsa.size);
+        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.rsa.size);
+        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.rsa.buffer,
+            pub->publicArea.unique.rsa.size);
         break;
     case TPM_ALG_ECC:
-        TPM2_Packet_AppendEccPoint(packet, &public->publicArea.unique.ecc);
+        TPM2_Packet_AppendEccPoint(packet, &pub->publicArea.unique.ecc);
         break;
     default:
         /* TPMS_DERIVE derive; ? */
@@ -527,38 +527,38 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
     sz = packet->pos - sz;
     *((UINT16*)sizePtr) = cpu_to_be16(sz);
 }
-void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* public)
+void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
-    TPM2_Packet_ParseU16(packet, &public->size);
-    if (public->size > 0) {
-        TPM2_Packet_ParseU16(packet, &public->publicArea.type);
-        TPM2_Packet_ParseU16(packet, &public->publicArea.nameAlg);
-        TPM2_Packet_ParseU32(packet, &public->publicArea.objectAttributes);
-        TPM2_Packet_ParseU16(packet, &public->publicArea.authPolicy.size);
-        TPM2_Packet_ParseBytes(packet, public->publicArea.authPolicy.buffer,
-            public->publicArea.authPolicy.size);
+    TPM2_Packet_ParseU16(packet, &pub->size);
+    if (pub->size > 0) {
+        TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
+        TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
+        TPM2_Packet_ParseU32(packet, &pub->publicArea.objectAttributes);
+        TPM2_Packet_ParseU16(packet, &pub->publicArea.authPolicy.size);
+        TPM2_Packet_ParseBytes(packet, pub->publicArea.authPolicy.buffer,
+            pub->publicArea.authPolicy.size);
 
-        TPM2_Packet_ParsePublicParms(packet, public->publicArea.type,
-            &public->publicArea.parameters);
+        TPM2_Packet_ParsePublicParms(packet, pub->publicArea.type,
+            &pub->publicArea.parameters);
 
-        switch (public->publicArea.type) {
+        switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_ParseU16(packet, &public->publicArea.unique.keyedHash.size);
-            TPM2_Packet_ParseBytes(packet, public->publicArea.unique.keyedHash.buffer,
-                public->publicArea.unique.keyedHash.size);
+            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.keyedHash.size);
+            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.keyedHash.buffer,
+                pub->publicArea.unique.keyedHash.size);
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &public->publicArea.unique.sym.size);
-            TPM2_Packet_ParseBytes(packet, public->publicArea.unique.sym.buffer,
-                public->publicArea.unique.sym.size);
+            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.sym.size);
+            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.sym.buffer,
+                pub->publicArea.unique.sym.size);
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_ParseU16(packet, &public->publicArea.unique.rsa.size);
-            TPM2_Packet_ParseBytes(packet, public->publicArea.unique.rsa.buffer,
-                public->publicArea.unique.rsa.size);
+            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.rsa.size);
+            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.rsa.buffer,
+                pub->publicArea.unique.rsa.size);
             break;
         case TPM_ALG_ECC:
-            TPM2_Packet_ParseEccPoint(packet, &public->publicArea.unique.ecc);
+            TPM2_Packet_ParseEccPoint(packet, &pub->publicArea.unique.ecc);
             break;
         default:
             /* TPMS_DERIVE derive; ? */

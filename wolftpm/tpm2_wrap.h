@@ -37,8 +37,8 @@ typedef struct WOLFTPM2_SESSION {
 
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
-    TPM2B_PRIVATE     private;
-    TPM2B_PUBLIC      public;
+    TPM2B_PRIVATE     priv;
+    TPM2B_PUBLIC      pub;
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
@@ -69,7 +69,7 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const TPM2B_PUBLIC* public);
+    const TPM2B_PUBLIC* pub);
 WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle);
 

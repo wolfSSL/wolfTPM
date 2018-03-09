@@ -299,8 +299,8 @@ typedef struct tpmKey {
     TPM_HANDLE          handle;
     TPM2B_AUTH          auth;
     TPMT_SYM_DEF_OBJECT symmetric; /* used for parameter encrypt/decrypt */
-    TPM2B_PRIVATE       private;
-    TPM2B_PUBLIC        public;
+    TPM2B_PRIVATE       priv;
+    TPM2B_PUBLIC        pub;
     TPM2B_NAME          name;
 } TpmKey;
 
@@ -801,11 +801,11 @@ int TPM2_Demo(void* userCtx)
     }
     endorse.handle = cmdOut.createPri.objectHandle;
     endorse.auth = cmdIn.createPri.inPublic.publicArea.authPolicy;
-    endorse.public = cmdOut.createPri.outPublic;
+    endorse.pub = cmdOut.createPri.outPublic;
     endorse.name = cmdOut.createPri.name;
     endorse.symmetric = cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric;
     printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
-        endorse.handle, endorse.public.size);
+        endorse.handle, endorse.pub.size);
 
 
     /* Create Primary (Storage) */
@@ -834,10 +834,10 @@ int TPM2_Demo(void* userCtx)
         goto exit;
     }
     storage.handle = cmdOut.createPri.objectHandle;
-    storage.public = cmdOut.createPri.outPublic;
+    storage.pub = cmdOut.createPri.outPublic;
     storage.name = cmdOut.createPri.name;
     printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
-        storage.handle, storage.public.size);
+        storage.handle, storage.pub.size);
 
 #if 0
     /* Move new primary key into NV to persist */
@@ -855,7 +855,7 @@ int TPM2_Demo(void* userCtx)
 
     /* Load public key */
     XMEMSET(&cmdIn.loadExt, 0, sizeof(cmdIn.loadExt));
-    cmdIn.loadExt.inPublic = endorse.public;
+    cmdIn.loadExt.inPublic = endorse.pub;
     cmdIn.loadExt.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&cmdIn.loadExt, &cmdOut.loadExt);
     if (rc != TPM_RC_SUCCESS) {
@@ -923,15 +923,15 @@ int TPM2_Demo(void* userCtx)
         printf("TPM2_Create HMAC failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
         goto exit;
     }
-    hmacKey.public = cmdOut.create.outPublic;
-    hmacKey.private = cmdOut.create.outPrivate;
+    hmacKey.pub = cmdOut.create.outPublic;
+    hmacKey.priv = cmdOut.create.outPrivate;
     printf("Create HMAC-SHA256 Key success, public %d, Private %d\n",
-        hmacKey.public.size, hmacKey.private.size);
+        hmacKey.pub.size, hmacKey.priv.size);
 
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
     cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = hmacKey.private;
-    cmdIn.load.inPublic = hmacKey.public;
+    cmdIn.load.inPrivate = hmacKey.priv;
+    cmdIn.load.inPublic = hmacKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Load failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
@@ -972,8 +972,8 @@ int TPM2_Demo(void* userCtx)
             wolfTPM2_GetRCString(rc));
         //goto exit;
     }
-    hmacKey.private = cmdOut.objChgAuth.outPrivate;
-    printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.private.size);
+    hmacKey.priv = cmdOut.objChgAuth.outPrivate;
+    printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.priv.size);
 
     cmdIn.flushCtx.flushHandle = hmacKey.handle;
     TPM2_FlushContext(&cmdIn.flushCtx);
@@ -1027,14 +1027,14 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_Create: New ECDSA Key: pub %d, priv %d\n",
         cmdOut.create.outPublic.size,
         cmdOut.create.outPrivate.size);
-    eccKey.public = cmdOut.create.outPublic;
-    eccKey.private = cmdOut.create.outPrivate;
+    eccKey.pub = cmdOut.create.outPublic;
+    eccKey.priv = cmdOut.create.outPrivate;
 
     /* Load new key */
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
     cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = eccKey.private;
-    cmdIn.load.inPublic = eccKey.public;
+    cmdIn.load.inPrivate = eccKey.priv;
+    cmdIn.load.inPublic = eccKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Load ECDSA failed 0x%x: %s\n", rc,
@@ -1112,14 +1112,14 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_Create: New ECDH Key: pub %d, priv %d\n",
         cmdOut.create.outPublic.size,
         cmdOut.create.outPrivate.size);
-    eccKey.public = cmdOut.create.outPublic;
-    eccKey.private = cmdOut.create.outPrivate;
+    eccKey.pub = cmdOut.create.outPublic;
+    eccKey.priv = cmdOut.create.outPrivate;
 
     /* Load new key */
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
     cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = eccKey.private;
-    cmdIn.load.inPublic = eccKey.public;
+    cmdIn.load.inPrivate = eccKey.priv;
+    cmdIn.load.inPublic = eccKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Load ECDH key failed 0x%x: %s\n", rc,
@@ -1198,14 +1198,14 @@ int TPM2_Demo(void* userCtx)
     printf("TPM2_Create: New RSA Key: pub %d, priv %d\n",
         cmdOut.create.outPublic.size,
         cmdOut.create.outPrivate.size);
-    rsaKey.public = cmdOut.create.outPublic;
-    rsaKey.private = cmdOut.create.outPrivate;
+    rsaKey.pub = cmdOut.create.outPublic;
+    rsaKey.priv = cmdOut.create.outPrivate;
 
     /* Load new key */
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
     cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = rsaKey.private;
-    cmdIn.load.inPublic = rsaKey.public;
+    cmdIn.load.inPrivate = rsaKey.priv;
+    cmdIn.load.inPublic = rsaKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Load RSA key failed 0x%x: %s\n", rc,
