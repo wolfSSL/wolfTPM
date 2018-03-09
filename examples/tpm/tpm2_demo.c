@@ -203,7 +203,7 @@ int TPM2_Wrapper_Demo(void* userCtx)
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-        TPM_ECC_NIST_P256);
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
         &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
@@ -229,7 +229,7 @@ int TPM2_Wrapper_Demo(void* userCtx)
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
-        TPM_ECC_NIST_P256);
+        TPM_ECC_NIST_P256, TPM_ALG_ECDH);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
         &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);

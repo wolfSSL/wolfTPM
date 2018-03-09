@@ -28,7 +28,6 @@
 typedef struct WOLFTPM2_HANDLE {
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
-    TPMT_SYM_DEF    symmetric; /* used for parameter encrypt/decrypt */
 } WOLFTPM2_HANDLE;
 
 typedef struct WOLFTPM2_SESSION {
@@ -37,10 +36,10 @@ typedef struct WOLFTPM2_SESSION {
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_KEY {
-    WOLFTPM2_HANDLE handle;
-    TPM2B_PRIVATE   private;
-    TPM2B_PUBLIC    public;
-    TPM2B_NAME      name;
+    WOLFTPM2_HANDLE   handle;
+    TPM2B_PRIVATE     private;
+    TPM2B_PUBLIC      public;
+    TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
 typedef struct WOLFTPM2_DEV {
@@ -69,10 +68,10 @@ WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
-WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, const TPM2B_PUBLIC* public,
-    WOLFTPM2_HANDLE* handle);
-WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, const WOLFTPM2_HANDLE* handle,
-    TPM2B_PUBLIC* public);
+WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM2B_PUBLIC* public);
+WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM_HANDLE handle);
 
 WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz);
@@ -97,7 +96,7 @@ WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
-    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve);
+    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
 WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
 WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);

@@ -28,6 +28,10 @@
 #ifndef WOLFTPM2_WRAP_DIGEST
     #define WOLFTPM2_WRAP_DIGEST TPM_ALG_SHA256
 #endif
+/* Defines the default RSA key bits for the wrapper functions */
+#ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
+    #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
+#endif
 
 
 /******************************************************************************/
@@ -175,7 +179,6 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     key->handle.hndl = createPriOut.objectHandle;
     key->handle.auth = createPriIn.inSensitive.sensitive.userAuth;
-    key->handle.symmetric = createPriIn.inPublic.publicArea.parameters.rsaDetail.symmetric;
 
     key->public = createPriOut.outPublic;
     key->name = createPriOut.name;
@@ -252,14 +255,14 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
-int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, const TPM2B_PUBLIC* public,
-    WOLFTPM2_HANDLE* handle)
+int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM2B_PUBLIC* public)
 {
     int rc;
     LoadExternal_In  loadExtIn;
     LoadExternal_Out loadExtOut;
 
-    if (dev == NULL || handle == NULL || public == NULL)
+    if (dev == NULL || key == NULL || public == NULL)
         return BAD_FUNC_ARG;
 
     /* Loading public key */
@@ -271,35 +274,37 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, const TPM2B_PUBLIC* public,
         printf("TPM2_LoadExternal: failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         return rc;
     }
-    handle->hndl = loadExtOut.objectHandle;
+    key->handle.hndl = loadExtOut.objectHandle;
+    key->public = loadExtIn.inPublic;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_LoadExternal: 0x%x\n", handle->hndl);
+    printf("TPM2_LoadExternal: 0x%x\n", loadExtOut.objectHandle);
 #endif
 
     return rc;
 }
 
-int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, const WOLFTPM2_HANDLE* handle,
-    TPM2B_PUBLIC* public)
+int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM_HANDLE handle)
 {
     int rc;
     ReadPublic_In  readPubIn;
     ReadPublic_Out readPubOut;
 
-    if (dev == NULL || handle == NULL || public == NULL)
+    if (dev == NULL || key == NULL)
         return BAD_FUNC_ARG;
 
     /* Read public key */
     XMEMSET(&readPubIn, 0, sizeof(readPubIn));
-    readPubIn.objectHandle = handle->hndl;
+    readPubIn.objectHandle = handle;
     rc = TPM2_ReadPublic(&readPubIn, &readPubOut);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         return rc;
     }
 
-    *public = readPubOut.outPublic;
+    key->handle.hndl = readPubIn.objectHandle;
+    key->public = readPubOut.outPublic;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
@@ -334,6 +339,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
+    dev->session[0].symmetric = key->public.publicArea.parameters.eccDetail.symmetric;
 
     /* Sign with ECC key */
     XMEMSET(&signIn, 0, sizeof(signIn));
@@ -389,11 +395,15 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
+    dev->session[0].symmetric = key->public.publicArea.parameters.eccDetail.symmetric;
 
     XMEMSET(&verifySigIn, 0, sizeof(verifySigIn));
     verifySigIn.keyHandle = key->handle.hndl;
     verifySigIn.digest.size = digestSz;
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
+    verifySigIn.signature.sigAlgo =
+        key->public.publicArea.parameters.eccDetail.scheme.scheme;
+    verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
 
     /* Signature is R then S */
     verifySigIn.signature.signature.ecdsa.signatureR.size = curveSize;
@@ -435,6 +445,10 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return BAD_FUNC_ARG;
     }
 
+    /* set session auth for key */
+    dev->session[0].auth = privKey->handle.auth;
+    dev->session[0].symmetric = privKey->public.publicArea.parameters.eccDetail.symmetric;
+
     XMEMSET(&ecdhIn, 0, sizeof(ecdhIn));
     ecdhIn.keyHandle = privKey->handle.hndl;
     rc = TPM2_ECDH_KeyGen(&ecdhIn, &ecdhOut);
@@ -469,6 +483,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, TPM_ALG_ID padSche
 
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
+    dev->session[0].symmetric = key->public.publicArea.parameters.rsaDetail.symmetric;
 
     /* RSA Encrypt */
     XMEMSET(&rsaEncIn, 0, sizeof(rsaEncIn));
@@ -508,6 +523,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, TPM_ALG_ID padSche
 
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
+    dev->session[0].symmetric = key->public.publicArea.parameters.rsaDetail.symmetric;
 
     /* RSA Decrypt */
     XMEMSET(&rsaDecIn, 0, sizeof(rsaDecIn));
@@ -640,10 +656,10 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    publicTemplate->unique.rsa.size = WOLFTPM2_WRAP_RSA_KEY_BITS / 8;
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = objectAttributes;
-    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    publicTemplate->parameters.rsaDetail.keyBits = WOLFTPM2_WRAP_RSA_KEY_BITS;
     publicTemplate->parameters.rsaDetail.exponent = 0;
     publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
@@ -659,7 +675,7 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
 }
 
 int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
-    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve)
+    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
@@ -668,9 +684,16 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     publicTemplate->type = TPM_ALG_ECC;
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = objectAttributes;
-    publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    publicTemplate->parameters.eccDetail.scheme.scheme =
-        objectAttributes & TPMA_OBJECT_sign ? TPM_ALG_ECDSA : TPM_ALG_ECDH;
+    if (objectAttributes & TPMA_OBJECT_fixedTPM) {
+        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+        publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
+        publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    }
+    else {
+        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    }
+    publicTemplate->parameters.eccDetail.scheme.scheme = sigScheme;
+                                            /* TPM_ALG_ECDSA or TPM_ALG_ECDH */
     publicTemplate->parameters.eccDetail.scheme.details.ecdsa.hashAlg =
         WOLFTPM2_WRAP_DIGEST;
     publicTemplate->parameters.eccDetail.curveID = curve;
