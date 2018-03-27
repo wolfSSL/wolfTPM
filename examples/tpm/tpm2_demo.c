@@ -84,7 +84,7 @@ static int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     int* spiDev = (int*)userCtx;
 
     if (*spiDev == -1) {
-        /* 33Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
+        /* 1Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
         unsigned int maxSpeed = 1000000;
         int mode = 0; /* mode 0 */
         int bits_per_word = 8; /* 8-bits */
