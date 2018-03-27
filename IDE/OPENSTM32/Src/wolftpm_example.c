@@ -73,14 +73,14 @@ void wolfTPMDemo(void const * argument)
         switch (buffer[0]) {
 
         case 't':
-            memset(&args, 0, sizeof(args));
+            XMEMSET(&args, 0, sizeof(args));
             printf("\nCrypt Test\n");
             wolfcrypt_test(&args);
             printf("Crypt Test: Return code %d\n", args.return_code);
             break;
 
         case 'b':
-            memset(&args, 0, sizeof(args));
+            XMEMSET(&args, 0, sizeof(args));
             printf("\nBenchmark Test\n");
             benchmark_test(&args);
             printf("Benchmark Test: Return code %d\n", args.return_code);

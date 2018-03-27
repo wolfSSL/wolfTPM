@@ -22,18 +22,34 @@
 #ifndef __TPM2_H__
 #define __TPM2_H__
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifndef WOLFSSL_USER_SETTINGS
+    #include <wolfssl/options.h>
+#else
+    #include <wolfssl/wolfcrypt/settings.h>
+#endif
+
 #include <wolftpm/visibility.h>
+
 #include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
+
+
+/* Reconfigurable Elements */
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 100000
+#define TPM_TIMEOUT_TRIES 1000000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
@@ -400,9 +416,9 @@ typedef enum {
     TPM_CC_ECDH_KeyGen              = 0x00000163,
     TPM_CC_EncryptDecrypt           = 0x00000164,
     TPM_CC_FlushContext             = 0x00000165,
-    TPM_CC_LoadExternal             = 0x00000166,
-    TPM_CC_MakeCredential           = 0x00000167,
-    TPM_CC_NV_ReadPublic            = 0x00000168,
+    TPM_CC_LoadExternal             = 0x00000167,
+    TPM_CC_MakeCredential           = 0x00000168,
+    TPM_CC_NV_ReadPublic            = 0x00000169,
     TPM_CC_PolicyAuthorize          = 0x0000016A,
     TPM_CC_PolicyAuthValue          = 0x0000016B,
     TPM_CC_PolicyCommandCode        = 0x0000016C,
@@ -455,7 +471,6 @@ typedef UINT32 TPM_CC;
 typedef enum {
     TPM_RC_SUCCESS  = 0x000,
     TPM_RC_BAD_TAG  = 0x01E,
-    TPM_RC_BAD_ARG  = 0x01D,
 
     RC_VER1 = 0x100,
     TPM_RC_INITIALIZE           = RC_VER1 + 0x000,
@@ -528,6 +543,7 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
+    RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
     RC_WARN = 0x900,
     TPM_RC_CONTEXT_GAP      = RC_WARN + 0x001,
@@ -558,7 +574,9 @@ typedef enum {
     TPM_RC_LOCKOUT          = RC_WARN + 0x021,
     TPM_RC_RETRY            = RC_WARN + 0x022,
     TPM_RC_NV_UNAVAILABLE   = RC_WARN + 0x023,
-    TPM_RC_NOT_USED         = RC_WARN + 0x7F,
+    RC_MAX_WARN             = RC_WARN + 0x03F,
+
+    TPM_RC_NOT_USED         = RC_WARN + 0x07F,
 
     TPM_RC_H        = 0x000,
     TPM_RC_P        = 0x040,
@@ -580,7 +598,7 @@ typedef enum {
     TPM_RC_F        = 0xF00,
     TPM_RC_N_MASK   = 0xF00,
 } TPM_RC_T;
-typedef UINT16 TPM_RC;
+typedef INT32 TPM_RC; /* type is unsigned 16-bits, but internally use signed 32-bit */
 
 typedef enum {
     TPM_CLOCK_COARSE_SLOWER = -3,
@@ -881,11 +899,12 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_sensitiveDataOrigin = 0x00000020,
     TPMA_OBJECT_userWithAuth        = 0x00000040,
     TPMA_OBJECT_adminWithPolicy     = 0x00000080,
+    TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
     TPMA_OBJECT_noDA                = 0x00000400,
     TPMA_OBJECT_encryptedDuplication= 0x00000800,
-    TPMA_OBJECT_restricted          = 0x00008000,
-    TPMA_OBJECT_decrypt             = 0x00010000,
-    TPMA_OBJECT_sign                = 0x00020000,
+    TPMA_OBJECT_restricted          = 0x00010000,
+    TPMA_OBJECT_decrypt             = 0x00020000,
+    TPMA_OBJECT_sign                = 0x00040000,
 };
 
 typedef BYTE TPMA_SESSION;
@@ -1291,22 +1310,6 @@ typedef struct TPM2B_ATTEST {
 } TPM2B_ATTEST;
 
 
-/* Authorization Structures */
-
-typedef struct TPMS_AUTH_COMMAND {
-    TPMI_SH_AUTH_SESSION sessionHandle;
-    TPM2B_NONCE nonce;
-    TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
-} TPMS_AUTH_COMMAND;
-
-typedef struct TPMS_AUTH_RESPONSE {
-    TPM2B_NONCE nonce;
-    TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH hmac;
-} TPMS_AUTH_RESPONSE;
-
-
 /* Algorithm Parameters and Structures */
 
 /* Symmetric */
@@ -1335,12 +1338,7 @@ typedef struct TPMT_SYM_DEF {
     //TPMU_SYM_DETAILS details;
 } TPMT_SYM_DEF;
 
-typedef struct TPMT_SYM_DEF_OBJECT {
-    TPMI_ALG_SYM_OBJECT algorithm;
-    TPMU_SYM_KEY_BITS keyBits;
-    TPMU_SYM_MODE mode;
-    //TPMU_SYM_DETAILS details;
-} TPMT_SYM_DEF_OBJECT;
+typedef TPMT_SYM_DEF TPMT_SYM_DEF_OBJECT;
 
 typedef struct TPM2B_SYM_KEY {
     UINT16 size;
@@ -1554,6 +1552,8 @@ typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 typedef union TPMU_SIGNATURE {
     TPMS_SIGNATURE_ECDSA ecdsa;
     TPMS_SIGNATURE_ECDAA ecdaa;
+    TPMS_SIGNATURE_RSASSA rsassa;
+    TPMS_SIGNATURE_RSAPSS rsapss;
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
 } TPMU_SIGNATURE;
@@ -1807,10 +1807,39 @@ typedef struct TPM2B_CREATION_DATA {
 } TPM2B_CREATION_DATA;
 
 
+/* Authorization Structures */
+
+typedef struct TPMS_AUTH_COMMAND {
+    TPMI_SH_AUTH_SESSION sessionHandle;
+    TPM2B_NONCE nonce;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+
+    /* Implementation specific */
+    /* These are used for parameter encrypt/decrypt */
+
+    /* The symmetric and hash alorithms to use */
+    TPMT_SYM_DEF symmetric;
+    TPMI_ALG_HASH authHash;
+
+    /* Optional object auth to append with session auth for encrypt/decrypt key */
+    TPM_HANDLE objHandle;
+    TPM2B_AUTH objAuth;
+} TPMS_AUTH_COMMAND;
+
+typedef struct TPMS_AUTH_RESPONSE {
+    TPM2B_NONCE nonce;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+} TPMS_AUTH_RESPONSE;
+
+
+
+
 /* HAL IO Callbacks */
 struct TPM2_CTX;
 
-typedef TPM_RC (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
     void* userCtx);
 
 typedef struct TPM2_CTX {
@@ -1819,6 +1848,7 @@ typedef struct TPM2_CTX {
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
 #endif
+    WC_RNG rng;
 
     /* TPM TIS Info */
     int locality;
@@ -1826,16 +1856,15 @@ typedef struct TPM2_CTX {
     word32 did_vid;
     byte rid;
 
+    /* Current TPM auth session */
+    TPMS_AUTH_COMMAND*  authCmd;
+
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 } TPM2_CTX;
 
 
-/* Functions */
-
-#define _TPM_Init TPM2_Init
-WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-
+/* TPM Specification Functions */
 typedef struct {
     TPM_SU startupType;
 } Startup_In;
@@ -1876,7 +1905,7 @@ WOLFTPM_API TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
 
 typedef struct {
     TPM2B_MAX_BUFFER outData;
-    TPM_RC testResult;
+    UINT16 testResult; /* TPM_RC */
 } GetTestResult_Out;
 WOLFTPM_API TPM_RC TPM2_GetTestResult(GetTestResult_Out* out);
 
@@ -1907,7 +1936,6 @@ WOLFTPM_API TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out);
 
 typedef struct {
     TPMI_DH_PCR pcrHandle;
-    TPMS_AUTH_COMMAND auth;
     TPML_DIGEST_VALUES digests;
 } PCR_Extend_In;
 WOLFTPM_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
@@ -1915,7 +1943,6 @@ WOLFTPM_API TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_PUBLIC inPublic;
     TPM2B_DATA outsideInfo;
@@ -1932,7 +1959,6 @@ WOLFTPM_API TPM_RC TPM2_Create(Create_In* in, Create_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_PUBLIC inPublic;
 } CreateLoaded_In;
@@ -1966,7 +1992,6 @@ WOLFTPM_API TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in,
 
 typedef struct {
     TPMI_DH_OBJECT parentHandle;
-    TPMS_AUTH_COMMAND auth;
     TPM2B_PRIVATE inPrivate;
     TPM2B_PUBLIC inPublic;
 } Load_In;
@@ -1985,7 +2010,6 @@ WOLFTPM_API TPM_RC TPM2_FlushContext(FlushContext_In* in);
 
 typedef struct {
     TPMI_DH_OBJECT itemHandle;
-    TPMS_AUTH_COMMAND auth;
 } Unseal_In;
 typedef struct {
     TPM2B_SENSITIVE_DATA outData;
@@ -2638,15 +2662,14 @@ typedef struct {
 } SetPrimaryPolicy_In;
 WOLFTPM_API TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in);
 
-
 typedef struct {
     TPMI_RH_PLATFORM authHandle;
-} ChangePPS_In;
+} ChangeSeed_In;
+
+typedef ChangeSeed_In ChangePPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangePPS(ChangePPS_In* in);
 
-typedef struct {
-    TPMI_RH_PLATFORM authHandle;
-} ChangeEPS_In;
+typedef ChangeSeed_In ChangeEPS_In;
 WOLFTPM_API TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in);
 
 
@@ -2876,10 +2899,26 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
-/* Helper API's - Not based on spec */
+/* Non-standard API's */
+#define _TPM_Init TPM2_Init
+WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
+
+
+/* Other API's - Not TPM Spec */
+WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd);
+WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
+
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
-WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFTPM_API const char* TPM2_GetRCString(TPM_RC rc);
-WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
+WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
+
+#ifdef DEBUG_WOLFTPM
+WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
+
+
+#else
+#define TPM2_PrintBin(b, l)
+#endif
+
 
 #endif /* __TPM2_H__ */
