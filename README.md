@@ -30,13 +30,13 @@ Endorsement TPM_RH_ENDORSEMENT
 
 Each hierarchy has their own manufacture generated seed.
 
-The arguments used on TPM2_Create or TPM2_CreatePrimary create a template, which is fed into a KDF to produce the same key based hierarchy used. The key generated is the same each time; even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds. Typically these are created and then stored in NV using TPM2_EvictControl. Each TPM generates their own keys uniquely based on the seed.
+The arguments used on `TPM2_Create` or `TPM2_CreatePrimary` create a template, which is fed into a KDF to produce the same key based hierarchy used. The key generated is the same each time; even after reboot. The generation of a new RSA 2048 bit key takes about 15 seconds. Typically these are created and then stored in NV using `TPM2_EvictControl`. Each TPM generates their own keys uniquely based on the seed.
 
-There is also an Ephemeral hierarchy (TPM_RH_NULL), which can be used to create ephemeral keys.
+There is also an Ephemeral hierarchy (`TPM_RH_NULL`), which can be used to create ephemeral keys.
 
 ### Platform Configuration Registers (PCRs)
 
-Contains hash digests for SHA-1 and SHA-256 with an index 0-23.
+Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash digests can be extended to prove the integrity of a boot sequence (secure boot).
 
 
 ### Terminology
@@ -1798,5 +1798,9 @@ Response: 10
 * Improve overall documentation.
 * Add support for using the TPM with wolfSSL for TLS.
 * Add support for encrypting / decrypting parameters. (90% complete)
-* Add spi_tis_dev support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Add `spi_tis_dev` support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
 * Benchmark TPM
+
+## Support
+
+Email us at [support@wolfssl.com](mailto:support@wolfssl.com).
