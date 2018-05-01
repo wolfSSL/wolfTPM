@@ -323,6 +323,82 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+/* primaryHandle must be owner or platform hierarchy */
+/* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
+/* Platform Persistent Handle Range: 0x81800000 to 0x81FFFFFF */
+int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
+    WOLFTPM2_KEY* key, TPM_HANDLE persistentHandle)
+{
+    int rc;
+    EvictControl_In in;
+
+    if (dev == NULL || key == NULL || primaryHandle == 0 || persistentHandle == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* if key is already persistent then just return success */
+    if (key->handle.hndl == persistentHandle)
+        return TPM_RC_SUCCESS;
+
+    /* Move key into NV to persist */
+    XMEMSET(&in, 0, sizeof(in));
+    in.auth = primaryHandle;
+    in.objectHandle = key->handle.hndl;
+    in.persistentHandle = persistentHandle;
+
+    rc = TPM2_EvictControl(&in);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_EvictControl failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
+        in.auth, in.objectHandle, in.persistentHandle);
+#endif
+
+    /* replace handle with persistent one */
+    key->handle.hndlPersistent = persistentHandle;
+
+    return rc;
+}
+
+int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_KEY* key)
+{
+    int rc;
+    EvictControl_In in;
+
+    if (dev == NULL || key == NULL || primaryHandle == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* if key is not persistent then just return success */
+    if (key->handle.hndl < PERMANENT_FIRST || key->handle.hndl > PERMANENT_LAST)
+        return TPM_RC_SUCCESS;
+
+    /* Move key into NV to persist */
+    XMEMSET(&in, 0, sizeof(in));
+    in.auth = primaryHandle;
+    in.objectHandle = key->handle.hndl;
+    in.persistentHandle = key->handle.hndl;
+
+    rc = TPM2_EvictControl(&in);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_EvictControl failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
+        in.auth, in.objectHandle, in.persistentHandle);
+#endif
+
+    /* indicate no persistent handle */
+    key->handle.hndlPersistent = TPM_RH_NULL;
+
+    return rc;
+}
+
 
 int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz)

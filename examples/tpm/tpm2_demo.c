@@ -63,6 +63,9 @@
 #endif
 
 
+#define TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE 0x81000200
+
+
 /* IO Callback */
 static int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
@@ -163,16 +166,24 @@ int TPM2_Wrapper_Demo(void* userCtx)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
-    /* Create primary storage key */
-    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-    if (rc != 0) goto exit;
-    rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-        &publicTemplate, (byte*)storageKeyAuth, sizeof(storageKeyAuth)-1);
-    if (rc != 0) goto exit;
+    /* See if primary storage key already exists */
+    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey, TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
+    if (rc != 0) {
+        /* Create primary storage key */
+        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
+            &publicTemplate, (byte*)storageKeyAuth, sizeof(storageKeyAuth)-1);
+        if (rc != 0) goto exit;
 
+        /* Move this key into peristent storage */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
+            TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
+        if (rc != 0) goto exit;
+    }
 
     /* Create RSA key for encrypt/decrypt */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,

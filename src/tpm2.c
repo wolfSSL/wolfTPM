@@ -3881,8 +3881,8 @@ TPM_RC TPM2_EvictControl(EvictControl_In* in)
 
         TPM2_Packet_AppendU32(&packet, in->auth);
         TPM2_Packet_AppendU32(&packet, in->objectHandle);
-        TPM2_Packet_AppendU32(&packet, in->persistentHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
+        TPM2_Packet_AppendU32(&packet, in->persistentHandle);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EvictControl);
 
         /* send command */
