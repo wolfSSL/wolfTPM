@@ -849,13 +849,13 @@ typedef enum {
     HR_HANDLE_MASK          = 0x00FFFFFF,
     HR_RANGE_MASK           = 0xFF000000,
     HR_SHIFT                = 24,
-    HR_PCR                  = (TPM_HT_PCR << HR_SHIFT),
-    HR_HMAC_SESSION         = (TPM_HT_HMAC_SESSION << HR_SHIFT),
-    HR_POLICY_SESSION       = (TPM_HT_POLICY_SESSION << HR_SHIFT),
-    HR_TRANSIENT            = (TPM_HT_TRANSIENT << HR_SHIFT),
-    HR_PERSISTENT           = (TPM_HT_PERSISTENT << HR_SHIFT),
-    HR_NV_INDEX             = (TPM_HT_NV_INDEX << HR_SHIFT),
-    HR_PERMANENT            = (TPM_HT_PERMANENT << HR_SHIFT),
+    HR_PCR                  = ((UINT32)TPM_HT_PCR << HR_SHIFT),
+    HR_HMAC_SESSION         = ((UINT32)TPM_HT_HMAC_SESSION << HR_SHIFT),
+    HR_POLICY_SESSION       = ((UINT32)TPM_HT_POLICY_SESSION << HR_SHIFT),
+    HR_TRANSIENT            = ((UINT32)TPM_HT_TRANSIENT << HR_SHIFT),
+    HR_PERSISTENT           = ((UINT32)TPM_HT_PERSISTENT << HR_SHIFT),
+    HR_NV_INDEX             = ((UINT32)TPM_HT_NV_INDEX << HR_SHIFT),
+    HR_PERMANENT            = ((UINT32)TPM_HT_PERMANENT << HR_SHIFT),
     PCR_FIRST               = (HR_PCR + 0),
     PCR_LAST                = (PCR_FIRST + IMPLEMENTATION_PCR-1),
     HMAC_SESSION_FIRST      = (HR_HMAC_SESSION + 0),
@@ -2911,6 +2911,12 @@ WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
+
+WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, 
+    int pcrIndex);
+WOLFTPM_API const char* TPM2_GetRCString(int rc);
+WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
+WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);

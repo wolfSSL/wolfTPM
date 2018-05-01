@@ -59,6 +59,9 @@ typedef struct WOLFTPM2_BUFFER {
 WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 
+WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
+    TPM_HANDLE sessionHandle, const byte* auth, int authSz);
+
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
     WOLFTPM2_HANDLE* bind, TPM_SE sesType, int useEncrypDecrypt);
@@ -103,9 +106,12 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
-WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
-WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);
-WOLFTPM_API int wolfTPM2_GetCurveSize(TPM_ECC_CURVE curveID);
+
+/* moved to tpm.h native code. macros here for backwards compatibility */
+#define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel 
+#define wolfTPM2_GetAlgName   TPM2_GetAlgName
+#define wolfTPM2_GetRCString  TPM2_GetRCString
+#define wolfTPM2_GetCurveSize TPM2_GetCurveSize
+
 
 #endif /* __TPM2_WRAP_H__ */

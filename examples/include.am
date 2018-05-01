@@ -1,4 +1,8 @@
 # vim:ft=automake
 # All paths should be given relative to the root
 
-include examples/tpm/include.am
+include examples/native/include.am
+include examples/wrap/include.am
+
+dist_example_DATA+= examples/tpm_io.c \
+					examples/tpm_io.h
