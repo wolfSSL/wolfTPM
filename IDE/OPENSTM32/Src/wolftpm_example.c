@@ -32,7 +32,7 @@ extern SPI_HandleTypeDef hspi1;
 
 
 #ifdef WOLF_TPM2
-    #include <examples/tpm/tpm2_demo.h>
+    #include <examples/wrap/wrap_test.h>
 #endif
 
 
@@ -89,7 +89,7 @@ void wolfTPMDemo(void const * argument)
         case 'm':
 			printf("\nTPM 2.0 Test\n");
 #ifdef WOLF_TPM2
-			args.return_code = TPM2_Demo(&hspi1);
+			args.return_code = TPM2_Wrapper_Test(&hspi1);
 #endif
 			printf("TPM 2.0 Test: Return code %d\n", args.return_code);
 			break;

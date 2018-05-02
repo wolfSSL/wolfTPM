@@ -96,7 +96,6 @@ AM_CPPFLAGS="$AM_CPPFLAGS -DDHAVE_WOLFSSL_OPTIONS -DHAVE_CYASSL_OPTIONS"
 # Examples
 AC_ARG_ENABLE([examples],
     [AS_HELP_STRING([--enable-examples],[Enable Examples (default: enabled)])],
-    [  --enable-examples       ],
     [ ENABLED_EXAMPLES=$enableval ],
     [ ENABLED_EXAMPLES=yes ]
     )
