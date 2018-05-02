@@ -29,7 +29,10 @@
 #include <examples/tpm_io.h>
 #include <examples/wrap/wrap_test.h>
 
+/* Configuration */
 #define TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE 0x81000200
+//#define WOLFTPM_TEST_WITH_RESET
+
 
 /******************************************************************************/
 /* --- BEGIN Wrapper API Tests -- */
@@ -57,8 +60,15 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
+#ifdef WOLFTPM_TEST_WITH_RESET
+    /* reset all content on TPM and reseed */
+    rc = wolfTPM2_Clear(&dev);
+    if (rc != 0) return rc;
+#endif
+
     /* See if primary storage key already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey, TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
+    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
+        TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
     if (rc != 0) {
         /* Create primary storage key */
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -173,7 +183,9 @@ exit:
 
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+#ifdef WOLFTPM_TEST_WITH_RESET
+    wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
+#endif
     wolfTPM2_Cleanup(&dev);
 
     return rc;

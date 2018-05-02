@@ -350,13 +350,19 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     int rc;
     EvictControl_In in;
 
-    if (dev == NULL || key == NULL || primaryHandle == 0 || persistentHandle == 0) {
+    if (dev == NULL || key == NULL ||
+        (primaryHandle != TPM_RH_OWNER && primaryHandle != TPM_RH_PLATFORM) ||
+        persistentHandle < PERSISTENT_FIRST ||
+        persistentHandle > PERSISTENT_LAST) {
         return BAD_FUNC_ARG;
     }
 
     /* if key is already persistent then just return success */
     if (key->handle.hndl == persistentHandle)
         return TPM_RC_SUCCESS;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
 
     /* Move key into NV to persist */
     XMEMSET(&in, 0, sizeof(in));
@@ -375,8 +381,11 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
         in.auth, in.objectHandle, in.persistentHandle);
 #endif
 
+    /* unload transient handle */
+    wolfTPM2_UnloadHandle(dev, &key->handle);
+
     /* replace handle with persistent one */
-    key->handle.hndlPersistent = persistentHandle;
+    key->handle.hndl = persistentHandle;
 
     return rc;
 }
@@ -393,6 +402,9 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_K
     /* if key is not persistent then just return success */
     if (key->handle.hndl < PERSISTENT_FIRST || key->handle.hndl > PERSISTENT_LAST)
         return TPM_RC_SUCCESS;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
 
     /* Move key into NV to persist */
     XMEMSET(&in, 0, sizeof(in));
@@ -411,8 +423,8 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_K
         in.auth, in.objectHandle, in.persistentHandle);
 #endif
 
-    /* indicate no persistent handle */
-    key->handle.hndlPersistent = TPM_RH_NULL;
+    /* indicate no handle */
+    key->handle.hndl = TPM_RH_NULL;
 
     return rc;
 }
@@ -764,6 +776,31 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
         out.nvPublic.nvPublic.authPolicy.size,
         out.nvPublic.nvPublic.dataSize,
         out.nvName.size);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    Clear_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_LOCKOUT;
+
+    rc = TPM2_Clear(&in);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Clear failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_Clear Auth 0x%x\n", in.authHandle);
 #endif
 
     return rc;

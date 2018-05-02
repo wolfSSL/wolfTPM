@@ -27,7 +27,6 @@
 
 typedef struct WOLFTPM2_HANDLE {
     TPM_HANDLE      hndl;
-    TPM_HANDLE      hndlPersistent;
     TPM2B_AUTH      auth;
 } WOLFTPM2_HANDLE;
 
@@ -99,6 +98,8 @@ WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle
     WOLFTPM2_KEY* key);
 
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
+
+WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);
 
 
 /* Utility functions */
