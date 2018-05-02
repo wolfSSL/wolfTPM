@@ -124,7 +124,7 @@
 #define MAX_NV_INDEX_SIZE 2048
 #endif
 #ifndef MAX_NV_BUFFER_SIZE
-#define MAX_NV_BUFFER_SIZE 1024
+#define MAX_NV_BUFFER_SIZE 768
 #endif
 #ifndef MAX_CAP_BUFFER
 #define MAX_CAP_BUFFER 1024

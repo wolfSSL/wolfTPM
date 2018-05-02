@@ -31,6 +31,8 @@
 
 /* Configuration */
 #define TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE 0x81000200
+#define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
+#define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
 //#define WOLFTPM_TEST_WITH_RESET
 
 
@@ -52,6 +54,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     TPM2B_ECC_POINT pubPoint;
     const char storageKeyAuth[] = "ThisIsMyStorageKeyAuth";
     const char keyAuth[] = "ThisIsMyKeyAuth";
+    word32 nvAttributes = 0;
 
     printf("TPM2 Demo for Wrapper API's\n");
 
@@ -174,6 +177,38 @@ int TPM2_Wrapper_Test(void* userCtx)
 
     printf("ECC DH Generation Passed\n");
 
+
+    /* NV Tests */
+    rc = wolfTPM2_GetNvAttributesTemplate(TPM_RH_OWNER, &nvAttributes);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_NVCreate(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX,
+        nvAttributes, TPM2_DEMO_NV_TEST_SIZE, NULL, 0);
+    if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
+
+    message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    rc = wolfTPM2_NVWrite(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX,
+        message.buffer, message.size, 0);
+    if (rc != 0) goto exit;
+
+    plain.size = TPM2_DEMO_NV_TEST_SIZE;
+    rc = wolfTPM2_NVRead(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX,
+        plain.buffer, (word32*)&plain.size, 0);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_INDEX);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_NVDelete(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX);
+    if (rc != 0) goto exit;
+
+    if (message.size != plain.size ||
+                XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+        rc = TPM_RC_TESTING; goto exit;
+    }
+
+    printf("NV Test on index 0x%x with %d bytes passed\n",
+        TPM2_DEMO_NV_TEST_INDEX, TPM2_DEMO_NV_TEST_SIZE);
 
 exit:
 

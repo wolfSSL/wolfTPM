@@ -749,6 +749,154 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     return TPM_RC_SUCCESS;
 }
 
+
+int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz)
+{
+    int rc;
+    NV_DefineSpace_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = authHandle;
+    if (auth && authSz > 0) {
+        in.auth.size = authSz;
+        XMEMCPY(in.auth.buffer, auth, in.auth.size);
+    }
+
+    in.publicInfo.nvPublic.nvIndex = nvIndex;
+    in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
+    in.publicInfo.nvPublic.attributes = nvAttributes;
+    in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
+
+    rc = TPM2_NV_DefineSpace(&in);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_DefineSpace failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
+        in.authHandle,
+        in.publicInfo.nvPublic.nvIndex,
+        in.publicInfo.nvPublic.attributes,
+        in.publicInfo.nvPublic.dataSize);
+#endif
+
+    return rc;
+
+}
+
+int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+{
+    int rc;
+    word32 pos = 0, towrite;
+    NV_Write_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    while (dataSz > 0) {
+        towrite = dataSz;
+        if (towrite > MAX_NV_BUFFER_SIZE)
+            towrite = MAX_NV_BUFFER_SIZE;
+
+        XMEMSET(&in, 0, sizeof(in));
+        in.authHandle = authHandle;
+        in.nvIndex = nvIndex;
+        in.offset = offset+pos;
+        in.data.size = towrite;
+        if (dataBuf)
+            XMEMCPY(in.data.buffer, &dataBuf[pos], towrite);
+
+        rc = TPM2_NV_Write(&in);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_NV_Write failed %d: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+            return rc;
+        }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_NV_Write: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
+            in.authHandle, in.nvIndex, in.offset, in.data.size);
+    #endif
+
+        pos += towrite;
+        dataSz -= towrite;
+    }
+
+    return rc;
+
+}
+
+int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
+{
+    int rc;
+    word32 pos = 0, toread, dataSz;
+    NV_Read_In in;
+    NV_Read_Out out;
+
+    if (dev == NULL || pDataSz == NULL)
+        return BAD_FUNC_ARG;
+
+    dataSz = *pDataSz;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    while (dataSz > 0) {
+        toread = dataSz;
+        if (toread > MAX_NV_BUFFER_SIZE)
+            toread = MAX_NV_BUFFER_SIZE;
+
+        XMEMSET(&in, 0, sizeof(in));
+        in.authHandle = authHandle;
+        in.nvIndex = nvIndex;
+        in.offset = offset+pos;
+        in.size = toread;
+
+        rc = TPM2_NV_Read(&in, &out);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_NV_Read failed %d: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+            return rc;
+        }
+
+        toread = out.data.size;
+        if (dataBuf) {
+            XMEMCPY(&dataBuf[pos], out.data.buffer, toread);
+        }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_NV_Read: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
+            in.authHandle, in.nvIndex, in.offset, out.data.size);
+    #endif
+
+        /* if we are done reading, exit loop */
+        if (toread == 0)
+            break;
+
+        pos += toread;
+        dataSz -= toread;
+    }
+
+    *pDataSz = pos;
+
+    return rc;
+}
+
 int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
 {
     int rc;
@@ -758,6 +906,7 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
     if (dev == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(&in, 0, sizeof(in));
     in.nvIndex = nvIndex;
     rc = TPM2_NV_ReadPublic(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
@@ -776,6 +925,37 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
         out.nvPublic.nvPublic.authPolicy.size,
         out.nvPublic.nvPublic.dataSize,
         out.nvName.size);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex)
+{
+    int rc;
+    NV_UndefineSpace_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = authHandle;
+    in.nvIndex = nvIndex;
+
+    rc = TPM2_NV_UndefineSpace(&in);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_UndefineSpace failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_NV_UndefineSpace: Auth 0x%x, Idx 0x%x\n",
+        in.authHandle, in.nvIndex);
 #endif
 
     return rc;
@@ -865,6 +1045,26 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
         WOLFTPM2_WRAP_DIGEST;
     publicTemplate->parameters.eccDetail.curveID = curve;
     publicTemplate->parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+
+    return 0;
+}
+
+int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
+{
+    if (nvAttributes == NULL)
+        return BAD_FUNC_ARG;
+
+    *nvAttributes = (
+        TPMA_NV_AUTHWRITE | TPMA_NV_OWNERWRITE |    /* write allowed */
+        TPMA_NV_AUTHREAD |  TPMA_NV_OWNERREAD |     /* read allowed */
+        TPMA_NV_NO_DA                               /* no dictionary attack */
+    );
+
+    if (auth == TPM_RH_PLATFORM) {
+        *nvAttributes |= (
+            TPMA_NV_PPWRITE | TPMA_NV_PPREAD
+        );
+    }
 
     return 0;
 }
