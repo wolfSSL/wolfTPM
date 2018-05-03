@@ -309,6 +309,59 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent)
+{
+    TPM2B_PUBLIC pub;
+
+    if (dev == NULL || key == NULL || rsaPub == NULL)
+        return BAD_FUNC_ARG;
+    if (rsaPubSz > sizeof(pub.publicArea.unique.rsa.buffer))
+        return BUFFER_E;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_RSA;
+    pub.publicArea.nameAlg = TPM_ALG_NULL;
+    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pub.publicArea.parameters.rsaDetail.keyBits = rsaPubSz * 8;
+    pub.publicArea.parameters.rsaDetail.exponent = exponent;
+    pub.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    pub.publicArea.unique.rsa.size = rsaPubSz;
+    XMEMCPY(pub.publicArea.unique.rsa.buffer, rsaPub, rsaPubSz);
+
+    return wolfTPM2_LoadPublicKey(dev, key, &pub);
+}
+
+int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
+    const byte* eccPubX, word32 eccPubXSz, const byte* eccPubY, word32 eccPubYSz)
+{
+    TPM2B_PUBLIC pub;
+
+    if (dev == NULL || key == NULL || eccPubX == NULL || eccPubY == NULL)
+        return BAD_FUNC_ARG;
+    if (eccPubXSz > sizeof(pub.publicArea.unique.ecc.x.buffer))
+        return BUFFER_E;
+    if (eccPubYSz > sizeof(pub.publicArea.unique.ecc.y.buffer))
+        return BUFFER_E;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_NULL;
+    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    pub.publicArea.parameters.eccDetail.curveID = curveId;
+    pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    pub.publicArea.unique.ecc.x.size = eccPubXSz;
+    XMEMCPY(pub.publicArea.unique.ecc.x.buffer, eccPubX, eccPubXSz);
+    pub.publicArea.unique.ecc.y.size = eccPubYSz;
+    XMEMCPY(pub.publicArea.unique.ecc.y.buffer, eccPubY, eccPubYSz);
+
+    return wolfTPM2_LoadPublicKey(dev, key, &pub);
+}
+
 int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle)
 {
