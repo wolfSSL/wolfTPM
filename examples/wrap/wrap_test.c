@@ -74,6 +74,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY ekKey;
     WOLFTPM2_KEY storageKey;
     WOLFTPM2_KEY rsaKey;
     WOLFTPM2_KEY eccKey;
@@ -99,6 +100,22 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_Clear(&dev);
     if (rc != 0) return rc;
 #endif
+
+    /* Get the RSA endosement key (EK) */
+    rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
+        &publicTemplate, NULL, 0);
+    if (rc != 0) goto exit;
+    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
+
+    /* Get the ECC endosement key (EK) */
+    rc = wolfTPM2_GetKeyTemplate_ECC_EK(&publicTemplate);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
+        &publicTemplate, NULL, 0);
+    if (rc != 0) goto exit;
+    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
 
     /* See if primary storage key already exists */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
@@ -265,6 +282,7 @@ exit:
 
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
 #ifdef WOLFTPM_TEST_WITH_RESET
     wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
 #endif

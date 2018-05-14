@@ -34,6 +34,7 @@
 #endif
 
 
+
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
 /******************************************************************************/
@@ -1101,6 +1102,69 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
 
     return 0;
 }
+
+
+static const BYTE TPM_20_EK_AUTH_POLICY[] = {
+    0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
+    0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
+    0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
+};
+
+int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_RSA;
+    publicTemplate->unique.rsa.size = 256;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
+    publicTemplate->parameters.rsaDetail.keyBits = 2048;
+    publicTemplate->parameters.rsaDetail.exponent = 0;
+    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+    XMEMCPY(publicTemplate->authPolicy.buffer,
+        TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
+
+    return 0;
+}
+
+int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_ECC;
+    publicTemplate->unique.ecc.x.size = 32;
+    publicTemplate->unique.ecc.y.size = 32;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
+    publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
+    publicTemplate->parameters.eccDetail.symmetric.keyBits.aes = 128;
+    publicTemplate->parameters.eccDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    publicTemplate->parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    publicTemplate->parameters.eccDetail.scheme.details.ecdsa.hashAlg =
+        TPM_ALG_SHA256;
+    publicTemplate->parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    publicTemplate->parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+    XMEMCPY(publicTemplate->authPolicy.buffer,
+        TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
+
+    return 0;
+}
+
 
 int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 {
