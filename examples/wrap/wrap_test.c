@@ -101,7 +101,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) return rc;
 #endif
 
-    /* Get the RSA endosement key (EK) */
+    /* Get the RSA endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
@@ -109,7 +109,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
 
-    /* Get the ECC endosement key (EK) */
+    /* Get the ECC endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_ECC_EK(&publicTemplate);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
@@ -131,7 +131,7 @@ int TPM2_Wrapper_Test(void* userCtx)
             &publicTemplate, (byte*)storageKeyAuth, sizeof(storageKeyAuth)-1);
         if (rc != 0) goto exit;
 
-        /* Move this key into peristent storage */
+        /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
         if (rc != 0) goto exit;

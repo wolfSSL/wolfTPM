@@ -111,6 +111,8 @@ WOLFTPM_API int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, 
     WOLFTPM2_KEY* key);
 
+WOLFTPM_API WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev);
+
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
 
 WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);

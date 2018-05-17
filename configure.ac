@@ -103,12 +103,17 @@ AC_ARG_ENABLE([examples],
 AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
 
 
-# Examples
+# Wrapper
 AC_ARG_ENABLE([wrapper],
     [AS_HELP_STRING([--enable-wrapper],[Enable wrapper code (default: enabled)])],
     [ ENABLED_WRAPPER=$enableval ],
     [ ENABLED_WRAPPER=yes ]
     )
+
+if test "$ENABLED_WRAPPER" = "yes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
+fi
 
 AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 

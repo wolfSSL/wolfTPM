@@ -1015,6 +1015,13 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
+WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
+{
+    if (dev)
+        return &dev->ctx.rng;
+    return NULL;
+}
+
 int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
 {
     int rc;
