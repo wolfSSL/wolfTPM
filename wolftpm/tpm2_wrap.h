@@ -25,7 +25,13 @@
 
 #include <wolftpm/tpm2.h>
 
+typedef struct WOLFTPM2_DEV {
+    TPM2_CTX ctx;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+} WOLFTPM2_DEV;
+
 typedef struct WOLFTPM2_HANDLE {
+    WOLFTPM2_DEV*   dev;
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
 } WOLFTPM2_HANDLE;
@@ -42,14 +48,14 @@ typedef struct WOLFTPM2_KEY {
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
-typedef struct WOLFTPM2_DEV {
-    TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-} WOLFTPM2_DEV;
+
+#ifndef WOLFTPM2_MAX_BUFFER
+    #define WOLFTPM2_MAX_BUFFER MAX_DIGEST_BUFFER
+#endif
 
 typedef struct WOLFTPM2_BUFFER {
     int size;
-    byte buffer[MAX_DIGEST_BUFFER];
+    byte buffer[WOLFTPM2_MAX_BUFFER];
 } WOLFTPM2_BUFFER;
 
 
@@ -57,6 +63,8 @@ typedef struct WOLFTPM2_BUFFER {
 
 WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     TPM_HANDLE sessionHandle, const byte* auth, int authSz);

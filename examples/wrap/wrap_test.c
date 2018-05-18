@@ -160,28 +160,44 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
 
 
-    /* Perform RSA encrypt / decrypt */
+    /* Perform RSA encrypt / decrypt (no pad) */
+    message.size = 256; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* encrypted data */
+    rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
+        message.buffer, message.size, cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+    plain.size = sizeof(plain.buffer);
+    rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_NULL,
+        cipher.buffer, cipher.size, plain.buffer, &plain.size);
+    if (rc != 0) goto exit;
+    /* Validate encrypt / decrypt */
+    if (message.size != plain.size ||
+                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+        rc = TPM_RC_TESTING; goto exit;
+    }
+    printf("RSA Encrypt/Decrypt Test Passed\n");
+
+    /* Perform RSA encrypt / decrypt (OAEP pad) */
     message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
         message.buffer, message.size, cipher.buffer, &cipher.size);
     if (rc != 0) goto exit;
-
     plain.size = sizeof(plain.buffer);
     rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
         cipher.buffer, cipher.size, plain.buffer, &plain.size);
     if (rc != 0) goto exit;
-
-    rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
-    if (rc != 0) goto exit;
-
     /* Validate encrypt / decrypt */
     if (message.size != plain.size ||
                     XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
         rc = TPM_RC_TESTING; goto exit;
     }
-    printf("RSA Encrypt Test Passed\n");
+    printf("RSA Encrypt/Decrypt OAEP Test Passed\n");
+
+    rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    if (rc != 0) goto exit;
 
 
     /* Create an ECC key for ECDSA */

@@ -81,6 +81,15 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     return TPM_RC_SUCCESS;
 }
 
+int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    return dev->ctx.did_vid; /* not INVALID_DEVID */
+}
+
 int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     TPM_HANDLE sessionHandle, const byte* auth, int authSz)
 {
@@ -158,6 +167,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return rc;
     }
 
+    session->handle.dev = dev;
     session->handle.hndl = authSesOut.sessionHandle;
     session->nonceTPM = authSesOut.nonceTPM;
 
@@ -199,6 +209,7 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             wolfTPM2_GetRCString(rc));
         return rc;
     }
+    key->handle.dev  = dev;
     key->handle.hndl = createPriOut.objectHandle;
     key->handle.auth = createPriIn.inSensitive.sensitive.userAuth;
 
@@ -270,6 +281,7 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
         return rc;
     }
+    key->handle.dev  = dev;
     key->handle.hndl = loadOut.objectHandle;
     key->handle.auth = createIn.inSensitive.sensitive.userAuth;
 
@@ -300,6 +312,7 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             wolfTPM2_GetRCString(rc));
         return rc;
     }
+    key->handle.dev = dev;
     key->handle.hndl = loadExtOut.objectHandle;
     key->pub = loadExtIn.inPublic;
 
@@ -382,6 +395,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
 
+    key->handle.dev = dev;
     key->handle.hndl = readPubIn.objectHandle;
     key->pub = readPubOut.outPublic;
 
@@ -665,8 +679,9 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rsaEncIn.keyHandle = key->handle.hndl;
     rsaEncIn.message.size = msgSz;
     XMEMCPY(rsaEncIn.message.buffer, msg, msgSz);
-    rsaEncIn.inScheme.scheme = padScheme; /* TPM_ALG_OAEP or TPM_ALG_RSAPSS */
-    rsaEncIn.inScheme.details.oaep.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
+    rsaEncIn.inScheme.scheme = padScheme;
+    rsaEncIn.inScheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
 
 #if 0
     /* Optional label */
@@ -713,8 +728,9 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rsaDecIn.keyHandle = key->handle.hndl;
     rsaDecIn.cipherText.size = inSz;
     XMEMCPY(rsaDecIn.cipherText.buffer, in, inSz);
+    /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaDecIn.inScheme.scheme = padScheme;
-    rsaDecIn.inScheme.details.oaep.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    rsaDecIn.inScheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
 
 #if 0
     /* Optional label */

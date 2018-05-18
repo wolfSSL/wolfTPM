@@ -1380,7 +1380,8 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->message.buffer, in->message.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL)
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
 
         TPM2_Packet_AppendU16(&packet, in->label.size);
         TPM2_Packet_AppendBytes(&packet, in->label.buffer, in->label.size);
@@ -1427,7 +1428,8 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
             in->cipherText.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL)
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
 
         TPM2_Packet_AppendU16(&packet, in->label.size);
         TPM2_Packet_AppendBytes(&packet, in->label.buffer, in->label.size);

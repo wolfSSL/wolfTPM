@@ -110,7 +110,7 @@ AC_ARG_ENABLE([wrapper],
     [ ENABLED_WRAPPER=yes ]
     )
 
-if test "$ENABLED_WRAPPER" = "yes"
+if test "$ENABLED_WRAPPER" = "no"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
 fi
