@@ -95,12 +95,27 @@ AM_CPPFLAGS="$AM_CPPFLAGS -DDHAVE_WOLFSSL_OPTIONS -DHAVE_CYASSL_OPTIONS"
 
 # Examples
 AC_ARG_ENABLE([examples],
-    [  --enable-examples       Enable Examples  (default: enabled)],
+    [AS_HELP_STRING([--enable-examples],[Enable Examples (default: enabled)])],
     [ ENABLED_EXAMPLES=$enableval ],
     [ ENABLED_EXAMPLES=yes ]
     )
 
 AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
+
+
+# Wrapper
+AC_ARG_ENABLE([wrapper],
+    [AS_HELP_STRING([--enable-wrapper],[Enable wrapper code (default: enabled)])],
+    [ ENABLED_WRAPPER=$enableval ],
+    [ ENABLED_WRAPPER=yes ]
+    )
+
+if test "$ENABLED_WRAPPER" = "no"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
+fi
+
+AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 
 
 # HARDEN FLAGS
@@ -139,5 +154,5 @@ echo "   * CPP Flags:                 $CPPFLAGS"
 echo "   * Linker Flags:              $LDFLAGS"
 echo "   * LIB Flags:                 $LIB"
 
+echo "   * Wrappers:                  $ENABLED_WRAPPER"
 echo "   * Examples:                  $ENABLED_EXAMPLES"
-

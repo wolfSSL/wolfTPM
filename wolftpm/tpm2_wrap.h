@@ -25,7 +25,13 @@
 
 #include <wolftpm/tpm2.h>
 
+typedef struct WOLFTPM2_DEV {
+    TPM2_CTX ctx;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+} WOLFTPM2_DEV;
+
 typedef struct WOLFTPM2_HANDLE {
+    WOLFTPM2_DEV*   dev;
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
 } WOLFTPM2_HANDLE;
@@ -42,14 +48,14 @@ typedef struct WOLFTPM2_KEY {
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
-typedef struct WOLFTPM2_DEV {
-    TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-} WOLFTPM2_DEV;
+
+#ifndef WOLFTPM2_MAX_BUFFER
+    #define WOLFTPM2_MAX_BUFFER MAX_DIGEST_BUFFER
+#endif
 
 typedef struct WOLFTPM2_BUFFER {
     int size;
-    byte buffer[MAX_DIGEST_BUFFER];
+    byte buffer[WOLFTPM2_MAX_BUFFER];
 } WOLFTPM2_BUFFER;
 
 
@@ -57,6 +63,11 @@ typedef struct WOLFTPM2_BUFFER {
 
 WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
+    TPM_HANDLE sessionHandle, const byte* auth, int authSz);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
@@ -70,6 +81,11 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM2B_PUBLIC* pub);
+WOLFTPM_API int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent);
+WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, 
+    int curveId, const byte* eccPubX, word32 eccPubXSz, 
+    const byte* eccPubY, word32 eccPubYSz);
 WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle);
 
@@ -88,8 +104,26 @@ WOLFTPM_API int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
     int pcrIndex, int alg, byte* digest, int* digest_len);
 
+WOLFTPM_API int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, word32 nvAttributes, word32 maxSize, const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
+WOLFTPM_API int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32* dataSz, word32 offset);
 WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex);
+WOLFTPM_API int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex);
+
+WOLFTPM_API int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
+    WOLFTPM2_KEY* key, TPM_HANDLE persistentHandle);
+WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, 
+    WOLFTPM2_KEY* key);
+
+WOLFTPM_API WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev);
+
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
+
+WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);
 
 
 /* Utility functions */
@@ -97,9 +131,15 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
-WOLFTPM_API void wolfTPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex);
-WOLFTPM_API const char* wolfTPM2_GetAlgName(TPM_ALG_ID alg);
-WOLFTPM_API const char* wolfTPM2_GetRCString(TPM_RC rc);
-WOLFTPM_API int wolfTPM2_GetCurveSize(TPM_ECC_CURVE curveID);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate);
+WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes);
+
+/* moved to tpm.h native code. macros here for backwards compatibility */
+#define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel 
+#define wolfTPM2_GetAlgName   TPM2_GetAlgName
+#define wolfTPM2_GetRCString  TPM2_GetRCString
+#define wolfTPM2_GetCurveSize TPM2_GetCurveSize
+
 
 #endif /* __TPM2_WRAP_H__ */

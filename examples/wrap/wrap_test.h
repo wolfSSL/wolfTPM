@@ -1,4 +1,4 @@
-/* tpm2_demo.h
+/* wrap_test.h
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
@@ -19,11 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _TPM2_DEMO_H_
-#define _TPM2_DEMO_H_
+#ifndef _WRAP_TEST_H_
+#define _WRAP_TEST_H_
 
 
-int TPM2_Demo(void* userCtx);
-int TPM2_Wrapper_Demo(void* userCtx);
+int TPM2_Wrapper_Test(void* userCtx);
 
-#endif /* _TPM2_DEMO_H_ */
+#endif /* _WRAP_TEST_H_ */

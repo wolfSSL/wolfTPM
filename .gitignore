@@ -22,7 +22,8 @@ test-suite.log
 src/.deps
 src/.libs
 RemoteSystemsTempFiles
-examples/tpm/.deps
 *.o
-examples/tpm/tpm2_demo
-examples/tpm/.libs
+*.deps
+*.libs
+examples/wrap/wrap_test
+examples/native/native_test

@@ -1380,7 +1380,8 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->message.buffer, in->message.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL)
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
 
         TPM2_Packet_AppendU16(&packet, in->label.size);
         TPM2_Packet_AppendBytes(&packet, in->label.buffer, in->label.size);
@@ -1427,7 +1428,8 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
             in->cipherText.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL)
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.anySig.hashAlg);
 
         TPM2_Packet_AppendU16(&packet, in->label.size);
         TPM2_Packet_AppendBytes(&packet, in->label.buffer, in->label.size);
@@ -3881,8 +3883,8 @@ TPM_RC TPM2_EvictControl(EvictControl_In* in)
 
         TPM2_Packet_AppendU32(&packet, in->auth);
         TPM2_Packet_AppendU32(&packet, in->objectHandle);
-        TPM2_Packet_AppendU32(&packet, in->persistentHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
+        TPM2_Packet_AppendU32(&packet, in->persistentHandle);
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_EvictControl);
 
         /* send command */
@@ -4525,6 +4527,241 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 
     return rc;
 }
+
+void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
+{
+    if (pcr) {
+        pcr->count = 1;
+        pcr->pcrSelections[0].hash = alg;
+        pcr->pcrSelections[0].sizeofSelect = PCR_SELECT_MIN;
+        XMEMSET(pcr->pcrSelections[0].pcrSelect, 0, PCR_SELECT_MIN);
+        pcr->pcrSelections[0].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+    }
+}
+
+
+#define TPM_RC_STRINGIFY(rc) #rc
+#ifdef DEBUG_WOLFTPM
+    #define TPM_RC_STR(rc, desc) case rc: return TPM_RC_STRINGIFY(rc) ": " desc
+#else
+    #define TPM_RC_STR(rc, desc) case rc: return TPM_RC_STRINGIFY(rc)
+#endif
+
+const char* TPM2_GetRCString(int rc)
+{
+    /* for negative return codes use wolfCrypt */
+    if (rc < 0) {
+        return wc_GetErrorString(rc);
+    }
+
+    if (rc & RC_VER1) {
+        int rc_fm0 = rc & RC_MAX_FM0;
+
+        switch (rc_fm0) {
+            TPM_RC_STR(TPM_RC_SUCCESS, "Success");
+            TPM_RC_STR(TPM_RC_BAD_TAG, "Bad Tag");
+            TPM_RC_STR(TPM_RC_INITIALIZE, "TPM not initialized by TPM2_Startup or already initialized");
+            TPM_RC_STR(TPM_RC_FAILURE, "Commands not being accepted because of a TPM failure");
+            TPM_RC_STR(TPM_RC_SEQUENCE, "Improper use of a sequence handle");
+            TPM_RC_STR(TPM_RC_DISABLED, "The command is disabled");
+            TPM_RC_STR(TPM_RC_EXCLUSIVE, "Command failed because audit sequence required exclusivity");
+            TPM_RC_STR(TPM_RC_AUTH_TYPE, "Authorization handle is not correct for command");
+            TPM_RC_STR(TPM_RC_AUTH_MISSING, "Command requires an authorization session for handle and it is not present");
+            TPM_RC_STR(TPM_RC_POLICY, "Policy failure in math operation or an invalid authPolicy value");
+            TPM_RC_STR(TPM_RC_PCR, "PCR check fail");
+            TPM_RC_STR(TPM_RC_PCR_CHANGED, "PCR have changed since checked");
+            TPM_RC_STR(TPM_RC_UPGRADE, "Indicates that the TPM is in field upgrade mode");
+            TPM_RC_STR(TPM_RC_TOO_MANY_CONTEXTS, "Context ID counter is at maximum");
+            TPM_RC_STR(TPM_RC_AUTH_UNAVAILABLE, "The authValue or authPolicy is not available for selected entity");
+            TPM_RC_STR(TPM_RC_REBOOT, "A _TPM_Init and Startup(CLEAR) is required before the TPM can resume operation");
+            TPM_RC_STR(TPM_RC_UNBALANCED, "The protection algorithms (hash and symmetric) are not reasonably balanced");
+            TPM_RC_STR(TPM_RC_COMMAND_SIZE, "Command commandSize value is inconsistent with contents of the command buffer");
+            TPM_RC_STR(TPM_RC_COMMAND_CODE, "Command code not supported");
+            TPM_RC_STR(TPM_RC_AUTHSIZE, "The value of authorizationSize is out of range or the number of octets in the Authorization Area is greater than required");
+            TPM_RC_STR(TPM_RC_AUTH_CONTEXT, "Use of an authorization session with a context command or another command that cannot have an authorization session");
+            TPM_RC_STR(TPM_RC_NV_RANGE, "NV offset+size is out of range");
+            TPM_RC_STR(TPM_RC_NV_SIZE, "Requested allocation size is larger than allowed");
+            TPM_RC_STR(TPM_RC_NV_LOCKED, "NV access locked");
+            TPM_RC_STR(TPM_RC_NV_AUTHORIZATION, "NV access authorization fails in command actions");
+            TPM_RC_STR(TPM_RC_NV_UNINITIALIZED, "An NV Index is used before being initialized or the state saved by TPM2_Shutdown(STATE) could not be restored");
+            TPM_RC_STR(TPM_RC_NV_SPACE, "Insufficient space for NV allocation");
+            TPM_RC_STR(TPM_RC_NV_DEFINED, "NV Index or persistent object already defined");
+            TPM_RC_STR(TPM_RC_BAD_CONTEXT, "Context in TPM2_ContextLoad() is not valid");
+            TPM_RC_STR(TPM_RC_CPHASH, "The cpHash value already set or not correct for use");
+            TPM_RC_STR(TPM_RC_PARENT, "Handle for parent is not a valid parent");
+            TPM_RC_STR(TPM_RC_NEEDS_TEST, "Some function needs testing");
+            TPM_RC_STR(TPM_RC_NO_RESULT, "Cannot process a request due to an unspecified problem");
+            TPM_RC_STR(TPM_RC_SENSITIVE, "The sensitive area did not unmarshal correctly after decryption");
+        default:
+            break;
+        }
+    }
+
+    if (rc & RC_FMT1) {
+        int rc_fmt1 = rc & RC_MAX_FMT1;
+
+        switch (rc_fmt1) {
+            TPM_RC_STR(TPM_RC_ASYMMETRIC, "Asymmetric algorithm not supported or not correct");
+            TPM_RC_STR(TPM_RC_ATTRIBUTES, "Inconsistent attributes");
+            TPM_RC_STR(TPM_RC_HASH, "Hash algorithm not supported or not appropriate");
+            TPM_RC_STR(TPM_RC_VALUE, "Value is out of range or is not correct for the context");
+            TPM_RC_STR(TPM_RC_HIERARCHY, "Hierarchy is not enabled or is not correct for the use");
+            TPM_RC_STR(TPM_RC_KEY_SIZE, "Key size is not supported");
+            TPM_RC_STR(TPM_RC_MGF, "Mask generation function not supported");
+            TPM_RC_STR(TPM_RC_MODE, "Mode of operation not supported");
+            TPM_RC_STR(TPM_RC_TYPE, "The type of the value is not appropriate for the use");
+            TPM_RC_STR(TPM_RC_HANDLE, "The handle is not correct for the use");
+            TPM_RC_STR(TPM_RC_KDF, "Unsupported key derivation function or function not appropriate for use");
+            TPM_RC_STR(TPM_RC_RANGE, "Value was out of allowed range");
+            TPM_RC_STR(TPM_RC_AUTH_FAIL, "The authorization HMAC check failed and DA counter incremented");
+            TPM_RC_STR(TPM_RC_NONCE, "Invalid nonce size or nonce value mismatch");
+            TPM_RC_STR(TPM_RC_PP, "Authorization requires assertion of PP");
+            TPM_RC_STR(TPM_RC_SCHEME, "Unsupported or incompatible scheme");
+            TPM_RC_STR(TPM_RC_SIZE, "Structure is the wrong size");
+            TPM_RC_STR(TPM_RC_SYMMETRIC, "Unsupported symmetric algorithm or key size, or not appropriate for instance");
+            TPM_RC_STR(TPM_RC_TAG, "Incorrect structure tag");
+            TPM_RC_STR(TPM_RC_SELECTOR, "Union selector is incorrect");
+            TPM_RC_STR(TPM_RC_INSUFFICIENT, "The TPM was unable to unmarshal a value because there were not enough octets in the input buffer");
+            TPM_RC_STR(TPM_RC_SIGNATURE, "The signature is not valid");
+            TPM_RC_STR(TPM_RC_KEY, "Key fields are not compatible with the selected use");
+            TPM_RC_STR(TPM_RC_POLICY_FAIL, "A policy check failed");
+            TPM_RC_STR(TPM_RC_INTEGRITY, "Integrity check failed");
+            TPM_RC_STR(TPM_RC_TICKET, "Invalid ticket");
+            TPM_RC_STR(TPM_RC_RESERVED_BITS, "Reserved bits not set to zero as required");
+            TPM_RC_STR(TPM_RC_BAD_AUTH, "Authorization failure without DA implications");
+            TPM_RC_STR(TPM_RC_EXPIRED, "The policy has expired");
+            TPM_RC_STR(TPM_RC_POLICY_CC, "The commandCode in the policy is not the commandCode of the command or the command code in a policy command references a command that is not implemented");
+            TPM_RC_STR(TPM_RC_BINDING, "Public and sensitive portions of an object are not cryptographically bound");
+            TPM_RC_STR(TPM_RC_CURVE, "Curve not supported");
+            TPM_RC_STR(TPM_RC_ECC_POINT, "Point is not on the required curve");
+        default:
+            break;
+        }
+    }
+
+    if (rc & RC_WARN) {
+        int rc_warn = rc & RC_MAX_WARN;
+
+        switch (rc_warn) {
+            TPM_RC_STR(TPM_RC_CONTEXT_GAP, "Gap for context ID is too large");
+            TPM_RC_STR(TPM_RC_OBJECT_MEMORY, "Out of memory for object contexts");
+            TPM_RC_STR(TPM_RC_SESSION_MEMORY, "Out of memory for session contexts");
+            TPM_RC_STR(TPM_RC_MEMORY, "Out of shared object/session memory or need space for internal operations");
+            TPM_RC_STR(TPM_RC_SESSION_HANDLES, "Out of session handles; a session must be flushed before a new session may be created");
+            TPM_RC_STR(TPM_RC_OBJECT_HANDLES, "Out of object handles");
+            TPM_RC_STR(TPM_RC_LOCALITY, "Bad locality");
+            TPM_RC_STR(TPM_RC_YIELDED, "The TPM has suspended operation on the command");
+            TPM_RC_STR(TPM_RC_CANCELED, "The command was canceled");
+            TPM_RC_STR(TPM_RC_TESTING, "TPM is performing self-tests");
+            TPM_RC_STR(TPM_RC_NV_RATE, "The TPM is rate-limiting accesses to prevent wearout of NV");
+            TPM_RC_STR(TPM_RC_LOCKOUT, "Authorizations for objects subject to DA protection are not allowed at this time because the TPM is in DA lockout mode");
+            TPM_RC_STR(TPM_RC_RETRY, "The TPM was not able to start the command");
+            TPM_RC_STR(TPM_RC_NV_UNAVAILABLE, "The command may require writing of NV and NV is not current accessible");
+            TPM_RC_STR(TPM_RC_NOT_USED, "This value is reserved and shall not be returned by the TPM");
+        default:
+            break;
+        }
+    }
+
+    return "Unknown";
+}
+
+const char* TPM2_GetAlgName(TPM_ALG_ID alg)
+{
+    switch (alg) {
+        case TPM_ALG_RSA:
+            return "RSA";
+        case TPM_ALG_SHA1:
+            return "SHA1";
+        case TPM_ALG_HMAC:
+            return "HMAC";
+        case TPM_ALG_AES:
+            return "AES";
+        case TPM_ALG_MGF1:
+            return "MGF1";
+        case TPM_ALG_KEYEDHASH:
+            return "KEYEDHASH";
+        case TPM_ALG_XOR:
+            return "XOR";
+        case TPM_ALG_SHA256:
+            return "SHA256";
+        case TPM_ALG_SHA384:
+            return "SHA384";
+        case TPM_ALG_SHA512:
+            return "SHA512";
+        case TPM_ALG_NULL:
+            return "NULL";
+        case TPM_ALG_SM3_256:
+            return "SM3_256";
+        case TPM_ALG_SM4:
+            return "SM4";
+        case TPM_ALG_RSASSA:
+            return "RSASSA";
+        case TPM_ALG_RSAES:
+            return "RSAES";
+        case TPM_ALG_RSAPSS:
+            return "RSAPSS";
+        case TPM_ALG_OAEP:
+            return "OAEP";
+        case TPM_ALG_ECDSA:
+            return "ECDSA";
+        case TPM_ALG_ECDH:
+            return "ECDH";
+        case TPM_ALG_ECDAA:
+            return "ECDAA";
+        case TPM_ALG_SM2:
+            return "SM2";
+        case TPM_ALG_ECSCHNORR:
+            return "ECSCHNORR";
+        case TPM_ALG_ECMQV:
+            return "ECMQV";
+        case TPM_ALG_KDF1_SP800_56A:
+            return "KDF1_SP800_56A";
+        case TPM_ALG_KDF2:
+            return "KDF2";
+        case TPM_ALG_KDF1_SP800_108:
+            return "KDF1_SP800_108";
+        case TPM_ALG_ECC:
+            return "ECC";
+        case TPM_ALG_SYMCIPHER:
+            return "SYMCIPHER";
+        case TPM_ALG_CTR:
+            return "CTR";
+        case TPM_ALG_OFB:
+            return "OFB";
+        case TPM_ALG_CBC:
+            return "CBC";
+        case TPM_ALG_CFB:
+            return "CFB";
+        case TPM_ALG_ECB:
+            return "ECB";
+        default:
+            break;
+    }
+    return "Unknown";
+}
+
+int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
+{
+    switch (curveID) {
+        case TPM_ECC_NIST_P192:
+            return 24;
+        case TPM_ECC_NIST_P224:
+            return 28;
+        case TPM_ECC_NIST_P256:
+        case TPM_ECC_BN_P256:
+        case TPM_ECC_SM2_P256:
+            return 32;
+        case TPM_ECC_NIST_P384:
+            return 48;
+        case TPM_ECC_NIST_P521:
+            return 66;
+        case TPM_ECC_BN_P638:
+            return 80;
+    }
+    return 0;
+}
+
 
 
 #ifdef DEBUG_WOLFTPM
