@@ -32,6 +32,9 @@
 #ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
     #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
 #endif
+#ifndef WOLFTPM2_WRAP_RSA_EXPONENT
+    #define WOLFTPM2_WRAP_RSA_EXPONENT RSA_DEFAULT_PUBLIC_EXPONENT
+#endif
 
 
 
@@ -408,6 +411,68 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+
+
+int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    RsaKey* wolfKey)
+{
+    int rc;
+    byte    e[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    word32  eSz = sizeof(e);
+    word32  nSz = sizeof(n);
+    word32 exponent;
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(e, 0, sizeof(e));
+    XMEMSET(n, 0, sizeof(n));
+
+    /* load exponenet */
+    exponent = tpmKey->pub.publicArea.parameters.rsaDetail.exponent;
+    e[3] = (exponent >> 24) & 0xFF;
+    e[2] = (exponent >> 16) & 0xFF;
+    e[1] = (exponent >> 8)  & 0xFF;
+    e[0] =  exponent        & 0xFF;
+    eSz = 4;
+
+    /* load public key */
+    nSz = tpmKey->pub.publicArea.unique.rsa.size;
+    XMEMCPY(n, tpmKey->pub.publicArea.unique.rsa.buffer, nSz);
+
+    /* load public key portion into wolf RsaKey */
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
+
+    return rc;
+}
+
+int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
+    WOLFTPM2_KEY* tpmKey)
+{
+    int rc;
+    byte    e[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    word32  eSz = sizeof(e);
+    word32  nSz = sizeof(n);
+    word32 exponent;
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(e, 0, sizeof(e));
+    XMEMSET(n, 0, sizeof(n));
+
+    /* export the raw public RSA portion */
+    rc = wc_RsaFlattenPublicKey(wolfKey, e, &eSz, n, &nSz);
+    if (rc == 0) {
+        exponent = e[3] << 24 | e[2] << 16 | e[1] << 8 | e[0];
+        rc = wolfTPM2_LoadRsaPublicKey(dev, tpmKey, n, nSz, exponent);
+    }
+
+    return rc;
+}
+
 
 /* primaryHandle must be owner or platform hierarchy */
 /* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
@@ -1063,6 +1128,7 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     return rc;
 }
 
+
 /******************************************************************************/
 /* --- END Wrapper Device Functions-- */
 /******************************************************************************/
@@ -1084,7 +1150,7 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.rsaDetail.keyBits = WOLFTPM2_WRAP_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = 0;
+    publicTemplate->parameters.rsaDetail.exponent = WOLFTPM2_WRAP_RSA_EXPONENT;
     publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
