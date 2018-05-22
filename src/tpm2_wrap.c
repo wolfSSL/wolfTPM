@@ -867,7 +867,7 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
     NV_Write_In in;
 
@@ -913,7 +913,7 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     word32 pos = 0, toread, dataSz;
     NV_Read_In in;
     NV_Read_Out out;

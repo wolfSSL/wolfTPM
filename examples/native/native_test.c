@@ -183,6 +183,7 @@ int TPM2_Native_Test(void* userCtx)
     storage.handle = TPM_RH_NULL;
     hmacKey.handle = TPM_RH_NULL;
     eccKey.handle = TPM_RH_NULL;
+    rsaKey.handle = TPM_RH_NULL;
 
     message.size = WC_SHA256_DIGEST_SIZE;
     XMEMSET(message.buffer, 0x11, message.size);
