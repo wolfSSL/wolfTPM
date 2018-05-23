@@ -40,6 +40,9 @@
 #include <wolfssl/wolfcrypt/hash.h>
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
+#ifdef WOLF_CRYPTO_DEV
+    #include <wolfssl/wolfcrypt/cryptodev.h>
+#endif
 
 
 /* Reconfigurable Elements */
