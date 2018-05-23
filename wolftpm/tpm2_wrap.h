@@ -50,7 +50,7 @@ typedef struct WOLFTPM2_KEY {
 
 
 #ifndef WOLFTPM2_MAX_BUFFER
-    #define WOLFTPM2_MAX_BUFFER MAX_DIGEST_BUFFER
+    #define WOLFTPM2_MAX_BUFFER 2048
 #endif
 
 typedef struct WOLFTPM2_BUFFER {
@@ -115,7 +115,8 @@ WOLFTPM_API int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
 WOLFTPM_API int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32* dataSz, word32 offset);
-WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex);
+WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, 
+    TPMS_NV_PUBLIC* nvPublic);
 WOLFTPM_API int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex);
 

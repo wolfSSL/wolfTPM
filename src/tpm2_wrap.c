@@ -1032,7 +1032,7 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
-int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
+int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, TPMS_NV_PUBLIC* nvPublic)
 {
     int rc;
     NV_ReadPublic_In  in;
@@ -1061,6 +1061,10 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
         out.nvPublic.nvPublic.dataSize,
         out.nvName.size);
 #endif
+
+    if (nvPublic) {
+        XMEMCPY(nvPublic, &out.nvPublic.nvPublic, sizeof(*nvPublic));
+    }
 
     return rc;
 }

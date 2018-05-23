@@ -276,7 +276,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         plain.buffer, (word32*)&plain.size, 0);
     if (rc != 0) goto exit;
 
-    rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_INDEX);
+    rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_INDEX, NULL);
     if (rc != 0) goto exit;
 
     rc = wolfTPM2_NVDelete(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX);
