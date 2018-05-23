@@ -27,3 +27,4 @@ RemoteSystemsTempFiles
 *.libs
 examples/wrap/wrap_test
 examples/native/native_test
+wolftpm/options.h
