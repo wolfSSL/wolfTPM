@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
- * This file is part of wolfSSL. (formerly known as CyaSSL)
+ * This file is part of wolfTPM.
  *
  * wolfTPM is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

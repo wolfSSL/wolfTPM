@@ -1,4 +1,4 @@
-/* tpm_io.h
+/* bench.h
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
@@ -19,14 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _TPM_IO_H_
-#define _TPM_IO_H_
-
-#include <wolftpm/tpm2.h>
-
-void* TPM2_IoGetUserCtx(void);
-int   TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-    word16 xferSz, void* userCtx);
+#ifndef _WRAP_BENCH_H_
+#define _WRAP_BENCH_H_
 
 
-#endif /* _TPM_IO_H_ */
+int TPM2_Wrapper_Bench(void* userCtx);
+
+#endif /* _WRAP_BENCH_H_ */

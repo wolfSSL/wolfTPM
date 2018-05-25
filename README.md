@@ -123,6 +123,22 @@ ECC DH Generation Passed
 NV Test on index 0x1800200 with 1024 bytes passed
 ```
 
+### TPM2 Benchmarks
+
+Run on Infineon OPTIGA SLB9670:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RSA     2048 Public        65 ops took 1.005 sec, avg 15.466 ms, 64.657 ops/sec
+RSA     2048 Private        3 ops took 1.343 sec, avg 447.759 ms, 2.233 ops/sec
+RSA     2048 Pub  OAEP     12 ops took 1.040 sec, avg 86.657 ms, 11.540 ops/sec
+RSA     2048 Priv OAEP      2 ops took 1.032 sec, avg 515.885 ms, 1.938 ops/sec
+ECDSA    256 sign          14 ops took 1.037 sec, avg 74.101 ms, 13.495 ops/sec
+ECDSA    256 verify         8 ops took 1.027 sec, avg 128.417 ms, 7.787 ops/sec
+ECDHE    256 agree          8 ops took 1.040 sec, avg 130.003 ms, 7.692 ops/sec
+```
+
 ### TPM Native Tests
 
 ```
@@ -1961,7 +1977,7 @@ Response: 10
 * Add support for using the TPM with wolfSSL for TLS.
 * Add support for encrypting / decrypting parameters. (90% complete)
 * Add `spi_tis_dev` support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
-* Benchmark TPM
+
 
 ## Support
 
