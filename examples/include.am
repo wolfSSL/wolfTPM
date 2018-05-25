@@ -3,6 +3,7 @@
 
 include examples/native/include.am
 include examples/wrap/include.am
+include examples/bench/include.am
 
 dist_example_DATA+= examples/tpm_io.c \
 					examples/tpm_io.h
