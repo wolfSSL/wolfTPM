@@ -1,0 +1,9 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+#
+
+EXTRA_DIST += \
+	     certs/certreq.sh \
+	     certs/ca-rsa.cnf \
+	     certs/ca-ecc.cnf \
+	     certs/wolfssl-website-ca.pem

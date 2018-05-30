@@ -95,7 +95,7 @@ int TPM2_PKCS7_Example(void* userCtx)
     }
 
     /* Create/Load RSA key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_KEY_HANDLE);
+    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
     if (rc != 0) {
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
@@ -107,7 +107,7 @@ int TPM2_PKCS7_Example(void* userCtx)
 
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
-            TPM2_DEMO_KEY_HANDLE);
+            TPM2_DEMO_RSA_KEY_HANDLE);
         if (rc != 0) goto exit;
     }
     else {
@@ -186,6 +186,7 @@ int main(void)
     rc = TPM2_PKCS7_Example(TPM2_IoGetUserCtx());
 #else
     printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");
+    printf("Build wolfssl with ./configure --enable-pkcs7 --enable-cryptodev\n");
 #endif
 
     return rc;

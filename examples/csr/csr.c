@@ -30,19 +30,17 @@
 #include <examples/csr/csr.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
 
+static const char gClientCertRsaFile[] = "./certs/client-rsa-cert.csr";
+static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
+
 /******************************************************************************/
 /* --- BEGIN TPM2 CSR Example -- */
 /******************************************************************************/
 
-int TPM2_CSR_Example(void* userCtx)
-{
+ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int key_type, void* wolfKey,
+    const char* outputPemFile)
+ {
     int rc;
-    WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY storageKey;
-    WOLFTPM2_KEY rsaKey;
-    RsaKey wolfRsaKey;
-    TPMT_PUBLIC publicTemplate;
-    TpmCryptoDevCtx tpmCtx;
     Cert req;
     const CertName myCertName = {
         "US",               CTC_PRINTABLE,  /* country */
@@ -54,11 +52,90 @@ int TPM2_CSR_Example(void* userCtx)
         "www.wolfssl.com",  CTC_UTF8,       /* commonName */
         "info@wolfssl.com"                  /* email */
     };
+    const char* myKeyUsage = "serverAuth,clientAuth,codeSigning,"
+                             "emailProtection,timeStamping,OCSPSigning";
     WOLFTPM2_BUFFER der;
     WOLFTPM2_BUFFER output;
-    int tpmDevId;
 
-    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
+    /* Generate CSR (using TPM key) for certification authority */
+    rc = wc_InitCert(&req);
+    if (rc != 0) goto exit;
+
+    XMEMCPY(&req.subject, &myCertName, sizeof(myCertName));
+
+    if (key_type == RSA_TYPE)
+        req.sigType = CTC_SHA256wRSA;
+    else if (key_type == ECC_TYPE)
+        req.sigType = CTC_SHA256wECDSA;
+
+#ifdef WOLFSSL_CERT_EXT
+    /* add SKID from the Public Key */
+    rc = wc_SetSubjectKeyIdFromPublicKey_ex(&req, key_type, wolfKey);
+    if (rc != 0) goto exit;
+
+    /* add Extended Key Usage */
+    rc = wc_SetExtKeyUsage(&req, myKeyUsage);
+    if (rc != 0) goto exit;
+#endif
+
+    rc = wc_MakeCertReq_ex(&req, der.buffer, sizeof(der.buffer), key_type,
+        wolfKey);
+    if (rc <= 0) goto exit;
+    der.size = rc;
+
+    rc = wc_SignCert_ex(req.bodySz, req.sigType, der.buffer, sizeof(der.buffer),
+        key_type, wolfKey, wolfTPM2_GetRng(dev));
+    if (rc <= 0) goto exit;
+    der.size = rc;
+
+#ifdef WOLFSSL_DER_TO_PEM
+    /* Convert to PEM */
+    XMEMSET(output.buffer, 0, sizeof(output.buffer));
+    rc = wc_DerToPem(der.buffer, der.size, output.buffer, sizeof(output.buffer),
+        CERTREQ_TYPE);
+    if (rc <= 0) goto exit;
+    output.size = rc;
+
+    printf("Generated/Signed Cert (DER %d, PEM %d)\n", der.size, output.size);
+    printf("%s\n", (char*)output.buffer);
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    {
+        FILE* pemFile = fopen(outputPemFile, "wb");
+        if (pemFile) {
+            rc = (int)fwrite(output.buffer, 1, output.size, pemFile);
+            if (rc != output.size) {
+                rc = -1; goto exit;
+            }
+            fclose(pemFile);
+        }
+    }
+#endif
+#endif /* WOLFSSL_DER_TO_PEM */
+    (void)outputPemFile;
+
+    rc = 0; /* success */
+
+exit:
+    return rc;
+ }
+
+int TPM2_CSR_Example(void* userCtx)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storageKey;
+#ifndef NO_RSA
+    WOLFTPM2_KEY rsaKey;
+    RsaKey wolfRsaKey;
+#endif
+#ifdef HAVE_ECC
+    WOLFTPM2_KEY eccKey;
+    ecc_key wolfEccKey;
+#endif
+    TPMT_PUBLIC publicTemplate;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId;
 
     printf("TPM2 CSR Example\n");
 
@@ -67,7 +144,14 @@ int TPM2_CSR_Example(void* userCtx)
     if (rc != 0) return rc;
 
     /* Setup the wolf crypto device callback */
+#ifndef NO_RSA
+    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
     tpmCtx.rsaKey = &rsaKey;
+#endif
+#ifdef HAVE_ECC
+    XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
+    tpmCtx.eccKey = &eccKey;
+#endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
@@ -97,8 +181,9 @@ int TPM2_CSR_Example(void* userCtx)
             storageKey.handle.auth.size);
     }
 
-    /* Create/Load RSA key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_KEY_HANDLE);
+#ifndef NO_RSA
+    /* Create/Load RSA key for CSR */
+    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
     if (rc != 0) {
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
@@ -110,11 +195,11 @@ int TPM2_CSR_Example(void* userCtx)
 
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
-            TPM2_DEMO_KEY_HANDLE);
+            TPM2_DEMO_RSA_KEY_HANDLE);
         if (rc != 0) goto exit;
     }
     else {
-        /* specify auth password for rsa key */
+        /* specify auth password for RSA key */
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
@@ -126,43 +211,45 @@ int TPM2_CSR_Example(void* userCtx)
     rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &rsaKey, &wolfRsaKey);
     if (rc != 0) goto exit;
 
+    rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &wolfRsaKey, gClientCertRsaFile);
+    if (rc != 0) goto exit;
+#endif /* !NO_RSA */
 
-    /* Generate CSR (using TPM key) for certification authority */
-    rc = wc_InitCert(&req);
+
+#ifdef HAVE_ECC
+    /* Create/Load ECC key for CSR */
+    rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_DEMO_ECC_KEY_HANDLE);
+    if (rc != 0) {
+        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+            TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
+            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+        if (rc != 0) goto exit;
+
+        /* Move this key into persistent storage */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &eccKey,
+            TPM2_DEMO_ECC_KEY_HANDLE);
+        if (rc != 0) goto exit;
+    }
+    else {
+        /* specify auth password for ECC key */
+        eccKey.handle.auth.size = sizeof(gKeyAuth)-1;
+        XMEMCPY(eccKey.handle.auth.buffer, gKeyAuth, eccKey.handle.auth.size);
+    }
+
+    /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
+    rc = wc_ecc_init_ex(&wolfEccKey, NULL, tpmDevId);
+    if (rc != 0) goto exit;
+    /* load public portion of key into wolf ECC Key */
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &eccKey, &wolfEccKey);
     if (rc != 0) goto exit;
 
-    XMEMCPY(&req.subject, &myCertName, sizeof(myCertName));
-    req.sigType = CTC_SHA256wRSA;
-
-#ifdef WOLFSSL_CERT_EXT
-    /* add SKID from the Public Key */
-    rc = wc_SetSubjectKeyIdFromPublicKey_ex(&req, RSA_TYPE, &wolfRsaKey);
+    rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &wolfEccKey, gClientCertEccFile);
     if (rc != 0) goto exit;
-
-    /* add Extended Key Usage */
-    rc = wc_SetExtKeyUsage(&req, "serverAuth,clientAuth,codeSigning,"
-                                 "emailProtection,timeStamping,OCSPSigning");
-    if (rc != 0) goto exit;
-#endif
-
-    rc = wc_MakeCertReq_ex(&req, der.buffer, sizeof(der.buffer), RSA_TYPE, &wolfRsaKey);
-    if (rc <= 0) goto exit;
-    der.size = rc;
-
-    rc = wc_SignCert_ex(req.bodySz, req.sigType, der.buffer, sizeof(der.buffer), RSA_TYPE,
-        &wolfRsaKey, wolfTPM2_GetRng(&dev));
-    if (rc <= 0) goto exit;
-    der.size = rc;
-
-    /* Convert to PEM */
-    rc = wc_DerToPem(der.buffer, der.size, output.buffer, sizeof(output.buffer), CERTREQ_TYPE);
-    if (rc <= 0) goto exit;
-    output.size = rc;
-
-    printf("Generated/Signed Cert (DER %d, PEM %d)\n", der.size, output.size);
-    printf("%s\n", (char*)output.buffer);
-
-    rc = 0; /* report success */
+#endif /* HAVE_ECC */
 
 exit:
 
@@ -170,8 +257,14 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+#ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+#endif
+#ifdef HAVE_ECC
+    wc_ecc_free(&wolfEccKey);
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+#endif
 
     wolfTPM2_Cleanup(&dev);
 
@@ -194,6 +287,7 @@ int main(void)
     rc = TPM2_CSR_Example(TPM2_IoGetUserCtx());
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
+    printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptodev\n");
 #endif
 
     return rc;
