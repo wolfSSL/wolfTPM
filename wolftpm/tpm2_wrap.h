@@ -156,4 +156,23 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
 
+
+#ifdef WOLF_CRYPTO_DEV
+typedef struct TpmCryptoDevCtx {
+    WOLFTPM2_DEV* dev;
+#ifndef NO_RSA
+    WOLFTPM2_KEY* rsaKey;  /* RSA */
+#endif
+#ifdef HAVE_ECC
+    WOLFTPM2_KEY* eccKey;  /* ECDSA */
+    WOLFTPM2_KEY* ecdhKey; /* ECDH */
+#endif
+} TpmCryptoDevCtx;
+
+WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
+WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb, 
+    TpmCryptoDevCtx* tpmCtx, int* pDevId);
+#endif
+
+
 #endif /* __TPM2_WRAP_H__ */

@@ -1388,4 +1388,106 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 /* --- END Utility Functions -- */
 /******************************************************************************/
 
+
+#ifdef WOLF_CRYPTO_DEV
+/******************************************************************************/
+/* --- BEGIN wolf Crypto Device Support -- */
+/******************************************************************************/
+
+int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
+{
+    int ret = NOT_COMPILED_IN; /* return this to bypass HW and use SW */
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+
+    if (info == NULL || ctx == NULL || tlsCtx->dev == NULL)
+        return BAD_FUNC_ARG;
+
+    (void)devId;
+
+#ifndef NO_RSA
+    /* RSA */
+    if (info->algo_type == WC_ALGO_TYPE_PK && info->pk.type == WC_PK_TYPE_RSA) {
+        switch (info->pk.rsa.type) {
+            case RSA_PUBLIC_ENCRYPT:
+            case RSA_PUBLIC_DECRYPT:
+                /* public operations */
+                ret = wolfTPM2_RsaEncrypt(tlsCtx->dev, tlsCtx->rsaKey, TPM_ALG_NULL,
+                    info->pk.rsa.in, info->pk.rsa.inLen,
+                    info->pk.rsa.out, (int*)info->pk.rsa.outLen);
+                break;
+            case RSA_PRIVATE_ENCRYPT:
+            case RSA_PRIVATE_DECRYPT:
+                /* private operations */
+                ret = wolfTPM2_RsaDecrypt(tlsCtx->dev, tlsCtx->rsaKey, TPM_ALG_NULL,
+                    info->pk.rsa.in, info->pk.rsa.inLen,
+                    info->pk.rsa.out, (int*)info->pk.rsa.outLen);
+                break;
+        }
+
+        /* need to return negative here for error */
+        if (ret != TPM_RC_SUCCESS)
+            ret = RSA_BUFFER_E;
+    }
+#endif /* !NO_RSA */
+#ifdef HAVE_ECC
+    if (info->algo_type == WC_ALGO_TYPE_PK &&
+            info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+        ret = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
+            info->pk.eccsign.in, info->pk.eccsign.inlen,
+            info->pk.eccsign.out, (int*)info->pk.eccsign.outlen);
+    }
+    else if (info->algo_type == WC_ALGO_TYPE_PK &&
+            info->pk.type == WC_PK_TYPE_ECDSA_VERIFY) {
+        ret = wolfTPM2_VerifyHash(tlsCtx->dev, tlsCtx->eccKey,
+            info->pk.eccverify.sig, info->pk.eccverify.siglen,
+            info->pk.eccverify.hash, info->pk.eccverify.hashlen);
+    }
+    else if (info->algo_type == WC_ALGO_TYPE_PK &&
+            info->pk.type == WC_PK_TYPE_ECDH) {
+        /* TODO: */
+        #if 0
+        ecc_key* private_key;
+        ecc_key* public_key;
+        byte* out;
+        word32* outlen;
+        #endif
+    }
+#endif
+
+    return ret;
+}
+
+int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
+    TpmCryptoDevCtx* tpmCtx, int* pDevId)
+{
+    int rc;
+    int devId = INVALID_DEVID;
+
+    if (dev == NULL || cb == NULL || tpmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* register a crypto device callback for TPM private key */
+    rc = wolfTPM2_GetTpmDevId(dev);
+    if (rc < 0) {
+        devId = rc;
+        tpmCtx->dev = dev;
+
+        rc = wc_CryptoDev_RegisterDevice(devId, cb, tpmCtx);
+    }
+
+    if (pDevId) {
+        *pDevId = devId;
+    }
+
+    return rc;
+}
+
+/******************************************************************************/
+/* --- END wolf Crypto Device Support -- */
+/******************************************************************************/
+
+#endif /* WOLF_CRYPTO_DEV */
+
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
