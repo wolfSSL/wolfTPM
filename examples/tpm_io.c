@@ -102,7 +102,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     }
 #else
     /* TODO: Add your platform here for HW interface */
-    #error Add your platform here for HW interface
+    printf("Add your platform here for HW interface\n");
     (void)txBuf;
     (void)rxBuf;
     (void)xferSz;
