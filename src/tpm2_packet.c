@@ -35,9 +35,12 @@
     static inline word32 rotlFixed(word32 x, word32 y) {
         return (x << y) | (x >> (sizeof(y) * 8 - y));
     }
+
+    #if defined(FAST_ROTATE)
     static inline word32 rotrFixed(word32 x, word32 y) {
         return (x >> y) | (x << (sizeof(y) * 8 - y));
     }
+    #endif
 
     static inline word16 ByteReverseWord16(word16 value)
     {
