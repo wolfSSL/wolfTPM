@@ -153,9 +153,21 @@ int TPM2_PKCS7_Example(void* userCtx)
     wc_PKCS7_Free(&pkcs7);
     output.size = rc;
 
-
     printf("PKCS7 Signed Container %d\n", output.size);
     TPM2_PrintBin(output.buffer, output.size);
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    {
+        FILE* pemFile = fopen("./examples/pkcs7/pkcs7tpmsigned.p7s", "wb");
+        if (pemFile) {
+            rc = (int)fwrite(output.buffer, 1, output.size, pemFile);
+            fclose(pemFile);
+            if (rc != output.size) {
+                rc = -1; goto exit;
+            }
+        }
+    }
+#endif
 
     /* Test verify */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);

@@ -25,6 +25,21 @@ RemoteSystemsTempFiles
 *.o
 *.deps
 *.libs
+wolftpm/options.h
+
 examples/wrap/wrap_test
 examples/native/native_test
-wolftpm/options.h
+examples/bench/bench
+examples/csr/csr
+
+examples/pkcs7/pkcs7
+pkcs7tpmsigned.p7s
+
+# Generated Cert Files
+certs/ca-*.pem
+certs/ca-*.der
+certs/ca-*.crl
+certs/*.par
+certs/crlnumber*
+certs/serial
+certs/index*
