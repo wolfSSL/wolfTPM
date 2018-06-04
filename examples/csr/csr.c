@@ -104,10 +104,10 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
         FILE* pemFile = fopen(outputPemFile, "wb");
         if (pemFile) {
             rc = (int)fwrite(output.buffer, 1, output.size, pemFile);
+            fclose(pemFile);
             if (rc != output.size) {
                 rc = -1; goto exit;
             }
-            fclose(pemFile);
         }
     }
 #endif

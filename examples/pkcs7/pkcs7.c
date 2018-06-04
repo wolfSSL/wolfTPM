@@ -30,10 +30,13 @@
 #include <examples/pkcs7/pkcs7.h>
 #include <wolfssl/wolfcrypt/pkcs7.h>
 
-/* force include test certs */
-#undef  USE_CERT_BUFFERS_2048
-#define USE_CERT_BUFFERS_2048
-#include <wolfssl/certs_test.h>
+/* Sign PKCS7 using TPM based key:
+ * Must Run:
+ * 1. `./examples/csr/csr`
+ * 2. `./certs/certreq.sh`
+ * 3. Results in `./certs/client-rsa-cert.der`
+ */
+
 
 /******************************************************************************/
 /* --- BEGIN TPM2 PKCS7 Example -- */
@@ -47,7 +50,6 @@ int TPM2_PKCS7_Example(void* userCtx)
     WOLFTPM2_KEY rsaKey;
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
-    RsaKey wolfRsaKey;
     PKCS7 pkcs7;
     byte  data[] = "My encoded DER cert.";
     int tpmDevId;
@@ -55,7 +57,6 @@ int TPM2_PKCS7_Example(void* userCtx)
     WOLFTPM2_BUFFER output;
 
     XMEMSET(&pkcs7, 0, sizeof(pkcs7));
-    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
 
     printf("TPM2 PKCS7 Example\n");
 
@@ -116,18 +117,28 @@ int TPM2_PKCS7_Example(void* userCtx)
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
 
-    /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_InitRsaKey_ex(&wolfRsaKey, NULL, tpmDevId);
-    if (rc != 0) goto exit;
-    /* load public portion of key into wolf RSA Key */
-    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &rsaKey, &wolfRsaKey);
-    if (rc != 0) goto exit;
 
+    /* load DER certificate for TPM key (obtained by running
+        `./examples/csr/csr` and `./certs/certreq.sh`) */
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    {
+        FILE* derFile = fopen("./certs/client-rsa-cert.der", "rb");
+        if (derFile) {
+            fseek(derFile, 0, SEEK_END);
+            der.size = (int)ftell(derFile);
+            rewind(derFile);
+            rc = (int)fread(der.buffer, 1, der.size, derFile);
+            fclose(derFile);
+            if (rc != der.size) {
+                rc = -1; goto exit;
+            }
+        }
+    }
+#endif
 
     /* Generate and verify PKCS#7 files containing data using TPM key */
-    XMEMCPY(der.buffer, client_cert_der_2048, sizeof_client_cert_der_2048);
-    der.size = sizeof_client_cert_der_2048;
-
+    rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
+    if (rc != 0) goto exit;
     rc = wc_PKCS7_InitWithCert(&pkcs7, der.buffer, der.size);
     if (rc != 0) goto exit;
 
@@ -136,7 +147,6 @@ int TPM2_PKCS7_Example(void* userCtx)
     pkcs7.encryptOID = RSAk;
     pkcs7.hashOID = SHA256h;
     pkcs7.rng = wolfTPM2_GetRng(&dev);
-    pkcs7.devId = tpmDevId;
 
     rc = wc_PKCS7_EncodeSignedData(&pkcs7, output.buffer, sizeof(output.buffer));
     if (rc <= 0) goto exit;
@@ -148,6 +158,8 @@ int TPM2_PKCS7_Example(void* userCtx)
     TPM2_PrintBin(output.buffer, output.size);
 
     /* Test verify */
+    rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
+    if (rc != 0) goto exit;
     rc = wc_PKCS7_InitWithCert(&pkcs7, NULL, 0);
     if (rc != 0) goto exit;
     rc = wc_PKCS7_VerifySignedData(&pkcs7, output.buffer, output.size);
@@ -162,7 +174,6 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
 
     wolfTPM2_Cleanup(&dev);

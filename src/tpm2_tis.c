@@ -1,4 +1,3 @@
-
 /* tpm2_tis.c
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
@@ -61,7 +60,7 @@ enum tpm_tis_int_flags {
     TPM_INTF_DATA_AVAIL_INT     = 0x001,
 };
 
-#define TPM_BASE_ADDRESS (0xd40000u)
+#define TPM_BASE_ADDRESS (0xD40000u)
 
 #define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0000u | ((l) << 12u))
 #define TPM_INT_ENABLE(l)       (TPM_BASE_ADDRESS | 0x0008u | ((l) << 12u))
