@@ -341,7 +341,7 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
-    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.objectAttributes = TPMA_OBJECT_decrypt;
     pub.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
     pub.publicArea.parameters.rsaDetail.keyBits = rsaPubSz * 8;
     pub.publicArea.parameters.rsaDetail.exponent = exponent;
