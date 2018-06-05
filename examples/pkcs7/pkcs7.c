@@ -95,7 +95,7 @@ int TPM2_PKCS7_Example(void* userCtx)
             storageKey.handle.auth.size);
     }
 
-    /* Create/Load RSA key for TLS authentication */
+    /* Create/Load RSA key for PKCS7 signing */
     rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
     if (rc != 0) {
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -169,7 +169,7 @@ int TPM2_PKCS7_Example(void* userCtx)
     }
 #endif
 
-    /* Test verify */
+    /* Test verify with TPM */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
     if (rc != 0) goto exit;
     rc = wc_PKCS7_InitWithCert(&pkcs7, NULL, 0);
@@ -178,7 +178,18 @@ int TPM2_PKCS7_Example(void* userCtx)
     if (rc != 0) goto exit;
     wc_PKCS7_Free(&pkcs7);
 
-    printf("PKCS7 Container Verified\n");
+    printf("PKCS7 Container Verified (using TPM)\n");
+
+    /* Test verify with software */
+    rc = wc_PKCS7_Init(&pkcs7, NULL, INVALID_DEVID);
+    if (rc != 0) goto exit;
+    rc = wc_PKCS7_InitWithCert(&pkcs7, NULL, 0);
+    if (rc != 0) goto exit;
+    rc = wc_PKCS7_VerifySignedData(&pkcs7, output.buffer, output.size);
+    if (rc != 0) goto exit;
+    wc_PKCS7_Free(&pkcs7);
+
+    printf("PKCS7 Container Verified (using software)\n");
 
 exit:
 
