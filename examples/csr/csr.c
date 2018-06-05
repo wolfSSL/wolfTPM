@@ -63,10 +63,15 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
 
     XMEMCPY(&req.subject, &myCertName, sizeof(myCertName));
 
-    if (key_type == RSA_TYPE)
+    /* make sure each common name is unique */
+    if (key_type == RSA_TYPE) {
         req.sigType = CTC_SHA256wRSA;
-    else if (key_type == ECC_TYPE)
+        XSTRNCPY(req.subject.unit, "RSA", sizeof(req.subject.unit));
+    }
+    else if (key_type == ECC_TYPE) {
         req.sigType = CTC_SHA256wECDSA;
+        XSTRNCPY(req.subject.unit, "ECC", sizeof(req.subject.unit));
+    }
 
 #ifdef WOLFSSL_CERT_EXT
     /* add SKID from the Public Key */

@@ -36,7 +36,7 @@ fi
 
 
 # Generate ECC 256-bit CA
-if [ ! -f ./certs/ca-rsa-key.pem ]; then
+if [ ! -f ./certs/ca-ecc-key.pem ]; then
 	openssl ecparam -out ./certs/ca-ecc-key.par -name prime256v1
 	openssl req -config ./certs/ca-ecc.cnf -extensions v3_ca -x509 -nodes -newkey ec:./certs/ca-ecc-key.par -keyout ./certs/ca-ecc-key.pem -out ./certs/ca-ecc-cert.pem -sha256 -days 7300 -batch -subj "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"
 	rm ./certs/ca-ecc-key.par

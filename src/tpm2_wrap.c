@@ -1453,22 +1453,40 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* !NO_RSA */
     #ifdef HAVE_ECC
         if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+            byte sigRS[MAX_ECC_BYTES*2];
+            byte *r = sigRS, *s;
+            word32 rsLen = sizeof(sigRS), rLen, sLen;
+
             rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
                 info->pk.eccsign.in, info->pk.eccsign.inlen,
-                info->pk.eccsign.out, (int*)info->pk.eccsign.outlen);
+                sigRS, (int*)&rsLen);
+            if (rc == 0) {
+                rLen = sLen = rsLen / 2;
+                s = &sigRS[rLen];
+                rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
+                    info->pk.eccsign.out, info->pk.eccsign.outlen);
+            }
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_VERIFY) {
             WOLFTPM2_KEY eccPub;
+            byte sigRS[MAX_ECC_BYTES*2];
+            byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
+            word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
 
-            /* load public key into TPM */
-            rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev, info->pk.eccverify.key,
-                &eccPub);
+            /* Decode ECDSA Header */
+            rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,
+                info->pk.eccverify.siglen, r, &rLen, s, &sLen);
             if (rc == 0) {
-                rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
-                    info->pk.eccverify.sig, info->pk.eccverify.siglen,
-                    info->pk.eccverify.hash, info->pk.eccverify.hashlen);
+                /* load public key into TPM */
+                rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
+                    info->pk.eccverify.key, &eccPub);
+                if (rc == 0) {
+                    rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
+                        info->pk.eccverify.sig, info->pk.eccverify.siglen,
+                        info->pk.eccverify.hash, info->pk.eccverify.hashlen);
 
-                wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
+                    wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
+                }
             }
         }
         else if (info->pk.type == WC_PK_TYPE_ECDH) {
