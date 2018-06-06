@@ -209,7 +209,7 @@ byte TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
         reg = TPM2_TIS_Status(ctx);
     } while (((reg & status) != status_mask) && --timeout > 0);
     if (timeout <= 0)
-        return -1;
+        return 1;
     return 0;
 }
 

@@ -4512,7 +4512,6 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         default:
             return 0;
     }
-    return 0;
 }
 
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
