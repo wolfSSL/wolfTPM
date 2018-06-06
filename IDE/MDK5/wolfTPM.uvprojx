@@ -7,23 +7,23 @@
 
   <Targets>
     <Target>
-      <TargetName>wrap_test</TargetName>
+      <TargetName>wolfTPM-demo</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
       <pCCUsed>5060528::V5.06 update 5 (build 528)::ARMCC</pCCUsed>
       <uAC6>0</uAC6>
       <TargetOption>
         <TargetCommonOption>
-          <Device>STM32F401RETx</Device>
+          <Device>STM32F479IGHx</Device>
           <Vendor>STMicroelectronics</Vendor>
           <PackID>Keil.STM32F4xx_DFP.2.13.0</PackID>
           <PackURL>http://www.keil.com/pack</PackURL>
-          <Cpu>IRAM(0x20000000,0x00018000) IROM(0x08000000,0x00080000) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0x00050000) IROM(0x08000000,0x00100000) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
-          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0STM32F4xx_512 -FS08000000 -FL080000 -FP0($$Device:STM32F401RETx$CMSIS\Flash\STM32F4xx_512.FLM))</FlashDriverDll>
+          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN2 -FF0STM32F4xx_1024 -FS08000000 -FL0100000 -FF1STM32F469_Quad_SPI -FS190000000 -FL12000000 -FP0($$Device:STM32F479IGHx$CMSIS\Flash\STM32F4xx_1024.FLM) -FP1($$Device:STM32F479IGHx$CMSIS\Flash\STM32F469_Quad_SPI.FLM))</FlashDriverDll>
           <DeviceId>0</DeviceId>
-          <RegisterFile>$$Device:STM32F401RETx$Drivers\CMSIS\Device\ST\STM32F4xx\Include\stm32f4xx.h</RegisterFile>
+          <RegisterFile>$$Device:STM32F479IGHx$Drivers\CMSIS\Device\ST\STM32F4xx\Include\stm32f4xx.h</RegisterFile>
           <MemoryEnv></MemoryEnv>
           <Cmp></Cmp>
           <Asm></Asm>
@@ -33,7 +33,7 @@
           <SLE66CMisc></SLE66CMisc>
           <SLE66AMisc></SLE66AMisc>
           <SLE66LinkerMisc></SLE66LinkerMisc>
-          <SFDFile>$$Device:STM32F401RETx$CMSIS\SVD\STM32F401xE.svd</SFDFile>
+          <SFDFile>$$Device:STM32F479IGHx$CMSIS\SVD\STM32F46_79x.svd</SFDFile>
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath></BinPath>
@@ -138,7 +138,7 @@
           </Flash1>
           <bUseTDR>1</bUseTDR>
           <Flash2>BIN\UL2CM3.DLL</Flash2>
-          <Flash3>"" ()</Flash3>
+          <Flash3></Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -176,7 +176,7 @@
             <GenPPlst>0</GenPPlst>
             <AdsCpuType>"Cortex-M4"</AdsCpuType>
             <RvctDeviceName></RvctDeviceName>
-            <mOS>0</mOS>
+            <mOS>1</mOS>
             <uocRom>0</uocRom>
             <uocRam>0</uocRam>
             <hadIROM>1</hadIROM>
@@ -244,12 +244,12 @@
               <IRAM>
                 <Type>0</Type>
                 <StartAddress>0x20000000</StartAddress>
-                <Size>0x18000</Size>
+                <Size>0x50000</Size>
               </IRAM>
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x80000</Size>
+                <Size>0x100000</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -274,7 +274,7 @@
               <OCR_RVCT4>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x80000</Size>
+                <Size>0x100000</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -299,7 +299,7 @@
               <OCR_RVCT9>
                 <Type>0</Type>
                 <StartAddress>0x20000000</StartAddress>
-                <Size>0x18000</Size>
+                <Size>0x50000</Size>
               </OCR_RVCT9>
               <OCR_RVCT10>
                 <Type>0</Type>
@@ -336,7 +336,7 @@
               <MiscControls>--diag_suppress=66</MiscControls>
               <Define>WOLFSSL_USER_SETTINGS</Define>
               <Undefine></Undefine>
-              <IncludePath>..\..\..\wolfTPM;.\RTE\wolfSSL</IncludePath>
+              <IncludePath>..\..\..\wolfTPM;.\RTE\wolfSSL;..\OPENSTM32\Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -381,11 +381,6 @@
           <GroupName>src</GroupName>
           <Files>
             <File>
-              <FileName>tpm2.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\src\tpm2.c</FilePath>
-            </File>
-            <File>
               <FileName>tpm2_packet.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\src\tpm2_packet.c</FilePath>
@@ -401,14 +396,34 @@
               <FilePath>..\..\src\tpm2_wrap.c</FilePath>
             </File>
             <File>
+              <FileName>tpm2.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\src\tpm2.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>examples</GroupName>
+          <Files>
+            <File>
               <FileName>wrap_test.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\examples\wrap\wrap_test.c</FilePath>
             </File>
             <File>
-              <FileName>dummy.c</FileName>
+              <FileName>main.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\dummy.c</FilePath>
+              <FilePath>..\OPENSTM32\Src\main.c</FilePath>
+            </File>
+            <File>
+              <FileName>wolftpm_example.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\OPENSTM32\Src\wolftpm_example.c</FilePath>
+            </File>
+            <File>
+              <FileName>tpm_io.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\examples\tpm_io.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -427,10 +442,16 @@
 
   <RTE>
     <apis>
+      <api Capiversion="1.0.0" Cclass="CMSIS" Cgroup="RTOS" exclusive="1">
+        <package name="CMSIS" schemaVersion="1.3" url="http://www.keil.com/pack/" vendor="ARM" version="5.3.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </api>
       <api Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" exclusive="1">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </api>
     </apis>
@@ -438,107 +459,217 @@
       <component Cclass="CMSIS" Cgroup="CORE" Cvendor="ARM" Cversion="5.1.1" condition="ARMv6_7_8-M Device">
         <package name="CMSIS" schemaVersion="1.3" url="http://www.keil.com/pack/" vendor="ARM" version="5.3.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Capiversion="1.0.0" Cclass="CMSIS" Cgroup="RTOS" Csub="Keil RTX" Cvendor="ARM" Cversion="4.81.1" condition="RTOS RTX">
+        <package name="CMSIS" schemaVersion="1.3" url="http://www.keil.com/pack/" vendor="ARM" version="5.3.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="CRYP" Cvendor="Keil" Cversion="1.7.4" condition="STM32F41_43_47x HAL DMA">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="Common" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL Common">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="Cortex" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="DMA" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="GPIO" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="HASH" Cvendor="Keil" Cversion="1.7.4" condition="STM32F41_43_47x HAL DMA">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="PWR" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="RCC" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL GPIO">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="RNG" Cvendor="Keil" Cversion="1.7.4" condition="STM32F410_40_41_412_42_43_44_46_47x_4x3 HAL">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="RTC" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="SPI" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL DMA">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="TIM" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL DMA">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cclass="Device" Cgroup="STM32Cube HAL" Csub="UART" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 HAL DMA">
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS">
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cbundle="wolfSSL" Cclass="wolfSSL" Cgroup="wolfCrypt" Csub="Benchmark" Cvendor="wolfSSL" Cversion="3.14.0" condition="wolfCrypt-Core">
+        <package license="wolfssl\IDE\MDK5-ARM\Docs\wolfSSL-License.txt" name="wolfSSL" schemaVersion="1.4" url="http://www.wolfSSL.com/files/ide" vendor="wolfSSL" version="3.14.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cbundle="wolfSSL" Cclass="wolfSSL" Cgroup="wolfCrypt" Csub="CORE" Cvendor="wolfSSL" Cversion="3.14.0" condition="wolfCrypt-Core">
         <package license="wolfssl\IDE\MDK5-ARM\Docs\wolfSSL-License.txt" name="wolfSSL" schemaVersion="1.4" url="http://www.wolfSSL.com/files/ide" vendor="wolfSSL" version="3.14.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
       <component Cbundle="wolfSSL" Cclass="wolfSSL" Cgroup="wolfCrypt" Csub="Dummy" Cvendor="wolfSSL" Cversion="3.14.0" condition="wolfCrypt-Core">
         <package license="wolfssl\IDE\MDK5-ARM\Docs\wolfSSL-License.txt" name="wolfSSL" schemaVersion="1.4" url="http://www.wolfSSL.com/files/ide" vendor="wolfSSL" version="3.14.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </component>
+      <component Cbundle="wolfSSL" Cclass="wolfSSL" Cgroup="wolfCrypt" Csub="Test" Cvendor="wolfSSL" Cversion="3.14.0" condition="wolfCrypt-Core">
+        <package license="wolfssl\IDE\MDK5-ARM\Docs\wolfSSL-License.txt" name="wolfSSL" schemaVersion="1.4" url="http://www.wolfSSL.com/files/ide" vendor="wolfSSL" version="3.14.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </component>
     </components>
     <files>
+      <file attr="config" category="source" name="CMSIS\RTOS\RTX\Templates\RTX_Conf_CM.c" version="4.70.1">
+        <instance index="0">RTE\CMSIS\RTX_Conf_CM.c</instance>
+        <component Capiversion="1.0.0" Cclass="CMSIS" Cgroup="RTOS" Csub="Keil RTX" Cvendor="ARM" Cversion="4.81.1" condition="RTOS RTX" isDefaultVariant="1"/>
+        <package name="CMSIS" schemaVersion="1.3" url="http://www.keil.com/pack/" vendor="ARM" version="5.3.0"/>
+        <targetInfos>
+          <targetInfo name="wolfTPM-demo"/>
+        </targetInfos>
+      </file>
       <file attr="config" category="header" name="CMSIS\Driver\Config\RTE_Device.h" version="2.4.4">
-        <instance index="0">RTE\Device\STM32F401RETx\RTE_Device.h</instance>
+        <instance index="0" removed="1">RTE\Device\STM32F401RETx\RTE_Device.h</instance>
+        <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="source" condition="STM32F401xE_ARMCC" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f401xe.s" version="2.6.2">
+        <instance index="0" removed="1">RTE\Device\STM32F401RETx\startup_stm32f401xe.s</instance>
+        <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="header" name="MDK\Templates\Inc\stm32f4xx_hal_conf.h" version="1.7.0">
+        <instance index="0" removed="1">RTE\Device\STM32F401RETx\stm32f4xx_hal_conf.h</instance>
+        <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="source" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\system_stm32f4xx.c" version="2.6.2">
+        <instance index="0" removed="1">RTE\Device\STM32F401RETx\system_stm32f4xx.c</instance>
+        <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="header" name="CMSIS\Driver\Config\RTE_Device.h" version="2.4.4">
+        <instance index="0" removed="1">RTE\Device\STM32F411RETx\RTE_Device.h</instance>
+        <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="source" condition="STM32F411xE_ARMCC" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f411xe.s" version="2.6.2">
+        <instance index="0" removed="1">RTE\Device\STM32F411RETx\startup_stm32f411xe.s</instance>
+        <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="header" name="MDK\Templates\Inc\stm32f4xx_hal_conf.h" version="1.7.0">
+        <instance index="0" removed="1">RTE\Device\STM32F411RETx\stm32f4xx_hal_conf.h</instance>
+        <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="source" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\system_stm32f4xx.c" version="2.6.2">
+        <instance index="0" removed="1">RTE\Device\STM32F411RETx\system_stm32f4xx.c</instance>
+        <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
+        <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
+        <targetInfos/>
+      </file>
+      <file attr="config" category="header" name="CMSIS\Driver\Config\RTE_Device.h" version="2.4.4">
+        <instance index="0">RTE\Device\STM32F479IGHx\RTE_Device.h</instance>
         <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </file>
-      <file attr="config" category="source" condition="STM32F401xE_ARMCC" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f401xe.s" version="2.6.2">
-        <instance index="0">RTE\Device\STM32F401RETx\startup_stm32f401xe.s</instance>
+      <file attr="config" category="source" condition="STM32F479xx_ARMCC" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\arm\startup_stm32f479xx.s" version="2.6.2">
+        <instance index="0">RTE\Device\STM32F479IGHx\startup_stm32f479xx.s</instance>
         <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </file>
       <file attr="config" category="header" name="MDK\Templates\Inc\stm32f4xx_hal_conf.h" version="1.7.0">
-        <instance index="0">RTE\Device\STM32F401RETx\stm32f4xx_hal_conf.h</instance>
+        <instance index="0">RTE\Device\STM32F479IGHx\stm32f4xx_hal_conf.h</instance>
         <component Capiversion="1.0.0" Cclass="Device" Cgroup="STM32Cube Framework" Csub="Classic" Cvendor="Keil" Cversion="1.7.4" condition="STM32F4 Framework Classic"/>
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </file>
       <file attr="config" category="source" name="Drivers\CMSIS\Device\ST\STM32F4xx\Source\Templates\system_stm32f4xx.c" version="2.6.2">
-        <instance index="0">RTE\Device\STM32F401RETx\system_stm32f4xx.c</instance>
+        <instance index="0">RTE\Device\STM32F479IGHx\system_stm32f4xx.c</instance>
         <component Cclass="Device" Cgroup="Startup" Cvendor="Keil" Cversion="2.6.2" condition="STM32F4 CMSIS"/>
         <package name="STM32F4xx_DFP" schemaVersion="1.3" url="http://www.keil.com/pack" vendor="Keil" version="2.13.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </file>
       <file attr="config" category="header" name="wolfssl\IDE\MDK5-ARM\Conf\user_settings.h" version="3.14.0">
@@ -546,7 +677,7 @@
         <component Cbundle="wolfSSL" Cclass="wolfSSL" Cgroup="wolfCrypt" Csub="CORE" Cvendor="wolfSSL" Cversion="3.14.0" condition="wolfCrypt-Core"/>
         <package license="wolfssl\IDE\MDK5-ARM\Docs\wolfSSL-License.txt" name="wolfSSL" schemaVersion="1.4" url="http://www.wolfSSL.com/files/ide" vendor="wolfSSL" version="3.14.0"/>
         <targetInfos>
-          <targetInfo name="wrap_test"/>
+          <targetInfo name="wolfTPM-demo"/>
         </targetInfos>
       </file>
     </files>
