@@ -24,16 +24,23 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-RNG_HandleTypeDef hrng;
 RTC_HandleTypeDef hrtc;
 SPI_HandleTypeDef hspi1;
 UART_HandleTypeDef huart4;
+
+#ifdef STM32_RNG
+RNG_HandleTypeDef hrng;
+#endif
+#ifdef STM32_CRYP
 CRYP_HandleTypeDef CrypHandle;
+#endif
+#ifdef STM32_HASH
 HASH_HandleTypeDef HashHandle;
+#endif
 
 osThreadId defaultTaskHandle;
 
-int __errno;
+extern int __errno;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -41,7 +48,10 @@ static void Error_Handler(void);
 
 static void MX_GPIO_Init(void);
 
+#ifdef STM32_RNG
 static void MX_RNG_Init(void);
+#endif
+
 static void MX_RTC_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_UART4_Init(void);
@@ -58,7 +68,10 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
 
+#ifdef STM32_RNG
   MX_RNG_Init();
+#endif
+	
   MX_RTC_Init();
   MX_SPI1_Init();
   MX_UART4_Init();
@@ -137,6 +150,7 @@ static void SystemClock_Config(void)
 }
 
 /* RNG init function */
+#ifdef STM32_RNG
 static void MX_RNG_Init(void)
 {
 
@@ -147,6 +161,7 @@ static void MX_RNG_Init(void)
   }
 
 }
+#endif
 
 /* RTC init function */
 static void MX_RTC_Init(void)

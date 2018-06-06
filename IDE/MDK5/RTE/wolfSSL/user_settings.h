@@ -1,22 +1,22 @@
 /* user_settings.h
  *
- * Copyright (C) 2006-2017 wolfSSL Inc.
+ * * Copyright (C) 2006-2018 wolfSSL Inc.
  *
- * This file is part of wolfSSL.
+ * This file is part of wolfTPM.
  *
- * wolfSSL is free software; you can redistribute it and/or modify
+ * wolfTPM is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- * wolfSSL is distributed in the hope that it will be useful,
+ * wolfTPM is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
 /*#define NO_MAIN_DRIVER*/
@@ -26,6 +26,9 @@
 #define SIZEOF_LONG_LONG 8
 #define NO_WRITEV
 #define NO_DEV_RANDOM
+#define WOLF_CRYPTO_DEV
+#define NO_OLD_RNGNAME
+#define NO_MAIN_DRIVER
 
 #define TFM_TIMING_RESISTANT
 #define ECC_TIMING_RESISTANT
@@ -46,12 +49,15 @@
 
 #elif   MDK_CONF_MPU == 1
 #define WOLFSSL_STM32_CUBEMX
+#include <stm32f2xx_hal.h>
 #define STM32F2xx
 #elif MDK_CONF_MPU == 2
 #define WOLFSSL_STM32_CUBEMX
+#include <stm32f4xx_hal.h>
 #define STM32F4xx
 #elif MDK_CONF_MPU == 3
 #define WOLFSSL_STM32_CUBEMX
+#include <stm32f7xx_hal.h>
 #define STM32F7xx
 #endif
 
@@ -60,7 +66,7 @@
 //         <7=>Micrium <8=>EBSnet<9=>MQX 
 //         <10=>T-RTOS <11=>uITRON4<12=>uTKERNEL2 
 //         <13=>Frosted <14=>CMSIS RTOS<15=>Others
-#define MDK_CONF_THREAD 0
+#define MDK_CONF_THREAD 14
 #if MDK_CONF_THREAD== 0
 #define SINGLE_THREADED
 #elif MDK_CONF_THREAD == 1
