@@ -237,7 +237,7 @@ int TPM2_TLS_Client(void* userCtx)
     WOLFSSL* ssl = NULL;
     char msg[] = "GET /index.html HTTP/1.0\r\n\r\n";
     char reply[MAX_REPLY_SZ];
-    int msgSz, replySz;
+    int msgSz, replySz = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
