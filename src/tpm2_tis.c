@@ -1,3 +1,4 @@
+
 /* tpm2_tis.c
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
@@ -60,17 +61,19 @@ enum tpm_tis_int_flags {
     TPM_INTF_DATA_AVAIL_INT     = 0x001,
 };
 
-#define TPM_ACCESS(l)           (0x0000 | ((l) << 12))
-#define TPM_INT_ENABLE(l)       (0x0008 | ((l) << 12))
-#define TPM_INT_VECTOR(l)       (0x000C | ((l) << 12))
-#define TPM_INT_STATUS(l)       (0x0010 | ((l) << 12))
-#define TPM_INTF_CAPS(l)        (0x0014 | ((l) << 12))
-#define TPM_STS(l)              (0x0018 | ((l) << 12))
-#define TPM_STS3(l)             (0x001b | ((l) << 12))
-#define TPM_DATA_FIFO(l)        (0x0024 | ((l) << 12))
+#define TPM_BASE_ADDRESS (0xd40000u)
 
-#define TPM_DID_VID(l)          (0x0F00 | ((l) << 12))
-#define TPM_RID(l)              (0x0F04 | ((l) << 12))
+#define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0000u | ((l) << 12u))
+#define TPM_INT_ENABLE(l)       (TPM_BASE_ADDRESS | 0x0008u | ((l) << 12u))
+#define TPM_INT_VECTOR(l)       (TPM_BASE_ADDRESS | 0x000Cu | ((l) << 12u))
+#define TPM_INT_STATUS(l)       (TPM_BASE_ADDRESS | 0x0010u | ((l) << 12u))
+#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0014u | ((l) << 12u))
+#define TPM_STS(l)              (TPM_BASE_ADDRESS | 0x0018u | ((l) << 12u))
+#define TPM_STS3(l)             (TPM_BASE_ADDRESS | 0x001bu | ((l) << 12u))
+#define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
+
+#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0F00u | ((l) << 12u))
+#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x0F04u | ((l) << 12u))
 
 
 int TPM2_TIS_SpiRead(TPM2_CTX* ctx, word32 addr, byte* result,

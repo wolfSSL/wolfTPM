@@ -35,12 +35,13 @@
     static inline word32 rotlFixed(word32 x, word32 y) {
         return (x << y) | (x >> (sizeof(y) * 8 - y));
     }
-#ifdef FAST_ROTATE
+
+    #if defined(FAST_ROTATE)
     static inline word32 rotrFixed(word32 x, word32 y) {
         return (x >> y) | (x << (sizeof(y) * 8 - y));
     }
-#endif
-		
+    #endif
+
     static inline word16 ByteReverseWord16(word16 value)
     {
     #if defined(__ICCARM__)
@@ -389,6 +390,13 @@ void TPM2_Packet_AppendEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 }
 void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 {
+    if (point == NULL) {
+#ifdef DEBUG_WOLFTPM
+        printf("Error null argument passed to TPM2_Packet_ParseEccPoint()\n");
+#endif
+        return; /* help out static analysis */
+    }
+
     TPM2_Packet_ParseU16(packet, &point->x.size);
     TPM2_Packet_ParseBytes(packet, point->x.buffer, point->x.size);
     TPM2_Packet_ParseU16(packet, &point->y.size);

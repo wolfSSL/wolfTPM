@@ -32,7 +32,12 @@
 #ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
     #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
 #endif
-
+#ifndef WOLFTPM2_WRAP_RSA_EXPONENT
+    #define WOLFTPM2_WRAP_RSA_EXPONENT RSA_DEFAULT_PUBLIC_EXPONENT
+#endif
+#ifndef WOLFTPM2_WRAP_ECC_KEY_BITS
+    #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_BYTES*8)
+#endif
 
 
 /******************************************************************************/
@@ -408,6 +413,171 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+
+#ifndef NO_RSA
+int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    RsaKey* wolfKey)
+{
+    int rc;
+    word32  exponent;
+    byte    e[sizeof(exponent)];
+    byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    word32  eSz = sizeof(e);
+    word32  nSz = sizeof(n);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(e, 0, sizeof(e));
+    XMEMSET(n, 0, sizeof(n));
+
+    /* load exponenet */
+    exponent = tpmKey->pub.publicArea.parameters.rsaDetail.exponent;
+    if (exponent == 0)
+        exponent = RSA_DEFAULT_PUBLIC_EXPONENT;
+    e[3] = (exponent >> 24) & 0xFF;
+    e[2] = (exponent >> 16) & 0xFF;
+    e[1] = (exponent >> 8)  & 0xFF;
+    e[0] =  exponent        & 0xFF;
+    eSz = e[3] ? 4 : e[2] ? 3 : e[1] ? 2 : e[0] ? 1 : 0; /* calc size */
+
+    /* load public key */
+    nSz = tpmKey->pub.publicArea.unique.rsa.size;
+    XMEMCPY(n, tpmKey->pub.publicArea.unique.rsa.buffer, nSz);
+
+    /* load public key portion into wolf RsaKey */
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
+
+    return rc;
+}
+
+int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
+    WOLFTPM2_KEY* tpmKey)
+{
+    int rc;
+    word32  exponent = 0, i;
+    byte    e[sizeof(exponent)];
+    byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    word32  eSz = sizeof(e);
+    word32  nSz = sizeof(n);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(e, 0, sizeof(e));
+    XMEMSET(n, 0, sizeof(n));
+
+    /* export the raw public RSA portion */
+    rc = wc_RsaFlattenPublicKey(wolfKey, e, &eSz, n, &nSz);
+    if (rc == 0) {
+        for (i=0; i<eSz && i<sizeof(word32); i++) {
+            exponent |= ((word32)e[i]) << (i*8);
+        }
+        rc = wolfTPM2_LoadRsaPublicKey(dev, tpmKey, n, nSz, exponent);
+    }
+
+    return rc;
+}
+#endif /* !NO_RSA */
+
+#ifdef HAVE_ECC
+int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    ecc_key* wolfKey)
+{
+    int rc, curve_id;
+    byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    word32  qxSz = sizeof(qx);
+    word32  qySz = sizeof(qy);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(qx, 0, sizeof(qx));
+    XMEMSET(qy, 0, sizeof(qy));
+
+    /* load curve type */
+    curve_id = tpmKey->pub.publicArea.parameters.eccDetail.curveID;
+    switch (curve_id) {
+        case TPM_ECC_NIST_P192:
+            curve_id = ECC_SECP192R1;
+            break;
+        case TPM_ECC_NIST_P224:
+            curve_id = ECC_SECP224R1;
+            break;
+        case TPM_ECC_NIST_P256:
+            curve_id = ECC_SECP256R1;
+            break;
+        case TPM_ECC_NIST_P384:
+            curve_id = ECC_SECP384R1;
+            break;
+        case TPM_ECC_NIST_P521:
+            curve_id = ECC_SECP521R1;
+            break;
+        case TPM_ECC_BN_P256:
+        case TPM_ECC_BN_P638:
+            return ECC_CURVE_OID_E;
+    }
+
+    /* load public key */
+    qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
+    XMEMCPY(qx, tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
+    qySz = tpmKey->pub.publicArea.unique.ecc.y.size;
+    XMEMCPY(qy, tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
+
+    /* load public key portion into wolf ecc_key */
+    rc = wc_ecc_import_unsigned(wolfKey, qx, qy, NULL, curve_id);
+
+    return rc;
+}
+
+int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
+    WOLFTPM2_KEY* tpmKey)
+{
+    int rc, curve_id = 0;
+    byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    word32  qxSz = sizeof(qx);
+    word32  qySz = sizeof(qy);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(qx, 0, sizeof(qx));
+    XMEMSET(qy, 0, sizeof(qy));
+
+    if (wolfKey->dp)
+        curve_id = wolfKey->dp->id;
+
+    switch (curve_id) {
+        case ECC_SECP192R1:
+            curve_id = TPM_ECC_NIST_P192;
+            break;
+        case ECC_SECP224R1:
+            curve_id = TPM_ECC_NIST_P224;
+            break;
+        case ECC_SECP256R1:
+            curve_id = TPM_ECC_NIST_P256;
+            break;
+        case ECC_SECP384R1:
+            curve_id = TPM_ECC_NIST_P384;
+            break;
+        case ECC_SECP521R1:
+            curve_id = TPM_ECC_NIST_P521;
+            break;
+        default:
+            return ECC_CURVE_OID_E;
+    }
+
+    /* export the raw public ECC portion */
+    rc = wc_ecc_export_public_raw(wolfKey, qx, &qxSz, qy, &qySz);
+    if (rc == 0) {
+        rc = wolfTPM2_LoadEccPublicKey(dev, tpmKey, curve_id, qx, qxSz, qy, qySz);
+    }
+
+    return rc;
+}
+#endif /* HAVE_ECC */
 
 /* primaryHandle must be owner or platform hierarchy */
 /* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
@@ -967,7 +1137,7 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
-int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
+int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, TPMS_NV_PUBLIC* nvPublic)
 {
     int rc;
     NV_ReadPublic_In  in;
@@ -996,6 +1166,10 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex)
         out.nvPublic.nvPublic.dataSize,
         out.nvName.size);
 #endif
+
+    if (nvPublic) {
+        XMEMCPY(nvPublic, &out.nvPublic.nvPublic, sizeof(*nvPublic));
+    }
 
     return rc;
 }
@@ -1063,6 +1237,7 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     return rc;
 }
 
+
 /******************************************************************************/
 /* --- END Wrapper Device Functions-- */
 /******************************************************************************/
@@ -1084,7 +1259,7 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.rsaDetail.keyBits = WOLFTPM2_WRAP_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = 0;
+    publicTemplate->parameters.rsaDetail.exponent = WOLFTPM2_WRAP_RSA_EXPONENT;
     publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
