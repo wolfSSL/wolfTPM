@@ -26,7 +26,7 @@
 
 RTC_HandleTypeDef hrtc;
 SPI_HandleTypeDef hspi1;
-UART_HandleTypeDef huart4;
+UART_HandleTypeDef husart1;
 
 #ifdef STM32_RNG
 RNG_HandleTypeDef hrng;
@@ -54,7 +54,7 @@ static void MX_RNG_Init(void);
 
 static void MX_RTC_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_UART4_Init(void);
+static void MX_USART1_Init(void);
 
 
 int main(void)
@@ -74,7 +74,7 @@ int main(void)
 	
   MX_RTC_Init();
   MX_SPI1_Init();
-  MX_UART4_Init();
+  MX_USART1_Init();
 
 #ifndef FREERTOS
   wolfTPMDemo(NULL);
@@ -245,18 +245,18 @@ static void MX_SPI1_Init(void)
 }
 
 /* UART4 init function */
-static void MX_UART4_Init(void)
+static void MX_USART1_Init(void)
 {
 
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
+  husart1.Instance = USART1;
+  husart1.Init.BaudRate = 115200;
+  husart1.Init.WordLength = UART_WORDLENGTH_8B;
+  husart1.Init.StopBits = UART_STOPBITS_1;
+  husart1.Init.Parity = UART_PARITY_NONE;
+  husart1.Init.Mode = UART_MODE_TX_RX;
+  husart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  husart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&husart1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -274,7 +274,7 @@ int _write (int fd, char *ptr, int len)
   /* Write "len" of char from "ptr" to file id "fd"
    * Return number of char written.
    * Need implementing with UART here. */
-	HAL_UART_Transmit(&huart4, (uint8_t *)ptr, len, 0xFFFF);
+	HAL_UART_Transmit(&husart1, (uint8_t *)ptr, len, 0xFFFF);
 
   return len;
 }
@@ -286,7 +286,7 @@ int _read (int fd, char *ptr, int len)
    * Need implementing with UART here. */
 	(void)fd;
 
-	return HAL_UART_Receive(&huart4, (uint8_t*)ptr, len, 0xFFFF);
+	return HAL_UART_Receive(&husart1, (uint8_t*)ptr, len, 0xFFFF);
 }
 
 void _ttywrch(int ch) {

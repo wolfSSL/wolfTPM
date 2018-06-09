@@ -118,7 +118,7 @@
         <SetRegEntry>
           <Number>0</Number>
           <Key>UL2CM3</Key>
-          <Name>UL2CM3(-S0 -C0 -P0 )  -FN2 -FC1000 -FD20000000 -FF0STM32F4xx_1024 -FF1STM32F469_Quad_SPI -FL0100000 -FL12000000 -FS08000000 -FS190000000 -FP0($$Device:STM32F479IGHx$CMSIS\Flash\STM32F4xx_1024.FLM) -FP1($$Device:STM32F479IGHx$CMSIS\Flash\STM32F469_Quad_SPI.FLM)</Name>
+          <Name>UL2CM3(-S0 -C0 -P0 )  -FN1 -FC1000 -FD20000000 -FF0STM32F4xx_512 -FL080000 -FS08000000 -FP0($$Device:STM32F401RETx$CMSIS\Flash\STM32F4xx_512.FLM)</Name>
         </SetRegEntry>
       </TargetDriverDllRegistry>
       <Breakpoint/>
@@ -251,7 +251,7 @@
       <GroupNumber>2</GroupNumber>
       <FileNumber>6</FileNumber>
       <FileType>1</FileType>
-      <tvExp>0</tvExp>
+      <tvExp>1</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
       <PathWithFileName>..\OPENSTM32\Src\main.c</PathWithFileName>
