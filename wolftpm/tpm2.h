@@ -2906,7 +2906,7 @@ WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 
 /* Other API's - Not TPM Spec */
-WOLFTPM_API int TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd);
+WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
