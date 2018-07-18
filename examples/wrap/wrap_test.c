@@ -32,7 +32,6 @@
 /* Configuration */
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
 #define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
-//#define WOLFTPM_TEST_WITH_RESET
 
 /* from wolfSSL ./certs/client-keyPub.der */
 static const byte kRsaPubKeyRaw[] = {
@@ -87,6 +86,13 @@ static const byte kEccPubKeyYRaw[] = {
 /* --- BEGIN Wrapper API Tests -- */
 /******************************************************************************/
 
+static int resetTPM = 0;
+
+void TPM2_Wrapper_SetReset(int reset)
+{
+    resetTPM = reset;
+}
+
 int TPM2_Wrapper_Test(void* userCtx)
 {
     int rc;
@@ -140,11 +146,11 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
 #endif
 
-#ifdef WOLFTPM_TEST_WITH_RESET
-    /* reset all content on TPM and reseed */
-    rc = wolfTPM2_Clear(&dev);
-    if (rc != 0) return rc;
-#endif
+    if (resetTPM) {
+        /* reset all content on TPM and reseed */
+        rc = wolfTPM2_Clear(&dev);
+        if (rc != 0) return rc;
+    }
 
     /* Get the RSA endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
@@ -394,9 +400,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
-#ifdef WOLFTPM_TEST_WITH_RESET
-    wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
-#endif
+
     wolfTPM2_Cleanup(&dev);
 
     return rc;

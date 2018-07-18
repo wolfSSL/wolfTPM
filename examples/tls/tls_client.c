@@ -39,7 +39,7 @@
  * Run example for ./examples/csr/csr
  * Result is: ./certs/client-rsa-cert.csr and ./certs/client-ecc-cert.csr
  *
- * Run ./certs/certsign.sh
+ * Run ./certs/certreq.sh
  * Result is: ./certs/client-rsa-cert.pem and ./certs/client-ecc-cert.pem
  */
 
@@ -377,6 +377,7 @@ int TPM2_TLS_Client(void* userCtx)
     /* Load CA Certificate */
     if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolfssl-website-ca.pem",
         0) != WOLFSSL_SUCCESS) {
+        printf("Error loading wolfSSL website certs\n");
         goto exit;
     }
 #endif /* !NO_FILESYSTEM */
@@ -395,11 +396,13 @@ int TPM2_TLS_Client(void* userCtx)
 #ifndef NO_RSA
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
+        printf("Error loading RSA client cert\n");
         goto exit;
     }
 #elif defined(HAVE_ECC)
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
+        printf("Error loading ECC client cert\n");
         goto exit;
     }
 #endif
@@ -472,8 +475,9 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    CloseAndCleanupSocket(&sockIoCtx);
     wolfSSL_shutdown(ssl);
+
+    CloseAndCleanupSocket(&sockIoCtx);
     wolfSSL_free(ssl);
     wolfSSL_CTX_free(ctx);
 

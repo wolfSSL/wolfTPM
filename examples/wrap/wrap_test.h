@@ -23,6 +23,7 @@
 #define _WRAP_TEST_H_
 
 
+void TPM2_Wrapper_SetReset(int reset);
 int TPM2_Wrapper_Test(void* userCtx);
 
 #endif /* _WRAP_TEST_H_ */

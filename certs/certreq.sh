@@ -14,6 +14,12 @@ if [ ! -f ./certs/crlnumber ]; then
 	echo 2000 > ./certs/crlnumber
 fi
 
+if [ $1 == clean ]; then
+	rm ./certs/*.pem
+	rm ./certs/*.der
+	rm ./certs/*.old
+fi
+
 
 # Generate RSA 2048-bit CA
 if [ ! -f ./certs/ca-rsa-key.pem ]; then
@@ -30,7 +36,7 @@ fi
 
 # Sign RSA certificate
 if [ -f ./certs/client-rsa-cert.csr ]; then
-	openssl ca -config ./certs/ca-rsa.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-rsa-cert.csr -out ./certs/client-rsa-cert.pem
+	openssl ca -config ./certs/ca-rsa.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-rsa-cert.csr -out ./certs/client-rsa-cert.pem -batch
 	openssl x509 -in ./certs/client-rsa-cert.pem -outform der -out ./certs/client-rsa-cert.der
 fi
 
@@ -56,6 +62,6 @@ if [ -f ./certs/client-ecc-cert.csr ]; then
 	#openssl req -config ./certs/ca-ecc.cnf -sha256 -new -newkey ec:./certs/client-ecc-key.par -keyout ./certs/client-ecc-key.pem -out ./certs/client-ecc-cert.csr -subj "/C=US/ST=Washington/L=Seattle/O=Eliptic/OU=ECC/CN=www.wolfssl.com/emailAddress=info@wolfssl.com/"
 	#rm ./certs/client-ecc-key.par
 
-	openssl ca -config ./certs/ca-ecc.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-ecc-cert.csr -out ./certs/client-ecc-cert.pem
+	openssl ca -config ./certs/ca-ecc.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-ecc-cert.csr -out ./certs/client-ecc-cert.pem -batch
 	openssl x509 -in ./certs/client-ecc-cert.pem -outform der -out ./certs/client-ecc-cert.der
 fi
