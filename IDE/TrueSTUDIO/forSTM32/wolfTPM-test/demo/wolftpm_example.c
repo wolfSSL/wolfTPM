@@ -1,6 +1,6 @@
 /* wolftpm_example.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2018 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -88,7 +88,7 @@ void wolfTPMDemo(void const * argument)
 
         case 'm':
 			printf("\nTPM 2.0 Test\n");
-#ifndef WOLFTPM2_NO_WRAPPER
+#ifdef WOLF_TPM2
 			args.return_code = TPM2_Wrapper_Test(&hspi1);
 #endif
 			printf("TPM 2.0 Test: Return code %d\n", args.return_code);

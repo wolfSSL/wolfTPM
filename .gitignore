@@ -93,3 +93,7 @@ ek.pem
 
 # Generated Documentation
 docs/html
+
+IDE/MDK5/DebugConfig/
+IDE/MDK5/Listings/
+IDE/MDK5/Objects/
