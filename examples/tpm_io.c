@@ -38,7 +38,13 @@
     #include <sys/ioctl.h>
     #include <linux/spi/spidev.h>
     #include <fcntl.h>
-    #define TPM2_SPI_DEV "/dev/spidev0.1"
+    #ifdef WOLFTPM_ST33
+        /* ST33HTPH SPI uses CE0 */
+        #define TPM2_SPI_DEV "/dev/spidev0.0"
+    #else
+        /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
+        #define TPM2_SPI_DEV "/dev/spidev0.1"
+    #endif
 
     static int gSpiDev = -1;
     #define TPM2_USER_CTX &gSpiDev
@@ -63,8 +69,16 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     HAL_StatusTypeDef status;
 
     __HAL_SPI_ENABLE(hspi);
-    status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf, xferSz, 5000);
+#ifndef USE_HW_SPI_CS
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET); /* active low */
+#endif
+
+    status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf, xferSz, 250);
+#ifndef USE_HW_SPI_CS
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+#endif
     __HAL_SPI_DISABLE(hspi);
+
     if (status == HAL_OK)
         ret = TPM_RC_SUCCESS;
 

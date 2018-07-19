@@ -52,7 +52,7 @@
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 1000000
+#define TPM_TIMEOUT_TRIES 100000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
@@ -600,6 +600,9 @@ typedef enum {
     TPM_RC_E        = 0xE00,
     TPM_RC_F        = 0xF00,
     TPM_RC_N_MASK   = 0xF00,
+
+    /* use negative codes for internal errors */
+    TPM_RC_TIMEOUT = -100,
 } TPM_RC_T;
 typedef INT32 TPM_RC; /* type is unsigned 16-bits, but internally use signed 32-bit */
 

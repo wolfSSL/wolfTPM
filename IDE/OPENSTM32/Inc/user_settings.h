@@ -38,8 +38,8 @@ extern "C" {
 
 #define HAVE_LWIP_NATIVE
 
-#define WOLF_TPM2
-
+//#define DEBUG_WOLFTPM
+//#define USE_HW_SPI_CS
 
 /* ------------------------------------------------------------------------- */
 /* Math Configuration */

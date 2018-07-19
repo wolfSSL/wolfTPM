@@ -31,7 +31,7 @@ examples/wrap/wrap_test
 examples/native/native_test
 examples/bench/bench
 examples/csr/csr
-
+examples/tls/tls_client
 examples/pkcs7/pkcs7
 pkcs7tpmsigned.p7s
 
