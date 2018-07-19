@@ -24,16 +24,23 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-RNG_HandleTypeDef hrng;
 RTC_HandleTypeDef hrtc;
 SPI_HandleTypeDef hspi1;
-UART_HandleTypeDef huart4;
+UART_HandleTypeDef huart;
+
+#ifdef STM32_RNG
+RNG_HandleTypeDef hrng;
+#endif
+#ifdef STM32_CRYP
 CRYP_HandleTypeDef CrypHandle;
+#endif
+#ifdef STM32_HASH
 HASH_HandleTypeDef HashHandle;
+#endif
 
 osThreadId defaultTaskHandle;
 
-int __errno;
+extern int __errno;
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -41,10 +48,13 @@ static void Error_Handler(void);
 
 static void MX_GPIO_Init(void);
 
+#ifdef STM32_RNG
 static void MX_RNG_Init(void);
+#endif
+
 static void MX_RTC_Init(void);
 static void MX_SPI1_Init(void);
-static void MX_UART4_Init(void);
+static void MX_UART_Init(void);
 
 
 int main(void)
@@ -58,10 +68,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
 
+#ifdef STM32_RNG
   MX_RNG_Init();
+#endif
+	
   MX_RTC_Init();
   MX_SPI1_Init();
-  MX_UART4_Init();
+  MX_UART_Init();
 
 #ifndef FREERTOS
   wolfTPMDemo(NULL);
@@ -137,6 +150,7 @@ static void SystemClock_Config(void)
 }
 
 /* RNG init function */
+#ifdef STM32_RNG
 static void MX_RNG_Init(void)
 {
 
@@ -147,6 +161,7 @@ static void MX_RNG_Init(void)
   }
 
 }
+#endif
 
 /* RTC init function */
 static void MX_RTC_Init(void)
@@ -229,19 +244,19 @@ static void MX_SPI1_Init(void)
 
 }
 
-/* UART4 init function */
-static void MX_UART4_Init(void)
+/* UART init function */
+static void MX_UART_Init(void)
 {
 
-  huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
-  huart4.Init.WordLength = UART_WORDLENGTH_8B;
-  huart4.Init.StopBits = UART_STOPBITS_1;
-  huart4.Init.Parity = UART_PARITY_NONE;
-  huart4.Init.Mode = UART_MODE_TX_RX;
-  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart4) != HAL_OK)
+  huart.Instance = USART1;
+  huart.Init.BaudRate = 115200;
+  huart.Init.WordLength = UART_WORDLENGTH_8B;
+  huart.Init.StopBits = UART_STOPBITS_1;
+  huart.Init.Parity = UART_PARITY_NONE;
+  huart.Init.Mode = UART_MODE_TX_RX;
+  huart.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart) != HAL_OK)
   {
     Error_Handler();
   }
@@ -259,7 +274,7 @@ int _write (int fd, char *ptr, int len)
   /* Write "len" of char from "ptr" to file id "fd"
    * Return number of char written.
    * Need implementing with UART here. */
-	HAL_UART_Transmit(&huart4, (uint8_t *)ptr, len, 0xFFFF);
+	HAL_UART_Transmit(&huart, (uint8_t *)ptr, len, 0xFFFF);
 
   return len;
 }
@@ -271,7 +286,7 @@ int _read (int fd, char *ptr, int len)
    * Need implementing with UART here. */
 	(void)fd;
 
-	return HAL_UART_Receive(&huart4, (uint8_t*)ptr, len, 0xFFFF);
+	return HAL_UART_Receive(&huart, (uint8_t*)ptr, len, 0xFFFF);
 }
 
 void _ttywrch(int ch) {

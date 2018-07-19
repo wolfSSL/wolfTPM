@@ -27,7 +27,7 @@
  ****************************************************************************/
 
 /* UART definitions */
-extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart;
 extern SPI_HandleTypeDef hspi1;
 
 
@@ -68,7 +68,7 @@ void wolfTPMDemo(void const * argument)
         printf(menu1);
         printf("Please select one of the above options: ");
 
-        HAL_UART_Receive(&huart4, buffer, sizeof(buffer), 5000);
+        HAL_UART_Receive(&huart, buffer, sizeof(buffer), 5000);
 
         switch (buffer[0]) {
 
