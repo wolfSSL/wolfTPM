@@ -413,9 +413,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
+
+    if (argc > 1) {
+        TPM2_Wrapper_SetReset(1);
+    }
+    (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Wrapper_Test(TPM2_IoGetUserCtx());
