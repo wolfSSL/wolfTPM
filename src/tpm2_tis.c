@@ -1,4 +1,3 @@
-
 /* tpm2_tis.c
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
@@ -61,7 +60,7 @@ enum tpm_tis_int_flags {
     TPM_INTF_DATA_AVAIL_INT     = 0x001,
 };
 
-#define TPM_BASE_ADDRESS (0xd40000u)
+#define TPM_BASE_ADDRESS (0xD40000u)
 
 #define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0000u | ((l) << 12u))
 #define TPM_INT_ENABLE(l)       (TPM_BASE_ADDRESS | 0x0008u | ((l) << 12u))
@@ -130,7 +129,8 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
         if (access & TPM_ACCESS_VALID)
             return 0;
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
-    return -1;
+
+    return TPM_RC_INITIALIZE;
 }
 
 int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality)
@@ -145,7 +145,8 @@ int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality)
         ctx->locality = locality;
         return locality;
     }
-    return -1;
+
+    return TPM_RC_INITIALIZE;
 }
 
 int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
@@ -168,7 +169,7 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
         } while (--timeout > 0);
     }
 
-    return -1;
+    return TPM_RC_INITIALIZE;
 }
 
 int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
@@ -231,7 +232,7 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx)
         rc = TPM2_TIS_SpiRead(ctx, TPM_STS(ctx->locality) + 1,
             (byte*)&burstCount, sizeof(burstCount));
         if (rc != TPM_RC_SUCCESS)
-            return -1;
+            return TPM_RC_INITIALIZE;
     } while (burstCount == 0);
 
     if (burstCount > MAX_SPI_FRAMESIZE)

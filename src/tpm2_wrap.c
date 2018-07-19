@@ -341,7 +341,7 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
-    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.objectAttributes = TPMA_OBJECT_decrypt;
     pub.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
     pub.publicArea.parameters.rsaDetail.keyBits = rsaPubSz * 8;
     pub.publicArea.parameters.rsaDetail.exponent = exponent;
@@ -1387,5 +1387,158 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 /******************************************************************************/
 /* --- END Utility Functions -- */
 /******************************************************************************/
+
+
+#ifdef WOLF_CRYPTO_DEV
+/******************************************************************************/
+/* --- BEGIN wolf Crypto Device Support -- */
+/******************************************************************************/
+
+int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
+{
+    int rc = NOT_COMPILED_IN; /* return this to bypass HW and use SW */
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+
+    if (info == NULL || ctx == NULL || tlsCtx->dev == NULL)
+        return BAD_FUNC_ARG;
+
+    (void)devId;
+
+    if (info->algo_type == WC_ALGO_TYPE_PK) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Pk: Type %d\n", info->pk.type);
+    #endif
+
+    #ifndef NO_RSA
+        /* RSA */
+        if (info->pk.type == WC_PK_TYPE_RSA) {
+            switch (info->pk.rsa.type) {
+                case RSA_PUBLIC_ENCRYPT:
+                case RSA_PUBLIC_DECRYPT:
+                {
+                    WOLFTPM2_KEY rsaPub;
+
+                    /* load public key into TPM */
+                    rc = wolfTPM2_RsaKey_WolfToTpm(tlsCtx->dev,
+                        info->pk.rsa.key, &rsaPub);
+                    if (rc != 0) {
+                        /* A failure of TPM_RC_KEY can happen due to unsupported
+                            RSA exponents. In those cases return NOT_COMPILED_IN
+                            and use software */
+                        rc = NOT_COMPILED_IN;
+                        break;
+                    }
+
+                    /* public operations */
+                    rc = wolfTPM2_RsaEncrypt(tlsCtx->dev, &rsaPub,
+                        TPM_ALG_NULL, /* no padding */
+                        info->pk.rsa.in, info->pk.rsa.inLen,
+                        info->pk.rsa.out, (int*)info->pk.rsa.outLen);
+
+                    wolfTPM2_UnloadHandle(tlsCtx->dev, &rsaPub.handle);
+                    break;
+                }
+                case RSA_PRIVATE_ENCRYPT:
+                case RSA_PRIVATE_DECRYPT:
+                {
+                    /* private operations */
+                    rc = wolfTPM2_RsaDecrypt(tlsCtx->dev, tlsCtx->rsaKey,
+                        TPM_ALG_NULL, /* no padding */
+                        info->pk.rsa.in, info->pk.rsa.inLen,
+                        info->pk.rsa.out, (int*)info->pk.rsa.outLen);
+                    break;
+                }
+            }
+        }
+    #endif /* !NO_RSA */
+    #ifdef HAVE_ECC
+        if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+            byte sigRS[MAX_ECC_BYTES*2];
+            byte *r = sigRS, *s;
+            word32 rsLen = sizeof(sigRS), rLen, sLen;
+
+            rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
+                info->pk.eccsign.in, info->pk.eccsign.inlen,
+                sigRS, (int*)&rsLen);
+            if (rc == 0) {
+                rLen = sLen = rsLen / 2;
+                s = &sigRS[rLen];
+                rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
+                    info->pk.eccsign.out, info->pk.eccsign.outlen);
+            }
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDSA_VERIFY) {
+            WOLFTPM2_KEY eccPub;
+            byte sigRS[MAX_ECC_BYTES*2];
+            byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
+            word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
+
+            /* Decode ECDSA Header */
+            rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,
+                info->pk.eccverify.siglen, r, &rLen, s, &sLen);
+            if (rc == 0) {
+                /* load public key into TPM */
+                rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
+                    info->pk.eccverify.key, &eccPub);
+                if (rc == 0) {
+                    rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
+                        info->pk.eccverify.sig, info->pk.eccverify.siglen,
+                        info->pk.eccverify.hash, info->pk.eccverify.hashlen);
+
+                    wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
+                }
+            }
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDH) {
+            /* TODO: */
+            #if 0
+            ecc_key* private_key;
+            ecc_key* public_key;
+            byte* out;
+            word32* outlen;
+            #endif
+        }
+    #endif
+    }
+
+    /* need to return negative here for error */
+    if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN)
+        rc = RSA_BUFFER_E;
+
+    return rc;
+}
+
+int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
+    TpmCryptoDevCtx* tpmCtx, int* pDevId)
+{
+    int rc;
+    int devId = INVALID_DEVID;
+
+    if (dev == NULL || cb == NULL || tpmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* register a crypto device callback for TPM private key */
+    rc = wolfTPM2_GetTpmDevId(dev);
+    if (rc >= 0) {
+        devId = rc;
+        tpmCtx->dev = dev;
+
+        rc = wc_CryptoDev_RegisterDevice(devId, cb, tpmCtx);
+    }
+
+    if (pDevId) {
+        *pDevId = devId;
+    }
+
+    return rc;
+}
+
+/******************************************************************************/
+/* --- END wolf Crypto Device Support -- */
+/******************************************************************************/
+
+#endif /* WOLF_CRYPTO_DEV */
+
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

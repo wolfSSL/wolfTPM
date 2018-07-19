@@ -35,6 +35,7 @@ include src/include.am
 include wolftpm/include.am
 include examples/include.am
 include IDE/include.am
+include certs/include.am
 
 EXTRA_DIST+= README.md
 EXTRA_DIST+= LICENSE

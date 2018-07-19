@@ -1,4 +1,4 @@
-/* wrap_test.h
+/* pkcs7.h
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
@@ -19,11 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _WRAP_TEST_H_
-#define _WRAP_TEST_H_
+#ifndef _TPM_PKCS7_EXAMPLE_H_
+#define _TPM_PKCS7_EXAMPLE_H_
 
 
-void TPM2_Wrapper_SetReset(int reset);
-int TPM2_Wrapper_Test(void* userCtx);
+int TPM2_PKCS7_Example(void* userCtx);
 
-#endif /* _WRAP_TEST_H_ */
+#endif /* _TPM_PKCS7_EXAMPLE_H_ */

@@ -30,10 +30,8 @@
 #include <examples/wrap/wrap_test.h>
 
 /* Configuration */
-#define TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE 0x81000200
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
 #define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
-//#define WOLFTPM_TEST_WITH_RESET
 
 /* from wolfSSL ./certs/client-keyPub.der */
 static const byte kRsaPubKeyRaw[] = {
@@ -88,6 +86,13 @@ static const byte kEccPubKeyYRaw[] = {
 /* --- BEGIN Wrapper API Tests -- */
 /******************************************************************************/
 
+static int resetTPM = 0;
+
+void TPM2_Wrapper_SetReset(int reset)
+{
+    resetTPM = reset;
+}
+
 int TPM2_Wrapper_Test(void* userCtx)
 {
     int rc;
@@ -102,9 +107,10 @@ int TPM2_Wrapper_Test(void* userCtx)
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
-    const char storageKeyAuth[] = "ThisIsMyStorageKeyAuth";
-    const char keyAuth[] = "ThisIsMyKeyAuth";
     word32 nvAttributes = 0;
+#ifdef WOLF_CRYPTO_DEV
+    TpmCryptoDevCtx tpmCtx;
+#endif
     int tpmDevId = INVALID_DEVID;
 #ifndef NO_RSA
     word32 idx = 0;
@@ -132,11 +138,19 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
-#ifdef WOLFTPM_TEST_WITH_RESET
-    /* reset all content on TPM and reseed */
-    rc = wolfTPM2_Clear(&dev);
-    if (rc != 0) return rc;
+#ifdef WOLF_CRYPTO_DEV
+    /* Setup the wolf crypto device callback */
+    tpmCtx.rsaKey = &rsaKey;
+    tpmCtx.eccKey = &eccKey;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
+    if (rc != 0) goto exit;
 #endif
+
+    if (resetTPM) {
+        /* reset all content on TPM and reseed */
+        rc = wolfTPM2_Clear(&dev);
+        if (rc != 0) return rc;
+    }
 
     /* Get the RSA endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
@@ -156,7 +170,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
     /* See if primary storage key already exists */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
+        TPM2_DEMO_STORAGE_KEY_HANDLE);
     if (rc != 0) {
         /* Create primary storage key */
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -165,18 +179,18 @@ int TPM2_Wrapper_Test(void* userCtx)
             TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)storageKeyAuth, sizeof(storageKeyAuth)-1);
+            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
-            TPM2_DEMO_PERSISTENT_STORAGE_KEY_HANDLE);
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
         if (rc != 0) goto exit;
     }
     else {
         /* specify auth password for storage key */
-        storageKey.handle.auth.size = sizeof(storageKeyAuth)-1;
-        XMEMCPY(storageKey.handle.auth.buffer, storageKeyAuth,
+        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
+        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
             storageKey.handle.auth.size);
     }
 
@@ -186,7 +200,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
-        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
 
@@ -264,7 +278,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
-        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     /* Perform sign / verify */
@@ -292,7 +306,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         TPM_ECC_NIST_P256, TPM_ALG_ECDH);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
-        &publicTemplate, (byte*)keyAuth, sizeof(keyAuth)-1);
+        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     /* Create ephemeral ECC key and generate a shared secret */
@@ -386,9 +400,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
-#ifdef WOLFTPM_TEST_WITH_RESET
-    wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
-#endif
+
     wolfTPM2_Cleanup(&dev);
 
     return rc;
@@ -401,9 +413,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
+
+    if (argc > 1) {
+        TPM2_Wrapper_SetReset(1);
+    }
+    (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Wrapper_Test(TPM2_IoGetUserCtx());
