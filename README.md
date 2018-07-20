@@ -101,11 +101,12 @@ make
 
 ## Release Notes
 
-### wolfTPM Release 1.3 (07/19/2018)
+### wolfTPM Release 1.3 (07/20/2018)
 
 * Fixed the TIS TPM_BASE_ADDRESS to conform to specification. (PR #19)
 * Fixed static analysis warnings. (PR #20)
 * Fixed minor build warnings with different compilers. (PR #21)
+* Fixed TPM failure for RSA exponents less than 7 by using software based RSA. (PR #23)
 * Added TPM bechmarking support. (PR #16)
 * Added functions to import/export public keys as wolf format. (PR #15)
 * Added PKCS7 example to show sign/verify with TPM. (PR #17)

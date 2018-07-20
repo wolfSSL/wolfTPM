@@ -338,6 +338,17 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rsaPubSz > sizeof(pub.publicArea.unique.rsa.buffer))
         return BUFFER_E;
 
+    /* To support TPM hardware and firmware versions that do not allow small exponents */
+#ifndef WOLFTPM_NO_SOFTWARE_RSA
+    /* The TPM reference implementation does not support an exponent size
+       smaller than 7 nor does it allow keys to be created on the TPM with a
+       public exponent less than 2^16 + 1. */
+    if (exponent < 7) {
+        printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n", exponent);
+        return TPM_RC_KEY;
+    }
+#endif
+
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
