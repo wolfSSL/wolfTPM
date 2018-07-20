@@ -926,11 +926,12 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 
 int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
-    int* digest_len)
+    int* p_digest_len)
 {
     int rc;
     PCR_Read_In  pcrReadIn;
     PCR_Read_Out pcrReadOut;
+    int digest_len;
 
     if (dev == NULL)
         return BAD_FUNC_ARG;
@@ -942,17 +943,18 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
         return rc;
     }
 
-    if (digest_len)
-        *digest_len = (int)pcrReadOut.pcrValues.digests[0].size;
+    digest_len = (int)pcrReadOut.pcrValues.digests[0].size;
     if (digest)
-        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer,
-            pcrReadOut.pcrValues.digests[0].size);
+        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digest_len);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex, *digest_len, (int)pcrReadOut.pcrUpdateCounter);
-    TPM2_PrintBin(digest, *digest_len);
+        pcrIndex, digest_len, (int)pcrReadOut.pcrUpdateCounter);
+    TPM2_PrintBin(digest, digest_len);
 #endif
+
+    if (p_digest_len)
+        *p_digest_len = digest_len;
 
     return rc;
 }
