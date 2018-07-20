@@ -338,6 +338,17 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rsaPubSz > sizeof(pub.publicArea.unique.rsa.buffer))
         return BUFFER_E;
 
+    /* To support TPM hardware and firmware versions that do not allow small exponents */
+#ifndef WOLFTPM_NO_SOFTWARE_RSA
+    /* The TPM reference implementation does not support an exponent size
+       smaller than 7 nor does it allow keys to be created on the TPM with a
+       public exponent less than 2^16 + 1. */
+    if (exponent < 7) {
+        printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n", exponent);
+        return TPM_RC_KEY;
+    }
+#endif
+
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
@@ -926,11 +937,12 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 
 int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
-    int* digest_len)
+    int* p_digest_len)
 {
     int rc;
     PCR_Read_In  pcrReadIn;
     PCR_Read_Out pcrReadOut;
+    int digest_len;
 
     if (dev == NULL)
         return BAD_FUNC_ARG;
@@ -942,17 +954,18 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
         return rc;
     }
 
-    if (digest_len)
-        *digest_len = (int)pcrReadOut.pcrValues.digests[0].size;
+    digest_len = (int)pcrReadOut.pcrValues.digests[0].size;
     if (digest)
-        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer,
-            pcrReadOut.pcrValues.digests[0].size);
+        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digest_len);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex, *digest_len, (int)pcrReadOut.pcrUpdateCounter);
-    TPM2_PrintBin(digest, *digest_len);
+        pcrIndex, digest_len, (int)pcrReadOut.pcrUpdateCounter);
+    TPM2_PrintBin(digest, digest_len);
 #endif
+
+    if (p_digest_len)
+        *p_digest_len = digest_len;
 
     return rc;
 }

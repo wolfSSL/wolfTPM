@@ -88,7 +88,7 @@ void wolfTPMDemo(void const * argument)
 
         case 'm':
 			printf("\nTPM 2.0 Test\n");
-#ifdef WOLF_TPM2
+#ifndef WOLFTPM2_NO_WRAPPER
 			args.return_code = TPM2_Wrapper_Test(&hspi1);
 #endif
 			printf("TPM 2.0 Test: Return code %d\n", args.return_code);

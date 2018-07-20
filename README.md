@@ -6,16 +6,21 @@ Portable TPM 2.0 project designed for embedded use.
 ## Project Features
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
+* Wrappers provided to simplify Key Generation, RSA encrypt/decrypt, ECC sign/verify, ECDH and NV.
+* Testing done using the Infineon OPTIGA SLB9670 and LetsTrust TPM modules.
 * This uses the TPM Interface Specification (TIS) to communicate over SPI.
+* Platform support Raspberry Pi and STM32 with CubeMX.
 * The design allows for easy portability to different platforms:
 	* Native C code designed for embedded use.
 	* Single IO callback for hardware SPI interface.
 	* No external dependencies.
 	* Compact code size and minimal memory use.
-* Examples for the Raspberry Pi and STM32 with CubeMX.
-* Includes example code for most TPM2 native API’s.
-* Includes wrappers for Key Generation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
-* Testing done using the Infineon OPTIGA SLB9670 module and LetsTrust TPM for Raspberry Pi.
+* Includes example code for:
+    * Most TPM2 native API’s
+    * All TPM2 wrappers
+	* PKCS 7
+	* Certificate Signing Request (CSR)
+	* TLS Client
 
 
 ## TPM 2.0 Overview
@@ -72,7 +77,9 @@ Build wolfSSL:
 
 ```
 ./autogen.sh
-./configure --enable-ecc --enable-sha512 && make
+./configure --enable-ecc --enable-sha512
+make
+make check
 sudo make install
 sudo ldconfig
 ```
@@ -81,13 +88,34 @@ Build wolfTPM:
 
 ```
 ./autogen.sh
-./configure && make
+./configure
+make
 ./examples/wrap/wrap_test
 ./examples/native/native_test
+./examples/bench/bench
+./examples/csr/csr
+./examples/pkcs7/pkcs7
+./examples/tls/tls_client
 ```
 
 
 ## Release Notes
+
+### wolfTPM Release 1.3 (07/20/2018)
+
+* Fixed the TIS TPM_BASE_ADDRESS to conform to specification. (PR #19)
+* Fixed static analysis warnings. (PR #20)
+* Fixed minor build warnings with different compilers. (PR #21)
+* Fixed TPM failure for RSA exponents less than 7 by using software based RSA. (PR #23)
+* Added TPM bechmarking support. (PR #16)
+* Added functions to import/export public keys as wolf format. (PR #15)
+* Added PKCS7 example to show sign/verify with TPM. (PR #17)
+* Added CSR example to generate certificate request based on TPM key. (PR #17)
+* Added CSR signing script `./certs/certreq.sh` to create certificate using self-signed CA. (PR #17)
+* Added TLS Client example that uses TPM based key for client certificate. (PR #17)
+* Added support for wolfSSL `WOLF_CRYPT_DEV` callbacks to enable TPM based ECC and RSA private keys. (PR #17)
+* Added ability to clear/reset TPM using `./examples/wrap/wrap_test 1` (PR #17)
+* Moved some of the example configuration into `./examples/tpm_io.h`. (PR #17)
 
 ### wolfTPM Release 1.1 (03/09/2018)
 

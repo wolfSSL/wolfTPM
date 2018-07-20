@@ -442,7 +442,7 @@ int TPM2_TLS_Client(void* userCtx)
             rc = wolfSSL_get_error(ssl, 0);
         }
     } while (rc == WOLFSSL_ERROR_WANT_READ || rc == WOLFSSL_ERROR_WANT_WRITE);
-    if (rc != 0) {
+    if (rc != WOLFSSL_SUCCESS) {
         goto exit;
     }
 

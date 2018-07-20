@@ -130,7 +130,7 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
             return 0;
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
 
-    return TPM_RC_INITIALIZE;
+    return TPM_RC_TIMEOUT;
 }
 
 int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality)
@@ -146,7 +146,7 @@ int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality)
         return locality;
     }
 
-    return TPM_RC_INITIALIZE;
+    return TPM_RC_TIMEOUT;
 }
 
 int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
@@ -169,7 +169,7 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
         } while (--timeout > 0);
     }
 
-    return TPM_RC_INITIALIZE;
+    return TPM_RC_TIMEOUT;
 }
 
 int TPM2_TIS_GetInfo(TPM2_CTX* ctx)

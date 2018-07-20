@@ -4550,6 +4550,11 @@ const char* TPM2_GetRCString(int rc)
 {
     /* for negative return codes use wolfCrypt */
     if (rc < 0) {
+        switch (rc) {
+            TPM_RC_STR(TPM_RC_TIMEOUT, "Hardware timeout");
+            default:
+                break;
+        }
         return wc_GetErrorString(rc);
     }
 
