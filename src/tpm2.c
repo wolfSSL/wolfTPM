@@ -36,7 +36,7 @@ static TPM2_CTX* gActiveTPM;
 /******************************************************************************/
 static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
-#ifdef SINGLE_THREADED
+#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
 #else
     int ret = wc_LockMutex(&ctx->hwLock);
@@ -48,7 +48,7 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 
 static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 {
-#ifdef SINGLE_THREADED
+#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
 #else
     wc_UnLockMutex(&ctx->hwLock);
@@ -269,16 +269,16 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
         return TPM_RC_FAILURE;
     }
 
+    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
+    ctx->ioCb = ioCb;
+    ctx->userCtx = userCtx;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
 #endif
 
     wolfCrypt_Init();
-
-    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
-    ctx->ioCb = ioCb;
-    ctx->userCtx = userCtx;
 
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
@@ -294,6 +294,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
         return TPM_RC_FAILURE;
     }
 #endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     /* Startup TIS */
     rc = TPM2_AcquireLock(ctx);
@@ -338,12 +339,14 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         TPM2_ReleaseLock(ctx);
     }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     wc_FreeRng(&ctx->rng);
 #ifndef SINGLE_THREADED
     wc_FreeMutex(&ctx->hwLock);
 #endif
 
     wolfCrypt_Cleanup();
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     return TPM_RC_SUCCESS;
 }
@@ -4518,11 +4521,34 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+    GetRandom_In in;
+    GetRandom_Out out;
+    int randSz = 0;
+#endif
 
     if (ctx == NULL || nonceBuf == NULL)
         return BAD_FUNC_ARG;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Use wolfCrypt */
     rc = wc_RNG_GenerateBlock(&ctx->rng, nonceBuf, nonceSz);
+#else
+    /* Use TPM GetRandom */
+    XMEMSET(&in, 0, sizeof(in));
+    while (randSz < nonceSz) {
+        in.bytesRequested = nonceSz - randSz;
+        if (in.bytesRequested > sizeof(out.randomBytes.buffer))
+            in.bytesRequested = sizeof(out.randomBytes.buffer);
+
+        rc = TPM2_GetRandom(&in, &out);
+        if (rc != TPM_RC_SUCCESS)
+            break;
+
+        XMEMCPY(&nonceBuf[randSz], out.randomBytes.buffer, out.randomBytes.size);
+        randSz += out.randomBytes.size;
+    }
+#endif
 
     return rc;
 }
@@ -4555,7 +4581,9 @@ const char* TPM2_GetRCString(int rc)
             default:
                 break;
         }
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
         return wc_GetErrorString(rc);
+    #endif
     }
 
     if (rc & RC_VER1) {

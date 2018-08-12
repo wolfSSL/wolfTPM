@@ -23,7 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
 #include <examples/tls/tls_client.h>
@@ -509,7 +510,8 @@ int main(void)
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_TLS_Client(TPM2_IoGetUserCtx());
 #else
     printf("Wrapper/CryptoDev code not compiled in\n");

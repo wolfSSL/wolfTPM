@@ -94,9 +94,6 @@ else
 fi
 
 
-TAO_REQUIRE_LIBWOLFSSL
-
-
 # Examples
 AC_ARG_ENABLE([examples],
     [AS_HELP_STRING([--enable-examples],[Enable Examples (default: enabled)])],
@@ -120,6 +117,24 @@ then
 fi
 
 AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
+
+
+# wolfCrypt
+AC_ARG_ENABLE([wolfcrypt],
+    [AS_HELP_STRING([--enable-wolfcrypt],[Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled)])],
+    [ ENABLED_WOLFCRYPT=$enableval ],
+    [ ENABLED_WOLFCRYPT=yes ]
+    )
+
+if test "x$ENABLED_WOLFCRYPT" = "xyes"
+then
+    TAO_REQUIRE_LIBWOLFSSL
+else
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
+fi
+AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
+
+
 
 
 # HARDEN FLAGS
