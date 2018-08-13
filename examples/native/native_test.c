@@ -150,10 +150,12 @@ int TPM2_Native_Test(void* userCtx)
     TPMI_RH_NV_INDEX nvIndex;
     TPM2B_PUBLIC_KEY_RSA message;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     byte pcr[WC_SHA256_DIGEST_SIZE];
     int pcr_len = WC_SHA256_DIGEST_SIZE;
     byte hash[WC_SHA256_DIGEST_SIZE];
     int hash_len = WC_SHA256_DIGEST_SIZE;
+#endif
 
     TpmRsaKey endorse;
     TpmRsaKey storage;
@@ -376,7 +378,7 @@ int TPM2_Native_Test(void* userCtx)
                        cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
-            wc_GetErrorString(rc));
+            TPM2_GetRCString(rc));
         goto exit;
     }
     rc = TPM2_StartAuthSession(&cmdIn.authSes, &cmdOut.authSes);
@@ -420,10 +422,11 @@ int TPM2_Native_Test(void* userCtx)
     TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                    cmdOut.pcrRead.pcrValues.digests[0].size);
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Hash SHA256 PCR[0] */
     rc = wc_Hash(WC_HASH_TYPE_SHA256, pcr, pcr_len, hash, hash_len);
     if (rc < 0) {
-        printf("wc_Hash failed 0x%x: %s\n", rc, wc_GetErrorString(rc));
+        printf("wc_Hash failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
     printf("wc_Hash of PCR[0]: size %d\n", hash_len);
@@ -443,7 +446,7 @@ int TPM2_Native_Test(void* userCtx)
         //goto exit;
     }
     printf("TPM2_PolicyPCR: Updated\n");
-
+#endif
 
     /* Policy Restart (for session) */
     XMEMSET(&cmdIn.policyRestart, 0, sizeof(cmdIn.policyRestart));
@@ -712,7 +715,7 @@ int TPM2_Native_Test(void* userCtx)
                        cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
         printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
-            wc_GetErrorString(rc));
+            TPM2_GetRCString(rc));
         goto exit;
     }
     rc = TPM2_ObjectChangeAuth(&cmdIn.objChgAuth, &cmdOut.objChgAuth);

@@ -33,6 +33,7 @@
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
 #define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 /* from wolfSSL ./certs/client-keyPub.der */
 static const byte kRsaPubKeyRaw[] = {
     0x30, 0x82, 0x01, 0x22, 0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86,
@@ -80,7 +81,7 @@ static const byte kEccPubKeyYRaw[] = {
     0x42, 0xF7, 0xBD, 0xA9, 0xB2, 0x36, 0x22, 0x5F, 0xC7, 0x5D,
     0x7F, 0xB4
 };
-
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /******************************************************************************/
 /* --- BEGIN Wrapper API Tests -- */
@@ -101,7 +102,6 @@ int TPM2_Wrapper_Test(void* userCtx)
     WOLFTPM2_KEY storageKey;
     WOLFTPM2_KEY rsaKey;
     WOLFTPM2_KEY eccKey;
-    WOLFTPM2_KEY publicKey;
     WOLFTPM2_BUFFER message;
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
@@ -111,6 +111,9 @@ int TPM2_Wrapper_Test(void* userCtx)
 #ifdef WOLF_CRYPTO_DEV
     TpmCryptoDevCtx tpmCtx;
 #endif
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    WOLFTPM2_KEY publicKey;
     int tpmDevId = INVALID_DEVID;
 #ifndef NO_RSA
     word32 idx = 0;
@@ -130,6 +133,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     XMEMSET(&wolfEccPubKey, 0, sizeof(wolfEccPubKey));
     XMEMSET(&wolfEccPrivKey, 0, sizeof(wolfEccPrivKey));
 #endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     printf("TPM2 Demo for Wrapper API's\n");
 
@@ -241,6 +245,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("RSA Encrypt/Decrypt OAEP Test Passed\n");
 
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
     /* Demonstrate loading wolf keys */
     /* setup wolf RSA key with TPM deviceID */
@@ -266,7 +271,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
 #endif /* NO_RSA */
-
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
 
@@ -318,6 +323,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("ECC DH Generation Passed\n");
 
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifdef HAVE_ECC
     /* Demonstrate loading wolf keys */
 
@@ -345,6 +351,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
 #endif /* NO_RSA */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
@@ -388,6 +395,7 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaPubKey);
     wc_FreeRsaKey(&wolfRsaPrivKey);
@@ -396,6 +404,7 @@ exit:
     wc_ecc_free(&wolfEccPubKey);
     wc_ecc_free(&wolfEccPrivKey);
 #endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);

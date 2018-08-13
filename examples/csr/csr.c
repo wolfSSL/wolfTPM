@@ -24,7 +24,7 @@
 #include <wolftpm/tpm2_wrap.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
-     defined(WOLF_CRYPTO_DEV)
+     defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
 #include <examples/csr/csr.h>
@@ -288,7 +288,7 @@ int main(void)
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
-     defined(WOLF_CRYPTO_DEV)
+     defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_CSR_Example(TPM2_IoGetUserCtx());
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");

@@ -425,6 +425,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     RsaKey* wolfKey)
@@ -589,6 +590,7 @@ int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     return rc;
 }
 #endif /* HAVE_ECC */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /* primaryHandle must be owner or platform hierarchy */
 /* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
@@ -1218,12 +1220,14 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 {
     if (dev)
         return &dev->ctx.rng;
     return NULL;
 }
+#endif
 
 int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
 {
