@@ -77,7 +77,7 @@ Build wolfSSL:
 
 ```
 ./autogen.sh
-./configure --enable-ecc --enable-sha512
+./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev 
 make
 make check
 sudo make install

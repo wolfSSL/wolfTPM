@@ -44,7 +44,7 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
     Cert req;
     const CertName myCertName = {
         "US",               CTC_PRINTABLE,  /* country */
-        "Orgeon",           CTC_UTF8,       /* state */
+        "Oregon",           CTC_UTF8,       /* state */
         "Portland",         CTC_UTF8,       /* locality */
         "Test",             CTC_UTF8,       /* sur */
         "wolfSSL",          CTC_UTF8,       /* org */
@@ -55,7 +55,9 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
     const char* myKeyUsage = "serverAuth,clientAuth,codeSigning,"
                              "emailProtection,timeStamping,OCSPSigning";
     WOLFTPM2_BUFFER der;
+#ifdef WOLFSSL_DER_TO_PEM
     WOLFTPM2_BUFFER output;
+#endif
 
     /* Generate CSR (using TPM key) for certification authority */
     rc = wc_InitCert(&req);
