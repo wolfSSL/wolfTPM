@@ -32,14 +32,23 @@
     #define be32_to_cpu(d) ByteReverseWord32(d)
     #define be64_to_cpu(d) ByteReverseWord64(d)
 
-    static inline word32 rotlFixed(word32 x, word32 y) {
-        return (x << y) | (x >> (sizeof(y) * 8 - y));
-    }
+    #ifdef PPC_INTRINSICS
 
-    #if defined(FAST_ROTATE)
-    static inline word32 rotrFixed(word32 x, word32 y) {
-        return (x >> y) | (x << (sizeof(y) * 8 - y));
-    }
+    #elif defined(__ICCARM__)
+        #include "intrinsics.h"
+    #elif defined(KEIL_INTRINSICS)
+
+    #elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+
+    #else
+        #if defined(FAST_ROTATE)
+            static inline word32 rotrFixed(word32 x, word32 y) {
+                return (x >> y) | (x << (sizeof(y) * 8 - y));
+            }
+        #endif
+        static inline word32 rotlFixed(word32 x, word32 y) {
+            return (x << y) | (x >> (sizeof(y) * 8 - y));
+        }
     #endif
 
     static inline word16 ByteReverseWord16(word16 value)

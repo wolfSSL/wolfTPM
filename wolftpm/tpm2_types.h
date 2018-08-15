@@ -154,14 +154,19 @@ typedef int64_t  INT64;
 #ifndef LABEL_MAX_BUFFER
 #define LABEL_MAX_BUFFER 128
 #endif
+
 #ifndef MAX_RSA_KEY_BITS
 #define MAX_RSA_KEY_BITS 2048
 #endif
 #ifndef MAX_RSA_KEY_BYTES
 #define MAX_RSA_KEY_BYTES ((MAX_RSA_KEY_BITS/8)*2)
 #endif
+
+#ifndef MAX_ECC_KEY_BITS
+#define MAX_ECC_KEY_BITS 521
+#endif
 #ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES (MAX_ECC_BYTES*2)
+#define MAX_ECC_KEY_BYTES ((MAX_ECC_KEY_BITS/8)*2)
 #endif
 
 

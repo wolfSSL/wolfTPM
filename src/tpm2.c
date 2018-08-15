@@ -4504,14 +4504,22 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
 int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
 {
     switch (hashAlg) {
+    #ifndef NO_SHA
         case TPM_ALG_SHA1:
             return WC_SHA_DIGEST_SIZE;
+    #endif
+    #ifndef NO_SHA256
         case TPM_ALG_SHA256:
             return WC_SHA256_DIGEST_SIZE;
+    #endif
+#ifdef WOLFSSL_SHA512
+    #ifdef WOLFSSL_SHA384
         case TPM_ALG_SHA384:
             return WC_SHA384_DIGEST_SIZE;
+    #endif
         case TPM_ALG_SHA512:
             return WC_SHA512_DIGEST_SIZE;
+#endif /* WOLFSSL_SHA512 */
         default:
             return 0;
     }
