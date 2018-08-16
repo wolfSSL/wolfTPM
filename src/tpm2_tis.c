@@ -68,8 +68,9 @@ enum tpm_tis_int_flags {
 #define TPM_INT_STATUS(l)       (TPM_BASE_ADDRESS | 0x0010u | ((l) << 12u))
 #define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0014u | ((l) << 12u))
 #define TPM_STS(l)              (TPM_BASE_ADDRESS | 0x0018u | ((l) << 12u))
-#define TPM_STS3(l)             (TPM_BASE_ADDRESS | 0x001bu | ((l) << 12u))
+#define TPM_BURST_COUNT(l)      (TPM_BASE_ADDRESS | 0x0019u | ((l) << 12u))
 #define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
+#define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
 
 #define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0F00u | ((l) << 12u))
 #define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x0F04u | ((l) << 12u))
@@ -126,56 +127,68 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
 
     do {
         rc = TPM2_TIS_SpiRead(ctx, TPM_ACCESS(0), &access, sizeof(access));
-        if (access & TPM_ACCESS_VALID)
-            return 0;
+        if (rc == TPM_RC_SUCCESS && (access & TPM_ACCESS_VALID))
+            return TPM_RC_SUCCESS;
+        XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
-
-    return TPM_RC_TIMEOUT;
+    if (timeout <= 0)
+        return TPM_RC_TIMEOUT;
+    return rc;
 }
 
-int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality)
+int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality, byte* access)
 {
-    int rc;
-    byte access;
+    return TPM2_TIS_SpiRead(ctx, TPM_ACCESS(locality), access, sizeof(*access));
+}
 
-    rc = TPM2_TIS_SpiRead(ctx, TPM_ACCESS(locality), &access, sizeof(access));
-    if (rc == TPM_RC_SUCCESS &&
-        ((access & (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) ==
-                   (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID))) {
+static int TPM2_TIS_CheckLocalityAccessValid(TPM2_CTX* ctx, int locality,
+    byte access)
+{
+    if ((access & (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) ==
+                  (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) {
         ctx->locality = locality;
         return locality;
     }
-
-    return TPM_RC_TIMEOUT;
+    return -1;
 }
 
 int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
 {
     int rc;
-    int locality = 0;
-    byte access;
+    int locality = WOLFTPM_LOCALITY_DEFAULT;
+    byte access = 0;
 
-    rc = TPM2_TIS_CheckLocality(ctx, locality);
-    if (rc >= 0)
-        return rc;
+    rc = TPM2_TIS_CheckLocality(ctx, locality, &access);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_TIS_CheckLocalityAccessValid(ctx, locality, access);
+        if (rc >= 0)
+            return rc;
+    }
 
     access = TPM_ACCESS_REQUEST_USE;
     rc = TPM2_TIS_SpiWrite(ctx, TPM_ACCESS(locality), &access, sizeof(access));
     if (rc == TPM_RC_SUCCESS) {
         do {
-            rc = TPM2_TIS_CheckLocality(ctx, locality);
-            if (rc >= 0)
-                return rc;
-        } while (--timeout > 0);
+            access = 0;
+            rc = TPM2_TIS_CheckLocality(ctx, locality, &access);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = TPM2_TIS_CheckLocalityAccessValid(ctx, locality, access);
+                if (rc >= 0)
+                    return rc;
+            }
+            XTPM_WAIT();
+        } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+        if (timeout <= 0)
+            return TPM_RC_TIMEOUT;
     }
 
-    return TPM_RC_TIMEOUT;
+    return rc;
 }
 
 int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
 {
-    word32 reg;
     int rc;
+    word32 reg;
 
     rc = TPM2_TIS_SpiRead(ctx, TPM_INTF_CAPS(ctx->locality), (byte*)&reg,
         sizeof(reg));
@@ -198,23 +211,27 @@ int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
     return rc;
 }
 
-byte TPM2_TIS_Status(TPM2_CTX* ctx)
+int TPM2_TIS_Status(TPM2_CTX* ctx, byte* status)
 {
-    byte status = 0;
-    TPM2_TIS_SpiRead(ctx, TPM_STS(ctx->locality), &status, sizeof(status));
-    return status;
+    return TPM2_TIS_SpiRead(ctx, TPM_STS(ctx->locality), status,
+        sizeof(*status));
 }
 
-byte TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
+int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
 {
-    byte reg;
+    int rc;
     int timeout = TPM_TIMEOUT_TRIES;
+    byte reg = 0;
+
     do {
-        reg = TPM2_TIS_Status(ctx);
-    } while (((reg & status) != status_mask) && --timeout > 0);
+        rc = TPM2_TIS_Status(ctx, &reg);
+        if (rc == TPM_RC_SUCCESS && (reg & status) == status_mask)
+            break;
+        XTPM_WAIT();
+    } while (rc == TPM_RC_SUCCESS && --timeout > 0);
     if (timeout <= 0)
-        return 1;
-    return 0;
+        return TPM_RC_TIMEOUT;
+    return rc;
 }
 
 int TPM2_TIS_Ready(TPM2_CTX* ctx)
@@ -223,33 +240,38 @@ int TPM2_TIS_Ready(TPM2_CTX* ctx)
     return TPM2_TIS_SpiWrite(ctx, TPM_STS(ctx->locality), &status, sizeof(status));
 }
 
-int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx)
+int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 {
-    int rc;
-    word16 burstCount;
+    int rc;;
+    int timeout = TPM_TIMEOUT_TRIES;
 
+    if (burstCount == NULL)
+        return BAD_FUNC_ARG;
+
+    *burstCount = 0;
     do {
-        rc = TPM2_TIS_SpiRead(ctx, TPM_STS(ctx->locality) + 1,
-            (byte*)&burstCount, sizeof(burstCount));
-        if (rc != TPM_RC_SUCCESS)
-            return TPM_RC_INITIALIZE;
-    } while (burstCount == 0);
+        rc = TPM2_TIS_SpiRead(ctx, TPM_BURST_COUNT(ctx->locality),
+            (byte*)burstCount, sizeof(*burstCount));
+        if (rc == TPM_RC_SUCCESS && *burstCount > 0)
+            break;
+        XTPM_WAIT();
+    } while (rc == TPM_RC_SUCCESS && --timeout > 0);
 
-    if (burstCount > MAX_SPI_FRAMESIZE)
-        burstCount = MAX_SPI_FRAMESIZE;
+    if (*burstCount > MAX_SPI_FRAMESIZE)
+        *burstCount = MAX_SPI_FRAMESIZE;
 
-    if (rc == TPM_RC_SUCCESS)
-        return burstCount;
+    if (timeout <= 0)
+        return TPM_RC_TIMEOUT;
 
-    return 0;
+    return rc;
 }
 
 int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 {
     int rc;
-    int status, xferSz, pos, burstCount;
-    byte access;
-    word16 rspSz;
+    int xferSz, pos;
+    byte access, status = 0;
+    word16 rspSz, burstCount;
 
 #ifdef DEBUG_WOLFTPM
     printf("Command: %d\n", cmdSz);
@@ -257,7 +279,9 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 #endif
 
     /* Make sure TPM is ready for command */
-    status = TPM2_TIS_Status(ctx);
+    rc = TPM2_TIS_Status(ctx, &status);
+    if (rc != 0)
+        goto exit;
     if ((status & TPM_STS_COMMAND_READY) == 0) {
         /* Tell TPM chip to expect a command */
         rc = TPM2_TIS_Ready(ctx);
@@ -274,10 +298,9 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     /* Write Command */
     pos = 0;
     while (pos < cmdSz) {
-        burstCount = TPM2_TIS_GetBurstCount(ctx);
-        if (burstCount < 0) {
-            rc = burstCount; goto exit;
-        }
+        rc = TPM2_TIS_GetBurstCount(ctx, &burstCount);
+        if (rc < 0)
+            goto exit;
 
         xferSz = cmdSz - pos;
         if (xferSz > burstCount)
@@ -305,7 +328,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
     rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,
                                      TPM_STS_VALID);
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_TIS_SendCommand status valid timeout!\n");
     #endif
@@ -333,10 +356,9 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
             goto exit;
         }
 
-        burstCount = TPM2_TIS_GetBurstCount(ctx);
-        if (burstCount < 0) {
-            rc = burstCount; goto exit;
-        }
+        rc = TPM2_TIS_GetBurstCount(ctx, &burstCount);
+        if (rc < 0)
+            goto exit;
 
         xferSz = rspSz - pos;
         if (xferSz > burstCount)
