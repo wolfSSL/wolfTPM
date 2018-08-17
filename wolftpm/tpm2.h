@@ -1580,7 +1580,7 @@ typedef struct TPMS_AUTH_COMMAND {
     /* Implementation specific */
     /* These are used for parameter encrypt/decrypt */
 
-    /* The symmetric and hash alorithms to use */
+    /* The symmetric and hash algorithms to use */
     TPMT_SYM_DEF symmetric;
     TPMI_ALG_HASH authHash;
 

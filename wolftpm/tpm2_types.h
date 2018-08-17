@@ -44,24 +44,13 @@ typedef int32_t  INT32;
 typedef uint64_t UINT64;
 typedef int64_t  INT64;
 
-#ifndef TRUE
-#define TRUE 1
-#endif
-#ifndef FALSE
-#define FALSE 0
-#endif
 #ifndef YES
 #define YES 1
 #endif
 #ifndef NO
 #define NO 0
 #endif
-#ifndef SET
-#define SET 1
-#endif
-#ifndef CLEAR
-#define CLEAR 0
-#endif
+
 
 /* ---------------------------------------------------------------------------*/
 /* WOLFCRYPT */
@@ -142,7 +131,7 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 100000
+#define TPM_TIMEOUT_TRIES 1000000
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
@@ -154,25 +143,39 @@ typedef int64_t  INT64;
 #ifndef LABEL_MAX_BUFFER
 #define LABEL_MAX_BUFFER 128
 #endif
-
 #ifndef MAX_RSA_KEY_BITS
 #define MAX_RSA_KEY_BITS 2048
 #endif
 #ifndef MAX_RSA_KEY_BYTES
-#define MAX_RSA_KEY_BYTES ((MAX_RSA_KEY_BITS/8)*2)
+#define MAX_RSA_KEY_BYTES (((MAX_RSA_KEY_BITS+7)/8)*2)
 #endif
 
 #ifndef MAX_ECC_KEY_BITS
 #define MAX_ECC_KEY_BITS 521
 #endif
 #ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES ((MAX_ECC_KEY_BITS/8)*2)
+#define MAX_ECC_KEY_BYTES (((MAX_ECC_KEY_BITS+7)/8)*2)
+#endif
+
+#ifndef MAX_AES_KEY_BITS
+#define MAX_AES_KEY_BITS 128
+#endif
+#ifndef MAX_AES_BLOCK_SIZE_BYTES
+#define MAX_AES_BLOCK_SIZE_BYTES 16
+#endif
+#ifndef MAX_AES_KEY_BYTES
+#define MAX_AES_KEY_BYTES (MAX_AES_KEY_BITS/8)
 #endif
 
 
 /* ---------------------------------------------------------------------------*/
 /* IMPLEMENTATION SPECIFIC VALUES */
 /* ---------------------------------------------------------------------------*/
+
+/* Optional delay between polling */
+#ifndef XTPM_WAIT
+#define XTPM_WAIT() /* just poll without delay by default */
+#endif
 
 #ifndef BUFFER_ALIGNMENT
 #define BUFFER_ALIGNMENT 4
