@@ -1,0 +1,9 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+EXTRA_DIST+= IDE/IAR-EWARM/ewarm-tpm2.eww
+EXTRA_DIST+= IDE/IAR-EWARM/ewarm-tpm2.ewp
+EXTRA_DIST+= IDE/IAR-EWARM/source/main.c
+EXTRA_DIST+= IDE/IAR-EWARM/source/tpm_main.c
+EXTRA_DIST+= IDE/IAR-EWARM/header/tpm_main.h

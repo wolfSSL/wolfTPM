@@ -3,3 +3,4 @@
 # All paths should be given relative to the root
 
 include IDE/OPENSTM32/include.am
+include IDE/IAR-EWARM/include.am

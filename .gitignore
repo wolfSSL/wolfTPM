@@ -43,3 +43,5 @@ certs/*.par
 certs/crlnumber*
 certs/serial
 certs/index*
+*.dep
+IDE/IAR-EWARM/settings

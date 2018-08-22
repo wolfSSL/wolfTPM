@@ -24,7 +24,7 @@
 
 #include <wolftpm/tpm2.h>
 
-typedef struct TPM2_HEADER {
+typedef WOLFTPM_PACK_BEG struct TPM2_HEADER {
     UINT16 tag;
     UINT32 size;
     union {
@@ -32,7 +32,7 @@ typedef struct TPM2_HEADER {
         TPM_CC cc;
         TPM_RC rc;
     };
-} WOLFSSL_PACK TPM2_HEADER;
+} WOLFTPM_PACK_END TPM2_HEADER;
 
 typedef struct TPM2_Packet {
     byte* buf;
