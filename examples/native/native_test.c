@@ -1156,7 +1156,7 @@ int main(void)
 {
     int rc;
 
-    rc = TPM2_Native_Test(TPM2_IoGetUserCtx());
+    rc = TPM2_Native_Test(NULL);
 
     return rc;
 }

@@ -50,6 +50,11 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
         "wolfSSL",          CTC_UTF8,       /* org */
         "Development",      CTC_UTF8,       /* unit */
         "www.wolfssl.com",  CTC_UTF8,       /* commonName */
+    #ifdef WOLFSSL_CERT_EXT
+        "", CTC_UTF8, /* busCat */
+        "", CTC_UTF8, /* joiC */
+        "", CTC_UTF8, /* joiSt */
+    #endif
         "info@wolfssl.com"                  /* email */
     };
     const char* myKeyUsage = "serverAuth,clientAuth,codeSigning,"
@@ -291,7 +296,7 @@ int main(void)
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
      defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
-    rc = TPM2_CSR_Example(TPM2_IoGetUserCtx());
+    rc = TPM2_CSR_Example(NULL);
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptodev\n");

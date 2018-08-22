@@ -71,7 +71,7 @@ DEBUG_CFLAGS="-g -O0 -DDEBUG_WOLFTPM"
 OPTIMIZE_CFLAGS="-O2"
 
 AX_DEBUG
-AS_IF([test "x$ax_enable_debug" = "xyes"],
+AS_IF([test "x$ax_enable_debug" != "xno"],
       [AM_CFLAGS="$DEBUG_CFLAGS $AM_CFLAGS -DDEBUG"],
       [AM_CFLAGS="$AM_CFLAGS $OPTIMIZE_CFLAGS -DNDEBUG"])
 
@@ -91,6 +91,12 @@ else
     if test "$ac_cv_sizeof_long_long" = "8"; then
         AM_CFLAGS="$AM_CFLAGS -DSIZEOF_LONG_LONG=8"
     fi
+fi
+
+# Verbose Logging
+if test "x$ax_enable_debug" = "xverbose"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_DEBUG_VERBOSE"
 fi
 
 
@@ -134,6 +140,47 @@ else
 fi
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 
+
+# Advanced IO
+AC_ARG_ENABLE([advio],
+    [AS_HELP_STRING([--enable-advio],[Enable Advanced IO (default: disabled)])],
+    [ ENABLED_ADVIO=$enableval ],
+    [ ENABLED_ADVIO=no ]
+    )
+
+if test "x$ENABLED_ADVIO" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ADV_IO"
+fi
+AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
+
+
+# ST33 Support
+AC_ARG_ENABLE([st33],
+    [AS_HELP_STRING([--enable-st33],[Enable ST33 TPM Support (default: disabled)])],
+    [ ENABLED_ST33=$enableval ],
+    [ ENABLED_ST33=no ]
+    )
+
+if test "x$ENABLED_ST33" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
+fi
+AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
+
+
+# I2C Support
+AC_ARG_ENABLE([i2c],
+    [AS_HELP_STRING([--enable-i2c],[Enable I2C TPM Support (default: disabled)])],
+    [ ENABLED_I2C=$enableval ],
+    [ ENABLED_I2C=no ]
+    )
+
+if test "x$ENABLED_I2C" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
+fi
+AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 
 
 
@@ -251,3 +298,7 @@ echo "   * LIB Flags:                 $LIB"
 
 echo "   * Wrappers:                  $ENABLED_WRAPPER"
 echo "   * Examples:                  $ENABLED_EXAMPLES"
+echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
+echo "   * Advanced IO:               $ENABLED_ADVIO"
+echo "   * ST33:                      $ENABLED_ST33"
+echo "   * I2C:                       $ENABLED_I2C"

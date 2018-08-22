@@ -30,6 +30,18 @@
 #define WOLFTPM_LOCALITY_DEFAULT 0
 #endif
 
+#define TPM_TIS_READ        0x80
+#define TPM_TIS_WRITE       0x00
+
+#ifdef WOLFTPM_ST33
+#define TPM_TIS_HEADER_SZ 5
+#else
+#define TPM_TIS_HEADER_SZ 4
+#endif
+
+#define TPM_TIS_READY_MASK 0x01
+
+
 WOLFTPM_LOCAL int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount);
 WOLFTPM_LOCAL int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
 WOLFTPM_LOCAL int TPM2_TIS_Ready(TPM2_CTX* ctx);
@@ -39,7 +51,7 @@ WOLFTPM_LOCAL int TPM2_TIS_GetInfo(TPM2_CTX* ctx);
 WOLFTPM_LOCAL int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout);
 WOLFTPM_LOCAL int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality, byte* access);
 WOLFTPM_LOCAL int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout);
-WOLFTPM_LOCAL int TPM2_TIS_SpiWrite(TPM2_CTX* ctx, word32 addr, const byte* value, word32 len);
-WOLFTPM_LOCAL int TPM2_TIS_SpiRead(TPM2_CTX* ctx, word32 addr, byte* result, word32 len);
+WOLFTPM_LOCAL int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value, word32 len);
+WOLFTPM_LOCAL int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result, word32 len);
 
 #endif /* __TPM2_TIS_H__ */

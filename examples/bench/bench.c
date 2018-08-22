@@ -269,7 +269,7 @@ int main(void)
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Wrapper_Bench(TPM2_IoGetUserCtx());
+    rc = TPM2_Wrapper_Bench(NULL);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

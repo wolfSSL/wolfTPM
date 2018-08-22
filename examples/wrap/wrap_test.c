@@ -68,6 +68,7 @@ static const byte kRsaPubKeyRaw[] = {
     0x03, 0x01, 0x00, 0x01
 };
 
+#if !defined(WOLFTPM_ST33)
 /* from wolfSSL ./certs/ecc-client-keyPub.der */
 static const byte kEccPubKeyXRaw[] = {
     0x55, 0xBF, 0xF4, 0x0F, 0x44, 0x50, 0x9A, 0x3D, 0xCE, 0x9B,
@@ -81,6 +82,7 @@ static const byte kEccPubKeyYRaw[] = {
     0x42, 0xF7, 0xBD, 0xA9, 0xB2, 0x36, 0x22, 0x5F, 0xC7, 0x5D,
     0x7F, 0xB4
 };
+#endif /* !WOLFTPM_ST33 */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /******************************************************************************/
@@ -323,7 +325,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("ECC DH Generation Passed\n");
 
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_ST33)
 #ifdef HAVE_ECC
     /* Demonstrate loading wolf keys */
 
@@ -351,7 +353,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
 #endif /* NO_RSA */
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !WOLFTPM_ST33 */
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
@@ -432,7 +434,7 @@ int main(int argc, char *argv[])
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Wrapper_Test(TPM2_IoGetUserCtx());
+    rc = TPM2_Wrapper_Test(NULL);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

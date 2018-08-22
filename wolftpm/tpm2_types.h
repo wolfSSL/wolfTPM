@@ -141,6 +141,10 @@ typedef int64_t  INT64;
 #define TPM_TIMEOUT_TRIES 1000000
 #endif
 
+#ifndef TPM_SPI_WAIT_RETRY
+#define TPM_SPI_WAIT_RETRY 50
+#endif
+
 #ifndef MAX_SYM_BLOCK_SIZE
 #define MAX_SYM_BLOCK_SIZE 20
 #endif
