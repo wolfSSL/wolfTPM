@@ -105,12 +105,7 @@ typedef int64_t  INT64;
         #define LITTLE_ENDIAN_ORDER
     #endif
 
-    #if defined(__GNUC__)
-        #define WOLFSSL_PACK __attribute__ ((packed))
-    #else
-        #define WOLFSSL_PACK
-    #endif
-
+    /* GCC Version */
     #ifndef __GNUC_PREREQ
         #if defined(__GNUC__) && defined(__GNUC_MINOR__)
             #define __GNUC_PREREQ(maj, min) \
@@ -120,6 +115,18 @@ typedef int64_t  INT64;
         #endif
     #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+/* Packed */
+#if defined(__GNUC__)
+    #define WOLFTPM_PACK_BEG
+    #define WOLFTPM_PACK_END __attribute__ ((packed))
+#elif defined(__ICCARM__)
+    #define WOLFTPM_PACK_BEG __packed
+    #define WOLFTPM_PACK_END
+#else
+    #define WOLFTPM_PACK_BEG
+    #define WOLFTPM_PACK_END
+#endif
 
 
 /* ---------------------------------------------------------------------------*/
