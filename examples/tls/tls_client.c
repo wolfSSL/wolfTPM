@@ -512,7 +512,7 @@ int main(void)
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
-    rc = TPM2_TLS_Client(TPM2_IoGetUserCtx());
+    rc = TPM2_TLS_Client(NULL);
 #else
     printf("Wrapper/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptodev\n");

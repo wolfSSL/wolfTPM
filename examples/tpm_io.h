@@ -39,9 +39,12 @@ static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
 static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
 
 /* TPM2 IO Examples */
-void* TPM2_IoGetUserCtx(void);
+#ifdef WOLFTPM_ADV_IO
+int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
+    void* userCtx);
+#else
 int   TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
-
+#endif
 
 #endif /* _TPM_IO_H_ */

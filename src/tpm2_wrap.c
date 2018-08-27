@@ -380,7 +380,7 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     pub.publicArea.nameAlg = TPM_ALG_NULL;
     pub.publicArea.objectAttributes = 0;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
     pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;

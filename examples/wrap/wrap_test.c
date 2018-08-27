@@ -323,7 +323,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("ECC DH Generation Passed\n");
 
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
 #ifdef HAVE_ECC
     /* Demonstrate loading wolf keys */
 
@@ -350,7 +350,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
-#endif /* NO_RSA */
+#endif /* HAVE_ECC */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
@@ -432,7 +432,7 @@ int main(int argc, char *argv[])
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Wrapper_Test(TPM2_IoGetUserCtx());
+    rc = TPM2_Wrapper_Test(NULL);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

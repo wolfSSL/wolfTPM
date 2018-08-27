@@ -43,14 +43,15 @@ static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
     int rc;
     Cert req;
     const CertName myCertName = {
-        "US",               CTC_PRINTABLE,  /* country */
-        "Oregon",           CTC_UTF8,       /* state */
-        "Portland",         CTC_UTF8,       /* locality */
-        "Test",             CTC_UTF8,       /* sur */
-        "wolfSSL",          CTC_UTF8,       /* org */
-        "Development",      CTC_UTF8,       /* unit */
-        "www.wolfssl.com",  CTC_UTF8,       /* commonName */
-        "info@wolfssl.com"                  /* email */
+        .country = "US",        .countryEnc = CTC_PRINTABLE, /* country */
+        .state = "Oregon",      .stateEnc = CTC_UTF8,        /* state */
+        .locality = "Portland", .localityEnc = CTC_UTF8,     /* locality */
+        .sur = "Test",          .surEnc = CTC_UTF8,          /* sur */
+        .org = "wolfSSL",       .orgEnc = CTC_UTF8,          /* org */
+        .unit = "Development",  .unitEnc = CTC_UTF8,         /* unit */
+        .commonName = "www.wolfssl.com",                     /* commonName */
+        .commonNameEnc = CTC_UTF8,
+        .email = "info@wolfssl.com"                          /* email */
     };
     const char* myKeyUsage = "serverAuth,clientAuth,codeSigning,"
                              "emailProtection,timeStamping,OCSPSigning";
@@ -291,7 +292,7 @@ int main(void)
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
      defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
-    rc = TPM2_CSR_Example(TPM2_IoGetUserCtx());
+    rc = TPM2_CSR_Example(NULL);
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptodev\n");

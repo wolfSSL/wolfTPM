@@ -1601,8 +1601,19 @@ typedef struct TPMS_AUTH_RESPONSE {
 /* HAL IO Callbacks */
 struct TPM2_CTX;
 
-typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE*, BYTE*, UINT16 size,
-    void* userCtx);
+/* make sure advanced IO is enabled for I2C */
+#ifdef WOLFTPM_I2C
+    #undef  WOLFTPM_ADV_IO
+    #define WOLFTPM_ADV_IO
+#endif
+
+#ifdef WOLFTPM_ADV_IO
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr, 
+    BYTE* xferBuf, UINT16 xferSz, void* userCtx);
+#else
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf, 
+    UINT16 xferSz, void* userCtx);
+#endif
 
 typedef struct TPM2_CTX {
     TPM2HalIoCb ioCb;
