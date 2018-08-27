@@ -223,6 +223,12 @@ typedef enum {
 
     CC_VEND                     = 0x20000000,
     TPM_CC_Vendor_TCG_Test      = CC_VEND + 0x0000,
+#ifdef WOLFTPM_ST33
+    TPM_CC_SetMode              = CC_VEND + 0x0307,
+    TPM_CC_SetCommandSet        = CC_VEND + 0x0309,
+    TPM_CC_RestoreEK            = CC_VEND + 0x030A,
+    TPM_CC_SetCommandSetLock    = CC_VEND + 0x030B,
+#endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -2683,6 +2689,17 @@ typedef struct {
 } NV_Certify_Out;
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
+
+/* Vendor Specific API's */
+#ifdef WOLFTPM_ST33
+typedef struct {
+    TPMI_RH_HIERARCHY authHandle;
+    TPM_CC commandCode;
+    UINT32 enableFlag;
+    UINT32 lockFlag;
+} SetCommandSet_In;
+WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
+#endif /* WOLFTPM_ST33 */
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init

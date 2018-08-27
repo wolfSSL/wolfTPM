@@ -104,6 +104,9 @@ int TPM2_Native_Test(void* userCtx)
         EncryptDecrypt2_In encDec;
         HMAC_In hmac;
         HMAC_Start_In hmacStart;
+#ifdef WOLFTPM_ST33
+        SetCommandSet_In setCmdSet;
+#endif
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -1099,6 +1102,24 @@ int TPM2_Native_Test(void* userCtx)
 
     /* Example for Encrypt/Decrypt */
 
+    /* Clear auth buffer */
+    session[0].auth.size = 0;
+    XMEMSET(session[0].auth.buffer, 0, sizeof(session[0].auth.buffer));
+
+#ifdef WOLFTPM_ST33
+    /* Enable TPM2_EncryptDecrypt2 command */
+    XMEMSET(&cmdIn.setCmdSet, 0, sizeof(cmdIn.setCmdSet));
+    cmdIn.setCmdSet.authHandle = TPM_RH_PLATFORM;
+    cmdIn.setCmdSet.commandCode = TPM_CC_EncryptDecrypt2;
+    cmdIn.setCmdSet.enableFlag = 1;
+    rc = TPM2_SetCommandSet(&cmdIn.setCmdSet);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+#endif
+
     /* set session auth for storage key */
     session[0].auth.size = sizeof(storagePwd)-1;
     XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
@@ -1116,7 +1137,7 @@ int TPM2_Native_Test(void* userCtx)
         TPMA_OBJECT_noDA | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
-    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CFB;
+    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CBC;
 
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
@@ -1153,10 +1174,11 @@ int TPM2_Native_Test(void* userCtx)
     /* Note: TPM2_EncryptDecrypt2 is used to allow parameter encryption for data */
     XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
     cmdIn.encDec.keyHandle = aesKey.handle;
+    cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
     cmdIn.encDec.inData.size = message.size;
     XMEMCPY(cmdIn.encDec.inData.buffer, message.buffer, cmdIn.encDec.inData.size);
     cmdIn.encDec.decrypt = NO;
-    cmdIn.encDec.mode = TPM_ALG_CFB;
+    cmdIn.encDec.mode = TPM_ALG_CBC;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
@@ -1167,11 +1189,12 @@ int TPM2_Native_Test(void* userCtx)
     /* Perform decrypt of data */
     XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
     cmdIn.encDec.keyHandle = aesKey.handle;
+    cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
     cmdIn.encDec.inData.size = cmdOut.encDec.outData.size;
     XMEMCPY(cmdIn.encDec.inData.buffer, cmdOut.encDec.outData.buffer,
         cmdOut.encDec.outData.size);
     cmdIn.encDec.decrypt = YES;
-    cmdIn.encDec.mode = TPM_ALG_CFB;
+    cmdIn.encDec.mode = TPM_ALG_CBC;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
