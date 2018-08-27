@@ -50,6 +50,11 @@ typedef struct tmpHandle {
     TPM2B_AUTH         auth;
 } TpmHandle;
 
+#ifndef WOLFTPM_ST33
+#define TEST_AES_MODE TPM_ALG_CFB
+#else
+#define TEST_AES_MODE TPM_ALG_CBC
+#endif
 
 int TPM2_Native_Test(void* userCtx)
 {
@@ -1137,7 +1142,7 @@ int TPM2_Native_Test(void* userCtx)
         TPMA_OBJECT_noDA | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
-    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CBC;
+    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TEST_AES_MODE;
 
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
     if (rc != TPM_RC_SUCCESS) {
@@ -1178,12 +1183,13 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.encDec.inData.size = message.size;
     XMEMCPY(cmdIn.encDec.inData.buffer, message.buffer, cmdIn.encDec.inData.size);
     cmdIn.encDec.decrypt = NO;
-    cmdIn.encDec.mode = TPM_ALG_CBC;
+    cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        goto exit;
+        if (rc != TPM_RC_COMMAND_CODE) /* some TPM's may not support command */
+            goto exit;
     }
 
     /* Perform decrypt of data */
@@ -1194,12 +1200,13 @@ int TPM2_Native_Test(void* userCtx)
     XMEMCPY(cmdIn.encDec.inData.buffer, cmdOut.encDec.outData.buffer,
         cmdOut.encDec.outData.size);
     cmdIn.encDec.decrypt = YES;
-    cmdIn.encDec.mode = TPM_ALG_CBC;
+    cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        goto exit;
+        if (rc != TPM_RC_COMMAND_CODE) /* some TPM's may not support command */
+            goto exit;
     }
 
     /* Verify plain and decrypted data are the same */
