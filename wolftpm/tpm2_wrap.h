@@ -43,7 +43,6 @@ typedef struct WOLFTPM2_SESSION {
 
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
-    TPM2B_PRIVATE     priv;
     TPM2B_PUBLIC      pub;
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;

@@ -274,12 +274,11 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         createOut.outPrivate.size);
 #endif
     key->pub = createOut.outPublic;
-    key->priv = createOut.outPrivate;
 
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = key->priv;
+    loadIn.inPrivate = createOut.outPrivate;
     loadIn.inPublic = key->pub;
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
