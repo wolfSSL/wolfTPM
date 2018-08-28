@@ -1185,11 +1185,13 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.encDec.decrypt = NO;
     cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+    }
+    else if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        if (rc != TPM_RC_COMMAND_CODE) /* some TPM's may not support command */
-            goto exit;
+        goto exit;
     }
 
     /* Perform decrypt of data */
@@ -1202,23 +1204,26 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.encDec.decrypt = YES;
     cmdIn.encDec.mode = TEST_AES_MODE;
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+    }
+    else if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        if (rc != TPM_RC_COMMAND_CODE) /* some TPM's may not support command */
-            goto exit;
+        goto exit;
     }
 
     /* Verify plain and decrypted data are the same */
-    if (cmdOut.encDec.outData.size != MAX_AES_BLOCK_SIZE_BYTES ||
-        XMEMCMP(cmdOut.encDec.outData.buffer, message.buffer,
-            cmdOut.encDec.outData.size) != 0) {
+    if (rc == TPM_RC_SUCCESS &&
+        cmdOut.encDec.outData.size == MAX_AES_BLOCK_SIZE_BYTES &&
+         XMEMCMP(cmdOut.encDec.outData.buffer, message.buffer,
+            cmdOut.encDec.outData.size) == 0) {
+        printf("Encrypt/Decrypt test success\n");
+    }
+    else if (rc != TPM_RC_COMMAND_CODE) {
         printf("Encrypt/Decrypt test failed, result not as expected!\n");
         goto exit;
     }
-    printf("Encrypt/Decrypt test success\n");
-
-
 
 exit:
 
