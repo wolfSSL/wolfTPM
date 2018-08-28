@@ -4495,6 +4495,43 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
 /******************************************************************************/
 
 
+/******************************************************************************/
+/* --- BEGIN Manufacture Specific TPM API's -- */
+/******************************************************************************/
+#ifdef WOLFTPM_ST33
+int TPM2_SetCommandSet(SetCommandSet_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || in == NULL || ctx->authCmd == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
+        TPM2_Packet_AppendU32(&packet, in->commandCode);
+        TPM2_Packet_AppendU32(&packet, in->enableFlag);
+        TPM2_Packet_AppendU32(&packet, in->lockFlag);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SetCommandSet);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif
+/******************************************************************************/
+/* --- END Manufacture Specific TPM API's -- */
+/******************************************************************************/
+
 
 
 /******************************************************************************/

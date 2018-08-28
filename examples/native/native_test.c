@@ -31,18 +31,6 @@
 /* --- BEGIN TPM Native API Tests -- */
 /******************************************************************************/
 
-
-#define TPM_20_TPM_MFG_NV_SPACE        ((TPM_HT_NV_INDEX << 24) | (0x00 << 22))
-#define TPM_20_PLATFORM_MFG_NV_SPACE   ((TPM_HT_NV_INDEX << 24) | (0x01 << 22))
-#define TPM_20_OWNER_NV_SPACE          ((TPM_HT_NV_INDEX << 24) | (0x02 << 22))
-#define TPM_20_TCG_NV_SPACE            ((TPM_HT_NV_INDEX << 24) | (0x03 << 22))
-
-
-#define TPM_20_NV_INDEX_EK_CERTIFICATE (TPM_20_PLATFORM_MFG_NV_SPACE + 2)
-#define TPM_20_NV_INDEX_EK_NONCE       (TPM_20_PLATFORM_MFG_NV_SPACE + 3)
-#define TPM_20_NV_INDEX_EK_TEMPLATE    (TPM_20_PLATFORM_MFG_NV_SPACE + 4)
-
-
 typedef struct tpmKey {
     TPM_HANDLE          handle;
     TPM2B_AUTH          auth;
@@ -55,12 +43,18 @@ typedef struct tpmKey {
 typedef TpmKey TpmRsaKey;
 typedef TpmKey TpmEccKey;
 typedef TpmKey TpmHmacKey;
+typedef TpmKey TpmSymKey;
 
 typedef struct tmpHandle {
     TPM_HANDLE         handle;
     TPM2B_AUTH         auth;
 } TpmHandle;
 
+#ifndef WOLFTPM_ST33
+#define TEST_AES_MODE TPM_ALG_CFB
+#else
+#define TEST_AES_MODE TPM_ALG_CBC
+#endif
 
 int TPM2_Native_Test(void* userCtx)
 {
@@ -112,6 +106,12 @@ int TPM2_Native_Test(void* userCtx)
         ECC_Parameters_In eccParam;
         ECDH_KeyGen_In ecdh;
         ECDH_ZGen_In ecdhZ;
+        EncryptDecrypt2_In encDec;
+        HMAC_In hmac;
+        HMAC_Start_In hmacStart;
+#ifdef WOLFTPM_ST33
+        SetCommandSet_In setCmdSet;
+#endif
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -140,6 +140,9 @@ int TPM2_Native_Test(void* userCtx)
         ECC_Parameters_Out eccParam;
         ECDH_KeyGen_Out ecdh;
         ECDH_ZGen_Out ecdhZ;
+        EncryptDecrypt2_Out encDec;
+        HMAC_Out hmac;
+        HMAC_Start_Out hmacStart;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
@@ -162,10 +165,11 @@ int TPM2_Native_Test(void* userCtx)
     TpmHmacKey hmacKey;
     TpmEccKey eccKey;
     TpmRsaKey rsaKey;
+    TpmSymKey aesKey;
 
     const char storagePwd[] = "WolfTPMPassword";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
-    const char userKey[] = "ThisIsMyHmacKey";
+    const char userKey[] = "ThisIsMyKey";
     const char label[] = "ThisIsMyLabel";
     const char keyCreationNonce[] = "RandomServerPickedCreationNonce";
 
@@ -186,6 +190,7 @@ int TPM2_Native_Test(void* userCtx)
     hmacKey.handle = TPM_RH_NULL;
     eccKey.handle = TPM_RH_NULL;
     rsaKey.handle = TPM_RH_NULL;
+    aesKey.handle = TPM_RH_NULL;
 
     message.size = WC_SHA256_DIGEST_SIZE;
     XMEMSET(message.buffer, 0x11, message.size);
@@ -443,9 +448,11 @@ int TPM2_Native_Test(void* userCtx)
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        //goto exit;
+        //goto exit; /* TODO: Fix failure on TPM2_PolicyPCR */
     }
-    printf("TPM2_PolicyPCR: Updated\n");
+    else {
+        printf("TPM2_PolicyPCR: Updated\n");
+    }
 #endif
 
     /* Policy Restart (for session) */
@@ -475,6 +482,7 @@ int TPM2_Native_Test(void* userCtx)
     handle = cmdOut.hashSeqStart.sequenceHandle;
     printf("TPM2_HashSequenceStart: sequenceHandle 0x%x\n", handle);
 
+    /* set auth for hashing handle */
     session[0].auth.size = sizeof(usageAuth)-1;
     XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
 
@@ -651,9 +659,14 @@ int TPM2_Native_Test(void* userCtx)
         cmdOut.readPub.qualifiedName.size);
 
     cmdIn.flushCtx.flushHandle = handle;
+    handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
 
+    /* HMAC Example */
+    /* set session auth for storage key */
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
     /* Create an HMAC-SHA256 Key */
     XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
@@ -692,6 +705,15 @@ int TPM2_Native_Test(void* userCtx)
     hmacKey.handle = cmdOut.load.objectHandle;
     printf("TPM2_Load New HMAC Key Handle 0x%x\n", hmacKey.handle);
 
+    /* set auth for HMAC handle */
+    session[0].auth.size = sizeof(usageAuth)-1;
+    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
+
+    /* TODO: Add simple HMAC test */
+#if 0
+    rc = TPM2_HMAC(&cmdIn.hmac, &cmdOut.hmac);
+    rc = TPM2_HMAC_Start(&cmdIn.hmacStart, &cmdOut.hmacStart);
+#endif
 
 
     /* Allow object change auth */
@@ -727,9 +749,16 @@ int TPM2_Native_Test(void* userCtx)
     hmacKey.priv = cmdOut.objChgAuth.outPrivate;
     printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.priv.size);
 
+    /* done with hmac handle */
     cmdIn.flushCtx.flushHandle = hmacKey.handle;
+    hmacKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
+
+
+    /* set session auth for storage key */
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
 
     /* Get a curve's parameters */
@@ -833,6 +862,7 @@ int TPM2_Native_Test(void* userCtx)
     printf("TPM2_VerifySignature: Tag %d\n", cmdOut.verifySign.validation.tag);
 
     cmdIn.flushCtx.flushHandle = eccKey.handle;
+    eccKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
 
@@ -916,6 +946,7 @@ int TPM2_Native_Test(void* userCtx)
 #endif
 
     cmdIn.flushCtx.flushHandle = eccKey.handle;
+    eccKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
 
@@ -1014,48 +1045,26 @@ int TPM2_Native_Test(void* userCtx)
     }
 
     cmdIn.flushCtx.flushHandle = rsaKey.handle;
+    rsaKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
-
-
-    /* set session auth for storage key */
-    session[0].auth.size = sizeof(storagePwd)-1;
-    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
 
     /* NVRAM Access */
 
-    for (nvIndex=TPM_20_TPM_MFG_NV_SPACE; nvIndex<TPM_20_TPM_MFG_NV_SPACE+10; nvIndex++) {
-        XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
-        cmdIn.nvReadPub.nvIndex = nvIndex;
-        rc = TPM2_NV_ReadPublic(&cmdIn.nvReadPub, &cmdOut.nvReadPub);
-        if (rc != TPM_RC_SUCCESS) {
-            printf("TPM2_NV_ReadPublic failed 0x%x: %s\n", rc,
-                TPM2_GetRCString(rc));
-            //goto exit;
-        }
-        else if (cmdOut.nvReadPub.nvPublic.size > 0) {
-            printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x,"
-                    " authPol %d, dataSz %d, name %d\n",
-                cmdOut.nvReadPub.nvPublic.size,
-                cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
-                cmdOut.nvReadPub.nvPublic.nvPublic.nameAlg,
-                cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
-                cmdOut.nvReadPub.nvPublic.nvPublic.authPolicy.size,
-                cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
-                cmdOut.nvReadPub.nvName.size);
-        }
-    }
+    /* Clear auth buffer */
+    session[0].auth.size = 0;
+    XMEMSET(session[0].auth.buffer, 0, sizeof(session[0].auth.buffer));
 
     /* Define new NV */
     nvIndex = TPM_20_OWNER_NV_SPACE + 0x003FFFFF; /* Last owner Index */
     XMEMSET(&cmdIn.nvDefine, 0, sizeof(cmdIn.nvDefine));
-    cmdIn.nvDefine.authHandle = storage.handle;
+    cmdIn.nvDefine.authHandle = TPM_RH_OWNER;
     cmdIn.nvDefine.auth.size = sizeof(usageAuth)-1;
     XMEMCPY(cmdIn.nvDefine.auth.buffer, usageAuth, cmdIn.nvDefine.auth.size);
     cmdIn.nvDefine.publicInfo.nvPublic.nvIndex = nvIndex;
     cmdIn.nvDefine.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
     cmdIn.nvDefine.publicInfo.nvPublic.attributes = (
-        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA | TPMA_NV_ORDERLY);
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
     cmdIn.nvDefine.publicInfo.nvPublic.dataSize = WC_SHA256_DIGEST_SIZE;
     rc = TPM2_NV_DefineSpace(&cmdIn.nvDefine);
     if (rc != TPM_RC_SUCCESS) {
@@ -1072,7 +1081,7 @@ int TPM2_Native_Test(void* userCtx)
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_NV_ReadPublic failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
@@ -1086,7 +1095,7 @@ int TPM2_Native_Test(void* userCtx)
 
     /* Undefine NV */
     XMEMSET(&cmdIn.nvUndefine, 0, sizeof(cmdIn.nvUndefine));
-    cmdIn.nvUndefine.authHandle = storage.handle;
+    cmdIn.nvUndefine.authHandle = TPM_RH_OWNER;
     cmdIn.nvUndefine.nvIndex = nvIndex;
     rc = TPM2_NV_UndefineSpace(&cmdIn.nvUndefine);
     if (rc != TPM_RC_SUCCESS) {
@@ -1096,11 +1105,125 @@ int TPM2_Native_Test(void* userCtx)
     }
 
 
+    /* Example for Encrypt/Decrypt */
 
     /* Clear auth buffer */
     session[0].auth.size = 0;
     XMEMSET(session[0].auth.buffer, 0, sizeof(session[0].auth.buffer));
 
+#ifdef WOLFTPM_ST33
+    /* Enable TPM2_EncryptDecrypt2 command */
+    XMEMSET(&cmdIn.setCmdSet, 0, sizeof(cmdIn.setCmdSet));
+    cmdIn.setCmdSet.authHandle = TPM_RH_PLATFORM;
+    cmdIn.setCmdSet.commandCode = TPM_CC_EncryptDecrypt2;
+    cmdIn.setCmdSet.enableFlag = 1;
+    rc = TPM2_SetCommandSet(&cmdIn.setCmdSet);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+#endif
+
+    /* set session auth for storage key */
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
+
+    /* Create a symmetric key */
+    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
+    cmdIn.create.parentHandle = storage.handle;
+    cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
+        cmdIn.create.inSensitive.sensitive.userAuth.size);
+    cmdIn.create.inPublic.publicArea.type = TPM_ALG_SYMCIPHER;
+    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
+    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
+    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
+    cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TEST_AES_MODE;
+
+    rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Create symmetric failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    aesKey.pub = cmdOut.create.outPublic;
+    aesKey.priv = cmdOut.create.outPrivate;
+    printf("Create AES%d CFB Key success, public %d, Private %d\n",
+        MAX_AES_KEY_BITS, aesKey.pub.size, aesKey.priv.size);
+
+    XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
+    cmdIn.load.parentHandle = storage.handle;
+    cmdIn.load.inPrivate = aesKey.priv;
+    cmdIn.load.inPublic = aesKey.pub;
+    rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Load failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    aesKey.handle = cmdOut.load.objectHandle;
+    printf("TPM2_Load New AES Key Handle 0x%x\n", aesKey.handle);
+
+    /* set auth for AES handle */
+    session[0].auth.size = sizeof(usageAuth)-1;
+    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
+
+    /* Test data */
+    message.size = MAX_AES_BLOCK_SIZE_BYTES;
+    for (i=0; i<message.size; i++)
+        message.buffer[i] = (byte)(i & 0xff);
+
+    /* Perform encrypt of data */
+    /* Note: TPM2_EncryptDecrypt2 is used to allow parameter encryption for data */
+    XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
+    cmdIn.encDec.keyHandle = aesKey.handle;
+    cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
+    cmdIn.encDec.inData.size = message.size;
+    XMEMCPY(cmdIn.encDec.inData.buffer, message.buffer, cmdIn.encDec.inData.size);
+    cmdIn.encDec.decrypt = NO;
+    cmdIn.encDec.mode = TEST_AES_MODE;
+    rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
+    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+    }
+    else if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+    /* Perform decrypt of data */
+    XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
+    cmdIn.encDec.keyHandle = aesKey.handle;
+    cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
+    cmdIn.encDec.inData.size = cmdOut.encDec.outData.size;
+    XMEMCPY(cmdIn.encDec.inData.buffer, cmdOut.encDec.outData.buffer,
+        cmdOut.encDec.outData.size);
+    cmdIn.encDec.decrypt = YES;
+    cmdIn.encDec.mode = TEST_AES_MODE;
+    rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
+    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+    }
+    else if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+    /* Verify plain and decrypted data are the same */
+    if (rc == TPM_RC_SUCCESS &&
+        cmdOut.encDec.outData.size == MAX_AES_BLOCK_SIZE_BYTES &&
+         XMEMCMP(cmdOut.encDec.outData.buffer, message.buffer,
+            cmdOut.encDec.outData.size) == 0) {
+        printf("Encrypt/Decrypt test success\n");
+    }
+    else if (rc != TPM_RC_COMMAND_CODE) {
+        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        goto exit;
+    }
 
 exit:
 
@@ -1111,21 +1234,36 @@ exit:
     }
 
     /* Close object handle */
-    cmdIn.flushCtx.flushHandle = handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-    cmdIn.flushCtx.flushHandle = eccKey.handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-    cmdIn.flushCtx.flushHandle = hmacKey.handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-    cmdIn.flushCtx.flushHandle = rsaKey.handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
+    if (handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    if (eccKey.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = eccKey.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    if (hmacKey.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = hmacKey.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    if (aesKey.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = aesKey.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    if (rsaKey.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = rsaKey.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
 
     /* Cleanup key handles */
-    cmdIn.flushCtx.flushHandle = endorse.handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-    cmdIn.flushCtx.flushHandle = storage.handle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-
+    if (endorse.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = endorse.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    if (storage.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = storage.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
 
     /* Shutdown */
     cmdIn.shutdown.shutdownType = TPM_SU_CLEAR;

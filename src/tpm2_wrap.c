@@ -1317,6 +1317,25 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     return 0;
 }
 
+int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
+    TPM_ALG_ID algMode, int isSign, int isDecrypt)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_SYMCIPHER;
+    publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA | (isSign ? TPMA_OBJECT_sign : 0) |
+        (isDecrypt ? TPMA_OBJECT_decrypt : 0));
+    publicTemplate->parameters.symDetail.sym.algorithm = TPM_ALG_AES;
+    publicTemplate->parameters.symDetail.sym.keyBits.aes = keyBits;
+    publicTemplate->parameters.symDetail.sym.mode.aes = algMode;
+
+    return 0;
+}
 
 static const BYTE TPM_20_EK_AUTH_POLICY[] = {
     0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
@@ -1378,7 +1397,6 @@ int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate)
 
     return 0;
 }
-
 
 int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 {

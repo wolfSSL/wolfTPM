@@ -223,6 +223,12 @@ typedef enum {
 
     CC_VEND                     = 0x20000000,
     TPM_CC_Vendor_TCG_Test      = CC_VEND + 0x0000,
+#ifdef WOLFTPM_ST33
+    TPM_CC_SetMode              = CC_VEND + 0x0307,
+    TPM_CC_SetCommandSet        = CC_VEND + 0x0309,
+    TPM_CC_RestoreEK            = CC_VEND + 0x030A,
+    TPM_CC_SetCommandSetLock    = CC_VEND + 0x030B,
+#endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -1596,6 +1602,16 @@ typedef struct TPMS_AUTH_RESPONSE {
 } TPMS_AUTH_RESPONSE;
 
 
+/* Predetermined TPM 2.0 Indexes */
+#define TPM_20_TPM_MFG_NV_SPACE        ((TPM_HT_NV_INDEX << 24) | (0x00 << 22))
+#define TPM_20_PLATFORM_MFG_NV_SPACE   ((TPM_HT_NV_INDEX << 24) | (0x01 << 22))
+#define TPM_20_OWNER_NV_SPACE          ((TPM_HT_NV_INDEX << 24) | (0x02 << 22))
+#define TPM_20_TCG_NV_SPACE            ((TPM_HT_NV_INDEX << 24) | (0x03 << 22))
+
+#define TPM_20_NV_INDEX_EK_CERTIFICATE (TPM_20_PLATFORM_MFG_NV_SPACE + 2)
+#define TPM_20_NV_INDEX_EK_NONCE       (TPM_20_PLATFORM_MFG_NV_SPACE + 3)
+#define TPM_20_NV_INDEX_EK_TEMPLATE    (TPM_20_PLATFORM_MFG_NV_SPACE + 4)
+
 
 
 /* HAL IO Callbacks */
@@ -2673,6 +2689,17 @@ typedef struct {
 } NV_Certify_Out;
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
+
+/* Vendor Specific API's */
+#ifdef WOLFTPM_ST33
+typedef struct {
+    TPMI_RH_HIERARCHY authHandle;
+    TPM_CC commandCode;
+    UINT32 enableFlag;
+    UINT32 lockFlag;
+} SetCommandSet_In;
+WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
+#endif /* WOLFTPM_ST33 */
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
