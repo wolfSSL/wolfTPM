@@ -81,12 +81,21 @@
 
 #if defined(__linux__)
 #if defined(WOLFTPM_I2C)
+    #include <linux/wait.h>
+    #define TPM_I2C_TRIES     10
+    #define TPM_I2C_GUARD_US  0xFA
+    /* function to ensure min amount of time has passed between operations */
+    static void i2c_check_time(void)
+    {
+        usleep(TPM_I2C_GUARD_US);
+    }
     static int i2c_read(int fd, word32 reg, byte* data, int len)
     {
         int rc;
         struct i2c_rdwr_ioctl_data rdwr;
         struct i2c_msg msgs[2];
         unsigned char buf[2];
+        int timeout = TPM_I2C_TRIES;
 
         rdwr.msgs = msgs;
         rdwr.nmsgs = 2;
@@ -102,7 +111,12 @@
         msgs[1].len =  len;
         msgs[1].addr = TPM2_I2C_ADDR;
 
-        rc = ioctl(fd, I2C_RDWR, &rdwr);
+        do {
+            rc = ioctl(fd, I2C_RDWR, &rdwr);
+            if (rc != -1)
+                break;
+            i2c_check_time();
+        } while (--timeout > 0);
 
         return (rc == -1) ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
     }
@@ -113,6 +127,10 @@
         struct i2c_rdwr_ioctl_data rdwr;
         struct i2c_msg msgs[1];
         byte buf[MAX_SPI_FRAMESIZE+1];
+        int timeout = TPM_I2C_TRIES;
+
+        if (len > MAX_SPI_FRAMESIZE)
+            return BAD_FUNC_ARG;
 
         rdwr.msgs = msgs;
         rdwr.nmsgs = 1;
@@ -124,7 +142,12 @@
         msgs[0].len = len + 1;
         msgs[0].addr = TPM2_I2C_ADDR;
 
-        rc = ioctl(fd, I2C_RDWR, &rdwr);
+        do {
+            rc = ioctl(fd, I2C_RDWR, &rdwr);
+            if (rc != -1)
+                break;
+            i2c_check_time();
+        } while (--timeout > 0);
 
         return (rc == -1) ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
     }
@@ -457,7 +480,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
 #if defined(WOLFTPM_I2C)
     #if defined(__linux__)
         /* Use Linux I2C */
-        ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size);
+        ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");

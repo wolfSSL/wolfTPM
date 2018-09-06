@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation, RSA encrypt/decrypt, ECC sign/verify, ECDH and NV.
-* Testing done using the Infineon OPTIGA SLB9670 and LetsTrust TPM modules.
+* Testing done using the ST33TP* SPI/I2C and Infineon OPTIGA SLB9670 / LetsTrust TPM modules.
 * This uses the TPM Interface Specification (TIS) to communicate over SPI.
 * Platform support Raspberry Pi and STM32 with CubeMX.
 * The design allows for easy portability to different platforms:
@@ -2002,9 +2002,10 @@ Response: 10
 
 ## Todo
 * Improve overall documentation.
-* Add support for using the TPM with wolfSSL for TLS.
 * Add support for encrypting / decrypting parameters. (90% complete)
-* Add `spi_tis_dev` support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Add `spi_tis_dev` support for Raspberry Pi.
+* Add runtime support for detecting ST33 or SLB9670.
+* Add runtime support for using I2C or SPI module.
 
 
 ## Support
