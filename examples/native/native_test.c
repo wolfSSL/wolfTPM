@@ -1270,7 +1270,6 @@ exit:
     rc = TPM2_Shutdown(&cmdIn.shutdown);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Shutdown failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
     }
 
     TPM2_Cleanup(&tpm2Ctx);

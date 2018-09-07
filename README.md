@@ -106,6 +106,12 @@ Build wolfTPM:
 make
 ```
 
+For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:
+1. Edit `sudo vim /boot/config.txt`
+2. Uncomment `dtparam=i2c_arm=on`
+3. Reboot
+
+
 ### Build options and defines
 
 ```
