@@ -37,11 +37,19 @@
  * 3. Results in `./certs/client-rsa-cert.der`
  */
 
+/* The PKCS7 EX functions were added after v3.15.3 */
+#include <wolfssl/version.h>
+#if defined(LIBWOLFSSL_VERSION_HEX) && \
+    LIBWOLFSSL_VERSION_HEX > 0x03015003
+    #undef  ENABLE_PKCS7EX_EXAMPLE
+    #define ENABLE_PKCS7EX_EXAMPLE
+#endif
 
 /******************************************************************************/
 /* --- BEGIN TPM2 PKCS7 Example -- */
 /******************************************************************************/
 
+#ifdef ENABLE_PKCS7EX_EXAMPLE
 /* Dummy Function to Get Data */
 #define MY_DATA_CHUNKS  1024
 #define MY_DATA_TOTAL  (1024 * 1024) + 12 /* odd remainder for test */
@@ -208,7 +216,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
 exit:
     return rc;
 }
-
+#endif /* ENABLE_PKCS7EX_EXAMPLE */
 
 static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* der)
 {
@@ -375,10 +383,11 @@ int TPM2_PKCS7_Example(void* userCtx)
     rc = PKCS7_SignVerify(&dev, tpmDevId, &der);
     if (rc != 0) goto exit;
 
+#ifdef ENABLE_PKCS7EX_EXAMPLE
     /* PKCS 7 large data sign/verify example */
     rc = PKCS7_SignVerifyEx(&dev, tpmDevId, &der);
     if (rc != 0) goto exit;
-
+#endif
 
 exit:
 
