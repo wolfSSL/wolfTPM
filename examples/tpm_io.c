@@ -81,16 +81,18 @@
 
 #if defined(__linux__)
 #if defined(WOLFTPM_I2C)
+    #define TPM_I2C_TRIES 10
     static int i2c_read(int fd, word32 reg, byte* data, int len)
     {
         int rc;
         struct i2c_rdwr_ioctl_data rdwr;
         struct i2c_msg msgs[2];
         unsigned char buf[2];
+        int timeout = TPM_I2C_TRIES;
 
         rdwr.msgs = msgs;
         rdwr.nmsgs = 2;
-        buf[0] = reg & 0xFF; /* address */
+        buf[0] = (reg & 0xFF); /* address */
 
         msgs[0].flags = 0;
         msgs[0].buf = buf;
@@ -98,11 +100,18 @@
         msgs[0].addr = TPM2_I2C_ADDR;
 
         msgs[1].flags = I2C_M_RD;
-        msgs[1].buf =  (unsigned char*)data;
+        msgs[1].buf =  data;
         msgs[1].len =  len;
         msgs[1].addr = TPM2_I2C_ADDR;
 
-        rc = ioctl(fd, I2C_RDWR, &rdwr);
+        /* The I2C device may hold clock low to indicate busy, which results in
+         * ioctl failure here. Typically the retry completes in 1-3 retries.
+         * Its important to keep device open during these retries */
+        do {
+            rc = ioctl(fd, I2C_RDWR, &rdwr);
+            if (rc != -1)
+                break;
+        } while (--timeout > 0);
 
         return (rc == -1) ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
     }
@@ -113,10 +122,16 @@
         struct i2c_rdwr_ioctl_data rdwr;
         struct i2c_msg msgs[1];
         byte buf[MAX_SPI_FRAMESIZE+1];
+        int timeout = TPM_I2C_TRIES;
+
+        /* TIS layer should never provide a buffer larger than this,
+           but double check for good coding practice */
+        if (len > MAX_SPI_FRAMESIZE)
+            return BAD_FUNC_ARG;
 
         rdwr.msgs = msgs;
         rdwr.nmsgs = 1;
-        buf[0] = reg & 0xFF; /* address */
+        buf[0] = (reg & 0xFF); /* address */
         XMEMCPY(buf + 1, data, len);
 
         msgs[0].flags = 0;
@@ -124,7 +139,14 @@
         msgs[0].len = len + 1;
         msgs[0].addr = TPM2_I2C_ADDR;
 
-        rc = ioctl(fd, I2C_RDWR, &rdwr);
+        /* The I2C device may hold clock low to indicate busy, which results in
+         * ioctl failure here. Typically the retry completes in 1-3 retries.
+         * Its important to keep device open during these retries */
+        do {
+            rc = ioctl(fd, I2C_RDWR, &rdwr);
+            if (rc != -1)
+                break;
+        } while (--timeout > 0);
 
         return (rc == -1) ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
     }
@@ -457,7 +479,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
 #if defined(WOLFTPM_I2C)
     #if defined(__linux__)
         /* Use Linux I2C */
-        ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size);
+        ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");

@@ -130,10 +130,17 @@ int TPM2_Wrapper_Bench(void* userCtx)
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
     if (rc != 0) goto exit;
-    rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
-        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-    if (rc != 0) goto exit;
-
+    bench_stats_start(&count, &start);
+    do {
+        if (count > 0) {
+            rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+            if (rc != 0) goto exit;
+        }
+        rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
+            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+        if (rc != 0) goto exit;
+    } while (bench_stats_sym_check(start, &count));
+    bench_stats_asym_finish("RSA", 2048, "key gen", count, start);
 
     /* Perform RSA encrypt / decrypt (no pad) */
     message.size = 256; /* test message 0x11,0x11,etc */
@@ -190,10 +197,17 @@ int TPM2_Wrapper_Bench(void* userCtx)
         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
         TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
     if (rc != 0) goto exit;
-    rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
-        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-    if (rc != 0) goto exit;
-
+    bench_stats_start(&count, &start);
+    do {
+        if (count > 0) {
+            rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+            if (rc != 0) goto exit;
+        }
+        rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
+            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+        if (rc != 0) goto exit;
+    } while (bench_stats_sym_check(start, &count));
+    bench_stats_asym_finish("ECC", 256, "key gen", count, start);
 
     /* Perform sign / verify */
     message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */

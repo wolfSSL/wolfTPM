@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation, RSA encrypt/decrypt, ECC sign/verify, ECDH and NV.
-* Testing done using the Infineon OPTIGA SLB9670 and LetsTrust TPM modules.
+* Testing done using the ST33TP* SPI/I2C and Infineon OPTIGA SLB9670 / LetsTrust TPM modules.
 * This uses the TPM Interface Specification (TIS) to communicate over SPI.
 * Platform support Raspberry Pi and STM32 with CubeMX.
 * The design allows for easy portability to different platforms:
@@ -58,9 +58,11 @@ The Raspberry 3 uses the native `spi_dev` interface and defaults to `/dev/spidev
 
 This has only been tested and confirmed working with Rasbian 4.4.x.
 
-### SPI IO Callback
+### IO Callback
 
-For interfacing to your hardware platform see the example `tpm2_demo.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
+For interfacing to your hardware platform see the example `examples/tpm_io.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
+
+There are examples here for Linux, STM32 CubeMX and Atmel ASF. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
 
 
 ### Hardware
@@ -84,20 +86,37 @@ sudo make install
 sudo ldconfig
 ```
 
+### Building Infineon SLB9670
+
 Build wolfTPM:
 
 ```
 ./autogen.sh
 ./configure
 make
-./examples/wrap/wrap_test
-./examples/native/native_test
-./examples/bench/bench
-./examples/csr/csr
-./examples/pkcs7/pkcs7
-./examples/tls/tls_client
 ```
 
+### Building ST ST33TP*
+
+Build wolfTPM:
+
+```
+./autogen.sh
+./configure --enable-st33 [--enable-i2c]
+make
+```
+
+### Build options and defines
+
+```
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE
+--enable-examples       Enable Examples (default: enabled)
+--enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
+--enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
+--enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
+--enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-i2c            Enable I2C TPM Support (default: disabled) - WOLFTPM_I2C
+```
 
 ## Release Notes
 
@@ -137,15 +156,15 @@ make
 * TPM 2.0 demo code in `examples/tpm/tpm2_demo.c` with support for STM32 CubeMX SPI as reference.
 
 
-## Examples
-
+## Running Examples
 
 ### TPM2 Wrapper Tests
 
 ```
 ./examples/wrap/wrap_test
 TPM2 Demo for Wrapper API's
-RSA Encrypt Test Passed
+RSA Encrypt/Decrypt Test Passed
+RSA Encrypt/Decrypt OAEP Test Passed
 ECC Sign/Verify Passed
 ECC DH Generation Passed
 NV Test on index 0x1800200 with 1024 bytes passed
@@ -153,29 +172,49 @@ NV Test on index 0x1800200 with 1024 bytes passed
 
 ### TPM2 Benchmarks
 
+Note: Key Generation is using existing template from hierarchy seed.
+
 Run on Infineon OPTIGA SLB9670:
 
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RSA     2048 Public        65 ops took 1.005 sec, avg 15.466 ms, 64.657 ops/sec
-RSA     2048 Private        3 ops took 1.343 sec, avg 447.759 ms, 2.233 ops/sec
-RSA     2048 Pub  OAEP     12 ops took 1.040 sec, avg 86.657 ms, 11.540 ops/sec
-RSA     2048 Priv OAEP      2 ops took 1.032 sec, avg 515.885 ms, 1.938 ops/sec
-ECDSA    256 sign          14 ops took 1.037 sec, avg 74.101 ms, 13.495 ops/sec
-ECDSA    256 verify         8 ops took 1.027 sec, avg 128.417 ms, 7.787 ops/sec
-ECDHE    256 agree          8 ops took 1.040 sec, avg 130.003 ms, 7.692 ops/sec
+RSA     2048 key gen        5 ops took 1.116 sec, avg 223.111 ms, 4.482 ops/sec
+RSA     2048 Public        65 ops took 1.012 sec, avg 15.572 ms, 64.219 ops/sec
+RSA     2048 Private        3 ops took 1.365 sec, avg 455.050 ms, 2.198 ops/sec
+RSA     2048 Pub  OAEP     11 ops took 1.011 sec, avg 91.889 ms, 10.883 ops/sec
+RSA     2048 Priv OAEP      2 ops took 1.039 sec, avg 519.707 ms, 1.924 ops/sec
+ECC      256 key gen        5 ops took 1.016 sec, avg 203.186 ms, 4.922 ops/sec
+ECDSA    256 sign          14 ops took 1.056 sec, avg 75.396 ms, 13.263 ops/sec
+ECDSA    256 verify         8 ops took 1.040 sec, avg 129.948 ms, 7.695 ops/sec
+ECDHE    256 agree          8 ops took 1.049 sec, avg 131.094 ms, 7.628 ops/sec
 ```
 
-### TPM Native Tests
+Run on ST ST33TP SPI:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RSA     2048 key gen        3 ops took 3.889 sec, avg 1296.452 ms, 0.771 ops/sec
+RSA     2048 Public        64 ops took 1.014 sec, avg 15.840 ms,  63.131 ops/sec
+RSA     2048 Private        4 ops took 1.017 sec, avg 254.190 ms,  3.934 ops/sec
+RSA     2048 Pub  OAEP     63 ops took 1.003 sec, avg 15.924 ms,  62.797 ops/sec
+RSA     2048 Priv OAEP      4 ops took 1.027 sec, avg 256.862 ms,  3.893 ops/sec
+ECC      256 key gen        5 ops took 1.157 sec, avg 231.497 ms,  4.320 ops/sec
+ECDSA    256 sign          23 ops took 1.027 sec, avg 44.657 ms,  22.393 ops/sec
+ECDSA    256 verify        14 ops took 1.068 sec, avg 76.265 ms,  13.112 ops/sec
+ECDHE    256 agree          5 ops took 1.248 sec, avg 249.669 ms,  4.005 ops/sec
+```
+
+### TPM2 Native Tests
 
 ```
 ./examples/native/native_test
 TPM2 Demo using Native API's
-TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10 
+TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e 
 TPM2_Startup pass
 TPM2_SelfTest pass
-TPM2_GetTestResult: Size 10, Rc 0x0
+TPM2_GetTestResult: Size 12, Rc 0x0
 TPM2_IncrementalSelfTest: Rc 0x0, Alg 0x1 (Todo 0)
 TPM2_GetCapability: Property FamilyIndicator 0x322e3000
 TPM2_GetCapability: Property PCR Count 24
@@ -212,46 +251,92 @@ TPM2_PolicyGetDigest: size 32
 TPM2_PCR_Read: Index 0, Digest Sz 20, Update Counter 22
 wc_Hash of PCR[0]: size 32
 TPM2_PolicyPCR failed 0x1c4: TPM_RC_AUTHSIZE
-TPM2_PolicyPCR: Updated
 TPM2_PolicyRestart: Done
-TPM2_HashSequenceStart: sequenceHandle 0x80000000
+TPM2_HashSequenceStart: sequenceHandle 0x80000002
 Hash SHA256 test success
-TPM2_CreatePrimary: Endorsement 0x80000000 (314 bytes)
-TPM2_CreatePrimary: Storage 0x80000001 (282 bytes)
-TPM2_LoadExternal: 0x80000002
+TPM2_CreatePrimary: Endorsement 0x80000002 (314 bytes)
+TPM2_CreatePrimary: Storage 0x80000004 (282 bytes)
+TPM2_LoadExternal: 0x80000006
 TPM2_MakeCredential: credentialBlob 68, secret 256
-TPM2_ReadPublic Handle 0x80000002: pub 314, name 34, qualifiedName 34
-Create HMAC-SHA256 Key success, public 48, Private 141
-TPM2_Load New HMAC Key Handle 0x80000002
+TPM2_ReadPublic Handle 0x80000006: pub 314, name 34, qualifiedName 34
+Create HMAC-SHA256 Key success, public 48, Private 137
+TPM2_Load New HMAC Key Handle 0x80000006
 TPM2_PolicyCommandCode: success
-TPM2_ObjectChangeAuth failed 0x9a2: TPM_RC_BAD_AUTH
-TPM2_ObjectChangeAuth: private 2
+TPM2_ObjectChangeAuth: private 137
 TPM2_ECC_Parameters: CurveID 3, sz 256, p 32, a 32, b 32, gX 32, gY 32, n 32, h 1
 TPM2_Create: New ECDSA Key: pub 88, priv 126
-TPM2_Load ECDSA Key Handle 0x80000002
+TPM2_Load ECDSA Key Handle 0x80000006
 TPM2_Sign: ECC S 32, R 32
 TPM2_VerifySignature: Tag 32802
 TPM2_Create: New ECDH Key: pub 88, priv 126
-TPM2_Load ECDH Key Handle 0x80000002
+TPM2_Load ECDH Key Handle 0x80000006
 TPM2_ECDH_KeyGen: zPt 68, pubPt 68
 TPM2_Create: New RSA Key: pub 278, priv 222
-TPM2_Load RSA Key Handle 0x80000002
+TPM2_Load RSA Key Handle 0x80000006
 TPM2_RSA_Encrypt: 256
 TPM2_RSA_Decrypt: 32
 RSA Encrypt/Decrypt test passed
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_ReadPublic failed 0x18b: TPM_RC_HANDLE
-TPM2_NV_DefineSpace failed 0x184: TPM_RC_VALUE
+TPM2_NV_DefineSpace: 0x1bfffff
+TPM2_NV_ReadPublic: Sz 14, Idx 0x1bfffff, nameAlg 11, Attr 0x2020002, authPol 0, dataSz 32, name 34
+Create AES128 CFB Key success, public 50, Private 142
+TPM2_Load New AES Key Handle 0x80000006
+Encrypt/Decrypt test success
+
 ```
 
+### TPM2 CSR Example
+
+```
+./examples/csr/csr
+TPM2 CSR Example
+Generated/Signed Cert (DER 860, PEM 1236)
+-----BEGIN CERTIFICATE REQUEST-----
+MIIDWDCCAkACAQIwgZsxCzAJBgNVBAYTAlVTMQ8wDQYDVQQIDAZPcmVnb24xETAP
+BgNVBAcMCFBvcnRsYW5kMQ0wCwYDVQQEDARUZXN0MRAwDgYDVQQKDAd3b2xmU1NM
+MQwwCgYDVQQLDANSU0ExGDAWBgNVBAMMD3d3dy53b2xmc3NsLmNvbTEfMB0GCSqG
+SIb3DQEJARYQaW5mb0B3b2xmc3NsLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEP
+ADCCAQoCggEBANtFRTX9CIW489vdmfy0qoffKtXBIfEGo07XgbvHPqk/KLx9NpK4
+fDLRdh5Kh7mDIGQI0hKDQMQ4GRTzRlE+wXlTqGQaQohac1LRxe21RCCKn0ZXvbCJ
+Wd1cIAGQyDyOb8WYCquQB79r2pIAKnVbedu+G1jx3tVrwB8ZCosKF86au7cEDxvD
+sdmt2vcEIlMcgfWQNo8TkWEKW33qu/rOOfJAUkVOUKENvj8zz/Iw4pX9nImiclMC
+/pMcgjpnFUlG5a0Jwg2PR7pXyRYUCciMq20UF5LDZG3NmFirVqigOmBIFsrpVCjt
+wf/Ep6DxFgmy7KNJ/0kzQByySvjKrIOqynsCAwEAAaB3MHUGCSqGSIb3DQEJDjFo
+MGYwHQYDVR0OBBYEFBHIhJ44Ide+SKGpL2neKuusXBZxMEUGA1UdJQQ+MDwGCCsG
+AQUFBwMBBggrBgEFBQcDAgYIKwYBBQUHAwMGCCsGAQUFBwMEBggrBgEFBQcDCAYI
+KwYBBQUHAwkwDQYJKoZIhvcNAQELBQADggEBACGHTZE5BVonf9OM3bYZvl2SiKdj
+fo+f8a5COgBgCiNK8DPXCr+RMfp7jy8+3NP0bUPppi46F6Eq80YIZuQJgoyd0l8l
+F+0KXq/FuoHtTLH7joHCKcYta1yPpnvKAG9195aIruAHesXwDxklqTvlVx3/e9No
+YtmWUMdrLvTZrI1L1/0OuHbPgCGmdyHOXEh0xY0VTE1I0ff0b8UC3dQCsf8uROhO
+fXXYwZz9LLSdO/QuDSxXThEe4m1/AUJkiaQ/T2zNEiR5Imk+jluXLz8bVM7w+HMt
+l/076ekjTI+7PwzBZIG2F3nOIDUmHwe0lAWdU8h9IoAlM6kS22fh6gZZqQg=
+-----END CERTIFICATE REQUEST-----
+
+Generated/Signed Cert (DER 467, PEM 704)
+-----BEGIN CERTIFICATE REQUEST-----
+MIIBzzCCAXUCAQIwgZsxCzAJBgNVBAYTAlVTMQ8wDQYDVQQIDAZPcmVnb24xETAP
+BgNVBAcMCFBvcnRsYW5kMQ0wCwYDVQQEDARUZXN0MRAwDgYDVQQKDAd3b2xmU1NM
+MQwwCgYDVQQLDANFQ0MxGDAWBgNVBAMMD3d3dy53b2xmc3NsLmNvbTEfMB0GCSqG
+SIb3DQEJARYQaW5mb0B3b2xmc3NsLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEH
+A0IABIokJgsrMSW8f6si4S1saUXABXbqWKWVQn+D6z9LQe/wkPqozP/hV/3qTtpE
+I/E3HjcHqRY+nsosjlEz36mzrRagdzB1BgkqhkiG9w0BCQ4xaDBmMB0GA1UdDgQW
+BBRyZJhX+sHZEE117OKL0/CPVGbAKzBFBgNVHSUEPjA8BggrBgEFBQcDAQYIKwYB
+BQUHAwIGCCsGAQUFBwMDBggrBgEFBQcDBAYIKwYBBQUHAwgGCCsGAQUFBwMJMAoG
+CCqGSM49BAMCA0gAMEUCIQCR9cbyRt3cbEZUIOBa4GNSRTlgFdB3X1EOwm+cA5/k
+6AIgBm+EU6m5SDsk7BYmxTQAhgJFrelwymOa7m16kAXnFuU=
+-----END CERTIFICATE REQUEST-----
+```
+
+### TPM2 PKCS 7 Example
+
+```
+./examples/pkcs7/pkcs7 
+TPM2 PKCS7 Example
+PKCS7 Signed Container 1625
+PKCS7 Container Verified (using TPM)
+PKCS7 Container Verified (using software)
+```
+
+## Examples with Debug Enabled
 
 ### TPM2 Wrapper Tests with Debug Enabled
 
@@ -2002,9 +2087,10 @@ Response: 10
 
 ## Todo
 * Improve overall documentation.
-* Add support for using the TPM with wolfSSL for TLS.
 * Add support for encrypting / decrypting parameters. (90% complete)
-* Add `spi_tis_dev` support for Raspberry Pi. This will allow use with Rasbian kernel patches with Infineon.
+* Add `spi_tis_dev` support for Raspberry Pi.
+* Add runtime support for detecting ST33 or SLB9670.
+* Add runtime support for using I2C or SPI module.
 
 
 ## Support

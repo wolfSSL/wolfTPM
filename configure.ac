@@ -141,6 +141,20 @@ fi
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 
 
+# I2C Support
+AC_ARG_ENABLE([i2c],
+    [AS_HELP_STRING([--enable-i2c],[Enable I2C TPM Support (default: disabled)])],
+    [ ENABLED_I2C=$enableval ],
+    [ ENABLED_I2C=no ]
+    )
+
+if test "x$ENABLED_I2C" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
+fi
+AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
+
+
 # Advanced IO
 AC_ARG_ENABLE([advio],
     [AS_HELP_STRING([--enable-advio],[Enable Advanced IO (default: disabled)])],
@@ -148,7 +162,7 @@ AC_ARG_ENABLE([advio],
     [ ENABLED_ADVIO=no ]
     )
 
-if test "x$ENABLED_ADVIO" = "xyes"
+if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ADV_IO"
 fi
@@ -167,20 +181,6 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
 fi
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
-
-
-# I2C Support
-AC_ARG_ENABLE([i2c],
-    [AS_HELP_STRING([--enable-i2c],[Enable I2C TPM Support (default: disabled)])],
-    [ ENABLED_I2C=$enableval ],
-    [ ENABLED_I2C=no ]
-    )
-
-if test "x$ENABLED_I2C" = "xyes"
-then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
-fi
-AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 
 
 

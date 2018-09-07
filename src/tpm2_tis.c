@@ -60,22 +60,30 @@ enum tpm_tis_int_flags {
 
 #define TPM_BASE_ADDRESS (0xD40000u)
 
+#ifdef WOLFTPM_I2C
+/* For I2C only the lower 8-bits of the address are used */
+#define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0004u | ((l) << 12u))
+#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0030u | ((l) << 12u))
+#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0048u | ((l) << 12u))
+#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x004Cu | ((l) << 12u))
+#define TPM_I2C_DEVICE_ADDR(l)  (TPM_BASE_ADDRESS | 0x0038u | ((l) << 12u))
+#define TPM_DATA_CSUM_ENABLE(l) (TPM_BASE_ADDRESS | 0x0040u | ((l) << 12u))
+#define TPM_DATA_CSUM(l)        (TPM_BASE_ADDRESS | 0x0044u | ((l) << 12u))
+#else
 #define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0000u | ((l) << 12u))
+#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0014u | ((l) << 12u))
+#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0F00u | ((l) << 12u))
+#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x0F04u | ((l) << 12u))
+#endif
+
 #define TPM_INT_ENABLE(l)       (TPM_BASE_ADDRESS | 0x0008u | ((l) << 12u))
 #define TPM_INT_VECTOR(l)       (TPM_BASE_ADDRESS | 0x000Cu | ((l) << 12u))
 #define TPM_INT_STATUS(l)       (TPM_BASE_ADDRESS | 0x0010u | ((l) << 12u))
-#if defined(WOLFTPM_ST33) && defined(WOLFTPM_I2C)
-#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0030u | ((l) << 12u))
-#else
-#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0014u | ((l) << 12u))
-#endif
 #define TPM_STS(l)              (TPM_BASE_ADDRESS | 0x0018u | ((l) << 12u))
 #define TPM_BURST_COUNT(l)      (TPM_BASE_ADDRESS | 0x0019u | ((l) << 12u))
 #define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
 #define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
 
-#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0F00u | ((l) << 12u))
-#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x0F04u | ((l) << 12u))
 
 
 int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
