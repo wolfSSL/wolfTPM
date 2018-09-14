@@ -280,6 +280,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     wolfCrypt_Init();
 
+#ifndef WC_NO_RNG
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
 #ifdef DEBUG_WOLFTPM
@@ -287,6 +288,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 #endif
         return rc;
     }
+#endif /* !WC_NO_RNG */
 
 #ifndef SINGLE_THREADED
     if (wc_InitMutex(&ctx->hwLock) != 0) {
@@ -340,7 +342,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #ifndef WC_NO_RNG
     wc_FreeRng(&ctx->rng);
+    #endif
 #ifndef SINGLE_THREADED
     wc_FreeMutex(&ctx->hwLock);
 #endif

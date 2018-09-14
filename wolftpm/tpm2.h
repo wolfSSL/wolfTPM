@@ -1620,7 +1620,9 @@ typedef struct TPM2_CTX {
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
 #endif
+    #ifndef WC_NO_RNG
     WC_RNG rng;
+    #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     /* TPM TIS Info */

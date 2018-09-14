@@ -47,6 +47,7 @@
         #include <linux/spi/spidev.h>
     #endif
     #include <fcntl.h>
+    #include <unistd.h>
 
     #ifdef WOLFTPM_ST33
         #ifdef WOLFTPM_I2C
