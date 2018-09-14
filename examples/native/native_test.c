@@ -154,10 +154,10 @@ int TPM2_Native_Test(void* userCtx)
     TPM2B_PUBLIC_KEY_RSA message;
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    byte pcr[WC_SHA256_DIGEST_SIZE];
-    int pcr_len = WC_SHA256_DIGEST_SIZE;
-    byte hash[WC_SHA256_DIGEST_SIZE];
-    int hash_len = WC_SHA256_DIGEST_SIZE;
+    byte pcr[TPM_SHA256_DIGEST_SIZE];
+    int pcr_len = TPM_SHA256_DIGEST_SIZE;
+    byte hash[TPM_SHA256_DIGEST_SIZE];
+    int hash_len = TPM_SHA256_DIGEST_SIZE;
 #endif
 
     TpmRsaKey endorse;
@@ -192,7 +192,7 @@ int TPM2_Native_Test(void* userCtx)
     rsaKey.handle = TPM_RH_NULL;
     aesKey.handle = TPM_RH_NULL;
 
-    message.size = WC_SHA256_DIGEST_SIZE;
+    message.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(message.buffer, 0x11, message.size);
 
 
@@ -286,16 +286,16 @@ int TPM2_Native_Test(void* userCtx)
 
     /* Random */
     XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
-    cmdIn.getRand.bytesRequested = WC_SHA256_DIGEST_SIZE;
+    cmdIn.getRand.bytesRequested = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.getRand.randomBytes.size != WC_SHA256_DIGEST_SIZE) {
+    if (cmdOut.getRand.randomBytes.size != TPM_SHA256_DIGEST_SIZE) {
         printf("TPM2_GetRandom length mismatch %d != %d\n",
-            cmdOut.getRand.randomBytes.size, WC_SHA256_DIGEST_SIZE);
+            cmdOut.getRand.randomBytes.size, TPM_SHA256_DIGEST_SIZE);
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
@@ -343,7 +343,7 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
-    for (i=0; i<WC_SHA256_DIGEST_SIZE; i++) {
+    for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
         cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
     }
     rc = TPM2_PCR_Extend(&cmdIn.pcrExtend);
@@ -378,7 +378,7 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.authSes.sessionType = TPM_SE_POLICY;
     cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
     cmdIn.authSes.authHash = TPM_ALG_SHA256;
-    cmdIn.authSes.nonceCaller.size = WC_SHA256_DIGEST_SIZE;
+    cmdIn.authSes.nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
                        cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
@@ -507,9 +507,9 @@ int TPM2_Native_Test(void* userCtx)
             TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.seqComp.result.size != WC_SHA256_DIGEST_SIZE &&
+    if (cmdOut.seqComp.result.size != TPM_SHA256_DIGEST_SIZE &&
         XMEMCMP(cmdOut.seqComp.result.buffer, hashTestDig,
-                                                WC_SHA256_DIGEST_SIZE) != 0) {
+                                                TPM_SHA256_DIGEST_SIZE) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");
         goto exit;
     }
@@ -629,7 +629,7 @@ int TPM2_Native_Test(void* userCtx)
     /* Make a credential */
     XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
     cmdIn.makeCred.handle = handle;
-    cmdIn.makeCred.credential.size = WC_SHA256_DIGEST_SIZE;
+    cmdIn.makeCred.credential.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(cmdIn.makeCred.credential.buffer, 0x11,
         cmdIn.makeCred.credential.size);
     cmdIn.makeCred.objectName = endorse.name;
@@ -732,7 +732,7 @@ int TPM2_Native_Test(void* userCtx)
     XMEMSET(&cmdIn.objChgAuth, 0, sizeof(cmdIn.objChgAuth));
     cmdIn.objChgAuth.objectHandle = hmacKey.handle;
     cmdIn.objChgAuth.parentHandle = storage.handle;
-    cmdIn.objChgAuth.newAuth.size = WC_SHA256_DIGEST_SIZE;
+    cmdIn.objChgAuth.newAuth.size = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_GetNonce(cmdIn.objChgAuth.newAuth.buffer,
                        cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
@@ -1065,7 +1065,7 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.nvDefine.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
     cmdIn.nvDefine.publicInfo.nvPublic.attributes = (
         TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA);
-    cmdIn.nvDefine.publicInfo.nvPublic.dataSize = WC_SHA256_DIGEST_SIZE;
+    cmdIn.nvDefine.publicInfo.nvPublic.dataSize = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_NV_DefineSpace(&cmdIn.nvDefine);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_NV_DefineSpace failed 0x%x: %s\n", rc,

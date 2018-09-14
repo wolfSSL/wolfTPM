@@ -166,7 +166,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
 
 
     /* Perform RSA encrypt / decrypt (OAEP pad) */
-    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
 
     bench_stats_start(&count, &start);
@@ -210,7 +210,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     bench_stats_asym_finish("ECC", 256, "key gen", count, start);
 
     /* Perform sign / verify */
-    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
 
     bench_stats_start(&count, &start);

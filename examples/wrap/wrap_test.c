@@ -227,7 +227,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("RSA Encrypt/Decrypt Test Passed\n");
 
     /* Perform RSA encrypt / decrypt (OAEP pad) */
-    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
@@ -287,7 +287,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
 
     /* Perform sign / verify */
-    message.size = WC_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
     cipher.size = sizeof(cipher.buffer); /* signature */
     rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,

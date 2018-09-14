@@ -778,25 +778,13 @@ typedef struct TPMS_ALGORITHM_DESCRIPTION {
 
 
 typedef union TPMU_HA {
-#ifdef WOLFSSL_SHA512
-    BYTE sha512[WC_SHA512_DIGEST_SIZE];
-#endif
-#ifdef WOLFSSL_SHA384
-    BYTE sha384[WC_SHA384_DIGEST_SIZE];
-#endif
-#ifndef NO_SHA256
-    BYTE sha256[WC_SHA256_DIGEST_SIZE];
-#endif
-#ifdef WOLFSSL_SHA224
-    BYTE sha224[WC_SHA224_DIGEST_SIZE];
-#endif
-#ifndef NO_SHA
-    BYTE sha[WC_SHA_DIGEST_SIZE];
-#endif
-#ifndef NO_MD5
-    BYTE md5[WC_MD5_DIGEST_SIZE];
-#endif
-    BYTE H[WC_MAX_DIGEST_SIZE];
+    BYTE sha512[TPM_SHA512_DIGEST_SIZE];
+    BYTE sha384[TPM_SHA384_DIGEST_SIZE];
+    BYTE sha256[TPM_SHA256_DIGEST_SIZE];
+    BYTE sha224[TPM_SHA224_DIGEST_SIZE];
+    BYTE sha[TPM_SHA_DIGEST_SIZE];
+    BYTE md5[TPM_MD5_DIGEST_SIZE];
+    BYTE H[TPM_MAX_DIGEST_SIZE];
 } TPMU_HA;
 
 typedef struct TPMT_HA {
@@ -1081,21 +1069,15 @@ typedef struct TPM2B_ATTEST {
 /* Algorithm Parameters and Structures */
 
 /* Symmetric */
-#ifndef NO_AES
 typedef TPM_KEY_BITS TPMI_AES_KEY_BITS;
-#endif
 
 typedef union TPMU_SYM_KEY_BITS {
-#ifndef NO_AES
     TPMI_AES_KEY_BITS aes;
-#endif
     TPM_KEY_BITS sym;
 } TPMU_SYM_KEY_BITS;
 
 typedef union TPMU_SYM_MODE {
-#ifndef NO_AES
     TPMI_ALG_SYM_MODE aes;
-#endif
     TPMI_ALG_SYM_MODE sym;
 } TPMU_SYM_MODE;
 
