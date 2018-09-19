@@ -78,6 +78,8 @@ Tested with:
 Build wolfSSL:
 
 ```
+git clone https://github.com/wolfSSL/wolfssl.git
+cd wolfssl
 ./autogen.sh
 ./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev 
 make
@@ -86,11 +88,15 @@ sudo make install
 sudo ldconfig
 ```
 
+autogen.sh requires: automake and libtool: `sudo apt-get install automake libtool`
+
 ### Building Infineon SLB9670
 
 Build wolfTPM:
 
 ```
+git clone https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM
 ./autogen.sh
 ./configure
 make
@@ -164,6 +170,14 @@ For the I2C support on Raspberry Pi you may need to enable I2C. Here are the ste
 
 ## Running Examples
 
+## Device Identification
+
+Infineon SLB9670:
+TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+
+ST ST33TP SPI
+TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
+
 ### TPM2 Wrapper Tests
 
 ```
@@ -217,7 +231,7 @@ ECDHE    256 agree          5 ops took 1.248 sec, avg 249.669 ms,  4.005 ops/sec
 ```
 ./examples/native/native_test
 TPM2 Demo using Native API's
-TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e 
+TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 TPM2_Startup pass
 TPM2_SelfTest pass
 TPM2_GetTestResult: Size 12, Rc 0x0

@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* ---------------------------------------------------------------------------*/
-/* TYPES */
+/* TPM TYPES */
 /* ---------------------------------------------------------------------------*/
 
 typedef uint8_t  UINT8;
@@ -82,15 +82,6 @@ typedef int64_t  INT64;
     typedef uint32_t word32;
     typedef uint64_t word64;
 
-    #define MAX_ECC_KEY_BYTES     66
-    #define WC_MAX_BLOCK_SIZE     128
-    #define WC_MD5_DIGEST_SIZE    16
-    #define WC_SHA_DIGEST_SIZE    20
-    #define WC_SHA256_DIGEST_SIZE 32
-    #define WC_SHA384_DIGEST_SIZE 48
-    #define WC_SHA512_DIGEST_SIZE 64
-    #define WC_MAX_DIGEST_SIZE    WC_SHA512_DIGEST_SIZE
-
     #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
     #define BUFFER_E              -132  /* output buffer too small or input too large */
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
@@ -126,6 +117,29 @@ typedef int64_t  INT64;
 #else
     #define WOLFTPM_PACK_BEG
     #define WOLFTPM_PACK_END
+#endif
+
+
+/* ---------------------------------------------------------------------------*/
+/* ALGORITHMS */
+/* ---------------------------------------------------------------------------*/
+#define TPM_MD5_DIGEST_SIZE    16
+#define TPM_SHA_DIGEST_SIZE    20
+#define TPM_SHA224_DIGEST_SIZE 28
+#define TPM_SHA256_DIGEST_SIZE 32
+#define TPM_SHA384_DIGEST_SIZE 48
+#define TPM_SHA512_DIGEST_SIZE 64
+
+#ifndef MAX_ECC_KEY_BYTES
+#define MAX_ECC_KEY_BYTES     66
+#endif
+
+#ifndef TPM_MAX_BLOCK_SIZE
+#define TPM_MAX_BLOCK_SIZE     128
+#endif
+
+#ifndef TPM_MAX_DIGEST_SIZE
+#define TPM_MAX_DIGEST_SIZE    TPM_SHA512_DIGEST_SIZE
 #endif
 
 

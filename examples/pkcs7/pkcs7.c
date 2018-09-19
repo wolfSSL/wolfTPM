@@ -87,7 +87,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     PKCS7 pkcs7;
     wc_HashAlg       hash;
     enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
-    byte             hashBuf[WC_SHA256_DIGEST_SIZE];
+    byte             hashBuf[TPM_SHA256_DIGEST_SIZE];
     word32           hashSz = wc_HashGetDigestSize(hashType);
     WOLFTPM2_BUFFER  outputHead, outputFoot;
     byte dataChunk[MY_DATA_CHUNKS];

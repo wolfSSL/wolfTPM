@@ -280,6 +280,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     wolfCrypt_Init();
 
+#ifndef WC_NO_RNG
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
 #ifdef DEBUG_WOLFTPM
@@ -287,6 +288,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 #endif
         return rc;
     }
+#endif /* !WC_NO_RNG */
 
 #ifndef SINGLE_THREADED
     if (wc_InitMutex(&ctx->hwLock) != 0) {
@@ -340,7 +342,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #ifndef WC_NO_RNG
     wc_FreeRng(&ctx->rng);
+    #endif
 #ifndef SINGLE_THREADED
     wc_FreeMutex(&ctx->hwLock);
 #endif
@@ -4541,22 +4545,14 @@ int TPM2_SetCommandSet(SetCommandSet_In* in)
 int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
 {
     switch (hashAlg) {
-    #ifndef NO_SHA
         case TPM_ALG_SHA1:
-            return WC_SHA_DIGEST_SIZE;
-    #endif
-    #ifndef NO_SHA256
+            return TPM_SHA_DIGEST_SIZE;
         case TPM_ALG_SHA256:
-            return WC_SHA256_DIGEST_SIZE;
-    #endif
-#ifdef WOLFSSL_SHA512
-    #ifdef WOLFSSL_SHA384
+            return TPM_SHA256_DIGEST_SIZE;
         case TPM_ALG_SHA384:
-            return WC_SHA384_DIGEST_SIZE;
-    #endif
+            return TPM_SHA384_DIGEST_SIZE;
         case TPM_ALG_SHA512:
-            return WC_SHA512_DIGEST_SIZE;
-#endif /* WOLFSSL_SHA512 */
+            return TPM_SHA512_DIGEST_SIZE;
         default:
             return 0;
     }

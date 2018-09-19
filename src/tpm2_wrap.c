@@ -1219,10 +1219,12 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
+struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 {
+#ifndef WC_NO_RNG
     if (dev)
         return &dev->ctx.rng;
+#endif
     return NULL;
 }
 #endif
