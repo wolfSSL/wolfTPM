@@ -82,8 +82,8 @@ WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM2B_PUBLIC* pub);
 WOLFTPM_API int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent);
-WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, 
-    int curveId, const byte* eccPubX, word32 eccPubXSz, 
+WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    int curveId, const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz);
 WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle);
@@ -124,17 +124,19 @@ WOLFTPM_API int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
 WOLFTPM_API int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32* dataSz, word32 offset);
-WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, 
+WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     TPMS_NV_PUBLIC* nvPublic);
 WOLFTPM_API int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex);
 
 WOLFTPM_API int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     WOLFTPM2_KEY* key, TPM_HANDLE persistentHandle);
-WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, 
+WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     WOLFTPM2_KEY* key);
 
 WOLFTPM_API struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len);
 
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
 
@@ -146,14 +148,14 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
-WOLFTPM_API int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, 
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate,
     int keyBits, TPM_ALG_ID algMode, int isSign, int isDecrypt);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes);
 
 /* moved to tpm.h native code. macros here for backwards compatibility */
-#define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel 
+#define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel
 #define wolfTPM2_GetAlgName   TPM2_GetAlgName
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
@@ -173,7 +175,7 @@ typedef struct TpmCryptoDevCtx {
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
-WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb, 
+WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     TpmCryptoDevCtx* tpmCtx, int* pDevId);
 #endif
 
