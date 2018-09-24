@@ -286,16 +286,16 @@ int TPM2_Native_Test(void* userCtx)
 
     /* Random */
     XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
-    cmdIn.getRand.bytesRequested = TPM_SHA256_DIGEST_SIZE;
+    cmdIn.getRand.bytesRequested = MAX_RNG_REQ_SIZE;
     rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.getRand.randomBytes.size != TPM_SHA256_DIGEST_SIZE) {
+    if (cmdOut.getRand.randomBytes.size != MAX_RNG_REQ_SIZE) {
         printf("TPM2_GetRandom length mismatch %d != %d\n",
-            cmdOut.getRand.randomBytes.size, TPM_SHA256_DIGEST_SIZE);
+            cmdOut.getRand.randomBytes.size, MAX_RNG_REQ_SIZE);
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);

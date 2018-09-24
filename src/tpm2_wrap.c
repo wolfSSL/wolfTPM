@@ -1229,6 +1229,48 @@ struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 }
 #endif
 
+int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
+{
+    int rc = TPM_RC_SUCCESS;
+    GetRandom_In in;
+    GetRandom_Out out;
+    word32 sz, pos = 0;
+
+    if (dev == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
+    while (pos < len) {
+        /* caclulate size to get */
+        sz = len - pos;
+        if (sz > MAX_RNG_REQ_SIZE)
+            sz = MAX_RNG_REQ_SIZE;
+
+        XMEMSET(&in, 0, sizeof(in));
+        in.bytesRequested = sz;
+        rc = TPM2_GetRandom(&in, &out);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+            break;
+        }
+
+        sz = out.randomBytes.size; /* use actual returned size */
+        if (sz > MAX_RNG_REQ_SIZE) {
+        #ifdef DEBUG_WOLFTPM
+            printf("wolfTPM2_GetRandom out size error\n");
+        #endif
+            rc = BAD_FUNC_ARG;
+            break;
+        }
+
+        XMEMCPY(&buf[pos], out.randomBytes.buffer, sz);
+        pos += sz;
+    }
+    return rc;
+}
+
 int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
 {
     int rc;

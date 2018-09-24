@@ -1606,10 +1606,10 @@ struct TPM2_CTX;
 #endif
 
 #ifdef WOLFTPM_ADV_IO
-typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr, 
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr,
     BYTE* xferBuf, UINT16 xferSz, void* userCtx);
 #else
-typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf, 
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
     UINT16 xferSz, void* userCtx);
 #endif
 
@@ -1689,7 +1689,7 @@ typedef struct {
     UINT16 bytesRequested;
 } GetRandom_In;
 typedef struct {
-    TPM2B_DIGEST randomBytes;
+    TPM2B_DIGEST randomBytes; /* hardware max is 32-bytes */
 } GetRandom_Out;
 WOLFTPM_API TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out);
 
@@ -2698,7 +2698,7 @@ WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
 
-WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, 
+WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     int pcrIndex);
 WOLFTPM_API const char* TPM2_GetRCString(int rc);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);

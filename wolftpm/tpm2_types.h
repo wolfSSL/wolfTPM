@@ -73,7 +73,7 @@ typedef int64_t  INT64;
         #include <wolfssl/wolfcrypt/cryptodev.h>
     #endif
 #else
-    
+
     #include <stdio.h>
     #include <string.h>
 
@@ -321,6 +321,9 @@ typedef int64_t  INT64;
 #endif
 #ifndef MAX_RNG_ENTROPY_SIZE
 #define MAX_RNG_ENTROPY_SIZE 64
+#endif
+#ifndef MAX_RNG_REQ_SIZE
+#define MAX_RNG_REQ_SIZE 32 /* ST33 and SLB9670 max is 32-bytes */
 #endif
 #ifndef RAM_INDEX_SPACE
 #define RAM_INDEX_SPACE 512

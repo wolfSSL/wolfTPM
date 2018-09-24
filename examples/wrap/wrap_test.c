@@ -389,6 +389,11 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("NV Test on index 0x%x with %d bytes passed\n",
         TPM2_DEMO_NV_TEST_INDEX, TPM2_DEMO_NV_TEST_SIZE);
 
+    /* Random Test */
+    XMEMSET(message.buffer, 0, sizeof(message.buffer));
+    rc = wolfTPM2_GetRandom(&dev, message.buffer, sizeof(message.buffer));
+    if (rc != 0) goto exit;
+
 exit:
 
     if (rc != 0) {
