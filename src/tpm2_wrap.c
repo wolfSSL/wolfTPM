@@ -177,7 +177,8 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     session->nonceTPM = authSesOut.nonceTPM;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_StartAuthSession: handle 0x%x\n", session->handle.hndl);
+    printf("TPM2_StartAuthSession: handle 0x%x\n",
+        (word32)session->handle.hndl);
 #endif
 
     return rc;
@@ -223,7 +224,7 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
-        key->handle.hndl, key->pub.size);
+		(word32)key->handle.hndl, key->pub.size);
 #endif
 
     return rc;
@@ -290,7 +291,7 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     key->handle.auth = createIn.inSensitive.sensitive.userAuth;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Load Key Handle 0x%x\n", key->handle.hndl);
+    printf("TPM2_Load Key Handle 0x%x\n", (word32)key->handle.hndl);
 #endif
 
     return rc;
@@ -321,7 +322,7 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     key->pub = loadExtIn.inPublic;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_LoadExternal: 0x%x\n", loadExtOut.objectHandle);
+    printf("TPM2_LoadExternal: 0x%x\n", (word32)loadExtOut.objectHandle);
 #endif
 
     return rc;
@@ -337,13 +338,15 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (rsaPubSz > sizeof(pub.publicArea.unique.rsa.buffer))
         return BUFFER_E;
 
-    /* To support TPM hardware and firmware versions that do not allow small exponents */
+    /* To support TPM hardware and firmware versions that do not allow
+        small exponents */
 #ifndef WOLFTPM_NO_SOFTWARE_RSA
     /* The TPM reference implementation does not support an exponent size
        smaller than 7 nor does it allow keys to be created on the TPM with a
        public exponent less than 2^16 + 1. */
     if (exponent < 7) {
-        printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n", exponent);
+        printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n",
+            exponent);
         return TPM_RC_KEY;
     }
 #endif
@@ -380,7 +383,8 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     pub.publicArea.objectAttributes = 0;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
+        WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
     pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
     pub.publicArea.unique.ecc.x.size = eccPubXSz;
@@ -416,7 +420,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
-        readPubIn.objectHandle,
+		(word32)readPubIn.objectHandle,
         readPubOut.outPublic.size, readPubOut.name.size,
         readPubOut.qualifiedName.size);
 #endif
@@ -622,13 +626,14 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_EvictControl failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("TPM2_EvictControl failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
-        in.auth, in.objectHandle, in.persistentHandle);
+    	(word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
     /* unload transient handle */
@@ -640,7 +645,8 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     return rc;
 }
 
-int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_KEY* key)
+int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
+    WOLFTPM2_KEY* key)
 {
     int rc;
     EvictControl_In in;
@@ -650,7 +656,8 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_K
     }
 
     /* if key is not persistent then just return success */
-    if (key->handle.hndl < PERSISTENT_FIRST || key->handle.hndl > PERSISTENT_LAST)
+    if (key->handle.hndl < PERSISTENT_FIRST ||
+            key->handle.hndl > PERSISTENT_LAST)
         return TPM_RC_SUCCESS;
 
     /* clear auth */
@@ -664,13 +671,14 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle, WOLFTPM2_K
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_EvictControl failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("TPM2_EvictControl failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
-        in.auth, in.objectHandle, in.persistentHandle);
+    	(word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
     /* indicate no handle */
@@ -995,7 +1003,7 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_FlushContext: Closed handle 0x%x\n", handle->hndl);
+    printf("TPM2_FlushContext: Closed handle 0x%x\n", (word32)handle->hndl);
 #endif
 
     handle->hndl = TPM_RH_NULL;
@@ -1038,9 +1046,9 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
-        in.authHandle,
-        in.publicInfo.nvPublic.nvIndex,
-        in.publicInfo.nvPublic.attributes,
+        (word32)in.authHandle,
+		(word32)in.publicInfo.nvPublic.nvIndex,
+		(word32)in.publicInfo.nvPublic.attributes,
         in.publicInfo.nvPublic.dataSize);
 #endif
 
@@ -1082,7 +1090,7 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_Write: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
-            in.authHandle, in.nvIndex, in.offset, in.data.size);
+            (word32)in.authHandle, (word32)in.nvIndex, in.offset, in.data.size);
     #endif
 
         pos += towrite;
@@ -1134,7 +1142,7 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_Read: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
-            in.authHandle, in.nvIndex, in.offset, out.data.size);
+            (word32)in.authHandle, (word32)in.nvIndex, in.offset, out.data.size);
     #endif
 
         /* if we are done reading, exit loop */
@@ -1150,7 +1158,8 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
-int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, TPMS_NV_PUBLIC* nvPublic)
+int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
+    TPMS_NV_PUBLIC* nvPublic)
 {
     int rc;
     NV_ReadPublic_In  in;
@@ -1172,9 +1181,9 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex, TPMS_NV_PUBLIC* nvP
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         out.nvPublic.size,
-        out.nvPublic.nvPublic.nvIndex,
+		(word32)out.nvPublic.nvPublic.nvIndex,
         out.nvPublic.nvPublic.nameAlg,
-        out.nvPublic.nvPublic.attributes,
+        (word32)out.nvPublic.nvPublic.attributes,
         out.nvPublic.nvPublic.authPolicy.size,
         out.nvPublic.nvPublic.dataSize,
         out.nvName.size);
@@ -1212,7 +1221,7 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_UndefineSpace: Auth 0x%x, Idx 0x%x\n",
-        in.authHandle, in.nvIndex);
+        (word32)in.authHandle, (word32)in.nvIndex);
 #endif
 
     return rc;
@@ -1290,7 +1299,7 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Clear Auth 0x%x\n", in.authHandle);
+    printf("TPM2_Clear Auth 0x%x\n", (word32)in.authHandle);
 #endif
 
     return rc;
