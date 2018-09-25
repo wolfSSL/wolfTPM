@@ -54,7 +54,9 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 
     rc = TPM2_Init(&dev->ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -76,7 +78,9 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     rc = TPM2_Startup(&startupIn);
     if (rc != TPM_RC_SUCCESS &&
         rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
@@ -124,7 +128,9 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
     shutdownIn.shutdownType = TPM_SU_CLEAR;
     rc = TPM2_Shutdown(&shutdownIn);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Shutdown failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -162,13 +168,17 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     rc = TPM2_GetNonce(authSesIn.nonceCaller.buffer,
                        authSesIn.nonceCaller.size);
     if (rc < 0) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
     rc = TPM2_StartAuthSession(&authSesIn, &authSesOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_StartAuthSession failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -211,8 +221,10 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         sizeof(TPMT_PUBLIC));
     rc = TPM2_CreatePrimary(&createPriIn, &createPriOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_CreatePrimary: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
     key->handle.dev  = dev;
@@ -266,7 +278,9 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -283,7 +297,9 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     loadIn.inPublic = key->pub;
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
     key->handle.dev  = dev;
@@ -313,8 +329,10 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     loadExtIn.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_LoadExternal: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
     key->handle.dev = dev;
@@ -345,8 +363,10 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
        smaller than 7 nor does it allow keys to be created on the TPM with a
        public exponent less than 2^16 + 1. */
     if (exponent < 7) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n",
             exponent);
+    #endif
         return TPM_RC_KEY;
     }
 #endif
@@ -410,7 +430,9 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     readPubIn.objectHandle = handle;
     rc = TPM2_ReadPublic(&readPubIn, &readPubOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -626,8 +648,10 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -671,8 +695,10 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -724,7 +750,9 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     signIn.validation.hierarchy = TPM_RH_NULL;
     rc = TPM2_Sign(&signIn, &signOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Sign failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -788,8 +816,10 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     rc = TPM2_VerifySignature(&verifySigIn, &verifySigOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_VerifySignature failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
@@ -828,8 +858,10 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     ecdhIn.keyHandle = privKey->handle.hndl;
     rc = TPM2_ECDH_KeyGen(&ecdhIn, &ecdhOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -881,8 +913,10 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     rc = TPM2_RSA_Encrypt(&rsaEncIn, &rsaEncOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_RSA_Encrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -930,8 +964,10 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     rc = TPM2_RSA_Decrypt(&rsaDecIn, &rsaDecOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_RSA_Decrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -959,7 +995,9 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
     wolfTPM2_SetupPCRSel(&pcrReadIn.pcrSelectionIn, alg, pcrIndex);
     rc = TPM2_PCR_Read(&pcrReadIn, &pcrReadOut);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -997,8 +1035,10 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     in.flushHandle = handle->hndl;
     rc = TPM2_FlushContext(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_FlushContext failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -1039,8 +1079,10 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
     rc = TPM2_NV_DefineSpace(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_DefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -1083,8 +1125,10 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
         rc = TPM2_NV_Write(&in);
         if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
             printf("TPM2_NV_Write failed %d: %s\n", rc,
                 wolfTPM2_GetRCString(rc));
+        #endif
             return rc;
         }
 
@@ -1130,8 +1174,10 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
         rc = TPM2_NV_Read(&in, &out);
         if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
             printf("TPM2_NV_Read failed %d: %s\n", rc,
                 wolfTPM2_GetRCString(rc));
+        #endif
             return rc;
         }
 
@@ -1172,8 +1218,10 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     in.nvIndex = nvIndex;
     rc = TPM2_NV_ReadPublic(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_ReadPublic failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -1214,8 +1262,10 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 
     rc = TPM2_NV_UndefineSpace(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_UndefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -1293,8 +1343,10 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
 
     rc = TPM2_Clear(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Clear failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
