@@ -400,9 +400,9 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
-    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.objectAttributes = TPMA_OBJECT_sign;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
         WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
@@ -1620,7 +1620,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
-                        info->pk.eccverify.sig, info->pk.eccverify.siglen,
+                        sigRS, rLen + sLen,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
 
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
