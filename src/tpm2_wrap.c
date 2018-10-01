@@ -804,7 +804,9 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     verifySigIn.signature.sigAlgo =
         key->pub.publicArea.parameters.eccDetail.scheme.scheme;
-    verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
+    verifySigIn.signature.signature.ecdsa.hash = TPM2_GetHashType(digestSz);
+    if (verifySigIn.signature.signature.ecdsa.hash == TPM_ALG_NULL)
+        verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
 
     /* Signature is R then S */
     verifySigIn.signature.signature.ecdsa.signatureR.size = curveSize;

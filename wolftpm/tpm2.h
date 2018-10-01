@@ -2696,6 +2696,7 @@ WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
+WOLFTPM_API TPMI_ALG_HASH TPM2_GetHashType(int digestSz);
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
 
 WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,

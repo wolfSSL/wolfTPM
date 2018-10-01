@@ -4554,8 +4554,26 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         case TPM_ALG_SHA512:
             return TPM_SHA512_DIGEST_SIZE;
         default:
-            return 0;
+            break;
     }
+    return 0;
+}
+
+TPMI_ALG_HASH TPM2_GetHashType(int digestSz)
+{
+    switch (digestSz) {
+        case TPM_SHA_DIGEST_SIZE:
+            return TPM_ALG_SHA1;
+        case TPM_SHA256_DIGEST_SIZE:
+            return TPM_ALG_SHA256;
+        case TPM_SHA384_DIGEST_SIZE:
+            return TPM_ALG_SHA384;
+        case TPM_SHA512_DIGEST_SIZE:
+            return TPM_ALG_SHA512;
+        default:
+            break;
+    }
+    return TPM_ALG_NULL;
 }
 
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
