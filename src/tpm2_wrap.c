@@ -774,6 +774,23 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+static TPMI_ALG_HASH wolfTPM2_GetHashType(int digestSz)
+{
+    switch (digestSz) {
+        case TPM_SHA_DIGEST_SIZE:
+            return TPM_ALG_SHA1;
+        case TPM_SHA256_DIGEST_SIZE:
+            return TPM_ALG_SHA256;
+        case TPM_SHA384_DIGEST_SIZE:
+            return TPM_ALG_SHA384;
+        case TPM_SHA512_DIGEST_SIZE:
+            return TPM_ALG_SHA512;
+        default:
+            break;
+    }
+    return TPM_ALG_NULL;
+}
+
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
@@ -804,7 +821,7 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     verifySigIn.signature.sigAlgo =
         key->pub.publicArea.parameters.eccDetail.scheme.scheme;
-    verifySigIn.signature.signature.ecdsa.hash = TPM2_GetHashType(digestSz);
+    verifySigIn.signature.signature.ecdsa.hash = wolfTPM2_GetHashType(digestSz);
     if (verifySigIn.signature.signature.ecdsa.hash == TPM_ALG_NULL)
         verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
 
