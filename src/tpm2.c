@@ -4554,8 +4554,9 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         case TPM_ALG_SHA512:
             return TPM_SHA512_DIGEST_SIZE;
         default:
-            return 0;
+            break;
     }
+    return 0;
 }
 
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)

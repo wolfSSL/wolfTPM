@@ -400,9 +400,9 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
-    pub.publicArea.objectAttributes = 0;
+    pub.publicArea.objectAttributes = TPMA_OBJECT_sign;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
         WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
@@ -774,6 +774,23 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+static TPMI_ALG_HASH wolfTPM2_GetHashType(int digestSz)
+{
+    switch (digestSz) {
+        case TPM_SHA_DIGEST_SIZE:
+            return TPM_ALG_SHA1;
+        case TPM_SHA256_DIGEST_SIZE:
+            return TPM_ALG_SHA256;
+        case TPM_SHA384_DIGEST_SIZE:
+            return TPM_ALG_SHA384;
+        case TPM_SHA512_DIGEST_SIZE:
+            return TPM_ALG_SHA512;
+        default:
+            break;
+    }
+    return TPM_ALG_NULL;
+}
+
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
@@ -804,7 +821,9 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     verifySigIn.signature.sigAlgo =
         key->pub.publicArea.parameters.eccDetail.scheme.scheme;
-    verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
+    verifySigIn.signature.signature.ecdsa.hash = wolfTPM2_GetHashType(digestSz);
+    if (verifySigIn.signature.signature.ecdsa.hash == TPM_ALG_NULL)
+        verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
 
     /* Signature is R then S */
     verifySigIn.signature.signature.ecdsa.signatureR.size = curveSize;
@@ -1620,7 +1639,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
-                        info->pk.eccverify.sig, info->pk.eccverify.siglen,
+                        sigRS, rLen + sLen,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
 
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
