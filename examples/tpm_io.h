@@ -37,6 +37,7 @@
 
 static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
 static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
+static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 
 /* TPM2 IO Examples */
 #ifdef WOLFTPM_ADV_IO

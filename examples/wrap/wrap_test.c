@@ -32,6 +32,9 @@
 /* Configuration */
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
 #define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
+#if 0
+    #define ENABLE_LARGE_HASH_TEST  /* optional large hash test */
+#endif
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /* from wolfSSL ./certs/client-keyPub.der */
@@ -112,7 +115,6 @@ int TPM2_Wrapper_Test(void* userCtx)
 #ifdef WOLF_CRYPTO_DEV
     TpmCryptoDevCtx tpmCtx;
 #endif
-
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int tpmDevId = INVALID_DEVID;
 #ifndef NO_RSA
@@ -124,7 +126,19 @@ int TPM2_Wrapper_Test(void* userCtx)
     ecc_key wolfEccPubKey;
     ecc_key wolfEccPrivKey;
 #endif
-
+    WOLFTPM2_HASH hash;
+#ifdef ENABLE_LARGE_HASH_TEST
+    int i;
+    const char* hashTestDig =
+        "\x27\x78\x3e\x87\x96\x3a\x4e\xfb\x68\x29\xb5\x31\xc9\xba\x57\xb4"
+        "\x4f\x45\x79\x7f\x67\x70\xbd\x63\x7f\xbf\x0d\x80\x7c\xbd\xba\xe0";
+#else
+    const char* hashTestData =
+        "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+    const char* hashTestDig =
+        "\x24\x8D\x6A\x61\xD2\x06\x38\xB8\xE5\xC0\x26\x93\x0C\x3E\x60\x39"
+        "\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB\x06\xC1";
+#endif
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
     XMEMSET(&wolfRsaPrivKey, 0, sizeof(wolfRsaPrivKey));
@@ -435,6 +449,39 @@ int TPM2_Wrapper_Test(void* userCtx)
     XMEMSET(message.buffer, 0, sizeof(message.buffer));
     rc = wolfTPM2_GetRandom(&dev, message.buffer, sizeof(message.buffer));
     if (rc != 0) goto exit;
+
+
+    /* Hash Test */
+    rc = wolfTPM2_HashStart(&dev, &hash, TPM_ALG_SHA256,
+        (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+#ifdef ENABLE_LARGE_HASH_TEST
+    message.size = 1024;
+    for (i = 0; i < message.size; i++) {
+        message.buffer[i] = (byte)(i & 0xFF);
+    }
+    for (i = 0; i < 100; i++) {
+        rc = wolfTPM2_HashUpdate(&dev, &hash, message.buffer, message.size);
+        if (rc != 0) goto exit;
+    }
+#else
+    rc = wolfTPM2_HashUpdate(&dev, &hash, (byte*)hashTestData,
+        XSTRLEN(hashTestData));
+    if (rc != 0) goto exit;
+#endif
+
+    cipher.size = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_HashFinish(&dev, &hash, cipher.buffer, (word32*)&cipher.size);
+    if (rc != 0) goto exit;
+
+    if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
+        XMEMCMP(cipher.buffer, hashTestDig, cipher.size) != 0) {
+        printf("Hash SHA256 test failed, result not as expected!\n");
+        goto exit;
+    }
+    printf("Hash SHA256 test success\n");
+
 
 exit:
 
