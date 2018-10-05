@@ -1376,6 +1376,130 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     return rc;
 }
 
+/* Hashing */
+/* usageAuth: Optional auth for handle */
+int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    TPMI_ALG_HASH hashAlg, const byte* usageAuth, word32 usageAuthSz)
+{
+    int rc;
+    HashSequenceStart_In in;
+    HashSequenceStart_Out out;
+
+    if (dev == NULL || hash == NULL || hashAlg == TPM_ALG_NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Capture usage auth */
+    if (usageAuthSz > sizeof(hash->handle.auth.buffer))
+        usageAuthSz = sizeof(hash->handle.auth.buffer);
+    hash->handle.auth.size = usageAuthSz;
+    XMEMCPY(hash->handle.auth.buffer, usageAuth, usageAuthSz);
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.auth = hash->handle.auth;
+    in.hashAlg = hashAlg;
+    rc = TPM2_HashSequenceStart(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_HashSequenceStart failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* Capture hash sequence handle */
+    hash->handle.hndl = out.sequenceHandle;
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_HashStart: Handle 0x%x\n",
+        (word32)out.sequenceHandle);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    const byte* data, word32 dataSz)
+{
+    int rc = TPM_RC_SUCCESS;
+    SequenceUpdate_In in;
+    word32 pos = 0, hashSz;
+
+    if (dev == NULL || hash == NULL || (data == NULL && dataSz > 0)) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    dev->session[0].auth = hash->handle.auth;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.sequenceHandle = hash->handle.hndl;
+
+    while (pos < dataSz) {
+        hashSz = dataSz - pos;
+        if (hashSz > sizeof(in.buffer.buffer))
+            hashSz = sizeof(in.buffer.buffer);
+
+        in.buffer.size = hashSz;
+        XMEMCPY(in.buffer.buffer, &data[pos], hashSz);
+        rc = TPM2_SequenceUpdate(&in);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SequenceUpdate failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+            return rc;
+        }
+        pos += hashSz;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_HashUpdate: Handle 0x%x, DataSz %d\n",
+        (word32)in.sequenceHandle, dataSz);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    byte* digest, word32* digestSz)
+{
+    int rc;
+    SequenceComplete_In in;
+    SequenceComplete_Out out;
+
+    if (dev == NULL || hash == NULL || digest == NULL || digestSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    dev->session[0].auth = hash->handle.auth;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.sequenceHandle = hash->handle.hndl;
+    in.hierarchy = TPM_RH_NULL;
+    rc = TPM2_SequenceComplete(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_SequenceComplete failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    if (out.result.size > *digestSz)
+        out.result.size = *digestSz;
+    *digestSz = out.result.size;
+    XMEMCPY(digest, out.result.buffer, *digestSz);
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_HashFinish: Handle 0x%x, DigestSz %d\n",
+        (word32)in.sequenceHandle, *digestSz);
+#endif
+
+    return rc;
+}
+
 
 /******************************************************************************/
 /* --- END Wrapper Device Functions-- */

@@ -47,6 +47,9 @@ typedef struct WOLFTPM2_KEY {
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
+typedef struct WOLFTPM2_HASH {
+    WOLFTPM2_HANDLE handle;
+} WOLFTPM2_HASH;
 
 #ifndef WOLFTPM2_MAX_BUFFER
     #define WOLFTPM2_MAX_BUFFER 2048
@@ -141,6 +144,13 @@ WOLFTPM_API int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len);
 WOLFTPM_API int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle);
 
 WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    TPMI_ALG_HASH hashAlg, const byte* usageAuth, word32 usageAuthSz);
+WOLFTPM_API int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    const byte* data, word32 dataSz);
+WOLFTPM_API int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
+    byte* digest, word32* digestSz);
 
 
 /* Utility functions */
