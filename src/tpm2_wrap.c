@@ -1421,7 +1421,7 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     const byte* data, word32 dataSz)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     SequenceUpdate_In in;
     word32 pos = 0, hashSz;
 
