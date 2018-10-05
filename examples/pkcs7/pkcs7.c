@@ -297,7 +297,7 @@ int TPM2_PKCS7_Example(void* userCtx)
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
-    WOLFTPM2_BUFFER der;
+    WOLFTPM2_BUFFER der = {0};
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE* derFile;
 #endif
