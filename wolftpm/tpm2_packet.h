@@ -24,6 +24,9 @@
 
 #include <wolftpm/tpm2.h>
 
+#define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
+
+/* Note: The TPM2_HEADER structure must be packed */
 typedef WOLFTPM_PACK_BEG struct TPM2_HEADER {
     UINT16 tag;
     UINT32 size;

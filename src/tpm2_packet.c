@@ -123,6 +123,12 @@ UINT64 TPM2_Packet_SwapU64(UINT64 data) {
 
 void TPM2_Packet_Init(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
+    /* compile time trap for detecting improper packing on TPM2_HEADER */
+    /* build failure here indicates improper setup for WOLFTPM_PACK_BEG and
+       WOLFTPM_PACK_END */
+    typedef char tpm2_header_test[sizeof(TPM2_HEADER) == TPM2_HEADER_SIZE ? 1 : -1];
+    (void)sizeof(tpm2_header_test);
+
     if (ctx && packet) {
         packet->buf  = ctx->cmdBuf;
         packet->pos = sizeof(TPM2_HEADER); /* skip header (fill during finalize) */
