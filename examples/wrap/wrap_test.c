@@ -467,7 +467,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     }
 #else
     rc = wolfTPM2_HashUpdate(&dev, &hash, (byte*)hashTestData,
-        XSTRLEN(hashTestData));
+        (word32)XSTRLEN(hashTestData));
     if (rc != 0) goto exit;
 #endif
 

@@ -107,16 +107,27 @@ typedef int64_t  INT64;
     #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
-/* Packed */
-#if defined(__GNUC__)
-    #define WOLFTPM_PACK_BEG
-    #define WOLFTPM_PACK_END __attribute__ ((packed))
-#elif defined(__ICCARM__)
-    #define WOLFTPM_PACK_BEG __packed
-    #define WOLFTPM_PACK_END
-#else
-    #define WOLFTPM_PACK_BEG
-    #define WOLFTPM_PACK_END
+
+/* ---------------------------------------------------------------------------*/
+/* PACKED MACROS */
+/* ---------------------------------------------------------------------------*/
+#ifndef WOLFTPM_PACK_BEG
+    #if defined(__GNUC__)
+        #define WOLFTPM_PACK_BEG
+    #elif defined(__ICCARM__)
+        #define WOLFTPM_PACK_BEG __packed
+    #else
+        #define WOLFTPM_PACK_BEG
+    #endif
+#endif
+#ifndef WOLFTPM_PACK_END
+    #if defined(__GNUC__) || defined(__TI_COMPILER_VERSION__)
+        #define WOLFTPM_PACK_END __attribute__ ((packed))
+    #elif defined(__ICCARM__)
+        #define WOLFTPM_PACK_END
+    #else
+        #define WOLFTPM_PACK_END
+    #endif
 #endif
 
 
