@@ -284,6 +284,35 @@ int TPM2_Native_Test(void* userCtx)
     printf("TPM2_GetCapability: Property PCR Count %d\n", pcrCount);
 
 
+    /* Get Capability for Firmware */
+    XMEMSET(&cmdIn.cap, 0, sizeof(cmdIn.cap));
+    cmdIn.cap.capability = TPM_CAP_TPM_PROPERTIES;
+    cmdIn.cap.property = TPM_PT_FIRMWARE_VERSION_1;
+    cmdIn.cap.propertyCount = 1;
+    rc = TPM2_GetCapability(&cmdIn.cap, &cmdOut.cap);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    tpmProp = &cmdOut.cap.capabilityData.data.tpmProperties;
+    printf("TPM2_GetCapability: Property FIRMWARE_VERSION_1 0x%08x\n",
+        (unsigned int)tpmProp->tpmProperty[0].value);
+
+    cmdIn.cap.capability = TPM_CAP_TPM_PROPERTIES;
+    cmdIn.cap.property = TPM_PT_FIRMWARE_VERSION_2;
+    cmdIn.cap.propertyCount = 1;
+    rc = TPM2_GetCapability(&cmdIn.cap, &cmdOut.cap);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    tpmProp = &cmdOut.cap.capabilityData.data.tpmProperties;
+    printf("TPM2_GetCapability: Property FIRMWARE_VERSION_2 0x%08x\n",
+        (unsigned int)tpmProp->tpmProperty[0].value);
+
+
     /* Random */
     XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
     cmdIn.getRand.bytesRequested = MAX_RNG_REQ_SIZE;
