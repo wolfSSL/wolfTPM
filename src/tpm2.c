@@ -106,7 +106,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* parameter encryption */
     if (*tag == TPM_ST_SESSIONS) {
-        param = cmd + sizeof(TPM2_HEADER) + (inHandleCnt * sizeof(TPM_HANDLE));
+        param = cmd + TPM2_HEADER_SIZE + (inHandleCnt * sizeof(TPM_HANDLE));
 
         paramSz = *(UINT32*)param;
         param += sizeof(UINT32); /* skip the param size */
@@ -131,7 +131,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
                 /* check for object handle auth and append to key */
                 if (i < inHandleCnt) {
                     TPM_HANDLE* objHandle = (TPM_HANDLE*)(cmd +
-                        sizeof(TPM2_HEADER) + (i * sizeof(TPM_HANDLE)));
+                        TPM2_HEADER_SIZE + (i * sizeof(TPM_HANDLE)));
                     if (*objHandle == auth->objHandle) {
                         /* append to key */
                         XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,
@@ -188,7 +188,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
                 /* check for object handle auth and append to key */
                 if (i < outHandleCnt) {
                     TPM_HANDLE* objHandle = (TPM_HANDLE*)(cmd +
-                        sizeof(TPM2_HEADER) + (i * sizeof(TPM_HANDLE)));
+                        TPM2_HEADER_SIZE + (i * sizeof(TPM_HANDLE)));
                     if (*objHandle == auth->objHandle) {
                         /* append to key */
                         XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,

@@ -299,9 +299,9 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 {
     int rc;
-    int xferSz, pos;
+    int xferSz, pos, rspSz;
     byte access, status = 0;
-    word16 rspSz, burstCount;
+    word16 burstCount;
 
 #ifdef DEBUG_WOLFTPM
     printf("Command: %d\n", cmdSz);
@@ -376,7 +376,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
     /* Read response */
     pos = 0;
-    rspSz = sizeof(TPM2_HEADER); /* Read at least TPM header */
+    rspSz = TPM2_HEADER_SIZE; /* Read at least TPM header */
     while (pos < rspSz) {
         /* Wait for data to be available (TPM_STS_DATA_AVAIL = 1) */
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_AVAIL,
@@ -404,12 +404,14 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         pos += xferSz;
 
         /* Get real response size */
-        if (pos == (int)sizeof(TPM2_HEADER)) {
-            TPM2_HEADER* header = (TPM2_HEADER*)cmd;
-            rspSz = TPM2_Packet_SwapU32(header->size);
+        if (pos == TPM2_HEADER_SIZE) {
+            /* Extract size from header */
+            UINT32 tmpSz;
+            XMEMCPY(&tmpSz, &cmd[2], sizeof(UINT32));
+            rspSz = TPM2_Packet_SwapU32(tmpSz);
 
             /* safety check for stuck FFFF case */
-            if (rspSz == 0xFFFF) {
+            if (rspSz >= MAX_RESPONSE_SIZE) {
                 rc = TPM_RC_FAILURE;
                 goto exit;
             }
