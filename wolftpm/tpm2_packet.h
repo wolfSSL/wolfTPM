@@ -26,8 +26,8 @@
 
 #define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
 
-/* Note: The TPM2_HEADER structure must be packed */
-typedef WOLFTPM_PACK_BEG struct TPM2_HEADER {
+/* For reference here is the TPM2 header (not used) */
+typedef struct TPM2_HEADER {
     UINT16 tag;
     UINT32 size;
     union {
@@ -35,7 +35,7 @@ typedef WOLFTPM_PACK_BEG struct TPM2_HEADER {
         TPM_CC cc;
         TPM_RC rc;
     };
-} WOLFTPM_PACK_END TPM2_HEADER;
+} TPM2_HEADER;
 
 typedef struct TPM2_Packet {
     byte* buf;
