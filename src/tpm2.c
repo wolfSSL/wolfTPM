@@ -680,7 +680,7 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
-        TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
+        TPM2_Packet_AppendSensitiveCreate(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer,
@@ -760,7 +760,7 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->primaryHandle);
         TPM2_Packet_AppendAuth(&packet, ctx->authCmd);
-        TPM2_Packet_AppendSensitive(&packet, &in->inSensitive);
+        TPM2_Packet_AppendSensitiveCreate(&packet, &in->inSensitive);
         TPM2_Packet_AppendPublic(&packet, &in->inPublic);
         TPM2_Packet_AppendU16(&packet, in->outsideInfo.size);
         TPM2_Packet_AppendBytes(&packet, in->outsideInfo.buffer,
@@ -4556,6 +4556,25 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         default:
             break;
     }
+    return 0;
+}
+
+int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    switch (hashAlg) {
+        case TPM_ALG_SHA1:
+            return (int)WC_HASH_TYPE_SHA;
+        case TPM_ALG_SHA256:
+            return (int)WC_HASH_TYPE_SHA256;
+        case TPM_ALG_SHA384:
+            return (int)WC_HASH_TYPE_SHA384;
+        case TPM_ALG_SHA512:
+            return (int)WC_HASH_TYPE_SHA512;
+        default:
+            break;
+    }
+#endif
     return 0;
 }
 

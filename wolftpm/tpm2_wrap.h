@@ -83,13 +83,30 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM2B_PUBLIC* pub);
+WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key, const TPM2B_PUBLIC* pub,
+    TPM2B_SENSITIVE* sens);
 WOLFTPM_API int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent);
+WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
+    const byte* rsaPriv, word32 rsaPrivSz);
 WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int curveId, const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz);
+WOLFTPM_API int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
+    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    const byte* eccPriv, word32 eccPrivSz);
 WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle);
+
+WOLFTPM_API int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out);
+WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
+    TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
+    TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
@@ -97,12 +114,16 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
     RsaKey* wolfKey);
 WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     WOLFTPM2_KEY* tpmKey);
+WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, RsaKey* wolfKey, WOLFTPM2_KEY* tpmKey);
 #endif
 #ifdef HAVE_ECC
 WOLFTPM_API int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     ecc_key* wolfKey);
 WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     WOLFTPM2_KEY* tpmKey);
+WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
+    ecc_key* wolfKey, WOLFTPM2_KEY* tpmKey);
 #endif
 #endif
 

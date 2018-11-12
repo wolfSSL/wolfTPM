@@ -101,12 +101,6 @@
     #define be64_to_cpu(d) (d)
 #endif
 
-static byte* TPM2_Packet_GetPtr(TPM2_Packet* packet)
-{
-    return &packet->buf[packet->pos];
-}
-
-
 
 /******************************************************************************/
 /* --- BEGIN TPM Packet Assembly / Parsing -- */
@@ -129,7 +123,6 @@ void TPM2_Packet_Init(TPM2_CTX* ctx, TPM2_Packet* packet)
         packet->size = sizeof(ctx->cmdBuf);
     }
 }
-
 
 void TPM2_Packet_AppendU8(TPM2_Packet* packet, UINT8 data)
 {
@@ -245,10 +238,59 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
     }
 }
 
+void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz)
+{
+    if (packet) {
+        /* mark placeholder for final size */
+        if (markSz)
+            *markSz = packet->pos;
+        TPM2_Packet_AppendU16(packet, 0);
+    }
+}
+void TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz)
+{
+    /* update with actual size */
+    if (packet) {
+        UINT16 data;
+        byte* sizePtr = &packet->buf[markSz];
+        markSz += sizeof(UINT16); /* skip marker */
+        if (markSz <= packet->pos) {
+            markSz = packet->pos - markSz;
+
+            data = cpu_to_be16(markSz);
+            XMEMCPY(sizePtr, &data, sizeof(UINT16));
+        }
+    }
+}
+
+void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz)
+{
+    if (packet) {
+        /* mark placeholder for final size */
+        if (markSz)
+            *markSz = packet->pos;
+        TPM2_Packet_AppendU32(packet, 0);
+    }
+}
+void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
+{
+    /* update with actual size */
+    if (packet) {
+        UINT32 data;
+        byte* sizePtr = &packet->buf[markSz];
+        markSz += sizeof(UINT32); /* skip marker */
+        if (markSz <= packet->pos) {
+            markSz = packet->pos - markSz;
+
+            data = cpu_to_be32(markSz);
+            XMEMCPY(sizePtr, &data, sizeof(UINT32));
+        }
+    }
+}
 
 void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
 {
-    word32 sz;
+    int tmpSz;
 
     if (auth == NULL)
         return;
@@ -259,10 +301,8 @@ void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
         auth->sessionAttributes |= TPMA_SESSION_continueSession;
     }
 
-    sz = sizeof(UINT32) + /* session handle */
-         sizeof(UINT16) + auth->nonce.size + 1 +  /* none and session attribute */
-         sizeof(UINT16) + auth->auth.size;        /* auth */
-    TPM2_Packet_AppendU32(packet, sz);
+    TPM2_Packet_MarkU32(packet, &tmpSz);
+
     TPM2_Packet_AppendU32(packet, auth->sessionHandle);
 
     TPM2_Packet_AppendU16(packet, auth->nonce.size);
@@ -270,6 +310,8 @@ void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
     TPM2_Packet_AppendU8(packet, auth->sessionAttributes);
     TPM2_Packet_AppendU16(packet, auth->auth.size);
     TPM2_Packet_AppendBytes(packet, auth->auth.buffer, auth->auth.size);
+
+    TPM2_Packet_PlaceU32(packet, tmpSz);
 }
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth)
 {
@@ -414,9 +456,11 @@ void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 
 void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 {
-    int sz = point->point.x.size + point->point.y.size;
-    TPM2_Packet_AppendU16(packet, sz);
+    int tmpSz;
+
+    TPM2_Packet_MarkU16(packet, &tmpSz);
     TPM2_Packet_AppendEccPoint(packet, &point->point);
+    TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 {
@@ -424,17 +468,43 @@ void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
     TPM2_Packet_ParseEccPoint(packet, &point->point);
 }
 
-void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive)
+void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 {
-    UINT16 sz = 2 + sensitive->sensitive.userAuth.size +
-                2 + sensitive->sensitive.data.size;
-    TPM2_Packet_AppendU16(packet, sz);
+    int tmpSz;
+
+    TPM2_Packet_MarkU16(packet, &tmpSz);
+
+    TPM2_Packet_AppendU16(packet, sensitive->sensitiveArea.sensitiveType);
+
+    TPM2_Packet_AppendU16(packet, sensitive->sensitiveArea.authValue.size);
+    TPM2_Packet_AppendBytes(packet, sensitive->sensitiveArea.authValue.buffer,
+        sensitive->sensitiveArea.authValue.size);
+
+    TPM2_Packet_AppendU16(packet, sensitive->sensitiveArea.seedValue.size);
+    TPM2_Packet_AppendBytes(packet, sensitive->sensitiveArea.seedValue.buffer,
+        sensitive->sensitiveArea.seedValue.size);
+
+    TPM2_Packet_AppendU16(packet, sensitive->sensitiveArea.sensitive.any.size);
+    TPM2_Packet_AppendBytes(packet, sensitive->sensitiveArea.sensitive.any.buffer,
+        sensitive->sensitiveArea.sensitive.any.size);
+
+    TPM2_Packet_PlaceU16(packet, tmpSz);
+}
+
+void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive)
+{
+    int tmpSz;
+
+    TPM2_Packet_MarkU16(packet, &tmpSz);
+
     TPM2_Packet_AppendU16(packet, sensitive->sensitive.userAuth.size);
     TPM2_Packet_AppendBytes(packet, sensitive->sensitive.userAuth.buffer,
         sensitive->sensitive.userAuth.size);
     TPM2_Packet_AppendU16(packet, sensitive->sensitive.data.size);
     TPM2_Packet_AppendBytes(packet, sensitive->sensitive.data.buffer,
         sensitive->sensitive.data.size);
+
+    TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 
 void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
@@ -500,13 +570,9 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
 
 void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
-    byte* sizePtr;
-    int sz;
+    int tmpSz;
 
-    /* placeholder for final size */
-    sizePtr = TPM2_Packet_GetPtr(packet);
-    TPM2_Packet_AppendU16(packet, 0);
-    sz = packet->pos;
+    TPM2_Packet_MarkU16(packet, &tmpSz);
 
     TPM2_Packet_AppendU16(packet, pub->publicArea.type);
     TPM2_Packet_AppendU16(packet, pub->publicArea.nameAlg);
@@ -542,9 +608,7 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         break;
     }
 
-    /* update with actual size */
-    sz = packet->pos - sz;
-    *((UINT16*)sizePtr) = cpu_to_be16(sz);
+    TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
