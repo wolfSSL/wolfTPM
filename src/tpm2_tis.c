@@ -411,7 +411,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
             rspSz = TPM2_Packet_SwapU32(tmpSz);
 
             /* safety check for stuck FFFF case */
-            if (rspSz >= MAX_RESPONSE_SIZE) {
+            if (rspSz < 0 || rspSz >= MAX_RESPONSE_SIZE) {
                 rc = TPM_RC_FAILURE;
                 goto exit;
             }
@@ -419,8 +419,10 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("Response: %d\n", rspSz);
-    TPM2_PrintBin(cmd, rspSz);
+    if (rspSz > 0) {
+        printf("Response: %d\n", rspSz);
+        TPM2_PrintBin(cmd, rspSz);
+    }
 #endif
 
     rc = TPM_RC_SUCCESS;

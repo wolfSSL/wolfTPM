@@ -185,9 +185,19 @@ TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 TPM2 Demo for Wrapper API's
 RSA Encrypt/Decrypt Test Passed
 RSA Encrypt/Decrypt OAEP Test Passed
+RSA Key 0x80000001 Exported to wolf RsaKey
+wolf RsaKey loaded into TPM: Handle 0x80000000
+RSA Private Key Loaded into TPM: Handle 0x80000001
 ECC Sign/Verify Passed
 ECC DH Generation Passed
+ECC Verify Test Passed
+ECC Key 0x80000001 Exported to wolf ecc_key
+wolfSSL Entering GetObjectId()
+wolf ecc_key loaded into TPM: Handle 0x80000000
+wolfSSL Entering GetObjectId()
+ECC Private Key Loaded into TPM: Handle 0x80000001
 NV Test on index 0x1800200 with 1024 bytes passed
+Hash SHA256 test success
 ```
 
 ### TPM2 Benchmarks
