@@ -67,17 +67,6 @@ int TPM2_Wrapper_Test(void* userCtx)
 #ifdef WOLF_CRYPTO_DEV
     TpmCryptoDevCtx tpmCtx;
 #endif
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    int tpmDevId = INVALID_DEVID;
-#ifndef NO_RSA
-    word32 idx;
-    RsaKey wolfRsaPubKey;
-    RsaKey wolfRsaPrivKey;
-#endif
-#ifdef HAVE_ECC
-    ecc_key wolfEccPubKey;
-    ecc_key wolfEccPrivKey;
-#endif
     WOLFTPM2_HASH hash;
 #ifdef ENABLE_LARGE_HASH_TEST
     int i;
@@ -90,6 +79,18 @@ int TPM2_Wrapper_Test(void* userCtx)
     const char* hashTestDig =
         "\x24\x8D\x6A\x61\xD2\x06\x38\xB8\xE5\xC0\x26\x93\x0C\x3E\x60\x39"
         "\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB\x06\xC1";
+#endif
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int tpmDevId = INVALID_DEVID;
+#ifndef NO_RSA
+    word32 idx;
+    RsaKey wolfRsaPubKey;
+    RsaKey wolfRsaPrivKey;
+#endif
+#ifdef HAVE_ECC
+    ecc_key wolfEccPubKey;
+    ecc_key wolfEccPrivKey;
 #endif
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
@@ -545,7 +546,9 @@ int main(int argc, char *argv[])
     int rc = -1;
 
     if (argc > 1) {
+    #ifndef WOLFTPM2_NO_WRAPPER
         TPM2_Wrapper_SetReset(1);
+    #endif
     }
     (void)argv;
 
