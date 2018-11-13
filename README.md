@@ -21,6 +21,7 @@ Portable TPM 2.0 project designed for embedded use.
 	* PKCS 7
 	* Certificate Signing Request (CSR)
 	* TLS Client
+	* TLS Server
 
 
 ## TPM 2.0 Overview

@@ -30,8 +30,8 @@
 #include <examples/csr/csr.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
 
-static const char gClientCertRsaFile[] = "./certs/client-rsa-cert.csr";
-static const char gClientCertEccFile[] = "./certs/client-ecc-cert.csr";
+static const char* gClientCertRsaFile = "./certs/tpm-rsa-cert.csr";
+static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.csr";
 
 /******************************************************************************/
 /* --- BEGIN TPM2 CSR Example -- */

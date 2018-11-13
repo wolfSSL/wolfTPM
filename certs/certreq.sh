@@ -5,7 +5,7 @@ echo Run ./examples/crl/crl first to generate the CSR
 
 
 # Make sure required CA files exist and are populated
-rm ./certs/index.txt 
+rm ./certs/index.*
 touch ./certs/index.txt 
 if [ ! -f ./certs/serial ]; then
 	echo 1000 > ./certs/serial
@@ -14,7 +14,7 @@ if [ ! -f ./certs/crlnumber ]; then
 	echo 2000 > ./certs/crlnumber
 fi
 
-if [ $1 == clean ]; then
+if [ "$1" == "clean" ]; then
 	rm ./certs/*.pem
 	rm ./certs/*.der
 	rm ./certs/*.old
@@ -34,12 +34,14 @@ if [ ! -f ./certs/ca-rsa-key.pem ]; then
 	openssl ca -config ./certs/ca-rsa.cnf -gencrl -crldays 1000 -out ./certs/ca-rsa.crl -keyfile ./certs/ca-rsa-key.pem -cert ./certs/ca-rsa-cert.pem
 fi
 
-# Sign RSA certificate
-if [ -f ./certs/client-rsa-cert.csr ]; then
-	openssl ca -config ./certs/ca-rsa.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-rsa-cert.csr -out ./certs/client-rsa-cert.pem -batch
+# Sign RSA certificates
+if [ -f ./certs/tpm-rsa-cert.csr ]; then
+	openssl ca -config ./certs/ca-rsa.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/tpm-rsa-cert.csr -out ./certs/client-rsa-cert.pem -batch
 	openssl x509 -in ./certs/client-rsa-cert.pem -outform der -out ./certs/client-rsa-cert.der
-fi
 
+	openssl ca -config ./certs/ca-rsa.cnf -extensions server_cert -days 3650 -notext -md sha256 -in ./certs/tpm-rsa-cert.csr -out ./certs/server-rsa-cert.pem -batch
+	openssl x509 -in ./certs/server-rsa-cert.pem -outform der -out ./certs/server-rsa-cert.der
+fi
 
 # Generate ECC 256-bit CA
 if [ ! -f ./certs/ca-ecc-key.pem ]; then
@@ -56,12 +58,15 @@ fi
 
 
 # Sign ECC Certificate
-if [ -f ./certs/client-ecc-cert.csr ]; then
+if [ -f ./certs/tpm-ecc-cert.csr ]; then
 	# NOT APPLICABLE BECAUSE PRIVATE KEY IS IN TPM
 	#openssl ecparam -out ./certs/client-ecc-key.par -name prime256v1
-	#openssl req -config ./certs/ca-ecc.cnf -sha256 -new -newkey ec:./certs/client-ecc-key.par -keyout ./certs/client-ecc-key.pem -out ./certs/client-ecc-cert.csr -subj "/C=US/ST=Washington/L=Seattle/O=Eliptic/OU=ECC/CN=www.wolfssl.com/emailAddress=info@wolfssl.com/"
+	#openssl req -config ./certs/ca-ecc.cnf -sha256 -new -newkey ec:./certs/client-ecc-key.par -keyout ./certs/client-ecc-key.pem -out ./certs/tpm-ecc-cert.csr -subj "/C=US/ST=Washington/L=Seattle/O=Eliptic/OU=ECC/CN=www.wolfssl.com/emailAddress=info@wolfssl.com/"
 	#rm ./certs/client-ecc-key.par
 
-	openssl ca -config ./certs/ca-ecc.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/client-ecc-cert.csr -out ./certs/client-ecc-cert.pem -batch
+	openssl ca -config ./certs/ca-ecc.cnf -extensions usr_cert -days 3650 -notext -md sha256 -in ./certs/tpm-ecc-cert.csr -out ./certs/client-ecc-cert.pem -batch
 	openssl x509 -in ./certs/client-ecc-cert.pem -outform der -out ./certs/client-ecc-cert.der
+
+	openssl ca -config ./certs/ca-ecc.cnf -extensions server_cert -days 3650 -notext -md sha256 -in ./certs/tpm-ecc-cert.csr -out ./certs/server-ecc-cert.pem -batch
+	openssl x509 -in ./certs/server-ecc-cert.pem -outform der -out ./certs/server-ecc-cert.der
 fi
