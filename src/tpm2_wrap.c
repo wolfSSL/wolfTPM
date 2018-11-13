@@ -623,8 +623,7 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
     pub.publicArea.nameAlg = TPM_ALG_NULL;
-    pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_decrypt |
-        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA;
+    pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_noDA;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =

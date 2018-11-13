@@ -290,7 +290,7 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
 
 void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
 {
-    int tmpSz;
+    int tmpSz = 0;
 
     if (auth == NULL)
         return;
@@ -456,7 +456,7 @@ void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 
 void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 {
-    int tmpSz;
+    int tmpSz = 0;
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
     TPM2_Packet_AppendEccPoint(packet, &point->point);
@@ -470,7 +470,7 @@ void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 
 void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 {
-    int tmpSz;
+    int tmpSz = 0;
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
 
@@ -493,7 +493,7 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
 
 void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive)
 {
-    int tmpSz;
+    int tmpSz = 0;
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
 
@@ -570,7 +570,7 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
 
 void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
-    int tmpSz;
+    int tmpSz = 0;
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
 

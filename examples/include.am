@@ -9,4 +9,5 @@ include examples/csr/include.am
 include examples/pkcs7/include.am
 
 dist_example_DATA+= examples/tpm_io.c \
-					examples/tpm_io.h
+                    examples/tpm_io.h \
+                    examples/tpm_test.h
