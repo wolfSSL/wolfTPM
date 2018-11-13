@@ -351,12 +351,12 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
 {
     int rc;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
     TPMI_ALG_HASH nameAlg;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     TPM2_Packet packet;
     TPM2B_DATA data;
     wc_HashAlg hash;
-    enum wc_HashType hashType;
+    int hashType;
     int hashSz;
 #endif
 
@@ -376,7 +376,8 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
     data.size = packet.pos;
 
     /* Hash data - first two bytes are TPM_ALG_ID */
-    hashType = TPM2_GetHashType(nameAlg);
+    rc = TPM2_GetHashType(nameAlg);
+    hashType = (enum wc_HashType)rc;
     rc = wc_HashGetDigestSize(hashType);
     if (rc < 0)
         return rc;
@@ -470,8 +471,10 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     Load_Out loadOut;
     TPM2B_NAME name;
 
-    if (dev == NULL || key == NULL || pub == NULL || sens == NULL)
+    if (dev == NULL || parentKey == NULL || key == NULL || pub == NULL ||
+            sens == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* set session auth for key */
     dev->session[0].auth = parentKey->handle.auth;
@@ -484,6 +487,13 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     importIn.objectPublic = *pub;
     importIn.symmetricAlg.algorithm = TPM_ALG_NULL;
     rc = wolfTPM2_ComputeName(pub, &name);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_ComputeName: failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
     rc = wolfTPM2_SensitiveToPrivate(sens, &importIn.duplicate,
         pub->publicArea.nameAlg, &name, parentKey, &importIn.symmetricAlg,
         &importIn.inSymSeed);
@@ -787,7 +797,7 @@ int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKe
     XMEMSET(e, 0, sizeof(e));
     XMEMSET(n, 0, sizeof(n));
 
-    if (wolfKey->type == RSA_PRIVATE) {
+    if (parentKey && wolfKey->type == RSA_PRIVATE) {
         byte    d[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
         byte    p[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
         byte    q[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
@@ -918,7 +928,7 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
             return ECC_CURVE_OID_E;
     }
 
-    if (wolfKey->type == ECC_PRIVATEKEY) {
+    if (parentKey && wolfKey->type == ECC_PRIVATEKEY) {
         byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
         word32  dSz = sizeof(d);
 

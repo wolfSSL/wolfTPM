@@ -4575,6 +4575,7 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
             break;
     }
 #endif
+    (void)hashAlg;
     return 0;
 }
 

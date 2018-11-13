@@ -49,11 +49,13 @@
     #include <fcntl.h>
     #include <unistd.h>
 
-    #ifdef WOLFTPM_ST33
-        #ifdef WOLFTPM_I2C
-            #define TPM2_I2C_ADDR 0x2e
-            #define TPM2_I2C_DEV  "/dev/i2c-1"
-        #else
+    #ifdef WOLFTPM_I2C
+        /* I2C - (Only tested with ST33HTPH I2C) */
+        #define TPM2_I2C_ADDR 0x2e
+        #define TPM2_I2C_DEV  "/dev/i2c-1"
+    #else
+        /* SPI */
+        #ifdef WOLFTPM_ST33
             /* ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
 
@@ -61,10 +63,10 @@
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
             #endif
+        #else
+            /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
+            #define TPM2_SPI_DEV "/dev/spidev0.1"
         #endif
-    #else
-        /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
-        #define TPM2_SPI_DEV "/dev/spidev0.1"
     #endif
 
 
