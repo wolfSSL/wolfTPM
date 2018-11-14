@@ -35,6 +35,11 @@
 #define TLS_PORT 11111
 #endif
 
+/* enable for testing ECC key/cert */
+#if 0
+#define USE_TLS_ECC
+#endif
+
 /*
  * Generating the Server Certificate
  *
@@ -45,9 +50,14 @@
  * Result is: ./certs/server-rsa-cert.pem and ./certs/server-ecc-cert.pem
  *
  * This example server listens on port 11111 by default.
+ *
  * You can validate using the wolfSSL example client this like:
  *   ./examples/client/client -h 192.168.0.10 -p 11111 -d -g
+ *
  * Or using your browser: https://192.168.0.10:11111
+ * With browsers you will get certificate warnings until you load the test CA's
+ * ./certs/ca-rsa-cert.pem and ./certs/ca-ecc-cert.pem into your OS key store.
+ * With most browsers you can bypass the certificate warning.
  */
 
 
@@ -269,6 +279,82 @@ static int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
     return 1;
 }
 
+static int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
+{
+    int ret = 0;
+
+#ifndef NO_RSA
+    if (info && info->pk.type == WC_PK_TYPE_RSA) {
+        byte    e[sizeof(word32)], e2[sizeof(word32)];
+        byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS/8], n2[WOLFTPM2_WRAP_RSA_KEY_BITS/8];
+        word32  eSz = sizeof(e), e2Sz = sizeof(e);
+        word32  nSz = sizeof(n), n2Sz = sizeof(n);
+        RsaKey  rsakey;
+        word32  idx = 0;
+
+        /* export the raw public RSA portion */
+        ret = wc_RsaFlattenPublicKey(info->pk.rsa.key, e, &eSz, n, &nSz);
+        if (ret == 0) {
+            /* load the modulus for the dummy key */
+            ret = wc_InitRsaKey(&rsakey, NULL);
+            if (ret == 0) {
+                ret = wc_RsaPrivateKeyDecode(DUMMY_RSA_KEY, &idx, &rsakey,
+                    (word32)sizeof(DUMMY_RSA_KEY));
+                if (ret == 0) {
+                    ret = wc_RsaFlattenPublicKey(&rsakey, e2, &e2Sz, n2, &n2Sz);
+                }
+                wc_FreeRsaKey(&rsakey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(n, n2, nSz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM RSA key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+#if defined(HAVE_ECC)
+    if (info && info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+        byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qx2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qy2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        word32  qxSz = sizeof(qx), qx2Sz = sizeof(qx2);
+        word32  qySz = sizeof(qy), qy2Sz = sizeof(qy2);
+        ecc_key eccKey;
+        word32  idx = 0;
+
+        /* export the raw public ECC portion */
+        ret = wc_ecc_export_public_raw(info->pk.eccsign.key, qx, &qxSz, qy, &qySz);
+        if (ret == 0) {
+            /* load the ECC public x/y for the dummy key */
+            ret = wc_ecc_init(&eccKey);
+            if (ret == 0) {
+                ret = wc_EccPrivateKeyDecode(DUMMY_ECC_KEY, &idx, &eccKey,
+                    (word32)sizeof(DUMMY_ECC_KEY));
+                if (ret == 0) {
+                    ret = wc_ecc_export_public_raw(&eccKey, qx2, &qx2Sz, qy2, &qy2Sz);
+                }
+                wc_ecc_free(&eccKey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(qx, qx2, qxSz) == 0 &&
+                        XMEMCMP(qy, qy2, qySz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM ECC key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+    (void)info;
+    (void)ctx;
+
+    /* non-zero return code means its a "dummy" key (not valid) and the
+        provided TPM handle will be used, not the wolf public key info */
+    return ret;
+}
 
 /******************************************************************************/
 /* --- BEGIN TLS SERVER Example -- */
@@ -336,6 +422,7 @@ int TPM2_TLS_Server(void* userCtx)
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
+    tpmCtx.checkKeyCb = myTpmCheckKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
@@ -471,7 +558,7 @@ int TPM2_TLS_Server(void* userCtx)
     #endif
 #else
     /* Server certificate */
-#ifndef NO_RSA
+#if !defined(NO_RSA) && !defined(USE_TLS_ECC)
     printf("Loading RSA certificate and dummy key\n");
 
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-rsa-cert.pem",
@@ -569,11 +656,12 @@ int TPM2_TLS_Server(void* userCtx)
             rc = wolfSSL_get_error(ssl, 0);
         }
     } while (rc == WOLFSSL_ERROR_WANT_WRITE);
+    rc = 0; /* success */
 
 exit:
 
     if (rc != 0) {
-        printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
     wolfSSL_shutdown(ssl);

@@ -4,6 +4,7 @@ These examples demonstrate features of a TPM 2.0 module.
 
 The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`.
 
+The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See CSR and Certificate Signing below.
 
 ## Native API Test
 
@@ -70,12 +71,20 @@ Generation of the Client Certificate requires running:
 
 ## TLS Server
 
-This example demonstrates server listens on port 11111 by default and can be overridden at build-time using the `TLS_PORT` macro.
+This example shows using a TPM key and certificate for a TLS server. By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
  
+Generation of the Server Certificate requires running:
+1. `./examples/csr/csr`
+2. `./certs/certreq.sh`
+
  You can validate using the wolfSSL example client this like:
- `./examples/client/client -h 192.168.0.100 -p 11111 -d -g`
+  `./examples/client/client -h 192.168.0.100 -p 11111 -d -g`
  
- Or using your browser: `https://192.168.0.100:11111`
+Or using your browser: `https://192.168.0.100:11111`
+
+With browsers you will get a certificate warning because it cannot validate the test server certificate.
+For testing most browsers have a way to continue to the site anyways to bypass the warning. 
+You can also load the generated test CA's at `./certs/ca-rsa-cert.pem` and `./certs/ca-ecc-cert.pem` into your OS key store.
 
 
 ## Benchmark

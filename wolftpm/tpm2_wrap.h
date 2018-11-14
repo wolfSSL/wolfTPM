@@ -194,6 +194,9 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
 
 
 #ifdef WOLF_CRYPTO_DEV
+struct TpmCryptoDevCtx;
+typedef int (*CheckWolfKeyCallbackFunc)(wc_CryptoInfo* info, struct TpmCryptoDevCtx* ctx);
+
 typedef struct TpmCryptoDevCtx {
     WOLFTPM2_DEV* dev;
 #ifndef NO_RSA
@@ -203,6 +206,7 @@ typedef struct TpmCryptoDevCtx {
     WOLFTPM2_KEY* eccKey;  /* ECDSA */
     WOLFTPM2_KEY* ecdhKey; /* ECDH */
 #endif
+    CheckWolfKeyCallbackFunc checkKeyCb;
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);

@@ -38,6 +38,11 @@
 #define TLS_PORT 443
 #endif
 
+/* enable for testing ECC key/cert */
+#if 0
+#define USE_TLS_ECC
+#endif
+
 /*
  * Generating the Client Certificate
  *
@@ -406,7 +411,7 @@ int TPM2_TLS_Client(void* userCtx)
     #endif
 #else
     /* Client certificate (mutual auth) */
-#ifndef NO_RSA
+#if !defined(NO_RSA) && !defined(USE_TLS_ECC)
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
         printf("Error loading RSA client cert\n");
@@ -483,12 +488,12 @@ int TPM2_TLS_Client(void* userCtx)
         }
     } while (rc == WOLFSSL_ERROR_WANT_READ);
     printf("Read (%d): %s\n", replySz, reply);
-
+    rc = 0; /* success */
 
 exit:
 
     if (rc != 0) {
-        printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
     wolfSSL_shutdown(ssl);

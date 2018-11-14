@@ -26,21 +26,6 @@
 /* For some struct to buffer conversions */
 #include <wolftpm/tpm2_packet.h>
 
-/* Defines the default digest algo type to use for the wrapper functions */
-#ifndef WOLFTPM2_WRAP_DIGEST
-    #define WOLFTPM2_WRAP_DIGEST TPM_ALG_SHA256
-#endif
-/* Defines the default RSA key bits for the wrapper functions */
-#ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
-    #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
-#endif
-#ifndef WOLFTPM2_WRAP_RSA_EXPONENT
-    #define WOLFTPM2_WRAP_RSA_EXPONENT RSA_DEFAULT_PUBLIC_EXPONENT
-#endif
-#ifndef WOLFTPM2_WRAP_ECC_KEY_BITS
-    #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_BYTES*8)
-#endif
-
 
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
@@ -2028,28 +2013,50 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     (void)devId;
 
     if (info->algo_type == WC_ALGO_TYPE_PK) {
+        int isWolfKeyValid = 1;
+
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Pk: Type %d\n", info->pk.type);
     #endif
 
+        /* optional callback to check key to determine if TPM should be used */
+        if (tlsCtx->checkKeyCb) {
+            /* this is useful to check the provided key for dummy key
+                cases like TLS server */
+            if (tlsCtx->checkKeyCb(info, tlsCtx) != 0) {
+                isWolfKeyValid = 0;
+            }
+        }
+
     #ifndef NO_RSA
         /* RSA */
-        if (info->pk.type == WC_PK_TYPE_RSA) {
+        if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
+            /* TODO: */
+            #if 0
+            RsaKey* key;
+            int     size;
+            long    e;
+            WC_RNG* rng;
+            #endif
+            rc = NOT_COMPILED_IN;
+        }
+        else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {
                 case RSA_PUBLIC_ENCRYPT:
                 case RSA_PUBLIC_DECRYPT:
                 {
+                    /* public operations */
                     WOLFTPM2_KEY rsaPub;
 
-                    /* If we have a loaded TPM key, use it */
-                    if (tlsCtx->rsaKey) {
-                        /* public operations */
+                    if (!isWolfKeyValid && tlsCtx->rsaKey) {
+                        /* use already loaded TPM handle for operation */
                         rc = wolfTPM2_RsaEncrypt(tlsCtx->dev, tlsCtx->rsaKey,
                             TPM_ALG_NULL, /* no padding */
                             info->pk.rsa.in, info->pk.rsa.inLen,
                             info->pk.rsa.out, (int*)info->pk.rsa.outLen);
                         break;
                     }
+                    /* otherwise load public key and perform public op */
 
                     /* load public key into TPM */
                     rc = wolfTPM2_RsaKey_WolfToTpm(tlsCtx->dev,
@@ -2085,15 +2092,31 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
     #endif /* !NO_RSA */
     #ifdef HAVE_ECC
-        if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+        if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
+            /* TODO: */
+            #if 0
+            WC_RNG*  rng;
+            int      size;
+            ecc_key* key;
+            int      curveId;
+            #endif
+            rc = NOT_COMPILED_IN;
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
             byte *r = sigRS, *s;
             word32 rsLen = sizeof(sigRS), rLen, sLen;
+            word32 inlen = info->pk.eccsign.inlen;
+
+            /* truncate input to match key size */
+            rLen = wc_ecc_size(info->pk.eccsign.key);
+            if (inlen > rLen)
+                inlen = rLen;
 
             rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
-                info->pk.eccsign.in, info->pk.eccsign.inlen,
-                sigRS, (int*)&rsLen);
+                info->pk.eccsign.in, inlen, sigRS, (int*)&rsLen);
             if (rc == 0) {
+                /* Encode ECDSA Header */
                 rLen = sLen = rsLen / 2;
                 s = &sigRS[rLen];
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
@@ -2118,6 +2141,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         sigRS, rLen + sLen,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
 
+                    if (rc == 0 && info->pk.eccverify.res) {
+                        *info->pk.eccverify.res = 1;
+                    }
+
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
             }
@@ -2130,13 +2157,18 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte* out;
             word32* outlen;
             #endif
+            rc = NOT_COMPILED_IN;
         }
     #endif
     }
 
     /* need to return negative here for error */
-    if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN)
-        rc = RSA_BUFFER_E;
+    if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_CryptoDevCb failed rc = %d\n", rc);
+    #endif
+        rc = WC_HW_E;
+    }
 
     return rc;
 }
