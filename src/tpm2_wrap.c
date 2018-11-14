@@ -2041,6 +2041,16 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 {
                     WOLFTPM2_KEY rsaPub;
 
+                    /* If we have a loaded TPM key, use it */
+                    if (tlsCtx->rsaKey) {
+                        /* public operations */
+                        rc = wolfTPM2_RsaEncrypt(tlsCtx->dev, tlsCtx->rsaKey,
+                            TPM_ALG_NULL, /* no padding */
+                            info->pk.rsa.in, info->pk.rsa.inLen,
+                            info->pk.rsa.out, (int*)info->pk.rsa.outLen);
+                        break;
+                    }
+
                     /* load public key into TPM */
                     rc = wolfTPM2_RsaKey_WolfToTpm(tlsCtx->dev,
                         info->pk.rsa.key, &rsaPub);

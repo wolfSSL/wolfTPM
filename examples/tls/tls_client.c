@@ -421,7 +421,7 @@ int TPM2_TLS_Client(void* userCtx)
 #endif
 #endif /* !NO_FILESYSTEM */
 
-    /* No need to load private key, since its on TPM and  crypto dev callbacks are used */
+    /* No need to load private key, since its on TPM and crypto dev callbacks are used */
 
 #if 0
     /* Optionally choose the cipher suite */

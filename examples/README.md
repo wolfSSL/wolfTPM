@@ -70,7 +70,7 @@ Generation of the Client Certificate requires running:
 
 ## TLS Server
 
-This example demonstrates  server listens on port 11111 by default and can be overriden at build-time using the `TLS_PORT` macro.
+This example demonstrates server listens on port 11111 by default and can be overridden at build-time using the `TLS_PORT` macro.
  
  You can validate using the wolfSSL example client this like:
  `./examples/client/client -h 192.168.0.100 -p 11111 -d -g`
