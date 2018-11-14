@@ -8,6 +8,7 @@ include examples/tls/include.am
 include examples/csr/include.am
 include examples/pkcs7/include.am
 
-dist_example_DATA+= examples/tpm_io.c \
+dist_example_DATA+= examples/README.md \
+                    examples/tpm_io.c \
                     examples/tpm_io.h \
                     examples/tpm_test.h

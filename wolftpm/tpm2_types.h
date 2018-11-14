@@ -358,4 +358,24 @@ typedef int64_t  INT64;
 #endif
 
 
+/* ---------------------------------------------------------------------------*/
+/* WRAPPER CONFIGURATION */
+/* ---------------------------------------------------------------------------*/
+
+/* Defines the default digest algo type to use for the wrapper functions */
+#ifndef WOLFTPM2_WRAP_DIGEST
+    #define WOLFTPM2_WRAP_DIGEST TPM_ALG_SHA256
+#endif
+/* Defines the default RSA key bits for the wrapper functions */
+#ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
+    #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
+#endif
+#ifndef WOLFTPM2_WRAP_RSA_EXPONENT
+    #define WOLFTPM2_WRAP_RSA_EXPONENT RSA_DEFAULT_PUBLIC_EXPONENT
+#endif
+#ifndef WOLFTPM2_WRAP_ECC_KEY_BITS
+    #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_BYTES*8)
+#endif
+
+
 #endif /* __TPM2_TYPES_H__ */

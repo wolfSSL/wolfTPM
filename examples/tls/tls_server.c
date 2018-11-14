@@ -1,4 +1,4 @@
-/* tls_client.c
+/* tls_server.c
  *
  * Copyright (C) 2006-2018 wolfSSL Inc.
  *
@@ -27,15 +27,12 @@
     !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
-#include <examples/tls/tls_client.h>
+#include <examples/tls/tls_server.h>
 
 #include <wolfssl/ssl.h>
 
-#ifndef TLS_HOST
-#define TLS_HOST "www.wolfssl.com"
-#endif
 #ifndef TLS_PORT
-#define TLS_PORT 443
+#define TLS_PORT 11111
 #endif
 
 /* enable for testing ECC key/cert */
@@ -44,13 +41,23 @@
 #endif
 
 /*
- * Generating the Client Certificate
+ * Generating the Server Certificate
  *
  * Run example for ./examples/csr/csr
  * Result is: ./certs/tpm-rsa-cert.csr and ./certs/tpm-ecc-cert.csr
  *
  * Run ./certs/certreq.sh
- * Result is: ./certs/client-rsa-cert.pem and ./certs/client-ecc-cert.pem
+ * Result is: ./certs/server-rsa-cert.pem and ./certs/server-ecc-cert.pem
+ *
+ * This example server listens on port 11111 by default.
+ *
+ * You can validate using the wolfSSL example client this like:
+ *   ./examples/client/client -h 192.168.0.10 -p 11111 -d -g
+ *
+ * Or using your browser: https://192.168.0.10:11111
+ * With browsers you will get certificate warnings until you load the test CA's
+ * ./certs/ca-rsa-cert.pem and ./certs/ca-ecc-cert.pem into your OS key store.
+ * With most browsers you can bypass the certificate warning.
  */
 
 
@@ -65,6 +72,7 @@
 #include <unistd.h>
 
 typedef struct SockIoCbCtx {
+    int listenFd;
     int fd;
 } SockIoCbCtx;
 
@@ -169,42 +177,57 @@ static int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     return sent;
 }
 
-static int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host,
-    word32 port)
+static int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
 {
     struct sockaddr_in servAddr;
-    struct hostent* entry;
+    int optval  = 1;
 
     /* Setup server address */
     memset(&servAddr, 0, sizeof(servAddr));
     servAddr.sin_family = AF_INET;
     servAddr.sin_port = htons(port);
-
-    /* Resolve host */
-    entry = gethostbyname(host);
-    if (entry) {
-        XMEMCPY(&servAddr.sin_addr.s_addr, entry->h_addr_list[0],
-            entry->h_length);
-    }
-    else {
-        servAddr.sin_addr.s_addr = inet_addr(host);
-    }
+    servAddr.sin_addr.s_addr = INADDR_ANY;
 
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         fprintf(stderr, "ERROR: failed to create the socket\n");
         return -1;
     }
 
-    /* Connect to the server */
-    if (connect(sockIoCtx->fd, (struct sockaddr*)&servAddr,
-                                                    sizeof(servAddr)) == -1) {
-        fprintf(stderr, "ERROR: failed to connect\n");
+    /* allow reuse */
+    if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
+        printf("setsockopt SO_REUSEADDR failed\n");
         return -1;
     }
 
+    /* Connect to the server */
+    if (bind(sockIoCtx->listenFd, (struct sockaddr*)&servAddr,
+                                                    sizeof(servAddr)) == -1) {
+        fprintf(stderr, "ERROR: failed to bind\n");
+        return -1;
+    }
+
+    if (listen(sockIoCtx->listenFd, 5) != 0) {
+        fprintf(stderr, "ERROR: failed to listen\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int SocketWaitClient(SockIoCbCtx* sockIoCtx)
+{
+    int connd;
+    struct sockaddr_in clientAddr;
+    socklen_t          size = sizeof(clientAddr);
+
+    if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
+        fprintf(stderr, "ERROR: failed to accept the connection\n\n");
+        return -1;
+    }
+    sockIoCtx->fd = connd;
     return 0;
 }
 
@@ -214,6 +237,10 @@ static void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
         close(sockIoCtx->fd);
         sockIoCtx->fd = -1;
     }
+    if (sockIoCtx->listenFd != -1) {
+        close(sockIoCtx->listenFd);
+        sockIoCtx->listenFd = -1;
+    }
 }
 
 /******************************************************************************/
@@ -221,12 +248,119 @@ static void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 /******************************************************************************/
 
 
+static int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
+{
+    char buffer[WOLFSSL_MAX_ERROR_SZ];
+
+    (void)preverify;
+
+    /* Verify Callback Arguments:
+     * preverify:           1=Verify Okay, 0=Failure
+     * store->current_cert: Current WOLFSSL_X509 object (only with OPENSSL_EXTRA)
+     * store->error_depth:  Current Index
+     * store->domain:       Subject CN as string (null term)
+     * store->totalCerts:   Number of certs presented by peer
+     * store->certs[i]:     A `WOLFSSL_BUFFER_INFO` with plain DER for each cert
+     * store->store:        WOLFSSL_X509_STORE with CA cert chain
+     * store->store->cm:    WOLFSSL_CERT_MANAGER
+     * store->ex_data:      The WOLFSSL object pointer
+     */
+
+    printf("In verification callback, error = %d, %s\n", store->error,
+                                 wolfSSL_ERR_error_string(store->error, buffer));
+
+    printf("\tPeer certs: %d\n", store->totalCerts);
+
+    printf("\tSubject's domain name at %d is %s\n", store->error_depth, store->domain);
+
+    printf("\tAllowing to continue anyway (shouldn't do this)\n");
+
+    /* A non-zero return code indicates failure override */
+    return 1;
+}
+
+static int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
+{
+    int ret = 0;
+
+#ifndef NO_RSA
+    if (info && info->pk.type == WC_PK_TYPE_RSA) {
+        byte    e[sizeof(word32)], e2[sizeof(word32)];
+        byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS/8], n2[WOLFTPM2_WRAP_RSA_KEY_BITS/8];
+        word32  eSz = sizeof(e), e2Sz = sizeof(e);
+        word32  nSz = sizeof(n), n2Sz = sizeof(n);
+        RsaKey  rsakey;
+        word32  idx = 0;
+
+        /* export the raw public RSA portion */
+        ret = wc_RsaFlattenPublicKey(info->pk.rsa.key, e, &eSz, n, &nSz);
+        if (ret == 0) {
+            /* load the modulus for the dummy key */
+            ret = wc_InitRsaKey(&rsakey, NULL);
+            if (ret == 0) {
+                ret = wc_RsaPrivateKeyDecode(DUMMY_RSA_KEY, &idx, &rsakey,
+                    (word32)sizeof(DUMMY_RSA_KEY));
+                if (ret == 0) {
+                    ret = wc_RsaFlattenPublicKey(&rsakey, e2, &e2Sz, n2, &n2Sz);
+                }
+                wc_FreeRsaKey(&rsakey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(n, n2, nSz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM RSA key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+#if defined(HAVE_ECC)
+    if (info && info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+        byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qx2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qy2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        word32  qxSz = sizeof(qx), qx2Sz = sizeof(qx2);
+        word32  qySz = sizeof(qy), qy2Sz = sizeof(qy2);
+        ecc_key eccKey;
+        word32  idx = 0;
+
+        /* export the raw public ECC portion */
+        ret = wc_ecc_export_public_raw(info->pk.eccsign.key, qx, &qxSz, qy, &qySz);
+        if (ret == 0) {
+            /* load the ECC public x/y for the dummy key */
+            ret = wc_ecc_init(&eccKey);
+            if (ret == 0) {
+                ret = wc_EccPrivateKeyDecode(DUMMY_ECC_KEY, &idx, &eccKey,
+                    (word32)sizeof(DUMMY_ECC_KEY));
+                if (ret == 0) {
+                    ret = wc_ecc_export_public_raw(&eccKey, qx2, &qx2Sz, qy2, &qy2Sz);
+                }
+                wc_ecc_free(&eccKey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(qx, qx2, qxSz) == 0 &&
+                        XMEMCMP(qy, qy2, qySz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM ECC key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+    (void)info;
+    (void)ctx;
+
+    /* non-zero return code means its a "dummy" key (not valid) and the
+        provided TPM handle will be used, not the wolf public key info */
+    return ret;
+}
 
 /******************************************************************************/
-/* --- BEGIN TLS Client Example -- */
+/* --- BEGIN TLS SERVER Example -- */
 /******************************************************************************/
-#define MAX_REPLY_SZ 1024
-int TPM2_TLS_Client(void* userCtx)
+#define MAX_MSG_SZ 1024
+int TPM2_TLS_Server(void* userCtx)
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -245,15 +379,27 @@ int TPM2_TLS_Client(void* userCtx)
     int tpmDevId;
     WOLFSSL_CTX* ctx = NULL;
     WOLFSSL* ssl = NULL;
-    char msg[] = "GET /index.html HTTP/1.0\r\n\r\n";
-    char reply[MAX_REPLY_SZ];
-    int msgSz, replySz = 0;
+    const char webServerMsg[] =
+        "HTTP/1.1 200 OK\n"
+        "Content-Type: text/html\n"
+        "Connection: close\n"
+        "\n"
+        "<html>\n"
+        "<head>\n"
+        "<title>Welcome to wolfSSL!</title>\n"
+        "</head>\n"
+        "<body>\n"
+        "<p>wolfSSL has successfully performed handshake!</p>\n"
+        "</body>\n"
+        "</html>\n";
+    char msg[MAX_MSG_SZ];
+    int msgSz = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
 
-    printf("TPM2 TLS Client Example\n");
+    printf("TPM2 TLS Server Example\n");
 
 #ifdef DEBUG_WOLFSSL
     wolfSSL_Debugging_ON();
@@ -276,6 +422,7 @@ int TPM2_TLS_Client(void* userCtx)
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
+    tpmCtx.checkKeyCb = myTpmCheckKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
@@ -370,7 +517,7 @@ int TPM2_TLS_Client(void* userCtx)
 
 
     /* Setup the WOLFSSL context (factory) */
-    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
+    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method())) == NULL) {
         rc = MEMORY_E; goto exit;
     }
 
@@ -379,9 +526,9 @@ int TPM2_TLS_Client(void* userCtx)
     wolfSSL_CTX_SetIOSend(ctx, SockIOSend);
 
     /* Server certificate validation */
-#if 0
+#if 1
     /* skip server cert validation for this test */
-    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
+    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, myVerify);
 #else
 #ifdef NO_FILESYSTEM
     /* example loading from buffer */
@@ -410,23 +557,40 @@ int TPM2_TLS_Client(void* userCtx)
         }
     #endif
 #else
-    /* Client certificate (mutual auth) */
+    /* Server certificate */
 #if !defined(NO_RSA) && !defined(USE_TLS_ECC)
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
+    printf("Loading RSA certificate and dummy key\n");
+
+    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-rsa-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
         printf("Error loading RSA client cert\n");
         goto exit;
     }
+
+    /* Private key is on TPM and crypto dev callbacks are used */
+    /* TLS server requires some dummy key loaded (workaround) */
+    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
+            sizeof(DUMMY_RSA_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+        printf("Failed to set key!\r\n");
+        goto exit;
+    }
 #elif defined(HAVE_ECC)
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
+    printf("Loading ECC certificate and fake key\n");
+    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-ecc-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
         printf("Error loading ECC client cert\n");
         goto exit;
     }
+
+    /* Private key is on TPM and crypto dev callbacks are used */
+    /* TLS server requires some dummy key loaded (workaround) */
+    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
+            sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+        printf("Failed to set key!\r\n");
+        goto exit;
+    }
 #endif
 #endif /* !NO_FILESYSTEM */
-
-    /* No need to load private key, since its on TPM and crypto dev callbacks are used */
 
 #if 0
     /* Optionally choose the cipher suite */
@@ -446,16 +610,20 @@ int TPM2_TLS_Client(void* userCtx)
     wolfSSL_SetDevId(ssl, tpmDevId);
 
     /* Setup socket and connection */
-    rc = SetupSocketAndConnect(&sockIoCtx, TLS_HOST, TLS_PORT);
+    rc = SetupSocketAndListen(&sockIoCtx, TLS_PORT);
     if (rc != 0) goto exit;
 
     /* Setup read/write callback contexts */
     wolfSSL_SetIOReadCtx(ssl, &sockIoCtx);
     wolfSSL_SetIOWriteCtx(ssl, &sockIoCtx);
 
-    /* perform connect */
+    /* Accept client connections */
+    rc = SocketWaitClient(&sockIoCtx);
+    if (rc != 0) goto exit;
+
+    /* perform accept */
     do {
-        rc = wolfSSL_connect(ssl);
+        rc = wolfSSL_accept(ssl);
         if (rc != WOLFSSL_SUCCESS) {
             rc = wolfSSL_get_error(ssl, 0);
         }
@@ -464,30 +632,30 @@ int TPM2_TLS_Client(void* userCtx)
         goto exit;
     }
 
-    /* perform write */
-    msgSz = sizeof(msg);
-    printf("Write (%d): %s\n", msgSz, msg);
-    do {
-        rc = wolfSSL_write(ssl, msg, msgSz);
-        if (rc != msgSz) {
-            rc = wolfSSL_get_error(ssl, 0);
-        }
-    } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-
     /* perform read */
     do {
-        rc = wolfSSL_read(ssl, reply, sizeof(reply) - 1);
+        rc = wolfSSL_read(ssl, msg, sizeof(msg) - 1);
         if (rc < 0) {
             rc = wolfSSL_get_error(ssl, 0);
         }
         else {
             /* null terminate */
-            reply[rc] = '\0';
-            replySz = rc;
+            msg[rc] = '\0';
+            msgSz = rc;
             rc = 0;
         }
     } while (rc == WOLFSSL_ERROR_WANT_READ);
-    printf("Read (%d): %s\n", replySz, reply);
+    printf("Read (%d): %s\n", msgSz, msg);
+
+    /* perform write */
+    msgSz = sizeof(webServerMsg);
+    printf("Write (%d): %s\n", msgSz, webServerMsg);
+    do {
+        rc = wolfSSL_write(ssl, webServerMsg, msgSz);
+        if (rc != msgSz) {
+            rc = wolfSSL_get_error(ssl, 0);
+        }
+    } while (rc == WOLFSSL_ERROR_WANT_WRITE);
     rc = 0; /* success */
 
 exit:
@@ -518,7 +686,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TLS Client Example -- */
+/* --- END TLS Server Example -- */
 /******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
@@ -530,7 +698,7 @@ int main(void)
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
-    rc = TPM2_TLS_Client(NULL);
+    rc = TPM2_TLS_Server(NULL);
 #else
     printf("Wrapper/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptodev\n");

@@ -21,6 +21,9 @@ Portable TPM 2.0 project designed for embedded use.
 	* PKCS 7
 	* Certificate Signing Request (CSR)
 	* TLS Client
+	* TLS Server
+
+Note: See `examples/README.md` for details on using the examples.
 
 
 ## TPM 2.0 Overview
@@ -73,6 +76,15 @@ Tested with:
 * LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 
 
+#### Device Identification
+
+Infineon SLB9670:
+TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+
+ST ST33TP SPI
+TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
+
+
 ## Building
 
 Build wolfSSL:
@@ -81,7 +93,7 @@ Build wolfSSL:
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev 
+./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev
 make
 make check
 sudo make install
@@ -115,7 +127,7 @@ make
 For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:
 1. Edit `sudo vim /boot/config.txt`
 2. Uncomment `dtparam=i2c_arm=on`
-3. Reboot
+3. Reboot `sudo reboot`
 
 
 ### Build options and defines
@@ -170,13 +182,7 @@ For the I2C support on Raspberry Pi you may need to enable I2C. Here are the ste
 
 ## Running Examples
 
-## Device Identification
-
-Infineon SLB9670:
-TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
-
-ST ST33TP SPI
-TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
+These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples.
 
 ### TPM2 Wrapper Tests
 
@@ -311,7 +317,6 @@ TPM2_NV_ReadPublic: Sz 14, Idx 0x1bfffff, nameAlg 11, Attr 0x2020002, authPol 0,
 Create AES128 CFB Key success, public 50, Private 142
 TPM2_Load New AES Key Handle 0x80000006
 Encrypt/Decrypt test success
-
 ```
 
 ### TPM2 CSR Example
@@ -365,6 +370,56 @@ PKCS7 Signed Container 1625
 PKCS7 Container Verified (using TPM)
 PKCS7 Container Verified (using software)
 ```
+
+### TPM TLS Client Example
+
+```
+./examples/tls/tls_client
+TPM2 TLS Client Example
+Write (29): GET /index.html HTTP/1.0
+
+
+Read (583): HTTP/1.1 404 Not Found
+Date: Wed, 14 Nov 2018 16:53:39 GMT
+Server: Apache/2.2.34 (Unix) mod_ssl/2.2.34 OpenSSL/1.0.1e-fips mod_bwlimited/1.4
+X-Powered-By: PHP/5.6.34
+Expires: Wed, 11 Jan 1984 05:00:00 GMT
+Cache-Control: no-cache, must-revalidate, max-age=0
+Link: <https://www.wolfssl.com/wp-json/>; rel="https://api.w.org/"
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin
+X-Xss-Protection: 1; mode=block
+Connection: close
+Content-Type: text/html; charset=UTF-8
+```
+
+### TPM TLS Server Example
+
+The wolfSSL TLS server requires loading a private key, so we load a "fake" key and in the crypto callbacks we use the TPM instead.
+
+```
+./examples/tls/tls_server
+TPM2 TLS Server Example
+Loading RSA certificate and dummy key
+Read (28): GET /index.html HTTP/1.0
+
+
+Write (193): HTTP/1.1 200 OK
+Content-Type: text/html
+Connection: close
+
+<html>
+<head>
+<title>Welcome to wolfSSL!</title>
+</head>
+<body>
+<p>wolfSSL has successfully performed handshake!</p>
+</body>
+</html>
+```
+
 
 ## Examples with Debug Enabled
 
