@@ -341,7 +341,7 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
     TPM2_Packet packet;
     TPM2B_DATA data;
     wc_HashAlg hash;
-    int hashType;
+    enum wc_HashType hashType;
     int hashSz;
 #endif
 
