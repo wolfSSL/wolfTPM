@@ -124,6 +124,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     WOLFTPM2_KEY* tpmKey);
 WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     ecc_key* wolfKey, WOLFTPM2_KEY* tpmKey);
+WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
+    TPM2B_ECC_POINT* pubPoint);
 #endif
 #endif
 
@@ -131,8 +133,19 @@ WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz);
 WOLFTPM_API int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz);
+
+WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
+    int curve_id, const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     TPM2B_ECC_POINT* pubPoint, byte* out, int* outSz);
+WOLFTPM_API int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
+    const TPM2B_ECC_POINT* pubPoint, byte* out, int* outSz);
+
+WOLFTPM_API int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
+    int curve_id);
+WOLFTPM_API int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
+    WOLFTPM2_KEY* ecdhKey, const TPM2B_ECC_POINT* pubPoint,
+    byte* out, int* outSz);
 
 WOLFTPM_API int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     TPM_ALG_ID padScheme, const byte* msg, int msgSz, byte* out, int* outSz);

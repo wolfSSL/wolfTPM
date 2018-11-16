@@ -200,9 +200,15 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* TPM_RH_OWNER, TPM_RH_ENDORSEMENT or TPM_RH_PLATFORM */
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
+        int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        /* truncate if longer than name size */
+        if (nameAlgDigestSz > 0 && authSz > nameAlgDigestSz)
+            authSz = nameAlgDigestSz;
+        XMEMCPY(createPriIn.inSensitive.sensitive.userAuth.buffer, auth, authSz);
+        /* make sure auth is same size as nameAlg digest size */
+        if (nameAlgDigestSz > 0 && authSz < nameAlgDigestSz)
+            authSz = nameAlgDigestSz;
         createPriIn.inSensitive.sensitive.userAuth.size = authSz;
-        XMEMCPY(createPriIn.inSensitive.sensitive.userAuth.buffer,
-            auth, createPriIn.inSensitive.sensitive.userAuth.size);
     }
     XMEMCPY(&createPriIn.inPublic.publicArea, publicTemplate,
         sizeof(TPMT_PUBLIC));
@@ -842,26 +848,10 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load curve type */
     curve_id = tpmKey->pub.publicArea.parameters.eccDetail.curveID;
-    switch (curve_id) {
-        case TPM_ECC_NIST_P192:
-            curve_id = ECC_SECP192R1;
-            break;
-        case TPM_ECC_NIST_P224:
-            curve_id = ECC_SECP224R1;
-            break;
-        case TPM_ECC_NIST_P256:
-            curve_id = ECC_SECP256R1;
-            break;
-        case TPM_ECC_NIST_P384:
-            curve_id = ECC_SECP384R1;
-            break;
-        case TPM_ECC_NIST_P521:
-            curve_id = ECC_SECP521R1;
-            break;
-        case TPM_ECC_BN_P256:
-        case TPM_ECC_BN_P638:
-            return ECC_CURVE_OID_E;
-    }
+    rc = TPM2_GetWolfCurve(curve_id);
+    if (rc < 0)
+        return rc;
+    curve_id = rc;
 
     /* load public key */
     qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
@@ -893,25 +883,10 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (wolfKey->dp)
         curve_id = wolfKey->dp->id;
 
-    switch (curve_id) {
-        case ECC_SECP192R1:
-            curve_id = TPM_ECC_NIST_P192;
-            break;
-        case ECC_SECP224R1:
-            curve_id = TPM_ECC_NIST_P224;
-            break;
-        case ECC_SECP256R1:
-            curve_id = TPM_ECC_NIST_P256;
-            break;
-        case ECC_SECP384R1:
-            curve_id = TPM_ECC_NIST_P384;
-            break;
-        case ECC_SECP521R1:
-            curve_id = TPM_ECC_NIST_P521;
-            break;
-        default:
-            return ECC_CURVE_OID_E;
-    }
+    rc = TPM2_GetTpmCurve(curve_id);
+    if (rc < 0)
+        return rc;
+    curve_id = rc;
 
     if (parentKey && wolfKey->type == ECC_PRIVATEKEY) {
         byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
@@ -941,8 +916,33 @@ int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
 {
     return wolfTPM2_EccKey_WolfToTpm_ex(dev, NULL, wolfKey, tpmKey);
 }
+
+int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
+    TPM2B_ECC_POINT* pubPoint)
+{
+    int rc;
+    word32 xSz, ySz;
+
+    if (dev == NULL || wolfKey == NULL || pubPoint == NULL)
+        return BAD_FUNC_ARG;
+
+    xSz = sizeof(pubPoint->point.x.buffer);;
+    ySz = sizeof(pubPoint->point.y.buffer);;
+
+    /* load wolf ECC public key into TPM2B_ECC_POINT */
+    rc = wc_ecc_export_public_raw(wolfKey,
+        pubPoint->point.x.buffer, &xSz,
+        pubPoint->point.y.buffer, &ySz);
+    if (rc == 0) {
+        pubPoint->point.x.size = xSz;
+        pubPoint->point.y.size = ySz;
+    }
+
+    return rc;
+}
 #endif /* HAVE_ECC */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
 
 /* primaryHandle must be owner or platform hierarchy */
 /* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
@@ -1175,6 +1175,37 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+/* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
+int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
+    const byte* auth, int authSz)
+{
+    int rc;
+    TPMT_PUBLIC publicTemplate;
+    WOLFTPM2_HANDLE nullParent;
+
+    if (dev == NULL || ecdhKey == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&nullParent, 0, sizeof(nullParent));
+    nullParent.hndl = TPM_RH_NULL;
+
+    /* Create and load ECC key for DH */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+        curve_id, TPM_ALG_ECDH);
+    if (rc == 0) {
+        rc = wolfTPM2_CreatePrimaryKey(dev, ecdhKey, TPM_RH_NULL,
+            &publicTemplate, auth, authSz);
+    }
+
+    return rc;
+}
+
+/* Generate ephemeral key and compute Z (shared secret) */
+/* One shot API using private key handle to generate key-pair and return
+    pub-point and shared secret */
 int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     TPM2B_ECC_POINT* pubPoint, byte* out, int* outSz)
 {
@@ -1188,7 +1219,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return BAD_FUNC_ARG;
     }
 
-    /* get curve size */
+    /* get curve size to verify output is large enough */
     curveSize = wolfTPM2_GetCurveSize(
         privKey->pub.publicArea.parameters.eccDetail.curveID);
     if (curveSize <= 0 || *outSz < curveSize) {
@@ -1219,6 +1250,142 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         ecdhOut.zPoint.size,
         ecdhOut.pubPoint.size);
+#endif
+
+    return rc;
+}
+
+/* Compute Z (shared secret) using pubPoint and loaded private ECC key */
+int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
+    const TPM2B_ECC_POINT* pubPoint, byte* out, int* outSz)
+{
+    int rc;
+    ECDH_ZGen_In  ecdhZIn;
+    ECDH_ZGen_Out ecdhZOut;
+    int curveSize;
+
+    if (dev == NULL || privKey == NULL || pubPoint == NULL || out == NULL ||
+                                                                outSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* get curve size to verify output is large enough */
+    curveSize = wolfTPM2_GetCurveSize(
+        privKey->pub.publicArea.parameters.eccDetail.curveID);
+    if (curveSize <= 0 || *outSz < curveSize) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    dev->session[0].auth = privKey->handle.auth;
+    dev->session[0].symmetric =
+        privKey->pub.publicArea.parameters.eccDetail.symmetric;
+
+    XMEMSET(&ecdhZIn, 0, sizeof(ecdhZIn));
+    ecdhZIn.keyHandle = privKey->handle.hndl;
+    ecdhZIn.inPoint = *pubPoint;
+    rc = TPM2_ECDH_ZGen(&ecdhZIn, &ecdhZOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_ECDH_ZGen failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    *outSz = ecdhZOut.outPoint.point.x.size;
+    XMEMCPY(out, ecdhZOut.outPoint.point.x.buffer,
+        ecdhZOut.outPoint.point.x.size);
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+#endif
+
+    return rc;
+}
+
+
+/* Generate ephemeral ECC key and return array index (2 phase method) */
+/* One time use key */
+int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id)
+{
+    int rc;
+    EC_Ephemeral_In in;
+    EC_Ephemeral_Out out;
+
+    if (dev == NULL || ecdhKey == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.curveID = curve_id;
+    rc = TPM2_EC_Ephemeral(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_EC_Ephemeral failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* Save the point and counter (commit ID) into ecdhKey */
+    ecdhKey->pub.publicArea.unique.ecc = out.Q.point;
+    ecdhKey->handle.hndl = (UINT32)out.counter;
+
+    return rc;
+}
+
+/* Compute Z (shared secret) using pubPoint and counter (2 phase method) */
+/* The counter / array ID can only be used one time */
+int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
+    WOLFTPM2_KEY* ecdhKey, const TPM2B_ECC_POINT* pubPoint,
+    byte* out, int* outSz)
+{
+    int rc;
+    ZGen_2Phase_In  inZGen2Ph;
+    ZGen_2Phase_Out outZGen2Ph;
+    int curveSize;
+
+    if (dev == NULL || parentKey == NULL || ecdhKey == NULL ||
+        pubPoint == NULL || out == NULL || outSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* get curve size to verify output is large enough */
+    curveSize = wolfTPM2_GetCurveSize(
+        parentKey->pub.publicArea.parameters.eccDetail.curveID);
+    if (curveSize <= 0 || *outSz < curveSize) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    dev->session[0].auth = parentKey->handle.auth;
+    dev->session[0].symmetric =
+        parentKey->pub.publicArea.parameters.eccDetail.symmetric;
+
+    XMEMSET(&inZGen2Ph, 0, sizeof(inZGen2Ph));
+    inZGen2Ph.keyA = ecdhKey->handle.hndl;
+    ecdhKey->handle.hndl = TPM_RH_NULL;
+    inZGen2Ph.inQsB = *pubPoint;
+    inZGen2Ph.inQeB = *pubPoint;
+    inZGen2Ph.inScheme = TPM_ALG_ECDH;
+    inZGen2Ph.counter = (UINT16)ecdhKey->handle.hndl;
+
+    rc = TPM2_ZGen_2Phase(&inZGen2Ph, &outZGen2Ph);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_ZGen_2Phase failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    *outSz = outZGen2Ph.outZ2.point.x.size;
+    XMEMCPY(out, outZGen2Ph.outZ2.point.x.buffer,
+        outZGen2Ph.outZ2.point.x.size);
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
 #endif
 
     return rc;
@@ -2093,14 +2260,32 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* !NO_RSA */
     #ifdef HAVE_ECC
         if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
-            /* TODO: */
-            #if 0
-            WC_RNG*  rng;
-            int      size;
-            ecc_key* key;
-            int      curveId;
-            #endif
+        #ifdef WOLFTPM2_USE_ECDHE
+            int curve_id;
+
+            /* Make sure an ECDH key has been set and curve is supported */
+            rc = TPM2_GetTpmCurve(info->pk.eckg.curveId);
+            if (rc < 0 || tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
+                return NOT_COMPILED_IN;
+            }
+            curve_id = rc;
+
+            /* Generate ephemeral key */
+            rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
+                (byte*)tlsCtx->eccKey.auth.buffer,
+                tlsCtx->eccKey.auth.size);
+            if (rc == 0) {
+                /* Export public key info to wolf ecc_key */
+                rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, tlsCtx->ecdhKey,
+                    info->pk.eckg.key);
+                if (rc != 0) {
+                    /* if failure, release key */
+                    wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
+                }
+            }
+        #else
             rc = NOT_COMPILED_IN;
+        #endif /* WOLFTPM2_USE_ECDHE */
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
@@ -2150,14 +2335,27 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
         }
         else if (info->pk.type == WC_PK_TYPE_ECDH) {
-            /* TODO: */
-            #if 0
-            ecc_key* private_key;
-            ecc_key* public_key;
-            byte* out;
-            word32* outlen;
-            #endif
+        #ifdef WOLFTPM2_USE_ECDHE
+            TPM2B_ECC_POINT pubPoint;
+
+            /* Make sure an ECDH key has been set */
+            if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
+                return NOT_COMPILED_IN;
+            }
+
+            rc = wolfTPM2_EccKey_WolfToPubPoint(tlsCtx->dev,
+                info->pk.ecdh.public_key, &pubPoint);
+            if (rc == 0) {
+                /* Compute shared secret and compare results */
+                rc = wolfTPM2_ECDHGenZ(tlsCtx->dev, tlsCtx->ecdhKey,
+                    &pubPoint, info->pk.ecdh.out, (int*)info->pk.ecdh.outlen);
+            }
+
+            /* done with ephemeral key */
+            wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
+        #else
             rc = NOT_COMPILED_IN;
+        #endif /* WOLFTPM2_USE_ECDHE */
         }
     #endif
     }

@@ -956,9 +956,10 @@ int TPM2_Native_Test(void* userCtx)
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         cmdOut.ecdh.zPoint.size,
         cmdOut.ecdh.pubPoint.size);
+    message.size = cmdOut.ecdh.zPoint.size;
+    XMEMCPY(message.buffer, &cmdOut.ecdh.zPoint.point, message.size);
 
-
-#if 0
+    /* ECDH ZGen (compute shared secret) */
     XMEMSET(&cmdIn.ecdhZ, 0, sizeof(cmdIn.ecdhZ));
     cmdIn.ecdhZ.keyHandle = eccKey.handle;
     cmdIn.ecdhZ.inPoint = cmdOut.ecdh.pubPoint;
@@ -968,11 +969,15 @@ int TPM2_Native_Test(void* userCtx)
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_ECDH_KeyGen: zPt %d\n",
+    printf("TPM2_ECDH_ZGen: zPt %d\n",
         cmdOut.ecdhZ.outPoint.size);
 
     /* verify shared secret is the same */
-#endif
+    if (message.size != cmdOut.ecdhZ.outPoint.size ||
+        XMEMCMP(message.buffer, &cmdOut.ecdhZ.outPoint.point, message.size) != 0) {
+        rc = -1; /* fail */
+    }
+    printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
 
     cmdIn.flushCtx.flushHandle = eccKey.handle;
     eccKey.handle = TPM_RH_NULL;

@@ -339,12 +339,20 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
 
     /* Create ephemeral ECC key and generate a shared secret */
-    cipher.size = sizeof(cipher.buffer);
+    message.size = sizeof(message.buffer);
     rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
-        cipher.buffer, &cipher.size);
+        message.buffer, &message.size);
     if (rc != 0) goto exit;
 
-    printf("ECC DH Generation Passed\n");
+    /* Compute shared secret and compare results */
+    rc = wolfTPM2_ECDHGenZ(&dev, &eccKey, &pubPoint, cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+
+    if (message.size != cipher.size ||
+        XMEMCMP(message.buffer, cipher.buffer, message.size) != 0) {
+        rc = -1; /* failed */
+    }
+    printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
 
 
     /* ECC Public Key Signature Verify Test/Example */

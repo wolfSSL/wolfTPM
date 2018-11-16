@@ -4856,6 +4856,62 @@ int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
     return 0;
 }
 
+int TPM2_GetTpmCurve(int curve_id)
+{
+    int ret = -1;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    switch (curve_id) {
+        case ECC_SECP192R1:
+            ret = TPM_ECC_NIST_P192;
+            break;
+        case ECC_SECP224R1:
+            ret = TPM_ECC_NIST_P224;
+            break;
+        case ECC_SECP256R1:
+            ret = TPM_ECC_NIST_P256;
+            break;
+        case ECC_SECP384R1:
+            ret = TPM_ECC_NIST_P384;
+            break;
+        case ECC_SECP521R1:
+            ret = TPM_ECC_NIST_P521;
+            break;
+        default:
+            ret = ECC_CURVE_OID_E;
+    }
+#endif
+    (void)curve_id;
+    return ret;
+}
+
+int TPM2_GetWolfCurve(int curve_id)
+{
+    int ret = -1;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    switch (curve_id) {
+        case TPM_ECC_NIST_P192:
+            ret = ECC_SECP192R1;
+            break;
+        case TPM_ECC_NIST_P224:
+            ret = ECC_SECP224R1;
+            break;
+        case TPM_ECC_NIST_P256:
+            ret = ECC_SECP256R1;
+            break;
+        case TPM_ECC_NIST_P384:
+            ret = ECC_SECP384R1;
+            break;
+        case TPM_ECC_NIST_P521:
+            ret = ECC_SECP521R1;
+            break;
+        case TPM_ECC_BN_P256:
+        case TPM_ECC_BN_P638:
+            ret = ECC_CURVE_OID_E;
+    }
+#endif
+    (void)curve_id;
+    return ret;
+}
 
 
 #ifdef DEBUG_WOLFTPM
