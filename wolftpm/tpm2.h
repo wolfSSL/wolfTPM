@@ -221,13 +221,13 @@ typedef enum {
     TPM_CC_EncryptDecrypt2          = 0x00000193,
     TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
 
-    CC_VEND                     = 0x20000000,
-    TPM_CC_Vendor_TCG_Test      = CC_VEND + 0x0000,
+    CC_VEND                         = 0x20000000,
+    TPM_CC_Vendor_TCG_Test          = CC_VEND + 0x0000,
 #ifdef WOLFTPM_ST33
-    TPM_CC_SetMode              = CC_VEND + 0x0307,
-    TPM_CC_SetCommandSet        = CC_VEND + 0x0309,
-    TPM_CC_RestoreEK            = CC_VEND + 0x030A,
-    TPM_CC_SetCommandSetLock    = CC_VEND + 0x030B,
+    TPM_CC_SetMode                  = CC_VEND + 0x0307,
+    TPM_CC_SetCommandSet            = CC_VEND + 0x0309,
+    TPM_CC_RestoreEK                = CC_VEND + 0x030A,
+    TPM_CC_SetCommandSetLock        = CC_VEND + 0x030B,
 #endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
@@ -502,6 +502,8 @@ typedef enum {
     TPM_PT_LIBRARY_COMMANDS     = PT_FIXED + 42,
     TPM_PT_VENDOR_COMMANDS      = PT_FIXED + 43,
     TPM_PT_NV_BUFFER_MAX        = PT_FIXED + 44,
+    TPM_PT_MODES                = PT_FIXED + 45,
+    TPM_PT_MAX_CAP_BUFFER       = PT_FIXED + 46,
 
     PT_VAR = PT_GROUP * 2,
     TPM_PT_PERMANENT            = PT_VAR + 0,

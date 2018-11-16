@@ -86,6 +86,133 @@ int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
     return dev->ctx.did_vid; /* not INVALID_DEVID */
 }
 
+
+/* Infineon SLB9670
+ *  TPM_PT_MANUFACTURER     "IFX"
+ *  TPM_PT_VENDOR_STRING_1  "SLB9"
+ *  TPM_PT_VENDOR_STRING_2  "670 "
+ *  TPM_PT_FIRMWARE_VERSION_1 0x00070055 = v7.85
+ *  TPM_PT_FIRMWARE_VERSION_2 0x0011CB02
+ *      Byte  1: reserved.
+ *      Bytes 2-3: build num = 11CB,
+ *      Byte  4: 0x00 (TPM CC), 0x02 (no CC)
+ *  TPM_PT_MODES = Bit 0 = FIPS_140_2
+ */
+
+/* ST33TP
+ *  TPM_PT_MANUFACTURER 0x53544D20: “STM”
+ *  TPM_PT_FIRMWARE_VERSION_1 TPM FW version: 0x00006400
+ *  TPM_PT_VENDOR_TPM_TYPE 1: TPM 2.0
+ *  TPM_PT_MODES: BIT 0 SET (1): indicates that the TPM is designed to
+ *      comply with all of the FIPS 140-2 requirements at Level 1 or higher.
+ *   TPM_PT_FIRMWARE_VERSION_2: ST Internal Additional Version
+ */
+static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
+    TPML_TAGGED_TPM_PROPERTY* props)
+{
+    int rc = 0;
+    word32 i, val, len;
+
+    for (i=0; i<props->count && i<MAX_TPM_PROPERTIES; i++) {
+        val = props->tpmProperty[i].value;
+        switch (props->tpmProperty[i].property) {
+            case TPM_PT_MANUFACTURER:
+                val = TPM2_Packet_SwapU32(val); /* swap for little endian */
+                XMEMCPY(&caps->mfgStr, &val, sizeof(UINT32));
+                if (XMEMCMP(&caps->mfgStr, "IFX", 3) == 0) {
+                    caps->mfg = TPM_MFG_INFINEON;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "STM", 3) == 0) {
+                    caps->mfg = TPM_MFG_STM;
+                }
+                break;
+            case TPM_PT_VENDOR_STRING_1:
+            case TPM_PT_VENDOR_STRING_2:
+            case TPM_PT_VENDOR_STRING_3:
+            case TPM_PT_VENDOR_STRING_4:
+                val = TPM2_Packet_SwapU32(val); /* swap for little endian */
+                len = (word32)XSTRLEN(caps->vendorStr); /* add to existing string */
+                if (len + sizeof(UINT32) < sizeof(caps->vendorStr)) {
+                    XMEMCPY(&caps->vendorStr[len], &val, sizeof(UINT32));
+                }
+                if (val == 0x46495053) { /* FIPS */
+                    caps->fips140_2 = 1;
+                }
+                break;
+            case TPM_PT_VENDOR_TPM_TYPE:
+                caps->tpmType = val;
+                break;
+            case TPM_PT_FIRMWARE_VERSION_1:
+                caps->fwVerMajor = val >> 16;
+                caps->fwVerMinor = val & 0xFFFF;
+                break;
+            case TPM_PT_FIRMWARE_VERSION_2:
+                if (caps->mfg == TPM_MFG_INFINEON) {
+                    caps->fwVerVendor = val >> 8;
+                    caps->cc_eal4 = (val & 0x00000002) ? 0 : 1;
+                }
+                else {
+                    caps->fwVerVendor = val;
+                }
+                break;
+            case TPM_PT_MODES:
+                caps->fips140_2 = (val & 0x00000001) ? 1: 0;
+                break;
+            default:
+                break;
+        }
+    }
+    return rc;
+}
+
+int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+
+    if (dev == NULL || cap == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear caps */
+    XMEMSET(cap, 0, sizeof(WOLFTPM2_CAPS));
+
+    /* Get Capabilities TPM_PT_MANUFACTURER thru TPM_PT_FIRMWARE_VERSION_2 */
+    XMEMSET(&in, 0, sizeof(in));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_MANUFACTURER;
+    in.propertyCount = 8;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
+    if (rc != 0)
+        return rc;
+
+    /* Get Capability TPM_PT_MODES */
+    XMEMSET(&in, 0, sizeof(in));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_MODES;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
+
+    return rc;
+}
+
+
 int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     TPM_HANDLE sessionHandle, const byte* auth, int authSz)
 {
