@@ -58,7 +58,13 @@ Example signs and verifies data with PKCS #7 using a TPM based key.
 The result is displayed to stdout on the console.
 
 
-## TLS Client
+## TLS Examples
+
+The TLS example uses TPM based ECDHE (ECC Ephemeral key) support. It can be disabled using `CFLAGS="-DWOLFTPM2_USE_SW_ECDHE"` or `#define WOLFTPM2_USE_SW_ECDHE`. We are also looking into using the 2-phase `TPM2_EC_Ephemeral` and `TPM2_ZGen_2Phase` methods for improved performance and scalability.
+
+Note: The TPM2_CreatePrimary with TPM_RH_NULL for ephemeral key use has an issue with SLB9670 7.83 firmware. Please update to latest firmware or disable ECDHE support using WOLFTPM2_USE_SW_ECDHE to resolve. 
+
+### TLS Client
 
 Examples show using a TPM key and certificate for TLS mutual authentication (client authentication).
 
@@ -69,7 +75,7 @@ Generation of the Client Certificate requires running:
 2. `./certs/certreq.sh`
 
 
-## TLS Server
+### TLS Server
 
 This example shows using a TPM key and certificate for a TLS server. By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
  

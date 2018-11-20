@@ -238,6 +238,7 @@ int TPM2_TLS_Client(void* userCtx)
 #ifdef HAVE_ECC
     WOLFTPM2_KEY eccKey;
     ecc_key wolfEccKey;
+    WOLFTPM2_KEY ecdhKey;
 #endif
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
@@ -366,6 +367,10 @@ int TPM2_TLS_Client(void* userCtx)
     /* load public portion of key into wolf ECC Key */
     rc = wolfTPM2_EccKey_TpmToWolf(&dev, &eccKey, &wolfEccKey);
     if (rc != 0) goto exit;
+
+    /* Ephemeral Key */
+    XMEMSET(&ecdhKey, 0, sizeof(ecdhKey));
+    tpmCtx.ecdhKey = &ecdhKey;
 #endif /* HAVE_ECC */
 
 

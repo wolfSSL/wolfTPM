@@ -2706,6 +2706,8 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
 WOLFTPM_API const char* TPM2_GetRCString(int rc);
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
+WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
+WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
