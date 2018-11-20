@@ -60,7 +60,9 @@ The result is displayed to stdout on the console.
 
 ## TLS Examples
 
-The TLS ECDHE (ECC Ephemeral key) support with TPM is experimental. It can be enabled using `CFLAGS="-DWOLFTPM2_USE_ECDHE"` or `#define WOLFTPM2_USE_ECDHE`. Currently the `wolfTPM2_ECDHGenKey` function has issues on some SLB9670 firmware versions. We are also looking into using the 2-phase `TPM2_EC_Ephemeral` and `TPM2_ZGen_2Phase` methods for improved performance and scalability.
+The TLS example uses TPM based ECDHE (ECC Ephemeral key) support. It can be disabled using `CFLAGS="-DWOLFTPM2_USE_SW_ECDHE"` or `#define WOLFTPM2_USE_SW_ECDHE`. We are also looking into using the 2-phase `TPM2_EC_Ephemeral` and `TPM2_ZGen_2Phase` methods for improved performance and scalability.
+
+Note: The TPM2_CreatePrimary with TPM_RH_NULL for ephemeral key use has an issue with SLB9670 7.83 firmware. Please update to latest firmware or disable ECDHE support using WOLFTPM2_USE_SW_ECDHE to resolve. 
 
 ### TLS Client
 

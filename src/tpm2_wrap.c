@@ -2260,7 +2260,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* !NO_RSA */
     #ifdef HAVE_ECC
         if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
-        #ifdef WOLFTPM2_USE_ECDHE
+        #ifdef WOLFTPM2_USE_SW_ECDHE
+            rc = NOT_COMPILED_IN;
+        #else
             int curve_id;
 
             /* Make sure an ECDH key has been set and curve is supported */
@@ -2272,8 +2274,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
             /* Generate ephemeral key */
             rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
-                (byte*)tlsCtx->eccKey.auth.buffer,
-                tlsCtx->eccKey.auth.size);
+                (byte*)tlsCtx->eccKey->handle.auth.buffer,
+                tlsCtx->eccKey->handle.auth.size);
             if (rc == 0) {
                 /* Export public key info to wolf ecc_key */
                 rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, tlsCtx->ecdhKey,
@@ -2283,9 +2285,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
                 }
             }
-        #else
-            rc = NOT_COMPILED_IN;
-        #endif /* WOLFTPM2_USE_ECDHE */
+        #endif /* WOLFTPM2_USE_SW_ECDHE */
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
@@ -2335,7 +2335,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
         }
         else if (info->pk.type == WC_PK_TYPE_ECDH) {
-        #ifdef WOLFTPM2_USE_ECDHE
+        #ifdef WOLFTPM2_USE_SW_ECDHE
+            rc = NOT_COMPILED_IN;
+        #else
             TPM2B_ECC_POINT pubPoint;
 
             /* Make sure an ECDH key has been set */
@@ -2353,9 +2355,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
             /* done with ephemeral key */
             wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
-        #else
-            rc = NOT_COMPILED_IN;
-        #endif /* WOLFTPM2_USE_ECDHE */
+        #endif /* !WOLFTPM2_USE_SW_ECDHE */
         }
     #endif
     }
