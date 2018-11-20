@@ -94,6 +94,7 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     }
 
     /* define the default session auth */
+    XMEMSET(&dev->session[index], 0, sizeof(dev->session[index]));
     dev->session[index].sessionHandle = sessionHandle;
     dev->session[index].auth.size = authSz;
     if (auth && authSz > 0)
@@ -196,8 +197,9 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* clear output key buffer */
     XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
 
+    /* setup create primary command */
     XMEMSET(&createPriIn, 0, sizeof(createPriIn));
-    /* TPM_RH_OWNER, TPM_RH_ENDORSEMENT or TPM_RH_PLATFORM */
+    /* TPM_RH_OWNER, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM or TPM_RH_NULL */
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
@@ -1186,6 +1188,9 @@ int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     if (dev == NULL || ecdhKey == NULL) {
         return BAD_FUNC_ARG;
     }
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
 
     XMEMSET(&nullParent, 0, sizeof(nullParent));
     nullParent.hndl = TPM_RH_NULL;
