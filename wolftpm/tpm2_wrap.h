@@ -60,6 +60,29 @@ typedef struct WOLFTPM2_BUFFER {
     byte buffer[WOLFTPM2_MAX_BUFFER];
 } WOLFTPM2_BUFFER;
 
+typedef enum WOLFTPM2_MFG {
+    TPM_MFG_UNKNOWN = 0,
+    TPM_MFG_INFINEON,
+    TPM_MFG_STM,
+} WOLFTPM2_MFG;
+typedef struct WOLFTPM2_CAPS {
+    WOLFTPM2_MFG mfg;
+    char mfgStr[4 + 1];
+    char vendorStr[(4 * 4) + 1];
+    word32 tpmType;
+    word16 fwVerMajor;
+    word16 fwVerMinor;
+    word32 fwVerVendor;
+
+    /* bits */
+    word16 fips140_2 : 1; /* using FIPS mode */
+    word16 cc_eal4   : 1; /* Common Criteria EAL4+ */
+} WOLFTPM2_CAPS;
+
+/* NV Handles */
+#define TPM2_NV_RSA_EK_CERT 0x01C00002
+#define TPM2_NV_ECC_EK_CERT 0x01C0000A
+
 
 /* Wrapper API's to simplify TPM use */
 
@@ -67,6 +90,8 @@ WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx
 WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 
 WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
+
+WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     TPM_HANDLE sessionHandle, const byte* auth, int authSz);

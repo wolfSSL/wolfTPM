@@ -53,6 +53,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
     WOLFTPM2_KEY ekKey;
     WOLFTPM2_KEY storageKey;
     WOLFTPM2_KEY rsaKey;
@@ -116,6 +117,14 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 #endif
+
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    if (rc != 0) goto exit;
+
+    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (%u), "
+        "FIPS 140-2 %d, CC-EAL4 %d\n",
+        caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
+        caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
 
     if (resetTPM) {
         /* reset all content on TPM and reseed */

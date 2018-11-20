@@ -79,11 +79,12 @@ Tested with:
 #### Device Identification
 
 Infineon SLB9670:
-TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+TIS: TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
 
 ST ST33TP SPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
-
+Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
 ## Building
 
@@ -233,6 +234,7 @@ These examples demonstrate features of a TPM 2.0 module. The examples create RSA
 ```
 ./examples/wrap/wrap_test
 TPM2 Demo for Wrapper API's
+Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
 RSA Encrypt/Decrypt Test Passed
 RSA Encrypt/Decrypt OAEP Test Passed
 RSA Key 0x80000001 Exported to wolf RsaKey
