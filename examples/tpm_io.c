@@ -95,6 +95,10 @@
 #elif defined(WOLFSSL_ATMEL)
     #include "asf.h"
 
+#elif defined(__BAREBOX__)
+    #include <spi/spi.h>
+    #include <spi/spi_gpio.h>
+
 #else
     /* TODO: Add your platform here for HW interface */
 
@@ -207,7 +211,7 @@
 
         /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
         unsigned int maxSpeed = TPM2_SPI_HZ;
-        int mode = 0; /* mode 0 */
+        int mode = 0; /* Mode 0 (CPOL=0, CPHA=0) */
         int bits_per_word = 8; /* 8-bits */
 
         spiDev = open(TPM2_SPI_DEV, O_RDWR);
@@ -446,6 +450,44 @@
 
         return ret;
     }
+
+#elif defined(__BAREBOX__)
+    /* Barebox (barebox.org) support */
+    static int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
+        byte* rxBuf, word16 xferSz, void* userCtx)
+    {
+        int ret = TPM_RC_FAILURE;
+        struct spi_device spi;
+        int bus = 0;
+        struct spi_transfer t;
+        struct spi_message m;
+
+        XMEMSET(&spi, 0, sizeof(spi));
+        spi.master = spi_get_master(bus);   /* get bus 0 master */
+        spi.max_speed_hz = 1 * 1000 * 1000; /* 1 MHz */
+        spi.mode = 0;                       /* Mode 0 (CPOL=0, CPHA=0) */
+        spi.bits_per_word = 8;              /* 8-bits */
+        spi.chip_select = 0;                /* Use CS 0 */
+
+        /* setup SPI master */
+        ret = spi.master->setup(&spi);
+
+        /* setup transfer */
+        XMEMSET(&t, 0, sizeof(t));
+        t.tx_buf = txBuf;
+        t.rx_buf = rxBuf;
+        t.len    = xferSz;
+        spi_message_init(&m);
+        spi_message_add_tail(&t, &m);
+        ret = spi_sync(&spi, &m);
+        if (ret == 0)
+            ret = TPM_RC_SUCCESS;
+
+        (void)userCtx;
+        (void)ctx;
+
+        return ret;
+    }
 #endif
 
 
@@ -461,6 +503,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_STCubeMX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFSSL_ATMEL)
     ret = TPM2_IoCb_Atmel_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(__BAREBOX__)
+    ret = TPM2_IoCb_Barebox_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
 
     /* TODO: Add your platform here for HW SPI interface */
