@@ -32,7 +32,7 @@
 
 /* Configuration */
 #define TPM2_BENCH_DURATION_SEC 1
-
+static int gUseBase2 = 1;
 
 #include <sys/time.h>
 
@@ -50,10 +50,64 @@ static inline void bench_stats_start(int* count, double* start)
     *start = current_time(1);
 }
 
-static inline int bench_stats_sym_check(double start, int* count)
+static inline int bench_stats_check(double start, int* count)
 {
     (*count)++;
     return ((current_time(0) - start) < TPM2_BENCH_DURATION_SEC);
+}
+
+/* countSz is number of bytes that 1 count represents. Normally bench_size,
+ * except for AES direct that operates on AES_BLOCK_SIZE blocks */
+static void bench_stats_sym_finish(const char* desc, int count, int countSz,
+    double start)
+{
+    double total, persec = 0, blocks = count;
+    const char* blockType;
+
+    total = current_time(0) - start;
+
+    /* calculate actual bytes */
+    blocks *= countSz;
+
+    /* base 2 result */
+    if (gUseBase2) {
+        /* determine if we should show as KB or MB */
+        if (blocks > (1024 * 1024)) {
+            blocks /= (1024 * 1024);
+            blockType = "MB";
+        }
+        else if (blocks > 1024) {
+            blocks /= 1024; /* make KB */
+            blockType = "KB";
+        }
+        else {
+            blockType = "bytes";
+        }
+    }
+    /* base 10 result */
+    else {
+        /* determine if we should show as kB or mB */
+        if (blocks > (1000 * 1000)) {
+            blocks /= (1000 * 1000);
+            blockType = "mB";
+        }
+        else if (blocks > 1000) {
+            blocks /= 1000; /* make kB */
+            blockType = "kB";
+        }
+        else {
+            blockType = "bytes";
+        }
+    }
+
+    /* caclulcate blocks per second */
+    if (total > 0) {
+        persec = (1 / total) * blocks;
+    }
+
+    /* format and print to terminal */
+    printf("%-16s %5.0f %s took %5.3f seconds, %8.3f %s/s\n",
+        desc, blocks, blockType, total, persec, blockType);
 }
 
 static void bench_stats_asym_finish(const char* algo, int strength,
@@ -125,6 +179,15 @@ int TPM2_Wrapper_Bench(void* userCtx)
             storageKey.handle.auth.size);
     }
 
+    /* RNG Benchmark */
+    bench_stats_start(&count, &start);
+    do {
+        rc = wolfTPM2_GetRandom(&dev, message.buffer, sizeof(message.buffer));
+        if (rc != 0) goto exit;
+    } while (bench_stats_check(start, &count));
+    bench_stats_sym_finish("RNG", count, sizeof(message.buffer), start);
+
+
     /* Create RSA key for encrypt/decrypt */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
@@ -139,7 +202,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("RSA", 2048, "key gen", count, start);
 
     /* Perform RSA encrypt / decrypt (no pad) */
@@ -152,7 +215,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
             message.buffer, message.size, cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("RSA", 2048, "Public", count, start);
 
     bench_stats_start(&count, &start);
@@ -161,7 +224,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_NULL,
             cipher.buffer, cipher.size, plain.buffer, &plain.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("RSA", 2048, "Private", count, start);
 
 
@@ -175,7 +238,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
             message.buffer, message.size, cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("RSA", 2048, "Pub  OAEP", count, start);
 
     bench_stats_start(&count, &start);
@@ -184,7 +247,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
             cipher.buffer, cipher.size, plain.buffer, &plain.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("RSA", 2048, "Priv OAEP", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
@@ -206,7 +269,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("ECC", 256, "key gen", count, start);
 
     /* Perform sign / verify */
@@ -219,7 +282,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,
             cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("ECDSA", 256, "sign", count, start);
 
     bench_stats_start(&count, &start);
@@ -227,7 +290,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_VerifyHash(&dev, &eccKey, cipher.buffer, cipher.size,
             message.buffer, message.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("ECDSA", 256, "verify", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
@@ -251,7 +314,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
         rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
             cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_sym_check(start, &count));
+    } while (bench_stats_check(start, &count));
     bench_stats_asym_finish("ECDHE", 256, "agree", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
