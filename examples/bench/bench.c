@@ -28,6 +28,7 @@
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <examples/tpm_io.h>
+#include <examples/tpm_test.h>
 #include <examples/bench/bench.h>
 
 /* Configuration */

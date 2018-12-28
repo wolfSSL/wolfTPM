@@ -27,6 +27,7 @@
      defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
+#include <examples/tpm_test.h>
 #include <examples/csr/csr.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
 

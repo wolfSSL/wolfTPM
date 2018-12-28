@@ -503,7 +503,7 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
         return rc;
     hashSz = rc;
 
-    /* Encode hash alorithm in first 2 bytes */
+    /* Encode hash algorithm in first 2 bytes */
     nameAlg = TPM2_Packet_SwapU16(nameAlg);
     XMEMCPY(&out->name[0], &nameAlg, sizeof(UINT16));
 
@@ -872,7 +872,7 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     XMEMSET(e, 0, sizeof(e));
     XMEMSET(n, 0, sizeof(n));
 
-    /* load exponenet */
+    /* load exponent */
     exponent = tpmKey->pub.publicArea.parameters.rsaDetail.exponent;
     if (exponent == 0)
         exponent = RSA_DEFAULT_PUBLIC_EXPONENT;
@@ -2055,7 +2055,7 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
+    /* set session auth for hash handle */
     dev->session[0].auth = hash->handle.auth;
 
     XMEMSET(&in, 0, sizeof(in));
@@ -2098,7 +2098,7 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
+    /* set session auth for hash handle */
     dev->session[0].auth = hash->handle.auth;
 
     XMEMSET(&in, 0, sizeof(in));
@@ -2126,6 +2126,128 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
+/* EncryptDecrypt */
+int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* in, byte* out, word32 inOutSz, const byte* iv, word32 ivSz,
+    int isDecrypt)
+{
+    int rc;
+    EncryptDecrypt2_In encDecIn;
+    EncryptDecrypt2_Out encDecOut;
+
+    if (dev == NULL || key == NULL || in == NULL || out == NULL || inOutSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* this function expects block size */
+    /* use wolfTPM2_Encrypt and wolfTPM2_Decrypt for other sizes */
+    if (inOutSz > MAX_AES_BLOCK_SIZE_BYTES) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_EncryptDecryptBlock expects %d size blocks\n",
+            MAX_AES_BLOCK_SIZE_BYTES);
+    #endif
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    dev->session[0].auth = key->handle.auth;
+
+    XMEMSET(&encDecIn, 0, sizeof(encDecIn));
+    encDecIn.keyHandle = key->handle.hndl;
+    if (iv == NULL || ivSz == 0) {
+        encDecIn.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
+    }
+    else {
+        encDecIn.ivIn.size = ivSz;
+        XMEMCPY(encDecIn.ivIn.buffer, iv, ivSz);
+    }
+    encDecIn.decrypt = isDecrypt;
+    /* use symmetric algorithm from key */
+    encDecIn.mode = key->pub.publicArea.parameters.symDetail.sym.mode.aes;
+
+    encDecIn.inData.size = inOutSz;
+    XMEMCPY(encDecIn.inData.buffer, in, inOutSz);
+
+    /* make sure this is a block */
+    if (encDecIn.inData.size < MAX_AES_BLOCK_SIZE_BYTES)
+        encDecIn.inData.size = MAX_AES_BLOCK_SIZE_BYTES;
+
+    rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
+    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+        /* try to enable support */
+        rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
+        if (rc == TPM_RC_SUCCESS) {
+            /* try command again */
+            rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
+        }
+    }
+
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* return block */
+    if (inOutSz > encDecOut.outData.size)
+        inOutSz = encDecOut.outData.size;
+    XMEMCPY(out, encDecOut.outData.buffer, inOutSz);
+
+    return rc;
+}
+
+int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* in, byte* out, word32 inOutSz,
+    const byte* iv, word32 ivSz, int isDecrypt)
+{
+    int rc;
+    word32 pos = 0, xfer;
+
+    while (pos < inOutSz) {
+        xfer = inOutSz - pos;
+        if (xfer > MAX_AES_BLOCK_SIZE_BYTES)
+            xfer = MAX_AES_BLOCK_SIZE_BYTES;
+
+        rc = wolfTPM2_EncryptDecryptBlock(dev, key, &in[pos], &out[pos],
+            xfer, iv, ivSz, isDecrypt);
+        if (rc != TPM_RC_SUCCESS)
+            break;
+
+        pos += xfer;
+    }
+
+    return rc;
+}
+
+
+int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
+{
+    int rc;
+#ifdef WOLFTPM_ST33
+    SetCommandSet_In in;
+
+    /* Enable TPM2_EncryptDecrypt2 command */
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_PLATFORM;
+    in.commandCode = commandCode;
+    in.enableFlag = enableFlag;
+    rc = TPM2_SetCommandSet(&in);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+    }
+#else
+    (void)commandCode;
+    (void)enableFlag;
+    rc = TPM_RC_COMMAND_CODE; /* not supported */
+#endif
+    (void)dev;
+    return rc;
+}
 
 /******************************************************************************/
 /* --- END Wrapper Device Functions-- */
@@ -2209,12 +2331,6 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
 
     return 0;
 }
-
-static const BYTE TPM_20_EK_AUTH_POLICY[] = {
-    0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
-    0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
-    0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
-};
 
 int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate)
 {

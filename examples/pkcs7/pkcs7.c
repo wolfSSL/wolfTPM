@@ -27,6 +27,7 @@
      defined(WOLF_CRYPTO_DEV)
 
 #include <examples/tpm_io.h>
+#include <examples/tpm_test.h>
 #include <examples/pkcs7/pkcs7.h>
 #include <wolfssl/wolfcrypt/pkcs7.h>
 

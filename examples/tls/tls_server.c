@@ -27,6 +27,7 @@
     !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
+#include <examples/tpm_test.h>
 #include <examples/tls/tls_server.h>
 
 #include <wolfssl/ssl.h>

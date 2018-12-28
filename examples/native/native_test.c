@@ -25,7 +25,7 @@
 
 #include <examples/native/native_test.h>
 #include <examples/tpm_io.h>
-
+#include <examples/tpm_test.h>
 
 /******************************************************************************/
 /* --- BEGIN TPM Native API Tests -- */
@@ -50,22 +50,11 @@ typedef struct tmpHandle {
     TPM2B_AUTH         auth;
 } TpmHandle;
 
-#ifndef WOLFTPM_ST33
-#define TEST_AES_MODE TPM_ALG_CFB
-#else
-#define TEST_AES_MODE TPM_ALG_CBC
-#endif
 
 int TPM2_Native_Test(void* userCtx)
 {
     int rc;
     TPM2_CTX tpm2Ctx;
-
-    const BYTE TPM_20_EK_AUTH_POLICY[] = {
-        0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
-        0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,
-        0x0b, 0x64, 0xf2, 0xa1, 0xda, 0x1b, 0x33, 0x14, 0x69, 0xaa,
-    };
 
     union {
         Startup_In startup;
