@@ -470,7 +470,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
     byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
 #endif
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef WOLFTPM_DEBUG_IO
     printf("TPM2_IoCb (Adv): Read %d, Addr %x, Size %d\n",
         isRead ? 1 : 0, addr, size);
     if (!isRead) {
@@ -519,7 +519,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
 #endif
 
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef WOLFTPM_DEBUG_IO
     if (isRead) {
         printf("Read Size %d\n", size);
         TPM2_PrintBin(buf, size);
@@ -545,7 +545,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     #error Hardware interface for I2C only supported with WOLFTPM_ADV_IO
 #endif
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef WOLFTPM_DEBUG_IO
     printf("TPM2_IoCb: Ret %d, Sz %d\n", ret, xferSz);
     TPM2_PrintBin(txBuf, xferSz);
     TPM2_PrintBin(rxBuf, xferSz);
