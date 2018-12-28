@@ -127,6 +127,62 @@ static void bench_stats_asym_finish(const char* algo, int strength,
         count, total, milliEach, opsSec);
 }
 
+static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
+    const byte* in, word32 inSz, byte* digest, word32 digestSz)
+{
+    int rc;
+    int count;
+    double start;
+    WOLFTPM2_HASH hash;
+
+    rc = wolfTPM2_HashStart(dev, &hash, algo,
+        (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+    bench_stats_start(&count, &start);
+    do {
+        rc = wolfTPM2_HashUpdate(dev, &hash, in, inSz);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_HashFinish(dev, &hash, digest, &digestSz);
+        if (rc != 0) goto exit;
+    } while (bench_stats_check(start, &count));
+    bench_stats_sym_finish(desc, count, inSz, start);
+
+exit:
+    return rc;
+}
+
+static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
+    const char* desc, int algo, int keyBits, const byte* in, byte* out,
+    word32 inOutSz, int isDecrypt)
+{
+    int rc;
+    int count;
+    double start;
+    TPMT_PUBLIC publicTemplate;
+    WOLFTPM2_KEY aesKey;
+
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
+        YES, YES);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
+        &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+    bench_stats_start(&count, &start);
+    do {
+        rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, NULL, 0,
+            isDecrypt);
+        if (rc != 0) goto exit;
+    } while (bench_stats_check(start, &count));
+    bench_stats_sym_finish(desc, count, inOutSz, start);
+
+exit:
+
+    wolfTPM2_UnloadHandle(dev, &aesKey.handle);
+    return rc;
+}
 
 /******************************************************************************/
 /* --- BEGIN Bench Wrapper -- */
@@ -187,6 +243,82 @@ int TPM2_Wrapper_Bench(void* userCtx)
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count));
     bench_stats_sym_finish("RNG", count, sizeof(message.buffer), start);
+
+    /* AES Benchmarks */
+    /* AES ECB */
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-ECB-enc", TPM_ALG_ECB, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-ECB-dec", TPM_ALG_ECB, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-ECB-enc", TPM_ALG_ECB, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-ECB-dec", TPM_ALG_ECB, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+
+    /* AES CBC */
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-enc", TPM_ALG_CBC, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-dec", TPM_ALG_CBC, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-enc", TPM_ALG_CBC, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-dec", TPM_ALG_CBC, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+
+    /* AES CTR */
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-enc", TPM_ALG_CTR, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-dec", TPM_ALG_CTR, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-enc", TPM_ALG_CTR, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-dec", TPM_ALG_CTR, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+
+    /* AES CFB */
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-enc", TPM_ALG_CFB, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-dec", TPM_ALG_CFB, 128,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-enc", TPM_ALG_CFB, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+    if (rc != 0) goto exit;
+    rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-dec", TPM_ALG_CFB, 256,
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+    if (rc != 0) goto exit;
+
+
+    /* Hashing Benchmarks */
+    /* SHA1 */
+    rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
+        sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE);
+    if (rc != 0) goto exit;
+    /* SHA256 */
+    rc = bench_sym_hash(&dev, "SHA256", TPM_ALG_SHA256, message.buffer,
+        sizeof(message.buffer), cipher.buffer, TPM_SHA256_DIGEST_SIZE);
+    if (rc != 0) goto exit;
+    /* SHA384 */
+    rc = bench_sym_hash(&dev, "SHA384", TPM_ALG_SHA384, message.buffer,
+        sizeof(message.buffer), cipher.buffer, TPM_SHA384_DIGEST_SIZE);
+    if (rc != 0) goto exit;
+    /* SHA512 */
+    rc = bench_sym_hash(&dev, "SHA512", TPM_ALG_SHA512, message.buffer,
+        sizeof(message.buffer), cipher.buffer, TPM_SHA512_DIGEST_SIZE);
+    if (rc != 0) goto exit;
 
 
     /* Create RSA key for encrypt/decrypt */
