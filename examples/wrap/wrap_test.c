@@ -552,13 +552,13 @@ int TPM2_Wrapper_Test(void* userCtx)
     }
 
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
-    cipher.size = sizeof(cipher.buffer);
+    cipher.size = message.size;
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, NULL, 0, WOLFTPM2_ENCRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
-    plain.size = sizeof(plain.buffer);
+    plain.size = message.size;
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
         cipher.size, NULL, 0, WOLFTPM2_DECRYPT);
 

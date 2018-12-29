@@ -2139,16 +2139,6 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    /* this function expects block size */
-    /* use wolfTPM2_Encrypt and wolfTPM2_Decrypt for other sizes */
-    if (inOutSz > MAX_AES_BLOCK_SIZE_BYTES) {
-    #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_EncryptDecryptBlock expects %d size blocks\n",
-            MAX_AES_BLOCK_SIZE_BYTES);
-    #endif
-        return BAD_FUNC_ARG;
-    }
-
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
 
@@ -2168,9 +2158,9 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     encDecIn.inData.size = inOutSz;
     XMEMCPY(encDecIn.inData.buffer, in, inOutSz);
 
-    /* make sure this is a block */
-    if (encDecIn.inData.size < MAX_AES_BLOCK_SIZE_BYTES)
-        encDecIn.inData.size = MAX_AES_BLOCK_SIZE_BYTES;
+    /* make sure its multiple of block size */
+    encDecIn.inData.size = (encDecIn.inData.size +
+        MAX_AES_BLOCK_SIZE_BYTES - 1) / MAX_AES_BLOCK_SIZE_BYTES;
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
@@ -2207,8 +2197,8 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     while (pos < inOutSz) {
         xfer = inOutSz - pos;
-        if (xfer > MAX_AES_BLOCK_SIZE_BYTES)
-            xfer = MAX_AES_BLOCK_SIZE_BYTES;
+        if (xfer > MAX_DIGEST_BUFFER)
+            xfer = MAX_DIGEST_BUFFER;
 
         rc = wolfTPM2_EncryptDecryptBlock(dev, key, &in[pos], &out[pos],
             xfer, iv, ivSz, isDecrypt);
@@ -2217,6 +2207,11 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
         pos += xfer;
     }
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_EncryptDecrypt: 0x%x: %s, %d bytes\n",
+        rc, TPM2_GetRCString(rc), inOutSz);
+#endif
 
     return rc;
 }
