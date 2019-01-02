@@ -4647,6 +4647,9 @@ const char* TPM2_GetRCString(int rc)
         return wc_GetErrorString(rc);
     #endif
     }
+    else if (rc == 0) {
+        return "Success";
+    }
 
     if (rc & RC_VER1) {
         int rc_fm0 = rc & RC_MAX_FM0;

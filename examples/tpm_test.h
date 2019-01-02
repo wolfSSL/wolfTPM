@@ -23,6 +23,29 @@
 #ifndef _TPM_TEST_H_
 #define _TPM_TEST_H_
 
+
+/* Test Configuration */
+#define TPM2_DEMO_STORAGE_KEY_HANDLE    0x81000200  /* Persistent Storage Key Handle */
+
+#define TPM2_DEMO_RSA_IDX               0x20        /* offset handle to unused index */
+#define TPM2_DEMO_RSA_KEY_HANDLE        (0x81000000 + TPM2_DEMO_RSA_IDX) /* Persistent Key Handle */
+#define TPM2_DEMO_RSA_CERT_HANDLE       (0x01800000 + TPM2_DEMO_RSA_IDX) /* NV Handle */
+
+#define TPM2_DEMO_ECC_IDX               0x21        /* offset handle to unused index */
+#define TPM2_DEMO_ECC_KEY_HANDLE        (0x81000000 + TPM2_DEMO_ECC_IDX) /* Persistent Key Handle */
+#define TPM2_DEMO_ECC_CERT_HANDLE       (0x01800000 + TPM2_DEMO_ECC_IDX) /* NV Handle */
+
+static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
+static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
+static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
+
+#ifndef WOLFTPM_ST33
+    #define TEST_AES_MODE TPM_ALG_CFB
+#else
+    #define TEST_AES_MODE TPM_ALG_CBC
+#endif
+
+
 /* RAW KEY MATERIAL */
 
 /* from wolfSSL ./certs/client-key.der */

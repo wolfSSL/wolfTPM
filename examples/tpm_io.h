@@ -24,21 +24,6 @@
 
 #include <wolftpm/tpm2.h>
 
-/* Configuration */
-#define TPM2_DEMO_STORAGE_KEY_HANDLE    0x81000200  /* Persistent Storage Key Handle */
-
-#define TPM2_DEMO_RSA_IDX               0x20        /* offset handle to unused index */
-#define TPM2_DEMO_RSA_KEY_HANDLE        (0x81000000 + TPM2_DEMO_RSA_IDX) /* Persistent Key Handle */
-#define TPM2_DEMO_RSA_CERT_HANDLE       (0x01800000 + TPM2_DEMO_RSA_IDX) /* NV Handle */
-
-#define TPM2_DEMO_ECC_IDX               0x21        /* offset handle to unused index */
-#define TPM2_DEMO_ECC_KEY_HANDLE        (0x81000000 + TPM2_DEMO_ECC_IDX) /* Persistent Key Handle */
-#define TPM2_DEMO_ECC_CERT_HANDLE       (0x01800000 + TPM2_DEMO_ECC_IDX) /* NV Handle */
-
-static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
-static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
-static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
-
 /* TPM2 IO Examples */
 #ifdef WOLFTPM_ADV_IO
 int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,

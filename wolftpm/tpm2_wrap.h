@@ -211,6 +211,17 @@ WOLFTPM_API int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 WOLFTPM_API int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     byte* digest, word32* digestSz);
 
+#define WOLFTPM2_ENCRYPT NO
+#define WOLFTPM2_DECRYPT YES
+WOLFTPM_API int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* in, byte* out, word32 inOutSz, const byte* iv, word32 ivSz,
+    int isDecrypt);
+WOLFTPM_API int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* in, byte* out, word32 inOutSz,
+    const byte* iv, word32 ivSz, int isDecrypt);
+
+WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
+    int enableFlag);
 
 /* Utility functions */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,

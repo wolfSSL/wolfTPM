@@ -27,8 +27,8 @@
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <examples/tpm_io.h>
-#include <examples/wrap/wrap_test.h>
 #include <examples/tpm_test.h>
+#include <examples/wrap/wrap_test.h>
 
 /* Configuration */
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
@@ -51,7 +51,7 @@ void TPM2_Wrapper_SetReset(int reset)
 
 int TPM2_Wrapper_Test(void* userCtx)
 {
-    int rc;
+    int rc, i;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
     WOLFTPM2_KEY ekKey;
@@ -59,6 +59,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     WOLFTPM2_KEY rsaKey;
     WOLFTPM2_KEY eccKey;
     WOLFTPM2_KEY publicKey;
+    WOLFTPM2_KEY aesKey;
     WOLFTPM2_BUFFER message;
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
@@ -70,7 +71,6 @@ int TPM2_Wrapper_Test(void* userCtx)
 #endif
     WOLFTPM2_HASH hash;
 #ifdef ENABLE_LARGE_HASH_TEST
-    int i;
     const char* hashTestDig =
         "\x27\x78\x3e\x87\x96\x3a\x4e\xfb\x68\x29\xb5\x31\xc9\xba\x57\xb4"
         "\x4f\x45\x79\x7f\x67\x70\xbd\x63\x7f\xbf\x0d\x80\x7c\xbd\xba\xe0";
@@ -535,12 +535,56 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("Hash SHA256 test success\n");
 
 
+    /*------------------------------------------------------------------------*/
+    /* ENCRYPT/DECRYPT TESTS */
+    /*------------------------------------------------------------------------*/
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
+        YES, YES);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &aesKey, &storageKey.handle,
+        &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+    /* Test data */
+    message.size = sizeof(message.buffer);
+    for (i=0; i<message.size; i++) {
+        message.buffer[i] = (byte)(i & 0xff);
+    }
+
+    XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
+    cipher.size = message.size;
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
+        message.size, NULL, 0, WOLFTPM2_ENCRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+
+    XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
+    plain.size = message.size;
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
+        cipher.size, NULL, 0, WOLFTPM2_DECRYPT);
+
+    wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
+
+    if (rc == TPM_RC_SUCCESS &&
+         message.size == plain.size &&
+         XMEMCMP(message.buffer, plain.buffer, message.size) == 0) {
+        printf("Encrypt/Decrypt test success\n");
+    }
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
+        rc = TPM_RC_SUCCESS; /* clear error code */
+    }
+    else {
+        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        goto exit;
+    }
+
 exit:
 
     if (rc != 0) {
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
     wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);

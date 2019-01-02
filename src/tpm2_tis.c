@@ -305,7 +305,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     byte access, status = 0;
     word16 burstCount;
 
-#ifdef DEBUG_WOLFTPM
+#ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command: %d\n", cmdSz);
     TPM2_PrintBin(cmd, cmdSz);
 #endif
@@ -420,7 +420,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         }
     }
 
-#ifdef DEBUG_WOLFTPM
+#ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
         printf("Response: %d\n", rspSz);
         TPM2_PrintBin(cmd, rspSz);
