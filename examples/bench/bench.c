@@ -167,7 +167,11 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
-    if (rc != 0) goto exit;
+    if ((rc & TPM_RC_MODE) == TPM_RC_MODE || (rc & TPM_RC_VALUE) == TPM_RC_VALUE) {
+        printf("Benchmark symmetric %s not supported!\n", desc);
+        rc = 0; goto exit;
+    }
+    else if (rc != 0) goto exit;
 
     bench_stats_start(&count, &start);
     do {
