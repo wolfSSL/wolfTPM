@@ -255,21 +255,35 @@ Hash SHA256 test success
 ### TPM2 Benchmarks
 
 Note: Key Generation is using existing template from hierarchy seed.
+Note: SPI bus speed increased to 10Mhz for these measurements.
 
 Run on Infineon OPTIGA SLB9670:
 
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RSA     2048 key gen        5 ops took 1.116 sec, avg 223.111 ms, 4.482 ops/sec
-RSA     2048 Public        65 ops took 1.012 sec, avg 15.572 ms, 64.219 ops/sec
-RSA     2048 Private        3 ops took 1.365 sec, avg 455.050 ms, 2.198 ops/sec
-RSA     2048 Pub  OAEP     11 ops took 1.011 sec, avg 91.889 ms, 10.883 ops/sec
-RSA     2048 Priv OAEP      2 ops took 1.039 sec, avg 519.707 ms, 1.924 ops/sec
-ECC      256 key gen        5 ops took 1.016 sec, avg 203.186 ms, 4.922 ops/sec
-ECDSA    256 sign          14 ops took 1.056 sec, avg 75.396 ms, 13.263 ops/sec
-ECDSA    256 verify         8 ops took 1.040 sec, avg 129.948 ms, 7.695 ops/sec
-ECDHE    256 agree          8 ops took 1.049 sec, avg 131.094 ms, 7.628 ops/sec
+RNG                  8 KB took 1.089 seconds,    7.344 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+Benchmark symmetric AES-256-CFB-enc not supported!
+Benchmark symmetric AES-256-CFB-dec not supported!
+SHA1                28 KB took 1.007 seconds,   27.800 KB/s
+SHA256              28 KB took 1.002 seconds,   27.946 KB/s
+RSA     2048 key gen        6 ops took 12.175 sec, avg 2029.085 ms, 0.493 ops/sec
+RSA     2048 Public        45 ops took 1.019 sec, avg 22.649 ms, 44.151 ops/sec
+RSA     2048 Private        6 ops took 1.059 sec, avg 176.565 ms, 5.664 ops/sec
+RSA     2048 Pub  OAEP     46 ops took 1.009 sec, avg 21.925 ms, 45.610 ops/sec
+RSA     2048 Priv OAEP      6 ops took 1.051 sec, avg 175.166 ms, 5.709 ops/sec
+ECC      256 key gen        4 ops took 1.013 sec, avg 253.259 ms, 3.949 ops/sec
+ECDSA    256 sign          14 ops took 1.028 sec, avg 73.403 ms, 13.623 ops/sec
+ECDSA    256 verify         9 ops took 1.056 sec, avg 117.290 ms, 8.526 ops/sec
+ECDHE    256 agree          5 ops took 1.178 sec, avg 235.695 ms, 4.243 ops/sec
 ```
 
 Run on ST ST33TP SPI:
@@ -277,15 +291,30 @@ Run on ST ST33TP SPI:
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RSA     2048 key gen        3 ops took 3.889 sec, avg 1296.452 ms, 0.771 ops/sec
-RSA     2048 Public        64 ops took 1.014 sec, avg 15.840 ms,  63.131 ops/sec
-RSA     2048 Private        4 ops took 1.017 sec, avg 254.190 ms,  3.934 ops/sec
-RSA     2048 Pub  OAEP     63 ops took 1.003 sec, avg 15.924 ms,  62.797 ops/sec
-RSA     2048 Priv OAEP      4 ops took 1.027 sec, avg 256.862 ms,  3.893 ops/sec
-ECC      256 key gen        5 ops took 1.157 sec, avg 231.497 ms,  4.320 ops/sec
-ECDSA    256 sign          23 ops took 1.027 sec, avg 44.657 ms,  22.393 ops/sec
-ECDSA    256 verify        14 ops took 1.068 sec, avg 76.265 ms,  13.112 ops/sec
-ECDHE    256 agree          5 ops took 1.248 sec, avg 249.669 ms,  4.005 ops/sec
+RNG                 14 KB took 1.090 seconds,   12.845 KB/s
+AES-128-CBC-enc    260 KB took 1.006 seconds,  258.482 KB/s
+AES-128-CBC-dec    288 KB took 1.003 seconds,  287.032 KB/s
+AES-256-CBC-enc    278 KB took 1.006 seconds,  276.460 KB/s
+AES-256-CBC-dec    278 KB took 1.002 seconds,  277.504 KB/s
+AES-128-CTR-enc    226 KB took 1.001 seconds,  225.726 KB/s
+AES-128-CTR-dec    226 KB took 1.001 seconds,  225.764 KB/s
+AES-256-CTR-enc    220 KB took 1.001 seconds,  219.744 KB/s
+AES-256-CTR-dec    222 KB took 1.008 seconds,  220.160 KB/s
+AES-128-CFB-enc    280 KB took 1.004 seconds,  278.929 KB/s
+AES-128-CFB-dec    282 KB took 1.007 seconds,  280.103 KB/s
+AES-256-CFB-enc    268 KB took 1.000 seconds,  267.972 KB/s
+AES-256-CFB-dec    270 KB took 1.001 seconds,  269.850 KB/s
+SHA1               116 KB took 1.015 seconds,  114.279 KB/s
+SHA256             108 KB took 1.006 seconds,  107.320 KB/s
+RSA     2048 key gen        1 ops took 8.638 sec, avg 8638.245 ms, 0.116 ops/sec
+RSA     2048 Public       124 ops took 1.007 sec, avg 8.117 ms, 123.196 ops/sec
+RSA     2048 Private        5 ops took 1.235 sec, avg 247.031 ms, 4.048 ops/sec
+RSA     2048 Pub  OAEP     87 ops took 1.010 sec, avg 11.604 ms, 86.179 ops/sec
+RSA     2048 Priv OAEP      4 ops took 1.007 sec, avg 251.705 ms, 3.973 ops/sec
+ECC      256 key gen        5 ops took 1.094 sec, avg 218.741 ms, 4.572 ops/sec
+ECDSA    256 sign          24 ops took 1.002 sec, avg 41.730 ms, 23.964 ops/sec
+ECDSA    256 verify        14 ops took 1.043 sec, avg 74.525 ms, 13.418 ops/sec
+ECDHE    256 agree          5 ops took 1.238 sec, avg 247.558 ms, 4.039 ops/sec
 ```
 
 ### TPM2 Native Tests
