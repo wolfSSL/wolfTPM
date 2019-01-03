@@ -2160,7 +2160,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* make sure its multiple of block size */
     encDecIn.inData.size = (encDecIn.inData.size +
-        MAX_AES_BLOCK_SIZE_BYTES - 1) / MAX_AES_BLOCK_SIZE_BYTES;
+        MAX_AES_BLOCK_SIZE_BYTES - 1) & ~(MAX_AES_BLOCK_SIZE_BYTES - 1);
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */

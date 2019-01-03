@@ -250,6 +250,7 @@ wolfSSL Entering GetObjectId()
 ECC Private Key Loaded into TPM: Handle 0x80000001
 NV Test on index 0x1800200 with 1024 bytes passed
 Hash SHA256 test success
+Encrypt/Decrypt test success
 ```
 
 ### TPM2 Benchmarks
@@ -291,30 +292,30 @@ Run on ST ST33TP SPI:
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RNG                 14 KB took 1.090 seconds,   12.845 KB/s
-AES-128-CBC-enc    260 KB took 1.006 seconds,  258.482 KB/s
-AES-128-CBC-dec    288 KB took 1.003 seconds,  287.032 KB/s
-AES-256-CBC-enc    278 KB took 1.006 seconds,  276.460 KB/s
-AES-256-CBC-dec    278 KB took 1.002 seconds,  277.504 KB/s
-AES-128-CTR-enc    226 KB took 1.001 seconds,  225.726 KB/s
-AES-128-CTR-dec    226 KB took 1.001 seconds,  225.764 KB/s
-AES-256-CTR-enc    220 KB took 1.001 seconds,  219.744 KB/s
-AES-256-CTR-dec    222 KB took 1.008 seconds,  220.160 KB/s
-AES-128-CFB-enc    280 KB took 1.004 seconds,  278.929 KB/s
-AES-128-CFB-dec    282 KB took 1.007 seconds,  280.103 KB/s
-AES-256-CFB-enc    268 KB took 1.000 seconds,  267.972 KB/s
-AES-256-CFB-dec    270 KB took 1.001 seconds,  269.850 KB/s
-SHA1               116 KB took 1.015 seconds,  114.279 KB/s
-SHA256             108 KB took 1.006 seconds,  107.320 KB/s
-RSA     2048 key gen        1 ops took 8.638 sec, avg 8638.245 ms, 0.116 ops/sec
-RSA     2048 Public       124 ops took 1.007 sec, avg 8.117 ms, 123.196 ops/sec
-RSA     2048 Private        5 ops took 1.235 sec, avg 247.031 ms, 4.048 ops/sec
-RSA     2048 Pub  OAEP     87 ops took 1.010 sec, avg 11.604 ms, 86.179 ops/sec
-RSA     2048 Priv OAEP      4 ops took 1.007 sec, avg 251.705 ms, 3.973 ops/sec
-ECC      256 key gen        5 ops took 1.094 sec, avg 218.741 ms, 4.572 ops/sec
-ECDSA    256 sign          24 ops took 1.002 sec, avg 41.730 ms, 23.964 ops/sec
-ECDSA    256 verify        14 ops took 1.043 sec, avg 74.525 ms, 13.418 ops/sec
-ECDHE    256 agree          5 ops took 1.238 sec, avg 247.558 ms, 4.039 ops/sec
+RNG                 18 KB took 1.081 seconds,   16.657 KB/s
+AES-128-CBC-enc     48 KB took 1.026 seconds,   46.779 KB/s
+AES-128-CBC-dec     48 KB took 1.024 seconds,   46.887 KB/s
+AES-256-CBC-enc     48 KB took 1.026 seconds,   46.797 KB/s
+AES-256-CBC-dec     48 KB took 1.023 seconds,   46.941 KB/s
+AES-128-CTR-enc     28 KB took 1.022 seconds,   27.392 KB/s
+AES-128-CTR-dec     28 KB took 1.022 seconds,   27.391 KB/s
+AES-256-CTR-enc     30 KB took 1.069 seconds,   28.074 KB/s
+AES-256-CTR-dec     30 KB took 1.068 seconds,   28.080 KB/s
+AES-128-CFB-enc     48 KB took 1.038 seconds,   46.226 KB/s
+AES-128-CFB-dec     48 KB took 1.025 seconds,   46.843 KB/s
+AES-256-CFB-enc     48 KB took 1.037 seconds,   46.298 KB/s
+AES-256-CFB-dec     48 KB took 1.026 seconds,   46.793 KB/s
+SHA1               116 KB took 1.013 seconds,  114.504 KB/s
+SHA256             108 KB took 1.000 seconds,  107.962 KB/s
+RSA     2048 key gen        1 ops took 1.908 sec, avg 1908.493 ms, 0.524 ops/sec
+RSA     2048 Public       124 ops took 1.002 sec, avg 8.078 ms, 123.790 ops/sec
+RSA     2048 Private        5 ops took 1.234 sec, avg 246.729 ms, 4.053 ops/sec
+RSA     2048 Pub  OAEP     87 ops took 1.007 sec, avg 11.569 ms, 86.436 ops/sec
+RSA     2048 Priv OAEP      4 ops took 1.004 sec, avg 250.991 ms, 3.984 ops/sec
+ECC      256 key gen        5 ops took 1.091 sec, avg 218.226 ms, 4.582 ops/sec
+ECDSA    256 sign          24 ops took 1.001 sec, avg 41.718 ms, 23.971 ops/sec
+ECDSA    256 verify        14 ops took 1.033 sec, avg 73.771 ms, 13.555 ops/sec
+ECDHE    256 agree          5 ops took 1.231 sec, avg 246.112 ms, 4.063 ops/sec
 ```
 
 ### TPM2 Native Tests
