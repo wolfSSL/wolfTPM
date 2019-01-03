@@ -35,10 +35,14 @@
 #ifndef TLS_PORT
 #define TLS_PORT 11111
 #endif
-
-/* enable for testing ECC key/cert */
 #if 0
-#define USE_TLS_ECC
+#ifndef TLS_CIPHER_SUITE
+#define TLS_CIPHER_SUITE "ECDHE-RSA-AES128-SHA256"
+#endif
+#endif
+/* enable for testing ECC key/cert when RSA is enabled */
+#if 0
+#define TLS_USE_ECC
 #endif
 
 /*
@@ -53,9 +57,15 @@
  * This example server listens on port 11111 by default.
  *
  * You can validate using the wolfSSL example client this like:
- *   ./examples/client/client -h 192.168.0.10 -p 11111 -d -g
+ *  ./examples/client/client -h localhost -p 11111 -g -d
  *
- * Or using your browser: https://192.168.0.10:11111
+ * To validate server certificate use the following:
+ *  ./examples/client/client -h localhost -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
+ *  or
+ *  ./examples/client/client -h localhost -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
+ *
+ * Or using your browser: https://localhost:11111
+ *
  * With browsers you will get certificate warnings until you load the test CA's
  * ./certs/ca-rsa-cert.pem and ./certs/ca-ecc-cert.pem into your OS key store.
  * With most browsers you can bypass the certificate warning.
@@ -251,10 +261,6 @@ static void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 
 static int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 {
-    char buffer[WOLFSSL_MAX_ERROR_SZ];
-
-    (void)preverify;
-
     /* Verify Callback Arguments:
      * preverify:           1=Verify Okay, 0=Failure
      * store->current_cert: Current WOLFSSL_X509 object (only with OPENSSL_EXTRA)
@@ -267,19 +273,25 @@ static int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
      * store->ex_data:      The WOLFSSL object pointer
      */
 
-    printf("In verification callback, error = %d, %s\n", store->error,
-                                 wolfSSL_ERR_error_string(store->error, buffer));
-
+    printf("In verification callback, error = %d, %s\n",
+        store->error, wolfSSL_ERR_reason_error_string(store->error));
     printf("\tPeer certs: %d\n", store->totalCerts);
+    printf("\tSubject's domain name at %d is %s\n",
+        store->error_depth, store->domain);
 
-    printf("\tSubject's domain name at %d is %s\n", store->error_depth, store->domain);
+    (void)preverify;
 
-    printf("\tAllowing to continue anyway (shouldn't do this)\n");
+    /* If error indicate we are overriding it for testing purposes */
+    if (store->error != 0) {
+        printf("\tAllowing failed certificate check, testing only "
+            "(shouldn't do this in production)\n");
+    }
 
     /* A non-zero return code indicates failure override */
     return 1;
 }
 
+/* Function checks key to see if its the "dummy" key */
 static int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
 {
     int ret = 0;
@@ -424,7 +436,7 @@ int TPM2_TLS_Server(void* userCtx)
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
-    tpmCtx.checkKeyCb = myTpmCheckKey;
+    tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
@@ -532,10 +544,11 @@ int TPM2_TLS_Server(void* userCtx)
     wolfSSL_CTX_SetIOSend(ctx, SockIOSend);
 
     /* Server certificate validation */
-#if 1
+#if 0
     /* skip server cert validation for this test */
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, myVerify);
 #else
+    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* example loading from buffer */
     #if 0
@@ -545,12 +558,30 @@ int TPM2_TLS_Server(void* userCtx)
         }
     #endif
 #else
-    /* Load CA Certificate */
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolfssl-website-ca.pem",
+    /* Load CA Certificates */
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
         0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolfSSL website certs\n");
+        printf("Error loading ca-rsa-cert.pem cert\n");
         goto exit;
     }
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+        goto exit;
+    }
+    #elif defined(HAVE_ECC)
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading ca-ecc-cert.pem cert\n");
+        goto exit;
+    }
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+        goto exit;
+    }
+    #endif
 #endif /* !NO_FILESYSTEM */
 #endif
 
@@ -564,7 +595,7 @@ int TPM2_TLS_Server(void* userCtx)
     #endif
 #else
     /* Server certificate */
-#if !defined(NO_RSA) && !defined(USE_TLS_ECC)
+#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
     printf("Loading RSA certificate and dummy key\n");
 
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-rsa-cert.pem",

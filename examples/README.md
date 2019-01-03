@@ -2,7 +2,7 @@
 
 These examples demonstrate features of a TPM 2.0 module.
 
-The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`.
+The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_test.h`.
 
 The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See CSR and Certificate Signing below.
 
@@ -38,7 +38,7 @@ External script for generating test certificates based on TPM generated CSR's. T
 `./certs/certreq.sh`
 
 The script creates the following X.509 files (also in .pem format):
-`./certs/ca-ecc-cert.der`s
+`./certs/ca-ecc-cert.der`
 `./certs/ca-rsa-cert.der`
 `./certs/client-rsa-cert.der`
 `./certs/client-ecc-cert.der`
@@ -62,35 +62,56 @@ The result is displayed to stdout on the console.
 
 The TLS example uses TPM based ECDHE (ECC Ephemeral key) support. It can be disabled using `CFLAGS="-DWOLFTPM2_USE_SW_ECDHE"` or `#define WOLFTPM2_USE_SW_ECDHE`. We are also looking into using the 2-phase `TPM2_EC_Ephemeral` and `TPM2_ZGen_2Phase` methods for improved performance and scalability.
 
-Note: The TPM2_CreatePrimary with TPM_RH_NULL for ephemeral key use has an issue with SLB9670 7.83 firmware. Please update to latest firmware or disable ECDHE support using WOLFTPM2_USE_SW_ECDHE to resolve. 
+Note: To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
+
+Generation of the Client and Server Certificates requires running:
+1. `./examples/csr/csr`
+2. `./certs/certreq.sh`
+3. Copy the CA files from wolfTPM to wolfSSL certs directory.
+    a. `cp ./certs/ca-ecc-cert.pem ../wolfssl/certs/tpm-ca-ecc-cert.pem`
+    b. `cp ./certs/ca-rsa-cert.pem ../wolfssl/certs/tpm-ca-rsa-cert.pem`
+
 
 ### TLS Client
 
 Examples show using a TPM key and certificate for TLS mutual authentication (client authentication).
 
-It uses macros defined at compile time for the host/port. See `TLS_HOST` and `TLS_PORT`.
+This example client connects to localhost on on port 11111 by default. These can be overriden using `TLS_HOST` and `TLS_PORT`.
 
-Generation of the Client Certificate requires running:
-1. `./examples/csr/csr`
-2. `./certs/certreq.sh`
+You can validate using the wolfSSL example server this like:
+`./examples/server/server -b -p 11111 -g -d`
+ 
+To validate client certificate use the following wolfSSL example server command:
+`./examples/server/server -b -p 11111 -g -A ./certs/ca-rsa-cert.pem`
+or
+`./examples/server/server -b -p 11111 -g -A ./certs/ca-ecc-cert.pem`
+
+Then run the wolfTPM TLS client example:
+`./examples/tls/tls_client`. 
 
 
 ### TLS Server
 
-This example shows using a TPM key and certificate for a TLS server. By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
- 
-Generation of the Server Certificate requires running:
-1. `./examples/csr/csr`
-2. `./certs/certreq.sh`
+This example shows using a TPM key and certificate for a TLS server.
 
- You can validate using the wolfSSL example client this like:
-  `./examples/client/client -h 192.168.0.100 -p 11111 -d -g`
- 
-Or using your browser: `https://192.168.0.100:11111`
+By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
 
-With browsers you will get a certificate warning because it cannot validate the test server certificate.
+Run the wolfTPM TLS server example:
+`./examples/tls/tls_server`. 
+
+Then run the wolfSSL example client this like:
+`./examples/client/client -h localhost -p 11111 -g -d`
+
+To validate server certificate use the following wolfSSL example client comment:
+`./examples/client/client -h localhost -p 11111 -g -A ./certs/ca-rsa-cert.pem`
+or
+`./examples/client/client -h localhost -p 11111 -g -A ./certs/ca-ecc-cert.pem`
+
+
+Or using your browser: `https://localhost:11111`
+
+With browsers you will get certificate warnings until you load the test CA's `./certs/ca-rsa-cert.pem` and `./certs/ca-ecc-cert.pem` into your OS key store.
 For testing most browsers have a way to continue to the site anyways to bypass the warning. 
-You can also load the generated test CA's at `./certs/ca-rsa-cert.pem` and `./certs/ca-ecc-cert.pem` into your OS key store.
 
 
 ## Benchmark

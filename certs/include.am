@@ -6,4 +6,9 @@ EXTRA_DIST += \
 	     certs/certreq.sh \
 	     certs/ca-rsa.cnf \
 	     certs/ca-ecc.cnf \
-	     certs/wolfssl-website-ca.pem
+	     certs/wolf-ca-ecc-cert.pem \
+	     certs/wolf-ca-rsa-cert.pem \
+	     certs/dummy-ecc.pem \
+	     certs/dummy-rsa.pem \
+	     certs/dummy-ecc.der \
+	     certs/dummy-rsa.der

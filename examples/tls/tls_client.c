@@ -33,15 +33,21 @@
 #include <wolfssl/ssl.h>
 
 #ifndef TLS_HOST
-#define TLS_HOST "www.wolfssl.com"
+#define TLS_HOST "localhost"
 #endif
 #ifndef TLS_PORT
-#define TLS_PORT 443
+#define TLS_PORT 11111
 #endif
 
-/* enable for testing ECC key/cert */
+/* to manually choose a cipher suite */
 #if 0
-#define USE_TLS_ECC
+#ifndef TLS_CIPHER_SUITE
+#define TLS_CIPHER_SUITE "ECDHE-RSA-AES128-SHA256"
+#endif
+#endif
+/* enable for testing ECC key/cert when RSA is enabled */
+#if 0
+#define TLS_USE_ECC
 #endif
 
 /*
@@ -52,6 +58,17 @@
  *
  * Run ./certs/certreq.sh
  * Result is: ./certs/client-rsa-cert.pem and ./certs/client-ecc-cert.pem
+ *
+ * This example client connects to localhost on on port 11111 by default.
+ * These can be overriden using `TLS_HOST` and `TLS_PORT`.
+ *
+ * You can validate using the wolfSSL example server this like:
+ *   ./examples/server/server -b -p 11111 -g -d
+ *
+ * To validate client certificate add the following wolfSSL example server args:
+ * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
+ * or
+ * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
  */
 
 
@@ -222,6 +239,115 @@ static void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 /******************************************************************************/
 
 
+static int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
+{
+    /* Verify Callback Arguments:
+     * preverify:           1=Verify Okay, 0=Failure
+     * store->current_cert: Current WOLFSSL_X509 object (only with OPENSSL_EXTRA)
+     * store->error_depth:  Current Index
+     * store->domain:       Subject CN as string (null term)
+     * store->totalCerts:   Number of certs presented by peer
+     * store->certs[i]:     A `WOLFSSL_BUFFER_INFO` with plain DER for each cert
+     * store->store:        WOLFSSL_X509_STORE with CA cert chain
+     * store->store->cm:    WOLFSSL_CERT_MANAGER
+     * store->ex_data:      The WOLFSSL object pointer
+     */
+
+    printf("In verification callback, error = %d, %s\n",
+        store->error, wolfSSL_ERR_reason_error_string(store->error));
+    printf("\tPeer certs: %d\n", store->totalCerts);
+    printf("\tSubject's domain name at %d is %s\n",
+        store->error_depth, store->domain);
+
+    (void)preverify;
+
+    /* If error indicate we are overriding it for testing purposes */
+    if (store->error != 0) {
+        printf("\tAllowing failed certificate check, testing only "
+            "(shouldn't do this in production)\n");
+    }
+
+    /* A non-zero return code indicates failure override */
+    return 1;
+}
+
+/* Function checks key to see if its the "dummy" key */
+static int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
+{
+    int ret = 0;
+
+#ifndef NO_RSA
+    if (info && info->pk.type == WC_PK_TYPE_RSA) {
+        byte    e[sizeof(word32)], e2[sizeof(word32)];
+        byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS/8], n2[WOLFTPM2_WRAP_RSA_KEY_BITS/8];
+        word32  eSz = sizeof(e), e2Sz = sizeof(e);
+        word32  nSz = sizeof(n), n2Sz = sizeof(n);
+        RsaKey  rsakey;
+        word32  idx = 0;
+
+        /* export the raw public RSA portion */
+        ret = wc_RsaFlattenPublicKey(info->pk.rsa.key, e, &eSz, n, &nSz);
+        if (ret == 0) {
+            /* load the modulus for the dummy key */
+            ret = wc_InitRsaKey(&rsakey, NULL);
+            if (ret == 0) {
+                ret = wc_RsaPrivateKeyDecode(DUMMY_RSA_KEY, &idx, &rsakey,
+                    (word32)sizeof(DUMMY_RSA_KEY));
+                if (ret == 0) {
+                    ret = wc_RsaFlattenPublicKey(&rsakey, e2, &e2Sz, n2, &n2Sz);
+                }
+                wc_FreeRsaKey(&rsakey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(n, n2, nSz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM RSA key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+#if defined(HAVE_ECC)
+    if (info && info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+        byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qx2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS/8], qy2[WOLFTPM2_WRAP_ECC_KEY_BITS/8];
+        word32  qxSz = sizeof(qx), qx2Sz = sizeof(qx2);
+        word32  qySz = sizeof(qy), qy2Sz = sizeof(qy2);
+        ecc_key eccKey;
+        word32  idx = 0;
+
+        /* export the raw public ECC portion */
+        ret = wc_ecc_export_public_raw(info->pk.eccsign.key, qx, &qxSz, qy, &qySz);
+        if (ret == 0) {
+            /* load the ECC public x/y for the dummy key */
+            ret = wc_ecc_init(&eccKey);
+            if (ret == 0) {
+                ret = wc_EccPrivateKeyDecode(DUMMY_ECC_KEY, &idx, &eccKey,
+                    (word32)sizeof(DUMMY_ECC_KEY));
+                if (ret == 0) {
+                    ret = wc_ecc_export_public_raw(&eccKey, qx2, &qx2Sz, qy2, &qy2Sz);
+                }
+                wc_ecc_free(&eccKey);
+            }
+        }
+
+        if (ret == 0 && XMEMCMP(qx, qx2, qxSz) == 0 &&
+                        XMEMCMP(qy, qy2, qySz) == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Detected dummy key, so using TPM ECC key handle\n");
+        #endif
+            ret = 1;
+        }
+    }
+#endif
+    (void)info;
+    (void)ctx;
+
+    /* non-zero return code means its a "dummy" key (not valid) and the
+        provided TPM handle will be used, not the wolf public key info */
+    return ret;
+}
 
 /******************************************************************************/
 /* --- BEGIN TLS Client Example -- */
@@ -278,6 +404,7 @@ int TPM2_TLS_Client(void* userCtx)
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
+    tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
@@ -387,8 +514,9 @@ int TPM2_TLS_Client(void* userCtx)
     /* Server certificate validation */
 #if 0
     /* skip server cert validation for this test */
-    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
+    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, myVerify);
 #else
+    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* example loading from buffer */
     #if 0
@@ -398,12 +526,30 @@ int TPM2_TLS_Client(void* userCtx)
         }
     #endif
 #else
-    /* Load CA Certificate */
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolfssl-website-ca.pem",
+    /* Load CA Certificates */
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
         0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolfSSL website certs\n");
+        printf("Error loading ca-rsa-cert.pem cert\n");
         goto exit;
     }
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+        goto exit;
+    }
+    #elif defined(HAVE_ECC)
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading ca-ecc-cert.pem cert\n");
+        goto exit;
+    }
+    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+        0) != WOLFSSL_SUCCESS) {
+        printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+        goto exit;
+    }
+    #endif
 #endif /* !NO_FILESYSTEM */
 #endif
 
@@ -417,10 +563,18 @@ int TPM2_TLS_Client(void* userCtx)
     #endif
 #else
     /* Client certificate (mutual auth) */
-#if !defined(NO_RSA) && !defined(USE_TLS_ECC)
+#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
         printf("Error loading RSA client cert\n");
+        goto exit;
+    }
+
+    /* Private key is on TPM and crypto dev callbacks are used */
+    /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
+    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
+            sizeof(DUMMY_RSA_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+        printf("Failed to set key!\r\n");
         goto exit;
     }
 #elif defined(HAVE_ECC)
@@ -429,14 +583,20 @@ int TPM2_TLS_Client(void* userCtx)
         printf("Error loading ECC client cert\n");
         goto exit;
     }
+
+    /* Private key is on TPM and crypto dev callbacks are used */
+    /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
+    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
+            sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+        printf("Failed to set key!\r\n");
+        goto exit;
+    }
 #endif
 #endif /* !NO_FILESYSTEM */
 
-    /* No need to load private key, since its on TPM and crypto dev callbacks are used */
-
-#if 0
+#ifdef TLS_CIPHER_SUITE
     /* Optionally choose the cipher suite */
-    rc = wolfSSL_CTX_set_cipher_list(ctx, "ECDHE-RSA-AES128-GCM-SHA256");
+    rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
     if (rc != WOLFSSL_SUCCESS) {
         goto exit;
     }
