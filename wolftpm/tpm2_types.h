@@ -100,6 +100,8 @@ typedef int64_t  INT64;
     #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
     #define BUFFER_E              -132  /* output buffer too small or input too large */
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
+    #define BAD_MUTEX_E           -106  /* Bad mutex operation */
+    #define WC_TIMEOUT_E          -107  /* timeout error */
 
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
