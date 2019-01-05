@@ -2625,6 +2625,25 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
     #endif
     }
+    else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
+    #endif
+        if (info->cipher.type == WC_CIPHER_AES_CBC) {
+
+        }
+    }
+    else if (info->algo_type == WC_ALGO_TYPE_HASH) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
+    #endif
+        if (info->hash.type == WC_HASH_TYPE_SHA) {
+
+        }
+        else if (info->hash.type == WC_HASH_TYPE_SHA256) {
+
+        }
+    }
 
     /* need to return negative here for error */
     if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN) {
