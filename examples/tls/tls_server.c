@@ -110,11 +110,6 @@ int TPM2_TLS_Server(void* userCtx)
 
     printf("TPM2 TLS Server Example\n");
 
-#ifdef DEBUG_WOLFSSL
-    wolfSSL_Debugging_ON();
-#endif
-    wolfSSL_Init();
-
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) {
@@ -382,8 +377,10 @@ int TPM2_TLS_Server(void* userCtx)
         }
         else {
             /* null terminate */
-            msg[rc] = '\0';
             msgSz = rc;
+            if (msgSz >= (int)sizeof(msg))
+                msgSz = (int)sizeof(msg) - 1;
+            msg[msgSz] = '\0';
             rc = 0;
         }
     } while (rc == WOLFSSL_ERROR_WANT_READ);
@@ -436,7 +433,6 @@ exit:
 #endif
 
     wolfTPM2_Cleanup(&dev);
-    wolfSSL_Cleanup();
 
     return rc;
 }

@@ -149,14 +149,15 @@ make
 ### Build options and defines
 
 ```
---enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
 --enable-examples       Enable Examples (default: enabled)
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
---enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33 (requires advio)
 --enable-i2c            Enable I2C TPM Support (default: disabled) - WOLFTPM_I2C
 --enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
+WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
 ```
 
 ## Release Notes
@@ -243,7 +244,7 @@ make
 
 ## Running Examples
 
-These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples.
+These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
 
 ### TPM2 Wrapper Tests
 
@@ -469,37 +470,37 @@ PKCS7 Container Verified (using software)
 
 ### TPM TLS Client Example
 
+The wolfSSL TLS client requires loading a private key for mutual authentication. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
+
 ```
 ./examples/tls/tls_client
 TPM2 TLS Client Example
 Write (29): GET /index.html HTTP/1.0
 
 
-Read (583): HTTP/1.1 404 Not Found
-Date: Wed, 14 Nov 2018 16:53:39 GMT
-Server: Apache/2.2.34 (Unix) mod_ssl/2.2.34 OpenSSL/1.0.1e-fips mod_bwlimited/1.4
-X-Powered-By: PHP/5.6.34
-Expires: Wed, 11 Jan 1984 05:00:00 GMT
-Cache-Control: no-cache, must-revalidate, max-age=0
-Link: <https://www.wolfssl.com/wp-json/>; rel="https://api.w.org/"
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-X-Frame-Options: SAMEORIGIN
-X-Content-Type-Options: nosniff
-Referrer-Policy: strict-origin
-X-Xss-Protection: 1; mode=block
+Read (193): HTTP/1.1 200 OK
+Content-Type: text/html
 Connection: close
-Content-Type: text/html; charset=UTF-8
+
+<html>
+<head>
+<title>Welcome to wolfSSL!</title>
+</head>
+<body>
+<p>wolfSSL has successfully performed handshake!</p>
+</body>
+</html>
 ```
 
 ### TPM TLS Server Example
 
-The wolfSSL TLS server requires loading a private key, so we load a "fake" key and in the crypto callbacks we use the TPM instead.
+The wolfSSL TLS server requires loading a private key. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
 
 ```
 ./examples/tls/tls_server
 TPM2 TLS Server Example
 Loading RSA certificate and dummy key
-Read (28): GET /index.html HTTP/1.0
+Read (29): GET /index.html HTTP/1.0
 
 
 Write (193): HTTP/1.1 200 OK

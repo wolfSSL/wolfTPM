@@ -79,7 +79,7 @@ int TPM2_TLS_Client(void* userCtx)
     WOLFSSL_CTX* ctx = NULL;
     WOLFSSL* ssl = NULL;
 #ifndef TLS_BENCH_MODE
-    const char* webServerMsg = "GET /index.html HTTP/1.0\r\n\r\n";
+    const char webServerMsg[] = "GET /index.html HTTP/1.0\r\n\r\n";
 #endif
     char msg[MAX_MSG_SZ];
     int msgSz = 0;
@@ -93,11 +93,6 @@ int TPM2_TLS_Client(void* userCtx)
     sockIoCtx.fd = -1;
 
     printf("TPM2 TLS Client Example\n");
-
-#ifdef DEBUG_WOLFSSL
-    wolfSSL_Debugging_ON();
-#endif
-    wolfSSL_Init();
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -392,12 +387,12 @@ int TPM2_TLS_Client(void* userCtx)
     if (rc >= 0) {
         /* null terminate */
         msgSz = rc;
-        if (rc >= sizeof(msg))
-            rc = sizeof(msg) - 1;
-        msg[rc] = '\0';
+        if (msgSz >= (int)sizeof(msg))
+            msgSz = (int)sizeof(msg) - 1;
+        msg[msgSz] = '\0';
         rc = 0; /* success */
     }
-    printf("Read (%d): %s\n", rc, msg);
+    printf("Read (%d): %s\n", msgSz, msg);
 #endif
     rc = 0; /* success */
 
@@ -423,7 +418,6 @@ exit:
 #endif
 
     wolfTPM2_Cleanup(&dev);
-    wolfSSL_Cleanup();
 
     return rc;
 }
