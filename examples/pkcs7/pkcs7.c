@@ -298,12 +298,14 @@ int TPM2_PKCS7_Example(void* userCtx)
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
-    WOLFTPM2_BUFFER der = {0};
+    WOLFTPM2_BUFFER der;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE* derFile;
 #endif
 
     printf("TPM2 PKCS7 Example\n");
+
+    XMEMSET(&der, 0, sizeof(der));
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);

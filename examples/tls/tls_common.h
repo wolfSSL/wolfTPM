@@ -90,7 +90,7 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     (void)ssl;
 
     /* Receive message from socket */
-    if ((recvd = recv(sockCtx->fd, buff, sz, 0)) == -1) {
+    if ((recvd = (int)recv(sockCtx->fd, buff, sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
         fprintf(stderr, "IO RECEIVE ERROR: ");
@@ -145,7 +145,7 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     (void)ssl;
 
     /* Receive message from socket */
-    if ((sent = send(sockCtx->fd, buff, sz, 0)) == -1) {
+    if ((sent = (int)send(sockCtx->fd, buff, sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
         fprintf(stderr, "IO SEND ERROR: ");

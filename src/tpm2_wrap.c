@@ -2445,7 +2445,15 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
     (void)devId;
 
-    if (info->algo_type == WC_ALGO_TYPE_PK) {
+    if (info->algo_type == WC_ALGO_TYPE_RNG) {
+    #ifndef WC_NO_RNG
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb RNG: Sz %d\n", info->rng.sz);
+    #endif
+        rc = wolfTPM2_GetRandom(tlsCtx->dev, info->rng.out, info->rng.sz);
+    #endif
+    }
+    else if (info->algo_type == WC_ALGO_TYPE_PK) {
         int isWolfKeyValid = 1;
 
     #ifdef DEBUG_WOLFTPM
@@ -2626,23 +2634,88 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif
     }
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
-    #ifdef DEBUG_WOLFTPM
+    #ifndef NO_AES
+        #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
-    #endif
-        if (info->cipher.type == WC_CIPHER_AES_CBC) {
-
+        #endif
+        if (info->cipher.type != WC_CIPHER_AES_CBC) {
+            return NOT_COMPILED_IN;
         }
+
+        if (info->cipher.aescbc.aes) {
+            WOLFTPM2_KEY symKey;
+            Aes* aes = info->cipher.aescbc.aes;
+            (void)aes;
+
+            /* load key */
+            //TPM_ALG_CBC
+            //aes->devKey, aes->keylen
+
+            rc = wolfTPM2_EncryptDecrypt(tlsCtx->dev, &symKey,
+                info->cipher.aescbc.in,
+                info->cipher.aescbc.out,
+                info->cipher.aescbc.sz,
+                NULL, 0,
+                info->cipher.enc ? WOLFTPM2_ENCRYPT : WOLFTPM2_DECRYPT);
+        }
+
+    #endif /* !NO_AES */
     }
     else if (info->algo_type == WC_ALGO_TYPE_HASH) {
-    #ifdef DEBUG_WOLFTPM
+    #if !defined(NO_SHA) || !defined(NO_SHA256)
+        WOLFTPM2_HASH hashCtx;
+        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
+        #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
+        #endif
+        if (info->hash.type != WC_HASH_TYPE_SHA &&
+            info->hash.type != WC_HASH_TYPE_SHA256) {
+            return NOT_COMPILED_IN;
+        }
+
+        XMEMSET(&hashCtx, 0, sizeof(hashCtx));
+    #ifndef NO_SHA
+        if (info->hash.type == WC_HASH_TYPE_SHA && info->hash.sha1 == NULL) {
+            return NOT_COMPILED_IN;
+        }
+        else {
+            hashCtx.handle.hndl = (TPM_HANDLE)info->hash.sha1->devCtx;
+            hashAlg = TPM_ALG_SHA1;
+        }
     #endif
-        if (info->hash.type == WC_HASH_TYPE_SHA) {
-
+    #ifndef NO_SHA256
+        if (info->hash.type == WC_HASH_TYPE_SHA256 && info->hash.sha256 == NULL) {
+            return NOT_COMPILED_IN;
         }
-        else if (info->hash.type == WC_HASH_TYPE_SHA256) {
-
+        else {
+            hashCtx.handle.hndl = (TPM_HANDLE)info->hash.sha256->devCtx;
+            hashAlg = TPM_ALG_SHA256;
         }
+    #endif
+        if (hashAlg == TPM_ALG_ERROR) {
+            return NOT_COMPILED_IN;
+        }
+
+        if (info->hash.in != NULL) { /* Update */
+            rc = wolfTPM2_HashStart(tlsCtx->dev, &hashCtx, hashAlg, NULL, 0);
+            if (rc == 0) {
+                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hashCtx,
+                    info->hash.in, info->hash.inSz);
+            }
+        }
+        else if (info->hash.digest != NULL) { /* Final */
+            word32 digestSz;
+            if (hashCtx.handle.hndl == 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("Error: Hash final without context!\n");
+                return NOT_COMPILED_IN;
+            #endif
+            }
+            digestSz = TPM2_GetHashDigestSize(hashAlg);
+            rc = wolfTPM2_HashFinish(tlsCtx->dev, &hashCtx, info->hash.digest,
+                &digestSz);
+        }
+    #endif /* !NO_SHA || !NO_SHA256 */
     }
 
     /* need to return negative here for error */

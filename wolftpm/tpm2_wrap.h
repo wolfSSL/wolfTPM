@@ -249,14 +249,17 @@ typedef int (*CheckWolfKeyCallbackFunc)(wc_CryptoInfo* info, struct TpmCryptoDev
 
 typedef struct TpmCryptoDevCtx {
     WOLFTPM2_DEV* dev;
+    CheckWolfKeyCallbackFunc checkKeyCb;
+
 #ifndef NO_RSA
     WOLFTPM2_KEY* rsaKey;  /* RSA */
 #endif
 #ifdef HAVE_ECC
     WOLFTPM2_KEY* eccKey;  /* ECDSA */
+    #ifndef WOLFTPM2_USE_SW_ECDHE
     WOLFTPM2_KEY* ecdhKey; /* ECDH */
+    #endif
 #endif
-    CheckWolfKeyCallbackFunc checkKeyCb;
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
