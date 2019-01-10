@@ -2664,6 +2664,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     else if (info->algo_type == WC_ALGO_TYPE_HASH) {
     #if !defined(NO_SHA) || !defined(NO_SHA256)
         WOLFTPM2_HASH hashCtx;
+        TPM_HANDLE* hashHandle;
         TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
         #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
@@ -2679,7 +2680,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return NOT_COMPILED_IN;
         }
         else {
-            hashCtx.handle.hndl = (TPM_HANDLE)info->hash.sha1->devCtx;
+            hashHandle = (TPM_HANDLE*)&info->hash.sha1->devCtx;
             hashAlg = TPM_ALG_SHA1;
         }
     #endif
@@ -2688,16 +2689,24 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return NOT_COMPILED_IN;
         }
         else {
-            hashCtx.handle.hndl = (TPM_HANDLE)info->hash.sha256->devCtx;
+            hashHandle = (TPM_HANDLE*)&info->hash.sha256->devCtx;
             hashAlg = TPM_ALG_SHA256;
         }
     #endif
         if (hashAlg == TPM_ALG_ERROR) {
             return NOT_COMPILED_IN;
         }
+        hashCtx.handle.hndl = *hashHandle;
 
         if (info->hash.in != NULL) { /* Update */
-            rc = wolfTPM2_HashStart(tlsCtx->dev, &hashCtx, hashAlg, NULL, 0);
+            rc = 0;
+            if (*hashHandle == 0) {
+                rc = wolfTPM2_HashStart(tlsCtx->dev, &hashCtx, hashAlg, NULL, 0);
+                if (rc == 0) {
+                    /* save new handle to hash context */
+                    *hashHandle = hashCtx.handle.hndl;
+                }
+            }
             if (rc == 0) {
                 rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hashCtx,
                     info->hash.in, info->hash.inSz);
