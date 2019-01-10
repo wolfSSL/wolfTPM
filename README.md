@@ -52,20 +52,15 @@ Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash diges
 This project uses the terms append vs. marshall and parse vs. unmarshall.
 
 
-
 ## Platform
 
-This example was written for use on Raspberry Pi® 3 or the STM32 with the CubeMX HAL. This was tested using the 
-
-The Raspberry 3 uses the native `spi_dev` interface and defaults to `/dev/spidev0.1`. If you are running the Infineon patches it overrides the kernel SPI interface with their `spi_tis_dev`, which currently causes this demo to fail.
-
-This has only been tested and confirmed working with Rasbian 4.4.x.
+The examples in this library are written for use on a Raspberry Pi and use the `spi_dev` interface.
 
 ### IO Callback
 
 For interfacing to your hardware platform see the example `examples/tpm_io.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
 
-There are examples here for Linux, STM32 CubeMX and Atmel ASF. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
+There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
 
 
 ### Hardware
@@ -101,7 +96,6 @@ cd wolfssl
 ./autogen.sh
 ./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev
 make
-make check
 sudo make install
 sudo ldconfig
 ```
@@ -154,8 +148,8 @@ make
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
---enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33 (requires advio)
---enable-i2c            Enable I2C TPM Support (default: disabled) - WOLFTPM_I2C
+--enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
 --enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
 WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
 ```

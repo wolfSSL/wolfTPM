@@ -552,6 +552,16 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
+    /* load symmetric key */
+    cipher.size = 128/8;
+    for (i=0; i<cipher.size; i++) {
+        cipher.buffer[i] = (byte)(i & 0xff);
+    }
+    rc = wolfTPM2_LoadSymmetricKey(&dev, &storageKey, &aesKey,
+        TEST_AES_MODE, cipher.buffer, cipher.size);
+    if (rc != 0) goto exit;
+    wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
+
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
         YES, YES);
     if (rc != 0) goto exit;

@@ -593,20 +593,29 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     Load_In  loadIn;
     Load_Out loadOut;
     TPM2B_NAME name;
+    TPM_HANDLE parentHandle;
 
-    if (dev == NULL || parentKey == NULL || key == NULL || pub == NULL ||
+    if (dev == NULL || key == NULL || pub == NULL ||
             sens == NULL) {
         return BAD_FUNC_ARG;
     }
 
     /* set session auth for key */
-    dev->session[0].auth = parentKey->handle.auth;
-    dev->session[0].symmetric =
-        parentKey->pub.publicArea.parameters.rsaDetail.symmetric;
+    if (parentKey != NULL) {
+        dev->session[0].auth = parentKey->handle.auth;
+        dev->session[0].symmetric =
+            parentKey->pub.publicArea.parameters.rsaDetail.symmetric;
+        parentHandle = parentKey->handle.hndl;
+    }
+    else {
+        /* clear auth */
+        XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+        parentHandle = TPM_RH_OWNER;
+    }
 
     /* Import private key */
     XMEMSET(&importIn, 0, sizeof(importIn));
-    importIn.parentHandle = parentKey->handle.hndl;
+    importIn.parentHandle = parentHandle;
     importIn.objectPublic = *pub;
     importIn.symmetricAlg.algorithm = TPM_ALG_NULL;
     rc = wolfTPM2_ComputeName(pub, &name);
@@ -2129,6 +2138,39 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
+int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
+    WOLFTPM2_KEY* key, int alg, const byte* keyBuf, word32 keySz)
+{
+    int rc;
+    TPM2B_PUBLIC pub;
+    TPM2B_SENSITIVE sens;
+
+    if (dev == NULL || key == NULL || keyBuf == NULL || (keySz != 16 && keySz != 32)) {
+        return BAD_FUNC_ARG;
+    }
+    if (keySz > sizeof(sens.sensitiveArea.sensitive.sym.buffer))
+        return BUFFER_E;
+
+    /* Set up public key */
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&pub.publicArea, keySz * 8, alg, YES, YES);
+    if (rc != 0)
+        return rc;
+    pub.publicArea.nameAlg = keySz == 32 ? TPM_ALG_SHA256 : TPM_ALG_SHA1;
+
+    /* Set up private key */
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
+    if (key->handle.auth.size > 0) {
+        sens.sensitiveArea.authValue.size = key->handle.auth.size;
+        XMEMCPY(sens.sensitiveArea.authValue.buffer, key->handle.auth.buffer,
+            key->handle.auth.size);
+    }
+    sens.sensitiveArea.sensitive.sym.size = keySz;
+    XMEMCPY(sens.sensitiveArea.sensitive.sym.buffer, keyBuf, keySz);
+
+    return wolfTPM2_LoadPrivateKey(dev, parentKey, key, &pub, &sens);
+}
+
 /* EncryptDecrypt */
 int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* in, byte* out, word32 inOutSz, const byte* iv, word32 ivSz,
@@ -2339,13 +2381,14 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_SYMCIPHER;
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->unique.sym.size = keyBits / 8;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_noDA | (isSign ? TPMA_OBJECT_sign : 0) |
         (isDecrypt ? TPMA_OBJECT_decrypt : 0));
     publicTemplate->parameters.symDetail.sym.algorithm = TPM_ALG_AES;
-    publicTemplate->parameters.symDetail.sym.keyBits.aes = keyBits;
-    publicTemplate->parameters.symDetail.sym.mode.aes = algMode;
+    publicTemplate->parameters.symDetail.sym.keyBits.sym = keyBits;
+    publicTemplate->parameters.symDetail.sym.mode.sym = algMode;
 
     return 0;
 }
@@ -2645,18 +2688,22 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         if (info->cipher.aescbc.aes) {
             WOLFTPM2_KEY symKey;
             Aes* aes = info->cipher.aescbc.aes;
-            (void)aes;
 
             /* load key */
-            //TPM_ALG_CBC
-            //aes->devKey, aes->keylen
+            rc = wolfTPM2_LoadSymmetricKey(tlsCtx->dev, NULL, &symKey,
+                TPM_ALG_CBC, (byte*)aes->devKey, aes->keylen);
+            if (rc == 0) {
+                /* perform symmetric encrypt/decrypt */
+                rc = wolfTPM2_EncryptDecrypt(tlsCtx->dev, &symKey,
+                    info->cipher.aescbc.in,
+                    info->cipher.aescbc.out,
+                    info->cipher.aescbc.sz,
+                    NULL, 0,
+                    info->cipher.enc ? WOLFTPM2_ENCRYPT : WOLFTPM2_DECRYPT);
 
-            rc = wolfTPM2_EncryptDecrypt(tlsCtx->dev, &symKey,
-                info->cipher.aescbc.in,
-                info->cipher.aescbc.out,
-                info->cipher.aescbc.sz,
-                NULL, 0,
-                info->cipher.enc ? WOLFTPM2_ENCRYPT : WOLFTPM2_DECRYPT);
+                /* done with handle */
+                wolfTPM2_UnloadHandle(tlsCtx->dev, &symKey.handle);
+            }
         }
 
     #endif /* !NO_AES */
