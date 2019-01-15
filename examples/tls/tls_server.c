@@ -302,7 +302,8 @@ int TPM2_TLS_Server(void* userCtx)
         goto exit;
     }
 #elif defined(HAVE_ECC)
-    printf("Loading ECC certificate and fake key\n");
+    printf("Loading ECC certificate and dummy key\n");
+
     if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-ecc-cert.pem",
         WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
         printf("Error loading ECC client cert\n");
@@ -363,7 +364,7 @@ int TPM2_TLS_Server(void* userCtx)
     }
 #ifdef TLS_BENCH_MODE
     start = gettime_secs(0) - start;
-    printf("Accept: %9.3f sec\n", start);
+    printf("Accept: %9.3f sec (%9.3f CPS)\n", start, 1/start);
 #endif
 
     /* perform read */
@@ -386,7 +387,8 @@ int TPM2_TLS_Server(void* userCtx)
     } while (rc == WOLFSSL_ERROR_WANT_READ);
 #ifdef TLS_BENCH_MODE
     start = gettime_secs(0) - start;
-    printf("Read: %d bytes in %9.3f sec\n", msgSz, start);
+    printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+        rc, start, rc / start / 1024);
 #else
     printf("Read (%d): %s\n", msgSz, msg);
 #endif
@@ -407,7 +409,8 @@ int TPM2_TLS_Server(void* userCtx)
     } while (rc == WOLFSSL_ERROR_WANT_WRITE);
 #ifdef TLS_BENCH_MODE
     start = gettime_secs(0) - start;
-    printf("Write: %d bytes in %9.3f sec\n", rc, start);
+    printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+        rc, start, rc / start / 1024);
 #endif
     rc = 0; /* success */
 

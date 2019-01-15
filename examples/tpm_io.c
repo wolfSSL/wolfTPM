@@ -210,7 +210,7 @@
             ioctl(spiDev, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word);
 
             XMEMSET(&spi, 0, sizeof(spi));
-            spi.cs_change= 1; /* strobe CS between transfers */
+            spi.cs_change = 1; /* strobe CS between transfers */
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
             /* Send Header */
