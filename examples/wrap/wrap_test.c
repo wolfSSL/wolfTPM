@@ -112,6 +112,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
 #ifdef WOLF_CRYPTO_DEV
     /* Setup the wolf crypto device callback */
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
     tpmCtx.rsaKey = &rsaKey;
     tpmCtx.eccKey = &eccKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
