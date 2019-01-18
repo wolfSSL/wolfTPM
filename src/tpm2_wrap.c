@@ -764,7 +764,7 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
-    pub.publicArea.nameAlg = TPM_ALG_NULL;
+    pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_noDA;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
@@ -1242,25 +1242,9 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
-static TPMI_ALG_HASH wolfTPM2_GetHashType(int digestSz)
-{
-    switch (digestSz) {
-        case TPM_SHA_DIGEST_SIZE:
-            return TPM_ALG_SHA1;
-        case TPM_SHA256_DIGEST_SIZE:
-            return TPM_ALG_SHA256;
-        case TPM_SHA384_DIGEST_SIZE:
-            return TPM_ALG_SHA384;
-        case TPM_SHA512_DIGEST_SIZE:
-            return TPM_ALG_SHA512;
-        default:
-            break;
-    }
-    return TPM_ALG_NULL;
-}
-
-int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* sig, int sigSz, const byte* digest, int digestSz)
+int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz,
+    int ecdsaHashAlg)
 {
     int rc;
     VerifySignature_In  verifySigIn;
@@ -1278,6 +1262,10 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
+    /* hash cannot be larger than key size for TPM */
+    if (digestSz > curveSize)
+        digestSz = curveSize;
+
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
     dev->session[0].symmetric =
@@ -1289,9 +1277,7 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     verifySigIn.signature.sigAlgo =
         key->pub.publicArea.parameters.eccDetail.scheme.scheme;
-    verifySigIn.signature.signature.ecdsa.hash = wolfTPM2_GetHashType(digestSz);
-    if (verifySigIn.signature.signature.ecdsa.hash == TPM_ALG_NULL)
-        verifySigIn.signature.signature.ecdsa.hash = WOLFTPM2_WRAP_DIGEST;
+    verifySigIn.signature.signature.ecdsa.hash = ecdsaHashAlg;
 
     /* Signature is R then S */
     verifySigIn.signature.signature.ecdsa.signatureR.size = curveSize;
@@ -1314,6 +1300,12 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif
 
     return rc;
+}
+int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz)
+{
+    return wolfTPM2_VerifyHash_ex(dev, key, sig, sigSz, digest, digestSz,
+        WOLFTPM2_WRAP_DIGEST);
 }
 
 /* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
@@ -2641,6 +2633,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
+                    /* combine R and S */
+                    XMEMCPY(sigRS + rLen, s, sLen);
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
                         sigRS, rLen + sLen,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
@@ -2680,19 +2674,21 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         (void)isWolfKeyValid;
     }
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
-    #ifndef NO_AES
-        #ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
-        #endif
+    #endif
         if (info->cipher.type != WC_CIPHER_AES_CBC) {
             return NOT_COMPILED_IN;
         }
 
+#ifdef WOLFTPM_USE_SYMMETRIC
+    #ifndef NO_AES
         if (info->cipher.aescbc.aes) {
             WOLFTPM2_KEY symKey;
             Aes* aes = info->cipher.aescbc.aes;
 
             /* load key */
+            XMEMSET(&symKey, 0, sizeof(symKey));
             rc = wolfTPM2_LoadSymmetricKey(tlsCtx->dev, NULL, &symKey,
                 TPM_ALG_CBC, (byte*)aes->devKey, aes->keylen);
             if (rc == 0) {
@@ -2710,19 +2706,22 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
 
     #endif /* !NO_AES */
+#endif /* WOLFTPM_USE_SYMMETRIC */
     }
     else if (info->algo_type == WC_ALGO_TYPE_HASH) {
-    #if !defined(NO_SHA) || !defined(NO_SHA256)
-        WOLFTPM2_HASH hashCtx;
-        TPM_HANDLE* hashHandle;
-        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
-        #ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
-        #endif
+    #endif
         if (info->hash.type != WC_HASH_TYPE_SHA &&
             info->hash.type != WC_HASH_TYPE_SHA256) {
             return NOT_COMPILED_IN;
         }
+
+#ifdef WOLFTPM_USE_SYMMETRIC
+    #if !defined(NO_SHA) || !defined(NO_SHA256)
+        WOLFTPM2_HASH hashCtx;
+        TPM_HANDLE* hashHandle;
+        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
 
         XMEMSET(&hashCtx, 0, sizeof(hashCtx));
     #ifndef NO_SHA
@@ -2775,6 +2774,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 &digestSz);
         }
     #endif /* !NO_SHA || !NO_SHA256 */
+#endif /* WOLFTPM_USE_SYMMETRIC */
     }
 
     /* need to return negative here for error */

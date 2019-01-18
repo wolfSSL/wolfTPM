@@ -231,6 +231,9 @@ int TPM2_TLS_Server(void* userCtx)
         rc = MEMORY_E; goto exit;
     }
 
+    /* Setup DevID */
+    wolfSSL_CTX_SetDevId(ctx, tpmDevId);
+
     /* Setup IO Callbacks */
     wolfSSL_CTX_SetIORecv(ctx, SockIORecv);
     wolfSSL_CTX_SetIOSend(ctx, SockIOSend);
@@ -335,9 +338,6 @@ int TPM2_TLS_Server(void* userCtx)
         rc = wolfSSL_get_error(ssl, 0);
         goto exit;
     }
-
-    /* Setup DevID */
-    wolfSSL_SetDevId(ssl, tpmDevId);
 
     /* Setup socket and connection */
     rc = SetupSocketAndListen(&sockIoCtx, TLS_PORT);
