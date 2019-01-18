@@ -66,7 +66,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
     word32 nvAttributes = 0;
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
     TpmCryptoDevCtx tpmCtx;
 #endif
     WOLFTPM2_HASH hash;
@@ -84,8 +84,8 @@ int TPM2_Wrapper_Test(void* userCtx)
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int tpmDevId = INVALID_DEVID;
-#ifndef NO_RSA
     word32 idx;
+#ifndef NO_RSA
     RsaKey wolfRsaPubKey;
     RsaKey wolfRsaPrivKey;
 #endif
@@ -110,11 +110,17 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+#ifndef NO_RSA
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     tpmCtx.rsaKey = &rsaKey;
+#endif
+#ifdef HAVE_ECC
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
     tpmCtx.eccKey = &eccKey;
+#endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 #endif

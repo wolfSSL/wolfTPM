@@ -23,8 +23,9 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
-    !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+	!defined(NO_WOLFSSL_CLIENT) && \
+	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -52,6 +53,8 @@
  * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
  * or
  * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
+ * If using an ECDSA cipher suite add:
+ * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
 
 
@@ -442,8 +445,9 @@ int main(void)
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
-    !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_WOLFSSL_CLIENT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_TLS_Client(NULL);
 #else
     printf("Wrapper/CryptoDev code not compiled in\n");

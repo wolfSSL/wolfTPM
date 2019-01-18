@@ -361,7 +361,7 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
-		(word32)key->handle.hndl, key->pub.size);
+        (word32)key->handle.hndl, key->pub.size);
 #endif
 
     return rc;
@@ -858,7 +858,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
-		(word32)readPubIn.objectHandle,
+        (word32)readPubIn.objectHandle,
         readPubOut.outPublic.size, readPubOut.name.size,
         readPubOut.qualifiedName.size);
 #endif
@@ -1125,7 +1125,7 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
-    	(word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
+        (word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
     /* unload transient handle */
@@ -1172,7 +1172,7 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
-    	(word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
+        (word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
     /* indicate no handle */
@@ -1746,8 +1746,8 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
         (word32)in.authHandle,
-		(word32)in.publicInfo.nvPublic.nvIndex,
-		(word32)in.publicInfo.nvPublic.attributes,
+        (word32)in.publicInfo.nvPublic.nvIndex,
+        (word32)in.publicInfo.nvPublic.attributes,
         in.publicInfo.nvPublic.dataSize);
 #endif
 
@@ -1886,7 +1886,7 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         out.nvPublic.size,
-		(word32)out.nvPublic.nvPublic.nvIndex,
+        (word32)out.nvPublic.nvPublic.nvIndex,
         out.nvPublic.nvPublic.nameAlg,
         (word32)out.nvPublic.nvPublic.attributes,
         out.nvPublic.nvPublic.authPolicy.size,
@@ -2473,7 +2473,7 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 /******************************************************************************/
 
 
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
 /******************************************************************************/
 /* --- BEGIN wolf Crypto Device Support -- */
 /******************************************************************************/
@@ -2509,9 +2509,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 cases like TLS server */
             if (tlsCtx->checkKeyCb(info, tlsCtx) != 0) {
                 isWolfKeyValid = 0;
+            #ifdef DEBUG_WOLFTPM
+                printf("CryptoDevCb: Detected dummy key\n");
+            #endif
             }
         }
-
     #ifndef NO_RSA
         /* RSA */
         if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
@@ -2674,7 +2676,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
         #endif /* !WOLFTPM2_USE_SW_ECDHE */
         }
-    #endif
+    #endif /* HAVE_ECC */
+        (void)isWolfKeyValid;
     }
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
     #ifndef NO_AES

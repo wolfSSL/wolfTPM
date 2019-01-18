@@ -246,14 +246,12 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
 
 
 
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
 struct TpmCryptoDevCtx;
 typedef int (*CheckWolfKeyCallbackFunc)(wc_CryptoInfo* info, struct TpmCryptoDevCtx* ctx);
 
 typedef struct TpmCryptoDevCtx {
     WOLFTPM2_DEV* dev;
-    CheckWolfKeyCallbackFunc checkKeyCb;
-
 #ifndef NO_RSA
     WOLFTPM2_KEY* rsaKey;  /* RSA */
 #endif
@@ -263,12 +261,13 @@ typedef struct TpmCryptoDevCtx {
     WOLFTPM2_KEY* ecdhKey; /* ECDH */
     #endif
 #endif
+    CheckWolfKeyCallbackFunc checkKeyCb;
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
 WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     TpmCryptoDevCtx* tpmCtx, int* pDevId);
-#endif
+#endif /* WOLF_CRYPTO_CB */
 
 
 #endif /* __TPM2_WRAP_H__ */

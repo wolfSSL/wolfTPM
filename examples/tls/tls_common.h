@@ -25,7 +25,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLF_CRYPTO_DEV) && \
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
@@ -71,16 +72,18 @@
 /* --- BEGIN Socket IO Callbacks --- */
 /******************************************************************************/
 
+typedef struct SockIoCbCtx {
+    int listenFd;
+    int fd;
+} SockIoCbCtx;
+
+
+#ifndef WOLFSSL_USER_IO
 /* socket includes */
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <unistd.h>
-
-typedef struct SockIoCbCtx {
-    int listenFd;
-    int fd;
-} SockIoCbCtx;
 
 static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 {
@@ -287,6 +290,17 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
         sockIoCtx->listenFd = -1;
     }
 }
+#else
+	/* Provide you own socket implementation code */
+	int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx);
+	int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx);
+	int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host,
+		word32 port);
+	void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx);
+
+	int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port);
+	int SocketWaitClient(SockIoCbCtx* sockIoCtx);
+#endif /* !WOLFSSL_USER_IO */
 
 /******************************************************************************/
 /* --- END Socket IO Callbacks --- */

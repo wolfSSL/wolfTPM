@@ -73,10 +73,8 @@ typedef int64_t  INT64;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef WOLFSSL_USER_SETTINGS
         #include <wolfssl/options.h>
-    #else
-        #include <wolfssl/wolfcrypt/settings.h>
     #endif
-
+	#include <wolfssl/wolfcrypt/settings.h>
     #include <wolfssl/wolfcrypt/types.h>
     #include <wolfssl/wolfcrypt/logging.h>
     #include <wolfssl/wolfcrypt/error-crypt.h>
@@ -85,10 +83,18 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/ecc.h>
     #include <wolfssl/wolfcrypt/asn_public.h>
     #ifdef WOLF_CRYPTO_CB
-        #include <wolfssl/wolfcrypt/cryptodev.h>
+        #include <wolfssl/wolfcrypt/cryptocb.h>
     #elif defined(WOLF_CRYPTO_DEV)
         #include <wolfssl/wolfcrypt/cryptodev.h>
     #endif
+    #ifndef WOLFCRYPT_ONLY
+        /* for additional error codes */
+        extern const char* wolfSSL_ERR_reason_error_string(unsigned long);
+    #endif
+
+	#ifdef DEBUG_WOLFTPM
+		#include <stdio.h>
+	#endif
 #else
 
     #include <stdio.h>

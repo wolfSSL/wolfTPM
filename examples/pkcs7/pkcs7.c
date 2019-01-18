@@ -23,8 +23,9 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(HAVE_PKCS7) && \
-     defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+	defined(HAVE_PKCS7) && \
+	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -417,8 +418,9 @@ int main(void)
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(HAVE_PKCS7) && \
-     defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    defined(HAVE_PKCS7) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_PKCS7_Example(NULL);
 #else
     printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");
