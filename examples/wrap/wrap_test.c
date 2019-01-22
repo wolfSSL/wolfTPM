@@ -151,6 +151,15 @@ int TPM2_Wrapper_Test(void* userCtx)
     /* See if primary storage key already exists */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_KEY_HANDLE);
+
+#ifdef TEST_WRAP_DELETE_KEY
+    if (rc == 0) {
+        storageKey.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
+        rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
+        if (rc != 0) goto exit;
+        rc = TPM_RC_HANDLE; /* mark handle as missing */
+    }
+#endif
     if (rc != 0) {
         /* Create primary storage key */
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -166,6 +175,9 @@ int TPM2_Wrapper_Test(void* userCtx)
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_STORAGE_KEY_HANDLE);
         if (rc != 0) goto exit;
+
+        printf("Created new Primary Storage Key at 0x%x\n",
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
     }
     else {
         /* specify auth password for storage key */
