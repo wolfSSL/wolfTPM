@@ -390,7 +390,7 @@ int TPM2_TLS_Server(void* userCtx)
 #ifdef TLS_BENCH_MODE
     start = gettime_secs(0) - start;
     printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-        rc, start, rc / start / 1024);
+        msgSz, start, msgSz / start / 1024);
 #else
     printf("Read (%d): %s\n", msgSz, msg);
 #endif

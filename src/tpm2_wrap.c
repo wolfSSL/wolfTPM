@@ -2111,8 +2111,8 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     rc = TPM2_SequenceComplete(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SequenceComplete failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_SequenceComplete failed 0x%x: %s: Handle 0x%x\n", rc,
+            TPM2_GetRCString(rc), (word32)in.sequenceHandle);
     #endif
         return rc;
     }
@@ -2720,26 +2720,23 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 #ifdef WOLFTPM_USE_SYMMETRIC
     #if !defined(NO_SHA) || !defined(NO_SHA256)
         WOLFTPM2_HASH hashCtx;
-        TPM_HANDLE* hashHandle;
+        TPM_HANDLE  hashHandle_lcl = 0;
+        TPM_HANDLE* hashHandle = &hashHandle_lcl;
         TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
 
         XMEMSET(&hashCtx, 0, sizeof(hashCtx));
     #ifndef NO_SHA
-        if (info->hash.type == WC_HASH_TYPE_SHA && info->hash.sha1 == NULL) {
-            return NOT_COMPILED_IN;
-        }
-        else {
-            hashHandle = (TPM_HANDLE*)&info->hash.sha1->devCtx;
+        if (info->hash.type == WC_HASH_TYPE_SHA) {
             hashAlg = TPM_ALG_SHA1;
+            if (info->hash.sha1)
+                hashHandle = (TPM_HANDLE*)&info->hash.sha1->devCtx;
         }
     #endif
     #ifndef NO_SHA256
-        if (info->hash.type == WC_HASH_TYPE_SHA256 && info->hash.sha256 == NULL) {
-            return NOT_COMPILED_IN;
-        }
-        else {
-            hashHandle = (TPM_HANDLE*)&info->hash.sha256->devCtx;
+        if (info->hash.type == WC_HASH_TYPE_SHA256) {
             hashAlg = TPM_ALG_SHA256;
+            if (info->hash.sha256)
+                hashHandle = (TPM_HANDLE*)&info->hash.sha256->devCtx;
         }
     #endif
         if (hashAlg == TPM_ALG_ERROR) {
@@ -2761,7 +2758,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     info->hash.in, info->hash.inSz);
             }
         }
-        else if (info->hash.digest != NULL) { /* Final */
+        if (info->hash.digest != NULL) { /* Final */
             word32 digestSz;
             if (hashCtx.handle.hndl == 0) {
             #ifdef DEBUG_WOLFTPM
@@ -2772,6 +2769,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             digestSz = TPM2_GetHashDigestSize(hashAlg);
             rc = wolfTPM2_HashFinish(tlsCtx->dev, &hashCtx, info->hash.digest,
                 &digestSz);
+            *hashHandle = 0; /* clear hash handle */
         }
     #endif /* !NO_SHA || !NO_SHA256 */
 #endif /* WOLFTPM_USE_SYMMETRIC */
