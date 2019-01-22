@@ -1143,7 +1143,7 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     /* clear auth */
     XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
 
-    /* Move key into NV to persist */
+    /* remove key from NV */
     XMEMSET(&in, 0, sizeof(in));
     in.auth = primaryHandle;
     in.objectHandle = key->handle.hndl;
