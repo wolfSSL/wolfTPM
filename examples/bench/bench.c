@@ -247,6 +247,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     } while (bench_stats_check(start, &count));
     bench_stats_sym_finish("RNG", count, sizeof(message.buffer), start);
 
+#ifndef WOLFTPM_MCHP
     /* AES Benchmarks */
     /* AES CBC */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-enc", TPM_ALG_CBC, 128,
@@ -289,7 +290,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-dec", TPM_ALG_CFB, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
-
+#endif
 
     /* Hashing Benchmarks */
     /* SHA1 */

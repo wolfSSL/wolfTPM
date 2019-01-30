@@ -56,8 +56,10 @@
     #else
         /* SPI */
         #ifdef WOLFTPM_MCHP
+            /* Microchip ATTPM20 */
             /* SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
+            /* Requires SPI wait states */
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
             #endif
@@ -193,8 +195,8 @@
         int timeout = TPM_SPI_WAIT_RETRY;
     #endif
 
-        /* 1Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
-        unsigned int maxSpeed = 1000000;
+        /* 33Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
+        unsigned int maxSpeed = 33000000; /* ST=33, INF=43, MCHP=36 */
         int mode = 0; /* mode 0 */
         int bits_per_word = 8; /* 8-bits */
 
