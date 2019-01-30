@@ -64,6 +64,7 @@ typedef enum WOLFTPM2_MFG {
     TPM_MFG_UNKNOWN = 0,
     TPM_MFG_INFINEON,
     TPM_MFG_STM,
+    TPM_MFG_MCHP,
 } WOLFTPM2_MFG;
 typedef struct WOLFTPM2_CAPS {
     WOLFTPM2_MFG mfg;

@@ -125,6 +125,9 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 else if (XMEMCMP(&caps->mfgStr, "STM", 3) == 0) {
                     caps->mfg = TPM_MFG_STM;
                 }
+                else if (XMEMCMP(&caps->mfgStr, "MCHP", 4) == 0) {
+                    caps->mfg = TPM_MFG_MCHP;
+                }
                 break;
             case TPM_PT_VENDOR_STRING_1:
             case TPM_PT_VENDOR_STRING_2:
