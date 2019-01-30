@@ -347,12 +347,16 @@ int TPM2_Native_Test(void* userCtx)
                 TPM2_GetRCString(rc));
             goto exit;
         }
-        printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-            pcrIndex,
-            (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-            (int)cmdOut.pcrRead.pcrUpdateCounter);
-        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                       cmdOut.pcrRead.pcrValues.digests[0].size);
+        printf("TPM2_PCR_Read: Index %d, Count %d\n",
+            pcrIndex, (int)cmdOut.pcrRead.pcrValues.count);
+        if (cmdOut.pcrRead.pcrValues.count > 0) {
+            printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+                pcrIndex,
+                (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+                (int)cmdOut.pcrRead.pcrUpdateCounter);
+            TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                          cmdOut.pcrRead.pcrValues.digests[0].size);
+        }
     }
 
     /* PCR Extend and Verify */
@@ -380,13 +384,16 @@ int TPM2_Native_Test(void* userCtx)
         printf("TPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex,
-        (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-        (int)cmdOut.pcrRead.pcrUpdateCounter);
-    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                   cmdOut.pcrRead.pcrValues.digests[0].size);
-
+    printf("TPM2_PCR_Read: Index %d, Count %d\n",
+            pcrIndex, (int)cmdOut.pcrRead.pcrValues.count);
+    if (cmdOut.pcrRead.pcrValues.count > 0) {
+        printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+            pcrIndex,
+            (int)cmdOut.pcrRead.pcrValues.digests[0].size,
+            (int)cmdOut.pcrRead.pcrUpdateCounter);
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                      cmdOut.pcrRead.pcrValues.digests[0].size);
+    }
 
 
     /* Start Auth Session */

@@ -55,7 +55,14 @@
         #define TPM2_I2C_DEV  "/dev/i2c-1"
     #else
         /* SPI */
-        #ifdef WOLFTPM_ST33
+        #ifdef WOLFTPM_MCHP
+            /* SPI uses CE0 */
+            #define TPM2_SPI_DEV "/dev/spidev0.0"
+            #ifndef WOLFTPM_CHECK_WAIT_STATE
+                #define WOLFTPM_CHECK_WAIT_STATE
+            #endif
+
+        #elif defined(WOLFTPM_ST33)
             /* ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
 
