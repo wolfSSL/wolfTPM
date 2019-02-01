@@ -163,7 +163,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
-        YES, YES);
+        NO, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
@@ -247,7 +247,6 @@ int TPM2_Wrapper_Bench(void* userCtx)
     } while (bench_stats_check(start, &count));
     bench_stats_sym_finish("RNG", count, sizeof(message.buffer), start);
 
-#ifndef WOLFTPM_MCHP
     /* AES Benchmarks */
     /* AES CBC */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-enc", TPM_ALG_CBC, 128,
@@ -290,7 +289,6 @@ int TPM2_Wrapper_Bench(void* userCtx)
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-dec", TPM_ALG_CFB, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
-#endif
 
     /* Hashing Benchmarks */
     /* SHA1 */

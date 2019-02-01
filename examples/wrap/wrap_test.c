@@ -327,6 +327,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
         TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
     if (rc != 0) goto exit;
+    publicTemplate.nameAlg = TPM_ALG_SHA256; /* make sure its SHA256 */
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
@@ -355,6 +356,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
         TPM_ECC_NIST_P256, TPM_ALG_ECDH);
     if (rc != 0) goto exit;
+    publicTemplate.nameAlg = TPM_ALG_SHA256; /* make sure its SHA256 */
     rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
@@ -551,7 +553,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
-        YES, YES);
+        NO, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &aesKey, &storageKey.handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);

@@ -340,7 +340,7 @@ int TPM2_Native_Test(void* userCtx)
         pcrIndex = i;
         XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
         TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
-            TPM_ALG_SHA256, pcrIndex);
+            TEST_WRAP_DIGEST, pcrIndex);
         rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
         if (rc != TPM_RC_SUCCESS) {
             printf("TPM2_PCR_Read failed 0x%x: %s\n", rc,
@@ -364,7 +364,7 @@ int TPM2_Native_Test(void* userCtx)
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
-    cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
+    cmdIn.pcrExtend.digests.digests[0].hashAlg = TEST_WRAP_DIGEST;
     for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
         cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
     }
@@ -378,7 +378,7 @@ int TPM2_Native_Test(void* userCtx)
 
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
-        TPM_ALG_SHA256, pcrIndex);
+        TEST_WRAP_DIGEST, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -1169,7 +1169,7 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
     cmdIn.create.inPublic.publicArea.objectAttributes = (
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_noDA | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
+        TPMA_OBJECT_noDA | TPMA_OBJECT_decrypt);
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TEST_AES_MODE;
