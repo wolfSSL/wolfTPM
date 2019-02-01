@@ -95,7 +95,11 @@ int TPM2_Native_Test(void* userCtx)
         ECC_Parameters_In eccParam;
         ECDH_KeyGen_In ecdh;
         ECDH_ZGen_In ecdhZ;
+    #ifdef WOLFTPM_MCHP
+        EncryptDecrypt_In encDec;
+    #else
         EncryptDecrypt2_In encDec;
+    #endif
         HMAC_In hmac;
         HMAC_Start_In hmacStart;
 #ifdef WOLFTPM_ST33
@@ -129,7 +133,11 @@ int TPM2_Native_Test(void* userCtx)
         ECC_Parameters_Out eccParam;
         ECDH_KeyGen_Out ecdh;
         ECDH_ZGen_Out ecdhZ;
+    #ifdef WOLFTPM_MCHP
+        EncryptDecrypt_Out encDec;
+    #else
         EncryptDecrypt2_Out encDec;
+    #endif
         HMAC_Out hmac;
         HMAC_Start_Out hmacStart;
         byte maxOutput[MAX_RESPONSE_SIZE];
@@ -1167,9 +1175,16 @@ int TPM2_Native_Test(void* userCtx)
         cmdIn.create.inSensitive.sensitive.userAuth.size);
     cmdIn.create.inPublic.publicArea.type = TPM_ALG_SYMCIPHER;
     cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+#ifdef WOLFTPM_MCHP
+    /* workaround for issue with both sign and decrypt being set */
     cmdIn.create.inPublic.publicArea.objectAttributes = (
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_noDA | TPMA_OBJECT_decrypt);
+#else
+    cmdIn.create.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
+#endif
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TEST_AES_MODE;
@@ -1214,7 +1229,11 @@ int TPM2_Native_Test(void* userCtx)
     XMEMCPY(cmdIn.encDec.inData.buffer, message.buffer, cmdIn.encDec.inData.size);
     cmdIn.encDec.decrypt = NO;
     cmdIn.encDec.mode = TEST_AES_MODE;
+#ifdef WOLFTPM_MCHP
+    rc = TPM2_EncryptDecrypt(&cmdIn.encDec, &cmdOut.encDec);
+#else
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
+#endif
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
         printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
     }
@@ -1233,7 +1252,11 @@ int TPM2_Native_Test(void* userCtx)
         cmdOut.encDec.outData.size);
     cmdIn.encDec.decrypt = YES;
     cmdIn.encDec.mode = TEST_AES_MODE;
+#ifdef WOLFTPM_MCHP
+    rc = TPM2_EncryptDecrypt(&cmdIn.encDec, &cmdOut.encDec);
+#else
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
+#endif
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
         printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
     }

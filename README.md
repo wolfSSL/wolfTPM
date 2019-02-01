@@ -75,6 +75,7 @@ Tested with:
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
 * LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
+* Microchip ATTPM20
 
 #### Device Identification
 
@@ -85,6 +86,10 @@ Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
 ST ST33TP SPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
+
+Microchip ATTPM20
+TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1 
+Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
 ## Building
 
@@ -130,6 +135,16 @@ For the I2C support on Raspberry Pi you may need to enable I2C. Here are the ste
 2. Uncomment `dtparam=i2c_arm=on`
 3. Reboot `sudo reboot`
 
+### Building Microchip ATTPM20
+
+Build wolfTPM:
+
+```
+./autogen.sh
+./configure --enable-mchp
+make
+```
+
 
 ### Build options and defines
 
@@ -141,6 +156,7 @@ For the I2C support on Raspberry Pi you may need to enable I2C. Here are the ste
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
 --enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
 --enable-i2c            Enable I2C TPM Support (default: disabled) - WOLFTPM_I2C
+--enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
 ```
 
 ## Release Notes

@@ -163,7 +163,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
-        NO, YES);
+        YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);

@@ -553,7 +553,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
-        NO, YES);
+        YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &aesKey, &storageKey.handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
