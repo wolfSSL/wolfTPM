@@ -125,6 +125,9 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 else if (XMEMCMP(&caps->mfgStr, "STM", 3) == 0) {
                     caps->mfg = TPM_MFG_STM;
                 }
+                else if (XMEMCMP(&caps->mfgStr, "MCHP", 4) == 0) {
+                    caps->mfg = TPM_MFG_MCHP;
+                }
                 break;
             case TPM_PT_VENDOR_STRING_1:
             case TPM_PT_VENDOR_STRING_2:
@@ -2132,8 +2135,13 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int isDecrypt)
 {
     int rc;
+#ifdef WOLFTPM_MCHP
+    EncryptDecrypt_In encDecIn;
+    EncryptDecrypt_Out encDecOut;
+#else
     EncryptDecrypt2_In encDecIn;
     EncryptDecrypt2_Out encDecOut;
+#endif
 
     if (dev == NULL || key == NULL || in == NULL || out == NULL || inOutSz == 0) {
         return BAD_FUNC_ARG;
@@ -2162,13 +2170,21 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     encDecIn.inData.size = (encDecIn.inData.size +
         MAX_AES_BLOCK_SIZE_BYTES - 1) & ~(MAX_AES_BLOCK_SIZE_BYTES - 1);
 
+#ifdef WOLFTPM_MCHP
+    rc = TPM2_EncryptDecrypt(&encDecIn, &encDecOut);
+#else
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
+#endif
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
         /* try to enable support */
         rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
         if (rc == TPM_RC_SUCCESS) {
             /* try command again */
+        #ifdef WOLFTPM_MCHP
+            rc = TPM2_EncryptDecrypt(&encDecIn, &encDecOut);
+        #else
             rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
+        #endif
         }
     }
 
@@ -2312,6 +2328,13 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
+
+#ifdef WOLFTPM_MCHP
+    /* workaround for issue with both sign and decrypt being set */
+    if (isSign && isDecrypt) {
+        isSign = NO;
+    }
+#endif
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_SYMCIPHER;

@@ -183,6 +183,18 @@ fi
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 
 
+# MCHP Support
+AC_ARG_ENABLE([mchp],
+    [AS_HELP_STRING([--enable-mchp],[Enable TPM 2.0 Support (default: disabled)])],
+    [ ENABLED_MCHP=$enableval ],
+    [ ENABLED_MCHP=no ]
+    )
+if test "x$ENABLED_MCHP" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MCHP"
+fi
+AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
+
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS

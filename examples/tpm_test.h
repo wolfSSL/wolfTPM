@@ -45,6 +45,13 @@ static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
     #define TEST_AES_MODE TPM_ALG_CBC
 #endif
 
+#ifdef WOLFTPM_MCHP
+    /* workaround due to issue with older firmware */
+    #define TEST_WRAP_DIGEST TPM_ALG_SHA1
+#else
+    #define TEST_WRAP_DIGEST TPM_ALG_SHA256
+#endif
+
 
 /* RAW KEY MATERIAL */
 

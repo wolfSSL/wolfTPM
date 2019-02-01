@@ -290,7 +290,6 @@ int TPM2_Wrapper_Bench(void* userCtx)
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
 
-
     /* Hashing Benchmarks */
     /* SHA1 */
     rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
