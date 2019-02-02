@@ -2130,37 +2130,149 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
-int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
-    WOLFTPM2_KEY* key, int alg, const byte* keyBuf, word32 keySz)
+static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
+    const TPMT_SENSITIVE* sensitive, TPM2B_DIGEST* unique)
 {
     int rc;
-    TPM2B_PUBLIC pub;
-    TPM2B_SENSITIVE sens;
+
+#ifdef WOLFTPM_USE_SYMMETRIC
+    WOLFTPM2_HASH hash;
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT)
+    wc_HashAlg hash;
+    enum wc_HashType hashType;
+    int hashSz;
+#endif
+
+    if (sensitive == NULL || unique == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef WOLFTPM_USE_SYMMETRIC
+    rc = wolfTPM2_HashStart(dev, &hash, hashAlg, NULL, 0);
+    if (rc == 0) {
+        /* sensitive seed */
+        rc = wolfTPM2_HashUpdate(dev, &hash, sensitive->seedValue.buffer,
+            sensitive->seedValue.size);
+        if (rc == 0) {
+            /* sensitive value */
+            rc = wolfTPM2_HashUpdate(dev, &hash, sensitive->sensitive.any.buffer,
+                sensitive->sensitive.any.size);
+        }
+        if (rc == 0) {
+            rc = wolfTPM2_HashFinish(dev, &hash, unique->buffer, (word32*)&unique->size);
+        }
+    }
+#elif !defined(WOLFTPM2_NO_WOLFCRYPT)
+    rc = TPM2_GetHashType(hashAlg);
+    hashType = (enum wc_HashType)rc;
+    rc = wc_HashGetDigestSize(hashType);
+    if (rc < 0)
+        return rc;
+    hashSz = rc;
+
+    /* Hash of data (name) goes into remainder */
+    rc = wc_HashInit(&hash, hashType);
+    if (rc == 0) {
+        /* sensitive seed */
+        rc = wc_HashUpdate(&hash, hashType, sensitive->seedValue.buffer,
+            sensitive->seedValue.size);
+        if (rc == 0) {
+            /* sensitive value */
+            rc = wc_HashUpdate(&hash, hashType, sensitive->sensitive.any.buffer,
+                sensitive->sensitive.any.size);
+        }
+        if (rc == 0) {
+            rc = wc_HashFinal(&hash, hashType, unique->buffer);
+            if (rc == 0)
+                unique->size = hashSz;
+        }
+
+        wc_HashFree(&hash, hashType);
+    }
+#else
+    (void)unique;
+    rc = NOT_COMPILED_IN;
+#endif
+    return rc;
+}
+
+int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
+    const byte* keyBuf, word32 keySz)
+{
+    int rc;
+    LoadExternal_In  loadExtIn;
+    LoadExternal_Out loadExtOut;
+    int hashAlg, hashAlgDigSz;
 
     if (dev == NULL || key == NULL || keyBuf == NULL || (keySz != 16 && keySz != 32)) {
         return BAD_FUNC_ARG;
     }
-    if (keySz > sizeof(sens.sensitiveArea.sensitive.sym.buffer))
+    if (keySz > sizeof(loadExtIn.inPrivate.sensitiveArea.sensitive.sym.buffer)) {
         return BUFFER_E;
-
-    /* Set up public key */
-    rc = wolfTPM2_GetKeyTemplate_Symmetric(&pub.publicArea, keySz * 8, alg, YES, YES);
-    if (rc != 0)
-        return rc;
-    pub.publicArea.nameAlg = keySz == 32 ? TPM_ALG_SHA256 : TPM_ALG_SHA1;
-
-    /* Set up private key */
-    XMEMSET(&sens, 0, sizeof(sens));
-    sens.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
-    if (key->handle.auth.size > 0) {
-        sens.sensitiveArea.authValue.size = key->handle.auth.size;
-        XMEMCPY(sens.sensitiveArea.authValue.buffer, key->handle.auth.buffer,
-            key->handle.auth.size);
     }
-    sens.sensitiveArea.sensitive.sym.size = keySz;
-    XMEMCPY(sens.sensitiveArea.sensitive.sym.buffer, keyBuf, keySz);
 
-    return wolfTPM2_LoadPrivateKey(dev, parentKey, key, &pub, &sens);
+    hashAlg = (keySz == 32) ? TPM_ALG_SHA256 : TPM_ALG_SHA1;
+    hashAlgDigSz = TPM2_GetHashDigestSize(hashAlg);
+
+    /* Setup load command */
+    XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
+    loadExtIn.hierarchy = TPM_RH_NULL;
+
+    /* Setup private key */
+    loadExtIn.inPrivate.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
+    if (key->handle.auth.size > 0) {
+        loadExtIn.inPrivate.sensitiveArea.authValue.size = key->handle.auth.size;
+        XMEMCPY(loadExtIn.inPrivate.sensitiveArea.authValue.buffer,
+            key->handle.auth.buffer, key->handle.auth.size);
+    }
+    loadExtIn.inPrivate.sensitiveArea.seedValue.size = hashAlgDigSz;
+    rc = wolfTPM2_GetRandom(dev,
+        loadExtIn.inPrivate.sensitiveArea.seedValue.buffer,
+        loadExtIn.inPrivate.sensitiveArea.seedValue.size);
+    if (rc != 0)
+        goto exit;
+
+    loadExtIn.inPrivate.sensitiveArea.sensitive.sym.size = keySz;
+    XMEMCPY(loadExtIn.inPrivate.sensitiveArea.sensitive.sym.buffer,
+        keyBuf, keySz);
+
+    /* Setup public key */
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&loadExtIn.inPublic.publicArea,
+        keySz * 8, alg, YES, YES);
+    if (rc != 0)
+        goto exit;
+    loadExtIn.inPublic.publicArea.nameAlg = hashAlg;
+    loadExtIn.inPublic.publicArea.unique.sym.size = hashAlgDigSz;
+    rc = wolfTPM2_ComputeSymmetricUnique(dev, hashAlg,
+        &loadExtIn.inPrivate.sensitiveArea,
+        &loadExtIn.inPublic.publicArea.unique.sym);
+    if (rc != 0)
+        goto exit;
+
+    /* Load private key */
+    rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
+    if (rc == TPM_RC_SUCCESS) {
+        key->handle.dev = dev;
+        key->handle.hndl = loadExtOut.objectHandle;
+        key->pub = loadExtIn.inPublic;
+
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_LoadSymmetricKey: 0x%x\n", (word32)loadExtOut.objectHandle);
+    #endif
+        return rc;
+    }
+
+exit:
+
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_LoadExternal: failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    return rc;
 }
 
 /* EncryptDecrypt */
@@ -2689,7 +2801,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
             /* load key */
             XMEMSET(&symKey, 0, sizeof(symKey));
-            rc = wolfTPM2_LoadSymmetricKey(tlsCtx->dev, NULL, &symKey,
+            rc = wolfTPM2_LoadSymmetricKey(tlsCtx->dev, &symKey,
                 TPM_ALG_CBC, (byte*)aes->devKey, aes->keylen);
             if (rc == 0) {
                 /* perform symmetric encrypt/decrypt */
@@ -2704,7 +2816,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 wolfTPM2_UnloadHandle(tlsCtx->dev, &symKey.handle);
             }
         }
-
     #endif /* !NO_AES */
 #endif /* WOLFTPM_USE_SYMMETRIC */
     }
