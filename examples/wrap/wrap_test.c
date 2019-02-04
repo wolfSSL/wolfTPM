@@ -572,7 +572,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
 
     rc = wolfTPM2_HmacUpdate(&dev, &hmac, (byte*)hmacTestData,
-        (word32)XSTRLEN(hashTestData));
+        (word32)XSTRLEN(hmacTestData));
     if (rc != 0) goto exit;
 
     cipher.size = TPM_SHA256_DIGEST_SIZE;

@@ -2446,7 +2446,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             createIn.inSensitive.sensitive.userAuth.size);
     }
     createIn.inSensitive.sensitive.data.size = keySz;
-    XMEMCMP(createIn.inSensitive.sensitive.data.buffer, keyBuf, keySz);
+    XMEMCPY(createIn.inSensitive.sensitive.data.buffer, keyBuf, keySz);
 
     rc = wolfTPM2_GetKeyTemplate_KeyedHash(&createIn.inPublic.publicArea,
         hashAlg, YES, NO);
@@ -2667,7 +2667,8 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_noDA | (isSign ? TPMA_OBJECT_sign : 0) |
+        TPMA_OBJECT_noDA |
+        (isSign ? TPMA_OBJECT_sign : 0) |
         (isDecrypt ? TPMA_OBJECT_decrypt : 0));
     publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
     publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg = hashAlg;
