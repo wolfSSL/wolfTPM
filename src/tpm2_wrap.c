@@ -2761,6 +2761,58 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 /* --- BEGIN wolf Crypto Device Support -- */
 /******************************************************************************/
 
+/* Internal structure for tracking hash state */
+typedef struct WOLFTPM2_HASHCTX {
+    TPM_HANDLE handle;
+#ifdef WOLFTPM_USE_SYMMETRIC
+    byte*  cacheBuf;   /* buffer */
+    word32 cacheBufSz; /* buffer size */
+    word32 cacheSz;    /* filled size */
+#endif
+} WOLFTPM2_HASHCTX;
+
+#ifdef WOLFTPM_USE_SYMMETRIC
+    #ifndef WOLFTPM2_HASH_BLOCK_SZ
+        #define WOLFTPM2_HASH_BLOCK_SZ 256
+    #endif
+    static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
+        const byte* in, word32 inSz)
+    {
+        int ret = 0;
+        if (hashCtx->cacheBuf == NULL) {
+            hashCtx->cacheSz = 0;
+            hashCtx->cacheBufSz = (inSz + WOLFTPM2_HASH_BLOCK_SZ - 1)
+                & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
+            if (hashCtx->cacheBufSz == 0)
+                hashCtx->cacheBufSz = WOLFTPM2_HASH_BLOCK_SZ;
+            hashCtx->cacheBuf = (byte*)XMALLOC(hashCtx->cacheBufSz,
+                NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            if (hashCtx->cacheBuf == NULL) {
+                return MEMORY_E;
+            }
+        }
+        /* determine if we need to grow buffer */
+        else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
+            byte* oldIn = hashCtx->cacheBuf;
+            hashCtx->cacheBufSz = (hashCtx->cacheSz + inSz +
+                WOLFTPM2_HASH_BLOCK_SZ - 1) & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
+             hashCtx->cacheBuf = (byte*)XMALLOC(hashCtx->cacheBufSz,
+                NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            if (hashCtx->cacheBuf == NULL) {
+                return MEMORY_E;
+            }
+            XMEMCPY(hashCtx->cacheBuf, oldIn, hashCtx->cacheSz);
+            XFREE(oldIn, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        }
+
+        /* copy input to new buffer */
+        XMEMCPY(&hashCtx->cacheBuf[hashCtx->cacheSz], in, inSz);
+        hashCtx->cacheSz += inSz;
+
+        return ret;
+    }
+#endif /* WOLFTPM_USE_SYMMETRIC */
+
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
     int rc = NOT_COMPILED_IN; /* return this to bypass HW and use SW */
@@ -3002,6 +3054,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 #endif /* !NO_AES */
 #if !defined(NO_SHA) || !defined(NO_SHA256)
     else if (info->algo_type == WC_ALGO_TYPE_HASH) {
+    #ifdef WOLFTPM_USE_SYMMETRIC
+        WOLFTPM2_HASH hash;
+        WOLFTPM2_HASHCTX* hashCtx = NULL;
+        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
+        word32 hashFlags = 0;
+    #endif
+
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
     #endif
@@ -3011,63 +3070,106 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
 
     #ifdef WOLFTPM_USE_SYMMETRIC
-        WOLFTPM2_HASH hashCtx;
-        TPM_HANDLE  hashHandle_lcl = 0;
-        TPM_HANDLE* hashHandle = &hashHandle_lcl;
-        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
-
-        XMEMSET(&hashCtx, 0, sizeof(hashCtx));
     #ifndef NO_SHA
         if (info->hash.type == WC_HASH_TYPE_SHA) {
             hashAlg = TPM_ALG_SHA1;
-            if (info->hash.sha1)
-                hashHandle = (TPM_HANDLE*)&info->hash.sha1->devCtx;
+            if (info->hash.sha1) {
+                hashCtx = (WOLFTPM2_HASHCTX*)info->hash.sha1->devCtx;
+                hashFlags = info->hash.sha1->flags;
+            }
         }
     #endif
     #ifndef NO_SHA256
         if (info->hash.type == WC_HASH_TYPE_SHA256) {
             hashAlg = TPM_ALG_SHA256;
-            if (info->hash.sha256)
-                hashHandle = (TPM_HANDLE*)&info->hash.sha256->devCtx;
+            if (info->hash.sha256) {
+                hashCtx = (WOLFTPM2_HASHCTX*)info->hash.sha256->devCtx;
+                hashFlags = info->hash.sha256->flags;
+            }
         }
     #endif
         if (hashAlg == TPM_ALG_ERROR) {
             return NOT_COMPILED_IN;
         }
-        hashCtx.handle.hndl = *hashHandle;
+        if (hashCtx && hashCtx->handle == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Error: Hash context invalid!\n");
+            return BAD_FUNC_ARG;
+        #endif
+        }
+
+        XMEMSET(&hash, 0, sizeof(hash));
+        if (hashCtx)
+            hash.handle.hndl = hashCtx->handle;
 
         if (info->hash.in != NULL) { /* Update */
             rc = 0;
-            if (*hashHandle == 0) {
-                rc = wolfTPM2_HashStart(tlsCtx->dev, &hashCtx, hashAlg, NULL, 0);
+            if (hashCtx == NULL) {
+                /* If not single shot (update and final) then allocate context */
+                if (info->hash.digest == NULL) {
+                    hashCtx = (WOLFTPM2_HASHCTX*)XMALLOC(sizeof(*hashCtx), NULL,
+                        DYNAMIC_TYPE_TMP_BUFFER);
+                    if (hashCtx == NULL) {
+                        return MEMORY_E;
+                    }
+                    XMEMSET(hashCtx, 0, sizeof(*hashCtx));
+                }
+                rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg, NULL, 0);
                 if (rc == 0) {
                     /* save new handle to hash context */
-                    *hashHandle = hashCtx.handle.hndl;
+                    if (hashCtx)
+                        hashCtx->handle = hash.handle.hndl;
                 }
             }
             if (rc == 0) {
-                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hashCtx,
-                    info->hash.in, info->hash.inSz);
+                if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
+                    rc = wolfTPM2_HashUpdateCache(hashCtx,
+                        info->hash.in, info->hash.inSz);
+                }
+                else {
+                    rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                        info->hash.in, info->hash.inSz);
+                }
             }
         }
         if (info->hash.digest != NULL) { /* Final */
-            word32 digestSz;
-            if (hashCtx.handle.hndl == 0) {
-            #ifdef DEBUG_WOLFTPM
-                printf("Error: Hash final without context!\n");
-                return NOT_COMPILED_IN;
-            #endif
+            if (hash.handle.hndl != 0) {
+                word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
+                rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
+                    &digestSz);
             }
-            digestSz = TPM2_GetHashDigestSize(hashAlg);
-            rc = wolfTPM2_HashFinish(tlsCtx->dev, &hashCtx, info->hash.digest,
-                &digestSz);
-            *hashHandle = 0; /* clear hash handle */
+            if (hashCtx) {
+                hashCtx->handle = 0; /* clear hash handle */
+                if (hashCtx->cacheBuf) {
+                    XFREE(hashCtx->cacheBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                    hashCtx->cacheBuf = NULL;
+                }
+                XFREE(hashCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                hashCtx = NULL;
+            }
         }
+
+        /* save hashCtx to hash structure */
+    #ifndef NO_SHA
+        if (info->hash.type == WC_HASH_TYPE_SHA && info->hash.sha1)
+            info->hash.sha1->devCtx = hashCtx;
+    #endif
+    #ifndef NO_SHA256
+        if (info->hash.type == WC_HASH_TYPE_SHA256 && info->hash.sha256)
+            info->hash.sha256->devCtx = hashCtx;
+    #endif
     #endif /* WOLFTPM_USE_SYMMETRIC */
     }
 #endif /* !NO_SHA || !NO_SHA256 */
 #ifndef NO_HMAC
     else if (info->algo_type == WC_ALGO_TYPE_HMAC) {
+    #ifdef WOLFTPM_USE_SYMMETRIC
+        WOLFTPM2_HMAC hashCtx;
+        TPM_HANDLE  hashHandle_lcl = 0;
+        TPM_HANDLE* hashHandle = &hashHandle_lcl;
+        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
+    #endif
+
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb HMAC: Type %d\n", info->hmac.macType);
     #endif
@@ -3075,39 +3177,33 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             info->hmac.macType != WC_HASH_TYPE_SHA256) {
             return NOT_COMPILED_IN;
         }
-
-    #ifdef WOLFTPM_USE_SYMMETRIC
-        WOLFTPM2_HMAC hashCtx;
-        TPM_HANDLE  hashHandle_lcl = 0;
-        TPM_HANDLE* hashHandle = &hashHandle_lcl;
-        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
-
-        XMEMSET(&hashCtx, 0, sizeof(hashCtx));
-    #ifndef NO_SHA
-        if (info->hmac.macType == WC_HASH_TYPE_SHA) {
-            hashAlg = TPM_ALG_SHA1;
-            if (info->hmac.hmac)
-                hashHandle = (TPM_HANDLE*)&info->hmac.hmac->hash.sha.devCtx;
-        }
-    #endif
-    #ifndef NO_SHA256
-        if (info->hmac.macType == WC_HASH_TYPE_SHA256) {
-            hashAlg = TPM_ALG_SHA256;
-            if (info->hmac.hmac)
-                hashHandle = (TPM_HANDLE*)&info->hmac.hmac->hash.sha256.devCtx;
-        }
-    #endif
-        if (hashAlg == TPM_ALG_ERROR) {
+        if (info->hmac.hmac == NULL) {
+            /* make sure HMAC context exists */
             return NOT_COMPILED_IN;
         }
+
+    #ifdef WOLFTPM_USE_SYMMETRIC
+    #ifndef NO_SHA
+        if (info->hmac.macType == WC_HASH_TYPE_SHA)
+            hashAlg = TPM_ALG_SHA1;
+    #endif
+    #ifndef NO_SHA256
+        if (info->hmac.macType == WC_HASH_TYPE_SHA256)
+            hashAlg = TPM_ALG_SHA256;
+    #endif
+        if (hashAlg == TPM_ALG_ERROR)
+            return NOT_COMPILED_IN;
+
+        XMEMSET(&hashCtx, 0, sizeof(hashCtx));
+        hashHandle = (TPM_HANDLE*)&info->hmac.hmac->devCtx;
         hashCtx.hash.handle.hndl = *hashHandle;
 
         if (info->hash.in != NULL) { /* Update */
             rc = 0;
             if (*hashHandle == 0) {
                 /* TODO: Get Key */
-                const byte* keyBuf = NULL;
-                word32 keySz = 0;
+                const byte* keyBuf = info->hmac.hmac->keyRaw;
+                word32 keySz = info->hmac.hmac->keyLen;
 
                 rc = wolfTPM2_HmacStart(tlsCtx->dev, &hashCtx, NULL, hashAlg,
                     keyBuf, keySz, NULL, 0);

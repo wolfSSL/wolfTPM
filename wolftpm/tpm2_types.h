@@ -111,10 +111,12 @@ typedef int64_t  INT64;
     #define BAD_MUTEX_E           -106  /* Bad mutex operation */
     #define WC_TIMEOUT_E          -107  /* timeout error */
 
+#ifndef WOLFTPM_CUSTOM_TYPES
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
+#endif /* !WOLFTPM_CUSTOM_TYPES */
 
     /* Endianess */
     #ifndef BIG_ENDIAN_ORDER
