@@ -2130,6 +2130,7 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     return rc;
 }
 
+
 static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
     const TPMT_SENSITIVE* sensitive, TPM2B_DIGEST* unique)
 {
@@ -2406,6 +2407,164 @@ int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
     return rc;
 }
 
+
+
+/* HMAC */
+int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, int hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz)
+{
+    int rc;
+    Create_In  createIn;
+    Create_Out createOut;
+    Load_In  loadIn;
+    Load_Out loadOut;
+    int hashAlgDigSz;
+
+    if (dev == NULL || key == NULL || parent == NULL || keyBuf == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (keySz == 0 || keySz > MAX_SYM_DATA) {
+        return BUFFER_E;
+    }
+    hashAlgDigSz = TPM2_GetHashDigestSize(hashAlg);
+    if (hashAlgDigSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* clear output key buffer */
+    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
+
+    /* set session auth for parent key */
+    dev->session[0].auth = parent->auth;
+
+    XMEMSET(&createIn, 0, sizeof(createIn));
+    createIn.parentHandle = parent->hndl;
+    if (usageAuth) {
+        createIn.inSensitive.sensitive.userAuth.size = usageAuthSz;
+        XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, usageAuth,
+            createIn.inSensitive.sensitive.userAuth.size);
+    }
+    createIn.inSensitive.sensitive.data.size = keySz;
+    XMEMCMP(createIn.inSensitive.sensitive.data.buffer, keyBuf, keySz);
+
+    rc = wolfTPM2_GetKeyTemplate_KeyedHash(&createIn.inPublic.publicArea,
+        hashAlg, YES, NO);
+    if (rc != 0) {
+        return rc;
+    }
+
+    rc = TPM2_Create(&createIn, &createOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
+        createOut.outPrivate.size);
+#endif
+    key->pub = createOut.outPublic;
+
+    /* Load new key */
+    XMEMSET(&loadIn, 0, sizeof(loadIn));
+    loadIn.parentHandle = parent->hndl;
+    loadIn.inPrivate = createOut.outPrivate;
+    loadIn.inPublic = key->pub;
+    rc = TPM2_Load(&loadIn, &loadOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    key->handle.dev  = dev;
+    key->handle.hndl = loadOut.objectHandle;
+    key->handle.auth = createIn.inSensitive.sensitive.userAuth;
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_LoadKeyedHashKey Key Handle 0x%x\n",
+        (word32)key->handle.hndl);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    WOLFTPM2_HANDLE* parent, TPMI_ALG_HASH hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz)
+{
+    int rc;
+    HMAC_Start_In in;
+    HMAC_Start_Out out;
+
+    if (dev == NULL || hmac == NULL || hashAlg == TPM_ALG_NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Capture usage auth */
+    if (usageAuthSz > sizeof(hmac->hash.handle.auth.buffer))
+        usageAuthSz = sizeof(hmac->hash.handle.auth.buffer);
+    hmac->hash.handle.auth.size = usageAuthSz;
+    XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
+
+    /* Load Keyed Hash Key */
+    rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf, keySz,
+        usageAuth, usageAuthSz);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* set session auth for hmac key */
+    dev->session[0].auth = hmac->hash.handle.auth;
+
+    /* Setup HMAC start command */
+    XMEMSET(&in, 0, sizeof(in));
+    in.handle = hmac->key.handle.hndl;
+    in.auth = hmac->hash.handle.auth;
+    in.hashAlg = hashAlg;
+    rc = TPM2_HMAC_Start(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_HMAC_Start failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* Capture hash sequence handle */
+    hmac->hash.handle.hndl = out.sequenceHandle;
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_HmacStart: Handle 0x%x\n",
+        (word32)out.sequenceHandle);
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_HmacUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    const byte* data, word32 dataSz)
+{
+    return wolfTPM2_HashUpdate(dev, &hmac->hash, data, dataSz);
+}
+
+int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    byte* digest, word32* digestSz)
+{
+    int rc;
+    rc = wolfTPM2_HashFinish(dev, &hmac->hash, digest, digestSz);
+
+    /* unload HMAC key */
+    wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+
+    return rc;
+}
+
+
+
 /******************************************************************************/
 /* --- END Wrapper Device Functions-- */
 /******************************************************************************/
@@ -2493,6 +2652,25 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
     publicTemplate->parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     publicTemplate->parameters.symDetail.sym.keyBits.sym = keyBits;
     publicTemplate->parameters.symDetail.sym.mode.sym = algMode;
+
+    return 0;
+}
+
+int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID hashAlg, int isSign, int isDecrypt)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_KEYEDHASH;
+    publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA | (isSign ? TPMA_OBJECT_sign : 0) |
+        (isDecrypt ? TPMA_OBJECT_decrypt : 0));
+    publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg = hashAlg;
 
     return 0;
 }
@@ -2598,8 +2776,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         printf("CryptoDevCb RNG: Sz %d\n", info->rng.sz);
     #endif
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->rng.out, info->rng.sz);
-    #endif
+    #endif /* !WC_NO_RNG */
     }
+#if !defined(NO_RSA) || defined(HAVE_ECC)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {
         int isWolfKeyValid = 1;
 
@@ -2785,6 +2964,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* HAVE_ECC */
         (void)isWolfKeyValid;
     }
+#endif /* !NO_RSA || HAVE_ECC */
+#ifndef NO_AES
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
@@ -2793,8 +2974,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return NOT_COMPILED_IN;
         }
 
-#ifdef WOLFTPM_USE_SYMMETRIC
-    #ifndef NO_AES
+    #ifdef WOLFTPM_USE_SYMMETRIC
         if (info->cipher.aescbc.aes) {
             WOLFTPM2_KEY symKey;
             Aes* aes = info->cipher.aescbc.aes;
@@ -2816,9 +2996,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 wolfTPM2_UnloadHandle(tlsCtx->dev, &symKey.handle);
             }
         }
-    #endif /* !NO_AES */
-#endif /* WOLFTPM_USE_SYMMETRIC */
+    #endif /* WOLFTPM_USE_SYMMETRIC */
     }
+#endif /* !NO_AES */
+#if !defined(NO_SHA) || !defined(NO_SHA256)
     else if (info->algo_type == WC_ALGO_TYPE_HASH) {
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
@@ -2828,8 +3009,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             return NOT_COMPILED_IN;
         }
 
-#ifdef WOLFTPM_USE_SYMMETRIC
-    #if !defined(NO_SHA) || !defined(NO_SHA256)
+    #ifdef WOLFTPM_USE_SYMMETRIC
         WOLFTPM2_HASH hashCtx;
         TPM_HANDLE  hashHandle_lcl = 0;
         TPM_HANDLE* hashHandle = &hashHandle_lcl;
@@ -2882,9 +3062,80 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 &digestSz);
             *hashHandle = 0; /* clear hash handle */
         }
-    #endif /* !NO_SHA || !NO_SHA256 */
-#endif /* WOLFTPM_USE_SYMMETRIC */
+    #endif /* WOLFTPM_USE_SYMMETRIC */
     }
+#endif /* !NO_SHA || !NO_SHA256 */
+#ifndef NO_HMAC
+    else if (info->algo_type == WC_ALGO_TYPE_HMAC) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb HMAC: Type %d\n", info->hmac.macType);
+    #endif
+        if (info->hmac.macType != WC_HASH_TYPE_SHA &&
+            info->hmac.macType != WC_HASH_TYPE_SHA256) {
+            return NOT_COMPILED_IN;
+        }
+
+    #ifdef WOLFTPM_USE_SYMMETRIC
+        WOLFTPM2_HMAC hashCtx;
+        TPM_HANDLE  hashHandle_lcl = 0;
+        TPM_HANDLE* hashHandle = &hashHandle_lcl;
+        TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
+
+        XMEMSET(&hashCtx, 0, sizeof(hashCtx));
+    #ifndef NO_SHA
+        if (info->hmac.macType == WC_HASH_TYPE_SHA) {
+            hashAlg = TPM_ALG_SHA1;
+            if (info->hmac.hmac)
+                hashHandle = (TPM_HANDLE*)&info->hmac.hmac->hash.sha.devCtx;
+        }
+    #endif
+    #ifndef NO_SHA256
+        if (info->hmac.macType == WC_HASH_TYPE_SHA256) {
+            hashAlg = TPM_ALG_SHA256;
+            if (info->hmac.hmac)
+                hashHandle = (TPM_HANDLE*)&info->hmac.hmac->hash.sha256.devCtx;
+        }
+    #endif
+        if (hashAlg == TPM_ALG_ERROR) {
+            return NOT_COMPILED_IN;
+        }
+        hashCtx.hash.handle.hndl = *hashHandle;
+
+        if (info->hash.in != NULL) { /* Update */
+            rc = 0;
+            if (*hashHandle == 0) {
+                /* TODO: Get Key */
+                const byte* keyBuf = NULL;
+                word32 keySz = 0;
+
+                rc = wolfTPM2_HmacStart(tlsCtx->dev, &hashCtx, NULL, hashAlg,
+                    keyBuf, keySz, NULL, 0);
+                if (rc == 0) {
+                    /* save new handle to hash context */
+                    *hashHandle = hashCtx.hash.handle.hndl;
+                }
+            }
+            if (rc == 0) {
+                rc = wolfTPM2_HmacUpdate(tlsCtx->dev, &hashCtx,
+                    info->hash.in, info->hash.inSz);
+            }
+        }
+        if (info->hash.digest != NULL) { /* Final */
+            word32 digestSz;
+            if (hashCtx.hash.handle.hndl == 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("Error: Hash final without context!\n");
+                return NOT_COMPILED_IN;
+            #endif
+            }
+            digestSz = TPM2_GetHashDigestSize(hashAlg);
+            rc = wolfTPM2_HmacFinish(tlsCtx->dev, &hashCtx, info->hash.digest,
+                &digestSz);
+            *hashHandle = 0; /* clear hash handle */
+        }
+    #endif /* WOLFTPM_USE_SYMMETRIC */
+    }
+#endif /* !NO_HMAC */
 
     /* need to return negative here for error */
     if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN) {

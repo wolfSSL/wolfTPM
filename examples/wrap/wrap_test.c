@@ -82,6 +82,15 @@ int TPM2_Wrapper_Test(void* userCtx)
         "\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB\x06\xC1";
 #endif
 
+    WOLFTPM2_HMAC hmac;
+    const char* hmacTestKey =
+        "\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+        "\x0b\x0b\x0b\x0b";
+    const char* hmacTestData = "Hi There";
+    const char* hmacTestDig =
+        "\xb0\x34\x4c\x61\xd8\xdb\x38\x53\x5c\xa8\xaf\xce\xaf\x0b\xf1\x2b"
+        "\x88\x1d\xc2\x00\xc9\x83\x3d\xa7\x26\xe9\x37\x6c\x2e\x32\xcf\xf7";
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int tpmDevId = INVALID_DEVID;
     word32 idx;
@@ -552,6 +561,30 @@ int TPM2_Wrapper_Test(void* userCtx)
         goto exit;
     }
     printf("Hash SHA256 test success\n");
+
+
+    /*------------------------------------------------------------------------*/
+    /* HMAC TESTS */
+    /*------------------------------------------------------------------------*/
+    rc = wolfTPM2_HmacStart(&dev, &hmac, &storageKey.handle, TPM_ALG_SHA256,
+        (const byte*)hmacTestKey, (word32)XSTRLEN(hmacTestKey),
+        (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_HmacUpdate(&dev, &hmac, (byte*)hmacTestData,
+        (word32)XSTRLEN(hashTestData));
+    if (rc != 0) goto exit;
+
+    cipher.size = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_HmacFinish(&dev, &hmac, cipher.buffer, (word32*)&cipher.size);
+    if (rc != 0) goto exit;
+
+    if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
+        XMEMCMP(cipher.buffer, hmacTestDig, cipher.size) != 0) {
+        printf("HMAC SHA256 test failed, result not as expected!\n");
+        goto exit;
+    }
+    printf("HMAC SHA256 test success\n");
 
 
     /*------------------------------------------------------------------------*/

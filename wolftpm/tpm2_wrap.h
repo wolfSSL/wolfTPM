@@ -51,6 +51,11 @@ typedef struct WOLFTPM2_HASH {
     WOLFTPM2_HANDLE handle;
 } WOLFTPM2_HASH;
 
+typedef struct WOLFTPM2_HMAC {
+    WOLFTPM2_HASH   hash;
+    WOLFTPM2_KEY    key;
+} WOLFTPM2_HMAC;
+
 #ifndef WOLFTPM2_MAX_BUFFER
     #define WOLFTPM2_MAX_BUFFER 2048
 #endif
@@ -215,6 +220,17 @@ WOLFTPM_API int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 WOLFTPM_API int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     byte* digest, word32* digestSz);
 
+WOLFTPM_API int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, int hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz);
+WOLFTPM_API int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    WOLFTPM2_HANDLE* parent, TPMI_ALG_HASH hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz);
+WOLFTPM_API int wolfTPM2_HmacUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    const byte* data, word32 dataSz);
+WOLFTPM_API int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    byte* digest, word32* digestSz);
+
 WOLFTPM_API int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, int alg, const byte* keyBuf, word32 keySz);
 #define WOLFTPM2_ENCRYPT NO
@@ -236,6 +252,8 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate,
     int keyBits, TPM_ALG_ID algMode, int isSign, int isDecrypt);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID hashAlg, int isSign, int isDecrypt);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes);
