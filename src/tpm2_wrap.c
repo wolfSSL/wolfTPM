@@ -2781,6 +2781,8 @@ typedef struct WOLFTPM2_HASHCTX {
         const byte* in, word32 inSz)
     {
         int ret = 0;
+
+        /* allocate new cache buffer */
         if (hashCtx->cacheBuf == NULL) {
             hashCtx->cacheSz = 0;
             hashCtx->cacheBufSz = (inSz + WOLFTPM2_HASH_BLOCK_SZ - 1)
@@ -3034,6 +3036,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             WOLFTPM2_KEY symKey;
             Aes* aes = info->cipher.aescbc.aes;
 
+            if (aes == NULL) {
+                return BAD_FUNC_ARG;
+            }
+
             /* load key */
             XMEMSET(&symKey, 0, sizeof(symKey));
             rc = wolfTPM2_LoadSymmetricKey(tlsCtx->dev, &symKey,
@@ -3132,11 +3138,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
         }
         if (info->hash.digest != NULL) { /* Final */
-            if (hash.handle.hndl != 0) {
-                word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
-                rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
-                    &digestSz);
+            word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
+            if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
+                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                            hashCtx->cacheBuf, hashCtx->cacheSz);
             }
+            rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
+                &digestSz);
         }
         /* if final or failure cleanup */
         if (info->hash.digest != NULL || rc != 0) {
@@ -3233,11 +3241,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
             rc = wolfTPM2_HmacFinish(tlsCtx->dev, hmacCtx, info->hmac.digest,
                 &digestSz);
-            /* clean hmac context */
-            XFREE(hmacCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            hmacCtx = NULL;
         }
-        if (rc != 0 && hmacCtx) {
+
+        /* clean hmac context */
+        if (rc != 0 || info->hmac.digest != NULL) {
+            wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->key.handle);
             XFREE(hmacCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             hmacCtx = NULL;
         }
