@@ -130,6 +130,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     XMEMSET(&eccKey, 0, sizeof(eccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
+    tpmCtx.storageKey = &storageKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 #endif

@@ -129,6 +129,7 @@ int TPM2_TLS_Server(void* userCtx)
     tpmCtx.eccKey = &eccKey;
 #endif
     tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
+    tpmCtx.storageKey = &storageKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 

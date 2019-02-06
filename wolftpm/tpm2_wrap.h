@@ -282,6 +282,7 @@ typedef struct TpmCryptoDevCtx {
     #endif
 #endif
     CheckWolfKeyCallbackFunc checkKeyCb;
+    WOLFTPM2_KEY* storageKey;
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
