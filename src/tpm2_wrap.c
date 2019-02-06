@@ -2055,7 +2055,8 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     SequenceUpdate_In in;
     word32 pos = 0, hashSz;
 
-    if (dev == NULL || hash == NULL || (data == NULL && dataSz > 0)) {
+    if (dev == NULL || hash == NULL || (data == NULL && dataSz > 0) ||
+            hash->handle.hndl == 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -2098,7 +2099,8 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     SequenceComplete_In in;
     SequenceComplete_Out out;
 
-    if (dev == NULL || hash == NULL || digest == NULL || digestSz == NULL) {
+    if (dev == NULL || hash == NULL || digest == NULL || digestSz == NULL ||
+            hash->handle.hndl == 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -3091,12 +3093,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         if (hashAlg == TPM_ALG_ERROR) {
             return NOT_COMPILED_IN;
         }
-        if (hashCtx && hashCtx->handle == 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("Error: Hash context invalid!\n");
-            return BAD_FUNC_ARG;
-        #endif
-        }
 
         XMEMSET(&hash, 0, sizeof(hash));
         if (hashCtx)
@@ -3104,22 +3100,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
         if (info->hash.in != NULL) { /* Update */
             rc = 0;
-            if (hashCtx == NULL) {
-                /* If not single shot (update and final) then allocate context */
-                if (info->hash.digest == NULL) {
-                    hashCtx = (WOLFTPM2_HASHCTX*)XMALLOC(sizeof(*hashCtx), NULL,
-                        DYNAMIC_TYPE_TMP_BUFFER);
-                    if (hashCtx == NULL) {
-                        return MEMORY_E;
-                    }
-                    XMEMSET(hashCtx, 0, sizeof(*hashCtx));
+            /* If not single shot (update and final) then allocate context */
+            if (hashCtx == NULL && info->hash.digest == NULL) {
+                hashCtx = (WOLFTPM2_HASHCTX*)XMALLOC(sizeof(*hashCtx), NULL,
+                    DYNAMIC_TYPE_TMP_BUFFER);
+                if (hashCtx == NULL) {
+                    return MEMORY_E;
                 }
-                rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg, NULL, 0);
-                if (rc == 0) {
-                    /* save new handle to hash context */
-                    if (hashCtx)
-                        hashCtx->handle = hash.handle.hndl;
-                }
+                XMEMSET(hashCtx, 0, sizeof(*hashCtx));
             }
             if (rc == 0) {
                 if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
@@ -3127,8 +3115,19 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         info->hash.in, info->hash.inSz);
                 }
                 else {
-                    rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
-                        info->hash.in, info->hash.inSz);
+                    if (hash.handle.hndl == 0) {
+                        rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
+                            NULL, 0);
+                        if (rc == 0) {
+                            /* save new handle to hash context */
+                            if (hashCtx)
+                                hashCtx->handle = hash.handle.hndl;
+                        }
+                    }
+                    if (rc == 0) {
+                        rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                            info->hash.in, info->hash.inSz);
+                    }
                 }
             }
         }
@@ -3138,13 +3137,18 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
                     &digestSz);
             }
+        }
+        /* if final or failure cleanup */
+        if (info->hash.digest != NULL || rc != 0) {
             if (hashCtx) {
                 hashCtx->handle = 0; /* clear hash handle */
-                if (hashCtx->cacheBuf) {
-                    XFREE(hashCtx->cacheBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-                    hashCtx->cacheBuf = NULL;
+                if ((hashFlags & WC_HASH_FLAG_ISCOPY) == 0) {
+                    if (hashCtx->cacheBuf) {
+                        XFREE(hashCtx->cacheBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                        hashCtx->cacheBuf = NULL;
+                    }
+                    XFREE(hashCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 }
-                XFREE(hashCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 hashCtx = NULL;
             }
         }
