@@ -3140,8 +3140,19 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         if (info->hash.digest != NULL) { /* Final */
             word32 digestSz = TPM2_GetHashDigestSize(hashAlg);
             if (hashCtx && (hashFlags & WC_HASH_FLAG_WILLCOPY)) {
-                rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
+                if (hash.handle.hndl == 0) {
+                    rc = wolfTPM2_HashStart(tlsCtx->dev, &hash, hashAlg,
+                        NULL, 0);
+                    if (rc == 0) {
+                        /* save new handle to hash context */
+                        if (hashCtx)
+                            hashCtx->handle = hash.handle.hndl;
+                    }
+                }
+                if (rc == 0) {
+                    rc = wolfTPM2_HashUpdate(tlsCtx->dev, &hash,
                             hashCtx->cacheBuf, hashCtx->cacheSz);
+                }
             }
             rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
                 &digestSz);
