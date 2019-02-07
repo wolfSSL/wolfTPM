@@ -591,15 +591,43 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
-    /* load symmetric key */
-    cipher.size = 128/8;
-    for (i=0; i<cipher.size; i++) {
-        cipher.buffer[i] = (byte)(i & 0xff);
-    }
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
-        cipher.buffer, cipher.size);
+        (byte*)kTestAesCbc128Key, (word32)XSTRLEN(kTestAesCbc128Key));
     if (rc != 0) goto exit;
+
+    message.size = (word32)sizeof(kTestAesCbc128Msg);
+    XMEMCPY(message.buffer, kTestAesCbc128Msg, message.size);
+    XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
+    cipher.size = message.size;
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
+        message.size, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv),
+        WOLFTPM2_ENCRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+
+    XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
+    plain.size = message.size;
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
+        cipher.size, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv),
+        WOLFTPM2_DECRYPT);
+
     wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
+
+    if (rc == TPM_RC_SUCCESS &&
+         message.size == plain.size &&
+         XMEMCMP(message.buffer, plain.buffer, message.size) == 0 &&
+         cipher.size == sizeof(kTestAesCbc128Verify) &&
+         XMEMCMP(cipher.buffer, kTestAesCbc128Verify, cipher.size) == 0) {
+        printf("Encrypt/Decrypt (known key) test success\n");
+    }
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
+        rc = TPM_RC_SUCCESS; /* clear error code */
+    }
+    else {
+        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        goto exit;
+    }
+
 
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
         YES, YES);
@@ -637,7 +665,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
-        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        printf("Encrypt/Decrypt (gen key) test failed, result not as expected!\n");
         goto exit;
     }
 

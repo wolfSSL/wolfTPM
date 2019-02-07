@@ -2280,7 +2280,7 @@ exit:
 
 /* EncryptDecrypt */
 int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* in, byte* out, word32 inOutSz, const byte* iv, word32 ivSz,
+    const byte* in, byte* out, word32 inOutSz, byte* iv, word32 ivSz,
     int isDecrypt)
 {
     int rc;
@@ -2345,6 +2345,13 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
 
+    /* update IV */
+    if (iv) {
+        if (ivSz < encDecOut.ivOut.size)
+            ivSz = encDecOut.ivOut.size;
+        XMEMCPY(iv, encDecOut.ivOut.buffer, ivSz);
+    }
+
     /* return block */
     if (inOutSz > encDecOut.outData.size)
         inOutSz = encDecOut.outData.size;
@@ -2355,7 +2362,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* in, byte* out, word32 inOutSz,
-    const byte* iv, word32 ivSz, int isDecrypt)
+    byte* iv, word32 ivSz, int isDecrypt)
 {
     int rc;
     word32 pos = 0, xfer;
@@ -3050,7 +3057,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     info->cipher.aescbc.in,
                     info->cipher.aescbc.out,
                     info->cipher.aescbc.sz,
-                    NULL, 0,
+                    (byte*)aes->reg, MAX_AES_BLOCK_SIZE_BYTES,
                     info->cipher.enc ? WOLFTPM2_ENCRYPT : WOLFTPM2_DECRYPT);
 
                 /* done with handle */
