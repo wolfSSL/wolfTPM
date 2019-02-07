@@ -59,6 +59,9 @@ typedef int64_t  INT64;
 /* ST ST33TP TPM 2.0 */
 /* #define WOLFTPM_ST33 */
 
+/* Microchip ATTPM20 */
+/* #define WOLFTPM_MCHP */
+
 /* Infineon SLB9670 TPM 2.0 (default) */
 /* #define WOLFTPM_SLB9670 */
 #if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_SLB9670)

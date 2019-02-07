@@ -319,11 +319,15 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
     #include <sys/time.h>
     static inline double gettime_secs(int reset)
     {
+    #ifdef XTIME
+    	extern double current_time(int reset);
+        return current_time(reset);
+    #else
         struct timeval tv;
         gettimeofday(&tv, 0);
         (void)reset;
-
         return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
+    #endif
     }
 #endif
 
