@@ -55,6 +55,10 @@
     #endif
 #endif
 
+/* disable mutual auth for client */
+#if 0
+    #define NO_TLS_MUTUAL_AUTH
+#endif
 /* enable for testing ECC key/cert when RSA is enabled */
 #if 0
     #define TLS_USE_ECC

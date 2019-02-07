@@ -267,6 +267,7 @@ int TPM2_TLS_Client(void* userCtx)
 #endif /* !NO_FILESYSTEM */
 #endif
 
+#ifndef NO_TLS_MUTUAL_AUTH
 #ifdef NO_FILESYSTEM
     /* example loading from buffer */
     #if 0
@@ -311,6 +312,7 @@ int TPM2_TLS_Client(void* userCtx)
     }
 #endif
 #endif /* !NO_FILESYSTEM */
+#endif /* !NO_TLS_MUTUAL_AUTH */
 
 #ifdef TLS_CIPHER_SUITE
     /* Optionally choose the cipher suite */

@@ -2111,6 +2111,10 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     in.sequenceHandle = hash->handle.hndl;
     in.hierarchy = TPM_RH_NULL;
     rc = TPM2_SequenceComplete(&in, &out);
+
+    /* mark hash handle as done */
+    hash->handle.hndl = TPM_RH_NULL;
+
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_SequenceComplete failed 0x%x: %s: Handle 0x%x\n", rc,
@@ -2146,7 +2150,7 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
     int hashSz;
 #endif
 
-    if (sensitive == NULL || unique == NULL) {
+    if (dev == NULL || sensitive == NULL || unique == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -2165,6 +2169,10 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
             word32 uniqueSz = TPM2_GetHashDigestSize(hashAlg);
             rc = wolfTPM2_HashFinish(dev, &hash, unique->buffer, &uniqueSz);
             unique->size = uniqueSz;
+        }
+        else {
+            /* Make sure hash if free'd on failure */
+            wolfTPM2_UnloadHandle(dev, &hash.handle);
         }
     }
 #elif !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -2191,13 +2199,12 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
             if (rc == 0)
                 unique->size = hashSz;
         }
-
         wc_HashFree(&hash, hashType);
     }
 #else
-    (void)unique;
     rc = NOT_COMPILED_IN;
 #endif
+
     return rc;
 }
 
@@ -3179,6 +3186,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 }
                 hashCtx = NULL;
             }
+            /* Make sure hash if free'd in case of failure */
+            wolfTPM2_UnloadHandle(tlsCtx->dev, &hash.handle);
         }
 
         /* save hashCtx to hash structure */
@@ -3265,6 +3274,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
         /* clean hmac context */
         if (rc != 0 || info->hmac.digest != NULL) {
+            wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->hash.handle);
             wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->key.handle);
             XFREE(hmacCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             hmacCtx = NULL;
