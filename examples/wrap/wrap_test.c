@@ -60,6 +60,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     WOLFTPM2_KEY eccKey;
     WOLFTPM2_KEY publicKey;
     WOLFTPM2_KEY aesKey;
+    byte aesIv[MAX_AES_BLOCK_SIZE_BYTES];
     WOLFTPM2_BUFFER message;
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
@@ -599,16 +600,16 @@ int TPM2_Wrapper_Test(void* userCtx)
     XMEMCPY(message.buffer, kTestAesCbc128Msg, message.size);
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
     cipher.size = message.size;
+    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
-        message.size, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv),
-        WOLFTPM2_ENCRYPT);
+        message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
+    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
-        cipher.size, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv),
-        WOLFTPM2_DECRYPT);
+        cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
 
     wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
 
