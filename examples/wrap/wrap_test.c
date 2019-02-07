@@ -592,6 +592,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
         (byte*)kTestAesCbc128Key, (word32)XSTRLEN(kTestAesCbc128Key));
     if (rc != 0) goto exit;

@@ -80,7 +80,6 @@
 
 
 #elif defined(WOLFSSL_STM32_CUBEMX)
-    extern SPI_HandleTypeDef hspi1;
 
 #elif defined(WOLFSSL_ATMEL)
     #include "asf.h"
@@ -272,7 +271,7 @@
         word16 xferSz, void* userCtx)
     {
         int ret = TPM_RC_FAILURE;
-        SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)&hspi1;
+        SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)userCtx;
         HAL_StatusTypeDef status;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         int timeout = TPM_SPI_WAIT_RETRY;
@@ -287,7 +286,7 @@
         /* Send Header */
         status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf,
             TPM_TIS_HEADER_SZ, STM32_CUBEMX_SPI_TIMEOUT);
-        if (status == HAL_OK) {
+        if (status != HAL_OK) {
         #ifndef USE_HW_SPI_CS
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
         #endif
@@ -326,7 +325,6 @@
             ret = TPM_RC_SUCCESS;
 
         (void)ctx;
-        (void)userCtx;
 
         return ret;
     }
