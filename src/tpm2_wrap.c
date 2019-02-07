@@ -2162,7 +2162,9 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
                 sensitive->sensitive.any.size);
         }
         if (rc == 0) {
-            rc = wolfTPM2_HashFinish(dev, &hash, unique->buffer, (word32*)&unique->size);
+            word32 uniqueSz = TPM2_GetHashDigestSize(hashAlg);
+            rc = wolfTPM2_HashFinish(dev, &hash, unique->buffer, &uniqueSz);
+            unique->size = uniqueSz;
         }
     }
 #elif !defined(WOLFTPM2_NO_WOLFCRYPT)
