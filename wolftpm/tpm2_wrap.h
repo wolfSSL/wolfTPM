@@ -97,6 +97,7 @@ WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 
 WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
 
+WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,

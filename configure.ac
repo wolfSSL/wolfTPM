@@ -169,7 +169,7 @@ fi
 AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
 
 
-# ST33 Support
+# STM ST33 Support
 AC_ARG_ENABLE([st33],
     [AS_HELP_STRING([--enable-st33],[Enable ST33 TPM Support (default: disabled)])],
     [ ENABLED_ST33=$enableval ],
@@ -183,7 +183,7 @@ fi
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 
 
-# MCHP Support
+# Microchip ATTPM20 Support
 AC_ARG_ENABLE([mchp],
     [AS_HELP_STRING([--enable-mchp],[Enable TPM 2.0 Support (default: disabled)])],
     [ ENABLED_MCHP=$enableval ],
@@ -195,6 +195,14 @@ then
 fi
 AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
 
+# Infineon SLB9670
+ENABLED_INFINEON=no
+if test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST33" = "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
+    ENABLED_INFINEON=yes
+fi
+AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
@@ -312,5 +320,7 @@ echo "   * Wrappers:                  $ENABLED_WRAPPER"
 echo "   * Examples:                  $ENABLED_EXAMPLES"
 echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
 echo "   * Advanced IO:               $ENABLED_ADVIO"
-echo "   * ST33:                      $ENABLED_ST33"
+echo "   * Infineon SLB9670           $ENABLED_INFINEON"
+echo "   * STM ST33:                  $ENABLED_ST33"
+echo "   * Microchip ATTPM20:         $ENABLED_MCHP"
 echo "   * I2C:                       $ENABLED_I2C"

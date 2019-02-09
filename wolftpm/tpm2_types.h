@@ -64,7 +64,7 @@ typedef int64_t  INT64;
 
 /* Infineon SLB9670 TPM 2.0 (default) */
 /* #define WOLFTPM_SLB9670 */
-#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_SLB9670)
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
     #define WOLFTPM_SLB9670
 #endif
 
@@ -216,8 +216,17 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 /* Optional delay between polling */
+#if defined(WOLFTPM_SLB9670) && !defined(XTPM_WAIT)
+    /* For Infineon SLB9670 adding 10us delay improves performance */
+    #ifdef __linux__
+        #ifndef XTPM_WAIT_POLLING_US
+            #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
+        #endif
+        #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
+    #endif
+#endif
 #ifndef XTPM_WAIT
-#define XTPM_WAIT() /* just poll without delay by default */
+    #define XTPM_WAIT() /* just poll without delay by default */
 #endif
 
 #ifndef BUFFER_ALIGNMENT

@@ -53,6 +53,7 @@
         /* I2C - (Only tested with ST33HTPH I2C) */
         #define TPM2_I2C_ADDR 0x2e
         #define TPM2_I2C_DEV  "/dev/i2c-1"
+        #define TPM2_I2C_HZ   400000 /* 400kHz */
     #else
         /* SPI */
         #ifdef WOLFTPM_MCHP
@@ -63,18 +64,28 @@
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
             #endif
-
+            #ifndef TPM2_SPI_HZ
+                /* Max: 36MHz (has issues so using 33MHz) */
+                #define TPM2_SPI_HZ 33000000
+            #endif
         #elif defined(WOLFTPM_ST33)
-            /* ST33HTPH SPI uses CE0 */
+            /* STM ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
-
-            /* ST33 requires wait state support */
+            /* Requires wait state support */
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
+            #endif
+            #ifndef TPM2_SPI_HZ
+                /* Max: 33MHz */
+                #define TPM2_SPI_HZ 33000000
             #endif
         #else
             /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
             #define TPM2_SPI_DEV "/dev/spidev0.1"
+            #ifndef TPM2_SPI_HZ
+                /* Max: 43MHz */
+                #define TPM2_SPI_HZ 43000000
+            #endif
         #endif
     #endif
 
@@ -194,8 +205,8 @@
         int timeout = TPM_SPI_WAIT_RETRY;
     #endif
 
-        /* 33Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
-        unsigned int maxSpeed = 33000000; /* ST=33, INF=43, MCHP=36 */
+        /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
+        unsigned int maxSpeed = TPM2_SPI_HZ;
         int mode = 0; /* mode 0 */
         int bits_per_word = 8; /* 8-bits */
 

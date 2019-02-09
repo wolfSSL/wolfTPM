@@ -74,6 +74,14 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     printf("TPM2_Startup pass\n");
 #endif
 
+#if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
+    /* Do self-test (Chips such as ATTPM20 require this before some operations) */
+    rc = wolfTPM2_SelfTest(dev);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+#endif
+
     return TPM_RC_SUCCESS;
 }
 
@@ -86,6 +94,30 @@ int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
     return dev->ctx.did_vid; /* not INVALID_DEVID */
 }
 
+int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    SelfTest_In selfTest;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    /* Full self test */
+    XMEMSET(&selfTest, 0, sizeof(selfTest));
+    selfTest.fullTest = YES;
+    rc = TPM2_SelfTest(&selfTest);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_SelfTest pass\n");
+#endif
+
+    return rc;
+}
 
 /* Infineon SLB9670
  *  TPM_PT_MANUFACTURER     "IFX"
