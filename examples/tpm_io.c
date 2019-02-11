@@ -53,6 +53,7 @@
         /* I2C - (Only tested with ST33HTPH I2C) */
         #define TPM2_I2C_ADDR 0x2e
         #define TPM2_I2C_DEV  "/dev/i2c-1"
+        #define TPM2_I2C_HZ   400000 /* 400kHz */
     #else
         /* SPI */
         #ifdef WOLFTPM_MCHP
@@ -63,24 +64,33 @@
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
             #endif
-
+            #ifndef TPM2_SPI_HZ
+                /* Max: 36MHz (has issues so using 33MHz) */
+                #define TPM2_SPI_HZ 33000000
+            #endif
         #elif defined(WOLFTPM_ST33)
-            /* ST33HTPH SPI uses CE0 */
+            /* STM ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
-
-            /* ST33 requires wait state support */
+            /* Requires wait state support */
             #ifndef WOLFTPM_CHECK_WAIT_STATE
                 #define WOLFTPM_CHECK_WAIT_STATE
+            #endif
+            #ifndef TPM2_SPI_HZ
+                /* Max: 33MHz */
+                #define TPM2_SPI_HZ 33000000
             #endif
         #else
             /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
             #define TPM2_SPI_DEV "/dev/spidev0.1"
+            #ifndef TPM2_SPI_HZ
+                /* Max: 43MHz */
+                #define TPM2_SPI_HZ 43000000
+            #endif
         #endif
     #endif
 
 
 #elif defined(WOLFSSL_STM32_CUBEMX)
-    extern SPI_HandleTypeDef hspi1;
 
 #elif defined(WOLFSSL_ATMEL)
     #include "asf.h"
@@ -195,8 +205,8 @@
         int timeout = TPM_SPI_WAIT_RETRY;
     #endif
 
-        /* 33Mhz - PI has issue with 5-10Mhz on packets sized over 130 */
-        unsigned int maxSpeed = 33000000; /* ST=33, INF=43, MCHP=36 */
+        /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
+        unsigned int maxSpeed = TPM2_SPI_HZ;
         int mode = 0; /* mode 0 */
         int bits_per_word = 8; /* 8-bits */
 
@@ -210,7 +220,7 @@
             ioctl(spiDev, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word);
 
             XMEMSET(&spi, 0, sizeof(spi));
-            spi.cs_change= 1; /* strobe CS between transfers */
+            spi.cs_change = 1; /* strobe CS between transfers */
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
             /* Send Header */
@@ -272,7 +282,7 @@
         word16 xferSz, void* userCtx)
     {
         int ret = TPM_RC_FAILURE;
-        SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)&hspi1;
+        SPI_HandleTypeDef* hspi = (SPI_HandleTypeDef*)userCtx;
         HAL_StatusTypeDef status;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         int timeout = TPM_SPI_WAIT_RETRY;
@@ -287,7 +297,7 @@
         /* Send Header */
         status = HAL_SPI_TransmitReceive(hspi, (byte*)txBuf, rxBuf,
             TPM_TIS_HEADER_SZ, STM32_CUBEMX_SPI_TIMEOUT);
-        if (status == HAL_OK) {
+        if (status != HAL_OK) {
         #ifndef USE_HW_SPI_CS
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
         #endif
@@ -326,7 +336,6 @@
             ret = TPM_RC_SUCCESS;
 
         (void)ctx;
-        (void)userCtx;
 
         return ret;
     }

@@ -23,8 +23,9 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
-     defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+	defined(WOLFSSL_CERT_REQ) && \
+	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -153,6 +154,7 @@ int TPM2_CSR_Example(void* userCtx)
     if (rc != 0) return rc;
 
     /* Setup the wolf crypto device callback */
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
     XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
     tpmCtx.rsaKey = &rsaKey;
@@ -291,8 +293,9 @@ int main(void)
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFSSL_CERT_REQ) && \
-     defined(WOLF_CRYPTO_DEV) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    defined(WOLFSSL_CERT_REQ) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_CSR_Example(NULL);
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");

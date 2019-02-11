@@ -52,20 +52,15 @@ Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash diges
 This project uses the terms append vs. marshall and parse vs. unmarshall.
 
 
-
 ## Platform
 
-This example was written for use on Raspberry Pi® 3 or the STM32 with the CubeMX HAL. This was tested using the 
-
-The Raspberry 3 uses the native `spi_dev` interface and defaults to `/dev/spidev0.1`. If you are running the Infineon patches it overrides the kernel SPI interface with their `spi_tis_dev`, which currently causes this demo to fail.
-
-This has only been tested and confirmed working with Rasbian 4.4.x.
+The examples in this library are written for use on a Raspberry Pi and use the `spi_dev` interface.
 
 ### IO Callback
 
 For interfacing to your hardware platform see the example `examples/tpm_io.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
 
-There are examples here for Linux, STM32 CubeMX and Atmel ASF. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
+There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
 
 
 ### Hardware
@@ -101,7 +96,6 @@ cd wolfssl
 ./autogen.sh
 ./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev
 make
-make check
 sudo make install
 sudo ldconfig
 ```
@@ -149,14 +143,15 @@ make
 ### Build options and defines
 
 ```
---enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
 --enable-examples       Enable Examples (default: enabled)
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
 --enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
---enable-i2c            Enable I2C TPM Support (default: disabled) - WOLFTPM_I2C
+--enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
 --enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
+WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
 ```
 
 ## Release Notes
@@ -243,43 +238,42 @@ make
 
 ## Running Examples
 
-These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples.
+These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
 
 ### TPM2 Wrapper Tests
 
 ```
 ./examples/wrap/wrap_test
 TPM2 Demo for Wrapper API's
-Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
+Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
 RSA Encrypt/Decrypt Test Passed
 RSA Encrypt/Decrypt OAEP Test Passed
-RSA Key 0x80000001 Exported to wolf RsaKey
+RSA Key 0x80000000 Exported to wolf RsaKey
 wolf RsaKey loaded into TPM: Handle 0x80000000
-RSA Private Key Loaded into TPM: Handle 0x80000001
+RSA Private Key Loaded into TPM: Handle 0x80000000
 ECC Sign/Verify Passed
-ECC DH Generation Passed
+ECC DH Test Passed
 ECC Verify Test Passed
-ECC Key 0x80000001 Exported to wolf ecc_key
-wolfSSL Entering GetObjectId()
+ECC Key 0x80000000 Exported to wolf ecc_key
 wolf ecc_key loaded into TPM: Handle 0x80000000
-wolfSSL Entering GetObjectId()
-ECC Private Key Loaded into TPM: Handle 0x80000001
+ECC Private Key Loaded into TPM: Handle 0x80000000
 NV Test on index 0x1800200 with 1024 bytes passed
 Hash SHA256 test success
+HMAC SHA256 test success
+Encrypt/Decrypt (known key) test success
 Encrypt/Decrypt test success
 ```
 
 ### TPM2 Benchmarks
 
 Note: Key Generation is using existing template from hierarchy seed.
-Note: SPI bus speed increased to 10Mhz for these measurements.
 
-Run on Infineon OPTIGA SLB9670:
+Run on Infineon OPTIGA SLB9670 at 43MHz:
 
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RNG                  8 KB took 1.089 seconds,    7.344 KB/s
+RNG                 16 KB took 1.140 seconds,   14.033 KB/s
 Benchmark symmetric AES-128-CBC-enc not supported!
 Benchmark symmetric AES-128-CBC-dec not supported!
 Benchmark symmetric AES-256-CBC-enc not supported!
@@ -290,49 +284,82 @@ Benchmark symmetric AES-256-CTR-enc not supported!
 Benchmark symmetric AES-256-CTR-dec not supported!
 Benchmark symmetric AES-256-CFB-enc not supported!
 Benchmark symmetric AES-256-CFB-dec not supported!
-SHA1                28 KB took 1.007 seconds,   27.800 KB/s
-SHA256              28 KB took 1.002 seconds,   27.946 KB/s
-RSA     2048 key gen        6 ops took 12.175 sec, avg 2029.085 ms, 0.493 ops/sec
-RSA     2048 Public        45 ops took 1.019 sec, avg 22.649 ms, 44.151 ops/sec
-RSA     2048 Private        6 ops took 1.059 sec, avg 176.565 ms, 5.664 ops/sec
-RSA     2048 Pub  OAEP     46 ops took 1.009 sec, avg 21.925 ms, 45.610 ops/sec
-RSA     2048 Priv OAEP      6 ops took 1.051 sec, avg 175.166 ms, 5.709 ops/sec
-ECC      256 key gen        4 ops took 1.013 sec, avg 253.259 ms, 3.949 ops/sec
-ECDSA    256 sign          14 ops took 1.028 sec, avg 73.403 ms, 13.623 ops/sec
-ECDSA    256 verify         9 ops took 1.056 sec, avg 117.290 ms, 8.526 ops/sec
-ECDHE    256 agree          5 ops took 1.178 sec, avg 235.695 ms, 4.243 ops/sec
+SHA1               138 KB took 1.009 seconds,  136.783 KB/s
+SHA256             138 KB took 1.009 seconds,  136.763 KB/s
+RSA     2048 key gen        5 ops took 10.981 sec, avg 2196.230 ms, 0.455 ops/sec
+RSA     2048 Public       113 ops took 1.005 sec, avg 8.893 ms,   112.449 ops/sec
+RSA     2048 Private        7 ops took 1.142 sec, avg 163.207 ms,   6.127 ops/sec
+RSA     2048 Pub  OAEP     73 ops took 1.011 sec, avg 13.848 ms,   72.211 ops/sec
+RSA     2048 Priv OAEP      6 ops took 1.004 sec, avg 167.399 ms,   5.974 ops/sec
+ECC      256 key gen        5 ops took 1.157 sec, avg 231.350 ms,   4.322 ops/sec
+ECDSA    256 sign          15 ops took 1.033 sec, avg 68.865 ms,   14.521 ops/sec
+ECDSA    256 verify         9 ops took 1.022 sec, avg 113.539 ms,   8.808 ops/sec
+ECDHE    256 agree          5 ops took 1.161 sec, avg 232.144 ms,   4.308 ops/sec
 ```
 
-Run on ST ST33TP SPI:
+Run on ST ST33TP SPI at 33MHz:
 
 ```
 ./examples/bench/bench
 TPM2 Benchmark using Wrapper API's
-RNG                 18 KB took 1.081 seconds,   16.657 KB/s
-AES-128-CBC-enc     48 KB took 1.026 seconds,   46.779 KB/s
-AES-128-CBC-dec     48 KB took 1.024 seconds,   46.887 KB/s
-AES-256-CBC-enc     48 KB took 1.026 seconds,   46.797 KB/s
-AES-256-CBC-dec     48 KB took 1.023 seconds,   46.941 KB/s
-AES-128-CTR-enc     28 KB took 1.022 seconds,   27.392 KB/s
-AES-128-CTR-dec     28 KB took 1.022 seconds,   27.391 KB/s
-AES-256-CTR-enc     30 KB took 1.069 seconds,   28.074 KB/s
-AES-256-CTR-dec     30 KB took 1.068 seconds,   28.080 KB/s
-AES-128-CFB-enc     48 KB took 1.038 seconds,   46.226 KB/s
-AES-128-CFB-dec     48 KB took 1.025 seconds,   46.843 KB/s
-AES-256-CFB-enc     48 KB took 1.037 seconds,   46.298 KB/s
-AES-256-CFB-dec     48 KB took 1.026 seconds,   46.793 KB/s
-SHA1               116 KB took 1.013 seconds,  114.504 KB/s
-SHA256             108 KB took 1.000 seconds,  107.962 KB/s
-RSA     2048 key gen        1 ops took 1.908 sec, avg 1908.493 ms, 0.524 ops/sec
-RSA     2048 Public       124 ops took 1.002 sec, avg 8.078 ms, 123.790 ops/sec
-RSA     2048 Private        5 ops took 1.234 sec, avg 246.729 ms, 4.053 ops/sec
-RSA     2048 Pub  OAEP     87 ops took 1.007 sec, avg 11.569 ms, 86.436 ops/sec
-RSA     2048 Priv OAEP      4 ops took 1.004 sec, avg 250.991 ms, 3.984 ops/sec
-ECC      256 key gen        5 ops took 1.091 sec, avg 218.226 ms, 4.582 ops/sec
-ECDSA    256 sign          24 ops took 1.001 sec, avg 41.718 ms, 23.971 ops/sec
-ECDSA    256 verify        14 ops took 1.033 sec, avg 73.771 ms, 13.555 ops/sec
-ECDHE    256 agree          5 ops took 1.231 sec, avg 246.112 ms, 4.063 ops/sec
+RNG                 14 KB took 1.017 seconds,   13.763 KB/s
+AES-128-CBC-enc     40 KB took 1.008 seconds,   39.666 KB/s
+AES-128-CBC-dec     42 KB took 1.032 seconds,   40.711 KB/s
+AES-256-CBC-enc     40 KB took 1.013 seconds,   39.496 KB/s
+AES-256-CBC-dec     40 KB took 1.011 seconds,   39.563 KB/s
+AES-128-CTR-enc     26 KB took 1.055 seconds,   24.646 KB/s
+AES-128-CTR-dec     26 KB took 1.035 seconds,   25.117 KB/s
+AES-256-CTR-enc     26 KB took 1.028 seconds,   25.302 KB/s
+AES-256-CTR-dec     26 KB took 1.030 seconds,   25.252 KB/s
+AES-128-CFB-enc     42 KB took 1.045 seconds,   40.201 KB/s
+AES-128-CFB-dec     40 KB took 1.008 seconds,   39.699 KB/s
+AES-256-CFB-enc     40 KB took 1.022 seconds,   39.151 KB/s
+AES-256-CFB-dec     42 KB took 1.041 seconds,   40.362 KB/s
+SHA1                86 KB took 1.005 seconds,   85.559 KB/s
+SHA256              84 KB took 1.019 seconds,   82.467 KB/s
+RSA     2048 key gen        1 ops took 7.455 sec, avg 7455.036 ms, 0.134 ops/sec
+RSA     2048 Public       110 ops took 1.003 sec, avg 9.122 ms,  109.624 ops/sec
+RSA     2048 Private        5 ops took 1.239 sec, avg 247.752 ms,  4.036 ops/sec
+RSA     2048 Pub  OAEP     81 ops took 1.001 sec, avg 12.364 ms,  80.880 ops/sec
+RSA     2048 Priv OAEP      4 ops took 1.007 sec, avg 251.780 ms,  3.972 ops/sec
+ECC      256 key gen        5 ops took 1.099 sec, avg 219.770 ms,  4.550 ops/sec
+ECDSA    256 sign          24 ops took 1.016 sec, avg 42.338 ms,  23.619 ops/sec
+ECDSA    256 verify        14 ops took 1.036 sec, avg 74.026 ms,  13.509 ops/sec
+ECDHE    256 agree          5 ops took 1.235 sec, avg 247.085 ms,  4.047 ops/sec
+
 ```
+
+Run on Microchip ATTPM20 at 33MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RNG                  2 KB took 1.867 seconds,    1.071 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+AES-128-CFB-enc     16 KB took 1.112 seconds,   14.383 KB/s
+AES-128-CFB-dec     16 KB took 1.129 seconds,   14.166 KB/s
+AES-256-CFB-enc     12 KB took 1.013 seconds,   11.845 KB/s
+AES-256-CFB-dec     12 KB took 1.008 seconds,   11.909 KB/s
+SHA1                22 KB took 1.009 seconds,   21.797 KB/s
+SHA256              22 KB took 1.034 seconds,   21.270 KB/s
+RSA     2048 key gen        3 ops took 15.828 sec, avg 5275.861 ms, 0.190 ops/sec
+RSA     2048 Public        22 ops took 1.034 sec, avg 47.021 ms, 21.267 ops/sec
+RSA     2048 Private        9 ops took 1.059 sec, avg 117.677 ms, 8.498 ops/sec
+RSA     2048 Pub  OAEP     21 ops took 1.007 sec, avg 47.959 ms, 20.851 ops/sec
+RSA     2048 Priv OAEP      9 ops took 1.066 sec, avg 118.423 ms, 8.444 ops/sec
+ECC      256 key gen        7 ops took 1.072 sec, avg 153.140 ms, 6.530 ops/sec
+ECDSA    256 sign          18 ops took 1.056 sec, avg 58.674 ms, 17.043 ops/sec
+ECDSA    256 verify        24 ops took 1.031 sec, avg 42.970 ms, 23.272 ops/sec
+ECDHE    256 agree         16 ops took 1.023 sec, avg 63.934 ms, 15.641 ops/sec
+```
+
 
 ### TPM2 Native Tests
 
@@ -350,31 +377,56 @@ TPM2_GetCapability: Property FIRMWARE_VERSION_1 0x004a0008
 TPM2_GetCapability: Property FIRMWARE_VERSION_2 0x44a01587
 TPM2_GetRandom: Got 32 bytes
 TPM2_StirRandom: success
+TPM2_PCR_Read: Index 0, Count 1
 TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 1, Count 1
 TPM2_PCR_Read: Index 1, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 2, Count 1
 TPM2_PCR_Read: Index 2, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 3, Count 1
 TPM2_PCR_Read: Index 3, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 4, Count 1
 TPM2_PCR_Read: Index 4, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 5, Count 1
 TPM2_PCR_Read: Index 5, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 6, Count 1
 TPM2_PCR_Read: Index 6, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 7, Count 1
 TPM2_PCR_Read: Index 7, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 8, Count 1
 TPM2_PCR_Read: Index 8, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 9, Count 1
 TPM2_PCR_Read: Index 9, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 10, Count 1
 TPM2_PCR_Read: Index 10, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 11, Count 1
 TPM2_PCR_Read: Index 11, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 12, Count 1
 TPM2_PCR_Read: Index 12, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 13, Count 1
 TPM2_PCR_Read: Index 13, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 14, Count 1
 TPM2_PCR_Read: Index 14, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 15, Count 1
 TPM2_PCR_Read: Index 15, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 16, Count 1
 TPM2_PCR_Read: Index 16, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 17, Count 1
 TPM2_PCR_Read: Index 17, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 18, Count 1
 TPM2_PCR_Read: Index 18, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 19, Count 1
 TPM2_PCR_Read: Index 19, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 20, Count 1
 TPM2_PCR_Read: Index 20, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 21, Count 1
 TPM2_PCR_Read: Index 21, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 22, Count 1
 TPM2_PCR_Read: Index 22, Digest Sz 32, Update Counter 20
+TPM2_PCR_Read: Index 23, Count 1
 TPM2_PCR_Read: Index 23, Digest Sz 32, Update Counter 20
 TPM2_PCR_Extend success
+TPM2_PCR_Read: Index 0, Count 1
 TPM2_PCR_Read: Index 0, Digest Sz 32, Update Counter 21
 TPM2_StartAuthSession: sessionHandle 0x3000000
 TPM2_PolicyGetDigest: size 32
@@ -469,37 +521,37 @@ PKCS7 Container Verified (using software)
 
 ### TPM TLS Client Example
 
+The wolfSSL TLS client requires loading a private key for mutual authentication. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
+
 ```
 ./examples/tls/tls_client
 TPM2 TLS Client Example
 Write (29): GET /index.html HTTP/1.0
 
 
-Read (583): HTTP/1.1 404 Not Found
-Date: Wed, 14 Nov 2018 16:53:39 GMT
-Server: Apache/2.2.34 (Unix) mod_ssl/2.2.34 OpenSSL/1.0.1e-fips mod_bwlimited/1.4
-X-Powered-By: PHP/5.6.34
-Expires: Wed, 11 Jan 1984 05:00:00 GMT
-Cache-Control: no-cache, must-revalidate, max-age=0
-Link: <https://www.wolfssl.com/wp-json/>; rel="https://api.w.org/"
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-X-Frame-Options: SAMEORIGIN
-X-Content-Type-Options: nosniff
-Referrer-Policy: strict-origin
-X-Xss-Protection: 1; mode=block
+Read (193): HTTP/1.1 200 OK
+Content-Type: text/html
 Connection: close
-Content-Type: text/html; charset=UTF-8
+
+<html>
+<head>
+<title>Welcome to wolfSSL!</title>
+</head>
+<body>
+<p>wolfSSL has successfully performed handshake!</p>
+</body>
+</html>
 ```
 
 ### TPM TLS Server Example
 
-The wolfSSL TLS server requires loading a private key, so we load a "fake" key and in the crypto callbacks we use the TPM instead.
+The wolfSSL TLS server requires loading a private key. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
 
 ```
 ./examples/tls/tls_server
 TPM2 TLS Server Example
 Loading RSA certificate and dummy key
-Read (28): GET /index.html HTTP/1.0
+Read (29): GET /index.html HTTP/1.0
 
 
 Write (193): HTTP/1.1 200 OK
@@ -518,11 +570,10 @@ Connection: close
 
 
 ## Todo
-* Improve overall documentation.
 * Add support for encrypting / decrypting parameters.
 * Add support for SensitiveToPrivate inner and outer.
 * Add `spi_tis_dev` support for Raspberry Pi.
-* Add runtime support for detecting module type ST33 or SLB9670.
+* Add runtime support for detecting module type ST33, SLB9670 or ATTPM20.
 
 
 ## Support

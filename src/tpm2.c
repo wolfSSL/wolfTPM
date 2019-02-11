@@ -284,7 +284,7 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     rc = wc_InitRng(&ctx->rng);
     if (rc < 0) {
 #ifdef DEBUG_WOLFTPM
-        printf("wc_InitRng failed %d: %s\n", rc, wc_GetErrorString(rc));
+        printf("wc_InitRng failed %d: %s\n", (int)rc, wc_GetErrorString(rc));
 #endif
         return rc;
     }
@@ -4644,7 +4644,13 @@ const char* TPM2_GetRCString(int rc)
                 break;
         }
     #ifndef WOLFTPM2_NO_WOLFCRYPT
-        return wc_GetErrorString(rc);
+        #if !defined(WOLFCRYPT_ONLY) && \
+            (!defined(NO_WOLFSSL_SERVER) || !defined(NO_WOLFSSL_CLIENT))
+            /* include TLS error codes */
+            return wolfSSL_ERR_reason_error_string(rc);
+        #else
+            return wc_GetErrorString(rc);
+        #endif
     #endif
     }
     else if (rc == 0) {

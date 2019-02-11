@@ -23,8 +23,9 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(HAVE_PKCS7) && \
-     defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+	defined(HAVE_PKCS7) && \
+	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -298,18 +299,21 @@ int TPM2_PKCS7_Example(void* userCtx)
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
-    WOLFTPM2_BUFFER der = {0};
+    WOLFTPM2_BUFFER der;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE* derFile;
 #endif
 
     printf("TPM2 PKCS7 Example\n");
 
+    XMEMSET(&der, 0, sizeof(der));
+
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
     /* Setup the wolf crypto device callback */
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
     tpmCtx.rsaKey = &rsaKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc < 0) goto exit;
@@ -414,8 +418,9 @@ int main(void)
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(HAVE_PKCS7) && \
-     defined(WOLF_CRYPTO_DEV)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    defined(HAVE_PKCS7) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_PKCS7_Example(NULL);
 #else
     printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");

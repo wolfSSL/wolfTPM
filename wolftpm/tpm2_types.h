@@ -59,9 +59,12 @@ typedef int64_t  INT64;
 /* ST ST33TP TPM 2.0 */
 /* #define WOLFTPM_ST33 */
 
+/* Microchip ATTPM20 */
+/* #define WOLFTPM_MCHP */
+
 /* Infineon SLB9670 TPM 2.0 (default) */
 /* #define WOLFTPM_SLB9670 */
-#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_SLB9670)
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
     #define WOLFTPM_SLB9670
 #endif
 
@@ -73,10 +76,8 @@ typedef int64_t  INT64;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef WOLFSSL_USER_SETTINGS
         #include <wolfssl/options.h>
-    #else
-        #include <wolfssl/wolfcrypt/settings.h>
     #endif
-
+	#include <wolfssl/wolfcrypt/settings.h>
     #include <wolfssl/wolfcrypt/types.h>
     #include <wolfssl/wolfcrypt/logging.h>
     #include <wolfssl/wolfcrypt/error-crypt.h>
@@ -84,9 +85,19 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
     #include <wolfssl/wolfcrypt/asn_public.h>
-    #ifdef WOLF_CRYPTO_DEV
+    #ifdef WOLF_CRYPTO_CB
+        #include <wolfssl/wolfcrypt/cryptocb.h>
+    #elif defined(WOLF_CRYPTO_DEV)
         #include <wolfssl/wolfcrypt/cryptodev.h>
     #endif
+    #ifndef WOLFCRYPT_ONLY
+        /* for additional error codes */
+        extern const char* wolfSSL_ERR_reason_error_string(unsigned long);
+    #endif
+
+	#ifdef DEBUG_WOLFTPM
+		#include <stdio.h>
+	#endif
 #else
 
     #include <stdio.h>
@@ -100,11 +111,15 @@ typedef int64_t  INT64;
     #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
     #define BUFFER_E              -132  /* output buffer too small or input too large */
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
+    #define BAD_MUTEX_E           -106  /* Bad mutex operation */
+    #define WC_TIMEOUT_E          -107  /* timeout error */
 
+#ifndef WOLFTPM_CUSTOM_TYPES
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
+#endif /* !WOLFTPM_CUSTOM_TYPES */
 
     /* Endianess */
     #ifndef BIG_ENDIAN_ORDER
@@ -201,8 +216,17 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 /* Optional delay between polling */
+#if defined(WOLFTPM_SLB9670) && !defined(XTPM_WAIT)
+    /* For Infineon SLB9670 adding 10us delay improves performance */
+    #ifdef __linux__
+        #ifndef XTPM_WAIT_POLLING_US
+            #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
+        #endif
+        #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
+    #endif
+#endif
 #ifndef XTPM_WAIT
-#define XTPM_WAIT() /* just poll without delay by default */
+    #define XTPM_WAIT() /* just poll without delay by default */
 #endif
 
 #ifndef BUFFER_ALIGNMENT

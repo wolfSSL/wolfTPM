@@ -51,6 +51,11 @@ typedef struct WOLFTPM2_HASH {
     WOLFTPM2_HANDLE handle;
 } WOLFTPM2_HASH;
 
+typedef struct WOLFTPM2_HMAC {
+    WOLFTPM2_HASH   hash;
+    WOLFTPM2_KEY    key;
+} WOLFTPM2_HMAC;
+
 #ifndef WOLFTPM2_MAX_BUFFER
     #define WOLFTPM2_MAX_BUFFER 2048
 #endif
@@ -92,6 +97,7 @@ WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 
 WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
 
+WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
@@ -159,6 +165,9 @@ WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz);
 WOLFTPM_API int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz);
+WOLFTPM_API int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz,
+    int ecdsaHashAlg);
 
 WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     int curve_id, const byte* auth, int authSz);
@@ -212,14 +221,27 @@ WOLFTPM_API int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 WOLFTPM_API int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     byte* digest, word32* digestSz);
 
+WOLFTPM_API int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, int hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz);
+WOLFTPM_API int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    WOLFTPM2_HANDLE* parent, TPMI_ALG_HASH hashAlg, const byte* keyBuf, word32 keySz,
+    const byte* usageAuth, word32 usageAuthSz);
+WOLFTPM_API int wolfTPM2_HmacUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    const byte* data, word32 dataSz);
+WOLFTPM_API int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
+    byte* digest, word32* digestSz);
+
+WOLFTPM_API int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, int alg, const byte* keyBuf, word32 keySz);
 #define WOLFTPM2_ENCRYPT NO
 #define WOLFTPM2_DECRYPT YES
 WOLFTPM_API int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* in, byte* out, word32 inOutSz, const byte* iv, word32 ivSz,
+    const byte* in, byte* out, word32 inOutSz, byte* iv, word32 ivSz,
     int isDecrypt);
 WOLFTPM_API int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* in, byte* out, word32 inOutSz,
-    const byte* iv, word32 ivSz, int isDecrypt);
+    byte* iv, word32 ivSz, int isDecrypt);
 
 WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
     int enableFlag);
@@ -231,6 +253,8 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate,
     int keyBits, TPM_ALG_ID algMode, int isSign, int isDecrypt);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID hashAlg, int isSign, int isDecrypt);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes);
@@ -243,7 +267,7 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
 
 
 
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
 struct TpmCryptoDevCtx;
 typedef int (*CheckWolfKeyCallbackFunc)(wc_CryptoInfo* info, struct TpmCryptoDevCtx* ctx);
 
@@ -254,15 +278,18 @@ typedef struct TpmCryptoDevCtx {
 #endif
 #ifdef HAVE_ECC
     WOLFTPM2_KEY* eccKey;  /* ECDSA */
+    #ifndef WOLFTPM2_USE_SW_ECDHE
     WOLFTPM2_KEY* ecdhKey; /* ECDH */
+    #endif
 #endif
     CheckWolfKeyCallbackFunc checkKeyCb;
+    WOLFTPM2_KEY* storageKey;
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
 WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     TpmCryptoDevCtx* tpmCtx, int* pDevId);
-#endif
+#endif /* WOLF_CRYPTO_CB */
 
 
 #endif /* __TPM2_WRAP_H__ */

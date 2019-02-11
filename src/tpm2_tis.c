@@ -85,6 +85,91 @@ enum tpm_tis_int_flags {
 #define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
 
 
+/* this option enables named semaphore protection on TIS commands for protected
+    concurrent process access */
+#ifdef WOLFTPM_TIS_LOCK
+    #ifdef __linux__
+        #include <semaphore.h>
+        #include <fcntl.h>
+        #include <sys/stat.h>
+        #include <errno.h>
+
+        #define SEM_NAME "/wolftpm"
+        #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
+        #define INITIAL_VALUE 1
+        #define TIMEOUT_SECONDS 10
+        static int gLockCount = 0;
+
+        static int TPM2_TIS_Lock(void)
+        {
+            int ret = 0;
+            sem_t *sem;
+            struct timespec timeoutTime;
+
+            if (gLockCount == 0) {
+                clock_gettime(CLOCK_REALTIME, &timeoutTime);
+                timeoutTime.tv_sec += TIMEOUT_SECONDS;
+
+                /* open semaphore and create if not found */
+                sem = sem_open(SEM_NAME, O_CREAT | O_RDWR, SEM_PERMS, INITIAL_VALUE);
+                if (sem == SEM_FAILED) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("TPM2_TIS_Lock: Semaphore %s open failed! %d\n",
+                        SEM_NAME, errno);
+                #endif
+                    return BAD_MUTEX_E;
+                }
+
+                /* Try and decrement semaphore */
+                if (sem_timedwait(sem, &timeoutTime) != 0) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("TPM2_TIS_Lock: Semaphore %s timeout! %d\n",
+                        SEM_NAME, errno);
+                #endif
+                    ret = WC_TIMEOUT_E;
+                }
+
+                sem_close(sem);
+            }
+            if (ret == 0) {
+                gLockCount++;
+            }
+
+            return ret;
+        }
+
+        static void TPM2_TIS_Unlock(void)
+        {
+            if (gLockCount > 0) {
+                gLockCount--;
+            }
+            if (gLockCount == 0) {
+                sem_t *sem = sem_open(SEM_NAME, O_RDWR);
+                if (sem == SEM_FAILED) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("TPM2_TIS_Unlock: Semaphore %s open failed! %d\n",
+                        SEM_NAME, errno);
+                #endif
+                    return;
+                }
+
+                sem_post(sem); /* increment semaphore */
+                sem_close(sem);
+            }
+        }
+        #define TPM2_TIS_LOCK()   TPM2_TIS_Lock()
+        #define TPM2_TIS_UNLOCK() TPM2_TIS_Unlock()
+    #else
+        #error TPM TIS Locking not supported on this platform
+    #endif /* __linux__ */
+#endif /* WOLFTPM_TIS_LOCK */
+#ifndef TPM2_TIS_LOCK
+#define TPM2_TIS_LOCK() 0
+#endif
+#ifndef TPM2_TIS_UNLOCK
+#define TPM2_TIS_UNLOCK()
+#endif
+
 
 int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     word32 len)
@@ -97,6 +182,10 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
 
     if (ctx == NULL || result == NULL || len == 0 || len > MAX_SPI_FRAMESIZE)
         return BAD_FUNC_ARG;
+
+    rc = TPM2_TIS_LOCK();
+    if (rc != 0)
+        return rc;
 
 #ifdef WOLFTPM_ADV_IO
     rc = ctx->ioCb(ctx, TPM_TIS_READ, addr, result, len, ctx->userCtx);
@@ -113,6 +202,7 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
 
     XMEMCPY(result, &rxBuf[TPM_TIS_HEADER_SZ], len);
 #endif
+    TPM2_TIS_UNLOCK();
 
     return rc;
 }
@@ -129,6 +219,10 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     if (ctx == NULL || value == NULL || len == 0 || len > MAX_SPI_FRAMESIZE)
         return BAD_FUNC_ARG;
 
+    rc = TPM2_TIS_LOCK();
+    if (rc != 0)
+        return rc;
+
 #ifdef WOLFTPM_ADV_IO
     rc = ctx->ioCb(ctx, TPM_TIS_WRITE, addr, (byte*)value, len, ctx->userCtx);
 #else
@@ -142,6 +236,8 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 #endif
+    TPM2_TIS_UNLOCK();
+
     return rc;
 }
 
@@ -305,6 +401,10 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     byte access, status = 0;
     word16 burstCount;
 
+    rc = TPM2_TIS_LOCK();
+    if (rc != 0)
+        return rc;
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command: %d\n", cmdSz);
     TPM2_PrintBin(cmd, cmdSz);
@@ -434,6 +534,8 @@ exit:
     /* Tell TPM we are done */
     if (rc == TPM_RC_SUCCESS)
         rc = TPM2_TIS_Ready(ctx);
+
+    TPM2_TIS_UNLOCK();
 
     return rc;
 }

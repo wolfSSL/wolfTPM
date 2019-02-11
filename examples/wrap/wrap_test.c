@@ -60,13 +60,14 @@ int TPM2_Wrapper_Test(void* userCtx)
     WOLFTPM2_KEY eccKey;
     WOLFTPM2_KEY publicKey;
     WOLFTPM2_KEY aesKey;
+    byte aesIv[MAX_AES_BLOCK_SIZE_BYTES];
     WOLFTPM2_BUFFER message;
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
     word32 nvAttributes = 0;
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
     TpmCryptoDevCtx tpmCtx;
 #endif
     WOLFTPM2_HASH hash;
@@ -82,10 +83,19 @@ int TPM2_Wrapper_Test(void* userCtx)
         "\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB\x06\xC1";
 #endif
 
+    WOLFTPM2_HMAC hmac;
+    const char* hmacTestKey =
+        "\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
+        "\x0b\x0b\x0b\x0b";
+    const char* hmacTestData = "Hi There";
+    const char* hmacTestDig =
+        "\xb0\x34\x4c\x61\xd8\xdb\x38\x53\x5c\xa8\xaf\xce\xaf\x0b\xf1\x2b"
+        "\x88\x1d\xc2\x00\xc9\x83\x3d\xa7\x26\xe9\x37\x6c\x2e\x32\xcf\xf7";
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int tpmDevId = INVALID_DEVID;
-#ifndef NO_RSA
     word32 idx;
+#ifndef NO_RSA
     RsaKey wolfRsaPubKey;
     RsaKey wolfRsaPrivKey;
 #endif
@@ -110,10 +120,18 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
-#ifdef WOLF_CRYPTO_DEV
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
     /* Setup the wolf crypto device callback */
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+#ifndef NO_RSA
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     tpmCtx.rsaKey = &rsaKey;
+#endif
+#ifdef HAVE_ECC
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
     tpmCtx.eccKey = &eccKey;
+#endif
+    tpmCtx.storageKey = &storageKey;
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 #endif
@@ -377,22 +395,20 @@ int TPM2_Wrapper_Test(void* userCtx)
     }
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
 
-
     /* ECC Public Key Signature Verify Test/Example */
     rc = wolfTPM2_LoadEccPublicKey(&dev, &publicKey, TPM_ECC_NIST_P256,
         kEccTestPubQX, sizeof(kEccTestPubQX),
         kEccTestPubQY, sizeof(kEccTestPubQY));
     if (rc != 0) goto exit;
 
-    rc = wolfTPM2_VerifyHash(&dev, &publicKey,
+    rc = wolfTPM2_VerifyHash_ex(&dev, &publicKey,
         kEccTestSigRS, sizeof(kEccTestSigRS),
-        kEccTestMsg, sizeof(kEccTestMsg));
+        kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_SHA1);
     if (rc != 0) goto exit;
 
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
     printf("ECC Verify Test Passed\n");
-
 
     /*------------------------------------------------------------------------*/
     /* ECC KEY LOADING TESTS */
@@ -550,8 +566,71 @@ int TPM2_Wrapper_Test(void* userCtx)
 
 
     /*------------------------------------------------------------------------*/
+    /* HMAC TESTS */
+    /*------------------------------------------------------------------------*/
+    rc = wolfTPM2_HmacStart(&dev, &hmac, &storageKey.handle, TPM_ALG_SHA256,
+        (const byte*)hmacTestKey, (word32)XSTRLEN(hmacTestKey),
+        (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_HmacUpdate(&dev, &hmac, (byte*)hmacTestData,
+        (word32)XSTRLEN(hmacTestData));
+    if (rc != 0) goto exit;
+
+    cipher.size = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_HmacFinish(&dev, &hmac, cipher.buffer, (word32*)&cipher.size);
+    if (rc != 0) goto exit;
+
+    if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
+        XMEMCMP(cipher.buffer, hmacTestDig, cipher.size) != 0) {
+        printf("HMAC SHA256 test failed, result not as expected!\n");
+        goto exit;
+    }
+    printf("HMAC SHA256 test success\n");
+
+
+    /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
+    rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
+        (byte*)kTestAesCbc128Key, (word32)XSTRLEN(kTestAesCbc128Key));
+    if (rc != 0) goto exit;
+
+    message.size = (word32)sizeof(kTestAesCbc128Msg);
+    XMEMCPY(message.buffer, kTestAesCbc128Msg, message.size);
+    XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
+    cipher.size = message.size;
+    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
+        message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
+    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+
+    XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
+    plain.size = message.size;
+    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
+    rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
+        cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
+
+    wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
+
+    if (rc == TPM_RC_SUCCESS &&
+         message.size == plain.size &&
+         XMEMCMP(message.buffer, plain.buffer, message.size) == 0 &&
+         cipher.size == sizeof(kTestAesCbc128Verify) &&
+         XMEMCMP(cipher.buffer, kTestAesCbc128Verify, cipher.size) == 0) {
+        printf("Encrypt/Decrypt (known key) test success\n");
+    }
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
+        rc = TPM_RC_SUCCESS; /* clear error code */
+    }
+    else {
+        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        goto exit;
+    }
+
+
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
         YES, YES);
     if (rc != 0) goto exit;
@@ -588,7 +667,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
-        printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        printf("Encrypt/Decrypt (gen key) test failed, result not as expected!\n");
         goto exit;
     }
 
