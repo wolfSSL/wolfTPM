@@ -36,7 +36,7 @@
 
 /* TLS Configuration */
 #ifndef TLS_HOST
-    #define TLS_HOST "192.168.0.10"
+    #define TLS_HOST "localhost"
 #endif
 #ifndef TLS_PORT
     #define TLS_PORT 11111
@@ -50,7 +50,7 @@
 #endif
 
 /* force use of a TLS cipher suite */
-#if 1
+#if 0
     #ifndef TLS_CIPHER_SUITE
         #define TLS_CIPHER_SUITE "ECDHE-RSA-AES128-SHA256"
     #endif

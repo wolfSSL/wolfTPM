@@ -96,8 +96,8 @@ int TPM2_TLS_Client(void* userCtx)
 #endif
     char msg[MAX_MSG_SZ];
     int msgSz = 0;
-    int total_size;
 #ifdef TLS_BENCH_MODE
+    int total_size;
     int i;
 #endif
 
@@ -375,21 +375,24 @@ int TPM2_TLS_Client(void* userCtx)
 
     printf("Cipher Suite: %s\n", wolfSSL_get_cipher(ssl));
 
+#ifdef TLS_BENCH_MODE
     rc = 0;
     total_size = 0;
-    while (rc == 0 && total_size < TOTAL_MSG_SZ) {
+    while (rc == 0 && total_size < TOTAL_MSG_SZ)
+#endif
+    {
         /* initialize write */
     #ifdef TLS_BENCH_MODE
         msgSz = sizeof(msg); /* sequence */
         for (i=0; i<msgSz; i++) {
             msg[i] = (i & 0xff);
         }
+        total_size += msgSz;
     #else
         msgSz = sizeof(webServerMsg);
         XMEMCPY(msg, webServerMsg, msgSz);
         printf("Write (%d): %s\n", msgSz, msg);
     #endif
-        total_size += msgSz;
 
         /* perform write */
     #ifdef TLS_BENCH_MODE
@@ -401,42 +404,42 @@ int TPM2_TLS_Client(void* userCtx)
                 rc = wolfSSL_get_error(ssl, 0);
             }
         } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-    #ifdef TLS_BENCH_MODE
         if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
             printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                rc, benchStart, rc / benchStart / 1024);
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #endif
+            rc = 0; /* success */
         }
-    #endif
 
         /* perform read */
     #ifdef TLS_BENCH_MODE
         benchStart = 0; /* use the read callback to trigger timing */
     #endif
         do {
+            /* attempt to fill msg buffer */
             rc = wolfSSL_read(ssl, msg, sizeof(msg));
             if (rc < 0) {
                 rc = wolfSSL_get_error(ssl, 0);
             }
         } while (rc == WOLFSSL_ERROR_WANT_READ);
-    #ifdef TLS_BENCH_MODE
         if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
             printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                rc, benchStart, rc / benchStart / 1024);
-        }
-    #else
-        if (rc >= 0) {
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #else
             /* null terminate */
-            msgSz = rc;
             if (msgSz >= (int)sizeof(msg))
                 msgSz = (int)sizeof(msg) - 1;
             msg[msgSz] = '\0';
+            printf("Read (%d): %s\n", msgSz, msg);
+        #endif
             rc = 0; /* success */
         }
-        printf("Read (%d): %s\n", msgSz, msg);
-    #endif
-        rc = 0; /* success */
     }
 
 exit:

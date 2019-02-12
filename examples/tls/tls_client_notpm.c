@@ -32,6 +32,7 @@
 #include <examples/tls/tls_client.h>
 
 #include <wolfssl/ssl.h>
+#include <wolfssl/wolfcrypt/logging.h>
 
 #undef  USE_CERT_BUFFERS_2048
 #define USE_CERT_BUFFERS_2048
@@ -42,6 +43,23 @@
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif
+
+
+/*
+ * This example client connects to localhost on on port 11111 by default.
+ * These can be overriden using `TLS_HOST` and `TLS_PORT`.
+ *
+ * You can validate using the wolfSSL example server this like:
+ *   ./examples/server/server -b -p 11111 -g -d
+ *
+ * To validate client certificate add the following wolfSSL example server args:
+ * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
+ * or
+ * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
+ * If using an ECDSA cipher suite add:
+ * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
+ */
+
 
 /******************************************************************************/
 /* --- BEGIN TLS Client Example -- */
@@ -57,8 +75,8 @@ int TLS_Client(void)
 #endif
     char msg[MAX_MSG_SZ];
     int msgSz = 0;
-    int total_size;
 #ifdef TLS_BENCH_MODE
+    int total_size;
     int i;
 #endif
 
@@ -67,6 +85,10 @@ int TLS_Client(void)
     sockIoCtx.fd = -1;
 
     printf("TLS Client Example\n");
+
+    wolfSSL_Debugging_ON();
+
+    wolfSSL_Init();
 
     /* Setup the WOLFSSL context (factory) */
     if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
@@ -84,7 +106,6 @@ int TLS_Client(void)
 #else
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 
-#ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
 	#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
     	if (wolfSSL_CTX_load_verify_buffer(ctx,
@@ -101,26 +122,9 @@ int TLS_Client(void)
 			goto exit;
 		}
 	#endif
-#else
-    /* Load CA Certificates */
-    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/ca-cert.pem cert\n");
-        goto exit;
-    }
-    #elif defined(HAVE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
-    #endif
-#endif /* !NO_FILESYSTEM */
 #endif
 
 #ifndef NO_TLS_MUTUAL_AUTH
-#ifdef NO_FILESYSTEM
     /* Client Certificate and Key using buffer */
     #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
         if (wolfSSL_CTX_use_certificate_buffer(ctx,
@@ -145,32 +149,6 @@ int TLS_Client(void)
             goto exit;
         }
     #endif
-#else
-    /* Client certificate and key (mutual auth) */
-    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/client-cert.pem RSA client cert\n");
-        goto exit;
-    }
-    if (wolfSSL_CTX_use_PrivateKey_file(ctx, "./certs/client-key.pem",
-        WOLFSSL_FILETYPE_PEM) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/client-key.pem RSA client key\n");
-        goto exit;
-    }
-    #elif defined(HAVE_ECC)
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/client-ecc-cert.pem ECC client cert\n");
-        goto exit;
-    }
-    if (wolfSSL_CTX_use_PrivateKey_file(ctx, "./certs/ecc-client-key.pem",
-        WOLFSSL_FILETYPE_PEM) != WOLFSSL_SUCCESS) {
-        printf("Error loading ./certs/ecc-client-key.pem ECC client key\n");
-        goto exit;
-    }
-    #endif
-#endif /* !NO_FILESYSTEM */
 #endif /* !NO_TLS_MUTUAL_AUTH */
 
 #ifdef TLS_CIPHER_SUITE
@@ -215,21 +193,24 @@ int TLS_Client(void)
 
     printf("Cipher Suite: %s\n", wolfSSL_get_cipher(ssl));
 
+#ifdef TLS_BENCH_MODE
     rc = 0;
     total_size = 0;
-    while (rc == 0 && total_size < TOTAL_MSG_SZ) {
+    while (rc == 0 && total_size < TOTAL_MSG_SZ)
+#endif
+    {
         /* initialize write */
     #ifdef TLS_BENCH_MODE
         msgSz = sizeof(msg); /* sequence */
         for (i=0; i<msgSz; i++) {
             msg[i] = (i & 0xff);
         }
+        total_size += msgSz;
     #else
         msgSz = sizeof(webServerMsg);
         XMEMCPY(msg, webServerMsg, msgSz);
         printf("Write (%d): %s\n", msgSz, msg);
     #endif
-        total_size += msgSz;
 
         /* perform write */
     #ifdef TLS_BENCH_MODE
@@ -241,42 +222,42 @@ int TLS_Client(void)
                 rc = wolfSSL_get_error(ssl, 0);
             }
         } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-    #ifdef TLS_BENCH_MODE
         if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
             printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                rc, benchStart, rc / benchStart / 1024);
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #endif
+            rc = 0; /* success */
         }
-    #endif
 
         /* perform read */
     #ifdef TLS_BENCH_MODE
         benchStart = 0; /* use the read callback to trigger timing */
     #endif
         do {
+            /* attempt to fill msg buffer */
             rc = wolfSSL_read(ssl, msg, sizeof(msg));
             if (rc < 0) {
                 rc = wolfSSL_get_error(ssl, 0);
             }
         } while (rc == WOLFSSL_ERROR_WANT_READ);
-    #ifdef TLS_BENCH_MODE
         if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
             benchStart = gettime_secs(0) - benchStart;
             printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                rc, benchStart, rc / benchStart / 1024);
-        }
-    #else
-        if (rc >= 0) {
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #else
             /* null terminate */
-            msgSz = rc;
             if (msgSz >= (int)sizeof(msg))
                 msgSz = (int)sizeof(msg) - 1;
             msg[msgSz] = '\0';
+            printf("Read (%d): %s\n", msgSz, msg);
+        #endif
             rc = 0; /* success */
         }
-        printf("Read (%d): %s\n", msgSz, msg);
-    #endif
-        rc = 0; /* success */
     }
 
 exit:
@@ -290,6 +271,7 @@ exit:
     CloseAndCleanupSocket(&sockIoCtx);
     wolfSSL_free(ssl);
     wolfSSL_CTX_free(ctx);
+    wolfSSL_Cleanup();
 
     return rc;
 }
