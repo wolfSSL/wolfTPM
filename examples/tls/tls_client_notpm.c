@@ -50,12 +50,8 @@
  * These can be overriden using `TLS_HOST` and `TLS_PORT`.
  *
  * You can validate using the wolfSSL example server this like:
- *   ./examples/server/server -b -p 11111 -g -d
+ *   ./examples/server/server -b -p 11111 -g
  *
- * To validate client certificate add the following wolfSSL example server args:
- * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
- * or
- * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
  * If using an ECDSA cipher suite add:
  * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
