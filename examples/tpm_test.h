@@ -53,6 +53,25 @@ static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 #endif
 
 
+#ifndef NO_TPM_BENCH
+    #ifndef WOLFSSL_USER_CURRTIME
+        #include <sys/time.h>
+    #endif
+    static inline double gettime_secs(int reset)
+    {
+    #ifdef WOLFSSL_USER_CURRTIME
+        extern double current_time(int reset);
+        return current_time(reset);
+    #else
+        struct timeval tv;
+        gettimeofday(&tv, 0);
+        (void)reset;
+        return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
+    #endif
+    }
+#endif /* !NO_TPM_BENCH */
+
+
 /* RAW KEY MATERIAL */
 
 /* from wolfSSL ./certs/client-key.der */

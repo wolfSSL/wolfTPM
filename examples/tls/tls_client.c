@@ -394,9 +394,11 @@ int TPM2_TLS_Client(void* userCtx)
         }
     } while (rc == WOLFSSL_ERROR_WANT_WRITE);
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-        rc, start, rc / start / 1024);
+    if (rc >= 0) {
+        start = gettime_secs(0) - start;
+        printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+            rc, start, rc / start / 1024);
+    }
 #endif
 
     /* perform read */
@@ -410,9 +412,11 @@ int TPM2_TLS_Client(void* userCtx)
         }
     } while (rc == WOLFSSL_ERROR_WANT_READ);
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-        rc, start, rc / start / 1024);
+    if (rc >= 0) {
+        start = gettime_secs(0) - start;
+        printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+            rc, start, rc / start / 1024);
+    }
 #else
     if (rc >= 0) {
         /* null terminate */

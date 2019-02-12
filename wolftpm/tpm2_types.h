@@ -222,6 +222,7 @@ typedef int64_t  INT64;
         #ifndef XTPM_WAIT_POLLING_US
             #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
         #endif
+        #include <unistd.h>
         #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
     #endif
 #endif
