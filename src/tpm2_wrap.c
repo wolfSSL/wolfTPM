@@ -272,8 +272,16 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
     int rc;
     Shutdown_In shutdownIn;
 
-    if (dev == NULL)
+    if (dev == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
+    /* make sure crypto dev callback is unregistered */
+    rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
+    if (rc != 0)
+    	return rc;
+#endif
 
     shutdownIn.shutdownType = TPM_SU_CLEAR;
     rc = TPM2_Shutdown(&shutdownIn);
@@ -3348,6 +3356,28 @@ int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
 
     if (pDevId) {
         *pDevId = devId;
+    }
+
+    return rc;
+}
+
+int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
+{
+    int rc = 0;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* get device Id */
+    if (devId == INVALID_DEVID) {
+        rc = wolfTPM2_GetTpmDevId(dev);
+        if (rc >= 0) {
+            devId = rc;
+        }
+    }
+    if (devId != INVALID_DEVID) {
+        wc_CryptoCb_UnRegisterDevice(devId);
     }
 
     return rc;

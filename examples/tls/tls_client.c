@@ -34,6 +34,12 @@
 
 #include <wolfssl/ssl.h>
 
+#undef  USE_CERT_BUFFERS_2048
+#define USE_CERT_BUFFERS_2048
+#undef  USE_CERT_BUFFERS_256
+#define USE_CERT_BUFFERS_256
+#include <wolfssl/certs_test.h>
+
 /*
  * Generating the Client Certificate
  *
@@ -232,10 +238,19 @@ int TPM2_TLS_Client(void* userCtx)
 #else
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
-    /* example loading from buffer */
-    #if 0
-        if (wolfSSL_CTX_load_verify(ctx, ca.buffer, (long)ca.size,
-            WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) }
+    /* Load CA Certificates from Buffer */
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
+                ca_cert_der_2048, sizeof_ca_cert_der_2048,
+                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca_cert_der_2048 DER cert\n");
+            goto exit;
+        }
+    #elif defined(HAVE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
+                ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
+                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca_ecc_cert_der_256 DER cert\n");
             goto exit;
         }
     #endif
