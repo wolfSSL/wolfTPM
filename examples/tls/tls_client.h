@@ -24,5 +24,6 @@
 
 
 int TPM2_TLS_Client(void* userCtx);
+int TLS_Client(void);
 
 #endif /* _TPM_TLS_CLIENT_H_ */

@@ -40,6 +40,10 @@
 #define USE_CERT_BUFFERS_256
 #include <wolfssl/certs_test.h>
 
+#ifdef TLS_BENCH_MODE
+    double benchStart;
+#endif
+
 /*
  * Generating the Client Certificate
  *
@@ -65,7 +69,7 @@
 
 
 /******************************************************************************/
-/* --- BEGIN TLS Client Example -- */
+/* --- BEGIN TPM TLS Client Example -- */
 /******************************************************************************/
 int TPM2_TLS_Client(void* userCtx)
 {
@@ -92,8 +96,8 @@ int TPM2_TLS_Client(void* userCtx)
 #endif
     char msg[MAX_MSG_SZ];
     int msgSz = 0;
+    int total_size;
 #ifdef TLS_BENCH_MODE
-    double start;
     int i;
 #endif
 
@@ -353,7 +357,7 @@ int TPM2_TLS_Client(void* userCtx)
 
     /* perform connect */
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
+    benchStart = gettime_secs(1);
 #endif
     do {
         rc = wolfSSL_connect(ssl);
@@ -365,70 +369,75 @@ int TPM2_TLS_Client(void* userCtx)
         goto exit;
     }
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Connect: %9.3f sec (%9.3f CPS)\n", start, 1/start);
+    benchStart = gettime_secs(0) - benchStart;
+    printf("Connect: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
 #endif
 
     printf("Cipher Suite: %s\n", wolfSSL_get_cipher(ssl));
 
-    /* initialize write */
-#ifdef TLS_BENCH_MODE
-    msgSz = sizeof(msg); /* sequence */
-    for (i=0; i<msgSz; i++) {
-        msg[i] = (i & 0xff);
-    }
-#else
-    msgSz = sizeof(webServerMsg);
-    XMEMCPY(msg, webServerMsg, msgSz);
-    printf("Write (%d): %s\n", msgSz, msg);
-#endif
-
-    /* perform write */
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
-#endif
-    do {
-        rc = wolfSSL_write(ssl, msg, msgSz);
-        if (rc != msgSz) {
-            rc = wolfSSL_get_error(ssl, 0);
+    rc = 0;
+    total_size = 0;
+    while (rc == 0 && total_size < TOTAL_MSG_SZ) {
+        /* initialize write */
+    #ifdef TLS_BENCH_MODE
+        msgSz = sizeof(msg); /* sequence */
+        for (i=0; i<msgSz; i++) {
+            msg[i] = (i & 0xff);
         }
-    } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-#ifdef TLS_BENCH_MODE
-    if (rc >= 0) {
-        start = gettime_secs(0) - start;
-        printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-            rc, start, rc / start / 1024);
-    }
-#endif
+    #else
+        msgSz = sizeof(webServerMsg);
+        XMEMCPY(msg, webServerMsg, msgSz);
+        printf("Write (%d): %s\n", msgSz, msg);
+    #endif
+        total_size += msgSz;
 
-    /* perform read */
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
-#endif
-    do {
-        rc = wolfSSL_read(ssl, msg, sizeof(msg));
-        if (rc < 0) {
-            rc = wolfSSL_get_error(ssl, 0);
+        /* perform write */
+    #ifdef TLS_BENCH_MODE
+        benchStart = gettime_secs(1);
+    #endif
+        do {
+            rc = wolfSSL_write(ssl, msg, msgSz);
+            if (rc != msgSz) {
+                rc = wolfSSL_get_error(ssl, 0);
+            }
+        } while (rc == WOLFSSL_ERROR_WANT_WRITE);
+    #ifdef TLS_BENCH_MODE
+        if (rc >= 0) {
+            benchStart = gettime_secs(0) - benchStart;
+            printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                rc, benchStart, rc / benchStart / 1024);
         }
-    } while (rc == WOLFSSL_ERROR_WANT_READ);
-#ifdef TLS_BENCH_MODE
-    if (rc >= 0) {
-        start = gettime_secs(0) - start;
-        printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-            rc, start, rc / start / 1024);
-    }
-#else
-    if (rc >= 0) {
-        /* null terminate */
-        msgSz = rc;
-        if (msgSz >= (int)sizeof(msg))
-            msgSz = (int)sizeof(msg) - 1;
-        msg[msgSz] = '\0';
+    #endif
+
+        /* perform read */
+    #ifdef TLS_BENCH_MODE
+        benchStart = 0; /* use the read callback to trigger timing */
+    #endif
+        do {
+            rc = wolfSSL_read(ssl, msg, sizeof(msg));
+            if (rc < 0) {
+                rc = wolfSSL_get_error(ssl, 0);
+            }
+        } while (rc == WOLFSSL_ERROR_WANT_READ);
+    #ifdef TLS_BENCH_MODE
+        if (rc >= 0) {
+            benchStart = gettime_secs(0) - benchStart;
+            printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                rc, benchStart, rc / benchStart / 1024);
+        }
+    #else
+        if (rc >= 0) {
+            /* null terminate */
+            msgSz = rc;
+            if (msgSz >= (int)sizeof(msg))
+                msgSz = (int)sizeof(msg) - 1;
+            msg[msgSz] = '\0';
+            rc = 0; /* success */
+        }
+        printf("Read (%d): %s\n", msgSz, msg);
+    #endif
         rc = 0; /* success */
     }
-    printf("Read (%d): %s\n", msgSz, msg);
-#endif
-    rc = 0; /* success */
 
 exit:
 
@@ -457,7 +466,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TLS Client Example -- */
+/* --- END TPM TLS Client Example -- */
 /******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
