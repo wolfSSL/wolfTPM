@@ -68,9 +68,10 @@
 /* enable benchmarking mode */
 #if 0
     #define TLS_BENCH_MODE
+#endif
+#ifdef TLS_BENCH_MODE
     extern double benchStart;
 #endif
-
 
 /******************************************************************************/
 /* --- BEGIN Socket IO Callbacks --- */
@@ -136,8 +137,11 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     }
 
 #ifdef TLS_BENCH_MODE
-    if (benchStart == 0.0) {
-        benchStart = gettime_secs(1);
+    {
+        const double zeroVal = 0.0;
+        if (XMEMCMP(&benchStart, &zeroVal, sizeof(double)) == 0) {
+            benchStart = gettime_secs(1);
+        }
     }
 #endif
 
