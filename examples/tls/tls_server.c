@@ -34,6 +34,10 @@
 
 #include <wolfssl/ssl.h>
 
+#ifdef TLS_BENCH_MODE
+    double benchStart;
+#endif
+
 /*
  * Generating the Server Certificate
  *
@@ -354,7 +358,7 @@ int TPM2_TLS_Server(void* userCtx)
 
     /* perform accept */
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
+    benchStart = gettime_secs(1);
 #endif
     do {
         rc = wolfSSL_accept(ssl);
@@ -366,8 +370,8 @@ int TPM2_TLS_Server(void* userCtx)
         goto exit;
     }
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Accept: %9.3f sec (%9.3f CPS)\n", start, 1/start);
+    benchStart = gettime_secs(0) - benchStart;
+    printf("Accept: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
 #endif
 
 #ifdef TLS_BENCH_MODE
@@ -378,10 +382,10 @@ int TPM2_TLS_Server(void* userCtx)
     {
         /* perform read */
     #ifdef TLS_BENCH_MODE
-        start = 0; /* use the read callback to trigger timing */
+        benchStart = 0; /* use the read callback to trigger timing */
     #endif
         do {
-            rc = wolfSSL_read(ssl, msg, sizeof(msg) - 1);
+            rc = wolfSSL_read(ssl, msg, sizeof(msg));
             if (rc < 0) {
                 rc = wolfSSL_get_error(ssl, 0);
             }
@@ -389,9 +393,9 @@ int TPM2_TLS_Server(void* userCtx)
         if (rc >= 0) {
             msgSz = rc;
         #ifdef TLS_BENCH_MODE
-            start = gettime_secs(0) - start;
+            benchStart = gettime_secs(0) - benchStart;
             printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                msgSz, start, msgSz / start / 1024);
+                msgSz, benchStart, msgSz / benchStart / 1024);
             total_size += msgSz;
         #else
             /* null terminate */
@@ -405,7 +409,7 @@ int TPM2_TLS_Server(void* userCtx)
 
         /* perform write */
     #ifdef TLS_BENCH_MODE
-        start = gettime_secs(1);
+        benchStart = gettime_secs(1);
     #else
         msgSz = sizeof(webServerMsg);
         XMEMCPY(msg, webServerMsg, msgSz);
@@ -420,9 +424,9 @@ int TPM2_TLS_Server(void* userCtx)
         if (rc >= 0) {
             msgSz =  rc;
         #ifdef TLS_BENCH_MODE
-            start = gettime_secs(0) - start;
+            benchStart = gettime_secs(0) - benchStart;
             printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                msgSz, start, msgSz / start / 1024);
+                msgSz, benchStart, msgSz / benchStart / 1024);
         #endif
             rc = 0; /* success */
         }
