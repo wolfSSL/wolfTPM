@@ -25,7 +25,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_TPM_BENCH)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -36,26 +36,16 @@
 #define TPM2_BENCH_DURATION_KEYGEN_SEC  15
 static int gUseBase2 = 1;
 
-#include <sys/time.h>
-
-static double current_time(int reset)
-{
-    struct timeval tv;
-    (void)reset;
-    gettimeofday(&tv, 0);
-    return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
-}
-
 static inline void bench_stats_start(int* count, double* start)
 {
     *count = 0;
-    *start = current_time(1);
+    *start = gettime_secs(1);
 }
 
 static inline int bench_stats_check(double start, int* count, double maxDurSec)
 {
     (*count)++;
-    return ((current_time(0) - start) < maxDurSec);
+    return ((gettime_secs(0) - start) < maxDurSec);
 }
 
 /* countSz is number of bytes that 1 count represents. Normally bench_size,
@@ -66,7 +56,7 @@ static void bench_stats_sym_finish(const char* desc, int count, int countSz,
     double total, persec = 0, blocks = count;
     const char* blockType;
 
-    total = current_time(0) - start;
+    total = gettime_secs(0) - start;
 
     /* calculate actual bytes */
     blocks *= countSz;
@@ -117,7 +107,7 @@ static void bench_stats_asym_finish(const char* algo, int strength,
 {
     double total, each = 0, opsSec, milliEach;
 
-    total = current_time(0) - start;
+    total = gettime_secs(0) - start;
     if (count > 0)
         each  = total / count; /* per second  */
     opsSec = count / total;    /* ops second */
@@ -460,14 +450,14 @@ exit:
 /* --- END Bench Wrapper -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_WRAPPER && !NO_TPM_BENCH */
 
 #ifndef NO_MAIN_DRIVER
 int main(void)
 {
     int rc = -1;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_TPM_BENCH)
     rc = TPM2_Wrapper_Bench(NULL);
 #else
     printf("Wrapper code not compiled in\n");

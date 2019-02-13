@@ -272,8 +272,16 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
     int rc;
     Shutdown_In shutdownIn;
 
-    if (dev == NULL)
+    if (dev == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+    /* make sure crypto dev callback is unregistered */
+    rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
+    if (rc != 0)
+    	return rc;
+#endif
 
     shutdownIn.shutdownType = TPM_SU_CLEAR;
     rc = TPM2_Shutdown(&shutdownIn);
@@ -2234,6 +2242,7 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
         wc_HashFree(&hash, hashType);
     }
 #else
+    (void)hashAlg;
     rc = NOT_COMPILED_IN;
 #endif
 
@@ -2806,7 +2815,7 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 /******************************************************************************/
 
 
-#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 /******************************************************************************/
 /* --- BEGIN wolf Crypto Device Support -- */
 /******************************************************************************/
@@ -3353,11 +3362,33 @@ int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     return rc;
 }
 
+int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
+{
+    int rc = 0;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* get device Id */
+    if (devId == INVALID_DEVID) {
+        rc = wolfTPM2_GetTpmDevId(dev);
+        if (rc >= 0) {
+            devId = rc;
+        }
+    }
+    if (devId != INVALID_DEVID) {
+        wc_CryptoCb_UnRegisterDevice(devId);
+    }
+
+    return rc;
+}
+
 /******************************************************************************/
 /* --- END wolf Crypto Device Support -- */
 /******************************************************************************/
 
-#endif /* WOLF_CRYPTO_DEV */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && (WOLF_CRYPTO_DEV || WOLF_CRYPTO_CB) */
 
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

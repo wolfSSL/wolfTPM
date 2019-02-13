@@ -289,6 +289,8 @@ typedef struct TpmCryptoDevCtx {
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
 WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     TpmCryptoDevCtx* tpmCtx, int* pDevId);
+WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
+
 #endif /* WOLF_CRYPTO_CB */
 
 

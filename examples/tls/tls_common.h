@@ -25,9 +25,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)) && \
-    !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -45,7 +43,10 @@
 #endif
 
 #ifndef MAX_MSG_SZ
-    #define MAX_MSG_SZ (1 * 1024)
+    #define MAX_MSG_SZ   (1 * 1024)
+#endif
+#ifndef TOTAL_MSG_SZ
+    #define TOTAL_MSG_SZ (16 * 1024)
 #endif
 
 /* force use of a TLS cipher suite */
@@ -67,9 +68,8 @@
 /* enable benchmarking mode */
 #if 0
     #define TLS_BENCH_MODE
+    extern double benchStart;
 #endif
-
-
 
 
 /******************************************************************************/
@@ -80,7 +80,6 @@ typedef struct SockIoCbCtx {
     int listenFd;
     int fd;
 } SockIoCbCtx;
-
 
 #ifndef WOLFSSL_USER_IO
 /* socket includes */
@@ -100,34 +99,34 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     if ((recvd = (int)recv(sockCtx->fd, buff, sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
-        fprintf(stderr, "IO RECEIVE ERROR: ");
+        printf("IO RECEIVE ERROR: ");
         switch (errno) {
     #if EAGAIN != EWOULDBLOCK
         case EAGAIN: /* EAGAIN == EWOULDBLOCK on some systems, but not others */
     #endif
         case EWOULDBLOCK:
             if (wolfSSL_get_using_nonblock(ssl)) {
-                fprintf(stderr, "would block\n");
+                printf("would block\n");
                 return WOLFSSL_CBIO_ERR_WANT_READ;
             }
             else {
-                fprintf(stderr, "socket timeout\n");
+                printf("socket timeout\n");
                 return WOLFSSL_CBIO_ERR_TIMEOUT;
             }
         case ECONNRESET:
-            fprintf(stderr, "connection reset\n");
+            printf("connection reset\n");
             return WOLFSSL_CBIO_ERR_CONN_RST;
         case EINTR:
-            fprintf(stderr, "socket interrupted\n");
+            printf("socket interrupted\n");
             return WOLFSSL_CBIO_ERR_ISR;
         case ECONNREFUSED:
-            fprintf(stderr, "connection refused\n");
+            printf("connection refused\n");
             return WOLFSSL_CBIO_ERR_WANT_READ;
         case ECONNABORTED:
-            fprintf(stderr, "connection aborted\n");
+            printf("connection aborted\n");
             return WOLFSSL_CBIO_ERR_CONN_CLOSE;
         default:
-            fprintf(stderr, "general error\n");
+            printf("general error\n");
             return WOLFSSL_CBIO_ERR_GENERAL;
         }
     }
@@ -135,6 +134,12 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
         printf("Connection closed\n");
         return WOLFSSL_CBIO_ERR_CONN_CLOSE;
     }
+
+#ifdef TLS_BENCH_MODE
+    if (benchStart == 0.0) {
+        benchStart = gettime_secs(1);
+    }
+#endif
 
 #ifdef DEBUG_WOLFTPM
     /* successful receive */
@@ -155,25 +160,25 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     if ((sent = (int)send(sockCtx->fd, buff, sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
-        fprintf(stderr, "IO SEND ERROR: ");
+        printf("IO SEND ERROR: ");
         switch (errno) {
     #if EAGAIN != EWOULDBLOCK
         case EAGAIN: /* EAGAIN == EWOULDBLOCK on some systems, but not others */
     #endif
         case EWOULDBLOCK:
-            fprintf(stderr, "would block\n");
+            printf("would block\n");
             return WOLFSSL_CBIO_ERR_WANT_READ;
         case ECONNRESET:
-            fprintf(stderr, "connection reset\n");
+            printf("connection reset\n");
             return WOLFSSL_CBIO_ERR_CONN_RST;
         case EINTR:
-            fprintf(stderr, "socket interrupted\n");
+            printf("socket interrupted\n");
             return WOLFSSL_CBIO_ERR_ISR;
         case EPIPE:
-            fprintf(stderr, "socket EPIPE\n");
+            printf("socket EPIPE\n");
             return WOLFSSL_CBIO_ERR_CONN_CLOSE;
         default:
-            fprintf(stderr, "general error\n");
+            printf("general error\n");
             return WOLFSSL_CBIO_ERR_GENERAL;
         }
     }
@@ -205,7 +210,7 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
     if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        fprintf(stderr, "ERROR: failed to create the socket\n");
+        printf("ERROR: failed to create the socket\n");
         return -1;
     }
 
@@ -218,12 +223,12 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     /* Connect to the server */
     if (bind(sockIoCtx->listenFd, (struct sockaddr*)&servAddr,
                                                     sizeof(servAddr)) == -1) {
-        fprintf(stderr, "ERROR: failed to bind\n");
+        printf("ERROR: failed to bind\n");
         return -1;
     }
 
     if (listen(sockIoCtx->listenFd, 5) != 0) {
-        fprintf(stderr, "ERROR: failed to listen\n");
+        printf("ERROR: failed to listen\n");
         return -1;
     }
 
@@ -237,7 +242,7 @@ static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
     socklen_t          size = sizeof(clientAddr);
 
     if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
-        fprintf(stderr, "ERROR: failed to accept the connection\n\n");
+        printf("ERROR: failed to accept the connection\n\n");
         return -1;
     }
     sockIoCtx->fd = connd;
@@ -269,14 +274,14 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
     if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        fprintf(stderr, "ERROR: failed to create the socket\n");
+        printf("ERROR: failed to create the socket\n");
         return -1;
     }
 
     /* Connect to the server */
     if (connect(sockIoCtx->fd, (struct sockaddr*)&servAddr,
                                                     sizeof(servAddr)) == -1) {
-        fprintf(stderr, "ERROR: failed to connect\n");
+        printf("ERROR: failed to connect\n");
         return -1;
     }
 
@@ -315,22 +320,6 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 /* --- BEGIN Supporting TLS functions --- */
 /******************************************************************************/
 
-#ifdef TLS_BENCH_MODE
-    #include <sys/time.h>
-    static inline double gettime_secs(int reset)
-    {
-    #ifdef XTIME
-    	extern double current_time(int reset);
-        return current_time(reset);
-    #else
-        struct timeval tv;
-        gettimeofday(&tv, 0);
-        (void)reset;
-        return (double)tv.tv_sec + (double)tv.tv_usec / 1000000;
-    #endif
-    }
-#endif
-
 static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 {
     /* Verify Callback Arguments:
@@ -363,6 +352,7 @@ static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
     return 1;
 }
 
+#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
 /* Function checks key to see if its the "dummy" key */
 static inline int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
 {
@@ -440,11 +430,12 @@ static inline int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
         provided TPM handle will be used, not the wolf public key info */
     return ret;
 }
+#endif /* WOLF_CRYPTO_DEV || WOLF_CRYPTO_CB */
 
 /******************************************************************************/
 /* --- END Supporting TLS functions --- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT */
 
 #endif /* _TPM_TLS_COMMON_H_ */

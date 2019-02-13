@@ -34,6 +34,16 @@
 
 #include <wolfssl/ssl.h>
 
+#undef  USE_CERT_BUFFERS_2048
+#define USE_CERT_BUFFERS_2048
+#undef  USE_CERT_BUFFERS_256
+#define USE_CERT_BUFFERS_256
+#include <wolfssl/certs_test.h>
+
+#ifdef TLS_BENCH_MODE
+    double benchStart;
+#endif
+
 /*
  * Generating the Client Certificate
  *
@@ -59,7 +69,7 @@
 
 
 /******************************************************************************/
-/* --- BEGIN TLS Client Example -- */
+/* --- BEGIN TPM TLS Client Example -- */
 /******************************************************************************/
 int TPM2_TLS_Client(void* userCtx)
 {
@@ -87,7 +97,7 @@ int TPM2_TLS_Client(void* userCtx)
     char msg[MAX_MSG_SZ];
     int msgSz = 0;
 #ifdef TLS_BENCH_MODE
-    double start;
+    int total_size;
     int i;
 #endif
 
@@ -232,10 +242,19 @@ int TPM2_TLS_Client(void* userCtx)
 #else
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
-    /* example loading from buffer */
-    #if 0
-        if (wolfSSL_CTX_load_verify(ctx, ca.buffer, (long)ca.size,
-            WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) }
+    /* Load CA Certificates from Buffer */
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
+                ca_cert_der_2048, sizeof_ca_cert_der_2048,
+                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca_cert_der_2048 DER cert\n");
+            goto exit;
+        }
+    #elif defined(HAVE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
+                ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
+                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca_ecc_cert_der_256 DER cert\n");
             goto exit;
         }
     #endif
@@ -338,7 +357,7 @@ int TPM2_TLS_Client(void* userCtx)
 
     /* perform connect */
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
+    benchStart = gettime_secs(1);
 #endif
     do {
         rc = wolfSSL_connect(ssl);
@@ -350,66 +369,78 @@ int TPM2_TLS_Client(void* userCtx)
         goto exit;
     }
 #ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Connect: %9.3f sec (%9.3f CPS)\n", start, 1/start);
+    benchStart = gettime_secs(0) - benchStart;
+    printf("Connect: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
 #endif
 
     printf("Cipher Suite: %s\n", wolfSSL_get_cipher(ssl));
 
-    /* initialize write */
 #ifdef TLS_BENCH_MODE
-    msgSz = sizeof(msg); /* sequence */
-    for (i=0; i<msgSz; i++) {
-        msg[i] = (i & 0xff);
-    }
-#else
-    msgSz = sizeof(webServerMsg);
-    XMEMCPY(msg, webServerMsg, msgSz);
-    printf("Write (%d): %s\n", msgSz, msg);
+    rc = 0;
+    total_size = 0;
+    while (rc == 0 && total_size < TOTAL_MSG_SZ)
 #endif
-
-    /* perform write */
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
-#endif
-    do {
-        rc = wolfSSL_write(ssl, msg, msgSz);
-        if (rc != msgSz) {
-            rc = wolfSSL_get_error(ssl, 0);
+    {
+        /* initialize write */
+    #ifdef TLS_BENCH_MODE
+        msgSz = sizeof(msg); /* sequence */
+        for (i=0; i<msgSz; i++) {
+            msg[i] = (i & 0xff);
         }
-    } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-        rc, start, rc / start / 1024);
-#endif
+        total_size += msgSz;
+    #else
+        msgSz = sizeof(webServerMsg);
+        XMEMCPY(msg, webServerMsg, msgSz);
+        printf("Write (%d): %s\n", msgSz, msg);
+    #endif
 
-    /* perform read */
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(1);
-#endif
-    do {
-        rc = wolfSSL_read(ssl, msg, sizeof(msg));
-        if (rc < 0) {
-            rc = wolfSSL_get_error(ssl, 0);
+        /* perform write */
+    #ifdef TLS_BENCH_MODE
+        benchStart = gettime_secs(1);
+    #endif
+        do {
+            rc = wolfSSL_write(ssl, msg, msgSz);
+            if (rc != msgSz) {
+                rc = wolfSSL_get_error(ssl, 0);
+            }
+        } while (rc == WOLFSSL_ERROR_WANT_WRITE);
+        if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
+            benchStart = gettime_secs(0) - benchStart;
+            printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #endif
+            rc = 0; /* success */
         }
-    } while (rc == WOLFSSL_ERROR_WANT_READ);
-#ifdef TLS_BENCH_MODE
-    start = gettime_secs(0) - start;
-    printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-        rc, start, rc / start / 1024);
-#else
-    if (rc >= 0) {
-        /* null terminate */
-        msgSz = rc;
-        if (msgSz >= (int)sizeof(msg))
-            msgSz = (int)sizeof(msg) - 1;
-        msg[msgSz] = '\0';
-        rc = 0; /* success */
+
+        /* perform read */
+    #ifdef TLS_BENCH_MODE
+        benchStart = 0; /* use the read callback to trigger timing */
+    #endif
+        do {
+            /* attempt to fill msg buffer */
+            rc = wolfSSL_read(ssl, msg, sizeof(msg));
+            if (rc < 0) {
+                rc = wolfSSL_get_error(ssl, 0);
+            }
+        } while (rc == WOLFSSL_ERROR_WANT_READ);
+        if (rc >= 0) {
+            msgSz = rc;
+        #ifdef TLS_BENCH_MODE
+            benchStart = gettime_secs(0) - benchStart;
+            printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                msgSz, benchStart, msgSz / benchStart / 1024);
+        #else
+            /* null terminate */
+            if (msgSz >= (int)sizeof(msg))
+                msgSz = (int)sizeof(msg) - 1;
+            msg[msgSz] = '\0';
+            printf("Read (%d): %s\n", msgSz, msg);
+        #endif
+            rc = 0; /* success */
+        }
     }
-    printf("Read (%d): %s\n", msgSz, msg);
-#endif
-    rc = 0; /* success */
 
 exit:
 
@@ -438,7 +469,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TLS Client Example -- */
+/* --- END TPM TLS Client Example -- */
 /******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
