@@ -12,7 +12,8 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Added support for Microchip ATTPM20 part. (PR #59)
 * Added support for Barebox (experimental). (PR #52)
 * Added TLS benchmarking for CPS and KB/Sec. Enabled with `TLS_BENCH_MODE`. (PR #56)
-* Added TLS client/server support for symmetric AES/HMAC/RNG and mutual auth. (PR #56)
+* Added TLS client/server support for symmetric AES/HMAC/RNG. Enabled with `WOLFTPM_USE_SYMMETRIC`. (PR #56)
+* Added TLS client/server support for mutual authentication. (PR #56)
 * Added TIS locking protection for concurrent process access. Enabled using `WOLFTPM_TIS_LOCK`. (PR #56)
 * Added symmetric AES encrypt and decrypt wrappers and examples. (PR #54 and PR #55)
 * Added HMAC wrappers and examples. (PR #56)
@@ -21,7 +22,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Added ECDH support for ephemeral key generation and shared secret. (PR #50)
 * Added benchmark support for RNG, AES (CTR, CBC, CFB) 128/256 and SHA-1, SHA-256, SHA-384 and SHA-512. (PR #54)
 * Added new `wolfTPM2_GetCapabilities` wrapper API for getting chip info. (PR #51)
-* Added command and response logging use `./configure --enable-debug=verbose` or `#define WOLFTPM_DEBUG_VERBOSE`. (PR #54)
+* Added command and response logging using `./configure --enable-debug=verbose` or `#define WOLFTPM_DEBUG_VERBOSE`. (PR #54)
 * Added option to enable raw IO logging using `WOLFTPM_DEBUG_IO`. (PR #54)
 * Added option to disable TPM Benchmark code using `NO_TPM_BENCH`. (#60)
 * Added examples/README.md for setup instructions.

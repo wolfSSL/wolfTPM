@@ -6,10 +6,10 @@ Portable TPM 2.0 project designed for embedded use.
 ## Project Features
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
-* Wrappers provided to simplify Key Generation, RSA encrypt/decrypt, ECC sign/verify, ECDH and NV.
-* Testing done using the ST33TP* SPI/I2C and Infineon OPTIGA SLB9670 / LetsTrust TPM modules.
+* Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
+* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670 and Microchip ATTPM20 TPM 2.0 modules.
 * This uses the TPM Interface Specification (TIS) to communicate over SPI.
-* Platform support Raspberry Pi and STM32 with CubeMX.
+* Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
 * The design allows for easy portability to different platforms:
 	* Native C code designed for embedded use.
 	* Single IO callback for hardware SPI interface.
@@ -17,11 +17,12 @@ Portable TPM 2.0 project designed for embedded use.
 	* Compact code size and minimal memory use.
 * Includes example code for:
     * Most TPM2 native API’s
-    * All TPM2 wrappers
+    * All TPM2 wrapper API's
 	* PKCS 7
 	* Certificate Signing Request (CSR)
 	* TLS Client
 	* TLS Server
+	* Benchmarking TPM algorithms and TLS
 
 Note: See `examples/README.md` for details on using the examples.
 
@@ -88,7 +89,7 @@ Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
 ## Building
 
-Build wolfSSL:
+### Building wolfSSL
 
 ```
 git clone https://github.com/wolfSSL/wolfssl.git
@@ -101,6 +102,23 @@ sudo ldconfig
 ```
 
 autogen.sh requires: automake and libtool: `sudo apt-get install automake libtool`
+
+### Build options and defines
+
+```
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
+--enable-examples       Enable Examples (default: enabled)
+--enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
+--enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
+--enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
+--enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
+--enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
+WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
+WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
+TLS_BENCH_MODE          Enables TLS benchmarking mode.
+NO_TPM_BENCH            Disables the TPM benchmarking example.
+```
 
 ### Building Infineon SLB9670
 
@@ -137,20 +155,6 @@ Build wolfTPM:
 ./autogen.sh
 ./configure --enable-mchp
 make
-```
-
-### Build options and defines
-
-```
---enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
---enable-examples       Enable Examples (default: enabled)
---enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
---enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
---enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
---enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
---enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
---enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
-WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
 ```
 
 ## Running Examples

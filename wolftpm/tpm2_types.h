@@ -92,7 +92,7 @@ typedef int64_t  INT64;
     #endif
     #ifndef WOLFCRYPT_ONLY
         /* for additional error codes */
-        extern const char* wolfSSL_ERR_reason_error_string(unsigned long);
+        #include <wolfssl/ssl.h> /* for wolfSSL_ERR_reason_error_string */
     #endif
 
 	#ifdef DEBUG_WOLFTPM

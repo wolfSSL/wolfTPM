@@ -62,7 +62,9 @@ The result is displayed to stdout on the console.
 
 The TLS example uses TPM based ECDHE (ECC Ephemeral key) support. It can be disabled using `CFLAGS="-DWOLFTPM2_USE_SW_ECDHE"` or `#define WOLFTPM2_USE_SW_ECDHE`. We are also looking into using the 2-phase `TPM2_EC_Ephemeral` and `TPM2_ZGen_2Phase` methods for improved performance and scalability.
 
-Note: To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
+To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
+
+To use symmetric AES/Hashing/Hmac with the TPM define `WOLFTPM_USE_SYMMETRIC`.
 
 Generation of the Client and Server Certificates requires running:
 1. `./examples/csr/csr`
@@ -82,9 +84,9 @@ You can validate using the wolfSSL example server this like:
 `./examples/server/server -b -p 11111 -g -d`
  
 To validate client certificate use the following wolfSSL example server command:
-`./examples/server/server -b -p 11111 -g -A ./certs/ca-rsa-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem`
 or
-`./examples/server/server -b -p 11111 -g -A ./certs/ca-ecc-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
 
 Then run the wolfTPM TLS client example:
 `./examples/tls/tls_client`. 
@@ -103,9 +105,9 @@ Then run the wolfSSL example client this like:
 `./examples/client/client -h localhost -p 11111 -g -d`
 
 To validate server certificate use the following wolfSSL example client comment:
-`./examples/client/client -h localhost -p 11111 -g -A ./certs/ca-rsa-cert.pem`
+`./examples/client/client -h localhost -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem`
 or
-`./examples/client/client -h localhost -p 11111 -g -A ./certs/ca-ecc-cert.pem`
+`./examples/client/client -h localhost -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
 
 
 Or using your browser: `https://localhost:11111`

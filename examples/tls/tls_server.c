@@ -406,6 +406,7 @@ int TPM2_TLS_Server(void* userCtx)
         #endif
             rc = 0; /* success */
         }
+        if (rc != 0) goto exit;
 
         /* perform write */
     #ifdef TLS_BENCH_MODE
@@ -413,7 +414,6 @@ int TPM2_TLS_Server(void* userCtx)
     #else
         msgSz = sizeof(webServerMsg);
         XMEMCPY(msg, webServerMsg, msgSz);
-        printf("Write (%d): %s\n", msgSz, webServerMsg);
     #endif
         do {
             rc = wolfSSL_write(ssl, msg, msgSz);
@@ -427,6 +427,8 @@ int TPM2_TLS_Server(void* userCtx)
             benchStart = gettime_secs(0) - benchStart;
             printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
                 msgSz, benchStart, msgSz / benchStart / 1024);
+        #else
+            printf("Write (%d): %s\n", msgSz, msg);
         #endif
             rc = 0; /* success */
         }
