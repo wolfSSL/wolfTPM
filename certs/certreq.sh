@@ -15,8 +15,12 @@ if [ ! -f ./certs/crlnumber ]; then
 fi
 
 if [ "$1" == "clean" ]; then
-	rm ./certs/*.pem
-	rm ./certs/*.der
+	rm ./certs/1*.pem
+	rm ./certs/ca-*.pem
+	rm ./certs/client-*.pem
+	rm ./certs/client-*.der
+	rm ./certs/server-*.pem
+	rm ./certs/server-*.der
 	rm ./certs/*.old
 fi
 

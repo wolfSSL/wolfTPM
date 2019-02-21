@@ -690,7 +690,7 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
 
     /* Load key to get handle */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
-    loadIn.parentHandle = parentKey->handle.hndl;
+    loadIn.parentHandle = parentHandle;
     loadIn.inPrivate = importOut.outPrivate;
     loadIn.inPublic = key->pub;
     rc = TPM2_Load(&loadIn, &loadOut);
@@ -2414,7 +2414,7 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* in, byte* out, word32 inOutSz,
     byte* iv, word32 ivSz, int isDecrypt)
 {
-    int rc;
+    int rc = 0;
     word32 pos = 0, xfer;
 
     while (pos < inOutSz) {
@@ -3211,8 +3211,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                             hashCtx->cacheBuf, hashCtx->cacheSz);
                 }
             }
-            rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
-                &digestSz);
+            if (rc == 0) {
+                rc = wolfTPM2_HashFinish(tlsCtx->dev, &hash, info->hash.digest,
+                    &digestSz);
+            }
         }
         /* if final or failure cleanup */
         if (info->hash.digest != NULL || rc != 0) {

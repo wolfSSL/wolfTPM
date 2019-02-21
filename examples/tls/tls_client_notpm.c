@@ -205,7 +205,6 @@ int TLS_Client(void)
     #else
         msgSz = sizeof(webServerMsg);
         XMEMCPY(msg, webServerMsg, msgSz);
-        printf("Write (%d): %s\n", msgSz, msg);
     #endif
 
         /* perform write */
@@ -224,9 +223,12 @@ int TLS_Client(void)
             benchStart = gettime_secs(0) - benchStart;
             printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
                 msgSz, benchStart, msgSz / benchStart / 1024);
+        #else
+            printf("Write (%d): %s\n", msgSz, msg);
         #endif
             rc = 0; /* success */
         }
+        if (rc != 0) goto exit;
 
         /* perform read */
     #ifdef TLS_BENCH_MODE

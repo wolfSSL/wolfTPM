@@ -6,10 +6,10 @@ Portable TPM 2.0 project designed for embedded use.
 ## Project Features
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
-* Wrappers provided to simplify Key Generation, RSA encrypt/decrypt, ECC sign/verify, ECDH and NV.
-* Testing done using the ST33TP* SPI/I2C and Infineon OPTIGA SLB9670 / LetsTrust TPM modules.
+* Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
+* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670 and Microchip ATTPM20 TPM 2.0 modules.
 * This uses the TPM Interface Specification (TIS) to communicate over SPI.
-* Platform support Raspberry Pi and STM32 with CubeMX.
+* Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
 * The design allows for easy portability to different platforms:
 	* Native C code designed for embedded use.
 	* Single IO callback for hardware SPI interface.
@@ -17,11 +17,12 @@ Portable TPM 2.0 project designed for embedded use.
 	* Compact code size and minimal memory use.
 * Includes example code for:
     * Most TPM2 native API’s
-    * All TPM2 wrappers
+    * All TPM2 wrapper API's
 	* PKCS 7
 	* Certificate Signing Request (CSR)
 	* TLS Client
 	* TLS Server
+	* Benchmarking TPM algorithms and TLS
 
 Note: See `examples/README.md` for details on using the examples.
 
@@ -88,7 +89,7 @@ Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
 ## Building
 
-Build wolfSSL:
+### Building wolfSSL
 
 ```
 git clone https://github.com/wolfSSL/wolfssl.git
@@ -101,6 +102,23 @@ sudo ldconfig
 ```
 
 autogen.sh requires: automake and libtool: `sudo apt-get install automake libtool`
+
+### Build options and defines
+
+```
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
+--enable-examples       Enable Examples (default: enabled)
+--enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
+--enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
+--enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
+--enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
+--enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
+WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
+WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
+TLS_BENCH_MODE          Enables TLS benchmarking mode.
+NO_TPM_BENCH            Disables the TPM benchmarking example.
+```
 
 ### Building Infineon SLB9670
 
@@ -138,103 +156,6 @@ Build wolfTPM:
 ./configure --enable-mchp
 make
 ```
-
-
-### Build options and defines
-
-```
---enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
---enable-examples       Enable Examples (default: enabled)
---enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
---enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
---enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
---enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
---enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
---enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
-WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
-```
-
-## Release Notes
-
-
-### wolfTPM Release 1.4 (11/13/2018)
-
-* Fixed cryptodev ECC callback to use R and S for the signature verify. (PR #39)
-* Fixed printf type warnings with `DEBUG_WOLFTPM` defined. (PR #37)
-* Fixed detection of correct hash algorithm in `wolfTPM2_VerifyHash`. (PR #39)
-* Fix bug with native example where TPM2_Shutdown failure would loop. (PR #34)
-* Fix to decoupled the fixed TPM algorithms/sizes from wolfCrypt build options. (PR #35)
-* Fix for building with different wolfCrypt options. (PR #26)
-* Fix for byte swap build error. (PR #26)
-* Fix CSR example CertName to use designated initializers to resolve use against different wolfSSL versions. (PR #25)
-* Improved portability by eliminating the packed TPM2_HEADER. (PR #45)
-* Improved stack reduction by eliminating the private section from WOLFTPM2_KEY struct. (PR #31)
-* Added TLS server example for wolfTPM. (PR #30)
-* Added more RSA and ECC key loading examples. (PR #47)
-* Added support for loading an external private keys using new API's `wolfTPM2_LoadPrivateKey`, `wolfTPM2_LoadRsaPrivateKey`, and `wolfTPM2_LoadEccPrivateKey`. (PR #46)
-* Added example for reading the firmware version using `TPM2_GetCapability` with `TPM_PT_FIRMWARE_VERSION_1`. (PR #44)
-* Added hashing wrappers and tests using new API's: `wolfTPM2_HashStart`, `wolfTPM2_HashUpdate` and `wolfTPM2_HashFinish`. (PR #40)
-* Added PKCS7 7 sign/verify example demonstrating large data case using chunked buffer and new `_ex` functions. (PR #32)
-* Added Key Generation to benchmark. (PR #33)
-* Added ST33TP I2C TPM 2.0 support (`./configure --enable-st33 --enable-i2c`). (PR #33)
-* Added ST33TP SPI TPM 2.0 support (`--enable-st33` or `#define WOLFTPM_ST33`). (PR #25)
-* Added support for Atmel ASF SPI. (PR #25)
-* Added example for IAR EWARM. (PR #27)
-* Added ECC verify test using public key and NIST test vectors. (PR #39)
-* Added new RNG wrapper API `wolfTPM2_GetRandom`. (PR #36)
-* Added macro for hardware RNG max request as `MAX_RNG_REQ_SIZE`. (PR #36)
-* Added instructions for enabling SPI and I2C on the Raspberry Pi. (PR #34)
-* Added support for symmetric AES encrypt/decrypt. (PR #29)
-* Added wrapper to help with creation of symmetric keys. (PR #29)
-* Added advanced IO callback support (enabled using `--enable-advio` or `#define WOLFTPM_ADV_IO`). (PR #25)
-* Added overridable define `WOLFTPM_LOCALITY_DEFAULT` for the locality used. (PR #28)
-* Added `XTPM_WAIT()` macro to enable custom wait between polling. (PR #28)
-* Added build option to disable wolfCrypt dependency using `./configure --disable-wolfcrypt` or `#define WOLFTPM2_NO_WOLFCRYPT`. (PR #24)
-* Removed unused SET, CLEAR, TRUE, FALSE macros. (PR #28)
-* Cleanup DEBUG_WOLFTPM ifdef's around all printfs in library proper. (PR #38)
-* Cleanup of line lengths. (PR #37)
-* Cleanup of wrapper test to move test data into `tpm_test.h`. (PR #47)
-* Cleanup of the packet code to handle determining of size (mark/place). (PR #46)
-* Cleanup of the IO callback examples. (PR #25)
-* Cleanup of TIS layer improve return code and timeout handling. (PR #28)
-* Cleanup to move types and configuration/port specific items into new `tpm2_types.h`. (PR #24)
-
-
-### wolfTPM Release 1.3 (07/20/2018)
-
-* Fixed the TIS TPM_BASE_ADDRESS to conform to specification. (PR #19)
-* Fixed static analysis warnings. (PR #20)
-* Fixed minor build warnings with different compilers. (PR #21)
-* Fixed TPM failure for RSA exponents less than 7 by using software based RSA. (PR #23)
-* Added TPM benchmarking support. (PR #16)
-* Added functions to import/export public keys as wolf format. (PR #15)
-* Added PKCS7 example to show sign/verify with TPM. (PR #17)
-* Added CSR example to generate certificate request based on TPM key. (PR #17)
-* Added CSR signing script `./certs/certreq.sh` to create certificate using self-signed CA. (PR #17)
-* Added TLS Client example that uses TPM based key for client certificate. (PR #17)
-* Added support for wolfSSL `WOLF_CRYPT_DEV` callbacks to enable TPM based ECC and RSA private keys. (PR #17)
-* Added ability to clear/reset TPM using `./examples/wrap/wrap_test 1` (PR #17)
-* Moved some of the example configuration into `./examples/tpm_io.h`. (PR #17)
-
-### wolfTPM Release 1.1 (03/09/2018)
-
-* Added TPM2 wrapper layer to simplify key creation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
-* Added TPM2 wrapper example code.
-* Added Linux SPI support for running on Raspberry Pi.
-* Fixes for TPM2 command and response assembly and parsing.
-* Fixes to support authentication for command and response.
-* Progress on supporting parameter encryption/decryption.
-* Refactor of TIS and Packet layers into new files.
-* Fixes/improvements to `wolfTPM2_GetRCString` for error code and string reporting.
-* Added new `TPM2_Cleanup` function.
-* New tests for TPM2 native API's (test coverage is about 75%).
-
-### wolfTPM Release 1.0 (02/06/2018)
-
-* Support for all TPM2 native API's using TIS and SPI IO callback.
-* Helper for getting TPM return code string `TPM2_GetRCString`.
-* TPM 2.0 demo code in `examples/tpm/tpm2_demo.c` with support for STM32 CubeMX SPI as reference.
-
 
 ## Running Examples
 

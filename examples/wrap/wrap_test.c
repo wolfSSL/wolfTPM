@@ -629,6 +629,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         printf("Encrypt/Decrypt test failed, result not as expected!\n");
         goto exit;
     }
+    if (rc != 0) goto exit;
 
 
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,

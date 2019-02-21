@@ -38,6 +38,7 @@ include IDE/include.am
 include certs/include.am
 
 EXTRA_DIST+= README.md
+EXTRA_DIST+= ChangeLog.md
 EXTRA_DIST+= LICENSE
 EXTRA_DIST+= autogen.sh
 
