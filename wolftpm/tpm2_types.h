@@ -29,6 +29,11 @@
 #include <wolftpm/visibility.h>
 #include <stdint.h>
 
+#ifdef WOLFTPM_USER_SETTINGS
+    /* use generated options.h or a custom one */
+    #include <wolftpm/options.h>
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TPM TYPES */
 /* ---------------------------------------------------------------------------*/
