@@ -87,6 +87,10 @@ Microchip ATTPM20
 TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1 
 Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
+Nations Technologies Inc. TPM 2.0 module
+Mfg NTZ (0), Vendor Z32H330, Fw 7.51 (419631892), FIPS 140-2 0, CC-EAL4 0
+
+
 ## Building
 
 ### Building wolfSSL
@@ -280,6 +284,38 @@ ECC      256 key gen        7 ops took 1.072 sec, avg 153.140 ms, 6.530 ops/sec
 ECDSA    256 sign          18 ops took 1.056 sec, avg 58.674 ms, 17.043 ops/sec
 ECDSA    256 verify        24 ops took 1.031 sec, avg 42.970 ms, 23.272 ops/sec
 ECDHE    256 agree         16 ops took 1.023 sec, avg 63.934 ms, 15.641 ops/sec
+```
+
+Run on Nations Technologies Inc. TPM 2.0 module at 33MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RNG                 12 KB took 1.065 seconds,   11.270 KB/s
+AES-128-CBC-enc     48 KB took 1.026 seconds,   46.780 KB/s
+AES-128-CBC-dec     48 KB took 1.039 seconds,   46.212 KB/s
+AES-256-CBC-enc     48 KB took 1.035 seconds,   46.370 KB/s
+AES-256-CBC-dec     48 KB took 1.025 seconds,   46.852 KB/s
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+AES-128-CFB-enc     50 KB took 1.029 seconds,   48.591 KB/s
+AES-128-CFB-dec     50 KB took 1.035 seconds,   48.294 KB/s
+AES-256-CFB-enc     48 KB took 1.000 seconds,   47.982 KB/s
+AES-256-CFB-dec     48 KB took 1.003 seconds,   47.855 KB/s
+SHA1                80 KB took 1.009 seconds,   79.248 KB/s
+SHA256              80 KB took 1.004 seconds,   79.702 KB/s
+SHA384              78 KB took 1.018 seconds,   76.639 KB/s
+RSA     2048 key gen        8 ops took 17.471 sec, avg 2183.823 ms, 0.458 ops/sec
+RSA     2048 Public        52 ops took 1.004 sec, avg 19.303 ms, 51.805 ops/sec
+RSA     2048 Private        8 ops took 1.066 sec, avg 133.243 ms, 7.505 ops/sec
+RSA     2048 Pub  OAEP     51 ops took 1.001 sec, avg 19.621 ms, 50.966 ops/sec
+RSA     2048 Priv OAEP      8 ops took 1.073 sec, avg 134.182 ms, 7.453 ops/sec
+ECC      256 key gen       20 ops took 1.037 sec, avg 51.871 ms, 19.279 ops/sec
+ECDSA    256 sign          43 ops took 1.006 sec, avg 23.399 ms, 42.736 ops/sec
+ECDSA    256 verify        28 ops took 1.030 sec, avg 36.785 ms, 27.185 ops/sec
+ECDHE    256 agree         26 ops took 1.010 sec, avg 38.847 ms, 25.742 ops/sec
 ```
 
 
