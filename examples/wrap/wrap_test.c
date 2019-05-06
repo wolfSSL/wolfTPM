@@ -115,6 +115,10 @@ int TPM2_Wrapper_Test(void* userCtx)
 
     printf("TPM2 Demo for Wrapper API's\n");
 
+    /* Demonstrate single-shot API to test and init TPM hardware */
+    rc = wolfTPM2_Test(TPM2_IoCb, userCtx, NULL);
+    if (rc != 0) goto exit;
+
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
