@@ -22,7 +22,14 @@
 #ifndef _TPM_PKCS7_EXAMPLE_H_
 #define _TPM_PKCS7_EXAMPLE_H_
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 int TPM2_PKCS7_Example(void* userCtx);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* _TPM_PKCS7_EXAMPLE_H_ */

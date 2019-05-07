@@ -24,6 +24,10 @@
 
 #include <wolftpm/tpm2.h>
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 #define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
 
 /* For reference here is the TPM2 header (not used) */
@@ -93,5 +97,9 @@ WOLFTPM_LOCAL void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATU
 WOLFTPM_LOCAL void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
 WOLFTPM_LOCAL TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet);
 WOLFTPM_LOCAL int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_PACKET_H__ */

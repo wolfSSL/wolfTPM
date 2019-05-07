@@ -24,6 +24,10 @@
 
 #include <wolftpm/tpm2_types.h>
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -2724,5 +2728,8 @@ WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
 #define TPM2_PrintBin(b, l)
 #endif
 
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_H__ */

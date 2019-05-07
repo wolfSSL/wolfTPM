@@ -22,8 +22,15 @@
 #ifndef _TPM_TLS_CLIENT_H_
 #define _TPM_TLS_CLIENT_H_
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 int TPM2_TLS_Client(void* userCtx);
 int TLS_Client(void);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* _TPM_TLS_CLIENT_H_ */

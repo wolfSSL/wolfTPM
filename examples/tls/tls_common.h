@@ -34,6 +34,10 @@
 
 #include <wolfssl/ssl.h>
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* TLS Configuration */
 #ifndef TLS_HOST
     #define TLS_HOST "localhost"
@@ -441,6 +445,10 @@ static inline int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
 /******************************************************************************/
 /* --- END Supporting TLS functions --- */
 /******************************************************************************/
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT */
 

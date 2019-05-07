@@ -22,8 +22,11 @@
 #ifndef __TPM2_WRAP_H__
 #define __TPM2_WRAP_H__
 
-
 #include <wolftpm/tpm2.h>
+
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
@@ -293,5 +296,8 @@ WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 
 #endif /* WOLF_CRYPTO_CB */
 
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_WRAP_H__ */

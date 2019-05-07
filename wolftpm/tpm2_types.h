@@ -34,6 +34,10 @@
     #include <wolftpm/options.h>
 #endif
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TPM TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -421,5 +425,8 @@ typedef int64_t  INT64;
     #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_BYTES*8)
 #endif
 
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_TYPES_H__ */

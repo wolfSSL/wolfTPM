@@ -23,6 +23,9 @@
 #ifndef _TPM_TEST_H_
 #define _TPM_TEST_H_
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 /* Test Configuration */
 #define TPM2_DEMO_STORAGE_KEY_HANDLE    0x81000200  /* Persistent Storage Key Handle */
@@ -440,5 +443,9 @@ static const byte kTestAesCbc128Verify[] = {
     0x95,0x94,0x92,0x57,0x5f,0x42,0x81,0x53,
     0x2c,0xcc,0x9d,0x46,0x77,0xa2,0x33,0xcb
 };
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* _TPM_TEST_H_ */
