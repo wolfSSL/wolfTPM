@@ -245,6 +245,11 @@ TPM2_CTX* TPM2_GetActiveCtx(void)
     return gActiveTPM;
 }
 
+void TPM2_SetActiveCtx(TPM2_CTX* ctx)
+{
+    gActiveTPM = ctx;
+}
+
 TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
 {
     TPM_RC rc;
@@ -261,7 +266,51 @@ TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
     return rc;
 }
 
-TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
+/* Assumes caller has handled mutex protection */
+TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
+{
+    TPM_RC rc;
+
+    if (ctx == NULL) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Wait for chip startup to complete */
+    rc = TPM2_TIS_StartupWait(ctx, timeoutTries);
+    if (rc == TPM_RC_SUCCESS) {
+
+        /* Request locality for TPM module */
+        rc = TPM2_TIS_RequestLocality(ctx, timeoutTries);
+        if (rc == TPM_RC_SUCCESS) {
+
+            /* Get device information */
+            rc = TPM2_TIS_GetInfo(ctx);
+        }
+    }
+    return rc;
+}
+
+TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
+{
+    TPM_RC rc;
+
+    if (ctx == NULL) {
+        return TPM_RC_FAILURE;
+    }
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->ioCb = ioCb;
+        ctx->userCtx = userCtx;
+
+        TPM2_ReleaseLock(ctx);
+    }
+
+    return rc;
+}
+
+TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
+    int timeoutTries)
 {
     TPM_RC rc;
 
@@ -270,8 +319,9 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     }
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
-    ctx->ioCb = ioCb;
-    ctx->userCtx = userCtx;
+    rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifdef DEBUG_WOLFSSL
@@ -303,25 +353,19 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     if (rc == TPM_RC_SUCCESS) {
 
         /* Set the active TPM global */
-        gActiveTPM = ctx;
+        TPM2_SetActiveCtx(ctx);
 
-
-        /* Wait for chip startup to complete */
-        rc = TPM2_TIS_StartupWait(ctx, TPM_TIMEOUT_TRIES);
-        if (rc == TPM_RC_SUCCESS) {
-
-            /* Request locality for TPM module */
-            rc = TPM2_TIS_RequestLocality(ctx, TPM_TIMEOUT_TRIES);
-            if (rc == TPM_RC_SUCCESS) {
-
-                /* Get device information */
-                rc = TPM2_TIS_GetInfo(ctx);
-            }
-        }
+        /* Perform chip startup */
+        rc = TPM2_ChipStartup(ctx, timeoutTries);
 
         TPM2_ReleaseLock(ctx);
     }
     return rc;
+}
+
+TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
+{
+    return TPM2_Init_ex(ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
 }
 
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)

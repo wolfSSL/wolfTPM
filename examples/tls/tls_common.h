@@ -34,6 +34,8 @@
 
 #include <wolfssl/ssl.h>
 
+#include <stdio.h>
+
 #ifdef __cplusplus
     extern "C" {
 #endif

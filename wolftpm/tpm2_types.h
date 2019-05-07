@@ -45,7 +45,9 @@
 typedef uint8_t  UINT8;
 typedef uint8_t  BYTE;
 typedef int8_t   INT8;
+#ifndef HAVE_BOOL
 typedef int      BOOL;
+#endif
 typedef uint16_t UINT16;
 typedef int16_t  INT16;
 typedef uint32_t UINT32;
@@ -176,6 +178,10 @@ typedef int64_t  INT64;
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
+#endif
+
+#ifndef TPM_STARTUP_TEST_TRIES
+#define TPM_STARTUP_TEST_TRIES 2
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES

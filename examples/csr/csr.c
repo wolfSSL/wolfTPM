@@ -32,6 +32,8 @@
 #include <examples/csr/csr.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
 
+#include <stdio.h>
+
 static const char* gClientCertRsaFile = "./certs/tpm-rsa-cert.csr";
 static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.csr";
 

@@ -34,7 +34,8 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
 /* --- BEGIN Wrapper Device Functions -- */
 /******************************************************************************/
 
-static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
+static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
+    int timeoutTries)
 {
     int rc;
     Startup_In startupIn;
@@ -45,7 +46,7 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
-    rc = TPM2_Init(ctx, ioCb, userCtx);
+    rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
@@ -101,7 +102,7 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     int rc;
     TPM2_CTX ctx;
 
-    rc = wolfTPM2_Init_NoDev(&ctx, ioCb, userCtx);
+    rc = wolfTPM2_Init_NoDev(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
@@ -110,6 +111,8 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     if (caps) {
         rc = wolfTPM2_GetCapabilities_NoDev(caps);
     }
+
+    TPM2_Cleanup(&ctx);
 
     return rc;
 }
@@ -121,7 +124,7 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     if (dev == NULL)
         return BAD_FUNC_ARG;
 
-    rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx);
+    rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }

@@ -32,6 +32,8 @@
 #include <examples/pkcs7/pkcs7.h>
 #include <wolfssl/wolfcrypt/pkcs7.h>
 
+#include <stdio.h>
+
 /* Sign PKCS7 using TPM based key:
  * Must Run:
  * 1. `./examples/csr/csr`

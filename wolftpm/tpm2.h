@@ -2701,11 +2701,16 @@ WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
+    int timeoutTries);
 WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
-
-/* Other API's - Not TPM Spec */
+/* Other API's - Not in TPM Specification */
+WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
+WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
+
+WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
@@ -2722,8 +2727,6 @@ WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
-
-
 #else
 #define TPM2_PrintBin(b, l)
 #endif
