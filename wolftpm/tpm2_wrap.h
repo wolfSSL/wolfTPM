@@ -91,7 +91,7 @@ typedef struct WOLFTPM2_CAPS {
 
 
 /* Wrapper API's to simplify TPM use */
-
+WOLFTPM_API int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps);
 WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev);
 

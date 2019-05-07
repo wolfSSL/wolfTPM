@@ -26,38 +26,39 @@
 /* For some struct to buffer conversions */
 #include <wolftpm/tpm2_packet.h>
 
+/* Local Functions */
+static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
+
 
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
 /******************************************************************************/
 
-int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
+static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 {
     int rc;
     Startup_In startupIn;
+#if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
+    SelfTest_In selfTest;
+#endif
 
-    if (dev == NULL)
+    if (ctx == NULL)
         return BAD_FUNC_ARG;
 
-    rc = TPM2_Init(&dev->ctx, ioCb, userCtx);
+    rc = TPM2_Init(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
-
 #ifdef DEBUG_WOLFTPM
     printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
-        dev->ctx.caps,
-        dev->ctx.did_vid >> 16,
-        dev->ctx.did_vid & 0xFFFF,
-        dev->ctx.rid);
+        ctx->caps,
+        ctx->did_vid >> 16,
+        ctx->did_vid & 0xFFFF,
+        ctx->rid);
 #endif
-
-    /* define the default session auth */
-    XMEMSET(dev->session, 0, sizeof(dev->session));
-    wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, 0);
 
     /* startup */
     XMEMSET(&startupIn, 0, sizeof(Startup_In));
@@ -70,19 +71,66 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     #endif
         return rc;
     }
+    rc = TPM_RC_SUCCESS;
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Startup pass\n");
 #endif
 
 #if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
-    /* Do self-test (Chips such as ATTPM20 require this before some operations) */
-    rc = wolfTPM2_SelfTest(dev);
+    /* Do full self-test (Chips such as ATTPM20 require this before some operations) */
+    XMEMSET(&selfTest, 0, sizeof(selfTest));
+    selfTest.fullTest = YES;
+    rc = TPM2_SelfTest(&selfTest);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_SelfTest pass\n");
+#endif
+#endif
+
+    return rc;
+}
+
+/* Single-shot API for testing access to hardware and optionally return capabilities */
+int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
+{
+    int rc;
+    TPM2_CTX ctx;
+
+    rc = wolfTPM2_Init_NoDev(&ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
-#endif
 
-    return TPM_RC_SUCCESS;
+    /* Optionally get and return capabilities */
+    if (caps) {
+        rc = wolfTPM2_GetCapabilities_NoDev(caps);
+    }
+
+    return rc;
+}
+
+int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
+{
+    int rc;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    /* define the default session auth */
+    XMEMSET(dev->session, 0, sizeof(dev->session));
+    wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, 0);
+
+    return rc;
 }
 
 int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
@@ -200,13 +248,13 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     return rc;
 }
 
-int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
+static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 {
     int rc;
     GetCapability_In  in;
     GetCapability_Out out;
 
-    if (dev == NULL || cap == NULL)
+    if (cap == NULL)
         return BAD_FUNC_ARG;
 
     /* clear caps */
@@ -245,6 +293,14 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
     return rc;
+}
+
+int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
+{
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    return wolfTPM2_GetCapabilities_NoDev(cap);
 }
 
 

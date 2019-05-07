@@ -95,7 +95,7 @@ Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptodev
+./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
 make
 sudo make install
 sudo ldconfig
