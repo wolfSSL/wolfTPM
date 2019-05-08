@@ -417,7 +417,7 @@ int TPM2_Native_Test(void* userCtx)
     rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
                        cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
-        printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
+        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
@@ -771,7 +771,7 @@ int TPM2_Native_Test(void* userCtx)
     rc = TPM2_GetNonce(cmdIn.objChgAuth.newAuth.buffer,
                        cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
-        printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
+        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }

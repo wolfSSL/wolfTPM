@@ -45,7 +45,7 @@
 typedef uint8_t  UINT8;
 typedef uint8_t  BYTE;
 typedef int8_t   INT8;
-#ifndef HAVE_BOOL
+#if !defined(BOOL) && !defined(HAVE_BOOL)
 typedef int      BOOL;
 #endif
 typedef uint16_t UINT16;

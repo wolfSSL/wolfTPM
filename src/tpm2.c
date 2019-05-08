@@ -39,7 +39,17 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
 #else
-    int ret = wc_LockMutex(&ctx->hwLock);
+    int ret;
+
+    if (!ctx->hwLockInit) {
+        if (wc_InitMutex(&ctx->hwLock) != 0) {
+            WOLFSSL_MSG("TPM Mutex Init failed");
+            return TPM_RC_FAILURE;
+        }
+        ctx->hwLockInit = 1;
+    }
+
+    ret = wc_LockMutex(&ctx->hwLock);
     if (ret != 0)
         return TPM_RC_FAILURE;
 #endif
@@ -261,12 +271,12 @@ TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND* cmd)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         ctx->authCmd = cmd;
+
         TPM2_ReleaseLock(ctx);
     }
     return rc;
 }
 
-/* Assumes caller has handled mutex protection */
 TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
 {
     TPM_RC rc;
@@ -275,18 +285,25 @@ TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
         return TPM_RC_FAILURE;
     }
 
-    /* Wait for chip startup to complete */
-    rc = TPM2_TIS_StartupWait(ctx, timeoutTries);
+    rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
 
-        /* Request locality for TPM module */
-        rc = TPM2_TIS_RequestLocality(ctx, timeoutTries);
+        /* Wait for chip startup to complete */
+        rc = TPM2_TIS_StartupWait(ctx, timeoutTries);
         if (rc == TPM_RC_SUCCESS) {
 
-            /* Get device information */
-            rc = TPM2_TIS_GetInfo(ctx);
+            /* Request locality for TPM module */
+            rc = TPM2_TIS_RequestLocality(ctx, timeoutTries);
+            if (rc == TPM_RC_SUCCESS) {
+
+                /* Get device information */
+                rc = TPM2_TIS_GetInfo(ctx);
+            }
         }
+
+        TPM2_ReleaseLock(ctx);
     }
+
     return rc;
 }
 
@@ -319,9 +336,6 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     }
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
-    rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
-    if (rc != TPM_RC_SUCCESS)
-        return rc;
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifdef DEBUG_WOLFSSL
@@ -329,37 +343,19 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 
     wolfCrypt_Init();
-
-#ifndef WC_NO_RNG
-    rc = wc_InitRng(&ctx->rng);
-    if (rc < 0) {
-#ifdef DEBUG_WOLFTPM
-        printf("wc_InitRng failed %d: %s\n", (int)rc, wc_GetErrorString(rc));
-#endif
-        return rc;
-    }
-#endif /* !WC_NO_RNG */
-
-#ifndef SINGLE_THREADED
-    if (wc_InitMutex(&ctx->hwLock) != 0) {
-        WOLFSSL_MSG("TPM Mutex Init failed");
-        return TPM_RC_FAILURE;
-    }
-#endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
-    /* Startup TIS */
-    rc = TPM2_AcquireLock(ctx);
-    if (rc == TPM_RC_SUCCESS) {
+    /* Setup HAL IO Callback */
+    rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 
-        /* Set the active TPM global */
-        TPM2_SetActiveCtx(ctx);
+    /* Set the active TPM global */
+    TPM2_SetActiveCtx(ctx);
 
-        /* Perform chip startup */
-        rc = TPM2_ChipStartup(ctx, timeoutTries);
+    /* Perform chip startup */
+    rc = TPM2_ChipStartup(ctx, timeoutTries);
 
-        TPM2_ReleaseLock(ctx);
-    }
     return rc;
 }
 
@@ -379,18 +375,26 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
 
-        if (gActiveTPM == ctx)
-            gActiveTPM = NULL;
+        if (TPM2_GetActiveCtx() == ctx) {
+            /* set non-active */
+            TPM2_SetActiveCtx(NULL);
+        }
 
         TPM2_ReleaseLock(ctx);
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef WC_NO_RNG
-    wc_FreeRng(&ctx->rng);
+    if (ctx->rngInit) {
+        ctx->rngInit = 0;
+        wc_FreeRng(&ctx->rng);
+    }
     #endif
 #ifndef SINGLE_THREADED
-    wc_FreeMutex(&ctx->hwLock);
+    if (ctx->hwLockInit) {
+        ctx->hwLockInit = 0;
+        wc_FreeMutex(&ctx->hwLock);
+    }
 #endif
 
     wolfCrypt_Cleanup();
@@ -4623,11 +4627,14 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
+/* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for RNG source */
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
-#ifdef WOLFTPM2_NO_WOLFCRYPT
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    WC_RNG* rng = NULL;
+#else
     GetRandom_In in;
     GetRandom_Out out;
     int randSz = 0;
@@ -4636,9 +4643,12 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
     if (ctx == NULL || nonceBuf == NULL)
         return BAD_FUNC_ARG;
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* Use wolfCrypt */
-    rc = wc_RNG_GenerateBlock(&ctx->rng, nonceBuf, nonceSz);
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    rc = TPM2_GetWolfRng(&rng);
+    if (rc == 0) {
+        /* Use wolfCrypt */
+        rc = wc_RNG_GenerateBlock(rng, nonceBuf, nonceSz);
+    }
 #else
     /* Use TPM GetRandom */
     XMEMSET(&in, 0, sizeof(in));
@@ -4965,6 +4975,33 @@ int TPM2_GetWolfCurve(int curve_id)
     (void)curve_id;
     return ret;
 }
+
+#ifdef WOLFTPM2_USE_WOLF_RNG
+int TPM2_GetWolfRng(WC_RNG** rng)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    if (!ctx->rngInit) {
+        rc = wc_InitRng(&ctx->rng);
+        if (rc < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("wc_InitRng failed %d: %s\n", (int)rc, wc_GetErrorString(rc));
+        #endif
+            return rc;
+        }
+        ctx->rngInit = 1;
+    }
+    if (rng) {
+        *rng = &ctx->rng;
+    }
+
+    return 0;
+}
+#endif /* WOLFTPM2_USE_WOLF_RNG */
 
 
 #ifdef DEBUG_WOLFTPM

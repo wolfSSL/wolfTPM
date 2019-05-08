@@ -142,7 +142,7 @@ int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
         return BAD_FUNC_ARG;
     }
 
-    return dev->ctx.did_vid; /* not INVALID_DEVID */
+    return dev->ctx.did_vid; /* return something besides INVALID_DEVID */
 }
 
 int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
@@ -2028,9 +2028,10 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 {
-#ifndef WC_NO_RNG
-    if (dev)
+#ifdef WOLFTPM2_USE_WOLF_RNG
+    if (dev) {
         return &dev->ctx.rng;
+    }
 #endif
     return NULL;
 }
