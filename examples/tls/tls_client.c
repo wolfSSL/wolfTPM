@@ -40,6 +40,8 @@
 #define USE_CERT_BUFFERS_256
 #include <wolfssl/certs_test.h>
 
+#include <stdio.h>
+
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif

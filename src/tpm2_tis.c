@@ -248,8 +248,11 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
 
     do {
         rc = TPM2_TIS_Read(ctx, TPM_ACCESS(0), &access, sizeof(access));
-        if (rc == TPM_RC_SUCCESS && (access & TPM_ACCESS_VALID))
+        /* if chip isn't present MISO will be high and return 0xFF */
+        if (rc == TPM_RC_SUCCESS && (access & TPM_ACCESS_VALID) &&
+                (access != 0xFF)) {
             return TPM_RC_SUCCESS;
+        }
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
     if (timeout <= 0)

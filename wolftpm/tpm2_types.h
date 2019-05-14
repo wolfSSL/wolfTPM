@@ -34,6 +34,10 @@
     #include <wolftpm/options.h>
 #endif
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TPM TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -41,7 +45,9 @@
 typedef uint8_t  UINT8;
 typedef uint8_t  BYTE;
 typedef int8_t   INT8;
+#if !defined(BOOL) && !defined(HAVE_BOOL)
 typedef int      BOOL;
+#endif
 typedef uint16_t UINT16;
 typedef int16_t  INT16;
 typedef uint32_t UINT32;
@@ -54,23 +60,6 @@ typedef int64_t  INT64;
 #endif
 #ifndef NO
 #define NO 0
-#endif
-
-
-
-/* ---------------------------------------------------------------------------*/
-/* TPM HARDWARE TYPE */
-/* ---------------------------------------------------------------------------*/
-/* ST ST33TP TPM 2.0 */
-/* #define WOLFTPM_ST33 */
-
-/* Microchip ATTPM20 */
-/* #define WOLFTPM_MCHP */
-
-/* Infineon SLB9670 TPM 2.0 (default) */
-/* #define WOLFTPM_SLB9670 */
-#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
-    #define WOLFTPM_SLB9670
 #endif
 
 
@@ -142,6 +131,30 @@ typedef int64_t  INT64;
     #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+/* enable way for customer to override printf */
+#ifdef XPRINTF
+    #undef  printf
+    #define printf XPRINTF
+#endif
+
+
+
+/* ---------------------------------------------------------------------------*/
+/* TPM HARDWARE TYPE */
+/* ---------------------------------------------------------------------------*/
+/* ST ST33TP TPM 2.0 */
+/* #define WOLFTPM_ST33 */
+
+/* Microchip ATTPM20 */
+/* #define WOLFTPM_MCHP */
+
+/* Infineon SLB9670 TPM 2.0 (default) */
+/* #define WOLFTPM_SLB9670 */
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
+    #define WOLFTPM_SLB9670
+#endif
+
+
 
 /* ---------------------------------------------------------------------------*/
 /* ALGORITHMS */
@@ -172,6 +185,10 @@ typedef int64_t  INT64;
 
 #ifndef MAX_SPI_FRAMESIZE
 #define MAX_SPI_FRAMESIZE 64
+#endif
+
+#ifndef TPM_STARTUP_TEST_TRIES
+#define TPM_STARTUP_TEST_TRIES 2
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
@@ -421,5 +438,8 @@ typedef int64_t  INT64;
     #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_BYTES*8)
 #endif
 
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_TYPES_H__ */

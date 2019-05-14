@@ -34,6 +34,8 @@
 
 #include <wolfssl/ssl.h>
 
+#include <stdio.h>
+
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif

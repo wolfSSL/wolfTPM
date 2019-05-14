@@ -22,7 +22,14 @@
 #ifndef _TPM_TLS_SERVER_H_
 #define _TPM_TLS_SERVER_H_
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 int TPM2_TLS_Server(void* userCtx);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* _TPM_TLS_SERVER_H_ */

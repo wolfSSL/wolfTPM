@@ -24,6 +24,10 @@
 
 #include <wolftpm/tpm2_types.h>
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -1622,6 +1626,11 @@ typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
     UINT16 xferSz, void* userCtx);
 #endif
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WC_NO_RNG) && \
+    !defined(WOLFTPM2_USE_HW_RNG)
+    #define WOLFTPM2_USE_WOLF_RNG
+#endif
+
 typedef struct TPM2_CTX {
     TPM2HalIoCb ioCb;
     void* userCtx;
@@ -1629,7 +1638,7 @@ typedef struct TPM2_CTX {
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
 #endif
-    #ifndef WC_NO_RNG
+    #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG rng;
     #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
@@ -1645,6 +1654,16 @@ typedef struct TPM2_CTX {
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
+
+    /* Informational Bits */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    #ifndef SINGLE_THREADED
+    unsigned int hwLockInit:1;
+    #endif
+    #ifndef WC_NO_RNG
+    unsigned int rngInit:1;
+    #endif
+#endif
 } TPM2_CTX;
 
 
@@ -2697,11 +2716,16 @@ WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
+    int timeoutTries);
 WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
-
-/* Other API's - Not TPM Spec */
+/* Other API's - Not in TPM Specification */
+WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
+WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
+
+WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
@@ -2716,13 +2740,18 @@ WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
 WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
 WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
+#ifdef WOLFTPM2_USE_WOLF_RNG
+WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
+#endif
+
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
-
-
 #else
 #define TPM2_PrintBin(b, l)
 #endif
 
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* __TPM2_H__ */

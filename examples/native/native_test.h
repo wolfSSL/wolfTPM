@@ -22,7 +22,14 @@
 #ifndef _NATIVE_TEST_H_
 #define _NATIVE_TEST_H_
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
 
 int TPM2_Native_Test(void* userCtx);
+
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
 #endif /* _NATIVE_TEST_H_ */

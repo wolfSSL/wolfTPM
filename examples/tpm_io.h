@@ -24,13 +24,21 @@
 
 #include <wolftpm/tpm2.h>
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 /* TPM2 IO Examples */
 #ifdef WOLFTPM_ADV_IO
 int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx);
 #else
-int   TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
+#endif
+
+#ifdef __cplusplus
+    }  /* extern "C" */
 #endif
 
 #endif /* _TPM_IO_H_ */

@@ -31,6 +31,8 @@
 #include <examples/tpm_test.h>
 #include <examples/bench/bench.h>
 
+#include <stdio.h>
+
 /* Configuration */
 #define TPM2_BENCH_DURATION_SEC         1
 #define TPM2_BENCH_DURATION_KEYGEN_SEC  15

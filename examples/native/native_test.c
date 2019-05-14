@@ -27,6 +27,8 @@
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
+#include <stdio.h>
+
 /******************************************************************************/
 /* --- BEGIN TPM Native API Tests -- */
 /******************************************************************************/
@@ -415,7 +417,7 @@ int TPM2_Native_Test(void* userCtx)
     rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
                        cmdIn.authSes.nonceCaller.size);
     if (rc < 0) {
-        printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
+        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
@@ -426,7 +428,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     sessionHandle = cmdOut.authSes.sessionHandle;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", sessionHandle);
+    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
 
 
     /* Policy Get Digest */
@@ -513,7 +515,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     handle = cmdOut.hashSeqStart.sequenceHandle;
-    printf("TPM2_HashSequenceStart: sequenceHandle 0x%x\n", handle);
+    printf("TPM2_HashSequenceStart: sequenceHandle 0x%x\n", (word32)handle);
 
     /* set auth for hashing handle */
     session[0].auth.size = sizeof(usageAuth)-1;
@@ -598,7 +600,7 @@ int TPM2_Native_Test(void* userCtx)
     endorse.name = cmdOut.createPri.name;
     endorse.symmetric = cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric;
     printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
-        endorse.handle, endorse.pub.size);
+        (word32)endorse.handle, endorse.pub.size);
 
 
     /* Create Primary (Storage) */
@@ -630,7 +632,7 @@ int TPM2_Native_Test(void* userCtx)
     storage.pub = cmdOut.createPri.outPublic;
     storage.name = cmdOut.createPri.name;
     printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
-        storage.handle, storage.pub.size);
+        (word32)storage.handle, storage.pub.size);
 
 #if 0
     /* Move new primary key into NV to persist */
@@ -657,7 +659,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     handle = cmdOut.loadExt.objectHandle;
-    printf("TPM2_LoadExternal: 0x%x\n", handle);
+    printf("TPM2_LoadExternal: 0x%x\n", (word32)handle);
 
     /* Make a credential */
     XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
@@ -687,7 +689,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
-        cmdIn.readPub.objectHandle,
+        (word32)cmdIn.readPub.objectHandle,
         cmdOut.readPub.outPublic.size, cmdOut.readPub.name.size,
         cmdOut.readPub.qualifiedName.size);
 
@@ -736,7 +738,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     hmacKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load New HMAC Key Handle 0x%x\n", hmacKey.handle);
+    printf("TPM2_Load New HMAC Key Handle 0x%x\n", (word32)hmacKey.handle);
 
     /* set auth for HMAC handle */
     session[0].auth.size = sizeof(usageAuth)-1;
@@ -769,7 +771,7 @@ int TPM2_Native_Test(void* userCtx)
     rc = TPM2_GetNonce(cmdIn.objChgAuth.newAuth.buffer,
                        cmdIn.objChgAuth.newAuth.size);
     if (rc < 0) {
-        printf("wc_RNG_GenerateBlock failed 0x%x: %s\n", rc,
+        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
@@ -856,7 +858,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     eccKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load ECDSA Key Handle 0x%x\n", eccKey.handle);
+    printf("TPM2_Load ECDSA Key Handle 0x%x\n", (word32)eccKey.handle);
 
     /* set session auth for ecc key */
     session[0].auth.size = sizeof(usageAuth)-1;
@@ -942,7 +944,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     eccKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load ECDH Key Handle 0x%x\n", eccKey.handle);
+    printf("TPM2_Load ECDH Key Handle 0x%x\n", (word32)eccKey.handle);
 
     /* set session auth for ecc key */
     session[0].auth.size = sizeof(usageAuth)-1;
@@ -1034,7 +1036,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     rsaKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load RSA Key Handle 0x%x\n", rsaKey.handle);
+    printf("TPM2_Load RSA Key Handle 0x%x\n", (word32)rsaKey.handle);
 
     /* set session auth for RSA key */
     session[0].auth.size = sizeof(usageAuth)-1;
@@ -1110,7 +1112,7 @@ int TPM2_Native_Test(void* userCtx)
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_NV_DefineSpace: 0x%x\n", nvIndex);
+    printf("TPM2_NV_DefineSpace: 0x%x\n", (word32)nvIndex);
 
     /* Read NV */
     XMEMSET(&cmdIn.nvReadPub, 0, sizeof(cmdIn.nvReadPub));
@@ -1124,9 +1126,9 @@ int TPM2_Native_Test(void* userCtx)
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         cmdOut.nvReadPub.nvPublic.size,
-        cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
+		(word32)cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
         cmdOut.nvReadPub.nvPublic.nvPublic.nameAlg,
-        cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
+		(word32)cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
         cmdOut.nvReadPub.nvPublic.nvPublic.authPolicy.size,
         cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
         cmdOut.nvReadPub.nvName.size);
@@ -1209,7 +1211,7 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     aesKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load New AES Key Handle 0x%x\n", aesKey.handle);
+    printf("TPM2_Load New AES Key Handle 0x%x\n", (word32)aesKey.handle);
 
     /* set auth for AES handle */
     session[0].auth.size = sizeof(usageAuth)-1;

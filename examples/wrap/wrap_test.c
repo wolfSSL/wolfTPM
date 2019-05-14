@@ -30,6 +30,8 @@
 #include <examples/tpm_test.h>
 #include <examples/wrap/wrap_test.h>
 
+#include <stdio.h>
+
 /* Configuration */
 #define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
 #define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
