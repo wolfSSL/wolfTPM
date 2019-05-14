@@ -63,23 +63,6 @@ typedef int64_t  INT64;
 #endif
 
 
-
-/* ---------------------------------------------------------------------------*/
-/* TPM HARDWARE TYPE */
-/* ---------------------------------------------------------------------------*/
-/* ST ST33TP TPM 2.0 */
-/* #define WOLFTPM_ST33 */
-
-/* Microchip ATTPM20 */
-/* #define WOLFTPM_MCHP */
-
-/* Infineon SLB9670 TPM 2.0 (default) */
-/* #define WOLFTPM_SLB9670 */
-#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
-    #define WOLFTPM_SLB9670
-#endif
-
-
 /* ---------------------------------------------------------------------------*/
 /* WOLFCRYPT */
 /* ---------------------------------------------------------------------------*/
@@ -147,6 +130,30 @@ typedef int64_t  INT64;
         #endif
     #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+/* enable way for customer to override printf */
+#ifdef XPRINTF
+    #undef  printf
+    #define printf XPRINTF
+#endif
+
+
+
+/* ---------------------------------------------------------------------------*/
+/* TPM HARDWARE TYPE */
+/* ---------------------------------------------------------------------------*/
+/* ST ST33TP TPM 2.0 */
+/* #define WOLFTPM_ST33 */
+
+/* Microchip ATTPM20 */
+/* #define WOLFTPM_MCHP */
+
+/* Infineon SLB9670 TPM 2.0 (default) */
+/* #define WOLFTPM_SLB9670 */
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
+    #define WOLFTPM_SLB9670
+#endif
+
 
 
 /* ---------------------------------------------------------------------------*/
