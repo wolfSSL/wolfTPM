@@ -73,6 +73,8 @@ int TPM2_Wrapper_Test(void* userCtx)
     TpmCryptoDevCtx tpmCtx;
 #endif
     WOLFTPM2_HASH hash;
+    byte hashBuf[TPM_MAX_DIGEST_SIZE];
+    int hashSz;
 #ifdef ENABLE_LARGE_HASH_TEST
     const char* hashTestDig =
         "\x27\x78\x3e\x87\x96\x3a\x4e\xfb\x68\x29\xb5\x31\xc9\xba\x57\xb4"
@@ -677,6 +679,28 @@ int TPM2_Wrapper_Test(void* userCtx)
         printf("Encrypt/Decrypt (gen key) test failed, result not as expected!\n");
         goto exit;
     }
+
+
+    /*------------------------------------------------------------------------*/
+    /* PCR TESTS */
+    /*------------------------------------------------------------------------*/
+    /* Read PCR Index 0 */
+    hashSz = 0;
+    rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);
+    if (rc != 0) goto exit;
+
+    /* Extend PCR Index 0 */
+    for (i=0; i<hashSz; i++) {
+        hashBuf[i] = i;
+    }
+    rc = wolfTPM2_ExtendPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, hashSz);
+    if (rc != 0) goto exit;
+
+    /* Read PCR Index 0 */
+    rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);
+    if (rc != 0) goto exit;
+    printf("PCR Test pass\n");
+
 
 exit:
 

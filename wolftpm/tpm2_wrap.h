@@ -191,7 +191,9 @@ WOLFTPM_API int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz);
 
 WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
-    int pcrIndex, int alg, byte* digest, int* p_digest_len);
+    int pcrIndex, int hashAlg, byte* digest, int* pDigestLen);
+WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
+    const byte* digest, int digestLen);
 
 WOLFTPM_API int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, word32 nvAttributes, word32 maxSize, const byte* auth, int authSz);
