@@ -1729,18 +1729,18 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 
 
-int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
-    int* p_digest_len)
+int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
+    int* pDigestLen)
 {
     int rc;
     PCR_Read_In  pcrReadIn;
     PCR_Read_Out pcrReadOut;
-    int digest_len;
+    int digestLen;
 
     if (dev == NULL)
         return BAD_FUNC_ARG;
 
-    wolfTPM2_SetupPCRSel(&pcrReadIn.pcrSelectionIn, alg, pcrIndex);
+    wolfTPM2_SetupPCRSel(&pcrReadIn.pcrSelectionIn, hashAlg, pcrIndex);
     rc = TPM2_PCR_Read(&pcrReadIn, &pcrReadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -1749,18 +1749,50 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int alg, byte* digest,
         return rc;
     }
 
-    digest_len = (int)pcrReadOut.pcrValues.digests[0].size;
+    digestLen = (int)pcrReadOut.pcrValues.digests[0].size;
     if (digest)
-        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digest_len);
+        XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digestLen);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-        pcrIndex, digest_len, (int)pcrReadOut.pcrUpdateCounter);
-    TPM2_PrintBin(digest, digest_len);
+        pcrIndex, digestLen, (int)pcrReadOut.pcrUpdateCounter);
+    TPM2_PrintBin(digest, digestLen);
 #endif
 
-    if (p_digest_len)
-        *p_digest_len = digest_len;
+    if (pDigestLen)
+        *pDigestLen = digestLen;
+
+    return rc;
+}
+
+int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
+    const byte* digest, int digestLen)
+{
+    int rc;
+    PCR_Extend_In pcrExtend;
+
+    if (dev == NULL || digestLen > TPM_MAX_DIGEST_SIZE) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    XMEMSET(&pcrExtend, 0, sizeof(pcrExtend));
+    pcrExtend.pcrHandle = pcrIndex;
+    pcrExtend.digests.count = 1;
+    pcrExtend.digests.digests[0].hashAlg = hashAlg;
+    XMEMCPY(pcrExtend.digests.digests[0].digest.H, digest, digestLen);
+    rc = TPM2_PCR_Extend(&pcrExtend);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_PCR_Extend failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    #endif
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_PCR_Extend: Index %d, Digest Sz %d\n", pcrIndex, digestLen);
+#endif
 
     return rc;
 }
