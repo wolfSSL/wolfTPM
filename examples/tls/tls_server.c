@@ -136,6 +136,9 @@ int TPM2_TLS_Server(void* userCtx)
 #endif
     tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
     tpmCtx.storageKey = &storageKey;
+#ifdef WOLFTPM_USE_SYMMETRIC
+    tpmCtx.useSymmetricOnTPM = 1;
+#endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 

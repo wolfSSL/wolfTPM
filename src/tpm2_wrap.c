@@ -183,7 +183,7 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  */
 
 /* ST33TP
- *  TPM_PT_MANUFACTURER 0x53544D20: “STM”
+ *  TPM_PT_MANUFACTURER 0x53544D20: "STM"
  *  TPM_PT_FIRMWARE_VERSION_1 TPM FW version: 0x00006400
  *  TPM_PT_VENDOR_TPM_TYPE 1: TPM 2.0
  *  TPM_PT_MODES: BIT 0 SET (1): indicates that the TPM is designed to
@@ -1922,7 +1922,6 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     }
 
     return rc;
-
 }
 
 int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
@@ -2968,11 +2967,16 @@ typedef struct WOLFTPM2_HASHCTX {
 
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
-    int rc = NOT_COMPILED_IN; /* return this to bypass HW and use SW */
+    int rc = CRYPTOCB_UNAVAILABLE;
+    int exit_rc;
     TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
 
     if (info == NULL || ctx == NULL || tlsCtx->dev == NULL)
         return BAD_FUNC_ARG;
+
+    /* for FIPS mode default error is not allowed, otherwise try and fallback
+        to software crypto */
+    exit_rc = tlsCtx->useFIPSMode ? FIPS_NOT_ALLOWED_E : CRYPTOCB_UNAVAILABLE;
 
     (void)devId;
 
@@ -3013,7 +3017,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             long    e;
             WC_RNG* rng;
             #endif
-            rc = NOT_COMPILED_IN;
+            rc = exit_rc;
         }
         else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {
@@ -3040,7 +3044,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         /* A failure of TPM_RC_KEY can happen due to unsupported
                             RSA exponents. In those cases return NOT_COMPILED_IN
                             and use software */
-                        rc = NOT_COMPILED_IN;
+                        rc = exit_rc;
                         break;
                     }
 
@@ -3069,14 +3073,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #ifdef HAVE_ECC
         if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
         #ifdef WOLFTPM2_USE_SW_ECDHE
-            rc = NOT_COMPILED_IN;
+            rc = exit_rc;
         #else
             int curve_id;
 
             /* Make sure an ECDH key has been set and curve is supported */
             rc = TPM2_GetTpmCurve(info->pk.eckg.curveId);
             if (rc < 0 || tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
-                return NOT_COMPILED_IN;
+                return exit_rc;
             }
             curve_id = rc;
 
@@ -3146,13 +3150,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
         else if (info->pk.type == WC_PK_TYPE_ECDH) {
         #ifdef WOLFTPM2_USE_SW_ECDHE
-            rc = NOT_COMPILED_IN;
+            rc = exit_rc;
         #else
             TPM2B_ECC_POINT pubPoint;
 
             /* Make sure an ECDH key has been set */
             if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
-                return NOT_COMPILED_IN;
+                return exit_rc;
             }
 
             rc = wolfTPM2_EccKey_WolfToPubPoint(tlsCtx->dev,
@@ -3177,7 +3181,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
     #endif
         if (info->cipher.type != WC_CIPHER_AES_CBC) {
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
 
     #ifdef WOLFTPM_USE_SYMMETRIC
@@ -3187,6 +3191,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
             if (aes == NULL) {
                 return BAD_FUNC_ARG;
+            }
+
+            if (!tlsCtx->useSymmetricOnTPM) {
+                return exit_rc;
             }
 
             /* load key */
@@ -3223,10 +3231,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif
         if (info->hash.type != WC_HASH_TYPE_SHA &&
             info->hash.type != WC_HASH_TYPE_SHA256) {
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
 
     #ifdef WOLFTPM_USE_SYMMETRIC
+        if (!tlsCtx->useSymmetricOnTPM) {
+            return exit_rc;
+        }
+
     #ifndef NO_SHA
         if (info->hash.type == WC_HASH_TYPE_SHA) {
             hashAlg = TPM_ALG_SHA1;
@@ -3246,7 +3258,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
     #endif
         if (hashAlg == TPM_ALG_ERROR) {
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
 
         XMEMSET(&hash, 0, sizeof(hash));
@@ -3349,14 +3361,18 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif
         if (info->hmac.macType != WC_HASH_TYPE_SHA &&
             info->hmac.macType != WC_HASH_TYPE_SHA256) {
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
         if (info->hmac.hmac == NULL) {
             /* make sure HMAC context exists */
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
 
     #ifdef WOLFTPM_USE_SYMMETRIC
+        if (!tlsCtx->useSymmetricOnTPM) {
+            return exit_rc;
+        }
+
     #ifndef NO_SHA
         if (info->hmac.macType == WC_HASH_TYPE_SHA) {
             hashAlg = TPM_ALG_SHA1;
@@ -3368,7 +3384,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
     #endif
         if (hashAlg == TPM_ALG_ERROR) {
-            return NOT_COMPILED_IN;
+            return exit_rc;
         }
 
         hmacCtx = (WOLFTPM2_HMAC*)info->hmac.hmac->devCtx;
@@ -3420,7 +3436,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 #endif /* !NO_HMAC */
 
     /* need to return negative here for error */
-    if (rc != TPM_RC_SUCCESS && rc != NOT_COMPILED_IN) {
+    if (rc != TPM_RC_SUCCESS && rc != exit_rc) {
     #ifdef DEBUG_WOLFTPM
         printf("wolfTPM2_CryptoDevCb failed rc = %d\n", rc);
     #endif
