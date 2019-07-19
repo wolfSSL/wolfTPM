@@ -2536,7 +2536,10 @@ int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
 #ifdef WOLFTPM_ST33
     SetCommandSet_In in;
 
-    /* Enable TPM2_EncryptDecrypt2 command */
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    /* Enable commands (like TPM2_EncryptDecrypt2) */
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = TPM_RH_PLATFORM;
     in.commandCode = commandCode;
