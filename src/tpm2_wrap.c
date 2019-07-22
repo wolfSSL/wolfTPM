@@ -124,8 +124,37 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     if (dev == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
+
     rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
     if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    /* define the default session auth */
+    XMEMSET(dev->session, 0, sizeof(dev->session));
+    wolfTPM2_SetAuth(dev, 0, TPM_RS_PW, NULL, 0);
+
+    return rc;
+}
+
+/* Access already started TPM module */
+int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
+{
+    int rc;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
+
+    /* The 0 startup indicates use existing locality */
+    rc = TPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -326,10 +355,9 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     return 0;
 }
 
-int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
+int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 {
-    int rc;
-    Shutdown_In shutdownIn;
+    int rc = 0;
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
@@ -342,18 +370,27 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
     	return rc;
 #endif
 
-    shutdownIn.shutdownType = TPM_SU_CLEAR;
-    rc = TPM2_Shutdown(&shutdownIn);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Shutdown failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
-        return rc;
+    if (doShutdown)  {
+        Shutdown_In shutdownIn;
+        XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
+        shutdownIn.shutdownType = TPM_SU_CLEAR;
+        rc = TPM2_Shutdown(&shutdownIn);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Shutdown failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        #endif
+            /* finish cleanup and return error */
+        }
     }
 
     TPM2_Cleanup(&dev->ctx);
 
     return rc;
+}
+
+int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
+{
+    return wolfTPM2_Cleanup_ex(dev, 1);
 }
 
 
@@ -3495,6 +3532,7 @@ int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
         rc = wolfTPM2_GetTpmDevId(dev);
         if (rc >= 0) {
             devId = rc;
+            rc = 0;
         }
     }
     if (devId != INVALID_DEVID) {

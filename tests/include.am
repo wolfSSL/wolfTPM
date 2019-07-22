@@ -1,0 +1,14 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+check_PROGRAMS += tests/unit.test
+noinst_PROGRAMS += tests/unit.test
+tests_unit_test_SOURCES = \
+                  tests/unit_tests.c \
+                  examples/tpm_io.c
+tests_unit_test_CFLAGS       = $(AM_CFLAGS)
+tests_unit_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+tests_unit_test_DEPENDENCIES = src/libwolftpm.la
+endif

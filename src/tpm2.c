@@ -353,8 +353,14 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
 
-    /* Perform chip startup */
-    rc = TPM2_ChipStartup(ctx, timeoutTries);
+    if (timeoutTries > 0) {
+        /* Perform chip startup and assign locality */
+        rc = TPM2_ChipStartup(ctx, timeoutTries);
+    }
+    else {
+        /* use existing locality */
+        ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
+    }
 
     return rc;
 }
