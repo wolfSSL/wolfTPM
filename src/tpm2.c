@@ -105,7 +105,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     int i;
 
     if (ctx == NULL || packet == NULL)
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
 
     cmd = packet->buf;
     cmdSz = packet->pos;
@@ -227,7 +227,7 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     TPM_RC rc;
 
     if (ctx == NULL || packet == NULL)
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
 
     /* submit command and wait for response */
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet->buf, packet->pos);
@@ -282,7 +282,7 @@ TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
     TPM_RC rc;
 
     if (ctx == NULL) {
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
     }
 
     rc = TPM2_AcquireLock(ctx);
@@ -312,7 +312,7 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     TPM_RC rc;
 
     if (ctx == NULL) {
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
     }
 
     rc = TPM2_AcquireLock(ctx);
@@ -331,8 +331,8 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 {
     TPM_RC rc;
 
-    if (ctx == NULL) {
-        return TPM_RC_FAILURE;
+    if (ctx == NULL || ioCb == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
@@ -375,7 +375,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     TPM_RC rc;
 
     if (ctx == NULL)
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
 
     /* clear global */
     rc = TPM2_AcquireLock(ctx);

@@ -32,9 +32,15 @@
 #include <stdio.h>
 
 /* Test Fail Helpers */
-#ifndef XABORT
-#define XABORT() abort()
+#ifndef NO_ABORT
+    #ifndef XABORT
+    #define XABORT() abort()
+    #endif
+#else
+    #undef  XABORT
+    #define XABORT()
 #endif
+
 #define Fail(description, result) do {                                         \
     printf("\nERROR - %s line %d failed with:", __FILE__, __LINE__);           \
     printf("\n    expected: "); printf description;                            \
@@ -74,46 +80,174 @@
 #define AssertStrGE(x, y) AssertStr(x, y, >=,  <)
 #define AssertStrLE(x, y) AssertStr(x, y, <=,  >)
 
-
-/* test for WOLFTPM2_DEV restore */
-static void test_OpenExistingDev(void)
-{
 #ifndef WOLFTPM2_NO_WRAPPER
+
+static void test_wolfTPM2_Init(void)
+{
     int rc;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY storageKey;
+
+    /* Test arguments */
+    rc = wolfTPM2_Init(NULL, TPM2_IoCb, NULL);
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_Init(&dev, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* Test success */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tInit:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+
+/* test for WOLFTPM2_DEV restore */
+static void test_wolfTPM2_OpenExisting(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
-    /* Test access to TPM to read storage primary key */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0 && rc != TPM_RC_HANDLE) goto exit;
+    /* Test access to TPM by getting capabilities */
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
 
     /* Perform cleanup, but don't shutdown TPM module */
     rc = wolfTPM2_Cleanup_ex(&dev, 0);
-    if (rc != 0) goto exit;
+    AssertIntEQ(rc, 0);
 
 
     /* Restore TPM access */
     rc = wolfTPM2_OpenExisting(&dev, TPM2_IoCb, NULL);
-    if (rc != 0) goto exit;
-
-    /* Test access to TPM to read storage primary key */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0 && rc != TPM_RC_HANDLE) goto exit;
-
-    printf("TPM Open Existing Test Passed\n");
-
-exit:
     AssertIntEQ(rc, 0);
+
+    /* Test access to TPM by getting capabilities */
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+
     wolfTPM2_Cleanup(&dev);
-#endif
+
+    printf("Test TPM Wrapper:\tOpen Existing:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
 }
 
+/* test for wolfTPM2_GetCapabilities */
+static void test_wolfTPM2_GetCapabilities(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Test Arguments */
+    rc = wolfTPM2_GetCapabilities(NULL, &caps);
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_GetCapabilities(&dev, NULL);
+    AssertIntNE(rc, 0);
+
+    /* Test success */
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+
+#ifdef DEBUG_WOLFTPM
+    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (%u), FIPS 140-2 %d, CC-EAL4 %d\n",
+        caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
+        caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
+#endif
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tGet Capabilities:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* test for wolfTPM2_ReadPublicKey */
+static void test_wolfTPM2_ReadPublicKey(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storageKey;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Test arguments */
+    rc = wolfTPM2_ReadPublicKey(NULL, &storageKey, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_ReadPublicKey(&dev, NULL, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    AssertIntNE(rc, 0);
+
+    /* Test success: read storage primary key */
+    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
+        TPM2_DEMO_STORAGE_KEY_HANDLE);
+    if (rc == TPM_RC_HANDLE) {
+        rc = 0; /* okay if not found */
+    }
+
+    AssertIntEQ(rc, 0);
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tRead Public Key:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+static void test_wolfTPM2_GetRandom(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_BUFFER rngData;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Test arguments */
+    rc = wolfTPM2_GetRandom(NULL, rngData.buffer, sizeof(rngData.buffer));
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_GetRandom(&dev, NULL, sizeof(rngData.buffer));
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_GetRandom(&dev, rngData.buffer, 0);
+    AssertIntEQ(rc, 0);
+
+    /* Test success */
+    rc = wolfTPM2_GetRandom(&dev, rngData.buffer, sizeof(rngData.buffer));
+
+    AssertIntEQ(rc, 0);
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tGet Random:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+static void test_wolfTPM2_Cleanup(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    /* Test arguments */
+    rc = wolfTPM2_Cleanup(NULL);
+    AssertIntNE(rc, 0);
+
+    /* Test success */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_Cleanup(&dev);
+    AssertIntEQ(rc, 0);
+
+    printf("Test TPM Wrapper:\tCleanup:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
@@ -124,7 +258,14 @@ int unit_tests(int argc, char *argv[])
     (void)argc;
     (void)argv;
 
-    test_OpenExistingDev();
+#ifndef WOLFTPM2_NO_WRAPPER
+    test_wolfTPM2_Init();
+    test_wolfTPM2_OpenExisting();
+    test_wolfTPM2_GetCapabilities();
+    test_wolfTPM2_ReadPublicKey();
+    test_wolfTPM2_GetRandom();
+    test_wolfTPM2_Cleanup();
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;
 }
