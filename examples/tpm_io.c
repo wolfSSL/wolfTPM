@@ -246,6 +246,9 @@
                     if (rxBuf[0] & TPM_TIS_READY_MASK)
                         break;
                 } while (size == 1 && --timeout > 0);
+            #ifdef WOLFTPM_DEBUG_TIMEOUT
+                printf("SPI Ready Timeout %d\n", TPM_SPI_WAIT_RETRY - timeout);
+            #endif
                 if (size != 1 || timeout <= 0) {
                     close(spiDev);
                     return TPM_RC_FAILURE;
@@ -318,6 +321,16 @@
                 if (rxBuf[0] & TPM_TIS_READY_MASK)
                     break;
             } while (status == HAL_OK && --timeout > 0);
+        #ifdef WOLFTPM_DEBUG_TIMEOUT
+            printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
+        #endif
+            if (timeout <= 0) {
+            #ifndef USE_HW_SPI_CS
+                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+            #endif
+                __HAL_SPI_DISABLE(hspi);
+                return TPM_RC_FAILURE;
+            }
         }
 
         /* Send remainder of payload */
@@ -430,6 +443,13 @@
                 if (rxBuf[0] & TPM_TIS_READY_MASK)
                     break;
             } while (ret == TPM_RC_SUCCESS && --timeout > 0);
+        #ifdef WOLFTPM_DEBUG_TIMEOUT
+            printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
+        #endif
+            if (timeout <= 0) {
+                SPI0->SPI_CR = SPI_CR_SPIDIS;
+                return TPM_RC_FAILURE;
+            }
         }
 
         /* Send remainder of payload */
@@ -461,6 +481,10 @@
         int bus = 0;
         struct spi_transfer t;
         struct spi_message m;
+
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
+        #error SPI check wait state logic not supported for BareBox
+    #endif
 
         XMEMSET(&spi, 0, sizeof(spi));
         spi.master = spi_get_master(bus);   /* get bus 0 master */

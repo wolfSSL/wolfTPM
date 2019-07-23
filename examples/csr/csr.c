@@ -41,9 +41,9 @@ static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.csr";
 /* --- BEGIN TPM2 CSR Example -- */
 /******************************************************************************/
 
- static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int key_type, void* wolfKey,
+static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int key_type, void* wolfKey,
     const char* outputPemFile)
- {
+{
     int rc;
     Cert req;
     const CertName myCertName = {
@@ -130,7 +130,7 @@ static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.csr";
 
 exit:
     return rc;
- }
+}
 
 int TPM2_CSR_Example(void* userCtx)
 {

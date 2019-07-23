@@ -2711,6 +2711,26 @@ typedef struct {
     UINT32 lockFlag;
 } SetCommandSet_In;
 WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
+
+enum {
+    TPMLib_2 = 0x01,
+    TPMFips = 0x02,
+    TPMLowPowerOff = 0x00,
+    TPMLowPowerByRegister = 0x04,
+    TPMLowPowerByGpio = 0x08,
+    TPMLowPowerAuto = 0x0C,
+};
+typedef struct TPM_MODE_SET {
+    BYTE CmdToLowPower;
+    BYTE BootToLowPower;
+    BYTE modeLock;
+    BYTE mode;
+} TPM_MODE_SET;
+typedef struct {
+    TPMI_RH_HIERARCHY authHandle;
+    TPM_MODE_SET modeSet;
+} SetMode_In;
+WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
 #endif /* WOLFTPM_ST33 */
 
 /* Non-standard API's */

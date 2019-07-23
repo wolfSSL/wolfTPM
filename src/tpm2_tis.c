@@ -255,6 +255,9 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
         }
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+#ifdef WOLFTPM_DEBUG_TIMEOUT
+    printf("TIS_StartupWait: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+#endif
     if (timeout <= 0)
         return TPM_RC_TIMEOUT;
     return rc;
@@ -302,6 +305,9 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
             }
             XTPM_WAIT();
         } while (rc < 0 && --timeout > 0);
+#ifdef WOLFTPM_DEBUG_TIMEOUT
+        printf("TIS_RequestLocality: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+#endif
         if (timeout <= 0)
             return TPM_RC_TIMEOUT;
     }
@@ -353,6 +359,9 @@ int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
             break;
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+#ifdef WOLFTPM_DEBUG_TIMEOUT
+    printf("TIS_WaitForStatus: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+#endif
     if (timeout <= 0)
         return TPM_RC_TIMEOUT;
     return rc;
@@ -386,6 +395,10 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
             break;
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+
+#ifdef WOLFTPM_DEBUG_TIMEOUT
+    printf("TIS_GetBurstCount: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+#endif
 
     if (*burstCount > MAX_SPI_FRAMESIZE)
         *burstCount = MAX_SPI_FRAMESIZE;

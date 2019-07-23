@@ -289,6 +289,10 @@ typedef struct TpmCryptoDevCtx {
 #endif
     CheckWolfKeyCallbackFunc checkKeyCb;
     WOLFTPM2_KEY* storageKey;
+#ifdef WOLFTPM_USE_SYMMETRIC
+    unsigned short useSymmetricOnTPM:1; /* if set indicates desire to use symmetric algorithms on TPM */
+#endif
+    unsigned short useFIPSMode:1; /* if set requires FIPS mode on TPM and no fallback to software algos */
 } TpmCryptoDevCtx;
 
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
