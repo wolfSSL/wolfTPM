@@ -3100,6 +3100,12 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
                 }
             }
+            else if (rc & TPM_RC_CURVE) {
+                /* if the curve is not supported on TPM, then fall-back to software */
+                rc = exit_rc;
+                /* Make sure ECDHE key indicates nothing loaded */
+                tlsCtx->ecdhKey->handle.hndl = TPM_RH_NULL;
+            }
         #endif /* WOLFTPM2_USE_SW_ECDHE */
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
@@ -3158,7 +3164,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             TPM2B_ECC_POINT pubPoint;
 
             /* Make sure an ECDH key has been set */
-            if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
+            if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL ||
+            		tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
                 return exit_rc;
             }
 
