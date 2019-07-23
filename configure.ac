@@ -107,8 +107,6 @@ AC_ARG_ENABLE([examples],
     [ ENABLED_EXAMPLES=yes ]
     )
 
-AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
-
 
 # Wrapper
 AC_ARG_ENABLE([wrapper],
@@ -121,8 +119,6 @@ if test "$ENABLED_WRAPPER" = "no"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
 fi
-
-AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 
 
 # wolfCrypt
@@ -138,7 +134,6 @@ then
 else
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
 fi
-AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 
 
 # I2C Support
@@ -152,7 +147,6 @@ if test "x$ENABLED_I2C" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
 fi
-AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 
 
 # Advanced IO
@@ -166,7 +160,6 @@ if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ADV_IO"
 fi
-AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
 
 
 # STM ST33 Support
@@ -180,7 +173,6 @@ if test "x$ENABLED_ST33" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
 fi
-AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 
 
 # Microchip ATTPM20 Support
@@ -193,7 +185,7 @@ if test "x$ENABLED_MCHP" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MCHP"
 fi
-AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
+
 
 # Infineon SLB9670
 ENABLED_INFINEON=no
@@ -202,12 +194,25 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
     ENABLED_INFINEON=yes
 fi
-AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
+
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
 
 OPTION_FLAGS="$CFLAGS $CPPFLAGS $AM_CFLAGS"
+
+
+
+# The following AM_CONDITIONAL statements set flags for use in the Makefiles.
+AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
+AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
+AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
+AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
+AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
+AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
+AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
+AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
+
 
 
 CREATE_HEX_VERSION
