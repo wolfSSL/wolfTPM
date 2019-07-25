@@ -57,6 +57,10 @@ typedef struct WOLFTPM2_HASH {
 typedef struct WOLFTPM2_HMAC {
     WOLFTPM2_HASH   hash;
     WOLFTPM2_KEY    key;
+
+    /* option bits */
+    word16 hmacKeyLoaded:1;
+    word16 hmacKeyKeep:1;
 } WOLFTPM2_HMAC;
 
 #ifndef WOLFTPM2_MAX_BUFFER

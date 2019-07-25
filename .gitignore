@@ -36,6 +36,7 @@ examples/pkcs7/pkcs7
 pkcs7tpmsigned.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
+tests/unit.test
 
 # Generated Cert Files
 certs/ca-*.pem
