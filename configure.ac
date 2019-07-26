@@ -196,6 +196,23 @@ then
 fi
 
 
+# Small Stack
+AC_ARG_ENABLE([smallstack],
+    [AS_HELP_STRING([--enable-smallstack],[Enable Small Stack Usage (default: disabled)])],
+    [ ENABLED_SMALL_STACK=$enableval ],
+    [ ENABLED_SMALL_STACK=no ]
+    )
+
+if test "x$ENABLED_SMALL_STACK" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SMALL_STACK"
+
+    # Reduces max packet and buffer sizes to 1024 bytes
+    AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1024 -DWOLFTPM2_MAX_BUFFER=1500 -DMAX_SESSION_NUM=1 -DMAX_DIGEST_BUFFER=973"
+fi
+
+
+
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
 
