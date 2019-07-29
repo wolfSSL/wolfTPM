@@ -118,6 +118,7 @@ WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI d
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
+--enable-smallstack     Enable options to reduce stack usage
 ```
 
 ### Building Infineon SLB9670
