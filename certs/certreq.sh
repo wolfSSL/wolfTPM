@@ -22,6 +22,10 @@ if [ "$1" == "clean" ]; then
 	rm -f ./certs/server-*.pem
 	rm -f ./certs/server-*.der
 	rm -f ./certs/*.old
+
+	# cleanup the ./examples/crl/crl generated
+	rm -f ./certs/tpm-*-cert.csr
+	
 	exit 0
 fi
 
