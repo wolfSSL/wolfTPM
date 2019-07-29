@@ -537,6 +537,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* HASH TESTS */
     /*------------------------------------------------------------------------*/
+    XMEMSET(&hash, 0, sizeof(hash));
     rc = wolfTPM2_HashStart(&dev, &hash, TPM_ALG_SHA256,
         (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
     if (rc != 0) goto exit;
@@ -571,6 +572,8 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* HMAC TESTS */
     /*------------------------------------------------------------------------*/
+    XMEMSET(&hmac, 0, sizeof(hmac));
+    hmac.hmacKeyKeep = 1; /* don't unload key on finish */
     rc = wolfTPM2_HmacStart(&dev, &hmac, &storageKey.handle, TPM_ALG_SHA256,
         (const byte*)hmacTestKey, (word32)XSTRLEN(hmacTestKey),
         (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
@@ -589,6 +592,15 @@ int TPM2_Wrapper_Test(void* userCtx)
         printf("HMAC SHA256 test failed, result not as expected!\n");
         goto exit;
     }
+
+    /* Can reuse the HMAC key here:
+     *   wolfTPM2_HmacStart, wolfTPM2_HmacUpdate, wolfTPM2_HmacFinish
+     */
+
+    /* Manually unload HMAC key, since hmacKeyKeep was set above */
+    /* If hmacKeyKeep == 0 then key will be unloaded in wolfTPM2_HmacFinish */
+    wolfTPM2_UnloadHandle(&dev, &hmac.key.handle);
+
     printf("HMAC SHA256 test success\n");
 
 

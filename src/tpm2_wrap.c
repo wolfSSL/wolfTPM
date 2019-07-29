@@ -2700,11 +2700,14 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     hmac->hash.handle.auth.size = usageAuthSz;
     XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
 
-    /* Load Keyed Hash Key */
-    rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf, keySz,
-        usageAuth, usageAuthSz);
-    if (rc != 0) {
-        return rc;
+    if (!hmac->hmacKeyLoaded || hmac->key.handle.hndl == TPM_RH_NULL) {
+        /* Load Keyed Hash Key */
+        rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf, keySz,
+            usageAuth, usageAuthSz);
+        if (rc != 0) {
+            return rc;
+        }
+        hmac->hmacKeyLoaded = 1;
     }
 
     /* set session auth for hmac key */
@@ -2738,6 +2741,10 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 int wolfTPM2_HmacUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     const byte* data, word32 dataSz)
 {
+    if (dev == NULL || hmac == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     return wolfTPM2_HashUpdate(dev, &hmac->hash, data, dataSz);
 }
 
@@ -2745,10 +2752,18 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     byte* digest, word32* digestSz)
 {
     int rc;
+
+    if (dev == NULL || hmac == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     rc = wolfTPM2_HashFinish(dev, &hmac->hash, digest, digestSz);
 
-    /* unload HMAC key */
-    wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+    if (!hmac->hmacKeyKeep) {
+        /* unload HMAC key */
+        wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+        hmac->hmacKeyLoaded = 0;
+    }
 
     return rc;
 }
