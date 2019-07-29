@@ -100,8 +100,13 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
 {
     int rc;
+    TPM2_CTX* current_ctx;
     TPM2_CTX ctx;
 
+    /* Backup active TPM context */
+    current_ctx = TPM2_GetActiveCtx();
+
+    /* Perform startup and test device */
     rc = wolfTPM2_Init_NoDev(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
@@ -112,7 +117,11 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
         rc = wolfTPM2_GetCapabilities_NoDev(caps);
     }
 
+    /* Perform cleanup */
     TPM2_Cleanup(&ctx);
+
+    /* Restore original context */
+    TPM2_SetActiveCtx(current_ctx);
 
     return rc;
 }
