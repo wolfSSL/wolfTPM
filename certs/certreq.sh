@@ -5,7 +5,7 @@ echo Run ./examples/crl/crl first to generate the CSR
 
 
 # Make sure required CA files exist and are populated
-rm ./certs/index.*
+rm -f ./certs/index.*
 touch ./certs/index.txt 
 if [ ! -f ./certs/serial ]; then
 	echo 1000 > ./certs/serial
@@ -15,13 +15,14 @@ if [ ! -f ./certs/crlnumber ]; then
 fi
 
 if [ "$1" == "clean" ]; then
-	rm ./certs/1*.pem
-	rm ./certs/ca-*.pem
-	rm ./certs/client-*.pem
-	rm ./certs/client-*.der
-	rm ./certs/server-*.pem
-	rm ./certs/server-*.der
-	rm ./certs/*.old
+	rm -f ./certs/1*.pem
+	rm -f ./certs/ca-*.pem
+	rm -f ./certs/client-*.pem
+	rm -f ./certs/client-*.der
+	rm -f ./certs/server-*.pem
+	rm -f ./certs/server-*.der
+	rm -f ./certs/*.old
+	exit 0
 fi
 
 
