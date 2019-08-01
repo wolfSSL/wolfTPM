@@ -29,7 +29,9 @@
 /******************************************************************************/
 
 static TPM2_CTX* gActiveTPM;
-
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+static volatile int gWolfCryptRefCount = 0;
+#endif
 
 /******************************************************************************/
 /* --- Local Functions -- */
@@ -326,6 +328,8 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     return rc;
 }
 
+/* If timeoutTries <= 0 then it will not try and startup chip and will
+    use existing default locality */
 TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
@@ -338,11 +342,15 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-#ifdef DEBUG_WOLFSSL
-    wolfSSL_Debugging_ON();
-#endif
+    /* track reference count for wolfCrypt initialization */
+    if (gWolfCryptRefCount == 0) {
+    #ifdef DEBUG_WOLFSSL
+        wolfSSL_Debugging_ON();
+    #endif
 
-    wolfCrypt_Init();
+        wolfCrypt_Init();
+    }
+    gWolfCryptRefCount++;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     /* Setup HAL IO Callback */
@@ -396,14 +404,21 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         wc_FreeRng(&ctx->rng);
     }
     #endif
-#ifndef SINGLE_THREADED
+    #ifndef SINGLE_THREADED
     if (ctx->hwLockInit) {
         ctx->hwLockInit = 0;
         wc_FreeMutex(&ctx->hwLock);
     }
-#endif
+    #endif
 
-    wolfCrypt_Cleanup();
+    /* track wolf initialize reference count in wolfTPM. wolfCrypt does not
+        properly track reference count in v4.1 or older releases */
+    gWolfCryptRefCount--;
+    if (gWolfCryptRefCount < 0)
+        gWolfCryptRefCount = 0;
+    if (gWolfCryptRefCount == 0) {
+        wolfCrypt_Cleanup();
+    }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     return TPM_RC_SUCCESS;
