@@ -1,5 +1,38 @@
 ## Release Notes
 
+### wolfTPM Release 1.6 (08/01/2019)
+
+**Summary**
+
+Improvements for compatibility, chip detection, initialization options and small stack. Adds new wrapper API's for PCR extend. Adds support for using HMAC with existing key.
+
+**Detail**
+* Fix for wolfCrypt init/cleanup issue with reference count. (PR #75)
+* Fix to restore existing TPM context after calling `wolfTPM2_Test`. (PR #74)
+* Fix to resolve handling of unsupported ECC curves with the TPM module and ECDHE. (PR #69)
+* Fix for `wolfTPM2_SetCommand` to ensure auth is cleared. (PR #69)
+
+* Added `--enable-smallstack` build options for reducing stack usage. (PR #73)
+* Added support for keeping an HMAC key loaded. (PR #72)
+* Added API unit test framework. (PR #71)
+* Added new wrapper API `wolfTPM2_OpenExisting` for accessing device that's already started. (PR #71)
+* Added new `wolfTPM2_ExtendPCR` wrapper. (PR #70)
+* Added crypto callback flags for FIPS mode and Use Symmetric options. (PR #69)
+* Added `WOLFTPM_DEBUG_TIMEOUT` macro for debugging the timeout checking. (PR #69)
+* Added support for ST33 `TPM2_SetMode` command for disabling power saving. (PR #69)
+* Improvements for chip detection, compatibility and startup performance (PR #67)
+	* Added support for `XPRINTF`.
+	* Fix printf type warnings.
+	* Moved the TPM hardware type build macro detection until after the `user_settings.h` include.
+	* Optimization to initialize Mutex and RNG only when use is required.
+	* Added missing stdio.h for printf in examples.
+	* Added new API's `TPM2_SetActiveCtx`, `TPM2_ChipStartup`, `TPM2_SetHalIoCb` and `TPM2_Init_ex`. 
+	* Allowed way to indicate `BOOL` type already defined.
+	* Added C++ support.
+* Added new API `wolfTPM2_Test` for testing for TPM and optionally returning capabilities. (PR #66)
+* Added way to include generated `wolftpm/options.h` (or customized one) using `WOLFTPM_USER_SETTINGS`. (PR #63)
+
+
 ### wolfTPM Release 1.5 (02/20/2019)
 
 **Summary**
@@ -29,6 +62,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Tuned max SPI clock and performance for supported TPM 2.0 chips. (PR #56)
 * Cleanup to move common test parameters into examples/tpm_test.h. (PR #54)
 * Updated benchmarks and console output for examples in README.md.
+
 
 ### wolfTPM Release 1.4 (11/13/2018)
 
@@ -72,6 +106,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Cleanup of TIS layer improve return code and timeout handling. (PR #28)
 * Cleanup to move types and configuration/port specific items into new `tpm2_types.h`. (PR #24)
 
+
 ### wolfTPM Release 1.3 (07/20/2018)
 
 * Fixed the TIS TPM_BASE_ADDRESS to conform to specification. (PR #19)
@@ -88,6 +123,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Added ability to clear/reset TPM using `./examples/wrap/wrap_test 1` (PR #17)
 * Moved some of the example configuration into `./examples/tpm_io.h`. (PR #17)
 
+
 ### wolfTPM Release 1.1 (03/09/2018)
 
 * Added TPM2 wrapper layer to simplify key creation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
@@ -100,6 +136,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Fixes/improvements to `wolfTPM2_GetRCString` for error code and string reporting.
 * Added new `TPM2_Cleanup` function.
 * New tests for TPM2 native API's (test coverage is about 75%).
+
 
 ### wolfTPM Release 1.0 (02/06/2018)
 

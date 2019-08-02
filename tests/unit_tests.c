@@ -34,6 +34,7 @@
 /* Test Fail Helpers */
 #ifndef NO_ABORT
     #ifndef XABORT
+    #include <stdlib.h>
     #define XABORT() abort()
     #endif
 #else
