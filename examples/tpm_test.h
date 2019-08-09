@@ -40,6 +40,7 @@
 
 static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
 static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
+static const char gKeyAuthAlt[] =     "ThisIsMyKeyAltAuth";
 static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 
 #ifndef WOLFTPM_ST33

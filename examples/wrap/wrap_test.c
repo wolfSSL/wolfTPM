@@ -353,6 +353,11 @@ int TPM2_Wrapper_Test(void* userCtx)
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
+    /* Test changing auth for a key */
+    rc = wolfTPM2_ChangeAuthKey(&dev, &eccKey, &storageKey.handle,
+        (byte*)gKeyAuthAlt, sizeof(gKeyAuthAlt)-1);
+    if (rc != 0) goto exit;
+
     /* Perform sign / verify */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
