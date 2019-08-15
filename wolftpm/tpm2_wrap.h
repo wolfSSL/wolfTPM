@@ -54,6 +54,10 @@ typedef struct WOLFTPM2_HASH {
     WOLFTPM2_HANDLE handle;
 } WOLFTPM2_HASH;
 
+typedef struct WOLFTPM2_NV {
+    WOLFTPM2_HANDLE handle;
+} WOLFTPM2_NV;
+
 typedef struct WOLFTPM2_HMAC {
     WOLFTPM2_HASH   hash;
     WOLFTPM2_KEY    key;
@@ -203,16 +207,30 @@ WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     const byte* digest, int digestLen);
 
+/* Newer API's that use WOLFTPM2_NV context and support auth */
+WOLFTPM_API int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
+WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
+WOLFTPM_API int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    word32 nvIndex);
+
+/* older API's with improper auth support, kept only for backwards compatibility */
 WOLFTPM_API int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, word32 nvAttributes, word32 maxSize, const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
 WOLFTPM_API int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32* dataSz, word32 offset);
-WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
-    TPMS_NV_PUBLIC* nvPublic);
 WOLFTPM_API int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex);
+
+WOLFTPM_API int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
+    TPMS_NV_PUBLIC* nvPublic);
+
 
 WOLFTPM_API int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     WOLFTPM2_KEY* key, TPM_HANDLE persistentHandle);

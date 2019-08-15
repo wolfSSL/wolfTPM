@@ -33,8 +33,6 @@
 #include <stdio.h>
 
 /* Configuration */
-#define TPM2_DEMO_NV_TEST_INDEX                 0x01800200
-#define TPM2_DEMO_NV_TEST_SIZE                  1024 /* max size on Infineon SLB9670 is 1664 */
 #if 0
     #define ENABLE_LARGE_HASH_TEST  /* optional large hash test */
 #endif
@@ -500,8 +498,47 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* NV TESTS */
     /*------------------------------------------------------------------------*/
+    /* NV with Auth (preferred API's) */
+    {
+        WOLFTPM2_HANDLE parent;
+        WOLFTPM2_NV nv;
 
-    /* NV Tests */
+        XMEMSET(&parent, 0, sizeof(parent));
+        parent.hndl = TPM_RH_OWNER;
+
+        rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+            nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
+        if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
+
+        message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
+        XMEMSET(message.buffer, 0x11, message.size);
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+            message.buffer, message.size, 0);
+        if (rc != 0) goto exit;
+
+        plain.size = TPM2_DEMO_NV_TEST_SIZE;
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+            plain.buffer, (word32*)&plain.size, 0);
+        if (rc != 0) goto exit;
+
+        rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_AUTH_INDEX, NULL);
+        if (rc != 0) goto exit;
+
+        rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NV_TEST_AUTH_INDEX);
+        if (rc != 0) goto exit;
+
+        if (message.size != plain.size ||
+                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            rc = TPM_RC_TESTING; goto exit;
+        }
+
+        printf("NV Test (with auth) on index 0x%x with %d bytes passed\n",
+            TPM2_DEMO_NV_TEST_AUTH_INDEX, TPM2_DEMO_NV_TEST_SIZE);
+    }
+
+    /* NV Tests (older API's without auth) */
     rc = wolfTPM2_GetNvAttributesTemplate(TPM_RH_OWNER, &nvAttributes);
     if (rc != 0) goto exit;
     rc = wolfTPM2_NVCreate(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX,
@@ -533,6 +570,10 @@ int TPM2_Wrapper_Test(void* userCtx)
     printf("NV Test on index 0x%x with %d bytes passed\n",
         TPM2_DEMO_NV_TEST_INDEX, TPM2_DEMO_NV_TEST_SIZE);
 
+
+    /*------------------------------------------------------------------------*/
+    /* RANDOM TESTS */
+    /*------------------------------------------------------------------------*/
     /* Random Test */
     XMEMSET(message.buffer, 0, sizeof(message.buffer));
     rc = wolfTPM2_GetRandom(&dev, message.buffer, sizeof(message.buffer));

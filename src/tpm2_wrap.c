@@ -1946,27 +1946,29 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     return TPM_RC_SUCCESS;
 }
 
-
-int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
-    word32 nvIndex, word32 nvAttributes, word32 maxSize,
+/* nv is the populated handle and auth */
+/* auth and authSz are optional NV authentication */
+int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz)
 {
     int rc;
     NV_DefineSpace_In in;
 
-    if (dev == NULL)
+    if (dev == NULL || nv == NULL)
         return BAD_FUNC_ARG;
 
-    /* clear auth */
-    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+    /* set session auth for key */
+    dev->session[0].auth = parent->auth;
 
     XMEMSET(&in, 0, sizeof(in));
-    in.authHandle = authHandle;
+    in.authHandle = parent->hndl;
     if (auth && authSz > 0) {
+        if (authSz > (int)sizeof(in.auth.buffer))
+            authSz = (int)sizeof(in.auth.buffer);
         in.auth.size = authSz;
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
-
     in.publicInfo.nvPublic.nvIndex = nvIndex;
     in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
     in.publicInfo.nvPublic.attributes = nvAttributes;
@@ -1981,6 +1983,10 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
         return rc;
     }
 
+    /* return new NV handle */
+    nv->handle.hndl = (TPM_HANDLE)nvIndex;
+    nv->handle.auth = in.auth;
+
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
         (word32)in.authHandle,
@@ -1992,18 +1998,33 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
-int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+/* older API kept for compatibility, recommend using wolfTPM2_NVCreateAuth */
+int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz)
+{
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.hndl = authHandle;
+    return wolfTPM2_NVCreateAuth(dev, &parent, &nv, nvIndex, nvAttributes,
+        maxSize, auth, authSz);
+}
+
+int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
     NV_Write_In in;
 
-    if (dev == NULL)
+    if (dev == NULL || nv == NULL)
         return BAD_FUNC_ARG;
 
-    /* clear auth */
-    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+    /* set auth */
+    dev->session[0].auth = nv->handle.auth;
 
     while (dataSz > 0) {
         towrite = dataSz;
@@ -2011,7 +2032,7 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
             towrite = MAX_NV_BUFFER_SIZE;
 
         XMEMSET(&in, 0, sizeof(in));
-        in.authHandle = authHandle;
+        in.authHandle = nv->handle.hndl;
         in.nvIndex = nvIndex;
         in.offset = offset+pos;
         in.data.size = towrite;
@@ -2039,7 +2060,17 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return rc;
 }
 
-int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+/* older API kept for compatibility, recommend using wolfTPM2_NVWriteAuth */
+int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+{
+    WOLFTPM2_NV nv;
+    XMEMSET(&nv, 0, sizeof(nv));
+    nv.handle.hndl = authHandle;
+    return wolfTPM2_NVWriteAuth(dev, &nv, nvIndex, dataBuf, dataSz, offset);
+}
+
+int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
 {
     int rc = TPM_RC_SUCCESS;
@@ -2047,13 +2078,13 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     NV_Read_In in;
     NV_Read_Out out;
 
-    if (dev == NULL || pDataSz == NULL)
+    if (dev == NULL || nv == NULL || pDataSz == NULL)
         return BAD_FUNC_ARG;
 
     dataSz = *pDataSz;
 
-    /* clear auth */
-    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+    /* set auth */
+    dev->session[0].auth = nv->handle.auth;
 
     while (dataSz > 0) {
         toread = dataSz;
@@ -2061,7 +2092,7 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
             toread = MAX_NV_BUFFER_SIZE;
 
         XMEMSET(&in, 0, sizeof(in));
-        in.authHandle = authHandle;
+        in.authHandle = nv->handle.hndl;
         in.nvIndex = nvIndex;
         in.offset = offset+pos;
         in.size = toread;
@@ -2096,6 +2127,16 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     *pDataSz = pos;
 
     return rc;
+}
+
+/* older API kept for compatibility, recommend using wolfTPM2_NVReadAuth */
+int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
+{
+    WOLFTPM2_NV nv;
+    XMEMSET(&nv, 0, sizeof(nv));
+    nv.handle.hndl = authHandle;
+    return wolfTPM2_NVReadAuth(dev, &nv, nvIndex, dataBuf, pDataSz, offset);
 }
 
 int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
@@ -2138,20 +2179,20 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     return rc;
 }
 
-int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     word32 nvIndex)
 {
     int rc;
     NV_UndefineSpace_In in;
 
-    if (dev == NULL)
+    if (dev == NULL || parent == NULL)
         return BAD_FUNC_ARG;
 
-    /* clear auth */
-    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+    /* set auth */
+    dev->session[0].auth = parent->auth;
 
     XMEMSET(&in, 0, sizeof(in));
-    in.authHandle = authHandle;
+    in.authHandle = parent->hndl;
     in.nvIndex = nvIndex;
 
     rc = TPM2_NV_UndefineSpace(&in);
@@ -2169,6 +2210,16 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 #endif
 
     return rc;
+}
+
+/* older API kept for compatibility, recommend using wolfTPM2_NVDeleteAuth */
+int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
+    word32 nvIndex)
+{
+    WOLFTPM2_HANDLE parent;
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.hndl = authHandle;
+    return wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
