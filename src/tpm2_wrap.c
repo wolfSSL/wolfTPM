@@ -512,6 +512,69 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, const byte* auth, int authSz)
+{
+    int rc;
+    ObjectChangeAuth_In changeIn;
+    ObjectChangeAuth_Out changeOut;
+    Load_In  loadIn;
+    Load_Out loadOut;
+
+    if (dev == NULL || key == NULL || parent == NULL)
+        return BAD_FUNC_ARG;
+
+    /* set session auth for key */
+    dev->session[0].auth = key->handle.auth;
+
+    XMEMSET(&changeIn, 0, sizeof(changeIn));
+    changeIn.objectHandle = key->handle.hndl;
+    changeIn.parentHandle = parent->hndl;
+    if (auth) {
+        if (authSz > (int)sizeof(changeIn.newAuth.buffer))
+            authSz = (int)sizeof(changeIn.newAuth.buffer);
+        changeIn.newAuth.size = authSz;
+        XMEMCPY(changeIn.newAuth.buffer, auth, changeIn.newAuth.size);
+    }
+
+    rc = TPM2_ObjectChangeAuth(&changeIn, &changeOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* unload old key */
+    wolfTPM2_UnloadHandle(dev, &key->handle);
+
+    /* set session auth for parent key */
+    dev->session[0].auth = parent->auth;
+
+    /* Load new key */
+    XMEMSET(&loadIn, 0, sizeof(loadIn));
+    loadIn.parentHandle = parent->hndl;
+    loadIn.inPrivate = changeOut.outPrivate;
+    loadIn.inPublic = key->pub;
+    rc = TPM2_Load(&loadIn, &loadOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    key->handle.dev  = dev;
+    key->handle.hndl = loadOut.objectHandle;
+    key->handle.auth = changeIn.newAuth;
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_ChangeAuthKey: Key Handle 0x%x\n", (word32)key->handle.hndl);
+#endif
+
+    return rc;
+}
+
 int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz)
