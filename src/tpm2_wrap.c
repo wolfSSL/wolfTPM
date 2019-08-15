@@ -1005,7 +1005,7 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         return BUFFER_E;
     if (eccPubYSz > sizeof(pub.publicArea.unique.ecc.y.buffer))
         return BUFFER_E;
-    if (eccPrivSz > sizeof(sens.sensitiveArea.sensitive.rsa.buffer))
+    if (eccPrivSz > sizeof(sens.sensitiveArea.sensitive.ecc.buffer))
         return BUFFER_E;
 
     /* Set up public key */
@@ -1469,10 +1469,16 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (curveSize <= 0 || sigSz < (curveSize * 2)) {
         return BAD_FUNC_ARG;
     }
+    /* verify curvesize cannot exceed buffer */
+    if (curveSize > (int)sizeof(verifySigIn.signature.signature.ecdsa.signatureR.buffer))
+        return BAD_FUNC_ARG;
 
     /* hash cannot be larger than key size for TPM */
     if (digestSz > curveSize)
         digestSz = curveSize;
+    /* verify input cannot exceed buffer */
+    if (digestSz > (int)sizeof(verifySigIn.digest.buffer))
+        digestSz = (int)sizeof(verifySigIn.digest.buffer);
 
     /* set session auth for key */
     dev->session[0].auth = key->handle.auth;
