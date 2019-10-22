@@ -2897,6 +2897,70 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     return rc;
 }
 
+/* performs a reset sequence */
+int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
+{
+    int rc;
+    Shutdown_In shutdownIn;
+    Startup_In startupIn;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* shutdown */
+    XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
+    shutdownIn.shutdownType = TPM_SU_CLEAR;
+    rc = TPM2_Shutdown(&shutdownIn);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Shutdown failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    #endif
+    }
+
+    /* startup */
+    if (doStartup) {
+        XMEMSET(&startupIn, 0, sizeof(startupIn));
+        startupIn.startupType = TPM_SU_CLEAR;
+        rc = TPM2_Startup(&startupIn);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        #endif
+            return rc;
+        }
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_Shutdown complete\n");
+#endif
+
+    return rc;
+}
+
+int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart, word32 handleCount)
+{
+    int rc = TPM_RC_SUCCESS;
+    word32 hndl;
+    WOLFTPM2_HANDLE handle;
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    XMEMSET(&handle, 0, sizeof(handle));
+    handle.dev  = dev;
+    handle.auth = dev->session[0].auth;
+    for (hndl=handleStart; hndl < handleStart+handleCount; hndl++) {
+        handle.hndl = hndl;
+        /* ignore return code failures */
+        (void)wolfTPM2_UnloadHandle(dev, &handle);
+    }
+    return rc;
+}
+
+int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
+{
+    return wolfTPM2_UnloadHandles(dev, TRANSIENT_FIRST, MAX_HANDLE_NUM);
+}
 
 
 /******************************************************************************/
