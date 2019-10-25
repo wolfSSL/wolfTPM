@@ -31,25 +31,25 @@
 */
 
 #if defined(BUILDING_WOLFTPM)
-    #if defined(HAVE_VISIBILITY) && HAVE_VISIBILITY
-        #define WOLFTPM_API   __attribute__ ((visibility("default")))
-        #define WOLFTPM_LOCAL __attribute__ ((visibility("hidden")))
-    #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x550)
-        #define WOLFTPM_API   __global
-        #define WOLFTPM_LOCAL __hidden
-    #elif defined(_MSC_VER)
+    #if defined(_MSC_VER) || defined(__CYGWIN__)
         #ifdef _WINDLL
             #define WOLFTPM_API __declspec(dllexport)
         #else
             #define WOLFTPM_API
         #endif
         #define WOLFTPM_LOCAL
+    #elif defined(HAVE_VISIBILITY) && HAVE_VISIBILITY
+        #define WOLFTPM_API   __attribute__ ((visibility("default")))
+        #define WOLFTPM_LOCAL __attribute__ ((visibility("hidden")))
+    #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x550)
+        #define WOLFTPM_API   __global
+        #define WOLFTPM_LOCAL __hidden
     #else
         #define WOLFTPM_API
         #define WOLFTPM_LOCAL
     #endif /* HAVE_VISIBILITY */
 #else /* BUILDING_WOLFTPM */
-    #if defined(_MSC_VER)
+    #if defined(_MSC_VER) || defined(__CYGWIN__)
         #define WOLFTPM_API __declspec(dllimport)
         #define WOLFTPM_LOCAL
     #else
