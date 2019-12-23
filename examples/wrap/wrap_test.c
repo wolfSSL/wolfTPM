@@ -151,6 +151,9 @@ int TPM2_Wrapper_Test(void* userCtx)
         if (rc != 0) return rc;
     }
 
+    /* unload all transient handles */
+    rc = wolfTPM2_UnloadHandles_AllTransient(&dev);
+
     /* Get the RSA endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
     if (rc != 0) goto exit;
@@ -766,6 +769,8 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
+
+    wolfTPM2_Shutdown(&dev, 0); /* 0=just shutdown, no startup */
 
     wolfTPM2_Cleanup(&dev);
 
