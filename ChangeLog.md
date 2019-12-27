@@ -1,5 +1,21 @@
 ## Release Notes
 
+### wolfTPM Release 1.7 (12/27/2019)
+
+**Summary**
+
+Adds new wrappers for Non-Volatile (NV), changing auth for a key and shutdown.
+
+**Detail**
+
+* Fixes for coverity checks on buffers. (PR #78)
+* Fix visibility warnings in Cygwin. (PR #80)
+* Added wrapper for changing a key's authentication `wolfTPM2_ChangeAuthKey`. (PR #77)
+* Added support for using authentication with NV. (PR #79)
+* Adds new wrapper API's: `wolfTPM2_NVWriteAuth`, `wolfTPM2_NVReadAuth` and `wolfTPM2_NVDeleteAuth`. (PR #79)
+* Added new wrappers for shutdown and handle cleanup. (PR #81)
+
+
 ### wolfTPM Release 1.6 (08/01/2019)
 
 **Summary**
@@ -26,7 +42,7 @@ Improvements for compatibility, chip detection, initialization options and small
 	* Moved the TPM hardware type build macro detection until after the `user_settings.h` include.
 	* Optimization to initialize Mutex and RNG only when use is required.
 	* Added missing stdio.h for printf in examples.
-	* Added new API's `TPM2_SetActiveCtx`, `TPM2_ChipStartup`, `TPM2_SetHalIoCb` and `TPM2_Init_ex`. 
+	* Added new API's `TPM2_SetActiveCtx`, `TPM2_ChipStartup`, `TPM2_SetHalIoCb` and `TPM2_Init_ex`.
 	* Allowed way to indicate `BOOL` type already defined.
 	* Added C++ support.
 * Added new API `wolfTPM2_Test` for testing for TPM and optionally returning capabilities. (PR #66)
@@ -50,7 +66,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Added TIS locking protection for concurrent process access. Enabled using `WOLFTPM_TIS_LOCK`. (PR #56)
 * Added symmetric AES encrypt and decrypt wrappers and examples. (PR #54 and PR #55)
 * Added HMAC wrappers and examples. (PR #56)
-* Added wrappers and examples for loading external HMAC and AES keys. (PR #56) 
+* Added wrappers and examples for loading external HMAC and AES keys. (PR #56)
 * Added delete key wrapper and example. (PR #58)
 * Added ECDH support for ephemeral key generation and shared secret. (PR #50)
 * Added benchmark support for RNG, AES (CTR, CBC, CFB) 128/256 and SHA-1, SHA-256, SHA-384 and SHA-512. (PR #54)
