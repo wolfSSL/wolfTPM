@@ -3009,12 +3009,12 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
     publicTemplate->objectAttributes = objectAttributes;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
-        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-        publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
-        publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+        publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
+        publicTemplate->parameters.eccDetail.symmetric.keyBits.aes = 128;
+        publicTemplate->parameters.eccDetail.symmetric.mode.aes = TPM_ALG_CFB;
     }
     else {
-        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+        publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     }
     publicTemplate->parameters.eccDetail.scheme.scheme = sigScheme;
                                             /* TPM_ALG_ECDSA or TPM_ALG_ECDH */
