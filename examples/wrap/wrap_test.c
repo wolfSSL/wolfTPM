@@ -154,6 +154,11 @@ int TPM2_Wrapper_Test(void* userCtx)
     /* unload all transient handles */
     rc = wolfTPM2_UnloadHandles_AllTransient(&dev);
 
+
+    /*------------------------------------------------------------------------*/
+    /* RSA TESTS */
+    /*------------------------------------------------------------------------*/
+
     /* Get the RSA endorsement key (EK) */
     rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
     if (rc != 0) goto exit;
@@ -162,15 +167,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc != 0) goto exit;
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
 
-    /* Get the ECC endorsement key (EK) */
-    rc = wolfTPM2_GetKeyTemplate_ECC_EK(&publicTemplate);
-    if (rc != 0) goto exit;
-    rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
-        &publicTemplate, NULL, 0);
-    if (rc != 0) goto exit;
-    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
-
-    /* See if primary storage key already exists */
+    /* See if RSA primary storage key already exists */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_KEY_HANDLE);
 
@@ -183,7 +180,7 @@ int TPM2_Wrapper_Test(void* userCtx)
     }
 #endif
     if (rc != 0) {
-        /* Create primary storage key */
+        /* Create primary storage key (RSA) */
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
             TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
@@ -198,7 +195,7 @@ int TPM2_Wrapper_Test(void* userCtx)
             TPM2_DEMO_STORAGE_KEY_HANDLE);
         if (rc != 0) goto exit;
 
-        printf("Created new Primary Storage Key at 0x%x\n",
+        printf("Created new RSA Primary Storage Key at 0x%x\n",
             TPM2_DEMO_STORAGE_KEY_HANDLE);
     }
     else {
@@ -206,12 +203,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
         XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
             storageKey.handle.auth.size);
-    }
-
-
-    /*------------------------------------------------------------------------*/
-    /* RSA TESTS */
-    /*------------------------------------------------------------------------*/
+    }    
 
     /* Create RSA key for encrypt/decrypt */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -221,7 +213,6 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
-
 
     /* Perform RSA encrypt / decrypt (no pad) */
     message.size = 256; /* test message 0x11,0x11,etc */
@@ -342,6 +333,54 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* ECC TESTS */
     /*------------------------------------------------------------------------*/
+
+    /* Get the ECC endorsement key (EK) */
+    rc = wolfTPM2_GetKeyTemplate_ECC_EK(&publicTemplate);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &ekKey, TPM_RH_ENDORSEMENT,
+        &publicTemplate, NULL, 0);
+    if (rc != 0) goto exit;
+    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
+
+    /* See if ECC primary storage key already exists */
+    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
+        TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
+
+#ifdef TEST_WRAP_DELETE_KEY
+    if (rc == 0) {
+        storageKey.handle.hndl = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
+        rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
+        if (rc != 0) goto exit;
+        rc = TPM_RC_HANDLE; /* mark handle as missing */
+    }
+#endif
+    if (rc != 0) {
+        /* Create primary storage key (ECC) */
+        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
+            TPM_ECC_NIST_P256, TPM_ALG_NULL);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
+            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        if (rc != 0) goto exit;
+
+        /* Move this key into persistent storage */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
+            TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
+        if (rc != 0) goto exit;
+
+        printf("Created new ECC Primary Storage Key at 0x%x\n",
+            TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
+    }
+    else {
+        /* specify auth password for storage key */
+        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
+        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
+            storageKey.handle.auth.size);
+    }
+
 
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
