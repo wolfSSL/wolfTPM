@@ -24,7 +24,7 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_tis.h>
-#include <examples/tpm_io.h>
+#include "tpm_io.h"
 
 
 /******************************************************************************/
@@ -32,7 +32,12 @@
 /******************************************************************************/
 
 /* Configuration for the SPI interface */
-/* SPI Requirement: Mode 0 (CPOL=0, CPHA=0), Speed up to 50Mhz */
+/* SPI Requirement: Mode 0 (CPOL=0, CPHA=0) */
+
+/* Use the max speed by default - see tpm2_types.h for chip specific max values */
+#ifndef TPM2_SPI_HZ
+    #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
+#endif
 
 #if defined(__linux__)
     #include <sys/ioctl.h>
@@ -60,32 +65,12 @@
             /* Microchip ATTPM20 */
             /* SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
-            /* Requires SPI wait states */
-            #ifndef WOLFTPM_CHECK_WAIT_STATE
-                #define WOLFTPM_CHECK_WAIT_STATE
-            #endif
-            #ifndef TPM2_SPI_HZ
-                /* Max: 36MHz (has issues so using 33MHz) */
-                #define TPM2_SPI_HZ 33000000
-            #endif
         #elif defined(WOLFTPM_ST33)
             /* STM ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
-            /* Requires wait state support */
-            #ifndef WOLFTPM_CHECK_WAIT_STATE
-                #define WOLFTPM_CHECK_WAIT_STATE
-            #endif
-            #ifndef TPM2_SPI_HZ
-                /* Max: 33MHz */
-                #define TPM2_SPI_HZ 33000000
-            #endif
         #else
             /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
             #define TPM2_SPI_DEV "/dev/spidev0.1"
-            #ifndef TPM2_SPI_HZ
-                /* Max: 43MHz */
-                #define TPM2_SPI_HZ 43000000
-            #endif
         #endif
     #endif
 

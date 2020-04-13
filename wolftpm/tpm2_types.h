@@ -154,6 +154,35 @@ typedef int64_t  INT64;
     #define WOLFTPM_SLB9670
 #endif
 
+/* Chip Specific Settings */
+#ifdef WOLFTPM_MCHP
+    /* Microchip ATTPM20 */
+    /* Requires SPI wait states */
+    #ifndef WOLFTPM_CHECK_WAIT_STATE
+        #define WOLFTPM_CHECK_WAIT_STATE
+    #endif
+    #ifndef TPM2_SPI_MAX_HZ
+        /* Max: 36MHz (has issues so using 33MHz) */
+        #define TPM2_SPI_MAX_HZ 33000000
+    #endif
+#elif defined(WOLFTPM_ST33)
+    /* ST33TPM20 modules */
+    /* Requires wait state support */
+    #ifndef WOLFTPM_CHECK_WAIT_STATE
+        #define WOLFTPM_CHECK_WAIT_STATE
+    #endif
+    #ifndef TPM2_SPI_MAX_HZ
+        /* Max: 33MHz */
+        #define TPM2_SPI_MAX_HZ 33000000
+    #endif
+#else
+    /* OPTIGA SLB9670 */
+    #ifndef TPM2_SPI_MAX_HZ
+        /* Max: 43MHz */
+        #define TPM2_SPI_MAX_HZ 43000000
+    #endif
+#endif
+
 
 
 /* ---------------------------------------------------------------------------*/
