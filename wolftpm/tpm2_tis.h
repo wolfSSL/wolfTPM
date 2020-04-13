@@ -37,11 +37,7 @@
 #define TPM_TIS_READ        0x80
 #define TPM_TIS_WRITE       0x00
 
-#ifdef WOLFTPM_ST33
-#define TPM_TIS_HEADER_SZ 5
-#else
 #define TPM_TIS_HEADER_SZ 4
-#endif
 
 #define TPM_TIS_READY_MASK 0x01
 
