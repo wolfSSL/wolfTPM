@@ -82,6 +82,7 @@ typedef int64_t  INT64;
     #ifdef WOLF_CRYPTO_CB
         #include <wolfssl/wolfcrypt/cryptocb.h>
     #elif defined(WOLF_CRYPTO_DEV)
+        /* old name for crypto callback support */
         #include <wolfssl/wolfcrypt/cryptodev.h>
     #endif
     #ifndef WOLFCRYPT_ONLY
@@ -92,6 +93,13 @@ typedef int64_t  INT64;
 	#ifdef DEBUG_WOLFTPM
 		#include <stdio.h>
 	#endif
+
+    #include <wolfssl/version.h>
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x03015004
+        /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
+        #define wc_HashFree(h, t)
+    #endif
+
 #else
 
     #include <stdio.h>
