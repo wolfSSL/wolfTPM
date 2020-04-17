@@ -97,7 +97,7 @@ typedef int64_t  INT64;
     #include <wolfssl/version.h>
     #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x03015004
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
-        #define wc_HashFree(h, t)
+        #define wc_HashFree(h, t) (0)
     #endif
 
 #else
