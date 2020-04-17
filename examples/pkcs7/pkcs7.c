@@ -316,7 +316,9 @@ int TPM2_PKCS7_Example(void* userCtx)
 
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+#ifndef NO_RSA
     tpmCtx.rsaKey = &rsaKey;
+#endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc < 0) goto exit;
 
