@@ -3467,6 +3467,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
+                else if (rc & TPM_RC_CURVE) {
+                    /* if the curve is not supported on TPM, then fall-back to software */
+                    rc = exit_rc;
+                }
             }
         }
         else if (info->pk.type == WC_PK_TYPE_ECDH) {

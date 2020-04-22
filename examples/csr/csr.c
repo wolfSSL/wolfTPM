@@ -34,8 +34,12 @@
 
 #include <stdio.h>
 
+#ifndef NO_RSA
 static const char* gClientCertRsaFile = "./certs/tpm-rsa-cert.csr";
+#endif
+#ifdef HAVE_ECC
 static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.csr";
+#endif
 
 /******************************************************************************/
 /* --- BEGIN TPM2 CSR Example -- */
