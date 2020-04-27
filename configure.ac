@@ -162,6 +162,19 @@ then
 fi
 
 
+# Linux kernel TPM device Support
+AC_ARG_ENABLE([devtpm],
+    [AS_HELP_STRING([--enable-devtpm],[Enable use of TPM through the Linux kernel driver (default: disabled)])],
+    [ ENABLED_DEVTPM=$enableval ],
+    [ ENABLED_DEVTPM=no ]
+    )
+
+if test "x$ENABLED_DEVTPM" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LINUX_DEV"
+fi
+
+
 # STM ST33 Support
 AC_ARG_ENABLE([st33],
     [AS_HELP_STRING([--enable-st33],[Enable ST33 TPM Support (default: disabled)])],
