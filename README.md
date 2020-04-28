@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
-* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670, Microchip ATTPM20 TPM 2.0 modules and Nuveton NPCT650.
+* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate over SPI.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
@@ -73,7 +73,7 @@ Tested with:
 * LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
 * Microchip ATTPM20
-* Nuveton NPCT650 TPM2.0
+* Nuvoton NPCT650 TPM2.0
 
 #### Device Identification
 
@@ -92,7 +92,7 @@ Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 Nations Technologies Inc. TPM 2.0 module
 Mfg NTZ (0), Vendor Z32H330, Fw 7.51 (419631892), FIPS 140-2 0, CC-EAL4 0
 
-Nuveton NPCT650 TPM2.0
+Nuvoton NPCT650 TPM2.0
 Mfg NTC (0), Vendor rlsNPCT , Fw 1.3 (65536), FIPS 140-2 0, CC-EAL4 0
 
 
