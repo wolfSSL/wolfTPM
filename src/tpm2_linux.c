@@ -20,6 +20,7 @@
  */
 
 
+#ifdef WOLFTPM_LINUX_DEV
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_wrap.h> /* Needed only for WOLFTPM2_MAX_BUFFER */
@@ -32,7 +33,10 @@
 #include <string.h>
 
 
+#ifndef TPM2_LINUX_DEV
 #define TPM2_LINUX_DEV "/dev/tpm0"
+#endif
+
 #define TPM2_LINUX_DEV_POLL_TIMEOUT -1 /* Infinite time for poll events */
 #define TPM2_LINUX_DEV_RSP_SIZE WOLFTPM2_MAX_BUFFER
 /* Linux kernels older than v4.20 (before December 2018) do not support
@@ -49,11 +53,12 @@
 int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 {
     int rc = TPM_RC_FAILURE;
-    int fd, rspSz;
-    int rc_poll, nfds= 1; /* Polling single TPM dev file */
+    int fd;
+    int rc_poll, nfds = 1; /* Polling single TPM dev file */
     struct pollfd fds;
+    size_t rspSz = 0;
 
-#ifdef DEBUG_WOLFTPM /* TODO: Change to WOLFTPM_DEBUG_VERBOSE */
+#ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command size: %d\n", cmdSz);
     TPM2_PrintBin(cmd, cmdSz);
 #endif
@@ -79,7 +84,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
                 #ifdef DEBUG_WOLFTPM
                     else
                     {
-                        printf("Response size is %d bytes, not enough to "
+                        printf("Response size is %ld bytes, not enough to "
                             "hold TPM response.\n", rspSz);
                     }
                 }
@@ -92,20 +97,32 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
                 #endif
                 }
             }
-        #ifdef DEBUG_WOLFTPM /* TODO: Change to WOLFTPM_DEBUG_TIMEOUT */
+        #ifdef WOLFTPM_DEBUG_VERBOSE
             else {
                 printf("Failed to get a response from fd %d, got errno %d ="
                     "%s\n", fd, errno, strerror(errno));
             }
+        }
+        else {
+        printf("Failed to send the TPM command to fd %d, got errno %d ="
+            "%s\n", fd, errno, strerror(errno));
         #endif
         }
 
         close(fd);
     }
+#ifdef DEBUG_WOLFTPM
+    else if (fd == -1 && errno == EACCES) {
+        printf("Permission denied. Use sudo or change the user group.\n");
+    }
+    else {
+        perror("Failed to open device");
+    }
+#endif
 
-#ifdef DEBUG_WOLFTPM /* TODO: Change to WOLFTPM_DEBUG_VERBOSE */
+#ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
-        printf("Response size: %d\n", rspSz);
+        printf("Response size: %ld\n", rspSz);
         TPM2_PrintBin(cmd, rspSz);
     }
 #endif
@@ -114,3 +131,4 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
     return rc;
 }
+#endif

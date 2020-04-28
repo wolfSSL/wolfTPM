@@ -242,6 +242,7 @@ AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
+AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 
 
 
@@ -359,3 +360,4 @@ echo "   * Infineon SLB9670           $ENABLED_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST33"
 echo "   * Microchip ATTPM20:         $ENABLED_MCHP"
 echo "   * I2C:                       $ENABLED_I2C"
+echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"

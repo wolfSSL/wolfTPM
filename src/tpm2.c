@@ -167,7 +167,11 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     /* submit command and wait for response */
+#ifdef WOLFTPM_LINUX_DEV
+    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, cmd, cmdSz);
+#else
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
+#endif
 
     /* parse response */
     rc = TPM2_Packet_Parse(rc, packet);
