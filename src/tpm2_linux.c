@@ -94,12 +94,14 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
                 printf("Failed to get a response from fd %d, got errno %d ="
                     "%s\n", fd, errno, strerror(errno));
             }
-        }
-        else {
-        printf("Failed to send the TPM command to fd %d, got errno %d ="
-            "%s\n", fd, errno, strerror(errno));
         #endif
         }
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+        else {
+            printf("Failed to send the TPM command to fd %d, got errno %d ="
+                "%s\n", fd, errno, strerror(errno));
+        }
+        #endif
 
         close(fd);
     }
