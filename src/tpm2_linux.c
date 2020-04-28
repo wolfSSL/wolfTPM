@@ -73,29 +73,21 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
             if (rc_poll > 0 && fds.revents == POLLIN) {
                 rspSz = read(fd, cmd, TPM2_LINUX_DEV_RSP_SIZE);
-                if (rspSz > 0) {
-                    UINT32 tmpSz;
-                    XMEMCPY(&tmpSz, &cmd[2], sizeof(UINT32));
-                    rspSz = TPM2_Packet_SwapU32(tmpSz);
-                    /* Enough bytes for a TPM response? */
-                    if (rspSz >= TPM2_HEADER_SIZE) {
-                        rc = TPM_RC_SUCCESS;
-                    }
-                #ifdef DEBUG_WOLFTPM
-                    else
-                    {
-                        printf("Response size is %ld bytes, not enough to "
-                            "hold TPM response.\n", rspSz);
-                    }
+                /* The caller parses the TPM_Packet for correctness */
+                if (rspSz >= TPM2_HEADER_SIZE) {
+                    /* Enough bytes for a TPM response */
+                    rc = TPM_RC_SUCCESS;
                 }
+                #ifdef DEBUG_WOLFTPM
                 else if (rspSz == 0) {
                     printf("Received EOF instead of TPM response.\n");
                 }
-                else {
+                else
+                {
                     printf("Failed to read from TPM device %d, got errno %d"
                         " = %s\n", fd, errno, strerror(errno));
-                #endif
                 }
+                #endif
             }
         #ifdef WOLFTPM_DEBUG_VERBOSE
             else {
@@ -122,7 +114,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
-        printf("Response size: %ld\n", rspSz);
+        printf("Response size: %d\n", (int)rspSz);
         TPM2_PrintBin(cmd, rspSz);
     }
 #endif
