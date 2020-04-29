@@ -553,7 +553,6 @@ Connection: close
 ## Todo
 * Add support for encrypting / decrypting parameters.
 * Add support for SensitiveToPrivate inner and outer.
-* Add `spi_tis_dev` support for Raspberry Pi.
 * Add runtime support for detecting module type ST33, SLB9670 or ATTPM20.
 
 
