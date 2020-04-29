@@ -23,6 +23,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
+#include <wolftpm/tpm2_linux.h>
 
 /******************************************************************************/
 /* --- Local Variables -- */
@@ -166,7 +167,11 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     /* submit command and wait for response */
+#ifdef WOLFTPM_LINUX_DEV
+    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, cmd, cmdSz);
+#else
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
+#endif
 
     /* parse response */
     rc = TPM2_Packet_Parse(rc, packet);
@@ -232,7 +237,11 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
 
     /* submit command and wait for response */
+#ifndef WOLFTPM_LINUX_DEV
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet->buf, packet->pos);
+#else
+    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet->buf, packet->pos);
+#endif
 
     return TPM2_Packet_Parse(rc, packet);
 }
@@ -248,6 +257,20 @@ static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
     return st;
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+static inline void TPM2_WolfCrypt_Init(void)
+{
+    /* track reference count for wolfCrypt initialization */
+    if (gWolfCryptRefCount == 0) {
+    #ifdef DEBUG_WOLFSSL
+        wolfSSL_Debugging_ON();
+    #endif
+
+        wolfCrypt_Init();
+    }
+    gWolfCryptRefCount++;
+}
+#endif
 
 /******************************************************************************/
 /* --- Public Functions -- */
@@ -342,16 +365,8 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* track reference count for wolfCrypt initialization */
-    if (gWolfCryptRefCount == 0) {
-    #ifdef DEBUG_WOLFSSL
-        wolfSSL_Debugging_ON();
-    #endif
-
-        wolfCrypt_Init();
-    }
-    gWolfCryptRefCount++;
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+    TPM2_WolfCrypt_Init();
+#endif
 
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
@@ -369,6 +384,29 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         /* use existing locality */
         ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
     }
+
+    return rc;
+}
+
+TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    TPM2_WolfCrypt_Init();
+#endif
+
+    /* Set the active TPM global */
+    TPM2_SetActiveCtx(ctx);
+
+    /* Use existing locality */
+    ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
 
     return rc;
 }

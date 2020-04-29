@@ -96,6 +96,32 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     return rc;
 }
 
+#ifdef WOLFTPM_LINUX_DEV
+static int wolfTPM2_Init_LinuxDev(TPM2_CTX* ctx, void* userCtx)
+{
+    int rc;
+
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    /* Using a TPM device through the Linux kernel TIS driver
+     * means the TPM has already been initialized and commands
+     * such as "Startup" have already been issued */
+
+    rc = TPM2_Init_minimal(ctx);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    ctx->userCtx = userCtx;
+
+    return rc;
+}
+#endif
+
 /* Single-shot API for testing access to hardware and optionally return capabilities */
 int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
 {
@@ -135,7 +161,13 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 
     XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
 
+#ifdef WOLFTPM_LINUX_DEV
+    rc = wolfTPM2_Init_LinuxDev(&dev->ctx, userCtx);
+
+    (void)ioCb; /* Using standard file I/O for the Linux TPM device */
+#else
     rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
+#endif
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }

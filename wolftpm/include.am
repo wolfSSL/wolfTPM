@@ -8,6 +8,7 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_tis.h \
                          wolftpm/tpm2_types.h \
                          wolftpm/tpm2_wrap.h \
+                         wolftpm/tpm2_linux.h \
                          wolftpm/version.h \
                          wolftpm/visibility.h \
                          wolftpm/options.h

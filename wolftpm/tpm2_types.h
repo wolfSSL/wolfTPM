@@ -229,7 +229,11 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-#define TPM_TIMEOUT_TRIES 1000000
+    #ifdef WOLFTPM_LINUX_DEV
+    #define TPM_TIMEOUT_TRIES 0
+    #else
+    #define TPM_TIMEOUT_TRIES 1000000
+    #endif
 #endif
 
 #ifndef TPM_SPI_WAIT_RETRY

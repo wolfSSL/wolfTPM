@@ -162,6 +162,19 @@ then
 fi
 
 
+# Linux kernel TPM device Support
+AC_ARG_ENABLE([devtpm],
+    [AS_HELP_STRING([--enable-devtpm],[Enable use of TPM through the Linux kernel driver (default: disabled)])],
+    [ ENABLED_DEVTPM=$enableval ],
+    [ ENABLED_DEVTPM=no ]
+    )
+
+if test "x$ENABLED_DEVTPM" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LINUX_DEV"
+fi
+
+
 # STM ST33 Support
 AC_ARG_ENABLE([st33],
     [AS_HELP_STRING([--enable-st33],[Enable ST33 TPM Support (default: disabled)])],
@@ -229,6 +242,7 @@ AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
 AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
+AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 
 
 
@@ -346,3 +360,4 @@ echo "   * Infineon SLB9670           $ENABLED_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST33"
 echo "   * Microchip ATTPM20:         $ENABLED_MCHP"
 echo "   * I2C:                       $ENABLED_I2C"
+echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
