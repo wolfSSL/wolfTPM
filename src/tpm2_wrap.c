@@ -72,7 +72,6 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     #endif
         return rc;
     }
-    rc = TPM_RC_SUCCESS;
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Startup pass\n");
 #endif
@@ -91,7 +90,9 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_SelfTest pass\n");
 #endif
-#endif
+#else
+    rc = TPM_RC_SUCCESS;
+#endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
 
     return rc;
 }

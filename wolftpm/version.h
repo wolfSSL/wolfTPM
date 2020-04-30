@@ -34,8 +34,8 @@
 extern "C" {
 #endif
 
-#define LIBWOLFTPM_VERSION_STRING "1.7.0"
-#define LIBWOLFTPM_VERSION_HEX 0x01007000
+#define LIBWOLFTPM_VERSION_STRING "1.8.0"
+#define LIBWOLFTPM_VERSION_HEX 0x01008000
 
 #ifdef __cplusplus
 }

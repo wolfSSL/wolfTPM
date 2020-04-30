@@ -125,6 +125,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
 WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
+WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 --enable-smallstack     Enable options to reduce stack usage

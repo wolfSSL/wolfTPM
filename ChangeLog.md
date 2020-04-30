@@ -1,5 +1,27 @@
 ## Release Notes
 
+### wolfTPM Release 1.8 (04/28/2020)
+
+**Summary**
+
+Added Xilinx Zynq UltraScale+ MPSoC, Linux TIS kernel driver, Nuvoton and Nations Tech TPM module support.
+
+**Detail**
+
+* Fixed obsolete workaround for ST33 and TIS header size. (PR #85)
+* Fixes for building with older wolfSSL versions not supporting `wc_HashFree`. (PR #87)
+* Fixes for building without wolfCrypt RSA (when `NO_RSA` is defined). (PR #89)
+* Fixes for ECC verify in crypto callback to try software if the curve is not supported (`TPM_RC_CURVE`) by the TPM hardware. (PR #89)
+* Fixes for building with `WOLFTPM2_USE_SW_ECDHE`. (PR #86)
+* Added support for using `/dev/tpmX`. (PR #91)
+* Added example for using an ECC primary storage key (root owner). (PR #84)
+* Added Xilinx Zynq MPSoC bare-metal SPI support. (PR #85)
+* Added support for Nuvoton TPM 2.0 NPCT650. (PR #91)
+* Added support for Nations Technologies Inc. TPM 2.0 module (Z32H330). (PR #88)
+* Cleanup of the session auth, so after being set it is also cleared. (PR #84)
+* Moved the chip specific settings to `tpm2_types.h`. (PR #85)
+
+
 ### wolfTPM Release 1.7 (12/27/2019)
 
 **Summary**
