@@ -153,6 +153,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
     /* unload all transient handles */
     rc = wolfTPM2_UnloadHandles_AllTransient(&dev);
+    if (rc != 0) goto exit;
 
 
     /*------------------------------------------------------------------------*/
@@ -768,7 +769,6 @@ int TPM2_Wrapper_Test(void* userCtx)
     }
     else if (rc == TPM_RC_COMMAND_CODE) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
-        rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
         printf("Encrypt/Decrypt (gen key) test failed, result not as expected!\n");
