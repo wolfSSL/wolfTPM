@@ -342,6 +342,32 @@ ECDSA    256 verify        28 ops took 1.030 sec, avg 36.785 ms, 27.185 ops/sec
 ECDHE    256 agree         26 ops took 1.010 sec, avg 38.847 ms, 25.742 ops/sec
 ```
 
+Run on Nuvoton NPCT650:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RNG                  8 KB took 1.291 seconds,    6.197 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+Benchmark symmetric AES-256-CFB-enc not supported!
+Benchmark symmetric AES-256-CFB-dec not supported!
+SHA1                90 KB took 1.005 seconds,   89.530 KB/s
+SHA256              90 KB took 1.010 seconds,   89.139 KB/s
+RSA     2048 key gen        8 ops took 35.833 sec, avg 4479.152 ms, 0.223 ops/sec
+RSA     2048 Public        77 ops took 1.007 sec, avg 13.078 ms, 76.463 ops/sec
+RSA     2048 Private        2 ops took 1.082 sec, avg 540.926 ms, 1.849 ops/sec
+RSA     2048 Pub  OAEP     53 ops took 1.005 sec, avg 18.961 ms, 52.739 ops/sec
+RSA     2048 Priv OAEP      2 ops took 1.088 sec, avg 544.075 ms, 1.838 ops/sec
+ECC      256 key gen        7 ops took 1.033 sec, avg 147.608 ms, 6.775 ops/sec
+ECDSA    256 sign           6 ops took 1.141 sec, avg 190.149 ms, 5.259 ops/sec
+ECDSA    256 verify         4 ops took 1.061 sec, avg 265.216 ms, 3.771 ops/sec
+ECDHE    256 agree          6 ops took 1.055 sec, avg 175.915 ms, 5.685 ops/sec
+```
 
 ### TPM2 Native Tests
 
