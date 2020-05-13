@@ -68,6 +68,7 @@ int TPM2_Native_Test(void* userCtx)
         IncrementalSelfTest_In incSelfTest;
         PCR_Read_In pcrRead;
         PCR_Extend_In pcrExtend;
+        PCR_Reset_In pcrReset;
         CreatePrimary_In createPri;
         Create_In create;
         EvictControl_In evict;
@@ -370,7 +371,7 @@ int TPM2_Native_Test(void* userCtx)
     }
 
     /* PCR Extend and Verify */
-    pcrIndex = 0;
+    pcrIndex = 16; /* Working with PCR16 because of next PCR Reset test */
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
@@ -401,6 +402,37 @@ int TPM2_Native_Test(void* userCtx)
             pcrIndex,
             (int)cmdOut.pcrRead.pcrValues.digests[0].size,
             (int)cmdOut.pcrRead.pcrUpdateCounter);
+        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                      cmdOut.pcrRead.pcrValues.digests[0].size);
+    }
+
+    /* PCR Reset
+        Only PCR16(DEBUG) and PCR23(Application specific) can be reset
+        in locality 0. This is the only locality supoprted by wolfTPM.
+    */
+    pcrIndex = 16;
+    XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));
+    cmdIn.pcrReset.pcrHandle = pcrIndex;
+    rc = TPM2_PCR_Reset(&cmdIn.pcrReset);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_PCR_Reset failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_PCR_Reset command success\n");
+
+    /* Read out the PCR and show it is indeed cleared */
+    printf("PCR Reset: PCR%d value check after reset\n", pcrIndex);
+    XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
+    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
+        TEST_WRAP_DIGEST, pcrIndex);
+    rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("PCR Reset: Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("PCR Reset: PCR%d read successfully after reset\n", pcrIndex);
+    if (cmdOut.pcrRead.pcrValues.count > 0) {
         TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                       cmdOut.pcrRead.pcrValues.digests[0].size);
     }
