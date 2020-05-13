@@ -88,11 +88,18 @@ static void test_wolfTPM2_Init(void)
     int rc;
     WOLFTPM2_DEV dev;
 
-    /* Test arguments */
+    /* Test first argument, wolfTPM2 context */
     rc = wolfTPM2_Init(NULL, TPM2_IoCb, NULL);
     AssertIntNE(rc, 0);
+    /* Test second argument, TPM2 IO Callbacks */
     rc = wolfTPM2_Init(&dev, NULL, NULL);
+#ifdef WOLFTPM_LINUX_DEV
+    /* Custom IO Callbacks are not needed for Linux TIS driver */
+    AssertIntEQ(rc, 0);
+#else
+    /* IO Callbacks are required for SPIdev/I2C and must be valid */
     AssertIntNE(rc, 0);
+#endif
 
     /* Test success */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
