@@ -115,6 +115,7 @@ int TPM2_Native_Test(void* userCtx)
         GetRandom_Out getRand;
         GetTestResult_Out tr;
         IncrementalSelfTest_Out incSelfTest;
+        ReadClock_Out readClock;
         PCR_Read_Out pcrRead;
         CreatePrimary_Out createPri;
         Create_Out create;
@@ -344,6 +345,17 @@ int TPM2_Native_Test(void* userCtx)
         goto exit;
     }
     printf("TPM2_StirRandom: success\n");
+
+
+    /* ReadClock */
+    XMEMSET(&cmdOut.readClock, 0, sizeof(cmdOut.readClock));
+    rc = TPM2_ReadClock(&cmdOut.readClock);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ReadClock failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_ReadClock: success\n");
 
 
     /* PCR Read */
