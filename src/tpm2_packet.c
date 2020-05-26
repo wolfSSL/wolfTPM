@@ -288,29 +288,29 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
     }
 }
 
-void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth)
+void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth, int authCount)
 {
     int tmpSz = 0;
+    int i;
 
     if (auth == NULL)
         return;
 
-    /* make sure continueSession is set for TPM_RS_PW */
-    if (auth->sessionHandle == TPM_RS_PW &&
-       (auth->sessionAttributes & TPMA_SESSION_continueSession) == 0) {
-        auth->sessionAttributes |= TPMA_SESSION_continueSession;
-    }
-
     TPM2_Packet_MarkU32(packet, &tmpSz);
-
-    TPM2_Packet_AppendU32(packet, auth->sessionHandle);
-
-    TPM2_Packet_AppendU16(packet, auth->nonce.size);
-    TPM2_Packet_AppendBytes(packet, auth->nonce.buffer, auth->nonce.size);
-    TPM2_Packet_AppendU8(packet, auth->sessionAttributes);
-    TPM2_Packet_AppendU16(packet, auth->auth.size);
-    TPM2_Packet_AppendBytes(packet, auth->auth.buffer, auth->auth.size);
-
+    for (i=0; i<authCount; i++) {
+        /* make sure continueSession is set for TPM_RS_PW */
+        if (auth->sessionHandle == TPM_RS_PW &&
+           (auth->sessionAttributes & TPMA_SESSION_continueSession) == 0) {
+            auth->sessionAttributes |= TPMA_SESSION_continueSession;
+        }
+        TPM2_Packet_AppendU32(packet, auth->sessionHandle);
+        TPM2_Packet_AppendU16(packet, auth->nonce.size);
+        TPM2_Packet_AppendBytes(packet, auth->nonce.buffer, auth->nonce.size);
+        TPM2_Packet_AppendU8(packet, auth->sessionAttributes);
+        TPM2_Packet_AppendU16(packet, auth->auth.size);
+        TPM2_Packet_AppendBytes(packet, auth->auth.buffer, auth->auth.size);
+        auth++; /* next auth */
+    }
     TPM2_Packet_PlaceU32(packet, tmpSz);
 }
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth)
