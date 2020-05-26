@@ -293,8 +293,9 @@ void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth, const 
     int tmpSz = 0;
     int i;
 
-    if (auth == NULL)
+    if (auth == NULL || authCount > MAX_SESSION_NUM) {
         return;
+    }
 
     TPM2_Packet_MarkU32(packet, &tmpSz);
     for (i=0; i<authCount; i++) {
