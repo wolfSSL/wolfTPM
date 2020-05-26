@@ -80,8 +80,10 @@ int TPM2_Timestamp_Test(void* userCtx)
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
 
     TpmKey endorse = { .handle = TPM_RH_NULL }; /* EK  */
+    TpmKey storage = { .handle = TPM_RH_NULL }; /* SRK */
     TpmKey rsaKey = { .handle = TPM_RH_NULL };  /* AIK */
 
+    const char storagePwd[] = "WolfTPMpassword";
     const char usageAuth[] = "ThisIsASecretUsageAuth";
     const char keyCreationNonce[] = "RandomServerPickedCreationNonce";
 
@@ -114,7 +116,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     printf("TPM2_ReadClock: success\n");
 
 
-    /* Create Primary (Endorsement Key) */
+    /* Create Primary (Endorsement Key, also called EK) */
     XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
     cmdIn.createPri.primaryHandle = TPM_RH_ENDORSEMENT;
     /* Policy for creating the EK */
@@ -150,6 +152,41 @@ int TPM2_Timestamp_Test(void* userCtx)
     endorse.name = cmdOut.createPri.name;
     printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
         (word32)endorse.handle, endorse.pub.size);
+
+
+    /* Create Primary (Storage Key, also called SRK) */
+    XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
+    cmdIn.createPri.primaryHandle = TPM_RH_OWNER;
+    /* Set auth required for using SRK */
+    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(storagePwd)-1;
+    XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
+        storagePwd, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
+    /* Parameters for the SRK */
+    cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
+    cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.createPri.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    /* Create the SRK */
+    rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_CreatePrimary: Storage failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    storage.handle = cmdOut.createPri.objectHandle;
+    storage.pub = cmdOut.createPri.outPublic;
+    storage.name = cmdOut.createPri.name;
+    printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
+        (word32)storage.handle, storage.pub.size);
 
 
     /* Start Auth Session */
@@ -195,9 +232,14 @@ int TPM2_Timestamp_Test(void* userCtx)
      */
 
 
+    /* set session auth for storage key */
+    session[0].auth.size = sizeof(storagePwd)-1;
+    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
+
+
     /* Create an RSA key for Attestation purposes */
     XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
-    cmdIn.create.parentHandle = endorse.handle;
+    cmdIn.create.parentHandle = storage.handle;
     /* Set auth required for using the AIK later */
     cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
     XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
@@ -234,7 +276,7 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     /* Load new key */
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
-    cmdIn.load.parentHandle = endorse.handle;
+    cmdIn.load.parentHandle = storage.handle;
     cmdIn.load.inPrivate = rsaKey.priv;
     cmdIn.load.inPublic = rsaKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
@@ -246,6 +288,9 @@ int TPM2_Timestamp_Test(void* userCtx)
     rsaKey.handle = cmdOut.load.objectHandle;
     printf("TPM2_Load RSA Key Handle 0x%x\n", (word32)rsaKey.handle);
 
+
+    /* set NULL password auth for using EK */
+    session[0].auth.size = 0;
 
     /* set auth for using the AIK */
     session[1].sessionHandle = TPM_RS_PW;
@@ -294,6 +339,12 @@ exit:
 
     /* Cleanup key handles */
     if (endorse.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = endorse.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+
+    /* Cleanup key handles */
+    if (storage.handle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = endorse.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
