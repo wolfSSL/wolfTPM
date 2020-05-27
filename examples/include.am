@@ -7,6 +7,7 @@ include examples/bench/include.am
 include examples/tls/include.am
 include examples/csr/include.am
 include examples/pkcs7/include.am
+include examples/timestamp/include.am
 
 dist_example_DATA+= examples/README.md \
                     examples/tpm_io.c \
