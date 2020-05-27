@@ -215,7 +215,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
 
 
-    /* Set PolicySecret for our session to enable use of the Endoresment Hierarchy */
+    /* Set PolicySecret for our session to enable use of the Endorsement Hierarchy */
     XMEMSET(&cmdIn.policySecret, 0, sizeof(cmdIn.policySecret));
     cmdIn.policySecret.authHandle = TPM_RH_ENDORSEMENT;
     cmdIn.policySecret.policySession = sessionHandle;
@@ -227,7 +227,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     printf("TPM2_policySecret success\n"); /* No use of the output */
 
 
-    /* At this stage, the EK is created and NULL password has alredy been set
+    /* At this stage, the EK is created and NULL password has already been set
      * The EH is enabled through policySecret over the active TPM session and
      * the creation of Attestation Identity Key under the EH can take place.
      */
@@ -311,7 +311,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     cmdIn.getTime.privacyAdminHandle = TPM_RH_ENDORSEMENT;
     /* TPM_RH_NULL is a valid handle for NULL signature */
     cmdIn.getTime.signHandle = rsaKey.handle;
-    /* TPM_ALG_NULL is a valid hanle for  NULL signature */
+    /* TPM_ALG_NULL is a valid handle for  NULL signature */
     cmdIn.getTime.inScheme.scheme = TPM_ALG_RSASSA;
     cmdIn.getTime.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
     cmdIn.getTime.qualifyingData.size = 0; /* optional */
@@ -325,7 +325,8 @@ int TPM2_Timestamp_Test(void* userCtx)
     /* Print result in human friendly way */
     attestedTime = (TPMS_TIME_ATTEST_INFO*)cmdOut.getTime.timeInfo.attestationData;
     printf("TPM2_GetTime: TPMS_TIME_ATTEST_INFO with signature attests:\n");
-    printf("* TPM Uptime (in ms) since power-up = %lu\n", (unsigned long)attestedTime->time.clockInfo.clock);
+    printf("* TPM Uptime (in ms) since power-up = %lu\n", 
+        (unsigned long)attestedTime->time.clockInfo.clock);
 
 exit:
 
@@ -335,19 +336,15 @@ exit:
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
 
-    /* Close object handle */
+    /* Close key handles */
     if (rsaKey.handle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = rsaKey.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
-
-    /* Cleanup key handles */
     if (endorse.handle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = endorse.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
-
-    /* Cleanup key handles */
     if (storage.handle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = storage.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);

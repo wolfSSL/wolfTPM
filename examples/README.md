@@ -24,7 +24,7 @@ Demonstrates calling the wolfTPM2_* wrapper API's.
 
 Demonstrates creation of Attestation Identity Keys(AIK) and the generation of TPM signed timestamp that can be later used as protected report of the current system uptime.
 
-This example demonstrates the use of authSession(authorization Sesssion) and policySession(Policy authorization) to enable the Endorsement Hierarachy necessary for creating AIK. Then, the AIK is used to issue a TPM2_GetTime command using the wolfTPM2 native API. This provides us with TPM generated and signed timestamp that can be used as a system report of its uptime.
+This example demonstrates the use of authSession(authorization Session) and policySession(Policy authorization) to enable the Endorsement Hierarchy necessary for creating AIK. Then, the AIK is used to issue a TPM2_GetTime command using the wolfTPM2 native API. This provides us with TPM generated and signed timestamp that can be used as a system report of its uptime.
 
 `./examples/timestamp/signed_timestamp`
 
