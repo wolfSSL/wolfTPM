@@ -345,7 +345,7 @@ exit:
 
     /* Cleanup key handles */
     if (storage.handle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = endorse.handle;
+        cmdIn.flushCtx.flushHandle = storage.handle;
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
 
