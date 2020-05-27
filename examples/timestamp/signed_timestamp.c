@@ -325,7 +325,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     /* Print result in human friendly way */
     attestedTime = (TPMS_TIME_ATTEST_INFO*)cmdOut.getTime.timeInfo.attestationData;
     printf("TPM2_GetTime: TPMS_TIME_ATTEST_INFO with signature attests:\n");
-    printf("* TPM Uptime (in ms) since power-up = %lu\n", attestedTime->time.clockInfo.clock);
+    printf("* TPM Uptime (in ms) since power-up = %lu\n", (unsigned long)attestedTime->time.clockInfo.clock);
 
 exit:
 
