@@ -2040,7 +2040,12 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
 
     rc = TPM2_NV_DefineSpace(&in);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_NV_DEFINED) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_NV_DefineSpace: handle already exists\n");
+    #endif
+    }
+    else if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_DefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
