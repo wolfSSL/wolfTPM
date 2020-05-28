@@ -3181,13 +3181,13 @@ int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate)
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = 256;
+    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
     publicTemplate->nameAlg = TPM_ALG_SHA256;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
         TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
-    publicTemplate->parameters.rsaDetail.keyBits = 2048;
+    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
     publicTemplate->parameters.rsaDetail.exponent = 0;
     publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
     publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
@@ -3229,6 +3229,51 @@ int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate)
     return 0;
 }
 
+int wolfTPM2_GetKeyTemplate_RSA_SRK(TPMT_PUBLIC* publicTemplate)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_RSA;
+    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    publicTemplate->parameters.rsaDetail.exponent = 0;
+    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
+    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+
+    return 0;
+}
+
+int wolfTPM2_GetKeyTemplate_RSA_AIK(TPMT_PUBLIC* publicTemplate)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_RSA;
+    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
+    publicTemplate->parameters.rsaDetail.exponent = 0;
+    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_RSASSA;
+    publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = TPM_ALG_SHA256;
+    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+
+    return 0;
+}
+
 int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 {
     if (nvAttributes == NULL)
@@ -3247,6 +3292,78 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
     }
 
     return 0;
+}
+
+int wolfTPM2_CreateEK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg)
+{
+    int rc;
+    TPMT_PUBLIC publicTemplate;
+
+    if(alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
+    }
+    else if(alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
+    }
+    else {
+        /* Supported algorithms for EK are only 2048bit RSA & ECC */
+        return BAD_FUNC_ARG;
+    }
+    /* GetKeyTemplate check */
+    if (rc != 0) return rc;
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, ekKey, TPM_RH_ENDORSEMENT,
+        &publicTemplate, NULL, 0);
+
+    return rc;
+}
+
+int wolfTPM2_CreateSRK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* srkKey, TPM_ALG_ID alg,
+    const byte* auth, int authSz)
+{
+    int rc;
+    TPMT_PUBLIC publicTemplate;
+
+    /* Supported algorithms for SRK are only 2048bit RSA & ECC */
+    if(alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_SRK(&publicTemplate);
+    }
+    else if(alg == TPM_ALG_ECC) {
+        /* TODO: Create GetKeyTemplate_ECC_SRK helper */
+        return BAD_FUNC_ARG;
+    }
+    else {
+        /* Supported algorithms for EK are only 2048bit RSA & ECC */
+        return BAD_FUNC_ARG;
+    }
+    /* GetKeyTemplate check */
+    if (rc != 0) return rc;
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, srkKey, TPM_RH_OWNER,
+        &publicTemplate, auth, authSz);
+
+    return rc;
+}
+
+int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKey,
+    TPM_ALG_ID alg, WOLFTPM2_KEY* srkKey, const byte* auth, int authSz)
+{
+    int rc;
+    TPMT_PUBLIC publicTemplate;
+
+    if(alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
+    }
+    else {
+        return BAD_FUNC_ARG;
+    }
+    /* GetKeyTemplate check */
+    if (rc != 0) return rc;
+
+    rc = wolfTPM2_CreateAndLoadKey(dev, aikKey, &srkKey->handle,
+        &publicTemplate, auth, authSz);
+
+    return rc;
 }
 
 /******************************************************************************/
