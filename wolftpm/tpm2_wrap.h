@@ -301,7 +301,7 @@ WOLFTPM_API int wolfTPM2_CreateSRK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* srkKey, TPM_
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKey,
     TPM_ALG_ID alg, WOLFTPM2_KEY* srkKey, const byte* auth, int authSz);
-WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* out);
+WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
 
 /* moved to tpm.h native code. macros here for backwards compatibility */
 #define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel

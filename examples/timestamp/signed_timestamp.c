@@ -61,15 +61,18 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
 
-    WOLFTPM2_KEY endorse = { .handle.hndl = TPM_RH_NULL }; /* EK  */
-    WOLFTPM2_KEY storage = { .handle.hndl = TPM_RH_NULL }; /* SRK */
-    WOLFTPM2_KEY rsaKey = { .handle.hndl = TPM_RH_NULL };  /* AIK */
+    WOLFTPM2_KEY endorse; /* EK  */
+    WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY rsaKey;  /* AIK */
 
     const byte storagePwd[] = "WolfTPMpassword";
     const byte usageAuth[] = "ThisIsASecretUsageAuth";
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
+    XMEMSET(&endorse, 0, sizeof(endorse));
+    XMEMSET(&storage, 0, sizeof(storage));
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
 
     printf("TPM2 Demo of generating signed timestamp from the TPM\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -219,18 +222,9 @@ exit:
     }
 
     /* Close key handles */
-    if (rsaKey.handle.hndl != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = rsaKey.handle.hndl;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
-    if (endorse.handle.hndl != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = endorse.handle.hndl;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
-    if (storage.handle.hndl != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = storage.handle.hndl;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
+    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
