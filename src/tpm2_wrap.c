@@ -3366,6 +3366,38 @@ int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKey,
     return rc;
 }
 
+int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* out)
+{
+    int rc;
+    GetTime_In getTimeCmd;
+    GetTime_Out getTimeOut;
+
+    if(out == NULL) return BAD_FUNC_ARG;
+
+    /* GetTime */
+    XMEMSET(&getTimeCmd, 0, sizeof(getTimeCmd));
+    XMEMSET(&getTimeOut, 0, sizeof(getTimeOut));
+    getTimeCmd.privacyAdminHandle = TPM_RH_ENDORSEMENT;
+    /* TPM_RH_NULL is a valid handle for NULL signature */
+    getTimeCmd.signHandle = aikKey->handle.hndl;
+    /* TPM_ALG_NULL is a valid handle for  NULL signature */
+    getTimeCmd.inScheme.scheme = TPM_ALG_RSASSA;
+    getTimeCmd.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
+    getTimeCmd.qualifyingData.size = 0; /* optional */
+    rc = TPM2_GetTime(&getTimeCmd, &getTimeOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetTime failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+    }
+
+    /* TODO: Decide what to return. For now, the output structure of GetTime */
+    out = &getTimeOut;
+
+    return rc;
+}
+
+
 /******************************************************************************/
 /* --- END Utility Functions -- */
 /******************************************************************************/

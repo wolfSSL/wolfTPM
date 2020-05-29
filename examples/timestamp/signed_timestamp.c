@@ -43,7 +43,6 @@ int TPM2_Timestamp_Test(void* userCtx)
     TPMS_TIME_ATTEST_INFO* attestedTime = NULL;
 
     union {
-        GetTime_In getTime;
         /* For managing TPM session */
         StartAuthSession_In authSes;
         PolicySecret_In policySecret;
@@ -194,17 +193,8 @@ int TPM2_Timestamp_Test(void* userCtx)
      * Invoking attestation of the TPM time structure can take place.
      */
 
-    /* GetTime */
-    XMEMSET(&cmdIn.getTime, 0, sizeof(cmdIn.getTime));
-    XMEMSET(&cmdOut.getTime, 0, sizeof(cmdOut.getTime));
-    cmdIn.getTime.privacyAdminHandle = TPM_RH_ENDORSEMENT;
-    /* TPM_RH_NULL is a valid handle for NULL signature */
-    cmdIn.getTime.signHandle = rsaKey.handle.hndl;
-    /* TPM_ALG_NULL is a valid handle for  NULL signature */
-    cmdIn.getTime.inScheme.scheme = TPM_ALG_RSASSA;
-    cmdIn.getTime.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
-    cmdIn.getTime.qualifyingData.size = 0; /* optional */
-    rc = TPM2_GetTime(&cmdIn.getTime, &cmdOut.getTime);
+    /* Get signed by the TPM timestamp usign the AIK key */
+    rc = wolfTPM2_GetTime(&rsaKey, &cmdOut.getTime);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetTime failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
