@@ -23,7 +23,7 @@
  * generate a signed timestamp from the TPM using a Attestation Identity Key.
  */
 
-#include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_wrap.h>
 
 #include <examples/timestamp/signed_timestamp.h>
 #include <examples/tpm_io.h>
@@ -36,67 +36,51 @@
 /* --- BEGIN TPM Timestamp Test -- */
 /******************************************************************************/
 
-typedef struct tpmKey {
-    TPM_HANDLE          handle;
-    TPM2B_AUTH          auth;
-    TPM2B_PRIVATE       priv;
-    TPM2B_PUBLIC        pub;
-    TPM2B_NAME          name;
-} TpmKey; /* Type used to store the output from Key generation */
-
-
 int TPM2_Timestamp_Test(void* userCtx)
 {
     int rc;
-    TPM2_CTX tpm2Ctx;
+    WOLFTPM2_DEV dev;
     TPMS_TIME_ATTEST_INFO* attestedTime = NULL;
 
     union {
-        GetTime_In getTime;
-        /* For creating keys */
-        CreatePrimary_In createPri;
-        Create_In create;
         /* For managing TPM session */
         StartAuthSession_In authSes;
         PolicySecret_In policySecret;
-        /* Loading a key and removing objects */
-        Load_In load;
+        /* For removing keys after use */
         FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
         ReadClock_Out readClock;
         GetTime_Out getTime;
-        /* Output from creating keys */
-        CreatePrimary_Out createPri;
-        Create_Out create;
         /* Output from session operations */
         StartAuthSession_Out authSes;
         PolicySecret_Out policySecret;
-        /* Output from loading a key into the TPM */
-        Load_Out load;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
 
-    TpmKey endorse = { .handle = TPM_RH_NULL }; /* EK  */
-    TpmKey storage = { .handle = TPM_RH_NULL }; /* SRK */
-    TpmKey rsaKey = { .handle = TPM_RH_NULL };  /* AIK */
+    WOLFTPM2_KEY endorse; /* EK  */
+    WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY rsaKey;  /* AIK */
 
-    const char storagePwd[] = "WolfTPMpassword";
-    const char usageAuth[] = "ThisIsASecretUsageAuth";
-    const char keyCreationNonce[] = "RandomServerPickedCreationNonce";
+    const byte storagePwd[] = "WolfTPMpassword";
+    const byte usageAuth[] = "ThisIsASecretUsageAuth";
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
+    XMEMSET(&endorse, 0, sizeof(endorse));
+    XMEMSET(&storage, 0, sizeof(storage));
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
 
     printf("TPM2 Demo of generating signed timestamp from the TPM\n");
-    rc = TPM2_Init(&tpm2Ctx, TPM2_IoCb, userCtx);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
+    if (rc != 0) {
+        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+    printf("wolfTPM2_Init: success\n");
 
 
     /* Define the default session auth that has NULL password */
@@ -117,77 +101,27 @@ int TPM2_Timestamp_Test(void* userCtx)
     printf("TPM2_ReadClock: success\n");
 
 
-    /* Create Primary (Endorsement Key, also called EK) */
-    XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
-    cmdIn.createPri.primaryHandle = TPM_RH_ENDORSEMENT;
-    /* Policy for creating the EK */
-    cmdIn.createPri.inPublic.publicArea.authPolicy.size =
-        sizeof(TPM_20_EK_AUTH_POLICY);
-    XMEMCPY(cmdIn.createPri.inPublic.publicArea.authPolicy.buffer,
-        TPM_20_EK_AUTH_POLICY,
-        cmdIn.createPri.inPublic.publicArea.authPolicy.size);
-    /* Parameters of the EK */
-    cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
-    cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.createPri.inPublic.publicArea.objectAttributes = (
-        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
-        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
-    /* Ready to create the EK */
-    rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
+    /* Create Endorsement Key, also called EK */
+    rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Endorsement failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("wolfTPM2_CreateEK: Endorsement failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    /* Store the EK */
-    endorse.handle = cmdOut.createPri.objectHandle;
-    endorse.auth = cmdIn.createPri.inPublic.publicArea.authPolicy;
-    endorse.pub = cmdOut.createPri.outPublic;
-    endorse.name = cmdOut.createPri.name;
-    printf("TPM2_CreatePrimary: Endorsement 0x%x (%d bytes)\n",
-        (word32)endorse.handle, endorse.pub.size);
+    printf("wolfTPM2_CreateEK: Endorsement 0x%x (%d bytes)\n",
+        (word32)endorse.handle.hndl, endorse.pub.size);
 
 
-    /* Create Primary (Storage Key, also called SRK) */
-    XMEMSET(&cmdIn.createPri, 0, sizeof(cmdIn.createPri));
-    cmdIn.createPri.primaryHandle = TPM_RH_OWNER;
-    /* Set auth required for using SRK */
-    cmdIn.createPri.inSensitive.sensitive.userAuth.size = sizeof(storagePwd)-1;
-    XMEMCPY(cmdIn.createPri.inSensitive.sensitive.userAuth.buffer,
-        storagePwd, cmdIn.createPri.inSensitive.sensitive.userAuth.size);
-    /* Parameters for the SRK */
-    cmdIn.createPri.inPublic.publicArea.type = TPM_ALG_RSA;
-    cmdIn.createPri.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    cmdIn.createPri.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.createPri.inPublic.publicArea.objectAttributes = (
-        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.exponent = 0;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
-    cmdIn.createPri.inPublic.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
-    /* Create the SRK */
-    rc = TPM2_CreatePrimary(&cmdIn.createPri, &cmdOut.createPri);
+    /* Create Storage Key, also called SRK */
+    rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, storagePwd,
+        sizeof(storagePwd)-1);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Storage failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_CreateSRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    storage.handle = cmdOut.createPri.objectHandle;
-    storage.pub = cmdOut.createPri.outPublic;
-    storage.name = cmdOut.createPri.name;
-    printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
-        (word32)storage.handle, storage.pub.size);
+    printf("wolfTPM2_CreateSRK: Storage 0x%x (%d bytes)\n",
+        (word32)storage.handle.hndl, storage.pub.size);
 
 
     /* Start Auth Session */
@@ -239,55 +173,15 @@ int TPM2_Timestamp_Test(void* userCtx)
 
 
     /* Create an RSA key for Attestation purposes */
-    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
-    cmdIn.create.parentHandle = storage.handle;
-    /* Set auth required for using the AIK later */
-    cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
-    XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
-        cmdIn.create.inSensitive.sensitive.userAuth.size);
-    /* AIK parameters */
-    cmdIn.create.inPublic.publicArea.type = TPM_ALG_RSA;
-    cmdIn.create.inPublic.publicArea.unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.create.inPublic.publicArea.objectAttributes = (
-        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent | TPMA_OBJECT_restricted |
-        TPMA_OBJECT_sensitiveDataOrigin |
-        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_RSASSA;
-    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg = TPM_ALG_SHA256;
-    cmdIn.create.inPublic.publicArea.parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    cmdIn.create.outsideInfo.size = sizeof(keyCreationNonce)-1;
-    XMEMCPY(cmdIn.create.outsideInfo.buffer, keyCreationNonce,
-        cmdIn.create.outsideInfo.size);
-    /* Create the AIK */
-    rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
+    rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
+        usageAuth, sizeof(usageAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create RSA failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_Create: New RSA Key: pub %d, priv %d\n",
-        cmdOut.create.outPublic.size,
-        cmdOut.create.outPrivate.size);
-    /* Store the AIK */
-    rsaKey.pub = cmdOut.create.outPublic;
-    rsaKey.priv = cmdOut.create.outPrivate;
-
-
-    /* Load new key */
-    XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
-    cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = rsaKey.priv;
-    cmdIn.load.inPublic = rsaKey.pub;
-    rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load RSA key failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    rsaKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load RSA Key Handle 0x%x\n", (word32)rsaKey.handle);
+    printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
+        (word32)rsaKey.handle.hndl, rsaKey.pub.size);
 
 
     /* set NULL password auth for using EK */
@@ -305,27 +199,18 @@ int TPM2_Timestamp_Test(void* userCtx)
      * Invoking attestation of the TPM time structure can take place.
      */
 
-    /* GetTime */
-    XMEMSET(&cmdIn.getTime, 0, sizeof(cmdIn.getTime));
-    XMEMSET(&cmdOut.getTime, 0, sizeof(cmdOut.getTime));
-    cmdIn.getTime.privacyAdminHandle = TPM_RH_ENDORSEMENT;
-    /* TPM_RH_NULL is a valid handle for NULL signature */
-    cmdIn.getTime.signHandle = rsaKey.handle;
-    /* TPM_ALG_NULL is a valid handle for  NULL signature */
-    cmdIn.getTime.inScheme.scheme = TPM_ALG_RSASSA;
-    cmdIn.getTime.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
-    cmdIn.getTime.qualifyingData.size = 0; /* optional */
-    rc = TPM2_GetTime(&cmdIn.getTime, &cmdOut.getTime);
+    /* Get signed by the TPM timestamp usign the AIK key */
+    rc = wolfTPM2_GetTime(&rsaKey, &cmdOut.getTime);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetTime failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_GetTime failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_GetTime: success\n");
+    printf("wolfTPM2_GetTime: success\n");
     /* Print result in human friendly way */
     attestedTime = (TPMS_TIME_ATTEST_INFO*)cmdOut.getTime.timeInfo.attestationData;
-    printf("TPM2_GetTime: TPMS_TIME_ATTEST_INFO with signature attests:\n");
-    printf("* TPM Uptime (in ms) since power-up = %lu\n", 
+    printf("TPMS_TIME_ATTEST_INFO with signature attests:\n");
+    printf("\tTPM Uptime (in ms) since power-up = %lu\n",
         (unsigned long)attestedTime->time.clockInfo.clock);
 
 exit:
@@ -337,27 +222,11 @@ exit:
     }
 
     /* Close key handles */
-    if (rsaKey.handle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = rsaKey.handle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
-    if (endorse.handle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = endorse.handle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
-    if (storage.handle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = storage.handle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
+    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
-    TPM2_Cleanup(&tpm2Ctx);
-
-#ifdef TPM2_SPI_DEV
-    /* close handle */
-    if (gSpiDev >= 0)
-        close(gSpiDev);
-#endif
-
+    wolfTPM2_Cleanup(&dev);
     return rc;
 }
 
