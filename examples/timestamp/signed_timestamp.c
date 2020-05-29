@@ -77,6 +77,7 @@ int TPM2_Timestamp_Test(void* userCtx)
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+    printf("wolfTPM2_Init: success\n");
 
 
     /* Define the default session auth that has NULL password */
@@ -100,11 +101,11 @@ int TPM2_Timestamp_Test(void* userCtx)
     /* Create Endorsement Key, also called EK */
     rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreateEK: Endorsement failed 0x%x: %s\n",
+        printf("wolfTPM2_CreateEK: Endorsement failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_CreateEK: Endorsement 0x%x (%d bytes)\n",
+    printf("wolfTPM2_CreateEK: Endorsement 0x%x (%d bytes)\n",
         (word32)endorse.handle.hndl, endorse.pub.size);
 
 
@@ -112,11 +113,11 @@ int TPM2_Timestamp_Test(void* userCtx)
     rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, storagePwd,
         sizeof(storagePwd)-1);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_CreatePrimary: Storage failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_CreateSRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_CreatePrimary: Storage 0x%x (%d bytes)\n",
+    printf("wolfTPM2_CreateSRK: Storage 0x%x (%d bytes)\n",
         (word32)storage.handle.hndl, storage.pub.size);
 
 
@@ -172,10 +173,12 @@ int TPM2_Timestamp_Test(void* userCtx)
     rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
         usageAuth, sizeof(usageAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create RSA failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
+    printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
+        (word32)rsaKey.handle.hndl, rsaKey.pub.size);
 
 
     /* set NULL password auth for using EK */
@@ -196,15 +199,15 @@ int TPM2_Timestamp_Test(void* userCtx)
     /* Get signed by the TPM timestamp usign the AIK key */
     rc = wolfTPM2_GetTime(&rsaKey, &cmdOut.getTime);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_GetTime failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_GetTime failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_GetTime: success\n");
+    printf("wolfTPM2_GetTime: success\n");
     /* Print result in human friendly way */
     attestedTime = (TPMS_TIME_ATTEST_INFO*)cmdOut.getTime.timeInfo.attestationData;
-    printf("TPM2_GetTime: TPMS_TIME_ATTEST_INFO with signature attests:\n");
-    printf("* TPM Uptime (in ms) since power-up = %lu\n", 
+    printf("TPMS_TIME_ATTEST_INFO with signature attests:\n");
+    printf("\tTPM Uptime (in ms) since power-up = %lu\n",
         (unsigned long)attestedTime->time.clockInfo.clock);
 
 exit:
