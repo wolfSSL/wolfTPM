@@ -1146,7 +1146,7 @@ typedef struct TPMS_SCHEME_HASH {
 } TPMS_SCHEME_HASH;
 
 typedef struct TPMS_SCHEME_ECDAA {
-    TPMI_ALG_HASH hashAlgo;
+    TPMI_ALG_HASH hashAlg;
     UINT16 count;
 } TPMS_SCHEME_ECDAA;
 
@@ -1316,7 +1316,7 @@ typedef union TPMU_SIGNATURE {
 } TPMU_SIGNATURE;
 
 typedef struct TPMT_SIGNATURE {
-    TPMI_ALG_SIG_SCHEME sigAlgo;
+    TPMI_ALG_SIG_SCHEME sigAlg;
     TPMU_SIGNATURE signature;
 } TPMT_SIGNATURE;
 

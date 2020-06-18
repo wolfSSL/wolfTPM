@@ -185,7 +185,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
             TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+            TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
             &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
@@ -204,12 +204,50 @@ int TPM2_Wrapper_Test(void* userCtx)
         storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
         XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
             storageKey.handle.auth.size);
-    }    
+    }
+
+
+    /* Create RSA key for sign/verify */
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
+        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    if (rc != 0) goto exit;
+
+    /* Perform RSA sign / verify - PKCSv1.5 (SSA) padding */
+    message.size = 32; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* signature */
+    rc = wolfTPM2_SignHashScheme(&dev, &rsaKey, message.buffer, message.size,
+        cipher.buffer, &cipher.size, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_VerifyHashScheme(&dev, &rsaKey, cipher.buffer, cipher.size,
+        message.buffer, message.size, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    if (rc != 0) goto exit;
+    printf("RSA Sign/Verify using RSA PKCSv1.5 (SSA) padding\n");
+
+    /* Perform RSA sign / verify - PSS padding */
+    message.size = 32; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* signature */
+    rc = wolfTPM2_SignHashScheme(&dev, &rsaKey, message.buffer, message.size,
+        cipher.buffer, &cipher.size, TPM_ALG_RSAPSS, TPM_ALG_SHA256);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_VerifyHashScheme(&dev, &rsaKey, cipher.buffer, cipher.size,
+        message.buffer, message.size, TPM_ALG_RSAPSS, TPM_ALG_SHA256);
+    if (rc != 0) goto exit;
+    printf("RSA Sign/Verify using RSA PSS padding\n");
+
+    rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    if (rc != 0) goto exit;
+
 
     /* Create RSA key for encrypt/decrypt */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
@@ -399,7 +437,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         (byte*)gKeyAuthAlt, sizeof(gKeyAuthAlt)-1);
     if (rc != 0) goto exit;
 
-    /* Perform sign / verify */
+    /* Perform ECC sign / verify */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
     XMEMSET(message.buffer, 0x11, message.size);
     cipher.size = sizeof(cipher.buffer); /* signature */
@@ -450,9 +488,9 @@ int TPM2_Wrapper_Test(void* userCtx)
         kEccTestPubQY, sizeof(kEccTestPubQY));
     if (rc != 0) goto exit;
 
-    rc = wolfTPM2_VerifyHash_ex(&dev, &publicKey,
+    rc = wolfTPM2_VerifyHashScheme(&dev, &publicKey,
         kEccTestSigRS, sizeof(kEccTestSigRS),
-        kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_SHA1);
+        kEccTestMsg, sizeof(kEccTestMsg), TPM_ALG_ECDSA, TPM_ALG_SHA1);
     if (rc != 0) goto exit;
 
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);

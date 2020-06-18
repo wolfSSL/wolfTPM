@@ -656,9 +656,9 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
 {
     int digestSz;
 
-    TPM2_Packet_AppendU16(packet, sig->sigAlgo);
+    TPM2_Packet_AppendU16(packet, sig->sigAlg);
 
-    switch (sig->sigAlgo) {
+    switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
         TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.hash);
@@ -692,9 +692,9 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
 {
     int digestSz;
 
-    TPM2_Packet_ParseU16(packet, &sig->sigAlgo);
+    TPM2_Packet_ParseU16(packet, &sig->sigAlg);
 
-    switch (sig->sigAlgo) {
+    switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
         TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.hash);
