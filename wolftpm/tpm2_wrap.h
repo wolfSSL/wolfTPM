@@ -135,10 +135,18 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
     TPM2B_SENSITIVE* sens);
 WOLFTPM_API int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent);
+WOLFTPM_API int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent, 
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent,
     const byte* rsaPriv, word32 rsaPrivSz);
+WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
+    const byte* rsaPriv, word32 rsaPrivSz,
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int curveId, const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz);
@@ -178,11 +186,17 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
 
 WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz);
+WOLFTPM_API int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, byte* sig, int* sigSz,
+    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz);
 WOLFTPM_API int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
-    int ecdsaHashAlg);
+    int hashAlg);
+WOLFTPM_API int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz,
+    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg);
 
 WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     int curve_id, const byte* auth, int authSz);
