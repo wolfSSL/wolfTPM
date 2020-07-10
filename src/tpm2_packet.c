@@ -790,6 +790,7 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
                 out->attested.sessionAudit.sessionDigest.size);
             break;
         case TPM_ST_ATTEST_TIME:
+            TPM2_Packet_ParseU64(packet, &out->attested.time.time.time);
             TPM2_Packet_ParseU64(packet, &out->attested.time.time.clockInfo.clock);
             TPM2_Packet_ParseU32(packet, &out->attested.time.time.clockInfo.resetCount);
             TPM2_Packet_ParseU32(packet, &out->attested.time.time.clockInfo.restartCount);
