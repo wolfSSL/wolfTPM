@@ -736,11 +736,11 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
     TPM2_Packet_ParseU16(packet, &out->type);
 
     TPM2_Packet_ParseU16(packet, &out->qualifiedSigner.size);
-    TPM2_Packet_ParseBytes(packet, out->qualifiedSigner.name, 
+    TPM2_Packet_ParseBytes(packet, out->qualifiedSigner.name,
         out->qualifiedSigner.size);
 
     TPM2_Packet_ParseU16(packet, &out->extraData.size);
-    TPM2_Packet_ParseBytes(packet, out->extraData.buffer, 
+    TPM2_Packet_ParseBytes(packet, out->extraData.buffer,
         out->extraData.size);
 
     TPM2_Packet_ParseU64(packet, &out->clockInfo.clock);
@@ -753,40 +753,40 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
     switch (out->type) {
         case TPM_ST_ATTEST_CERTIFY:
             TPM2_Packet_ParseU16(packet, &out->attested.certify.name.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.certify.name.name, 
+            TPM2_Packet_ParseBytes(packet, out->attested.certify.name.name,
                 out->attested.certify.name.size);
             TPM2_Packet_ParseU16(packet, &out->attested.certify.qualifiedName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.certify.qualifiedName.name, 
+            TPM2_Packet_ParseBytes(packet, out->attested.certify.qualifiedName.name,
                 out->attested.certify.qualifiedName.size);
             break;
         case TPM_ST_ATTEST_CREATION:
             TPM2_Packet_ParseU16(packet, &out->attested.creation.objectName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.creation.objectName.name, 
+            TPM2_Packet_ParseBytes(packet, out->attested.creation.objectName.name,
                 out->attested.creation.objectName.size);
             TPM2_Packet_ParseU16(packet, &out->attested.creation.creationHash.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.creation.creationHash.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.creation.creationHash.buffer,
                 out->attested.creation.creationHash.size);
             break;
         case TPM_ST_ATTEST_QUOTE:
             TPM2_Packet_ParsePCR(packet, &out->attested.quote.pcrSelect);
             TPM2_Packet_ParseU16(packet, &out->attested.quote.pcrDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.quote.pcrDigest.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.quote.pcrDigest.buffer,
                 out->attested.quote.pcrDigest.size);
             break;
         case TPM_ST_ATTEST_COMMAND_AUDIT:
             TPM2_Packet_ParseU64(packet, &out->attested.commandAudit.auditCounter);
             TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.digestAlg);
             TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.auditDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.auditDigest.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.auditDigest.buffer,
                 out->attested.commandAudit.auditDigest.size);
             TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.commandDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.commandDigest.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.commandDigest.buffer,
                 out->attested.commandAudit.commandDigest.size);
             break;
         case TPM_ST_ATTEST_SESSION_AUDIT:
             TPM2_Packet_ParseU8(packet, &out->attested.sessionAudit.exclusiveSession);
             TPM2_Packet_ParseU16(packet, &out->attested.sessionAudit.sessionDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.sessionAudit.sessionDigest.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.sessionAudit.sessionDigest.buffer,
                 out->attested.sessionAudit.sessionDigest.size);
             break;
         case TPM_ST_ATTEST_TIME:
@@ -798,11 +798,11 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
             break;
         case TPM_ST_ATTEST_NV:
             TPM2_Packet_ParseU16(packet, &out->attested.nv.indexName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.indexName.name, 
+            TPM2_Packet_ParseBytes(packet, out->attested.nv.indexName.name,
                 out->attested.nv.indexName.size);
             TPM2_Packet_ParseU16(packet, &out->attested.nv.offset);
             TPM2_Packet_ParseU16(packet, &out->attested.nv.nvContents.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.nvContents.buffer, 
+            TPM2_Packet_ParseBytes(packet, out->attested.nv.nvContents.buffer,
                 out->attested.nv.nvContents.size);
             break;
         default:

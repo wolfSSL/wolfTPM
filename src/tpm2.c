@@ -5090,7 +5090,7 @@ int TPM2_GetWolfRng(WC_RNG** rng)
 int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out)
 {
     TPM2_Packet packet;
-    
+
     if (in == NULL || out == NULL)
         return BAD_FUNC_ARG;
 
