@@ -2762,6 +2762,8 @@ WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
 WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
 WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
+WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
+
 #ifdef WOLFTPM2_USE_WOLF_RNG
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
 #endif

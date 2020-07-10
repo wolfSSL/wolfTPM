@@ -725,6 +725,100 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     }
 }
 
+void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
+{
+    XMEMSET(out, 0, sizeof(TPMS_ATTEST));
+
+    TPM2_Packet_ParseU32(packet, &out->magic);
+    if (out->magic != TPM_GENERATED_VALUE) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Attestation magic invalid!\n");
+    #endif
+        return;
+    }
+
+    TPM2_Packet_ParseU16(packet, &out->type);
+
+    TPM2_Packet_ParseU16(packet, &out->qualifiedSigner.size);
+    TPM2_Packet_ParseBytes(packet, out->qualifiedSigner.name,
+        out->qualifiedSigner.size);
+
+    TPM2_Packet_ParseU16(packet, &out->extraData.size);
+    TPM2_Packet_ParseBytes(packet, out->extraData.buffer,
+        out->extraData.size);
+
+    TPM2_Packet_ParseU64(packet, &out->clockInfo.clock);
+    TPM2_Packet_ParseU32(packet, &out->clockInfo.resetCount);
+    TPM2_Packet_ParseU32(packet, &out->clockInfo.restartCount);
+    TPM2_Packet_ParseU8(packet, &out->clockInfo.safe);
+
+    TPM2_Packet_ParseU64(packet, &out->firmwareVersion);
+
+    switch (out->type) {
+        case TPM_ST_ATTEST_CERTIFY:
+            TPM2_Packet_ParseU16(packet, &out->attested.certify.name.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.certify.name.name,
+                out->attested.certify.name.size);
+            TPM2_Packet_ParseU16(packet, &out->attested.certify.qualifiedName.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.certify.qualifiedName.name,
+                out->attested.certify.qualifiedName.size);
+            break;
+        case TPM_ST_ATTEST_CREATION:
+            TPM2_Packet_ParseU16(packet, &out->attested.creation.objectName.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.creation.objectName.name,
+                out->attested.creation.objectName.size);
+            TPM2_Packet_ParseU16(packet, &out->attested.creation.creationHash.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.creation.creationHash.buffer,
+                out->attested.creation.creationHash.size);
+            break;
+        case TPM_ST_ATTEST_QUOTE:
+            TPM2_Packet_ParsePCR(packet, &out->attested.quote.pcrSelect);
+            TPM2_Packet_ParseU16(packet, &out->attested.quote.pcrDigest.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.quote.pcrDigest.buffer,
+                out->attested.quote.pcrDigest.size);
+            break;
+        case TPM_ST_ATTEST_COMMAND_AUDIT:
+            TPM2_Packet_ParseU64(packet, &out->attested.commandAudit.auditCounter);
+            TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.digestAlg);
+            TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.auditDigest.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.auditDigest.buffer,
+                out->attested.commandAudit.auditDigest.size);
+            TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.commandDigest.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.commandDigest.buffer,
+                out->attested.commandAudit.commandDigest.size);
+            break;
+        case TPM_ST_ATTEST_SESSION_AUDIT:
+            TPM2_Packet_ParseU8(packet, &out->attested.sessionAudit.exclusiveSession);
+            TPM2_Packet_ParseU16(packet, &out->attested.sessionAudit.sessionDigest.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.sessionAudit.sessionDigest.buffer,
+                out->attested.sessionAudit.sessionDigest.size);
+            break;
+        case TPM_ST_ATTEST_TIME:
+            TPM2_Packet_ParseU64(packet, &out->attested.time.time.time);
+            TPM2_Packet_ParseU64(packet, &out->attested.time.time.clockInfo.clock);
+            TPM2_Packet_ParseU32(packet, &out->attested.time.time.clockInfo.resetCount);
+            TPM2_Packet_ParseU32(packet, &out->attested.time.time.clockInfo.restartCount);
+            TPM2_Packet_ParseU8(packet, &out->attested.time.time.clockInfo.safe);
+            TPM2_Packet_ParseU64(packet, &out->attested.time.firmwareVersion);
+            break;
+        case TPM_ST_ATTEST_NV:
+            TPM2_Packet_ParseU16(packet, &out->attested.nv.indexName.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.nv.indexName.name,
+                out->attested.nv.indexName.size);
+            TPM2_Packet_ParseU16(packet, &out->attested.nv.offset);
+            TPM2_Packet_ParseU16(packet, &out->attested.nv.nvContents.size);
+            TPM2_Packet_ParseBytes(packet, out->attested.nv.nvContents.buffer,
+                out->attested.nv.nvContents.size);
+            break;
+        default:
+            /* unknown attestation type */
+        #ifdef DEBUG_WOLFTPM
+            printf("Unknown attestation type: 0x%x\n", out->type);
+        #endif
+            break;
+    }
+}
+
 TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
 {
     if (rc == TPM_RC_SUCCESS && packet) {
