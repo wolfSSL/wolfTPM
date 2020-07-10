@@ -730,8 +730,12 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
     XMEMSET(out, 0, sizeof(TPMS_ATTEST));
 
     TPM2_Packet_ParseU32(packet, &out->magic);
-    if (out->magic != TPM_GENERATED_VALUE)
+    if (out->magic != TPM_GENERATED_VALUE) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Attestation magic invalid!\n");
+    #endif
         return;
+    }
 
     TPM2_Packet_ParseU16(packet, &out->type);
 
