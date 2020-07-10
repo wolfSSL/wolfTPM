@@ -5087,6 +5087,20 @@ int TPM2_GetWolfRng(WC_RNG** rng)
 }
 #endif /* WOLFTPM2_USE_WOLF_RNG */
 
+int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out)
+{
+    TPM2_Packet packet;
+    
+    if (in == NULL || out == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = (byte*)in->attestationData;
+    packet.size = in->size;
+
+    TPM2_Packet_ParseAttest(&packet, out);
+    return TPM_RC_SUCCESS;
+}
 
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
