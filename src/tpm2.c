@@ -4604,7 +4604,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
 /******************************************************************************/
 /* --- BEGIN Manufacture Specific TPM API's -- */
 /******************************************************************************/
-#ifdef WOLFTPM_ST33
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 int TPM2_SetCommandSet(SetCommandSet_In* in)
 {
     TPM_RC rc;
@@ -5100,6 +5100,16 @@ int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out)
 
     TPM2_Packet_ParseAttest(&packet, out);
     return TPM_RC_SUCCESS;
+}
+
+UINT16 TPM2_GetVendorID(void)
+{
+    UINT16 vid = 0;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    if (ctx) {
+        vid = (UINT16)(ctx->did_vid & 0xFFFF);
+    }
+    return vid;
 }
 
 #ifdef DEBUG_WOLFTPM

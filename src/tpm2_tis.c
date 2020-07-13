@@ -376,36 +376,37 @@ int TPM2_TIS_Ready(TPM2_CTX* ctx)
 int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 {
     int rc = TPM_RC_SUCCESS;
-#ifndef WOLFTPM_ST33
-    int timeout = TPM_TIMEOUT_TRIES;
-#endif
 
     if (burstCount == NULL)
         return BAD_FUNC_ARG;
 
-#ifdef WOLFTPM_ST33
-    *burstCount = 32; /* fixed value */
-    (void)ctx;
-#else
-    *burstCount = 0;
-    do {
-        rc = TPM2_TIS_Read(ctx, TPM_BURST_COUNT(ctx->locality),
-            (byte*)burstCount, sizeof(*burstCount));
-        if (rc == TPM_RC_SUCCESS && *burstCount > 0)
-            break;
-        XTPM_WAIT();
-    } while (rc == TPM_RC_SUCCESS && --timeout > 0);
-
-#ifdef WOLFTPM_DEBUG_TIMEOUT
-    printf("TIS_GetBurstCount: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
+        *burstCount = 32; /* fixed value */
+    }
+    else
 #endif
+    {
+        int timeout = TPM_TIMEOUT_TRIES;
+        *burstCount = 0;
+        do {
+            rc = TPM2_TIS_Read(ctx, TPM_BURST_COUNT(ctx->locality),
+                (byte*)burstCount, sizeof(*burstCount));
+            if (rc == TPM_RC_SUCCESS && *burstCount > 0)
+                break;
+            XTPM_WAIT();
+        } while (rc == TPM_RC_SUCCESS && --timeout > 0);
 
-    if (*burstCount > MAX_SPI_FRAMESIZE)
-        *burstCount = MAX_SPI_FRAMESIZE;
+    #ifdef WOLFTPM_DEBUG_TIMEOUT
+        printf("TIS_GetBurstCount: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+    #endif
 
-    if (timeout <= 0)
-        return TPM_RC_TIMEOUT;
-#endif
+        if (*burstCount > MAX_SPI_FRAMESIZE)
+            *burstCount = MAX_SPI_FRAMESIZE;
+
+        if (timeout <= 0)
+            return TPM_RC_TIMEOUT;
+    }
 
     return rc;
 }
@@ -473,17 +474,20 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         }
     }
 
-#ifndef WOLFTPM_ST33
-    /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
-    rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,
-                                     TPM_STS_VALID);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_TIS_SendCommand status valid timeout!\n");
-    #endif
-        goto exit;
-    }
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (TPM2_GetVendorID() != TPM_VENDOR_STM)
 #endif
+    {
+        /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
+        rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,
+                                        TPM_STS_VALID);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_TIS_SendCommand status valid timeout!\n");
+        #endif
+            goto exit;
+        }
+    }
 
     /* Execute Command */
     access = TPM_STS_GO;

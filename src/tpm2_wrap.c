@@ -278,9 +278,19 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 }
                 else if (XMEMCMP(&caps->mfgStr, "STM", 3) == 0) {
                     caps->mfg = TPM_MFG_STM;
+                    caps->req_wait_state = 1;
                 }
                 else if (XMEMCMP(&caps->mfgStr, "MCHP", 4) == 0) {
                     caps->mfg = TPM_MFG_MCHP;
+                    caps->req_wait_state = 1;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "NTC", 4) == 0) {
+                    caps->mfg = TPM_MFG_NUVOTON;
+                    caps->req_wait_state = 1;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "NTZ", 4) == 0) {
+                    caps->mfg = TPM_MFG_NATIONTECH;
+                    caps->req_wait_state = 1;
                 }
                 break;
             case TPM_PT_VENDOR_STRING_1:
@@ -304,7 +314,7 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 caps->fwVerMinor = val & 0xFFFF;
                 break;
             case TPM_PT_FIRMWARE_VERSION_2:
-                if (caps->mfg == TPM_MFG_INFINEON) {
+                if (caps->mfg == TPM_MFG_INFINEON || caps->mfg == TPM_MFG_NUVOTON) {
                     caps->fwVerVendor = val >> 8;
                     caps->cc_eal4 = (val & 0x00000002) ? 0 : 1;
                 }
@@ -2733,7 +2743,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
 
     /* Setup public key */
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&loadExtIn.inPublic.publicArea,
-        keySz * 8, alg, YES, YES);
+        keySz * 8, alg, NO, YES);
     if (rc != 0)
         goto exit;
     loadExtIn.inPublic.publicArea.nameAlg = hashAlg;
@@ -2776,13 +2786,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int isDecrypt)
 {
     int rc;
-#ifdef WOLFTPM_MCHP
-    EncryptDecrypt_In encDecIn;
-    EncryptDecrypt_Out encDecOut;
-#else
     EncryptDecrypt2_In encDecIn;
     EncryptDecrypt2_Out encDecOut;
-#endif
 
     if (dev == NULL || key == NULL || in == NULL || out == NULL || inOutSz == 0) {
         return BAD_FUNC_ARG;
@@ -2811,21 +2816,13 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     encDecIn.inData.size = (encDecIn.inData.size +
         MAX_AES_BLOCK_SIZE_BYTES - 1) & ~(MAX_AES_BLOCK_SIZE_BYTES - 1);
 
-#ifdef WOLFTPM_MCHP
-    rc = TPM2_EncryptDecrypt(&encDecIn, &encDecOut);
-#else
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
-#endif
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
         /* try to enable support */
         rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
         if (rc == TPM_RC_SUCCESS) {
             /* try command again */
-        #ifdef WOLFTPM_MCHP
-            rc = TPM2_EncryptDecrypt(&encDecIn, &encDecOut);
-        #else
             rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
-        #endif
         }
     }
 
@@ -2887,26 +2884,27 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
 {
-    int rc;
-#ifdef WOLFTPM_ST33
-    SetCommandSet_In in;
+    int rc = TPM_RC_COMMAND_CODE; /* not supported */
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
+        SetCommandSet_In in;
 
-    /* Enable commands (like TPM2_EncryptDecrypt2) */
-    XMEMSET(&in, 0, sizeof(in));
-    in.authHandle = TPM_RH_PLATFORM;
-    in.commandCode = commandCode;
-    in.enableFlag = enableFlag;
-    rc = TPM2_SetCommandSet(&in);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-    #endif
+        /* Enable commands (like TPM2_EncryptDecrypt2) */
+        XMEMSET(&in, 0, sizeof(in));
+        in.authHandle = TPM_RH_PLATFORM;
+        in.commandCode = commandCode;
+        in.enableFlag = enableFlag;
+        rc = TPM2_SetCommandSet(&in);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+        }
     }
 #else
     (void)commandCode;
     (void)enableFlag;
-    rc = TPM_RC_COMMAND_CODE; /* not supported */
 #endif
     (void)dev;
     return rc;
@@ -3228,13 +3226,6 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
-
-#ifdef WOLFTPM_MCHP
-    /* workaround for issue with both sign and decrypt being set */
-    if (isSign && isDecrypt) {
-        isSign = NO;
-    }
-#endif
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_SYMCIPHER;

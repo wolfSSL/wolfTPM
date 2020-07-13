@@ -185,7 +185,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
             TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
             &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
@@ -775,7 +775,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
 
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
-        YES, YES);
+        NO, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &aesKey, &storageKey.handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);

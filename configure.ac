@@ -94,9 +94,14 @@ else
 fi
 
 # Verbose Logging
-if test "x$ax_enable_debug" = "xverbose"
+if test "x$ax_enable_debug" = "xverbose" || test "x$ax_enable_debug" = "xio"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_DEBUG_VERBOSE"
+fi
+# IO Logging
+if test "x$ax_enable_debug" = "xio"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_DEBUG_IO"
 fi
 
 
@@ -176,38 +181,79 @@ fi
 
 
 # STM ST33 Support
-AC_ARG_ENABLE([st33],
-    [AS_HELP_STRING([--enable-st33],[Enable ST33 TPM Support (default: disabled)])],
+AC_ARG_ENABLE([st33],,
     [ ENABLED_ST33=$enableval ],
     [ ENABLED_ST33=no ]
     )
+AC_ARG_ENABLE([st],
+    [AS_HELP_STRING([--enable-st],[Enable ST ST33 TPM Support (default: disabled)])],
+    [ ENABLED_ST=$enableval ],
+    [ ENABLED_ST=no ]
+    )
 
-if test "x$ENABLED_ST33" = "xyes"
+if test "x$ENABLED_ST33" = "xyes" || test "x$ENABLED_ST" = "xyes"
 then
+    ENABLED_ST33=yes
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
 fi
 
-
-# Microchip ATTPM20 Support
-AC_ARG_ENABLE([mchp],
-    [AS_HELP_STRING([--enable-mchp],[Enable TPM 2.0 Support (default: disabled)])],
+# Microchip ATTPM20
+AC_ARG_ENABLE([mchp],,
     [ ENABLED_MCHP=$enableval ],
     [ ENABLED_MCHP=no ]
     )
-if test "x$ENABLED_MCHP" = "xyes"
+AC_ARG_ENABLE([microchip],
+    [AS_HELP_STRING([--enable-microchip],[Enable Microchip ATPM2.0 Support (default: disabled)])],
+    [ ENABLED_MICROCHIP=$enableval ],
+    [ ENABLED_MICROCHIP=no ]
+    )
+if test "x$ENABLED_MCHP" = "xyes" || test "x$ENABLED_MICROCHIP" = "xyes"
 then
+    ENABLED_MICROCHIP=yes
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MCHP"
 fi
 
-
-# Infineon SLB9670
-ENABLED_INFINEON=no
-if test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST33" = "xno"
+# Nuvoton NPCT65x/NPCT75x
+AC_ARG_ENABLE([nuvoton],
+    [AS_HELP_STRING([--enable-nuvoton],[Enable Nuvoton NPCT65x/NPCT75x TPM Support (default: disabled)])],
+    [ ENABLED_NUVOTON=$enableval ],
+    [ ENABLED_NUVOTON=no ]
+    )
+if test "x$ENABLED_NUVOTON" = "xyes"
 then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
-    ENABLED_INFINEON=yes
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NUVOTON"
 fi
 
+# Infineon SLB9670
+AC_ARG_ENABLE([infineon],
+    [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670 TPM Support (default: disabled)])],
+    [ ENABLED_INFINEON=$enableval ],
+    [ ENABLED_INFINEON=no ]
+    )
+if test "x$ENABLED_INFINEON" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
+fi
+
+
+# TIS / SPI Check Wait State support
+AC_ARG_ENABLE([checkwaitstate],
+    [AS_HELP_STRING([--enable-checkwaitstate],[Enable TIS / SPI Check Wait State support (default: depends on chip)])],
+    [ ENABLED_CHECKWAITSTATE=$enableval ],
+    [ ENABLED_CHECKWAITSTATE=no ]
+    )
+
+
+# TIS Layer Named Semaphore locking for concurrent access between processes.
+AC_ARG_ENABLE([tislock],
+    [AS_HELP_STRING([--enable-tislock],[TIS Layer Named Semaphore locking for concurrent access between processes. (default: disabled)])],
+    [ ENABLED_TIS_LOCK=$enableval ],
+    [ ENABLED_TIS_LOCK=no ]
+    )
+if test "x$ENABLED_TIS_LOCK" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_TIS_LOCK"
+fi
 
 # Small Stack
 AC_ARG_ENABLE([smallstack],
@@ -224,6 +270,35 @@ then
     AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1024 -DWOLFTPM2_MAX_BUFFER=1500 -DMAX_SESSION_NUM=1 -DMAX_DIGEST_BUFFER=973"
 fi
 
+# Runtime Module Detection
+AC_ARG_ENABLE([autodetect],
+    [AS_HELP_STRING([--enable-autodetect],[Enable Runtime Module Detection (default: enable - when no module specified)])],
+    [ ENABLED_AUTODETECT=$enableval ],
+    [ ENABLED_AUTODETECT=test ]
+    )
+
+if test "x$ENABLED_AUTODETECT" = "xtest"
+then
+    # If a module hasn't been selected then enable auto-detection
+    if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST" = "xno" && test "x$ENABLED_NUVOTON" = "xno"
+    then
+        ENABLED_AUTODETECT=yes
+    fi
+fi
+
+if test "x$ENABLED_AUTODETECT" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_AUTODETECT"
+fi
+
+
+# TIS / SPI Check Wait State support
+# Required for all but Infineon only
+if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno" 
+then
+    ENABLED_CHECKWAITSTATE=yes
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_CHECK_WAIT_STATE"
+fi
 
 
 # HARDEN FLAGS
@@ -239,10 +314,13 @@ AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
-AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
-AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
+AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
+AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
+AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
+AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 
 
 
@@ -356,8 +434,13 @@ echo "   * Wrappers:                  $ENABLED_WRAPPER"
 echo "   * Examples:                  $ENABLED_EXAMPLES"
 echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
 echo "   * Advanced IO:               $ENABLED_ADVIO"
-echo "   * Infineon SLB9670           $ENABLED_INFINEON"
-echo "   * STM ST33:                  $ENABLED_ST33"
-echo "   * Microchip ATTPM20:         $ENABLED_MCHP"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
+echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
+
+echo "   * Infineon SLB9670           $ENABLED_INFINEON"
+echo "   * STM ST33:                  $ENABLED_ST"
+echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
+echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
+
+echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"

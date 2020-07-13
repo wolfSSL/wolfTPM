@@ -227,7 +227,7 @@ typedef enum {
 
     CC_VEND                         = 0x20000000,
     TPM_CC_Vendor_TCG_Test          = CC_VEND + 0x0000,
-#ifdef WOLFTPM_ST33
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     TPM_CC_SetMode                  = CC_VEND + 0x0307,
     TPM_CC_SetCommandSet            = CC_VEND + 0x0309,
     TPM_CC_RestoreEK                = CC_VEND + 0x030A,
@@ -2704,7 +2704,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 
 
 /* Vendor Specific API's */
-#ifdef WOLFTPM_ST33
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 typedef struct {
     TPMI_RH_HIERARCHY authHandle;
     TPM_CC commandCode;
@@ -2732,7 +2732,7 @@ typedef struct {
     TPM_MODE_SET modeSet;
 } SetMode_In;
 WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
-#endif /* WOLFTPM_ST33 */
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
@@ -2767,6 +2767,17 @@ WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
 #ifdef WOLFTPM2_USE_WOLF_RNG
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
 #endif
+
+typedef enum {
+    TPM_VENDOR_UNKNOWN = 0,
+    TPM_VENDOR_INFINEON = 0x15d1,
+    TPM_VENDOR_STM = 0x104a,
+    TPM_VENDOR_MCHP = 0x1114,
+    TPM_VENDOR_NUVOTON = 0x1050,
+    TPM_VENDOR_NATIONTECH = 0x1B4E,
+} TPM_Vendor_t;
+
+WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);

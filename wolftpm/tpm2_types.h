@@ -150,17 +150,24 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 /* TPM HARDWARE TYPE */
 /* ---------------------------------------------------------------------------*/
-/* ST ST33TP TPM 2.0 */
-/* #define WOLFTPM_ST33 */
-
 /* Microchip ATTPM20 */
 /* #define WOLFTPM_MCHP */
 
+/* ST ST33TP TPM 2.0 */
+/* #define WOLFTPM_ST33 */
+
+/* Nuvoton NPCT75x TPM 2.0 module */
+/* #define WOLFTPM_NUVOTON */
+
 /* Infineon SLB9670 TPM 2.0 (default) */
 /* #define WOLFTPM_SLB9670 */
-#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && !defined(WOLFTPM_SLB9670)
+
+/* Define a default chip */
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && \
+    !defined(WOLFTPM_NUVOTON) && !defined(WOLFTPM_SLB9670)
     #define WOLFTPM_SLB9670
 #endif
+
 
 /* Chip Specific Settings */
 #ifdef WOLFTPM_MCHP
@@ -169,26 +176,55 @@ typedef int64_t  INT64;
     #ifndef WOLFTPM_CHECK_WAIT_STATE
         #define WOLFTPM_CHECK_WAIT_STATE
     #endif
+    /* Max: 36MHz (has issues so using 33MHz) */
+    #define TPM2_SPI_MAX_HZ_MICROCHIP 33000000
     #ifndef TPM2_SPI_MAX_HZ
-        /* Max: 36MHz (has issues so using 33MHz) */
-        #define TPM2_SPI_MAX_HZ 33000000
+        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_MICROCHIP
     #endif
 #elif defined(WOLFTPM_ST33)
-    /* ST33TPM20 modules */
+    /* ST ST33TPM20 modules */
     /* Requires wait state support */
     #ifndef WOLFTPM_CHECK_WAIT_STATE
         #define WOLFTPM_CHECK_WAIT_STATE
     #endif
+    /* Max: 33MHz */
+    #define TPM2_SPI_MAX_HZ_ST 33000000
     #ifndef TPM2_SPI_MAX_HZ
-        /* Max: 33MHz */
-        #define TPM2_SPI_MAX_HZ 33000000
+        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_ST
     #endif
-#else
-    /* OPTIGA SLB9670 */
+#elif defined(WOLFTPM_NUVOTON)
+    /* Nuvoton NPCT75x module */
+    /* Requires wait state support */
+    #ifndef WOLFTPM_CHECK_WAIT_STATE
+        #define WOLFTPM_CHECK_WAIT_STATE
+    #endif
+    #define TPM2_SPI_MAX_HZ_NUVOTON 43000000
     #ifndef TPM2_SPI_MAX_HZ
         /* Max: 43MHz */
-        #define TPM2_SPI_MAX_HZ 43000000
+        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
     #endif
+#else
+    /* Infineon OPTIGA SLB9670 */
+    /* Max: 43MHz */
+    #define TPM2_SPI_MAX_HZ_INFINEON 43000000
+    #ifndef TPM2_SPI_MAX_HZ
+        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_INFINEON
+    #endif
+#endif
+
+/* Auto-chip detection requires SPI wait state support and safe SPI bus speed */
+#ifdef WOLFTPM_AUTODETECT
+    /* SPI wait state checking must be enabled */
+    #undef  WOLFTPM_CHECK_WAIT_STATE
+    #define WOLFTPM_CHECK_WAIT_STATE
+
+    /* use a safe MHz (minimum of above) */
+    #undef TPM2_SPI_MAX_HZ
+    #define TPM2_SPI_MAX_HZ 33000000
+
+    /* always perform self-test (some chips require) */
+    #undef  WOLFTPM_PERFORM_SELFTEST
+    #define WOLFTPM_PERFORM_SELFTEST
 #endif
 
 
