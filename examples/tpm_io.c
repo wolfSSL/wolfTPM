@@ -62,18 +62,26 @@
     #else
         /* SPI */
         #ifdef WOLFTPM_MCHP
-            /* Microchip ATTPM20 */
-            /* SPI uses CE0 */
-            #define TPM2_SPI_DEV "/dev/spidev0.0"
+            /* Microchip ATTPM20 uses CE0 */
+            #define TPM2_SPI_DEV_CS "0"
         #elif defined(WOLFTPM_ST33)
             /* STM ST33HTPH SPI uses CE0 */
-            #define TPM2_SPI_DEV "/dev/spidev0.0"
+            #define TPM2_SPI_DEV_CS "0"
         #elif defined(WOLFTPM_NUVOTON)
             /* Nuvoton NPCT75x uses CE0 */
             #define TPM2_SPI_DEV_CS "0"
         #else
             /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
-            #define TPM2_SPI_DEV "/dev/spidev0.1"
+            #define TPM2_SPI_DEV_CS "1"
+        #endif
+
+        #ifdef WOLFTPM_AUTODETECT
+            #undef TPM2_SPI_DEV
+            /* this will try incrementing spidev chip selects */
+            static char TPM2_SPI_DEV[] = "/dev/spidev0.0";
+            #define MAX_SPI_DEV_CS '4'
+            static int foundSpiDev = 0;
+        #else
             #define TPM2_SPI_DEV "/dev/spidev0."TPM2_SPI_DEV_CS
         #endif
     #endif
@@ -215,6 +223,10 @@
         int mode = 0; /* Mode 0 (CPOL=0, CPHA=0) */
         int bits_per_word = 8; /* 8-bits */
 
+    #ifdef WOLFTPM_AUTODETECT
+    tryagain:
+    #endif
+
         spiDev = open(TPM2_SPI_DEV, O_RDWR);
         if (spiDev >= 0) {
             struct spi_ioc_transfer spi;
@@ -276,6 +288,27 @@
 
             close(spiDev);
         }
+
+    #ifdef WOLFTPM_AUTODETECT
+        /* if response is not 0xFF then we "found" something */
+        if (!foundSpiDev) {
+            if (rxBuf[0] != 0xFF) {
+        #ifdef DEBUG_WOLFTPM
+                printf("Found TPM @ %s\n", TPM2_SPI_DEV);
+        #endif
+                foundSpiDev = 1;
+            }
+            else {
+                int devLen = (int)XSTRLEN(TPM2_SPI_DEV);
+                /* tries spidev0.[0-4] */
+                if (TPM2_SPI_DEV[devLen-1] <= MAX_SPI_DEV_CS) {
+                    TPM2_SPI_DEV[devLen-1]++;
+                    goto tryagain;
+                }
+            }
+        }
+    #endif
+
         (void)ctx;
         (void)userCtx;
 

@@ -70,7 +70,7 @@ There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The adva
 Tested with:
 
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
-* LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
+    - LetsTrust: [http://letstrust.de] (<https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module).> Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
 * Microchip ATTPM20 module
 * Nuvoton NPCT65X or NPCT75x TPM2.0 module
@@ -84,6 +84,10 @@ Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
 ST ST33TP SPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
+
+ST ST33TP I2C
+TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
+Mfg STM  (2), Vendor , Fw 74.9 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
 Microchip ATTPM20
 TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1 
@@ -118,21 +122,26 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 ### Build options and defines
 
 ```
---enable-debug          Add debug code/turns off optimizations (yes|no|verbose) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
+--enable-debug          Add debug code/turns off optimizations (yes|no|verbose|io) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
 --enable-examples       Enable Examples (default: enabled)
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
---enable-st33           Enable ST33 TPM Support (default: disabled) - WOLFTPM_ST33
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
---enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
-WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
+--enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
+--enable-smallstack     Enable options to reduce stack usage
+--enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
+
+--enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
+--enable-infineon       Enable Infineon SLB9670 TPM Support (default: disabled)
+--enable-st             Enable ST ST33TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MCHP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
+
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
-WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret.
+WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret for TLS examples.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
---enable-smallstack     Enable options to reduce stack usage
 ```
 
 ### Building Infineon SLB9670
@@ -168,7 +177,10 @@ Build wolfTPM:
 
 ```
 ./autogen.sh
-./configure --enable-mchp
+./configure --enable-microchip
+make
+```
+
 ### Building Nuvoton
 
 Build wolfTPM:
