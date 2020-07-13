@@ -68,9 +68,13 @@
         #elif defined(WOLFTPM_ST33)
             /* STM ST33HTPH SPI uses CE0 */
             #define TPM2_SPI_DEV "/dev/spidev0.0"
+        #elif defined(WOLFTPM_NUVOTON)
+            /* Nuvoton NPCT75x uses CE0 */
+            #define TPM2_SPI_DEV_CS "0"
         #else
             /* OPTIGA SLB9670 and LetsTrust TPM use CE1 */
             #define TPM2_SPI_DEV "/dev/spidev0.1"
+            #define TPM2_SPI_DEV "/dev/spidev0."TPM2_SPI_DEV_CS
         #endif
     #endif
 

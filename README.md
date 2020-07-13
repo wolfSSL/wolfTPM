@@ -72,8 +72,8 @@ Tested with:
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
 * LetsTrust: http://letstrust.de (https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module). Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
-* Microchip ATTPM20
-* Nuvoton NPCT650 TPM2.0
+* Microchip ATTPM20 module
+* Nuvoton NPCT65X or NPCT75x TPM2.0 module
 
 #### Device Identification
 
@@ -95,6 +95,9 @@ Mfg NTZ (0), Vendor Z32H330, Fw 7.51 (419631892), FIPS 140-2 0, CC-EAL4 0
 Nuvoton NPCT650 TPM2.0
 Mfg NTC (0), Vendor rlsNPCT , Fw 1.3 (65536), FIPS 140-2 0, CC-EAL4 0
 
+Nuvoton NPCT750 TPM2.0
+TPM2: Caps 0x30000697, Did 0x00fc, Vid 0x1050, Rid 0x 1
+Mfg NTC (0), Vendor NPCT75x"!!4rls, Fw 7.2 (131072), FIPS 140-2 1, CC-EAL4 0
 
 ## Building
 
@@ -124,6 +127,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
 --enable-mchp           Enable Microchip TPM Support (default: disabled) - WOLFTPM_MCHP
 WOLFTPM_TIS_LOCK        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes.
+--enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
 WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
@@ -165,6 +169,13 @@ Build wolfTPM:
 ```
 ./autogen.sh
 ./configure --enable-mchp
+### Building Nuvoton
+
+Build wolfTPM:
+
+```
+./autogen.sh
+./configure --enable-nuvoton
 make
 ```
 
@@ -367,6 +378,28 @@ ECC      256 key gen        7 ops took 1.033 sec, avg 147.608 ms, 6.775 ops/sec
 ECDSA    256 sign           6 ops took 1.141 sec, avg 190.149 ms, 5.259 ops/sec
 ECDSA    256 verify         4 ops took 1.061 sec, avg 265.216 ms, 3.771 ops/sec
 ECDHE    256 agree          6 ops took 1.055 sec, avg 175.915 ms, 5.685 ops/sec
+```
+
+Run on Nuvoton NPCT750 at 43MHz:
+
+```
+RNG                 16 KB took 1.114 seconds,   14.368 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+SHA1               120 KB took 1.012 seconds,  118.618 KB/s
+SHA256             122 KB took 1.012 seconds,  120.551 KB/s
+SHA384             120 KB took 1.003 seconds,  119.608 KB/s
+RSA     2048 key gen        5 ops took 17.043 sec, avg 3408.678 ms, 0.293 ops/sec
+RSA     2048 Public       134 ops took 1.004 sec, avg 7.490 ms, 133.517 ops/sec
+RSA     2048 Private       15 ops took 1.054 sec, avg 70.261 ms, 14.233 ops/sec
+RSA     2048 Pub  OAEP    116 ops took 1.002 sec, avg 8.636 ms, 115.797 ops/sec
+RSA     2048 Priv OAEP     15 ops took 1.061 sec, avg 70.716 ms, 14.141 ops/sec
+ECC      256 key gen       12 ops took 1.008 sec, avg 84.020 ms, 11.902 ops/sec
+ECDSA    256 sign          18 ops took 1.015 sec, avg 56.399 ms, 17.731 ops/sec
+ECDSA    256 verify        26 ops took 1.018 sec, avg 39.164 ms, 25.533 ops/sec
+ECDHE    256 agree         35 ops took 1.029 sec, avg 29.402 ms, 34.011 ops/sec
 ```
 
 ### TPM2 Native Tests

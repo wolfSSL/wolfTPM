@@ -278,9 +278,19 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 }
                 else if (XMEMCMP(&caps->mfgStr, "STM", 3) == 0) {
                     caps->mfg = TPM_MFG_STM;
+                    caps->req_wait_state = 1;
                 }
                 else if (XMEMCMP(&caps->mfgStr, "MCHP", 4) == 0) {
                     caps->mfg = TPM_MFG_MCHP;
+                    caps->req_wait_state = 1;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "NTC", 4) == 0) {
+                    caps->mfg = TPM_MFG_NUVOTON;
+                    caps->req_wait_state = 1;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "NTZ", 4) == 0) {
+                    caps->mfg = TPM_MFG_NATIONTECH;
+                    caps->req_wait_state = 1;
                 }
                 break;
             case TPM_PT_VENDOR_STRING_1:
@@ -304,7 +314,7 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 caps->fwVerMinor = val & 0xFFFF;
                 break;
             case TPM_PT_FIRMWARE_VERSION_2:
-                if (caps->mfg == TPM_MFG_INFINEON) {
+                if (caps->mfg == TPM_MFG_INFINEON || caps->mfg == TPM_MFG_NUVOTON) {
                     caps->fwVerVendor = val >> 8;
                     caps->cc_eal4 = (val & 0x00000002) ? 0 : 1;
                 }

@@ -199,6 +199,16 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MCHP"
 fi
 
+# Nuvoton NPCT65x/NPCT75x
+AC_ARG_ENABLE([nuvoton],
+    [AS_HELP_STRING([--enable-nuvoton],[Enable Nuvoton NPCT65x/NPCT75x TPM Support (default: disabled)])],
+    [ ENABLED_NUVOTON=$enableval ],
+    [ ENABLED_NUVOTON=no ]
+    )
+if test "x$ENABLED_NUVOTON" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NUVOTON"
+fi
 
 # Infineon SLB9670
 ENABLED_INFINEON=no
@@ -243,6 +253,7 @@ AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MCHP], [test "x$ENABLED_MCHP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 
 
 
@@ -361,3 +372,4 @@ echo "   * STM ST33:                  $ENABLED_ST33"
 echo "   * Microchip ATTPM20:         $ENABLED_MCHP"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
+echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"

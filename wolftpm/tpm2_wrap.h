@@ -81,6 +81,8 @@ typedef enum WOLFTPM2_MFG {
     TPM_MFG_INFINEON,
     TPM_MFG_STM,
     TPM_MFG_MCHP,
+    TPM_MFG_NUVOTON,
+    TPM_MFG_NATIONTECH,
 } WOLFTPM2_MFG;
 typedef struct WOLFTPM2_CAPS {
     WOLFTPM2_MFG mfg;
@@ -94,6 +96,7 @@ typedef struct WOLFTPM2_CAPS {
     /* bits */
     word16 fips140_2 : 1; /* using FIPS mode */
     word16 cc_eal4   : 1; /* Common Criteria EAL4+ */
+    word16 req_wait_state : 1; /* requires SPI wait state */
 } WOLFTPM2_CAPS;
 
 /* NV Handles */
