@@ -262,20 +262,24 @@
             #ifdef WOLFTPM_DEBUG_TIMEOUT
                 printf("SPI Ready Timeout %d\n", TPM_SPI_WAIT_RETRY - timeout);
             #endif
-                if (size != 1 || timeout <= 0) {
-                    close(spiDev);
-                    return TPM_RC_FAILURE;
+                if (size == 1 && timeout > 0) {
+                    ret = TPM_RC_SUCCESS;
                 }
             }
-
-            /* Remainder of message */
-            spi.tx_buf   = (unsigned long)&txBuf[TPM_TIS_HEADER_SZ];
-            spi.rx_buf   = (unsigned long)&rxBuf[TPM_TIS_HEADER_SZ];
-            spi.len      = xferSz - TPM_TIS_HEADER_SZ;
-            size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
-
-            if (size == (size_t)xferSz - TPM_TIS_HEADER_SZ)
+            else {
                 ret = TPM_RC_SUCCESS;
+            }
+
+            if (ret == TPM_RC_SUCCESS) {
+                /* Remainder of message */
+                spi.tx_buf   = (unsigned long)&txBuf[TPM_TIS_HEADER_SZ];
+                spi.rx_buf   = (unsigned long)&rxBuf[TPM_TIS_HEADER_SZ];
+                spi.len      = xferSz - TPM_TIS_HEADER_SZ;
+                size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+
+                if (size == (size_t)xferSz - TPM_TIS_HEADER_SZ)
+                    ret = TPM_RC_SUCCESS;
+            }
     #else
             /* Send Entire Message - no wait states */
             spi.tx_buf   = (unsigned long)txBuf;
@@ -292,7 +296,7 @@
     #ifdef WOLFTPM_AUTODETECT
         /* if response is not 0xFF then we "found" something */
         if (!foundSpiDev) {
-            if (rxBuf[0] != 0xFF) {
+            if (ret == TPM_RC_SUCCESS && rxBuf[0] != 0xFF) {
         #ifdef DEBUG_WOLFTPM
                 printf("Found TPM @ %s\n", TPM2_SPI_DEV);
         #endif
