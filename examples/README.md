@@ -20,7 +20,9 @@ Demonstrates calling the wolfTPM2_* wrapper API's.
 `./examples/wrap/wrap_test`
 
 
-## Attestation Use Case (TPM signed timestamp)
+## Attestation Use Cases
+
+# TPM signed timestamp, TPM2.0 GetTime
 
 Demonstrates creation of Attestation Identity Keys(AIK) and the generation of TPM signed timestamp that can be later used as protected report of the current system uptime.
 
@@ -28,6 +30,11 @@ This example demonstrates the use of authSession(authorization Session) and poli
 
 `./examples/timestamp/signed_timestamp`
 
+# TPM signed PCR(system) measurement, TPM2.0 Quote
+
+Demonstrates the generation of TPM2.0 Quote used for attestation of the system state by putting PCR value(s) in a TPM signed structure.
+
+`./examples/pcr/quote`
 
 ## CSR
 
