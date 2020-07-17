@@ -5,7 +5,7 @@ if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/pcr/quote
 noinst_HEADERS  += examples/pcr/quote.h
 examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
-									       examples/tpm_io.c
+                                  examples/tpm_io.c
 examples_pcr_quote_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_quote_DEPENDENCIES = src/libwolftpm.la
 endif
