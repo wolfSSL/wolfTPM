@@ -32,9 +32,6 @@
 #include <stdio.h>
 
 
-#define SET_PCR_SELECT_BIT( pcrSelection, pcr ) \
-                                                (pcrSelection).pcrSelect[( (pcr)/8 )] |= ( 1 << ( (pcr) % 8) );
-
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Quote Test -- */
 /******************************************************************************/
@@ -170,19 +167,16 @@ int TPM2_Quote_Test(void* userCtx)
     cmdIn.quoteAsk.inScheme.scheme = TPM_ALG_RSASSA;
     cmdIn.quoteAsk.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
     cmdIn.quoteAsk.qualifyingData.size = 0; /* optional */
-    /* Set the PCR for signing */
-    cmdIn.quoteAsk.PCRselect.count = 1;
-    cmdIn.quoteAsk.PCRselect.pcrSelections[0].hash = TPM_ALG_SHA256;
-    cmdIn.quoteAsk.PCRselect.pcrSelections[0].sizeofSelect = 3;
-    /* PCR16 is for DEBUG purposes, therefore safe to use for a demo */
-    SET_PCR_SELECT_BIT(cmdIn.quoteAsk.PCRselect.pcrSelections[0], 16);
+    /* Choose PCR for signing
+     * PCR16 is for DEBUG purposes, therefore safe to use for a demo
+     */
+    TPM2_SetupPCRSel(&cmdIn.quoteAsk.PCRselect, TPM_ALG_SHA256, 16);
 
 
-    /* Get PCR measurement signed by the TPM using the AIK key */
+    /* Get the PCR measurement signed by the TPM using the AIK key */
     rc = TPM2_Quote(&cmdIn.quoteAsk, &cmdOut.quoteResult);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Quote failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_Quote failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_Quote: success\n");
@@ -199,8 +193,16 @@ int TPM2_Quote_Test(void* userCtx)
     }
 
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);
-    printf("\tTPM signed %lu PCR\n",
+    printf("\tTPM signed %lu count of PCRs\n",
         (unsigned long)attestedData.attested.quote.pcrSelect.count);
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("\tPCR digest:\n");
+    TPM2_PrintBin(attestedData.attested.quote.pcrDigest.buffer,
+        attestedData.attested.quote.pcrDigest.size);
+    printf("\tTPM generated signature:\n");
+    TPM2_PrintBin(cmdOut.quoteResult.signature.signature.rsassa.sig.buffer,
+        cmdOut.quoteResult.signature.signature.rsassa.sig.size);
+#endif
 
 exit:
 
