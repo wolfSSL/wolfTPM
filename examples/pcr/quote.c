@@ -31,15 +31,27 @@
 
 #include <stdio.h>
 
+const char defaultFilename[] = "quote.blob\0";
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Quote Test -- */
 /******************************************************************************/
 
-int TPM2_Quote_Test(void* userCtx)
+inline static void usage(void)
 {
-    int rc;
-    /* UINT32 i; */
+    printf("Expected usage: extend (pcr_number) (filename)\n");
+    printf("* pcr_number is a number between 0-23\n");
+    printf("* filename for saving the TPMS_ATTEST structure to a file\n");
+    printf("Demo usage without parameters, generates quote over PCR16 and\n"
+           "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n");
+}
+
+int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
+{
+    int pcrIndex, rc = -1;
+    const char *filename = NULL;
+    UINT8 *data = NULL;
+    FILE *quoteBlob = NULL;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
 
@@ -74,6 +86,34 @@ int TPM2_Quote_Test(void* userCtx)
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+
+    if (argc == 1) {
+        /* Demo usage */
+        pcrIndex = 16; /* PCR16 is for DEBUG purposes, thus safe to use */
+        filename = defaultFilename;
+    }
+    else if (argc == 3) {
+        /* Advanced usage */
+        pcrIndex = strtol(argv[1], NULL, 10);
+        if (pcrIndex < 0 || pcrIndex > 23) {
+            printf("PCR index is out of range(0-23)\n");
+            usage();
+            goto exit;
+        }
+        filename = argv[2];
+    }
+    else {
+        printf("Incorrect arguments\n");
+        usage();
+        goto exit;
+    }
+
+    quoteBlob = fopen(filename, "wb");
+    if (quoteBlob == NULL) {
+        printf("Error openning file %s\n", filename);
+        usage();
+        goto exit;
+    }
 
     printf("Demo of generating signed PCR measurement (TPM2.0 Quote)\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -167,10 +207,8 @@ int TPM2_Quote_Test(void* userCtx)
     cmdIn.quoteAsk.inScheme.scheme = TPM_ALG_RSASSA;
     cmdIn.quoteAsk.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
     cmdIn.quoteAsk.qualifyingData.size = 0; /* optional */
-    /* Choose PCR for signing
-     * PCR16 is for DEBUG purposes, therefore safe to use for a demo
-     */
-    TPM2_SetupPCRSel(&cmdIn.quoteAsk.PCRselect, TPM_ALG_SHA256, 16);
+    /* Choose PCR for signing */
+    TPM2_SetupPCRSel(&cmdIn.quoteAsk.PCRselect, TPM_ALG_SHA256, pcrIndex);
 
 
     /* Get the PCR measurement signed by the TPM using the AIK key */
@@ -192,6 +230,14 @@ int TPM2_Quote_Test(void* userCtx)
             attestedData.magic);
     }
 
+    if(quoteBlob) {
+        data = (UINT8*)&cmdOut.quoteResult.quoted;
+        data += 2; /* skip the size field of TPMS_ATTEST */
+        if(fwrite(data, sizeof(TPMS_ATTEST)-2, 1, quoteBlob) != 1) {
+            printf("Error while writing to a %s file\n", filename);
+        }
+    }
+
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);
     printf("\tTPM signed %lu count of PCRs\n",
         (unsigned long)attestedData.attested.quote.pcrSelect.count);
@@ -205,6 +251,10 @@ int TPM2_Quote_Test(void* userCtx)
 #endif
 
 exit:
+
+    if (quoteBlob != NULL) {
+        fclose(quoteBlob);
+    }
 
     /* Close session */
     if (sessionHandle != TPM_RH_NULL) {
@@ -227,11 +277,11 @@ exit:
 
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc;
 
-    rc = TPM2_Quote_Test(NULL);
+    rc = TPM2_Quote_Test(NULL, argc, argv);
 
     return rc;
 }
