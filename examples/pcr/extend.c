@@ -79,7 +79,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         pcrIndex = strtol(argv[1], NULL, 10);
         if(pcrIndex < 0 || pcrIndex > 23) {
             printf("PCR index is out of range(0-23)\n");
-            goto exit;
+            goto exit_badargs;
         }
 
         filename = argv[2];
@@ -87,7 +87,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         if(dataFile == NULL) {
             printf("Error openning file %s\n", filename);
             usage();
-            goto exit;
+            goto exit_badargs;
         }
     }
     else if(argc == 1) {
@@ -96,7 +96,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     else {
         printf("Incorrect arguments\n");
         usage();
-        goto exit;
+        goto exit_badargs;
     }
 
     printf("Demo how to extend data into a PCR (TPM2.0 measurement)\n");
@@ -167,9 +167,6 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    if (dataFile != NULL) {
-        fclose(dataFile);
-    }
     /* Close session */
     if (sessionHandle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = sessionHandle;
@@ -177,6 +174,13 @@ exit:
     }
 
     wolfTPM2_Cleanup(&dev);
+
+exit_badargs:
+
+    if (dataFile != NULL) {
+        fclose(dataFile);
+    }
+
     return rc;
 }
 

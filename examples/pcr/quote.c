@@ -98,21 +98,21 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         if (pcrIndex < 0 || pcrIndex > 23) {
             printf("PCR index is out of range(0-23)\n");
             usage();
-            goto exit;
+            goto exit_badargs;
         }
         filename = argv[2];
     }
     else {
         printf("Incorrect arguments\n");
         usage();
-        goto exit;
+        goto exit_badargs;
     }
 
     quoteBlob = fopen(filename, "wb");
     if (quoteBlob == NULL) {
         printf("Error openning file %s\n", filename);
         usage();
-        goto exit;
+        goto exit_badargs;
     }
 
     printf("Demo of generating signed PCR measurement (TPM2.0 Quote)\n");
@@ -252,10 +252,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    if (quoteBlob != NULL) {
-        fclose(quoteBlob);
-    }
-
     /* Close session */
     if (sessionHandle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = sessionHandle;
@@ -268,6 +264,13 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
     wolfTPM2_Cleanup(&dev);
+
+exit_badargs:
+
+    if (quoteBlob != NULL) {
+        fclose(quoteBlob);
+    }
+
     return rc;
 }
 
