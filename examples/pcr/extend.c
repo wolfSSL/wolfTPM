@@ -22,6 +22,7 @@
 /* This is a helper tool for extending hash into a TPM2.0 PCR */
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolfssl/wolfcrypt/hash.h>
 
 #include <examples/pcr/extend.h>
 #include <examples/tpm_io.h>
@@ -45,21 +46,31 @@ inline static void usage(void)
 
 int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 {
-    int i, pcrIndex, rc = -1;
+    int i, pcrIndex, len, rc = -1;
+    WOLFTPM2_DEV dev;
+    /* Arbitrary user data provided through a file */
+    unsigned char dataBuffer[1024];
     const char *filename = NULL;
     FILE *dataFile = NULL;
-    WOLFTPM2_DEV dev;
+    /* Using wolfcrypt to hash input data */
+    unsigned char hash[SHA256_DIGEST_SIZE];
+    Sha256 sha256;
 
     union {
-        PCR_Extend_In pcrExtend;
+#ifdef WOLFTPM_DEBUG_VERBOSE
         PCR_Read_In pcrRead;
+#endif
+        PCR_Extend_In pcrExtend;
         FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
+#ifdef WOLFTPM_DEBUG_VERBOSE
     union {
         PCR_Read_Out pcrRead;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
+#endif
+
 
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
@@ -88,7 +99,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    printf("Extending hash into a PCR (TPM2.0 measurement)\n");
+    printf("Demo how to extend data into a PCR (TPM2.0 measurement)\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -103,14 +114,34 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     session[0].auth.size = 0; /* NULL Password */
     TPM2_SetSessionAuth(session);
 
-    /* PCR Extend */
+    /* Prepare PCR Extend command */
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
-    for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
-        cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
+    /* Prepare the hash from user file or predefined value */
+    if(dataFile == NULL) {
+        for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
+            cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
+        }
     }
+    else {
+        wc_InitSha256(&sha256);
+        while(!feof(dataFile)) {
+            len = fread(dataBuffer, 1, sizeof(dataBuffer), dataFile);
+            if(len) {
+                 wc_Sha256Update(&sha256, dataBuffer, len);
+            }
+        }
+        wc_Sha256Final(&sha256, hash);
+        XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,
+                hash, TPM_SHA256_DIGEST_SIZE);
+    }
+    printf("Hash to be used for measurement:\n");
+    for(i=0; i < TPM_SHA256_DIGEST_SIZE; i++)
+        printf("%02X", hash[i]);
+    printf("\n");
+
     rc = TPM2_PCR_Extend(&cmdIn.pcrExtend);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PCR_Extend failed 0x%x: %s\n", rc,
@@ -119,6 +150,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_PCR_Extend success\n");
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
         TEST_WRAP_DIGEST, pcrIndex);
@@ -127,16 +159,11 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         printf("TPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_PCR_Read: Index %d, Count %d\n",
-            pcrIndex, (int)cmdOut.pcrRead.pcrValues.count);
-    if (cmdOut.pcrRead.pcrValues.count > 0) {
-        printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
-            pcrIndex,
-            (int)cmdOut.pcrRead.pcrValues.digests[0].size,
-            (int)cmdOut.pcrRead.pcrUpdateCounter);
-        TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                      cmdOut.pcrRead.pcrValues.digests[0].size);
-    }
+
+    printf("PCR%d value:\n", pcrIndex);
+    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
+                  cmdOut.pcrRead.pcrValues.digests[0].size);
+#endif
 
 exit:
 
