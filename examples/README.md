@@ -37,6 +37,8 @@ Demonstrates the generation of TPM2.0 Quote used for attestation of the system s
 More information about how to test and use PCR attestation can be found in the in README file located in the `pcr` folder of the example.
 
 `./examples/pcr/quote`
+`./examples/pcr/extend`
+`./examples/pcr/reset`
 
 ## CSR
 

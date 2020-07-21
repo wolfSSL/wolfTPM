@@ -58,10 +58,10 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     /* Arbitrary user data provided through a file */
     const char *filename = NULL;
     FILE *dataFile = NULL;
-    unsigned char hash[TPM_SHA256_DIGEST_SIZE];
+    BYTE hash[TPM_SHA256_DIGEST_SIZE];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Using wolfcrypt to hash input data */
-    unsigned char dataBuffer[1024];
+    BYTE dataBuffer[1024];
     Sha256 sha256;
 #endif
 

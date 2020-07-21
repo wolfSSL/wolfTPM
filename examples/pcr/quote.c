@@ -52,7 +52,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex, rc = -1;
     const char *filename = NULL;
-    UINT8 *data = NULL;
+    BYTE *data = NULL;
     FILE *quoteBlob = NULL;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
