@@ -22,25 +22,32 @@
 /* This is a helper tool for extending hash into a TPM2.0 PCR */
 
 #include <wolftpm/tpm2_wrap.h>
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #include <wolfssl/wolfcrypt/hash.h>
+#endif
 
 #include <examples/pcr/extend.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
+#include <stdlib.h> /* strtol */
 
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 PCR Extend example tool  -- */
 /******************************************************************************/
 
-inline static void usage(void)
+static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("extend (pcr_number) (filename)\n");
-    printf("* pcr_number is a PCR index between 0-23\n");
+    printf("./examples/pcr/extend [pcr] [filename]\n");
+    printf("* pcr is a PCR index between 0-23 (default 16)\n");
     printf("* filename points to file(data) to measure\n");
+    printf("\tIf wolfTPM is built with --disable-wolfcrypt the file\n"
+           "\tmust contain SHA256 digest ready for extend operation.\n"
+           "\tOtherwise, the extend tool computes the hash using wolfcrypt.\n");
     printf("Demo usage without parameters, extends PCR16 with known hash.\n");
 }
 
@@ -49,12 +56,14 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     int i, pcrIndex, len, rc = -1;
     WOLFTPM2_DEV dev;
     /* Arbitrary user data provided through a file */
-    unsigned char dataBuffer[1024];
     const char *filename = NULL;
     FILE *dataFile = NULL;
+    unsigned char hash[TPM_SHA256_DIGEST_SIZE];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Using wolfcrypt to hash input data */
-    unsigned char hash[SHA256_DIGEST_SIZE];
+    unsigned char dataBuffer[1024];
     Sha256 sha256;
+#endif
 
     union {
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -85,7 +94,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         filename = argv[2];
         dataFile = fopen(filename, "rb");
         if(dataFile == NULL) {
-            printf("Error openning file %s\n", filename);
+            printf("Error opening file %s\n", filename);
             usage();
             goto exit_badargs;
         }
@@ -126,6 +135,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         }
     }
     else {
+#ifndef WOLFTPM2_NO_WOLFCRYPT
         wc_InitSha256(&sha256);
         while(!feof(dataFile)) {
             len = fread(dataBuffer, 1, sizeof(dataBuffer), dataFile);
@@ -134,12 +144,19 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
             }
         }
         wc_Sha256Final(&sha256, hash);
+#else
+        len = fread(hash, 1, TPM_SHA256_DIGEST_SIZE, dataFile);
+        if(len != TPM_SHA256_DIGEST_SIZE) {
+            printf("Error while reading SHA256 digest from file.\n");
+            goto exit;
+        }
+#endif
         XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,
                 hash, TPM_SHA256_DIGEST_SIZE);
     }
     printf("Hash to be used for measurement:\n");
     for(i=0; i < TPM_SHA256_DIGEST_SIZE; i++)
-        printf("%02X", hash[i]);
+        printf("%02X", cmdIn.pcrExtend.digests.digests[0].digest.H[i]);
     printf("\n");
 
     rc = TPM2_PCR_Extend(&cmdIn.pcrExtend);
