@@ -3166,21 +3166,22 @@ int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
 /* --- BEGIN Utility Functions -- */
 /******************************************************************************/
 
-int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
-    TPMA_OBJECT objectAttributes)
+static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate, 
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, int exponent, 
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = WOLFTPM2_WRAP_RSA_KEY_BITS / 8;
-    publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->unique.rsa.size = keyBits / 8;
+    publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
-    publicTemplate->parameters.rsaDetail.keyBits = WOLFTPM2_WRAP_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = WOLFTPM2_WRAP_RSA_EXPONENT;
-    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->parameters.rsaDetail.keyBits = keyBits;
+    publicTemplate->parameters.rsaDetail.exponent = exponent;
+    publicTemplate->parameters.rsaDetail.scheme.scheme = sigScheme;
+    publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = sigHash;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
         publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
@@ -3190,18 +3191,23 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
     }
 
-    return 0;
+    return TPM_RC_SUCCESS;
 }
 
-int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
-    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme)
+static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate, 
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, 
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
-    if (publicTemplate == NULL)
-        return BAD_FUNC_ARG;
+    int curveSz = TPM2_GetCurveSize(curve);
+
+    if (publicTemplate == NULL || curveSz == 0)
+        return BAD_FUNC_ARG;    
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_ECC;
-    publicTemplate->nameAlg = WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->nameAlg = nameAlg;
+    publicTemplate->unique.ecc.x.size = curveSz / 8;
+    publicTemplate->unique.ecc.y.size = curveSz / 8;
     publicTemplate->objectAttributes = objectAttributes;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
@@ -3211,14 +3217,28 @@ int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     else {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     }
+    /* TPM_ALG_ECDSA or TPM_ALG_ECDH */
     publicTemplate->parameters.eccDetail.scheme.scheme = sigScheme;
-                                            /* TPM_ALG_ECDSA or TPM_ALG_ECDH */
-    publicTemplate->parameters.eccDetail.scheme.details.ecdsa.hashAlg =
-        WOLFTPM2_WRAP_DIGEST;
+    publicTemplate->parameters.eccDetail.scheme.details.ecdsa.hashAlg = sigHash;
     publicTemplate->parameters.eccDetail.curveID = curve;
     publicTemplate->parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
 
-    return 0;
+    return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes)
+{
+    return GetKeyTemplateRSA(publicTemplate, WOLFTPM2_WRAP_DIGEST,
+        objectAttributes, WOLFTPM2_WRAP_RSA_KEY_BITS, WOLFTPM2_WRAP_RSA_EXPONENT,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST);
+}
+
+int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme)
+{
+    return GetKeyTemplateECC(publicTemplate, WOLFTPM2_WRAP_DIGEST,
+        objectAttributes, curve, sigScheme, WOLFTPM2_WRAP_DIGEST);
 }
 
 int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
@@ -3239,7 +3259,7 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
     publicTemplate->parameters.symDetail.sym.keyBits.sym = keyBits;
     publicTemplate->parameters.symDetail.sym.mode.sym = algMode;
 
-    return 0;
+    return TPM_RC_SUCCESS;
 }
 
 int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
@@ -3259,107 +3279,97 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
     publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
     publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg = hashAlg;
 
-    return 0;
+    return TPM_RC_SUCCESS;
 }
 
 int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate)
 {
-    if (publicTemplate == NULL)
-        return BAD_FUNC_ARG;
-
-    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
-    publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
-    publicTemplate->objectAttributes = (
+    int ret;
+    TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
         TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
-    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = 0;
-    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-    publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
-    publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
-    publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
-    XMEMCPY(publicTemplate->authPolicy.buffer,
-        TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
 
-    return 0;
+    ret = GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, 2048, 0, TPM_ALG_NULL, TPM_ALG_NULL);
+    if (ret == 0) {
+        publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+        XMEMCPY(publicTemplate->authPolicy.buffer,
+            TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
+    }
+    return ret;
 }
 
 int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate)
 {
-    if (publicTemplate == NULL)
-        return BAD_FUNC_ARG;
-
-    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
-    publicTemplate->type = TPM_ALG_ECC;
-    publicTemplate->unique.ecc.x.size = 32;
-    publicTemplate->unique.ecc.y.size = 32;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
-    publicTemplate->objectAttributes = (
+    int ret;
+    TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
         TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt);
-    publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
-    publicTemplate->parameters.eccDetail.symmetric.keyBits.aes = 128;
-    publicTemplate->parameters.eccDetail.symmetric.mode.aes = TPM_ALG_CFB;
-    publicTemplate->parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
-    publicTemplate->parameters.eccDetail.scheme.details.ecdsa.hashAlg =
-        TPM_ALG_SHA256;
-    publicTemplate->parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
-    publicTemplate->parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
-    publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
-    XMEMCPY(publicTemplate->authPolicy.buffer,
-        TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
 
-    return 0;
+    ret = GetKeyTemplateECC(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_NULL, TPM_ALG_NULL);
+    if (ret == 0) {
+        publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
+        XMEMCPY(publicTemplate->authPolicy.buffer,
+            TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
+    }
+    return ret;
 }
 
 int wolfTPM2_GetKeyTemplate_RSA_SRK(TPMT_PUBLIC* publicTemplate)
 {
-    if (publicTemplate == NULL)
-        return BAD_FUNC_ARG;
-
-    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
-    publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
-    publicTemplate->objectAttributes = (
+    TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = 0;
-    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_NULL;
-    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-    publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
-    publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
 
-    return 0;
+    return GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, 2048, 0, TPM_ALG_NULL, TPM_ALG_NULL);
+}
+
+int wolfTPM2_GetKeyTemplate_ECC_SRK(TPMT_PUBLIC* publicTemplate)
+{
+    TPMA_OBJECT objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+
+    return GetKeyTemplateECC(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
 int wolfTPM2_GetKeyTemplate_RSA_AIK(TPMT_PUBLIC* publicTemplate)
 {
-    if (publicTemplate == NULL)
-        return BAD_FUNC_ARG;
-
-    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
-    publicTemplate->type = TPM_ALG_RSA;
-    publicTemplate->unique.rsa.size = MAX_RSA_KEY_BITS / 8;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
-    publicTemplate->objectAttributes = (
+    int ret;
+    TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-    publicTemplate->parameters.rsaDetail.keyBits = MAX_RSA_KEY_BITS;
-    publicTemplate->parameters.rsaDetail.exponent = 0;
-    publicTemplate->parameters.rsaDetail.scheme.scheme = TPM_ALG_RSASSA;
-    publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = TPM_ALG_SHA256;
-    publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
 
-    return 0;
+    ret = GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, 2048, 0, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    if (ret == 0) {
+        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    }
+    return ret;
+}
+
+int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate)
+{
+    int ret;
+    TPMA_OBJECT objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+
+    ret = GetKeyTemplateECC(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_ECDSA, TPM_ALG_SHA256);
+    if (ret == 0) {
+        publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    }
+    return ret;
 }
 
 int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
@@ -3387,18 +3397,19 @@ int wolfTPM2_CreateEK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg)
     int rc;
     TPMT_PUBLIC publicTemplate;
 
-    if(alg == TPM_ALG_RSA) {
+    if (alg == TPM_ALG_RSA) {
         rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
     }
-    else if(alg == TPM_ALG_ECC) {
-        rc = wolfTPM2_GetKeyTemplate_RSA_EK(&publicTemplate);
+    else if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_ECC_EK(&publicTemplate);
     }
     else {
-        /* Supported algorithms for EK are only 2048bit RSA & ECC */
+        /* Supported algorithms for EK are only RSA 2048-bit& ECC P256 */
         return BAD_FUNC_ARG;
     }
     /* GetKeyTemplate check */
-    if (rc != 0) return rc;
+    if (rc != 0)
+        return rc;
 
     rc = wolfTPM2_CreatePrimaryKey(dev, ekKey, TPM_RH_ENDORSEMENT,
         &publicTemplate, NULL, 0);
@@ -3413,19 +3424,19 @@ int wolfTPM2_CreateSRK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* srkKey, TPM_ALG_ID alg,
     TPMT_PUBLIC publicTemplate;
 
     /* Supported algorithms for SRK are only 2048bit RSA & ECC */
-    if(alg == TPM_ALG_RSA) {
+    if (alg == TPM_ALG_RSA) {
         rc = wolfTPM2_GetKeyTemplate_RSA_SRK(&publicTemplate);
     }
-    else if(alg == TPM_ALG_ECC) {
-        /* TODO: Create GetKeyTemplate_ECC_SRK helper */
-        return BAD_FUNC_ARG;
+    else if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_ECC_SRK(&publicTemplate);
     }
     else {
-        /* Supported algorithms for EK are only 2048bit RSA & ECC */
+        /* Supported algorithms for SRK are only RSA 2048-bit & ECC P256 */
         return BAD_FUNC_ARG;
     }
     /* GetKeyTemplate check */
-    if (rc != 0) return rc;
+    if (rc != 0)
+        return rc;
 
     rc = wolfTPM2_CreatePrimaryKey(dev, srkKey, TPM_RH_OWNER,
         &publicTemplate, auth, authSz);
@@ -3439,14 +3450,18 @@ int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKey,
     int rc;
     TPMT_PUBLIC publicTemplate;
 
-    if(alg == TPM_ALG_RSA) {
+    if (alg == TPM_ALG_RSA) {
         rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
+    }
+    else if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
     }
     else {
         return BAD_FUNC_ARG;
     }
     /* GetKeyTemplate check */
-    if (rc != 0) return rc;
+    if (rc != 0)
+        return rc;
 
     rc = wolfTPM2_CreateAndLoadKey(dev, aikKey, &srkKey->handle,
         &publicTemplate, auth, authSz);
