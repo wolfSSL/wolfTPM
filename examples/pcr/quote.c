@@ -30,6 +30,7 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
+#include <stdlib.h> /* strtol */
 
 const char defaultFilename[] = "quote.blob\0";
 
@@ -37,10 +38,11 @@ const char defaultFilename[] = "quote.blob\0";
 /* --- BEGIN TPM2.0 Quote Test -- */
 /******************************************************************************/
 
-inline static void usage(void)
+static void usage(void)
 {
-    printf("Expected usage: extend (pcr_number) (filename)\n");
-    printf("* pcr_number is a number between 0-23\n");
+    printf("Expected usage:\n");
+    printf("./examples/pcr/quote [pcr] [filename]\n");
+    printf("* pcr is a PCR index between 0-23 (default 16)\n");
     printf("* filename for saving the TPMS_ATTEST structure to a file\n");
     printf("Demo usage without parameters, generates quote over PCR16 and\n"
            "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n");
@@ -110,7 +112,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 
     quoteBlob = fopen(filename, "wb");
     if (quoteBlob == NULL) {
-        printf("Error openning file %s\n", filename);
+        printf("Error opening file %s\n", filename);
         usage();
         goto exit_badargs;
     }
