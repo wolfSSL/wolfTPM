@@ -49,6 +49,10 @@ static const char gKeyAuthAlt[] =     "ThisIsMyKeyAltAuth";
 static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
 
+/* Default Test PCR */
+/* PCR16 is for DEBUG purposes, thus safe to use */
+#define TPM2_TEST_PCR 16
+
 #ifndef WOLFTPM_ST33
     #define TEST_AES_MODE TPM_ALG_CFB
 #else

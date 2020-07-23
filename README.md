@@ -25,7 +25,7 @@ Portable TPM 2.0 project designed for embedded use.
 	* TLS Server
 	* Benchmarking TPM algorithms and TLS
 
-Note: See `examples/README.md` for details on using the examples.
+Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
 
 ## TPM 2.0 Overview

@@ -5,7 +5,7 @@ if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/timestamp/signed_timestamp
 noinst_HEADERS  += examples/timestamp/signed_timestamp.h
 examples_timestamp_signed_timestamp_SOURCES      = examples/timestamp/signed_timestamp.c \
-									       examples/tpm_io.c
+                                                   examples/tpm_io.c
 examples_timestamp_signed_timestamp_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_timestamp_signed_timestamp_DEPENDENCIES = src/libwolftpm.la
 endif
