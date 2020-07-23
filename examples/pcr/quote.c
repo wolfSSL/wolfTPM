@@ -243,7 +243,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);
     printf("\tTPM signed %lu count of PCRs\n",
         (unsigned long)attestedData.attested.quote.pcrSelect.count);
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
     printf("\tPCR digest:\n");
     TPM2_PrintBin(attestedData.attested.quote.pcrDigest.buffer,
         attestedData.attested.quote.pcrDigest.size);

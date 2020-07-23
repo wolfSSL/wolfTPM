@@ -66,14 +66,14 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 #endif
 
     union {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         PCR_Read_In pcrRead;
 #endif
         PCR_Extend_In pcrExtend;
         FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
     union {
         PCR_Read_Out pcrRead;
         byte maxOutput[MAX_RESPONSE_SIZE];
@@ -167,7 +167,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_PCR_Extend success\n");
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
         TEST_WRAP_DIGEST, pcrIndex);
@@ -177,7 +177,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    printf("PCR%d value:\n", pcrIndex);
+    printf("PCR%d digest:\n", pcrIndex);
     TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
                   cmdOut.pcrRead.pcrValues.digests[0].size);
 #endif
