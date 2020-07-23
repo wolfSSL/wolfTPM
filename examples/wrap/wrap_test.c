@@ -182,14 +182,8 @@ int TPM2_Wrapper_Test(void* userCtx)
 #endif
     if (rc != 0) {
         /* Create primary storage key (RSA) */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
+        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_RSA, 
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
 
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
@@ -395,14 +389,8 @@ int TPM2_Wrapper_Test(void* userCtx)
 #endif
     if (rc != 0) {
         /* Create primary storage key (ECC) */
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA,
-            TPM_ECC_NIST_P256, TPM_ALG_NULL);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC, 
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
         /* Move this key into persistent storage */

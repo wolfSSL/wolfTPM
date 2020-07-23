@@ -65,9 +65,6 @@ int TPM2_Timestamp_Test(void* userCtx)
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY rsaKey;  /* AIK */
 
-    const byte storagePwd[] = "WolfTPMpassword";
-    const byte usageAuth[] = "ThisIsASecretUsageAuth";
-
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     XMEMSET(&endorse, 0, sizeof(endorse));
@@ -112,9 +109,39 @@ int TPM2_Timestamp_Test(void* userCtx)
         (word32)endorse.handle.hndl, endorse.pub.size);
 
 
-    /* Create Storage Key, also called SRK */
-    rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, storagePwd,
-        sizeof(storagePwd)-1);
+    /* Create RSA Storage Key, also called SRK */
+    /* See if SRK already exists */
+    rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
+#ifdef TEST_WRAP_DELETE_KEY
+    if (rc == 0) {
+        storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
+        rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storage);
+        if (rc != 0) goto exit;
+        rc = TPM_RC_HANDLE; /* mark handle as missing */
+    }
+#endif
+    if (rc != 0) {
+        /* Create primary storage key (RSA) */
+        rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, 
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+
+        /* Move storage key into persistent NV */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
+        if (rc != 0) {
+            wolfTPM2_UnloadHandle(&dev, &storage.handle);
+            goto exit;
+        }
+
+        printf("Created new RSA Primary Storage Key at 0x%x\n",
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
+    }
+    else {
+        /* specify auth password for storage key */
+        storage.handle.auth.size = sizeof(gStorageKeyAuth)-1;
+        XMEMCPY(storage.handle.auth.buffer, gStorageKeyAuth,
+            storage.handle.auth.size);
+    }
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateSRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -163,18 +190,18 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     /* At this stage, the EK is created and NULL password has already been set
      * The EH is enabled through policySecret over the active TPM session and
-     * the creation of Attestation Identity Key under the EH can take place.
+     * the creation of Attestation Identity Key (AIK) under the EH can take place.
      */
 
 
     /* set session auth for storage key */
-    session[0].auth.size = sizeof(storagePwd)-1;
-    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
+    session[0].auth.size = sizeof(gStorageKeyAuth)-1;
+    XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
 
 
-    /* Create an RSA key for Attestation purposes */
+    /* Create an Attestation RSA key (AIK) */
     rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
-        usageAuth, sizeof(usageAuth)-1);
+        (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -189,8 +216,8 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     /* set auth for using the AIK */
     session[1].sessionHandle = TPM_RS_PW;
-    session[1].auth.size = sizeof(usageAuth)-1;
-    XMEMCPY(session[1].auth.buffer, usageAuth, session[1].auth.size);
+    session[1].auth.size = sizeof(gAiKeyAuth)-1;
+    XMEMCPY(session[1].auth.buffer, gAiKeyAuth, session[1].auth.size);
 
 
     /* At this stage: The EK is created, AIK is created and loaded,
@@ -241,6 +268,10 @@ int TPM2_Timestamp_Test(void* userCtx)
 
 exit:
 
+    if (rc != 0) {
+        printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+    }
+
     /* Close session */
     if (sessionHandle != TPM_RH_NULL) {
         cmdIn.flushCtx.flushHandle = sessionHandle;
@@ -249,7 +280,6 @@ exit:
 
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
     wolfTPM2_Cleanup(&dev);
