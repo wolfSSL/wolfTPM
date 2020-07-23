@@ -1,4 +1,4 @@
-/* clear.h
+/* reset.h
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *

@@ -32,7 +32,7 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* strtol */
+#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/
@@ -43,17 +43,19 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/pcr/extend [pcr] [filename]\n");
-    printf("* pcr is a PCR index between 0-23 (default 16)\n");
+    printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
     printf("* filename points to file(data) to measure\n");
     printf("\tIf wolfTPM is built with --disable-wolfcrypt the file\n"
            "\tmust contain SHA256 digest ready for extend operation.\n"
            "\tOtherwise, the extend tool computes the hash using wolfcrypt.\n");
-    printf("Demo usage without parameters, extends PCR16 with known hash.\n");
+    printf("Demo usage without parameters, extends PCR%d with known hash.\n",
+        TPM2_TEST_PCR);
 }
 
 int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 {
-    int i, pcrIndex, len, rc = -1;
+    int i, pcrIndex, rc = -1;
+    size_t len;
     WOLFTPM2_DEV dev;
     /* Arbitrary user data provided through a file */
     const char *filename = NULL;
@@ -64,6 +66,8 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     BYTE dataBuffer[1024];
     Sha256 sha256;
 #endif
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
 #ifdef DEBUG_WOLFTPM
@@ -80,27 +84,24 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
 #endif
 
-
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-
-    if(argc == 3) {
-        pcrIndex = strtol(argv[1], NULL, 10);
-        if(pcrIndex < 0 || pcrIndex > 23) {
-            printf("PCR index is out of range(0-23)\n");
+    if (argc == 3) {
+        pcrIndex = atoi(argv[1]);
+        if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
+            printf("PCR index is out of range (0-23)\n");
+            usage();
             goto exit_badargs;
         }
 
         filename = argv[2];
         dataFile = fopen(filename, "rb");
-        if(dataFile == NULL) {
+        if (dataFile == NULL) {
             printf("Error opening file %s\n", filename);
             usage();
             goto exit_badargs;
         }
     }
-    else if(argc == 1) {
-        pcrIndex = 16; /* PCR16 is for DEBUG purposes, thus safe to use */
+    else if (argc == 1) {
+        pcrIndex = TPM2_TEST_PCR;
     }
     else {
         printf("Incorrect arguments\n");
@@ -129,7 +130,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
     /* Prepare the hash from user file or predefined value */
-    if(dataFile == NULL) {
+    if (dataFile == NULL) {
         for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
             cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
         }
@@ -137,10 +138,10 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     else {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
         wc_InitSha256(&sha256);
-        while(!feof(dataFile)) {
+        while (!feof(dataFile)) {
             len = fread(dataBuffer, 1, sizeof(dataBuffer), dataFile);
-            if(len) {
-                 wc_Sha256Update(&sha256, dataBuffer, len);
+            if (len) {
+                wc_Sha256Update(&sha256, dataBuffer, (int)len);
             }
         }
         wc_Sha256Final(&sha256, hash);
@@ -155,7 +156,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
                 hash, TPM_SHA256_DIGEST_SIZE);
     }
     printf("Hash to be used for measurement:\n");
-    for(i=0; i < TPM_SHA256_DIGEST_SIZE; i++)
+    for (i=0; i < TPM_SHA256_DIGEST_SIZE; i++)
         printf("%02X", cmdIn.pcrExtend.digests.digests[0].digest.H[i]);
     printf("\n");
 

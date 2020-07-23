@@ -6,7 +6,6 @@ noinst_PROGRAMS += examples/pcr/quote \
                    examples/pcr/extend \
                    examples/pcr/reset
 
-
 noinst_HEADERS  += examples/pcr/quote.h \
                    examples/pcr/extend.h \
                    examples/pcr/reset.h
@@ -30,6 +29,11 @@ endif
 dist_example_DATA+= examples/pcr/quote.c \
                     examples/pcr/extend.c \
                     examples/pcr/reset.c
+
 DISTCLEANFILES+= examples/pcr/.libs/quote \
                  examples/pcr/.libs/extend \
                  examples/pcr/.libs/reset
+
+EXTRA_DIST+= examples/pcr/README.md \
+             examples/pcr/demo.sh \
+             examples/pcr/demo-quote-zip.sh

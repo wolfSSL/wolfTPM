@@ -28,7 +28,7 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* strtol */
+#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/
@@ -39,14 +39,16 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/pcr/reset [pcr]\n");
-    printf("* pcr is a PCR index between 0-23 (default 16)\n");
-    printf("Demo usage without parameters, resets PCR16.\n");
+    printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
+    printf("Demo usage without parameters, resets PCR%d.\n", TPM2_TEST_PCR);
 }
 
 int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex, rc = -1;
     WOLFTPM2_DEV dev;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
 #ifdef DEBUG_WOLFTPM
@@ -63,19 +65,16 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
 #endif
 
-
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-
-    if(argc == 2) {
-        pcrIndex = strtol(argv[1], NULL, 10);
-        if(pcrIndex < 0 || pcrIndex > 23) {
-            printf("PCR index is out of range(0-23)\n");
+    if (argc == 2) {
+        pcrIndex = atoi(argv[1]);
+        if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
+            printf("PCR index is out of range (0-23)\n");
+            usage();
             goto exit_badargs;
         }
     }
-    else if(argc == 1) {
-        pcrIndex = 16; /* PCR16 is for DEBUG purposes, thus safe to use */
+    else if (argc == 1) {
+        pcrIndex = TPM2_TEST_PCR;
     }
     else {
         printf("Incorrect arguments\n");

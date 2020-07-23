@@ -6,7 +6,7 @@ noinst_PROGRAMS += examples/tls/tls_client
 noinst_HEADERS  += examples/tls/tls_client.h \
                    examples/tls/tls_common.h
 examples_tls_tls_client_SOURCES      = examples/tls/tls_client.c \
-                                     = examples/tpm_io.c
+                                       examples/tpm_io.c
 examples_tls_tls_client_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_tls_tls_client_DEPENDENCIES = src/libwolftpm.la
 
@@ -22,7 +22,7 @@ noinst_PROGRAMS += examples/tls/tls_server
 noinst_HEADERS  += examples/tls/tls_server.h \
                    examples/tls/tls_common.h
 examples_tls_tls_server_SOURCES      = examples/tls/tls_server.c \
-                                     = examples/tpm_io.c
+                                       examples/tpm_io.c
 examples_tls_tls_server_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_tls_tls_server_DEPENDENCIES = src/libwolftpm.la
 

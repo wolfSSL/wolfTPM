@@ -30,7 +30,7 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* strtol */
+#include <stdlib.h> /* atoi */
 
 const char defaultFilename[] = "quote.blob\0";
 
@@ -42,10 +42,11 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/pcr/quote [pcr] [filename]\n");
-    printf("* pcr is a PCR index between 0-23 (default 16)\n");
+    printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
     printf("* filename for saving the TPMS_ATTEST structure to a file\n");
-    printf("Demo usage without parameters, generates quote over PCR16 and\n"
-           "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n");
+    printf("Demo usage without parameters, generates quote over PCR%d and\n"
+           "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n",
+           TPM2_TEST_PCR);
 }
 
 int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
@@ -56,6 +57,14 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     FILE *quoteBlob = NULL;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
+
+    WOLFTPM2_KEY endorse; /* EK  */
+    WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY rsaKey;  /* AIK */
+
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+
 
     union {
         Quote_In quoteAsk;
@@ -74,31 +83,21 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
-
-    WOLFTPM2_KEY endorse; /* EK  */
-    WOLFTPM2_KEY storage; /* SRK */
-    WOLFTPM2_KEY rsaKey;  /* AIK */
-
-    const byte storagePwd[] = "WolfTPMpassword";
-    const byte usageAuth[] = "ThisIsASecretUsageAuth";
-
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
 
+
     if (argc == 1) {
         /* Demo usage */
-        pcrIndex = 16; /* PCR16 is for DEBUG purposes, thus safe to use */
+        pcrIndex = TPM2_TEST_PCR;
         filename = defaultFilename;
     }
     else if (argc == 3) {
         /* Advanced usage */
-        pcrIndex = strtol(argv[1], NULL, 10);
-        if (pcrIndex < 0 || pcrIndex > 23) {
-            printf("PCR index is out of range(0-23)\n");
+        pcrIndex = atoi(argv[1]);
+        if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
+            printf("PCR index is out of range (0-23)\n");
             usage();
             goto exit_badargs;
         }
@@ -144,9 +143,39 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         (word32)endorse.handle.hndl, endorse.pub.size);
 
 
-    /* Create Storage Key, also called SRK */
-    rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, storagePwd,
-        sizeof(storagePwd)-1);
+    /* Create RSA Storage Key, also called SRK */
+    /* See if SRK already exists */
+    rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
+#ifdef TEST_WRAP_DELETE_KEY
+    if (rc == 0) {
+        storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
+        rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storage);
+        if (rc != 0) goto exit;
+        rc = TPM_RC_HANDLE; /* mark handle as missing */
+    }
+#endif
+    if (rc != 0) {
+        /* Create primary storage key (RSA) */
+        rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, 
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+
+        /* Move storage key into persistent NV */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
+        if (rc != 0) {
+            wolfTPM2_UnloadHandle(&dev, &storage.handle);
+            goto exit;
+        }
+
+        printf("Created new RSA Primary Storage Key at 0x%x\n",
+            TPM2_DEMO_STORAGE_KEY_HANDLE);
+    }
+    else {
+        /* specify auth password for storage key */
+        storage.handle.auth.size = sizeof(gStorageKeyAuth)-1;
+        XMEMCPY(storage.handle.auth.buffer, gStorageKeyAuth,
+            storage.handle.auth.size);
+    }
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateSRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -182,13 +211,13 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 
 
     /* set session auth for storage key */
-    session[0].auth.size = sizeof(storagePwd)-1;
-    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
+    session[0].auth.size = sizeof(gStorageKeyAuth)-1;
+    XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
 
 
     /* Create an RSA key for Attestation purposes */
     rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
-        usageAuth, sizeof(usageAuth)-1);
+        (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -199,8 +228,8 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 
 
     /* set auth for using the AIK */
-    session[0].auth.size = sizeof(usageAuth)-1;
-    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
+    session[0].auth.size = sizeof(gUsageAuth)-1;
+    XMEMCPY(session[0].auth.buffer, gUsageAuth, session[0].auth.size);
 
     /* Prepare Quote request */
     XMEMSET(&cmdIn.quoteAsk, 0, sizeof(cmdIn.quoteAsk));

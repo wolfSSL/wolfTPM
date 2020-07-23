@@ -4,7 +4,7 @@ echo "wolfTPM Quote & Attestation demo"
 echo
 echo "Starting from a known PCR state"
 
-./examples/pcr/reset
+./examples/pcr/reset 16
 
 echo
 echo "Extending with precalculated hash value"

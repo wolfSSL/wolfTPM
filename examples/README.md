@@ -24,9 +24,9 @@ Demonstrates calling the wolfTPM2_* wrapper API's.
 
 ### TPM signed timestamp, TPM2.0 GetTime
 
-Demonstrates creation of Attestation Identity Keys(AIK) and the generation of TPM signed timestamp that can be later used as protected report of the current system uptime.
+Demonstrates creation of Attestation Identity Keys (AIK) and the generation of TPM signed timestamp that can be later used as protected report of the current system uptime.
 
-This example demonstrates the use of authSession(authorization Session) and policySession(Policy authorization) to enable the Endorsement Hierarchy necessary for creating AIK. Then, the AIK is used to issue a TPM2_GetTime command using the wolfTPM2 native API. This provides us with TPM generated and signed timestamp that can be used as a system report of its uptime.
+This example demonstrates the use of `authSession` (authorization Session) and `policySession` (Policy authorization) to enable the Endorsement Hierarchy necessary for creating AIK. The AIK is used to issue a `TPM2_GetTime` command using the TPM 2.0 native API. This provides a TPM generated and signed timestamp that can be used as a system report of its uptime.
 
 `./examples/timestamp/signed_timestamp`
 
@@ -34,11 +34,12 @@ This example demonstrates the use of authSession(authorization Session) and poli
 
 Demonstrates the generation of TPM2.0 Quote used for attestation of the system state by putting PCR value(s) in a TPM signed structure.
 
-More information about how to test and use PCR attestation can be found in the in README file located in the `pcr` folder of the example.
+More information about how to test and use PCR attestation can be found in the in [examples/pcr/README.md](./examples/pcr/README.md).
 
 `./examples/pcr/quote`
 `./examples/pcr/extend`
 `./examples/pcr/reset`
+
 
 ## CSR
 
@@ -84,7 +85,7 @@ The TLS example uses TPM based ECDHE (ECC Ephemeral key) support. It can be disa
 
 To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
 
-To use symmetric AES/Hashing/Hmac with the TPM define `WOLFTPM_USE_SYMMETRIC`.
+To use symmetric AES/Hashing/HMAC with the TPM define `WOLFTPM_USE_SYMMETRIC`.
 
 Generation of the Client and Server Certificates requires running:
 1. `./examples/csr/csr`
@@ -98,7 +99,7 @@ Generation of the Client and Server Certificates requires running:
 
 Examples show using a TPM key and certificate for TLS mutual authentication (client authentication).
 
-This example client connects to localhost on on port 11111 by default. These can be overriden using `TLS_HOST` and `TLS_PORT`.
+This example client connects to localhost on on port 11111 by default. These can be overridden using `TLS_HOST` and `TLS_PORT`.
 
 You can validate using the wolfSSL example server this like:
 `./examples/server/server -b -p 11111 -g -d`
@@ -109,7 +110,7 @@ or
 `./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
 
 Then run the wolfTPM TLS client example:
-`./examples/tls/tls_client`. 
+`./examples/tls/tls_client`
 
 
 ### TLS Server
@@ -133,7 +134,7 @@ or
 Or using your browser: `https://localhost:11111`
 
 With browsers you will get certificate warnings until you load the test CA's `./certs/ca-rsa-cert.pem` and `./certs/ca-ecc-cert.pem` into your OS key store.
-For testing most browsers have a way to continue to the site anyways to bypass the warning. 
+For testing most browsers have a way to continue to the site anyways to bypass the warning.
 
 
 ## Benchmark
