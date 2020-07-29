@@ -47,6 +47,9 @@ typedef struct TPM2_Packet {
     int size;
 } TPM2_Packet;
 
+WOLFTPM_LOCAL void TPM2_Packet_U16ToByteArray(UINT16 val, BYTE* b);
+WOLFTPM_LOCAL void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b);
+
 WOLFTPM_LOCAL UINT16 TPM2_Packet_SwapU16(UINT16 data);
 WOLFTPM_LOCAL UINT32 TPM2_Packet_SwapU32(UINT32 data);
 WOLFTPM_LOCAL UINT64 TPM2_Packet_SwapU64(UINT64 data);

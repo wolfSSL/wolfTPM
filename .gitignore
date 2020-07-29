@@ -1,3 +1,6 @@
+*~
+patch/
+*.swp
 .metadata
 language.settings.xml
 src/config.h.in
@@ -38,6 +41,7 @@ examples/pcr/quote
 examples/pcr/extend
 examples/pcr/reset
 examples/timestamp/clock_set
+examples/keygen/keygen
 pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server

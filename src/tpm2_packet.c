@@ -101,10 +101,35 @@
     #define be64_to_cpu(d) (d)
 #endif
 
+/* convert 16 bit integer to opaque */
+static inline void c16toa(word16 wc_u16, byte* c)
+{
+    c[0] = (wc_u16 >> 8) & 0xff;
+    c[1] =  wc_u16 & 0xff;
+}
+/* convert 32 bit integer to opaque */
+static inline void c32toa(word32 wc_u32, byte* c)
+{
+    c[0] = (wc_u32 >> 24) & 0xff;
+    c[1] = (wc_u32 >> 16) & 0xff;
+    c[2] = (wc_u32 >>  8) & 0xff;
+    c[3] =  wc_u32 & 0xff;
+}
 
 /******************************************************************************/
 /* --- BEGIN TPM Packet Assembly / Parsing -- */
 /******************************************************************************/
+void TPM2_Packet_U16ToByteArray(UINT16 val, BYTE* b)
+{
+    if (b)
+        c16toa(val, b);
+}
+void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b)
+{
+    if (b)
+        c32toa(val, b);
+}
+
 UINT16 TPM2_Packet_SwapU16(UINT16 data) {
     return cpu_to_be16(data);
 }

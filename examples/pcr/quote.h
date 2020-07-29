@@ -32,4 +32,4 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[]);
     }  /* extern "C" */
 #endif
 
-#endif /* _quote_H_ */
+#endif /* _QUOTE_H_ */

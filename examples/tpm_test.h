@@ -49,6 +49,7 @@ static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
 static const char gKeyAuthAlt[] =     "ThisIsMyKeyAltAuth";
 static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
+static const char gXorAuth[] =        "ThisIsMyXorAuth";
 
 /* Default Test PCR */
 /* PCR16 is for DEBUG purposes, thus safe to use */

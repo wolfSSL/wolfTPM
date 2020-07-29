@@ -8,7 +8,8 @@ src_libwolftpm_la_SOURCES      = \
                                 src/tpm2.c \
                                 src/tpm2_packet.c \
                                 src/tpm2_tis.c \
-                                src/tpm2_wrap.c
+                                src/tpm2_wrap.c \
+                                src/tpm2_param_enc.c
 
 if BUILD_DEVTPM
 src_libwolftpm_la_SOURCES      += src/tpm2_linux.c
