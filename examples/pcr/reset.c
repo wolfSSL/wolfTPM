@@ -47,7 +47,6 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex, rc = -1;
     WOLFTPM2_DEV dev;
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
@@ -55,7 +54,6 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
         PCR_Read_In pcrRead;
 #endif
         PCR_Reset_In pcrReset;
-        FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
 #ifdef DEBUG_WOLFTPM
@@ -125,12 +123,6 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
 #endif
 
 exit:
-
-    /* Close session */
-    if (sessionHandle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = sessionHandle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
 
     wolfTPM2_Cleanup(&dev);
 

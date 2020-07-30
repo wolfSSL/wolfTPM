@@ -66,7 +66,6 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     BYTE dataBuffer[1024];
     Sha256 sha256;
 #endif
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
@@ -74,7 +73,6 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         PCR_Read_In pcrRead;
 #endif
         PCR_Extend_In pcrExtend;
-        FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
 #ifdef DEBUG_WOLFTPM
@@ -184,12 +182,6 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 #endif
 
 exit:
-
-    /* Close session */
-    if (sessionHandle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = sessionHandle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
 
     wolfTPM2_Cleanup(&dev);
 
