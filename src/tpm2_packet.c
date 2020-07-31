@@ -368,6 +368,7 @@ void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
         default:
             TPM2_Packet_AppendU16(packet, symmetric->keyBits.sym);
             TPM2_Packet_AppendU16(packet, symmetric->mode.sym);
+            break;
     }
 }
 void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
@@ -386,6 +387,7 @@ void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
         default:
             TPM2_Packet_ParseU16(packet, &symmetric->keyBits.sym);
             TPM2_Packet_ParseU16(packet, &symmetric->mode.sym);
+            break;
     }
 }
 
