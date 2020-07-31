@@ -61,10 +61,10 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     const char *filename = NULL;
     FILE *dataFile = NULL;
     BYTE hash[TPM_SHA256_DIGEST_SIZE];
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_SHA256)
     /* Using wolfcrypt to hash input data */
     BYTE dataBuffer[1024];
-    Sha256 sha256;
+    wc_Sha256 sha256;
 #endif
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
@@ -134,7 +134,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         }
     }
     else {
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_SHA256)
         wc_InitSha256(&sha256);
         while (!feof(dataFile)) {
             len = fread(dataBuffer, 1, sizeof(dataBuffer), dataFile);
@@ -145,7 +145,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         wc_Sha256Final(&sha256, hash);
 #else
         len = fread(hash, 1, TPM_SHA256_DIGEST_SIZE, dataFile);
-        if(len != TPM_SHA256_DIGEST_SIZE) {
+        if (len != TPM_SHA256_DIGEST_SIZE) {
             printf("Error while reading SHA256 digest from file.\n");
             goto exit;
         }
