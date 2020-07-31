@@ -57,7 +57,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     FILE *quoteBlob = NULL;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
 
     WOLFTPM2_KEY endorse; /* EK  */
     WOLFTPM2_KEY storage; /* SRK */
@@ -68,18 +67,10 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 
     union {
         Quote_In quoteAsk;
-        /* For managing TPM session */
-        StartAuthSession_In authSes;
-        PolicySecret_In policySecret;
-        /* For removing keys after use */
-        FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
         Quote_Out quoteResult;
-        /* Output from session operations */
-        StartAuthSession_Out authSes;
-        PolicySecret_Out policySecret;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
@@ -185,31 +176,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         (word32)storage.handle.hndl, storage.pub.size);
 
 
-    /* Start Auth Session */
-    XMEMSET(&cmdIn.authSes, 0, sizeof(cmdIn.authSes));
-    cmdIn.authSes.sessionType = TPM_SE_POLICY;
-    cmdIn.authSes.tpmKey = TPM_RH_NULL;
-    cmdIn.authSes.bind = TPM_RH_NULL;
-    cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.authSes.authHash = TPM_ALG_SHA256;
-    cmdIn.authSes.nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
-                       cmdIn.authSes.nonceCaller.size);
-    if (rc < 0) {
-        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    rc = TPM2_StartAuthSession(&cmdIn.authSes, &cmdOut.authSes);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_StartAuthSession failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    sessionHandle = cmdOut.authSes.sessionHandle;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
-
-
     /* set session auth for storage key */
     session[0].auth.size = sizeof(gStorageKeyAuth)-1;
     XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
@@ -282,12 +248,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 #endif
 
 exit:
-
-    /* Close session */
-    if (sessionHandle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = sessionHandle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
 
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
