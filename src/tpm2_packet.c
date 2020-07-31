@@ -355,17 +355,39 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
 void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 {
     TPM2_Packet_AppendU16(packet, symmetric->algorithm);
-    if (symmetric->algorithm != TPM_ALG_NULL) {
-        TPM2_Packet_AppendU16(packet, symmetric->keyBits.sym);
-        TPM2_Packet_AppendU16(packet, symmetric->mode.sym);
+    switch (symmetric->algorithm) {
+        case TPM_ALG_XOR:
+            TPM2_Packet_AppendU16(packet, symmetric->keyBits.xor);
+            break;
+        case TPM_ALG_AES:
+            TPM2_Packet_AppendU16(packet, symmetric->keyBits.aes);
+            TPM2_Packet_AppendU16(packet, symmetric->mode.aes);
+            break;
+        case TPM_ALG_NULL:
+            break;
+        default:
+            TPM2_Packet_AppendU16(packet, symmetric->keyBits.sym);
+            TPM2_Packet_AppendU16(packet, symmetric->mode.sym);
+            break;
     }
 }
 void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 {
     TPM2_Packet_ParseU16(packet, &symmetric->algorithm);
-    if (symmetric->algorithm != TPM_ALG_NULL) {
-        TPM2_Packet_ParseU16(packet, &symmetric->keyBits.sym);
-        TPM2_Packet_ParseU16(packet, &symmetric->mode.sym);
+    switch (symmetric->algorithm) {
+        case TPM_ALG_XOR:
+            TPM2_Packet_ParseU16(packet, &symmetric->keyBits.xor);
+            break;
+        case TPM_ALG_AES:
+            TPM2_Packet_ParseU16(packet, &symmetric->keyBits.aes);
+            TPM2_Packet_ParseU16(packet, &symmetric->mode.aes);
+            break;
+        case TPM_ALG_NULL:
+            break;
+        default:
+            TPM2_Packet_ParseU16(packet, &symmetric->keyBits.sym);
+            TPM2_Packet_ParseU16(packet, &symmetric->mode.sym);
+            break;
     }
 }
 
