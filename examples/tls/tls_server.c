@@ -485,8 +485,8 @@ int main(void)
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_TLS_Server(NULL);
 #else
-    printf("Wrapper/CryptoDev code not compiled in\n");
-    printf("Build wolfssl with ./configure --enable-cryptodev\n");
+    printf("Wrapper/Crypto callback code not compiled in\n");
+    printf("Build wolfssl with ./configure --enable-cryptocb\n");
 #endif
 
     return rc;

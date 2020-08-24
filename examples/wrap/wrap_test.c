@@ -184,6 +184,7 @@ int TPM2_Wrapper_Test(void* userCtx)
         /* Create primary storage key (RSA) */
         rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_RSA, 
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        if (rc != 0) goto exit;
 
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,

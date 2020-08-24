@@ -23,6 +23,8 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #include <examples/pcr/reset.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -134,14 +136,20 @@ exit_badargs:
 /******************************************************************************/
 /* --- END TPM2.0 PCR Reset example tool -- */
 /******************************************************************************/
-
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = -1;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Reset_Test(NULL, argc, argv);
+#else
+    printf("Wrapper code not compiled in\n");
+    (void)argc;
+    (void)argv;
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
     return rc;
 }
