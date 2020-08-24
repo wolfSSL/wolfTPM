@@ -1,6 +1,6 @@
 ## Release Notes
 
-### wolfTPM Release 1.9 (02/21/2020)
+### wolfTPM Release 1.9 (08/24/2020)
 
 **Summary**
 
