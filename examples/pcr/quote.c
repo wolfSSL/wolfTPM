@@ -25,6 +25,7 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#ifndef WOLFTPM2_NO_WRAPPER
 #include <examples/pcr/quote.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -149,6 +150,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         /* Create primary storage key (RSA) */
         rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, 
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        if (rc != 0) goto exit;
 
         /* Move storage key into persistent NV */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
@@ -269,14 +271,19 @@ exit_badargs:
 /* --- END TPM2.0 Quote Test -- */
 /******************************************************************************/
 
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = -1;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Quote_Test(NULL, argc, argv);
-
+#else
+    (void)argc;
+    (void)argv;
+#endif /* !WOLFTPM2_NO_WRAPPER */
     return rc;
 }
 #endif

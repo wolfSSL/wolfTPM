@@ -458,8 +458,9 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return BAD_FUNC_ARG;
 
     XMEMSET(&authSesIn, 0, sizeof(authSesIn));
-    authSesIn.tpmKey = tpmKey ? tpmKey->handle.hndl : TPM_RH_NULL;
-    authSesIn.bind =     bind ? bind->hndl          : TPM_RH_NULL;
+    authSesIn.tpmKey = tpmKey ? tpmKey->handle.hndl :
+                                (TPMI_DH_OBJECT)TPM_RH_NULL;
+    authSesIn.bind = bind ? bind->hndl : (TPMI_DH_ENTITY)TPM_RH_NULL;
     authSesIn.sessionType = sesType;
     if (useEncryptDecrypt) {
         authSesIn.symmetric.algorithm = TPM_ALG_AES;

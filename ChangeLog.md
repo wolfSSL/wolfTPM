@@ -1,5 +1,30 @@
 ## Release Notes
 
+### wolfTPM Release 1.9 (02/21/2020)
+
+**Summary**
+
+Added NPCT75x Nuvoton support, dynamic module detection, and attestation key wrappers.
+
+**Detail**
+
+* Fix when building wolfSSL with old names `NO_OLD_WC_NAMES`. (PR #113)
+* Cleanups, removed unused code from the PCR examples. (PR #112)
+* Bugfixes for TPM2_Packet_AppendSymmetric and TPM2_Packet_ParseSymmetric. (PR #111)
+* Improvements to the signed timestamp example. (PR #108)
+* Add example of a TPM2.0 Quote using wolfTPM. (PR #107)
+* TPM attestation fixes. (PR #103)
+* Added NPCT75x Nuvoton support and dynamic module detection support. (PR #102)
+* Added RSA sign/verify support and expanded RSA key loading API's. (PR #101)
+* Attestation key wrappers. (PR #100)
+* If creating an NV and it already exists, set auth and handle anyways. (PR #99)
+* Add missing xor overload to TPMU_SYM_KEY_BITS. (PR #97)
+* Signed timestamp example (AIK and Attestation). (PR #96)
+* Fix for TPM2 commands with more than one auth session. (PR #95)
+* Adding more testing. (PR #93)
+* Add TPM benchmarking results for Nuvoton NPCT650 TPM2.0 module. (PR #92)
+
+
 ### wolfTPM Release 1.8 (04/28/2020)
 
 **Summary**

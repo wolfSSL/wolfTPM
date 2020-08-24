@@ -25,6 +25,8 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #include <examples/timestamp/signed_timestamp.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -124,6 +126,7 @@ int TPM2_Timestamp_Test(void* userCtx)
         /* Create primary storage key (RSA) */
         rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, 
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        if (rc != 0) goto exit;
 
         /* Move storage key into persistent NV */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
@@ -290,13 +293,17 @@ exit:
 /* --- END TPM Timestamp Test -- */
 /******************************************************************************/
 
+#endif /* !WOLFTPM2_NO_WRAPPER */
+
 
 #ifndef NO_MAIN_DRIVER
 int main(void)
 {
-    int rc;
+    int rc = -1;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Timestamp_Test(NULL);
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
     return rc;
 }
