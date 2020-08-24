@@ -1080,7 +1080,7 @@ typedef TPM_KEY_BITS TPMI_AES_KEY_BITS;
 typedef union TPMU_SYM_KEY_BITS {
     TPMI_AES_KEY_BITS aes;
     TPM_KEY_BITS sym;
-    TPMI_ALG_HASH xor;
+    TPMI_ALG_HASH xorr;
 } TPMU_SYM_KEY_BITS;
 
 typedef union TPMU_SYM_MODE {

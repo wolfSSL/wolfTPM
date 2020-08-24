@@ -357,7 +357,7 @@ void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
     TPM2_Packet_AppendU16(packet, symmetric->algorithm);
     switch (symmetric->algorithm) {
         case TPM_ALG_XOR:
-            TPM2_Packet_AppendU16(packet, symmetric->keyBits.xor);
+            TPM2_Packet_AppendU16(packet, symmetric->keyBits.xorr);
             break;
         case TPM_ALG_AES:
             TPM2_Packet_AppendU16(packet, symmetric->keyBits.aes);
@@ -376,7 +376,7 @@ void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
     TPM2_Packet_ParseU16(packet, &symmetric->algorithm);
     switch (symmetric->algorithm) {
         case TPM_ALG_XOR:
-            TPM2_Packet_ParseU16(packet, &symmetric->keyBits.xor);
+            TPM2_Packet_ParseU16(packet, &symmetric->keyBits.xorr);
             break;
         case TPM_ALG_AES:
             TPM2_Packet_ParseU16(packet, &symmetric->keyBits.aes);

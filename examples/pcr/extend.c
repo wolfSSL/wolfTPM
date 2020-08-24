@@ -23,6 +23,8 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #include <wolfssl/wolfcrypt/hash.h>
 #endif
@@ -198,13 +200,20 @@ exit_badargs:
 /* --- END TPM2.0 PCR Extend example tool -- */
 /******************************************************************************/
 
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = -1;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Extend_Test(NULL, argc, argv);
+#else
+    printf("Wrapper code not compiled in\n");
+    (void)argc;
+    (void)argv;
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
     return rc;
 }
