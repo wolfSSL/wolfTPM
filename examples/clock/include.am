@@ -1,0 +1,14 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+noinst_PROGRAMS += examples/clock/clockSet
+noinst_HEADERS  += examples/clock/clockSet.h
+examples_clock_clockSet_SOURCES      = examples/clock/clockSet.c \
+                                                   examples/tpm_io.c
+examples_clock_clockSet_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_clock_clockSet_DEPENDENCIES = src/libwolftpm.la
+endif
+
+dist_example_DATA+= examples/clock/clockSet.c
+DISTCLEANFILES+= examples/clock/.libs/clockSet

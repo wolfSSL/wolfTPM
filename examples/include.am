@@ -9,6 +9,7 @@ include examples/csr/include.am
 include examples/pkcs7/include.am
 include examples/timestamp/include.am
 include examples/pcr/include.am
+include examples/clock/include.am
 
 dist_example_DATA+= examples/README.md \
                     examples/tpm_io.c \
