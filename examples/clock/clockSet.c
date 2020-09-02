@@ -30,15 +30,28 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-
+#include <stdlib.h>
 
 /******************************************************************************/
 /* --- BEGIN TPM clockSet Test -- */
 /******************************************************************************/
 
-int TPM2_ClockSet_Test(void* userCtx)
+static void usage(void)
 {
-    int rc;
+    printf("Expected usage:\n");
+    printf("./examples/clock/clockSet [time]\n");
+    printf("* time is value in miliseconds\n");
+    printf("\tThe TPM clock can be set only forward.\n");
+    printf("\tThe TPM clock shows the total time the TPM was ever powered.\n");
+    printf("\tThe TPM clock is different and always higher than the\n");
+    printf("\tcurrent uptime. The TPM uptime can not be tampered with.\n");
+    printf("Demo usage without parameters:\n");
+    printf("* increments the TPM clock with 50 seconds (50,000 ms)\n");
+}
+
+int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
+{
+    int rc = 0;
     WOLFTPM2_DEV dev;
 
     union {
@@ -53,6 +66,18 @@ int TPM2_ClockSet_Test(void* userCtx)
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     UINT64 oldClock, newClock;
+
+    if(argc == 2) {
+        newClock = atoi(argv[1]);
+    }
+    else if(argc == 1) {
+        newClock = 0;
+    }
+    else {
+        printf("Incorrect arguments\n");
+        usage();
+        goto exit_badargs;
+    }
 
     printf("TPM2 Demo of setting the TPM clock forward\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -79,22 +104,27 @@ int TPM2_ClockSet_Test(void* userCtx)
         goto exit;
     }
     printf("TPM2_ReadClock: success\n");
-    printf("TPM2_ReadClock: (total)  time=%lu\n",
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_ReadClock: (uptime) time=%lu\n",
             cmdOut.readClock.currentTime.time);
-    printf("TPM2_ReadClock: (uptime) clock=%lu\n",
+    printf("TPM2_ReadClock: (total)  clock=%lu\n",
             cmdOut.readClock.currentTime.clockInfo.clock);
+#endif
     oldClock = cmdOut.readClock.currentTime.clockInfo.clock;
 
-    /* Set Clock forward by 50 seconds */
+    /* Set the TPM clock forward */
     cmdIn.clockSet.auth = TPM_RH_OWNER;
-    cmdIn.clockSet.newTime = oldClock + 50000;
+    if(newClock)
+        cmdIn.clockSet.newTime = newClock;
+    else
+        cmdIn.clockSet.newTime = oldClock + 50000;
     rc = TPM2_ClockSet(&cmdIn.clockSet);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_clockSet failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_clockSet: success\n");
+    printf("TPM2_ClockSet: success\n");
 
     /* ReadClock to check the new clock time is set */
     XMEMSET(&cmdOut.readClock, 0, sizeof(cmdOut.readClock));
@@ -105,10 +135,12 @@ int TPM2_ClockSet_Test(void* userCtx)
         goto exit;
     }
     printf("TPM2_ReadClock: success\n");
-    printf("TPM2_ReadClock: (total)  time=%lu\n",
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_ReadClock: (uptime) time=%lu\n",
             cmdOut.readClock.currentTime.time);
-    printf("TPM2_ReadClock: (uptime) clock=%lu\n",
+    printf("TPM2_ReadClock: (total)  clock=%lu\n",
             cmdOut.readClock.currentTime.clockInfo.clock);
+#endif
     newClock = cmdOut.readClock.currentTime.clockInfo.clock;
 
     printf("\n\t oldClock=%lu \n\t newClock=%lu \n\n", oldClock, newClock);
@@ -120,6 +152,9 @@ exit:
     }
 
     wolfTPM2_Cleanup(&dev);
+
+exit_badargs:
+
     return rc;
 }
 
@@ -131,14 +166,16 @@ exit:
 
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_ClockSet_Test(NULL);
+    rc = TPM2_ClockSet_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
+    (void)argc;
+    (void)argv;
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return rc;

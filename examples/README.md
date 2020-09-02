@@ -137,6 +137,22 @@ With browsers you will get certificate warnings until you load the test CA's `./
 For testing most browsers have a way to continue to the site anyways to bypass the warning.
 
 
+## Clock
+
+Updating the TPM clock
+
+The TPM has internal hardware clock that can be useful to the user. There are two values that the TPM can provide in respect to time.
+
+TPM time is the current uptime, since the last power on sequence. This value can not be changed or modified. There is no mechanism for that. The value is reset at every power sequence.
+
+TPM clock is the total time the TPM has ever been powered. This value can be modified using the TPM2_ClockSet command. The TPM clock can be set only forward.
+
+This way the user can keep track of relative and current time using the TPM clock.
+
+Note: If the new time value makes a change bigger than the TPM clock update interval, then the TPM will first update its volatile register for time and then the non-volatile register for time. This may cause a narrow delay before the commands returns execution to the user. Depending on the TPM manufacturer, the delay can vary from us to few ms.
+
+`./examples/clock/clockSet`
+
 ## Benchmark
 
 Performance benchmarks.
