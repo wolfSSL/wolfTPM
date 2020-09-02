@@ -1,4 +1,4 @@
-/* clockSet.c
+/* clock_set.c
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -25,15 +25,15 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#include <examples/clock/clockSet.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include "clock_set.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 /******************************************************************************/
-/* --- BEGIN TPM clockSet Test -- */
+/* --- BEGIN TPM Clock Set Example -- */
 /******************************************************************************/
 
 static void usage(void)
@@ -67,10 +67,10 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
 
     UINT64 oldClock, newClock;
 
-    if(argc == 2) {
+    if (argc == 2) {
         newClock = atoi(argv[1]);
     }
-    else if(argc == 1) {
+    else if (argc == 1) {
         newClock = 0;
     }
     else {
@@ -106,15 +106,15 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
     printf("TPM2_ReadClock: success\n");
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadClock: (uptime) time=%lu\n",
-            cmdOut.readClock.currentTime.time);
+            (long unsigned int)cmdOut.readClock.currentTime.time);
     printf("TPM2_ReadClock: (total)  clock=%lu\n",
-            cmdOut.readClock.currentTime.clockInfo.clock);
+            (long unsigned int)cmdOut.readClock.currentTime.clockInfo.clock);
 #endif
     oldClock = cmdOut.readClock.currentTime.clockInfo.clock;
 
     /* Set the TPM clock forward */
     cmdIn.clockSet.auth = TPM_RH_OWNER;
-    if(newClock)
+    if (newClock)
         cmdIn.clockSet.newTime = newClock;
     else
         cmdIn.clockSet.newTime = oldClock + 50000;
@@ -137,13 +137,14 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
     printf("TPM2_ReadClock: success\n");
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadClock: (uptime) time=%lu\n",
-            cmdOut.readClock.currentTime.time);
+            (long unsigned int)cmdOut.readClock.currentTime.time);
     printf("TPM2_ReadClock: (total)  clock=%lu\n",
-            cmdOut.readClock.currentTime.clockInfo.clock);
+            (long unsigned int)cmdOut.readClock.currentTime.clockInfo.clock);
 #endif
     newClock = cmdOut.readClock.currentTime.clockInfo.clock;
 
-    printf("\n\t oldClock=%lu \n\t newClock=%lu \n\n", oldClock, newClock);
+    printf("\n\t oldClock=%lu \n\t newClock=%lu \n\n", 
+        (long unsigned int)oldClock, (long unsigned int)newClock);
 
 exit:
 
@@ -159,7 +160,7 @@ exit_badargs:
 }
 
 /******************************************************************************/
-/* --- END TPM Timestamp Test -- */
+/* --- END TPM Clock Set Example -- */
 /******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

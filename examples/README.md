@@ -151,7 +151,7 @@ This way the user can keep track of relative and current time using the TPM cloc
 
 Note: If the new time value makes a change bigger than the TPM clock update interval, then the TPM will first update its volatile register for time and then the non-volatile register for time. This may cause a narrow delay before the commands returns execution to the user. Depending on the TPM manufacturer, the delay can vary from us to few ms.
 
-`./examples/clock/clockSet`
+`./examples/timestamp/clock_set`
 
 ## Benchmark
 
