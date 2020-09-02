@@ -68,6 +68,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     WOLFTPM2_KEY rsaKey;  /* AIK */
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+    TPMT_PUBLIC publicTemplate;
 
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
@@ -202,13 +203,24 @@ int TPM2_Timestamp_Test(void* userCtx)
     XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
 
 
-    /* Create an Attestation RSA key (AIK) */
-    rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
-        (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
+    /* Create/Load RSA key for CSR (AIK) */
+    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
+    if (rc != 0) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
+        if (rc != 0) goto exit;
+        rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storage.handle,
+            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+        if (rc != 0) goto exit;
+
+        /* Move this key into persistent storage */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
+            TPM2_DEMO_RSA_KEY_HANDLE);
+        if (rc != 0) goto exit;
+    }
+    else {
+        /* specify auth password for RSA key */
+        rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
+        XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
         (word32)rsaKey.handle.hndl, rsaKey.pub.size);
@@ -219,8 +231,8 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     /* set auth for using the AIK */
     session[1].sessionHandle = TPM_RS_PW;
-    session[1].auth.size = sizeof(gAiKeyAuth)-1;
-    XMEMCPY(session[1].auth.buffer, gAiKeyAuth, session[1].auth.size);
+    session[1].auth.size = sizeof(gKeyAuth)-1;
+    XMEMCPY(session[1].auth.buffer, gKeyAuth, session[1].auth.size);
 
 
     /* At this stage: The EK is created, AIK is created and loaded,

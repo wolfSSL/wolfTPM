@@ -163,12 +163,10 @@ int TPM2_TLS_Client(void* userCtx)
     }
 
 #ifndef NO_RSA
-    /* Create/Load RSA key for TLS authentication */
+    /* Create/Load RSA key for TLS authentication (AIK) */
     rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
     if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
@@ -180,7 +178,7 @@ int TPM2_TLS_Client(void* userCtx)
         if (rc != 0) goto exit;
     }
     else {
-        /* specify auth password for rsa key */
+        /* specify auth password for RSA key */
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
@@ -194,13 +192,10 @@ int TPM2_TLS_Client(void* userCtx)
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
-    /* Create/Load ECC key for TLS authentication */
+    /* Create/Load ECC key for TLS authentication (AIK) */
     rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_DEMO_ECC_KEY_HANDLE);
     if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-            TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+        rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);

@@ -348,12 +348,10 @@ int TPM2_PKCS7_Example(void* userCtx)
             storageKey.handle.auth.size);
     }
 
-    /* Create/Load RSA key for PKCS7 signing */
+    /* Create/Load RSA key for PKCS7 signing (AIK) */
     rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
     if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
         if (rc != 0) goto exit;
         rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
@@ -365,11 +363,10 @@ int TPM2_PKCS7_Example(void* userCtx)
         if (rc != 0) goto exit;
     }
     else {
-        /* specify auth password for rsa key */
+        /* specify auth password for RSA key */
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
-
 
     /* load DER certificate for TPM key (obtained by running
         `./examples/csr/csr` and `./certs/certreq.sh`) */

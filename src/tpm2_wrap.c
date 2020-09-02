@@ -2475,6 +2475,10 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = TPM_RH_LOCKOUT;
 
+    /* TODO: Set lockout password for TPM_RH_LOCKOUT using "TPM2_HierarchyChangeAuth" */
+    /* A Clear on the TPM_RH_LOCKOUT hierarchy will clear NV, but keep the EK Cert */
+    /* The platform hierarchy auth password (done at TPM manufacturing) protects the EK */
+
     rc = TPM2_Clear(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
