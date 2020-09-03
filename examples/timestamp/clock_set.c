@@ -40,13 +40,13 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/clock/clockSet [time]\n");
-    printf("* time is value in miliseconds\n");
+    printf("* time is a value in miliseconds used as increment (optional)\n");
+    printf("* Default time value is 50000 ms (50 seconds)\n");
+    printf("\tThe TPM clock can be set only forward.\n");
     printf("\tThe TPM clock can be set only forward.\n");
     printf("\tThe TPM clock shows the total time the TPM was ever powered.\n");
     printf("\tThe TPM clock is different and always higher than the\n");
     printf("\tcurrent uptime. The TPM uptime can not be tampered with.\n");
-    printf("Demo usage without parameters:\n");
-    printf("* increments the TPM clock with 50 seconds (50,000 ms)\n");
 }
 
 int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
@@ -68,6 +68,11 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
     UINT64 oldClock, newClock;
 
     if (argc == 2) {
+        if(*argv[1] == '?') {
+            usage();
+            goto exit_badargs;
+        }
+        /* Otherwise we have the [time] optional argument */
         newClock = atoi(argv[1]);
     }
     else if (argc == 1) {
