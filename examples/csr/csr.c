@@ -299,8 +299,8 @@ int main(void)
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_CSR_Example(NULL);
 #else
-    printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
-    printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptodev\n");
+    printf("Wrapper/CertReq/CryptoCb code not compiled in\n");
+    printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptocb\n");
 #endif
 
     return rc;
