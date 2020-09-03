@@ -27,9 +27,9 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#include <examples/timestamp/signed_timestamp.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include "signed_timestamp.h"
 
 #include <stdio.h>
 

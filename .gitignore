@@ -37,6 +37,7 @@ examples/timestamp/signed_timestamp
 examples/pcr/quote
 examples/pcr/extend
 examples/pcr/reset
+examples/timestamp/clock_set
 pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
