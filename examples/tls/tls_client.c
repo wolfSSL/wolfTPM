@@ -245,10 +245,7 @@ int TPM2_TLS_Client(void* userCtx)
     wolfSSL_CTX_SetIOSend(ctx, SockIOSend);
 
     /* Server certificate validation */
-#if 0
-    /* skip server cert validation for this test */
-    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, myVerify);
-#else
+    /* Note: Can use "WOLFSSL_VERIFY_NONE" to skip server cert validation */
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
@@ -293,27 +290,15 @@ int TPM2_TLS_Client(void* userCtx)
     }
     #endif
 #endif /* !NO_FILESYSTEM */
-#endif
 
+    /* Client Key (Mutual Authentication) */
+    /* Note: Client will not send a client certificate unless a private key is 
+     *   set, so we use a fake "DUMMY" key tell wolfSSL to send certificate.
+     *   The crypto callback will detect use of the dummy key using myTpmCheckKey
+     */
 #ifndef NO_TLS_MUTUAL_AUTH
-#ifdef NO_FILESYSTEM
-    /* example loading from buffer */
-    #if 0
-        if (wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
-                                        WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            goto exit;
-        }
-    #endif
-#else
-    /* Client certificate (mutual auth) */
 #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    printf("Loading RSA certificate and dummy key\n");
-
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading RSA client cert\n");
-        goto exit;
-    }
+    printf("Loading RSA dummy key\n");
 
     /* Private key is on TPM and crypto dev callbacks are used */
     /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
@@ -323,14 +308,7 @@ int TPM2_TLS_Client(void* userCtx)
         goto exit;
     }
 #elif defined(HAVE_ECC)
-    printf("Loading ECC certificate and dummy key\n");
-
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading ECC client cert\n");
-        goto exit;
-    }
-
+    printf("Loading ECC dummy key\n");
     /* Private key is on TPM and crypto dev callbacks are used */
     /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
     if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
@@ -339,7 +317,35 @@ int TPM2_TLS_Client(void* userCtx)
         goto exit;
     }
 #endif
-#endif /* !NO_FILESYSTEM */
+
+    /* Client Certificate (Mutual Authentication) */
+#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+    printf("Loading RSA certificate\n");
+    #ifdef NO_FILESYSTEM
+    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
+        WOLFSSL_FILETYPE_ASN1);
+    #else
+    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem", 
+        WOLFSSL_FILETYPE_PEM);
+    #endif
+    if (rc != WOLFSSL_SUCCESS) {
+        printf("Error loading RSA client cert\n");
+        goto exit;
+    }
+#elif defined(HAVE_ECC)
+    printf("Loading ECC certificate\n");
+    #ifdef NO_FILESYSTEM
+    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
+        WOLFSSL_FILETYPE_ASN1);
+    #else
+    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem", 
+        WOLFSSL_FILETYPE_PEM);
+    #endif
+    if (rc != WOLFSSL_SUCCESS) {
+        printf("Error loading ECC client cert\n");
+        goto exit;
+    }
+#endif
 #endif /* !NO_TLS_MUTUAL_AUTH */
 
 #ifdef TLS_CIPHER_SUITE
