@@ -97,8 +97,8 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     return rc;
 }
 
-#ifdef WOLFTPM_LINUX_DEV
-static int wolfTPM2_Init_LinuxDev(TPM2_CTX* ctx, void* userCtx)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
+static int wolfTPM2_Init_NonTIS(TPM2_CTX* ctx, void* userCtx)
 {
     int rc;
 
@@ -162,8 +162,8 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 
     XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
 
-#ifdef WOLFTPM_LINUX_DEV
-    rc = wolfTPM2_Init_LinuxDev(&dev->ctx, userCtx);
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
+    rc = wolfTPM2_Init_NonTIS(&dev->ctx, userCtx);
 
     (void)ioCb; /* Using standard file I/O for the Linux TPM device */
 #else

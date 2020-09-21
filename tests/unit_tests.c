@@ -93,7 +93,7 @@ static void test_wolfTPM2_Init(void)
     AssertIntNE(rc, 0);
     /* Test second argument, TPM2 IO Callbacks */
     rc = wolfTPM2_Init(&dev, NULL, NULL);
-#ifdef WOLFTPM_LINUX_DEV
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
     /* Custom IO Callbacks are not needed for Linux TIS driver */
     AssertIntEQ(rc, 0);
 #else

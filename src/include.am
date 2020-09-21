@@ -13,6 +13,9 @@ src_libwolftpm_la_SOURCES      = \
 if BUILD_DEVTPM
 src_libwolftpm_la_SOURCES      += src/tpm2_linux.c
 endif
+if BUILD_SOCKET
+src_libwolftpm_la_SOURCES      += src/tpm2_socket.c
+endif
 
 src_libwolftpm_la_CFLAGS       = -DBUILDING_WOLFTPM $(AM_CFLAGS)
 src_libwolftpm_la_CPPFLAGS     = -DBUILDING_WOLFTPM $(AM_CPPFLAGS)

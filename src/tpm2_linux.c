@@ -72,6 +72,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
             /* Wait for response to be available */
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
             if (rc_poll > 0 && fds.revents == POLLIN) {
+                // TODO: could cmdSz be smaller than the response?
                 rspSz = read(fd, cmd, TPM2_LINUX_DEV_RSP_SIZE);
                 /* The caller parses the TPM_Packet for correctness */
                 if (rspSz >= TPM2_HEADER_SIZE) {
