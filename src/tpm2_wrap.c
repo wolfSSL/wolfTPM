@@ -34,7 +34,7 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
 /* --- BEGIN Wrapper Device Functions -- */
 /******************************************************************************/
 
-static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
+static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
     int rc;
@@ -46,7 +46,14 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
+    rc = TPM2_Init_minimal(ctx, userCtx);
+    /* Using standard file I/O for the Linux TPM device */
+    (void)ioCb;
+    (void)timeoutTries;
+#else
     rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
+#endif
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
@@ -61,6 +68,7 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         ctx->rid);
 #endif
 
+#ifndef WOLFTPM_LINUX_DEV
     /* startup */
     XMEMSET(&startupIn, 0, sizeof(Startup_In));
     startupIn.startupType = TPM_SU_CLEAR;
@@ -94,34 +102,10 @@ static int wolfTPM2_Init_NoDev(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM_RC_SUCCESS;
 #endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
 
-    return rc;
-}
-
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
-static int wolfTPM2_Init_NonTIS(TPM2_CTX* ctx, void* userCtx)
-{
-    int rc;
-
-    if (ctx == NULL)
-        return BAD_FUNC_ARG;
-
-    /* Using a TPM device through the Linux kernel TIS driver
-     * means the TPM has already been initialized and commands
-     * such as "Startup" have already been issued */
-
-    rc = TPM2_Init_minimal(ctx);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
-        return rc;
-    }
-
-    ctx->userCtx = userCtx;
+#endif /* ! WOLFTPM_LINUX_DEV */
 
     return rc;
 }
-#endif
 
 /* Single-shot API for testing access to hardware and optionally return capabilities */
 int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
@@ -134,7 +118,7 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     current_ctx = TPM2_GetActiveCtx();
 
     /* Perform startup and test device */
-    rc = wolfTPM2_Init_NoDev(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
+    rc = wolfTPM2_Init_ex(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
@@ -162,13 +146,7 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 
     XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
-    rc = wolfTPM2_Init_NonTIS(&dev->ctx, userCtx);
-
-    (void)ioCb; /* Using standard file I/O for the Linux TPM device */
-#else
-    rc = wolfTPM2_Init_NoDev(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
-#endif
+    rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, TPM_TIMEOUT_TRIES);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
@@ -938,7 +916,7 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
 }
 
 int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* rsaPub, word32 rsaPubSz, word32 exponent, 
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
     TPM2B_PUBLIC pub;
@@ -982,13 +960,13 @@ int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent)
 {
-    return wolfTPM2_LoadRsaPublicKey_ex(dev, key, rsaPub, rsaPubSz, exponent, 
+    return wolfTPM2_LoadRsaPublicKey_ex(dev, key, rsaPub, rsaPubSz, exponent,
         TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
 int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     WOLFTPM2_KEY* key, const byte* rsaPub, word32 rsaPubSz, word32 exponent,
-    const byte* rsaPriv, word32 rsaPrivSz, 
+    const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
     TPM2B_PUBLIC pub;
@@ -1032,7 +1010,7 @@ int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     WOLFTPM2_KEY* key, const byte* rsaPub, word32 rsaPubSz, word32 exponent,
     const byte* rsaPriv, word32 rsaPrivSz)
 {
-    return wolfTPM2_LoadRsaPrivateKey_ex(dev, parentKey, key, rsaPub, rsaPubSz, 
+    return wolfTPM2_LoadRsaPrivateKey_ex(dev, parentKey, key, rsaPub, rsaPubSz,
         exponent, rsaPriv, rsaPrivSz, TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
@@ -1529,12 +1507,12 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
         *sigSz = signOut.signature.signature.rsassa.sig.size;
-        XMEMCPY(sig, signOut.signature.signature.rsassa.sig.buffer, 
+        XMEMCPY(sig, signOut.signature.signature.rsassa.sig.buffer,
             signOut.signature.signature.rsassa.sig.size);
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Sign: %s %d\n", 
+    printf("TPM2_Sign: %s %d\n",
         TPM2_GetAlgName(signIn.inScheme.scheme), *sigSz);
 #endif
 
@@ -1560,7 +1538,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
     }
 
-    return wolfTPM2_SignHashScheme(dev, key, digest, digestSz, sig, sigSz, 
+    return wolfTPM2_SignHashScheme(dev, key, digest, digestSz, sig, sigSz,
         sigAlg, WOLFTPM2_WRAP_DIGEST);
 }
 
@@ -3167,8 +3145,8 @@ int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
 /* --- BEGIN Utility Functions -- */
 /******************************************************************************/
 
-static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate, 
-    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, int exponent, 
+static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, int exponent,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
     if (publicTemplate == NULL)
@@ -3195,14 +3173,14 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     return TPM_RC_SUCCESS;
 }
 
-static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate, 
-    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, 
+static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
     int curveSz = TPM2_GetCurveSize(curve);
 
     if (publicTemplate == NULL || curveSz == 0)
-        return BAD_FUNC_ARG;    
+        return BAD_FUNC_ARG;
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_ECC;

@@ -61,7 +61,6 @@ static TPM_RC tpm_tcp_transmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
         return BAD_FUNC_ARG;
     }
 
-    /* send start */
     wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
     if (bufSz != wrc) {
         rc = SOCKET_ERROR_E;
@@ -244,7 +243,7 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
                    rspSz, cmdSz);
             #endif
             /* TODO: return error, for figure out way to avoid buffer overflow */
-            //rc = SOCKET_ERROR_E;
+            // rc = SOCKET_ERROR_E;
         }
     }
 
