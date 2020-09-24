@@ -1,4 +1,4 @@
-/* tpm2_socket.h
+/* tpm2_swtpm.h
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _TPM2_SOCKET_H_
-#define _TPM2_SOCKET_H_
+#ifndef _TPM2_SWTPM_H_
+#define _TPM2_SWTPM_H_
 
 #include <wolftpm/tpm2.h>
 
@@ -38,11 +38,11 @@
 #define TPM_STOP                    21
 
 /* TPM2 IO for using TPM through a Socket connection */
-int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
-/* int TPM2_SOCKET_PowerOn(TPM2_CTX* ctx); */
+int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
+/* int TPM2_SWTPM_PowerOn(TPM2_CTX* ctx); */
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _TPM2_SOCKET_H_ */
+#endif /* _TPM2_SWTPM_H_ */

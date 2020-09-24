@@ -1612,11 +1612,11 @@ static const BYTE TPM_20_EK_AUTH_POLICY[] = {
 
 /* HAL IO Callbacks */
 struct TPM2_CTX;
-#ifdef WOLFTPM_SOCKET
+#ifdef WOLFTPM_SWTPM
 struct wolfTPM_tcpContext {
     int fd;
 };
-#endif /* WOLFTPM_SOCKET */
+#endif /* WOLFTPM_SWTPM */
 
 /* make sure advanced IO is enabled for I2C */
 #ifdef WOLFTPM_I2C
@@ -1640,7 +1640,7 @@ typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
 typedef struct TPM2_CTX {
     TPM2HalIoCb ioCb;
     void* userCtx;
-#ifdef WOLFTPM_SOCKET
+#ifdef WOLFTPM_SWTPM
     struct wolfTPM_tcpContext tcpCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT

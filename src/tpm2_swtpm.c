@@ -1,4 +1,4 @@
-/* tpm2_socket.c
+/* tpm2_swtpm.c
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -30,9 +30,9 @@
  * https://github.com/stefanberger/swtpm
  */
 
-#ifdef WOLFTPM_SOCKET
+#ifdef WOLFTPM_SWTPM
 #include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_socket.h>
+#include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_packet.h>
 
 #include <unistd.h>
@@ -45,14 +45,14 @@
 #include <netdb.h>
 
 
-#ifndef TPM2_SOCKET_HOST
-#define TPM2_SOCKET_HOST         "localhost"
+#ifndef TPM2_SWTPM_HOST
+#define TPM2_SWTPM_HOST         "localhost"
 #endif
-#ifndef TPM2_SOCKET_PORT
-#define TPM2_SOCKET_PORT         "2321"
+#ifndef TPM2_SWTPM_PORT
+#define TPM2_SWTPM_PORT         "2321"
 #endif
 
-static TPM_RC tpm_tcp_transmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
+static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
@@ -76,7 +76,7 @@ static TPM_RC tpm_tcp_transmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     return rc;
 }
 
-static TPM_RC tpm_tcp_receive(TPM2_CTX* ctx, void* buffer, size_t rxSz) {
+static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz) {
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
     size_t bytes_remaining = rxSz;
@@ -113,7 +113,7 @@ static TPM_RC tpm_tcp_receive(TPM2_CTX* ctx, void* buffer, size_t rxSz) {
     return rc;
 }
 
-static TPM_RC tpm_tcp_connect(TPM2_CTX* ctx, const char* host, const char* port)
+static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = SOCKET_ERROR_E;
     struct addrinfo hints;
@@ -159,7 +159,7 @@ static TPM_RC tpm_tcp_connect(TPM2_CTX* ctx, const char* host, const char* port)
     return rc;
 }
 
-static TPM_RC tpm_tcp_disconnect(TPM2_CTX* ctx)
+static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     uint32_t tss_cmd;
@@ -170,7 +170,7 @@ static TPM_RC tpm_tcp_disconnect(TPM2_CTX* ctx)
 
     /* end swtpm session */
     tss_cmd = htonl(TPM_SESSION_END);
-    rc = tpm_tcp_transmit(ctx, &tss_cmd, sizeof(uint32_t));
+    rc = SwTpmTransmit(ctx, &tss_cmd, sizeof(uint32_t));
     #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rc != TPM_RC_SUCCESS) {
         printf("Failed to transmit SESSION_END\n");
@@ -192,7 +192,7 @@ static TPM_RC tpm_tcp_disconnect(TPM2_CTX* ctx)
 }
 
 /* Talk to a TPM through socket */
-int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
+int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 {
     int rc = TPM_RC_FAILURE;
     word32 rspSz = 0;
@@ -203,7 +203,7 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     }
 
     if (ctx->tcpCtx.fd <= 0) {
-        rc = tpm_tcp_connect(ctx, TPM2_SOCKET_HOST, TPM2_SOCKET_PORT);
+        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, TPM2_SWTPM_PORT);
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -214,28 +214,28 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     /* send start */
     tss_word = htonl(TPM_SEND_COMMAND);
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_transmit(ctx, &tss_word, sizeof(uint32_t));
+        rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
 
     /* locality */
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_transmit(ctx, &ctx->locality, sizeof(uint8_t));
+        rc = SwTpmTransmit(ctx, &ctx->locality, sizeof(uint8_t));
     }
 
     /* buffer size */
     tss_word = htonl(cmdSz);
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_transmit(ctx, &tss_word, sizeof(uint32_t));
+        rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
 
     /* Send the TPM command buffer */
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_transmit(ctx, cmd, cmdSz);
+        rc = SwTpmTransmit(ctx, cmd, cmdSz);
     }
 
     /* receive response */
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_receive(ctx, &tss_word, sizeof(uint32_t));
+        rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = ntohl(tss_word);
         if (rspSz > cmdSz) {
             #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -249,12 +249,12 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
     /* TODO: could hang as currently implemented, but is not TSS complient */
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_receive(ctx, cmd, rspSz);
+        rc = SwTpmReceive(ctx, cmd, rspSz);
     }
 
     /* receive ack */
     if (rc == TPM_RC_SUCCESS) {
-        rc = tpm_tcp_receive(ctx, &tss_word, sizeof(uint32_t));
+        rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         tss_word = ntohl(tss_word);
         #ifdef WOLFTPM_DEBUG
         if (tss_word != 0) {
@@ -272,7 +272,7 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 #endif
 
     if (ctx->tcpCtx.fd > 0) {
-        TPM_RC rc_disconnect = tpm_tcp_disconnect(ctx);
+        TPM_RC rc_disconnect = SwTpmDisconnect(ctx);
         if (rc == TPM_RC_SUCCESS) {
             rc = rc_disconnect;
         }
@@ -280,4 +280,4 @@ int TPM2_SOCKET_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
     return rc;
 }
-#endif /* WOLFTPM_SOCKET */
+#endif /* WOLFTPM_SWTPM */

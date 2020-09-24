@@ -270,7 +270,7 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SOCKET)
+    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
     #define TPM_TIMEOUT_TRIES 0
     #else
     #define TPM_TIMEOUT_TRIES 1000000

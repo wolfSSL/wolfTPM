@@ -179,21 +179,21 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LINUX_DEV"
 fi
 
-# Socket TPM device Support
-AC_ARG_ENABLE([socket],
-    [AS_HELP_STRING([--enable-socket],[Enable use of TPM through the socket driver (default: disabled)])],
-    [ ENABLED_SOCKET=$enableval ],
-    [ ENABLED_SOCKET=no ]
+# SW TPM device Support
+AC_ARG_ENABLE([swtpm],
+    [AS_HELP_STRING([--enable-swtpm],[Enable use of TPM through the SW socket driver (default: disabled)])],
+    [ ENABLED_SWTPM=$enableval ],
+    [ ENABLED_SWTPM=no ]
     )
 
-if test "x$ENABLED_SOCKET" = "xyes"
+if test "x$ENABLED_SWTPM" = "xyes"
 then
     if test "x$ENABLED_DEVTPM" = "xyes"
     then
-        AC_MSG_ERROR([Cannot enable both socket and devtpm])
+        AC_MSG_ERROR([Cannot enable both swtpm and devtpm])
     fi
 
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SOCKET"
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
 fi
 
 
@@ -335,7 +335,7 @@ AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
-AM_CONDITIONAL([BUILD_SOCKET], [test "x$ENABLED_SOCKET" = "xyes"])
+AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])

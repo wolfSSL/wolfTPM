@@ -24,7 +24,7 @@
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_linux.h>
-#include <wolftpm/tpm2_socket.h>
+#include <wolftpm/tpm2_swtpm.h>
 
 /******************************************************************************/
 /* --- Local Variables -- */
@@ -170,8 +170,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* submit command and wait for response */
 #ifdef WOLFTPM_LINUX_DEV
     rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, cmd, cmdSz);
-#elif defined(WOLFTPM_SOCKET)
-    rc = (TPM_RC)TPM2_SOCKET_SendCommand(ctx, cmd, cmdSz);
+#elif defined(WOLFTPM_SWTPM)
+    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, cmd, cmdSz);
 #else
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
 #endif
@@ -242,8 +242,8 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     /* submit command and wait for response */
 #ifdef WOLFTPM_LINUX_DEV
     rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet->buf, packet->pos);
-#elif defined(WOLFTPM_SOCKET)
-    rc = (TPM_RC)TPM2_SOCKET_SendCommand(ctx, packet->buf, packet->pos);
+#elif defined(WOLFTPM_SWTPM)
+    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, packet->buf, packet->pos);
 #else
     rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet->buf, packet->pos);
 #endif
