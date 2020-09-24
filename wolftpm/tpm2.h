@@ -2747,7 +2747,7 @@ WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries);
-WOLFTPM_API TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx, void* userCtx);
+WOLFTPM_API TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx);
 WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 /* Other API's - Not in TPM Specification */
