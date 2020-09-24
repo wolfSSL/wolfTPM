@@ -38,7 +38,7 @@
 #endif
 
 #define TPM2_LINUX_DEV_POLL_TIMEOUT -1 /* Infinite time for poll events */
-#define TPM2_LINUX_DEV_RSP_SIZE WOLFTPM2_MAX_BUFFER
+
 /* Linux kernels older than v4.20 (before December 2018) do not support
  * partial reads. The only way to receive a complete response is to read
  * the maximum allowed TPM response from the kernel, which is 4K. And most
@@ -50,7 +50,7 @@
 
 
 /* Talk to a TPM device exposed by the Linux tpm_tis driver */
-int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
+int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc = TPM_RC_FAILURE;
     int fd;
@@ -59,21 +59,20 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     size_t rspSz = 0;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Command size: %d\n", cmdSz);
-    TPM2_PrintBin(cmd, cmdSz);
+    printf("Command size: %d\n", packet->pos);
+    TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
     fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
     if (fd > 0) {
         /* Send the TPM command */
-        if (write(fd, cmd, cmdSz) == cmdSz) {
+        if (write(fd, packet->buf, packet->pos) == packet->pos) {
             fds.fd = fd;
             fds.events = POLLIN;
             /* Wait for response to be available */
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
             if (rc_poll > 0 && fds.revents == POLLIN) {
-                // TODO: could cmdSz be smaller than the response?
-                rspSz = read(fd, cmd, TPM2_LINUX_DEV_RSP_SIZE);
+                rspSz = read(fd, packet->buf, packet->size);
                 /* The caller parses the TPM_Packet for correctness */
                 if (rspSz >= TPM2_HEADER_SIZE) {
                     /* Enough bytes for a TPM response */
@@ -118,7 +117,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
         printf("Response size: %d\n", (int)rspSz);
-        TPM2_PrintBin(cmd, rspSz);
+        TPM2_PrintBin(packet->buf, rspSz);
     }
 #endif
 

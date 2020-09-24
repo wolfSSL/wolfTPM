@@ -105,14 +105,13 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_ST* tag;
     TPM2B_SYM_KEY key;
     BYTE *cmd, *param;
-    UINT32 cmdSz, paramSz;
+    UINT32 paramSz;
     int i;
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
 
     cmd = packet->buf;
-    cmdSz = packet->pos;
     tag = (TPM_ST*)cmd;
 
     if (*tag == TPM_ST_SESSIONS && (authCnt < 1 || ctx->authCmd == NULL))
@@ -169,11 +168,11 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* submit command and wait for response */
 #ifdef WOLFTPM_LINUX_DEV
-    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, cmd, cmdSz);
+    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet);
 #elif defined(WOLFTPM_SWTPM)
-    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, cmd, cmdSz);
+    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, packet);
 #else
-    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
+    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet);
 #endif
 
     /* parse response */
@@ -241,11 +240,11 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     /* submit command and wait for response */
 #ifdef WOLFTPM_LINUX_DEV
-    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet->buf, packet->pos);
+    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet);
 #elif defined(WOLFTPM_SWTPM)
-    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, packet->buf, packet->pos);
+    rc = (TPM_RC)TPM2_SWTPM_SendCommand(ctx, packet);
 #else
-    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet->buf, packet->pos);
+    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet);
 #endif
 
     return TPM2_Packet_Parse(rc, packet);

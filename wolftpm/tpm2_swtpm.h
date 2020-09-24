@@ -23,23 +23,27 @@
 #define _TPM2_SWTPM_H_
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_packet.h>
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
 /* copy from TpmTcpProtocol.h */
+#if 0
 #define TPM_SIGNAL_POWER_ON         1
 #define TPM_SIGNAL_POWER_OFF        2
 #define TPM_SIGNAL_NV_ON            11
+#endif
 
 #define TPM_SEND_COMMAND            8
 #define TPM_SESSION_END             20
+#if 0
 #define TPM_STOP                    21
+#endif
 
 /* TPM2 IO for using TPM through a Socket connection */
-int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
-/* int TPM2_SWTPM_PowerOn(TPM2_CTX* ctx); */
+int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
 #ifdef __cplusplus
     }  /* extern "C" */

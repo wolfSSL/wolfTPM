@@ -43,7 +43,7 @@
 
 
 WOLFTPM_LOCAL int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount);
-WOLFTPM_LOCAL int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
+WOLFTPM_LOCAL int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 WOLFTPM_LOCAL int TPM2_TIS_Ready(TPM2_CTX* ctx);
 WOLFTPM_LOCAL int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask);
 WOLFTPM_LOCAL int TPM2_TIS_Status(TPM2_CTX* ctx, byte* status);

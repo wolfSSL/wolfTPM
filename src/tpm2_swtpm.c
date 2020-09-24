@@ -191,11 +191,15 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     return rc;
 }
 
-/* Talk to a TPM through socket */
-int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
+/* Talk to a TPM through socket
+ * return TPM_RC_SUCCESS on success,
+ *        SOCKET_ERROR_E on socket errors,
+ *        TPM_RC_FAILURE on other errors
+ */
+int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc = TPM_RC_FAILURE;
-    word32 rspSz = 0;
+    int rspSz = 0;
     uint32_t tss_word;
 
     if (ctx == NULL) {
@@ -207,8 +211,8 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Command size: %d\n", cmdSz);
-    TPM2_PrintBin(cmd, cmdSz);
+    printf("Command size: %d\n", packet->pos);
+    TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
     /* send start */
@@ -223,33 +227,32 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
     }
 
     /* buffer size */
-    tss_word = htonl(cmdSz);
+    tss_word = htonl(packet->pos);
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
 
     /* Send the TPM command buffer */
     if (rc == TPM_RC_SUCCESS) {
-        rc = SwTpmTransmit(ctx, cmd, cmdSz);
+        rc = SwTpmTransmit(ctx, packet->buf, packet->pos);
     }
 
     /* receive response */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = ntohl(tss_word);
-        if (rspSz > cmdSz) {
+        if (rspSz > packet->size) {
             #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Response size(%d) larger than command buffer(%d)\n",
-                   rspSz, cmdSz);
+                   rspSz, packet->pos);
             #endif
-            /* TODO: return error, for figure out way to avoid buffer overflow */
-            // rc = SOCKET_ERROR_E;
+            rc = SOCKET_ERROR_E;
         }
     }
 
     /* TODO: could hang as currently implemented, but is not TSS complient */
     if (rc == TPM_RC_SUCCESS) {
-        rc = SwTpmReceive(ctx, cmd, rspSz);
+        rc = SwTpmReceive(ctx, packet->buf, rspSz);
     }
 
     /* receive ack */
@@ -267,7 +270,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
         printf("Response size: %d\n", rspSz);
-        TPM2_PrintBin(cmd, rspSz);
+        TPM2_PrintBin(packet->buf, rspSz);
     }
 #endif
 

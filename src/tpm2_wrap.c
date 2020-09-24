@@ -38,10 +38,13 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
     int rc;
+
+#ifndef WOLFTPM_LINUX_DEV
     Startup_In startupIn;
 #if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
     SelfTest_In selfTest;
 #endif
+#endif /* ! WOLFTPM_LINUX_DEV */
 
     if (ctx == NULL)
         return BAD_FUNC_ARG;

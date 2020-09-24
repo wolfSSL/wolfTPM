@@ -23,13 +23,14 @@
 #define _TPM2_LINUX_H_
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_packet.h>
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
 /* TPM2 IO for using TPM through the Linux kernel driver */
-int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz);
+int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
 #ifdef __cplusplus
     }  /* extern "C" */
