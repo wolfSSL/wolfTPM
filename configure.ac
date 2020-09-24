@@ -454,6 +454,7 @@ echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
 echo "   * Advanced IO:               $ENABLED_ADVIO"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
+echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
 echo "   * Infineon SLB9670           $ENABLED_INFINEON"
