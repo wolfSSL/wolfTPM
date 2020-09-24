@@ -30,7 +30,7 @@
 #endif
 
 /* TPM2 IO for using TPM through the Linux kernel driver */
-int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
+WOLFTPM_LOCAL int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
 #ifdef __cplusplus
     }  /* extern "C" */
