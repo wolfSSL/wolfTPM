@@ -57,6 +57,9 @@
  *
  * This example client connects to localhost on on port 11111 by default.
  * These can be overriden using `TLS_HOST` and `TLS_PORT`.
+ * 
+ * By default this example will loads RSA keys unless RSA is disabled (NO_RSA) 
+ * or the TLS_USE_ECC build option is used.
  *
  * You can validate using the wolfSSL example server this like:
  *   ./examples/server/server -b -p 11111 -g -d
