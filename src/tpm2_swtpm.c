@@ -28,6 +28,8 @@
  * This is intended for testing with a simulator such as
  * http://ibmswtpm.sourceforge.net/ or
  * https://github.com/stefanberger/swtpm
+ *
+ * See docs/SWTPM.md
  */
 
 #ifdef WOLFTPM_SWTPM
@@ -76,7 +78,8 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     return rc;
 }
 
-static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz) {
+static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
+{
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
     size_t bytes_remaining = rxSz;
@@ -102,7 +105,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz) {
         }
 
         bytes_remaining -= wrc;
-	ptr += wrc;
+        ptr += wrc;
 
         #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("TPM socket received %zd waiting for %zu more\n",
@@ -250,7 +253,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
     }
 
-    /* TODO: could hang as currently implemented, but is not TSS complient */
+    /* TODO: could hang as currently implemented, but is not TSS compliant */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, packet->buf, rspSz);
     }
