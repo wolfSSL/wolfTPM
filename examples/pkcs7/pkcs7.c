@@ -428,7 +428,7 @@ int main(void)
     rc = TPM2_PKCS7_Example(NULL);
 #else
     printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");
-    printf("Build wolfssl with ./configure --enable-pkcs7 --enable-cryptodev\n");
+    printf("Build wolfssl with ./configure --enable-pkcs7 --enable-cryptocb\n");
 #endif
 
     return rc;
