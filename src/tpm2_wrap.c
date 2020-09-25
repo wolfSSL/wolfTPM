@@ -2727,7 +2727,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
 
     /* Setup public key */
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&loadExtIn.inPublic.publicArea,
-        keySz * 8, alg, NO, YES);
+        keySz * 8, alg, YES, YES);
     if (rc != 0)
         goto exit;
     loadExtIn.inPublic.publicArea.nameAlg = hashAlg;
