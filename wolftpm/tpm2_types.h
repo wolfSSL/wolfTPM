@@ -75,6 +75,7 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/types.h>
     #include <wolfssl/wolfcrypt/logging.h>
     #include <wolfssl/wolfcrypt/error-crypt.h>
+    #include <wolfssl/error-ssl.h>
     #include <wolfssl/wolfcrypt/hash.h>
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
@@ -110,11 +111,15 @@ typedef int64_t  INT64;
     typedef uint32_t word32;
     typedef uint64_t word64;
 
+    /* Errors from wolfssl/wolfcrypt/error-crypt.h */
     #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
     #define BUFFER_E              -132  /* output buffer too small or input too large */
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
     #define BAD_MUTEX_E           -106  /* Bad mutex operation */
     #define WC_TIMEOUT_E          -107  /* timeout error */
+
+    /* Errors from wolfssl/error-ssl.h */
+    #define SOCKET_ERROR_E        -308  /* error state on socket    */
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
@@ -265,7 +270,7 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef TPM_TIMEOUT_TRIES
-    #ifdef WOLFTPM_LINUX_DEV
+    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
     #define TPM_TIMEOUT_TRIES 0
     #else
     #define TPM_TIMEOUT_TRIES 1000000

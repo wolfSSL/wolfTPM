@@ -24,6 +24,7 @@
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_linux.h>
+#include <wolftpm/tpm2_swtpm.h>
 
 /******************************************************************************/
 /* --- Local Variables -- */
@@ -32,6 +33,14 @@
 static TPM2_CTX* gActiveTPM;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
+#endif
+
+#ifdef WOLFTPM_LINUX_DEV
+#define INTERNAL_SEND_COMMAND TPM2_LINUX_SendCommand
+#elif defined(WOLFTPM_SWTPM)
+#define INTERNAL_SEND_COMMAND TPM2_SWTPM_SendCommand
+#else
+#define INTERNAL_SEND_COMMAND TPM2_TIS_SendCommand
 #endif
 
 /******************************************************************************/
@@ -104,14 +113,13 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_ST* tag;
     TPM2B_SYM_KEY key;
     BYTE *cmd, *param;
-    UINT32 cmdSz, paramSz;
+    UINT32 paramSz;
     int i;
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
 
     cmd = packet->buf;
-    cmdSz = packet->pos;
     tag = (TPM_ST*)cmd;
 
     if (*tag == TPM_ST_SESSIONS && (authCnt < 1 || ctx->authCmd == NULL))
@@ -167,11 +175,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     /* submit command and wait for response */
-#ifdef WOLFTPM_LINUX_DEV
-    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, cmd, cmdSz);
-#else
-    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, cmd, cmdSz);
-#endif
+    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
 
     /* parse response */
     rc = TPM2_Packet_Parse(rc, packet);
@@ -237,11 +241,7 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
 
     /* submit command and wait for response */
-#ifndef WOLFTPM_LINUX_DEV
-    rc = (TPM_RC)TPM2_TIS_SendCommand(ctx, packet->buf, packet->pos);
-#else
-    rc = (TPM_RC)TPM2_LINUX_SendCommand(ctx, packet->buf, packet->pos);
-#endif
+    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
 
     return TPM2_Packet_Parse(rc, packet);
 }

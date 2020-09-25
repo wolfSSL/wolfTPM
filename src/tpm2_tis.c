@@ -411,7 +411,7 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
     return rc;
 }
 
-int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
+int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc;
     int xferSz, pos, rspSz;
@@ -423,8 +423,8 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         return rc;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Command: %d\n", cmdSz);
-    TPM2_PrintBin(cmd, cmdSz);
+    printf("Command: %d\n", packet->pos);
+    TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
     /* Make sure TPM is ready for command */
@@ -446,22 +446,22 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 
     /* Write Command */
     pos = 0;
-    while (pos < cmdSz) {
+    while (pos < packet->pos) {
         rc = TPM2_TIS_GetBurstCount(ctx, &burstCount);
         if (rc < 0)
             goto exit;
 
-        xferSz = cmdSz - pos;
+        xferSz = packet->pos - pos;
         if (xferSz > burstCount)
             xferSz = burstCount;
 
-        rc = TPM2_TIS_Write(ctx, TPM_DATA_FIFO(ctx->locality), &cmd[pos],
+        rc = TPM2_TIS_Write(ctx, TPM_DATA_FIFO(ctx->locality), &packet->buf[pos],
                                xferSz);
         if (rc != TPM_RC_SUCCESS)
             goto exit;
         pos += xferSz;
 
-        if (pos < cmdSz) {
+        if (pos < packet->pos) {
             /* Wait for expect more data (TPM_STS_DATA_EXPECT = 1) */
             rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT,
                                              TPM_STS_DATA_EXPECT);
@@ -518,7 +518,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         if (xferSz > burstCount)
             xferSz = burstCount;
 
-        rc = TPM2_TIS_Read(ctx, TPM_DATA_FIFO(ctx->locality), &cmd[pos],
+        rc = TPM2_TIS_Read(ctx, TPM_DATA_FIFO(ctx->locality), &packet->buf[pos],
                               xferSz);
         if (rc != TPM_RC_SUCCESS)
             goto exit;
@@ -529,11 +529,11 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
         if (pos == TPM2_HEADER_SIZE) {
             /* Extract size from header */
             UINT32 tmpSz;
-            XMEMCPY(&tmpSz, &cmd[2], sizeof(UINT32));
+            XMEMCPY(&tmpSz, &packet->buf[2], sizeof(UINT32));
             rspSz = TPM2_Packet_SwapU32(tmpSz);
 
             /* safety check for stuck FFFF case */
-            if (rspSz < 0 || rspSz >= MAX_RESPONSE_SIZE) {
+            if (rspSz < 0 || rspSz >= MAX_RESPONSE_SIZE || rspSz > packet->size) {
                 rc = TPM_RC_FAILURE;
                 goto exit;
             }
@@ -543,7 +543,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, byte* cmd, word16 cmdSz)
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
         printf("Response: %d\n", rspSz);
-        TPM2_PrintBin(cmd, rspSz);
+        TPM2_PrintBin(packet->buf, rspSz);
     }
 #endif
 

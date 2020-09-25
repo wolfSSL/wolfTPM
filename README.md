@@ -138,6 +138,9 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MCHP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 
+--enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
+--enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: disabled) - WOLFTPM_SWTPM
+
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
 WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret for TLS examples.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
@@ -208,6 +211,10 @@ Note: When using a TPM device through the Linux kernel driver make sure sufficie
 ```
 sudo adduser yourusername tss
 ```
+
+### Building for SWTPM
+
+See `docs/SWTPM.md`
 
 ## Running Examples
 
