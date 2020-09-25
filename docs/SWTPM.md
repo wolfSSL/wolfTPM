@@ -57,6 +57,18 @@ git clone git@github.com:stefanberger/swtpm.git
 (cd swtpm && ./autogen.sh && make install)
 ```
 
+Note: On Mac OS X had to do the following first:
+
+```
+brew install openssl socat
+pip3 install cryptography
+
+export LDFLAGS="-L/usr/local/opt/openssl@1.1/lib"
+export CPPFLAGS="-I/usr/local/opt/openssl@1.1/include"
+
+# libtpms had to use --prefix=/usr/local
+```
+
 Running swtpm
 
 ```
