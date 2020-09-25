@@ -83,7 +83,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
     size_t bytes_remaining = rxSz;
-    char* ptr = buffer;
+    char* ptr = (char*)buffer;
 
     if (ctx == NULL || ctx->tcpCtx.fd <= 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
@@ -95,7 +95,8 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
             #ifdef DEBUG_WOLFTPM
             if (wrc == 0) {
                 printf("Failed to read from TPM socket: EOF\n");
-            } else {
+            }
+            else {
                 printf("Failed to read from TPM socket %d, got errno %d"
                        " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
             }
@@ -128,7 +129,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         return BAD_FUNC_ARG;
     }
 
-    memset(&hints, 0, sizeof(struct addrinfo));
+    XMEMSET(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
@@ -144,7 +145,8 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
         if (connect(fd, rp->ai_addr, rp->ai_addrlen) == -1) {
             close(fd);
-        } else {
+        }
+        else {
             break;
         }
     }
@@ -153,11 +155,12 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     if (rp != NULL) {
         ctx->tcpCtx.fd = fd;
         rc = TPM_RC_SUCCESS;
-    } else {
-      #ifdef DEBUG_WOLFTPM
-        printf("Failed to connect to %s %s\n", host, port);
-      #endif
     }
+    #ifdef DEBUG_WOLFTPM
+    else {
+        printf("Failed to connect to %s %s\n", host, port);
+    }
+    #endif
 
     return rc;
 }
@@ -172,7 +175,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     }
 
     /* end swtpm session */
-    tss_cmd = htonl(TPM_SESSION_END);
+    tss_cmd = TPM2_Packet_SwapU32(TPM_SESSION_END);
     rc = SwTpmTransmit(ctx, &tss_cmd, sizeof(uint32_t));
     #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rc != TPM_RC_SUCCESS) {
@@ -219,7 +222,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #endif
 
     /* send start */
-    tss_word = htonl(TPM_SEND_COMMAND);
+    tss_word = TPM2_Packet_SwapU32(TPM_SEND_COMMAND);
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
@@ -230,7 +233,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 
     /* buffer size */
-    tss_word = htonl(packet->pos);
+    tss_word = TPM2_Packet_SwapU32(packet->pos);
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
@@ -243,7 +246,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     /* receive response */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
-        rspSz = ntohl(tss_word);
+        rspSz = TPM2_Packet_SwapU32(tss_word);
         if (rspSz > packet->size) {
             #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Response size(%d) larger than command buffer(%d)\n",
@@ -253,7 +256,9 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
     }
 
-    /* TODO: could hang as currently implemented, but is not TSS compliant */
+    /* This performs a blocking read and could hang. This means a
+     * misbehaving actor on the other end of the socket
+     */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, packet->buf, rspSz);
     }
@@ -261,7 +266,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     /* receive ack */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
-        tss_word = ntohl(tss_word);
+        tss_word = TPM2_Packet_SwapU32(tss_word);
         #ifdef WOLFTPM_DEBUG
         if (tss_word != 0) {
             printf("SWTPM ack %d\n", tss_word);
