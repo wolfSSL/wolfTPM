@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# Run tests against SWTPM simulator
+# Setting TESTS to a list of tests to run
+#   TESTS=./examples/native/native_test\ ./examples/wrap/wrap_test ./scripts/swtpm_sim.test
+#
+
+TOP_DIR=$(realpath $(dirname $0)/..)
+
+if [ ! -v TESTS ]; then
+    TESTS="$TOP_DIR/tests/unit.test"
+fi;
+if [ ! -v SWTPM_EXEC -o ! -x "$SWTPM_EXEC" ]; then
+    SWTPM_EXEC=tpm_server
+fi
+if [ ! -v SWTPM_GIT_URL ]; then
+    SWTPM_GIT_URL=https://github.com/kgoldman/ibmswtpm2.git
+fi
+SWTPM_DIR="$(realpath $(basename $SWTPM_GIT_URL | sed 's/\.git//'))"
+
+function die {
+    echo $* >&2
+    exit 1
+}
+
+function build {
+    if [ ! -d $SWTPM_DIR ]; then
+        echo "Cloning SWTPM from $SWTPM_GIT_URL to $SWTPM_DIR";
+        git clone $SWTPM_GIT_URL $SWTPM_DIR || die "unable to clone $SWTPM_GIT_URL for simualtor";
+    fi
+    echo "Building SWTPM: $(git -C $SWTPM_DIR describe --long)";
+    make -C $SWTPM_DIR/src > /dev/null || die "Failed to build $SWTPM_DIR";
+}
+
+
+# check if on path or clone and build
+which $SWTPM_EXEC > /dev/null
+if [ 0 -ne $? ]; then
+    build 
+    SWTPM_EXEC=$SWTPM_DIR/src/$SWTPM_EXEC
+fi;
+
+# start swtpm server
+$SWTPM_EXEC > /dev/null &
+swtpm_pid=$!
+echo "Started $SWTPM_EXEC (pid:$swtpm_pid)"
+
+# execute unit test
+for test_exec in $TESTS; do
+    echo "Running $test_exec" >&2;
+    $test_exec || die "Failed on running $test_exec";
+done;
+
+# shutdown swtpm server
+kill $swtpm_pid
