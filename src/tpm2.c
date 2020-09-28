@@ -388,7 +388,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     return rc;
 }
 
-TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx)
+TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx, void* userCtx)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
 
@@ -407,6 +407,8 @@ TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx)
 
     /* Use existing locality */
     ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
+
+    ctx->userCtx = userCtx;
 
     return rc;
 }
