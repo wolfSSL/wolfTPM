@@ -2744,6 +2744,12 @@ WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
+/* In when using devtpm or swtpm, the ioCb and userCtx are not used
+ * and must be set to NULL. TPM2_Init_minimal() call TPM2_Init_ex()
+ * with them set to NULL.
+ *
+ * In other modes, the ioCb shall be set in order to use TIS.
+ */
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries);
@@ -2752,6 +2758,10 @@ WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 /* Other API's - Not in TPM Specification */
 WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
+/* SetHalIoCb will fail if built with devtpm or swtpm as the callback
+ * is not used for TPM. For other configuration builds, ioCb must be
+ * set to a non-NULL function pointer and userCtx is optional.
+ */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
 

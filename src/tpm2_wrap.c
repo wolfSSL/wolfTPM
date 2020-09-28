@@ -51,10 +51,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
     rc = TPM2_Init_minimal(ctx);
-    ctx->userCtx = userCtx;
-
     /* Using standard file I/O for the Linux TPM device */
     (void)ioCb;
+    (void)userCtx;
     (void)timeoutTries;
 #else
     rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
@@ -175,7 +174,7 @@ int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     XMEMSET(dev, 0, sizeof(WOLFTPM2_DEV));
 
     /* The 0 startup indicates use existing locality */
-    rc = TPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
+    rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
