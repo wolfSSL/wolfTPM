@@ -725,21 +725,21 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
-        (byte*)kTestAesCbc128Key, (word32)XSTRLEN(kTestAesCbc128Key));
+        TEST_AES_KEY, (word32)sizeof(TEST_AES_KEY));
     if (rc != 0) goto exit;
 
-    message.size = (word32)sizeof(kTestAesCbc128Msg);
-    XMEMCPY(message.buffer, kTestAesCbc128Msg, message.size);
+    message.size = (word32)sizeof(TEST_AES_MSG);
+    XMEMCPY(message.buffer, TEST_AES_MSG, message.size);
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
     cipher.size = message.size;
-    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
+    XMEMCPY(aesIv, TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
     if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
-    XMEMCPY(aesIv, (byte*)kTestAesCbc128Iv, (word32)XSTRLEN(kTestAesCbc128Iv));
+    XMEMCPY(aesIv, (byte*)TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
         cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
 
@@ -748,8 +748,8 @@ int TPM2_Wrapper_Test(void* userCtx)
     if (rc == TPM_RC_SUCCESS &&
          message.size == plain.size &&
          XMEMCMP(message.buffer, plain.buffer, message.size) == 0 &&
-         cipher.size == sizeof(kTestAesCbc128Verify) &&
-         XMEMCMP(cipher.buffer, kTestAesCbc128Verify, cipher.size) == 0) {
+         cipher.size == sizeof(TEST_AES_VERIFY) &&
+         XMEMCMP(cipher.buffer, TEST_AES_VERIFY, cipher.size) == 0) {
         printf("Encrypt/Decrypt (known key) test success\n");
     }
     else if (rc == TPM_RC_COMMAND_CODE) {
@@ -764,7 +764,7 @@ int TPM2_Wrapper_Test(void* userCtx)
 
 
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
-        NO, YES);
+        YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(&dev, &aesKey, &storageKey.handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
