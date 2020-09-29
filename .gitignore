@@ -42,8 +42,7 @@ examples/pcr/quote_paramenc
 examples/pcr/extend
 examples/pcr/reset
 examples/timestamp/clock_set
-examples/keygen/keygen
-tools/management/flush
+examples/management/flush
 pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
