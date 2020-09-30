@@ -631,7 +631,6 @@ Connection: close
 
 ## Todo
 
-* Add support for encrypting / decrypting parameters.
 * Add support for SensitiveToPrivate inner and outer.
 * Add runtime support for detecting module type ST33, SLB9670 or ATTPM20.
 * Update to v1.59 of specification.

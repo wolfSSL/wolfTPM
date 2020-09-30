@@ -40,6 +40,22 @@ More information about how to test and use PCR attestation can be found in the i
 `./examples/pcr/extend`
 `./examples/pcr/reset`
 
+## Parameter Encryption
+
+### TPM2.0 Quote with encrypted user data
+
+Additional example is available for demonstrating how to use parameter encryption to protect the user data between the Host and the TPM.
+
+In this example, protected is the qualifying data that can be supplied by the user for a Quote operation. Qualifying data is arbitrary data incorporated into the signed Quote structure. Using parameter encryption, wolfTPM enables the Host to transfer that user data in encrypted form to the TPM and vice versa. Thus, protecting the data from man-in-the-middle attacks.
+
+Only the first parameter of a TPM command can be encrypted and the parameter must be of type TPM2B_DATA. For example, the password auth of a TPM key or the qualifying data of a TPM2.0 Quote.
+
+The encryption of command response and request can be performed together or separate. There can be a communication exchange between the TPM and a client program where only the parameter in the request command is encrypted. This behavior depends on the sessionAttributes:
+ - TPMA_SESSION_encrypt for command request
+ - TPMA_SESSION_decrypt for command response
+Either one can be set separately or both can be set in one authorization session. This is up to the user(developer).
+
+`./examples/pcr/quote_paramenc`
 
 ## CSR
 
