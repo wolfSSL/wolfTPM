@@ -1,4 +1,4 @@
-/* extend.h
+/* tpm2_param_enc.h
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -19,17 +19,27 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _EXTEND_H_
-#define _EXTEND_H_
+#ifndef _TPM2_PARAM_ENC_H_
+#define _TPM2_PARAM_ENC_H_
+
+#include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_packet.h>
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
-int TPM2_Extend_Test(void* userCtx, int argc, char *argv[]);
-
+WOLFTPM_LOCAL int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx);
+WOLFTPM_LOCAL int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx);
+/* Perform encryption over the first parameter of a TPM packet */
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
+                                TPM2B_MAX_BUFFER *encryptedParameter,
+                                BYTE *paramData, UINT32 paramSz);
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
+                                 TPM2B_MAX_BUFFER *encryptedParameter,
+                                 BYTE *paramData, UINT32 paramSz);
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _EXTEND_H_ */
+#endif /* _TPM2_PARAM_ENC_H_ */

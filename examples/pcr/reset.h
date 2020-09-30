@@ -32,4 +32,4 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[]);
     }  /* extern "C" */
 #endif
 
-#endif /* _clear_H_ */
+#endif /* _CLEAR_H_ */

@@ -25,6 +25,7 @@
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_param_enc.h>
 
 /******************************************************************************/
 /* --- Local Variables -- */
@@ -77,162 +78,128 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 #endif
 }
 
-
-static int TPM2_Parameter_EncryptDecrypt(int modeMask,
-    TPMT_SYM_DEF* symmetric, TPMI_ALG_HASH authHash,
-    const BYTE* keyBuf, int keySz,
-    const BYTE* nonceBuf, int nonceSz,
-    BYTE* dataBuf, int dataSz)
-{
-    /* TODO: Perform symmetric encrypt or decrypt */
-    if (modeMask & TPMA_SESSION_encrypt) {
-        /* encrypt */
-    }
-    else {
-        /* decrypt */
-    }
-
-    (void)symmetric;
-    (void)authHash;
-    (void)keyBuf;
-    (void)keySz;
-    (void)nonceBuf;
-    (void)nonceSz;
-    (void)dataBuf;
-    (void)dataSz;
-
-    return 0;
-}
-
 /* Send Command Wrapper */
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     int authCnt, int inHandleCnt, int outHandleCnt)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-    TPMS_AUTH_COMMAND* auth;
-    TPM_ST* tag;
-    TPM2B_SYM_KEY key;
+    TPM_ST tag;
     BYTE *cmd, *param;
-    UINT32 paramSz;
-    int i;
+    UINT32 cmdSz, authSz;
+    UINT16 requestParamSz;
+    UINT32 responseParamSz;
+    TPM2B_MAX_BUFFER encryptedParameter;
+    int sessionParamEnc;
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
 
     cmd = packet->buf;
-    tag = (TPM_ST*)cmd;
+    cmdSz = packet->pos;
 
-    if (*tag == TPM_ST_SESSIONS && (authCnt < 1 || ctx->authCmd == NULL))
-        return TPM_RC_AUTH_MISSING;
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Request command (size=%d):\n", cmdSz);
+    TPM2_PrintBin(cmd, cmdSz);
+#endif
 
-    /* parameter encryption */
-    if (*tag == TPM_ST_SESSIONS) {
+    /* tag = (TPM_ST*)cmd; Can not be processed correctly due to Marshaling */
+    packet->pos = 0;
+    TPM2_Packet_ParseU16(packet, &tag);
+
+    /* Is auth session required for this TPM command? */
+    if (tag == TPM_ST_SESSIONS) {
+        /* Is there at least one auth session present? */
+        if (authCnt < 1 || ctx->authCmd == NULL)
+            return TPM_RC_AUTH_MISSING;
+
+        /* Pass the TPM header and Handles area */
         param = cmd + TPM2_HEADER_SIZE + (inHandleCnt * sizeof(TPM_HANDLE));
-
-        paramSz = *(UINT32*)param;
-        param += sizeof(UINT32); /* skip the param size */
-
-        for (i=0; i<authCnt; i++) {
-            auth = &ctx->authCmd[i];
-
-            /* check if encrypting parameters */
-            if (auth->sessionAttributes & TPMA_SESSION_decrypt) {
-                /* get new nonce if required */
-                if (ctx->authCmd->sessionHandle !=
-                                            TPM_RS_PW && auth->nonce.size > 0) {
-                    rc = TPM2_GetNonce(auth->nonce.buffer, auth->nonce.size);
-                    if (rc != 0)
-                        return rc;
-                }
-
-                /* build key */
-                XMEMCPY(key.buffer, auth->auth.buffer, auth->auth.size);
-                key.size = auth->auth.size;
-
-                /* check for object handle auth and append to key */
-                if (i < inHandleCnt) {
-                    TPM_HANDLE* objHandle = (TPM_HANDLE*)(cmd +
-                        TPM2_HEADER_SIZE + (i * sizeof(TPM_HANDLE)));
-                    if (*objHandle == auth->objHandle) {
-                        /* append to key */
-                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,
-                            auth->objAuth.size);
-                        key.size += auth->objAuth.size;
-                    }
-                }
-
-                /* perform parameter encryption (inline) */
-                rc = TPM2_Parameter_EncryptDecrypt(TPMA_SESSION_encrypt,
-                    &auth->symmetric,
-                    auth->authHash,
-                    key.buffer, key.size,
-                    auth->nonce.buffer, auth->nonce.size,
-                    param, paramSz);
-                if (rc != 0)
-                    return rc;
+        packet->pos = TPM2_HEADER_SIZE + (inHandleCnt * sizeof(TPM_HANDLE));
+        /* Extract the size of the Authorization Area to skip */
+        TPM2_Packet_ParseU32(packet, &authSz);
+        /* Pass the Auth Session area, size field already passed by ParseU32 */
+        packet->pos += authSz;
+        /* Extract the size of the first parameter */
+        TPM2_Packet_ParseU16(packet, &requestParamSz);
+        /* Index the beginning of the parameter data */
+        param += sizeof(authSz) + authSz + sizeof(requestParamSz);
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Request parameter (size=%d):\n", requestParamSz);
+        TPM2_PrintBin(param, requestParamSz);
+#endif
+        /* Do encryption of the first parameter in the command request */
+        sessionParamEnc = TPM2_ParamEnc_FindDecryptSession(ctx);
+        if (sessionParamEnc < MAX_SESSION_NUM) {
+            rc = TPM2_ParamEnc_CmdRequest(&ctx->authCmd[sessionParamEnc],
+                                          &encryptedParameter,
+                                          param, requestParamSz);
+            if (rc != TPM_RC_SUCCESS) {
+#ifdef DEBUG_WOLFTPM
+                printf("Request parameter encryption failed\n");
+#endif
+                return TPM_RC_FAILURE;
             }
+            /* packet->pos already points at the first command parameter */
+            TPM2_Packet_AppendBytes(packet, encryptedParameter.buffer,
+                                    encryptedParameter.size);
         }
     }
+    /* reset packet->pos */
+    packet->pos = cmdSz;
 
     /* submit command and wait for response */
     rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
 
     /* parse response */
+    cmd = packet->buf;
     rc = TPM2_Packet_Parse(rc, packet);
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    cmdSz = packet->size;
+    printf("Response command (size=%d)\n", cmdSz);
+    TPM2_PrintBin(cmd, cmdSz);
+#endif
+    /* Extract tag */
+    packet->pos = 0;
+    TPM2_Packet_ParseU16(packet, &tag);
 
-    /* parameter decryption */
-    if (rc == TPM_RC_SUCCESS && *tag == TPM_ST_SESSIONS) {
-        TPMS_AUTH_RESPONSE authResp;
-        TPM2_Packet tmpPacket = *packet; /* make copy of packet parse info */
+    /* Is auth session required for this TPM command? */
+    if (rc == TPM_RC_SUCCESS && tag == TPM_ST_SESSIONS) {
+        /* Pass the TPM header and Handles area */
+        param = cmd + TPM2_HEADER_SIZE + (outHandleCnt * sizeof(TPM_HANDLE));
+        packet->pos = TPM2_HEADER_SIZE + (outHandleCnt * sizeof(TPM_HANDLE));
+        /* Extract the size of the first parameter */
+        TPM2_Packet_ParseU32(packet, &responseParamSz);
+        param += sizeof(responseParamSz);
 
-        /* skip handles */
-        i = outHandleCnt * sizeof(TPM_HANDLE);
-        tmpPacket.buf += i; tmpPacket.pos += i;
-
-        /* get parameter size and buffer */
-        TPM2_Packet_ParseU32(&tmpPacket, &paramSz);
-        param = tmpPacket.buf;
-
-        /* get auth response */
-        tmpPacket.buf += paramSz; tmpPacket.pos += paramSz;
-        TPM2_Packet_ParseAuth(&tmpPacket, &authResp);
-
-        for (i=0; i<authCnt; i++) {
-            auth = &ctx->authCmd[i];
-
-            /* check if encrypting parameters */
-            if (auth->sessionAttributes & TPMA_SESSION_encrypt) {
-                /* build key */
-                XMEMCPY(key.buffer, auth->auth.buffer, auth->auth.size);
-                key.size = auth->auth.size;
-
-                /* check for object handle auth and append to key */
-                if (i < outHandleCnt) {
-                    TPM_HANDLE* objHandle = (TPM_HANDLE*)(cmd +
-                        TPM2_HEADER_SIZE + (i * sizeof(TPM_HANDLE)));
-                    if (*objHandle == auth->objHandle) {
-                        /* append to key */
-                        XMEMCPY(key.buffer + key.size, auth->objAuth.buffer,
-                            auth->objAuth.size);
-                        key.size += auth->objAuth.size;
-                    }
-                }
-
-                /* perform parameter decryption (inline) */
-                rc = TPM2_Parameter_EncryptDecrypt(TPMA_SESSION_decrypt,
-                    &auth->symmetric,
-                    auth->authHash,
-                    key.buffer, key.size,
-                    auth->nonce.buffer, auth->nonce.size,
-                    param, paramSz);
-                if (rc != 0)
-                    return rc;
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Response parameter (size=%d):\n", responseParamSz);
+        TPM2_PrintBin(param, responseParamSz);
+#endif
+        /* Should the first parameter in the command response be decrypted */
+        sessionParamEnc = TPM2_ParamEnc_FindEncryptSession(ctx);
+        if (sessionParamEnc < MAX_SESSION_NUM) {
+            rc = TPM2_ParamEnc_CmdResponse(&ctx->authCmd[sessionParamEnc],
+                                           &encryptedParameter,
+                                           param, responseParamSz);
+            if (rc != TPM_RC_SUCCESS) {
+#ifdef DEBUG_WOLFTPM
+                printf("Response parameter encryption failed\n");
+#endif
+                return TPM_RC_FAILURE;
             }
+            /* packet->pos already points at the parameter, copy the decrypted data */
+            TPM2_Packet_ParseBytes(packet, encryptedParameter.buffer,
+                                   encryptedParameter.size);
         }
     }
 
+    /* Note: Backward compatibility after Parameter Encryption changes
+     *       Before returning to caller, set packet to expected position.
+     */
+    packet->pos = TPM2_HEADER_SIZE;
     return rc;
 }
+
 static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     TPM_RC rc;
@@ -249,6 +216,7 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
+    /* TODO: Fix bug, ST_SESSION shows need of auth Session, not paramEnc */
     if (ctx && ctx->authCmd &&
         (ctx->authCmd->sessionAttributes &
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt))) {

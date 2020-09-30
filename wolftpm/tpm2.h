@@ -1570,7 +1570,8 @@ typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
+    TPM2B_AUTH auth; /* TCG Spec Part 2 calls this field hmac */
+    /* TPM2B_AUTH can be an HMAC, a password or an Empty Auth */
 
     /* Implementation specific */
     /* These are used for parameter encrypt/decrypt */

@@ -1,3 +1,6 @@
+*~
+patch/
+*.swp
 .metadata
 language.settings.xml
 src/config.h.in
@@ -35,9 +38,11 @@ examples/tls/tls_client
 examples/pkcs7/pkcs7
 examples/timestamp/signed_timestamp
 examples/pcr/quote
+examples/pcr/quote_paramenc
 examples/pcr/extend
 examples/pcr/reset
 examples/timestamp/clock_set
+examples/management/flush
 pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server

@@ -1,4 +1,4 @@
-/* extend.h
+/* flush.h
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -19,17 +19,17 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _EXTEND_H_
-#define _EXTEND_H_
+#ifndef _FLUSH_H_
+#define _FLUSH_H_
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
-int TPM2_Extend_Test(void* userCtx, int argc, char *argv[]);
+int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _EXTEND_H_ */
+#endif /* _FLUSH_H_ */
