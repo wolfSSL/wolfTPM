@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #
 # Run tests against SWTPM simulator
 # Setting TESTS to a list of tests to run
@@ -9,12 +9,12 @@
 
 TOP_DIR=$(realpath $(dirname $0)/..)
 
-function die {
+die() {
     echo $* >&2
     exit 1
 }
 
-function build {
+build() {
     if [ ! -d "$SWTPM_DIR" ]; then
         echo "Cloning SWTPM from $SWTPM_GIT_URL to $SWTPM_DIR";
         git clone $SWTPM_GIT_URL $SWTPM_DIR || die "unable to clone $SWTPM_GIT_URL for simualtor";
@@ -36,7 +36,7 @@ if [ 0 -ne $? ]; then
 fi;
 
 # start swtpm server
-$SWTPM_EXEC > /dev/null &
+$SWTPM_EXEC >/dev/null &
 swtpm_pid=$!
 echo "Started $SWTPM_EXEC (pid:$swtpm_pid)"
 
