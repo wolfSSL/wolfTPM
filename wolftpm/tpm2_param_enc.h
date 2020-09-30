@@ -31,14 +31,11 @@
 
 WOLFTPM_LOCAL int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx);
 WOLFTPM_LOCAL int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx);
-/* Perform XOR encryption over the first parameter of a TPM packet */
-TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_MAX_BUFFER *encryptedData,
-                         BYTE *paramData, UINT32 paramSz);
 /* Perform encryption over the first parameter of a TPM packet */
-TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 TPM2B_MAX_BUFFER *encryptedParameter,
                                 BYTE *paramData, UINT32 paramSz);
-TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
                                  TPM2B_MAX_BUFFER *encryptedParameter,
                                  BYTE *paramData, UINT32 paramSz);
 #ifdef __cplusplus

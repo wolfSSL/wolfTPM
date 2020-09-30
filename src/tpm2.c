@@ -153,8 +153,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* parse response */
     cmd = packet->buf;
     rc = TPM2_Packet_Parse(rc, packet);
-    cmdSz = packet->size;
 #ifdef WOLFTPM_DEBUG_VERBOSE
+    cmdSz = packet->size;
     printf("Response command (size=%d)\n", cmdSz);
     TPM2_PrintBin(cmd, cmdSz);
 #endif

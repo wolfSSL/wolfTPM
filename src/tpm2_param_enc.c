@@ -222,43 +222,10 @@ static int TPM2_KDFa(
 }
 #endif /* WOLFTPM2_NO_WOLFCRYPT */
 
-/******************************************************************************/
-/* --- Public Functions -- */
-/******************************************************************************/
-
-/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
-int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx)
-{
-    int i;
-
-    for (i=0; i<MAX_SESSION_NUM; i++) {
-        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_decrypt) &&
-            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
-            break;
-        }
-    }
-
-    return i;
-}
-
-/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
-int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx)
-{
-    int i;
-
-    for (i=0; i<MAX_SESSION_NUM; i++) {
-        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_encrypt) &&
-            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
-            break;
-        }
-    }
-
-    return i;
-}
-
 /* Perform XOR encryption over the first parameter of a TPM packet */
-TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_MAX_BUFFER *encryptedData,
-                         BYTE *paramData, UINT32 paramSz)
+static TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session,
+                                TPM2B_MAX_BUFFER *encryptedData,
+                                BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
     TPM2B_MAX_BUFFER mask;
@@ -302,6 +269,40 @@ TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_MAX_BUFFER *encrypted
 #endif
 
     return rc;
+}
+
+/******************************************************************************/
+/* --- Public Functions -- */
+/******************************************************************************/
+
+/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
+int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx)
+{
+    int i;
+
+    for (i=0; i<MAX_SESSION_NUM; i++) {
+        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_decrypt) &&
+            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
+            break;
+        }
+    }
+
+    return i;
+}
+
+/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
+int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx)
+{
+    int i;
+
+    for (i=0; i<MAX_SESSION_NUM; i++) {
+        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_encrypt) &&
+            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
+            break;
+        }
+    }
+
+    return i;
 }
 
 TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
