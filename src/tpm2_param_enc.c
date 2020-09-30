@@ -24,6 +24,7 @@
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #include <wolfssl/wolfcrypt/hmac.h>
+#endif
 
 /* Routines for performing TPM Parameter Encryption
  *
@@ -86,6 +87,7 @@ static int TPM2_KDFa(
     int         doOnce      /* IN: TRUE if only one iteration is performed */
 )
 {
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     int ret, hashType;
     Hmac hmac;
     word32 counter = 0;
@@ -193,23 +195,10 @@ static int TPM2_KDFa(
 
     /* return length rounded up to nearest 8 multiple */
     return ((sizeInBits + 7) / 8);
-}
-#else /* Without wolfcrypt we can not provide KDFa and Parameter Encryption */
-static int TPM2_KDFa(
-    TPM_ALG_ID  hashAlg,    /* IN: hash algorithm used in HMAC */
-    TPM2B_DATA  *key,       /* IN: key, can be NULL if authValue is used */
-    TPM2B_AUTH  *authValue, /* IN: authValue for unbounded, unsalted session */
-    const char  *label,     /* IN: a 0-byte terminated label used in KDF */
-    TPM2B_NONCE *contextU,  /* IN: context U */
-    TPM2B_NONCE *contextV,  /* IN: context V */
-    UINT32      sizeInBits, /* IN: size of generated key in bits */
-    BYTE        *keyStream, /* OUT: key buffer */
-    UINT32      *counterInc,/* IN/OUT: See Note for incremental operations */
-    int         doOnce      /* IN: TRUE if only one iteration is performed */
-)
-{
+#else
     (void)hashAlg;
     (void)key;
+    (void)authValue;
     (void)label;
     (void)contextU;
     (void)contextV;
@@ -219,8 +208,9 @@ static int TPM2_KDFa(
     (void)doOnce;
 
     return NOT_COMPILED_IN;
+#endif
 }
-#endif /* WOLFTPM2_NO_WOLFCRYPT */
+
 
 /* Perform XOR encryption over the first parameter of a TPM packet */
 static TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session,

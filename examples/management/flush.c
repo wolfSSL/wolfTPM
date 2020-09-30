@@ -47,7 +47,7 @@ static void usage(void)
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
 {
     int rc = TPM_RC_FAILURE;
-    int allTransientObjects, handle = 0;
+    int allTransientObjects = 0, handle = 0;
     WOLFTPM2_DEV dev;
     FlushContext_In flushCtx;
 
@@ -61,7 +61,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
         }
     }
     else if (argc == 1) {
-        allTransientObjects = TRUE;
+        allTransientObjects = 1;
     }
     else {
         printf("Incorrect arguments\n");
@@ -77,7 +77,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-    if(allTransientObjects) {
+    if (allTransientObjects) {
         /* Flush key objects */
         for(handle=0x80000000; handle < (int)0x8000000A; handle+=4) {
             flushCtx.flushHandle = handle;
