@@ -20,7 +20,12 @@ build() {
         git clone $SWTPM_GIT_URL $SWTPM_DIR || die "unable to clone $SWTPM_GIT_URL for simualtor";
     fi
     echo "Building SWTPM: $(git -C "$SWTPM_DIR" describe --long)";
-    make -C $SWTPM_DIR/src > /dev/null || die "Failed to build $SWTPM_DIR";
+    case "$OSTYPE" in
+        "darwin"*)
+            MAKE_EXTRA_OPTS="-f makefile.mac"
+            ;;
+    esac
+    make -j4 -C $SWTPM_DIR/src $MAKE_EXTRA_OPTS > /dev/null || die "Failed to build $SWTPM_DIR";
 }
 
 TESTS=${TESTS:="${TOP_DIR}/tests/unit.test"}
@@ -38,7 +43,12 @@ fi;
 # start swtpm server
 $SWTPM_EXEC >/dev/null &
 swtpm_pid=$!
-echo "Started $SWTPM_EXEC (pid:$swtpm_pid)"
+ps $swtpm_pid > /dev/null
+if [ 0 -eq $? ]; then
+    echo "Started $SWTPM_EXEC (pid:$swtpm_pid)";
+else
+    echo "WARNING: $SWTPM_EXEC unable to start. Trying tests in case other instnace is running" >&2
+fi
 
 # execute unit test
 for test_exec in $TESTS; do
@@ -47,4 +57,4 @@ for test_exec in $TESTS; do
 done;
 
 # shutdown swtpm server
-kill $swtpm_pid
+ps $swtpm_pid > /dev/null && kill $swtpm_pid
