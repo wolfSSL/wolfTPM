@@ -34,6 +34,7 @@ ACLOCAL_AMFLAGS= -I m4
 include src/include.am
 include wolftpm/include.am
 include examples/include.am
+include scripts/include.am
 include IDE/include.am
 include certs/include.am
 include tests/include.am
