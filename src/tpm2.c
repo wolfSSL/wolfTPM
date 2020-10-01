@@ -304,7 +304,7 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 {
     TPM_RC rc;
 
-    if (ctx == NULL) {
+    if (ctx == NULL || ioCb == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -324,9 +324,9 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
-    TPM_RC rc;
+    TPM_RC rc = TPM_RC_SUCCESS;
 
-    if (ctx == NULL || ioCb == NULL) {
+    if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -336,10 +336,16 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     TPM2_WolfCrypt_Init();
 #endif
 
+    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
+    if (ioCb != NULL || userCtx != NULL) {
+        return BAD_FUNC_ARG;
+    }
+    #else
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
-        return rc;
+      return rc;
+    #endif
 
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
@@ -358,25 +364,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
 TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx)
 {
-    TPM_RC rc = TPM_RC_SUCCESS;
-
-    if (ctx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    XMEMSET(ctx, 0, sizeof(TPM2_CTX));
-
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    TPM2_WolfCrypt_Init();
-#endif
-
-    /* Set the active TPM global */
-    TPM2_SetActiveCtx(ctx);
-
-    /* Use existing locality */
-    ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
-
-    return rc;
+    return TPM2_Init_ex(ctx, NULL, NULL, 0);
 }
 
 TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
