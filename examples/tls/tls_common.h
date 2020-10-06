@@ -232,7 +232,7 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
+    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }
@@ -296,7 +296,7 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
+    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }

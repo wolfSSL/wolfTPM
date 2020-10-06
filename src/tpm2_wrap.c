@@ -39,7 +39,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 {
     int rc;
 
-#ifndef WOLFTPM_LINUX_DEV
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
     Startup_In startupIn;
 #if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
     SelfTest_In selfTest;
@@ -49,7 +49,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
     rc = TPM2_Init_minimal(ctx);
     /* Using standard file I/O for the Linux TPM device */
     (void)ioCb;
@@ -72,7 +72,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         ctx->rid);
 #endif
 
-#ifndef WOLFTPM_LINUX_DEV
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
     /* startup */
     XMEMSET(&startupIn, 0, sizeof(Startup_In));
     startupIn.startupType = TPM_SU_CLEAR;
@@ -105,8 +105,8 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #else
     rc = TPM_RC_SUCCESS;
 #endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
-
-#endif /* ! WOLFTPM_LINUX_DEV */
+    (
+#endif /* !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI) */
 
     return rc;
 }
@@ -424,7 +424,11 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 
 int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 {
+#if defined(WOLFTPM_WINAPI)
+    return wolfTPM2_Cleanup_ex(dev, 0);
+#else
     return wolfTPM2_Cleanup_ex(dev, 1);
+#endif
 }
 
 
