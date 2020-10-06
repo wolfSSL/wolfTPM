@@ -33,6 +33,13 @@
 #include <examples/tls/tls_client.h>
 
 #include <wolfssl/ssl.h>
+#include <wolfssl/wolfio.h>
+
+/* TODO: HACKY for win32 */
+#ifdef WIN32
+#undef SOCKET_INVALID
+#define SOCKET_INVALID 0xFFFFFFFF
+#endif
 
 #include <stdio.h>
 
@@ -86,11 +93,15 @@
 /******************************************************************************/
 
 typedef struct SockIoCbCtx {
-    int listenFd;
-    int fd;
+    SOCKET_T listenFd;
+    SOCKET_T fd;
 } SockIoCbCtx;
 
+
+
 #ifndef WOLFSSL_USER_IO
+#ifndef USE_WOLFSSL_IO
+
 /* socket includes */
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -221,7 +232,7 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }
@@ -285,7 +296,7 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
     /* Create a socket that uses an Internet IPv4 address,
      * Sets the socket to be stream based (TCP),
      * 0 means choose the default protocol. */
-    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
         printf("ERROR: failed to create the socket\n");
         return -1;
     }
@@ -311,6 +322,240 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
         sockIoCtx->listenFd = -1;
     }
 }
+#else /* USE_WOLFSSL_IO */
+
+/* Copied from wolfSSL server.c */
+static WC_INLINE int wolfIO_LastError(void)
+{
+#ifdef USE_WINDOWS_API
+    return WSAGetLastError();
+#elif defined(EBSNET)
+    return xn_getlasterror();
+#else
+    return errno;
+#endif
+}
+
+static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
+{
+    SockIoCbCtx* sockCtx = (SockIoCbCtx*)ctx;
+    int recvd;
+    int err;
+
+    (void)ssl;
+
+    /* Receive message from socket */
+    if ((recvd = wolfIO_Send(sockCtx->fd, buff, sz, 0)) == -1) {
+        /* error encountered. Be responsible and report it in wolfSSL terms */
+
+        err = wolfIO_LastError();
+        printf("IO RECEIVE ERROR: ");
+        switch (err) {
+        case SOCKET_EWOULDBLOCK:
+            if (wolfSSL_get_using_nonblock(ssl)) {
+                printf("would block\n");
+                return WOLFSSL_CBIO_ERR_WANT_READ;
+            }
+            else {
+                printf("socket timeout\n");
+                return WOLFSSL_CBIO_ERR_TIMEOUT;
+            }
+        case SOCKET_ECONNRESET:
+            printf("connection reset\n");
+            return WOLFSSL_CBIO_ERR_CONN_RST;
+        case SOCKET_EINTR:
+            printf("socket interrupted\n");
+            return WOLFSSL_CBIO_ERR_ISR;
+        case SOCKET_ECONNREFUSED:
+            printf("connection refused\n");
+            return WOLFSSL_CBIO_ERR_WANT_READ;
+        case SOCKET_ECONNABORTED:
+            printf("connection aborted\n");
+            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+        default:
+            printf("general error\n");
+            return WOLFSSL_CBIO_ERR_GENERAL;
+        }
+    }
+    else if (recvd == 0) {
+        printf("Connection closed\n");
+        return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+    }
+
+#ifdef TLS_BENCH_MODE
+    {
+        const double zeroVal = 0.0;
+        if (XMEMCMP(&benchStart, &zeroVal, sizeof(double)) == 0) {
+            benchStart = gettime_secs(1);
+        }
+    }
+#endif
+
+#ifdef DEBUG_WOLFTPM
+    /* successful receive */
+    printf("SockIORecv: received %d bytes from %d\n", sz, sockCtx->fd);
+#endif
+
+    return recvd;
+}
+
+
+static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
+{
+    SockIoCbCtx* sockCtx = (SockIoCbCtx*)ctx;
+    int sent;
+    int err;
+
+    (void)ssl;
+
+    /* Receive message from socket */
+    if ((sent = (int)wolfIO_Send(sockCtx->fd, buff, sz, 0)) == -1) {
+        /* error encountered. Be responsible and report it in wolfSSL terms */
+
+        err = wolfIO_LastError();
+        printf("IO SEND ERROR: ");
+        switch (err) {
+        case SOCKET_EWOULDBLOCK:
+            printf("would block\n");
+            return WOLFSSL_CBIO_ERR_WANT_READ;
+        case SOCKET_ECONNRESET:
+            printf("connection reset\n");
+            return WOLFSSL_CBIO_ERR_CONN_RST;
+        case SOCKET_EINTR:
+            printf("socket interrupted\n");
+            return WOLFSSL_CBIO_ERR_ISR;
+        case SOCKET_EPIPE:
+            printf("socket EPIPE\n");
+            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+        default:
+            printf("general error\n");
+            return WOLFSSL_CBIO_ERR_GENERAL;
+        }
+    }
+    else if (sent == 0) {
+        printf("Connection closed\n");
+        return 0;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    /* successful send */
+    printf("SockIOSend: sent %d bytes to %d\n", sz, sockCtx->fd);
+#endif
+
+    return sent;
+}
+
+static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
+{
+    struct sockaddr_in servAddr;
+    int optval  = 1;
+
+    /* Setup server address */
+    memset(&servAddr, 0, sizeof(servAddr));
+    servAddr.sin_family = AF_INET;
+    servAddr.sin_port = htons(port);
+    servAddr.sin_addr.s_addr = INADDR_ANY;
+
+    /* Create a socket that uses an Internet IPv4 address,
+     * Sets the socket to be stream based (TCP),
+     * 0 means choose the default protocol. */
+    if ((sockIoCtx->listenFd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
+        printf("ERROR: failed to create the socket\n");
+        return -1;
+    }
+
+    #if defined(SO_REUSEADDR) && !defined(WIN32)
+    /* allow reuse */
+    if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
+        printf("setsockopt SO_REUSEADDR failed\n");
+        return -1;
+    }
+    #else
+    (void)optval;
+    #endif
+
+    /* Connect to the server */
+    if (bind(sockIoCtx->listenFd, (struct sockaddr*)&servAddr,
+                                                    sizeof(servAddr)) == -1) {
+        printf("ERROR: failed to bind\n");
+        return -1;
+    }
+
+    if (listen(sockIoCtx->listenFd, 5) != 0) {
+        printf("ERROR: failed to listen\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
+{
+    int connd;
+    struct sockaddr_in clientAddr;
+    int          size = sizeof(clientAddr);
+
+    if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
+        printf("ERROR: failed to accept the connection\n\n");
+        return -1;
+    }
+    sockIoCtx->fd = connd;
+    return 0;
+}
+
+static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host,
+    word32 port)
+{
+        struct sockaddr_in servAddr;
+    struct hostent* entry;
+
+    /* Setup server address */
+    memset(&servAddr, 0, sizeof(servAddr));
+    servAddr.sin_family = AF_INET;
+    servAddr.sin_port = htons(port);
+
+    /* Resolve host */
+    entry = gethostbyname(host);
+    if (entry) {
+        XMEMCPY(&servAddr.sin_addr.s_addr, entry->h_addr_list[0],
+            entry->h_length);
+    }
+    else {
+        servAddr.sin_addr.s_addr = inet_addr(host);
+    }
+
+    /* Create a socket that uses an Internet IPv4 address,
+     * Sets the socket to be stream based (TCP),
+     * 0 means choose the default protocol. */
+    if ((sockIoCtx->fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) {
+        printf("ERROR: failed to create the socket\n");
+        return -1;
+    }
+
+    /* Connect to the server */
+    if (connect(sockIoCtx->fd, (struct sockaddr*)&servAddr,
+                                                    sizeof(servAddr)) == -1) {
+        printf("ERROR: failed to connect\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
+{
+
+    if (sockIoCtx->fd != SOCKET_INVALID) {
+        CloseSocket(sockIoCtx->fd);
+        sockIoCtx->fd = SOCKET_INVALID;
+    }
+    if (sockIoCtx->listenFd != SOCKET_INVALID) {
+        CloseSocket(sockIoCtx->listenFd);
+        sockIoCtx->listenFd = SOCKET_INVALID;
+    }
+}
+
+#endif /* ! USE_WOLFSSL_IO */
 #else
 	/* Provide you own socket implementation code */
 	int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx);

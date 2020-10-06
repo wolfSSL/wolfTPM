@@ -31,7 +31,8 @@
 */
 
 #if defined(BUILDING_WOLFTPM)
-    #if defined(_MSC_VER) || defined(__CYGWIN__)
+    #if defined(_MSC_VER) || defined(__CYGWIN__) || \
+      defined(__MINGW32__) || defined(__MINGW64__)
         #ifdef _WINDLL
             #define WOLFTPM_API __declspec(dllexport)
         #else

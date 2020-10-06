@@ -10,6 +10,7 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_wrap.h \
                          wolftpm/tpm2_linux.h \
                          wolftpm/tpm2_swtpm.h \
+                         wolftpm/tpm2_winapi.h \
                          wolftpm/tpm2_param_enc.h \
                          wolftpm/version.h \
                          wolftpm/visibility.h \

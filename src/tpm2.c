@@ -25,6 +25,7 @@
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
 
 /******************************************************************************/
@@ -40,6 +41,8 @@ static volatile int gWolfCryptRefCount = 0;
 #define INTERNAL_SEND_COMMAND TPM2_LINUX_SendCommand
 #elif defined(WOLFTPM_SWTPM)
 #define INTERNAL_SEND_COMMAND TPM2_SWTPM_SendCommand
+#elif defined(WOLFTPM_WINAPI)
+#define INTERNAL_SEND_COMMAND TPM2_WinApi_SendCommand
 #else
 #define INTERNAL_SEND_COMMAND TPM2_TIS_SendCommand
 #endif
