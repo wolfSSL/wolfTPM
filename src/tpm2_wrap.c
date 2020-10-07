@@ -105,7 +105,6 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #else
     rc = TPM_RC_SUCCESS;
 #endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
-    (
 #endif /* !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI) */
 
     return rc;
