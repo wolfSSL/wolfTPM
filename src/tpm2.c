@@ -86,7 +86,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_ST tag;
     BYTE *cmd, *param;
     UINT32 cmdSz, authSz;
-    UINT16 requestParamSz;
+    UINT16 requestParamSz = 0;
     UINT32 responseParamSz;
     TPM2B_MAX_BUFFER encryptedParameter;
     int sessionParamEnc;
@@ -119,8 +119,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPM2_Packet_ParseU32(packet, &authSz);
         /* Pass the Auth Session area, size field already passed by ParseU32 */
         packet->pos += authSz;
-        /* Extract the size of the first parameter */
-        TPM2_Packet_ParseU16(packet, &requestParamSz);
+        if (packet->pos + sizeof(requestParamSz) <= cmdSz) {
+            /* Extract the size of the first parameter */
+            TPM2_Packet_ParseU16(packet, &requestParamSz);
+        }
         /* Index the beginning of the parameter data */
         param += sizeof(authSz) + authSz + sizeof(requestParamSz);
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -5072,34 +5074,39 @@ UINT16 TPM2_GetVendorID(void)
 #define LINE_LEN 16
 void TPM2_PrintBin(const byte* buffer, word32 length)
 {
-    word32 i;
-    char line[80];
+    word32 i, sz;
+    char line[(LINE_LEN * 4) + 4], *tmp;
 
     if (!buffer) {
         printf("\tNULL");
         return;
     }
 
-    sprintf(line, "\t");
+    while (length > 0) {
+        sz = length;
+        if (sz > LINE_LEN)
+            sz = LINE_LEN;
 
-    for (i = 0; i < LINE_LEN; i++) {
-        if (i < length)
-            sprintf(line + 1 + i * 3,"%02x ", buffer[i]);
-        else
-            sprintf(line + 1 + i * 3, "   ");
+        tmp = line;
+        tmp += sprintf(tmp, "\t");
+        for (i = 0; i < LINE_LEN; i++) {
+            if (i < length)
+                tmp += sprintf(tmp, "%02x ", buffer[i]);
+            else
+                tmp += sprintf(tmp, "   ");
+        }
+        tmp += sprintf(tmp, "| ");
+        for (i = 0; i < sz; i++) {
+            if (buffer[i] > 31 && buffer[i] < 127)
+                tmp += sprintf(tmp, "%c", buffer[i]);
+            else
+                tmp += sprintf(tmp, ".");
+        }
+        printf("%s\n", line);
+
+        buffer += sz;
+        length -= sz;
     }
-
-    sprintf(line + 1 + LINE_LEN * 3, "| ");
-
-    for (i = 0; i < LINE_LEN; i++)
-        if (i < length)
-            sprintf(line + 3 + LINE_LEN * 3 + i,
-                 "%c", 31 < buffer[i] && buffer[i] < 127 ? buffer[i] : '.');
-
-    printf("%s\n", line);
-
-    if (length > LINE_LEN)
-        TPM2_PrintBin(buffer + LINE_LEN, length - LINE_LEN);
 }
 #endif
 
