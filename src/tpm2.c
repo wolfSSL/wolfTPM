@@ -86,7 +86,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM_ST tag;
     BYTE *cmd, *param;
     UINT32 cmdSz, authSz;
-    UINT16 requestParamSz;
+    UINT16 requestParamSz = 0;
     UINT32 responseParamSz;
     TPM2B_MAX_BUFFER encryptedParameter;
     int sessionParamEnc;
@@ -119,8 +119,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPM2_Packet_ParseU32(packet, &authSz);
         /* Pass the Auth Session area, size field already passed by ParseU32 */
         packet->pos += authSz;
-        /* Extract the size of the first parameter */
-        TPM2_Packet_ParseU16(packet, &requestParamSz);
+        if (packet->pos + sizeof(requestParamSz) <= cmdSz) {
+            /* Extract the size of the first parameter */
+            TPM2_Packet_ParseU16(packet, &requestParamSz);
+        }
         /* Index the beginning of the parameter data */
         param += sizeof(authSz) + authSz + sizeof(requestParamSz);
 #ifdef WOLFTPM_DEBUG_VERBOSE
