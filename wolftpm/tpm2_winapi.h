@@ -32,6 +32,9 @@
 /* TPM2 IO for using TPM through the Winapi kernel driver */
 WOLFTPM_LOCAL int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
+/* Cleanup winpi context */
+WOLFTPM_LOCAL int TPM2_WinApi_Cleanup(TPM2_CTX* ctx);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

@@ -60,7 +60,6 @@ typedef const TBS_CONTEXT_PARAMS2 *PCTBS_CONTEXT_PARAMS2;
 /* Talk to a TPM device using Windows TBS */
 int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
-    TBS_HCONTEXT tbs_context;
     TBS_CONTEXT_PARAMS2 tbs_params;
     tbs_params.version = TBS_CONTEXT_VERSION_TWO;
     tbs_params.includeTpm12 = 0;
@@ -68,12 +67,11 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     int rc = 0;
 
-    (void)ctx;
+    /* open, if not already open */
 
-    /* open on first transmit */
-    if (rc == 0) {
+    if (ctx->winCtx.tbs_context == NULL) {
         rc = Tbsi_Context_Create((TBS_CONTEXT_PARAMS*)&tbs_params,
-                                 &tbs_context);
+                                 &ctx->winCtx.tbs_context);
         printf("create rc: %d\n", rc);
     }
 
@@ -82,7 +80,7 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         uint32_t tmp = packet->size;
         printf("tx:\n");
         TPM2_PrintBin(packet->buf, packet->pos);
-	rc = Tbsip_Submit_Command(tbs_context,
+	rc = Tbsip_Submit_Command(ctx->winCtx.tbs_context,
 				  TBS_COMMAND_LOCALITY_ZERO,
 				  TBS_COMMAND_PRIORITY_NORMAL,
 				  packet->buf,
@@ -96,7 +94,17 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == 0) {
         printf("rx:\n");
         TPM2_PrintBin(packet->buf, packet->pos);
-        rc = Tbsip_Context_Close(tbs_context);
+    }
+
+    return rc;
+}
+
+int TPM2_WinApi_Cleanup(TPM2_CTX* ctx)
+{
+    int rc = TPM_RC_SUCCESS;
+    if (ctx->winCtx.tbs_context != NULL) {
+        rc = Tbsip_Context_Close(ctx->winCtx.tbs_context);
+        ctx->winCtx.tbs_context = NULL;
         printf("close rc: %d\n", rc);
     }
 

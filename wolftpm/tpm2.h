@@ -1613,9 +1613,18 @@ static const BYTE TPM_20_EK_AUTH_POLICY[] = {
 
 /* HAL IO Callbacks */
 struct TPM2_CTX;
+
 #ifdef WOLFTPM_SWTPM
 struct wolfTPM_tcpContext {
     int fd;
+};
+#endif /* WOLFTPM_SWTPM */
+
+#ifdef WOLFTPM_WINAPI
+#include <tbs.h>
+
+struct wolfTPM_winContext {
+  TBS_HCONTEXT tbs_context;
 };
 #endif /* WOLFTPM_SWTPM */
 
@@ -1643,6 +1652,9 @@ typedef struct TPM2_CTX {
     void* userCtx;
 #ifdef WOLFTPM_SWTPM
     struct wolfTPM_tcpContext tcpCtx;
+#endif
+#ifdef WOLFTPM_WINAPI
+    struct wolfTPM_winContext winCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef SINGLE_THREADED
