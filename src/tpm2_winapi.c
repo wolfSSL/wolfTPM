@@ -72,14 +72,11 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (ctx->winCtx.tbs_context == NULL) {
         rc = Tbsi_Context_Create((TBS_CONTEXT_PARAMS*)&tbs_params,
                                  &ctx->winCtx.tbs_context);
-        printf("create rc: %d\n", rc);
-    }
+  }
 
     /* send the command to the device.  Error if the device send fails. */
     if (rc == 0) {
         uint32_t tmp = packet->size;
-        printf("tx:\n");
-        TPM2_PrintBin(packet->buf, packet->pos);
 	rc = Tbsip_Submit_Command(ctx->winCtx.tbs_context,
 				  TBS_COMMAND_LOCALITY_ZERO,
 				  TBS_COMMAND_PRIORITY_NORMAL,
@@ -88,12 +85,6 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 				  packet->buf,
 				  (UINT32*)&tmp);
         packet->pos = tmp;
-        printf("submit rc: %d\n", rc);
-    }
-
-    if (rc == 0) {
-        printf("rx:\n");
-        TPM2_PrintBin(packet->buf, packet->pos);
     }
 
     return rc;
@@ -105,7 +96,6 @@ int TPM2_WinApi_Cleanup(TPM2_CTX* ctx)
     if (ctx->winCtx.tbs_context != NULL) {
         rc = Tbsip_Context_Close(ctx->winCtx.tbs_context);
         ctx->winCtx.tbs_context = NULL;
-        printf("close rc: %d\n", rc);
     }
 
     return rc;

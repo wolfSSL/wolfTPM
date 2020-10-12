@@ -44,6 +44,13 @@ int TPM2_Timestamp_Test(void* userCtx)
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
 
+
+#ifdef WOLFTPM_WINAPI
+    int tryNVkey = 0;
+#else
+    int tryNVkey = 1;
+#endif
+
     union {
         /* For managing TPM session */
         StartAuthSession_In authSes;
@@ -113,31 +120,36 @@ int TPM2_Timestamp_Test(void* userCtx)
 
     /* Create RSA Storage Key, also called SRK */
     /* See if SRK already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    if (tryNVkey) {
+        rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
 #ifdef TEST_WRAP_DELETE_KEY
-    if (rc == 0) {
-        storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
-        rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storage);
-        if (rc != 0) goto exit;
-        rc = TPM_RC_HANDLE; /* mark handle as missing */
-    }
+        if (rc == 0) {
+            storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
+            rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storage);
+            if (rc != 0) goto exit;
+            rc = TPM_RC_HANDLE; /* mark handle as missing */
+        }
 #endif
-    if (rc != 0) {
+    }
+
+    if (!tryNVkey || (tryNVkey && rc != 0)) {
         /* Create primary storage key (RSA) */
-        rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA, 
+        rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA,
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
-        /* Move storage key into persistent NV */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) {
-            wolfTPM2_UnloadHandle(&dev, &storage.handle);
-            goto exit;
+        if (tryNVkey) {
+            /* Move storage key into persistent NV */
+            rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
+                TPM2_DEMO_STORAGE_KEY_HANDLE);
+            if (rc != 0) {
+                wolfTPM2_UnloadHandle(&dev, &storage.handle);
+                goto exit;
+            }
         }
 
         printf("Created new RSA Primary Storage Key at 0x%x\n",
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
+               storage.handle.hndl);
     }
     else {
         /* specify auth password for storage key */
@@ -282,6 +294,10 @@ exit:
     }
 
     /* Close key handles */
+    if (!tryNVkey) {
+        wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    }
+
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
 
