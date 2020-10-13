@@ -210,7 +210,7 @@ then
         AC_MSG_ERROR([Cannot enable swtpm or devtpm with windows API])
     fi
 
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WINAPI"
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WINAPI -DNO_WOLFSSL_SERVER -DNO_WOLFSSL_CLIENT"
 fi
 
 
