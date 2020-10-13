@@ -345,6 +345,10 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     TPM2_WolfCrypt_Init();
 #endif
 
+#if defined(WOLFTPM_SWTPM)
+    ctx->tcpCtx.fd = -1;
+#endif
+
     #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
