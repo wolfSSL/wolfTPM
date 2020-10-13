@@ -493,7 +493,7 @@ static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
 {
     int connd;
     struct sockaddr_in clientAddr;
-    int          size = sizeof(clientAddr);
+    XSOCKLENT          size = sizeof(clientAddr);
 
     if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
         printf("ERROR: failed to accept the connection\n\n");
