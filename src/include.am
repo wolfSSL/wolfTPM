@@ -19,6 +19,7 @@ src_libwolftpm_la_SOURCES      += src/tpm2_swtpm.c
 endif
 if BUILD_WINAPI
 src_libwolftpm_la_SOURCES      += src/tpm2_winapi.c
+src_libwolftpm_la_LIBADD       = -ltbs
 endif
 
 src_libwolftpm_la_CFLAGS       = $(src_libwolftpm_la_EXTRAS) -DBUILDING_WOLFTPM $(AM_CFLAGS)
