@@ -11,7 +11,7 @@ export PREFIX=$PWD/tmp_install
 
 cd wolfssl
 ./autogen.sh
-./configure --prefix="$PREFIX"
+./configure --prefix="$PREFIX" --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
 make
 make install
 
@@ -42,7 +42,7 @@ export PREFIX=$PWD/tmp_install
 
 cd wolfssl
 ./autogen.sh
-./configure --host=i686 CC=i686-w64-mingw32-gcc CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600" LIBS="-lws2_32" --prefix="$PREFIX"
+./configure --host=i686 CC=i686-w64-mingw32-gcc CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600" LIBS="-lws2_32" --prefix="$PREFIX" --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
 make
 make install
 
