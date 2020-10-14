@@ -22,6 +22,12 @@
 #ifndef _TPM2_SOCKET_H_
 #define _TPM2_SOCKET_H_
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+#include <wolfssl/wolfio.h>
+#endif
+
+#ifndef USE_WOLFSSL_IO
+
 /* socket includes */
 #if defined(_WIN32)
     #include <winsock2.h>
@@ -77,5 +83,7 @@
     #define SOCKET_ECONNREFUSED ECONNREFUSED
     #define SOCKET_ECONNABORTED ECONNABORTED
 #endif /* USE_WINDOWS_API */
+
+#endif /* ! USE_WOLFSSL_IO */
 
 #endif /* _TPM2_SOCKET_H_ */
