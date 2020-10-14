@@ -60,30 +60,29 @@ typedef const TBS_CONTEXT_PARAMS2 *PCTBS_CONTEXT_PARAMS2;
 /* Talk to a TPM device using Windows TBS */
 int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
+    int rc = 0;
     TBS_CONTEXT_PARAMS2 tbs_params;
     tbs_params.version = TBS_CONTEXT_VERSION_TWO;
     tbs_params.includeTpm12 = 0;
     tbs_params.includeTpm20 = 1;
 
-    int rc = 0;
 
     /* open, if not already open */
-
     if (ctx->winCtx.tbs_context == NULL) {
         rc = Tbsi_Context_Create((TBS_CONTEXT_PARAMS*)&tbs_params,
                                  &ctx->winCtx.tbs_context);
-  }
+    }
 
     /* send the command to the device.  Error if the device send fails. */
     if (rc == 0) {
         uint32_t tmp = packet->size;
-	rc = Tbsip_Submit_Command(ctx->winCtx.tbs_context,
-				  TBS_COMMAND_LOCALITY_ZERO,
-				  TBS_COMMAND_PRIORITY_NORMAL,
-				  packet->buf,
-				  packet->pos,
-				  packet->buf,
-				  (UINT32*)&tmp);
+        rc = Tbsip_Submit_Command(ctx->winCtx.tbs_context,
+                                  TBS_COMMAND_LOCALITY_ZERO,
+                                  TBS_COMMAND_PRIORITY_NORMAL,
+                                  packet->buf,
+                                  packet->pos,
+                                  packet->buf,
+                                  (UINT32*)&tmp);
         packet->pos = tmp;
     }
 
