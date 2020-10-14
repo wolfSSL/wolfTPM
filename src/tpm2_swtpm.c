@@ -42,10 +42,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-
+#include <wolftpm/tpm2_socket.h>
 
 #ifndef TPM2_SWTPM_HOST
 #define TPM2_SWTPM_HOST         "localhost"
