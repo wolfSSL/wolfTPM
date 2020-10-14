@@ -41,6 +41,7 @@ include tests/include.am
 
 EXTRA_DIST+= README.md
 EXTRA_DIST+= docs/SWTPM.md
+EXTRA_DIST+= docs/WindowTBS.md
 EXTRA_DIST+= ChangeLog.md
 EXTRA_DIST+= LICENSE
 EXTRA_DIST+= autogen.sh

@@ -25,6 +25,7 @@
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
 
 /******************************************************************************/
@@ -37,11 +38,17 @@ static volatile int gWolfCryptRefCount = 0;
 #endif
 
 #ifdef WOLFTPM_LINUX_DEV
-#define INTERNAL_SEND_COMMAND TPM2_LINUX_SendCommand
+#define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_SWTPM)
-#define INTERNAL_SEND_COMMAND TPM2_SWTPM_SendCommand
+#define INTERNAL_SEND_COMMAND      TPM2_SWTPM_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
+#elif defined(WOLFTPM_WINAPI)
+#define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx) TPM2_WinApi_Cleanup(ctx)
 #else
-#define INTERNAL_SEND_COMMAND TPM2_TIS_SendCommand
+#define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #endif
 
 /******************************************************************************/
@@ -338,7 +345,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     TPM2_WolfCrypt_Init();
 #endif
 
-    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM)
+    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
     }
@@ -386,6 +393,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     if (rc == TPM_RC_SUCCESS) {
 
         if (TPM2_GetActiveCtx() == ctx) {
+            TPM2_INTERNAL_CLEANUP(ctx);
             /* set non-active */
             TPM2_SetActiveCtx(NULL);
         }

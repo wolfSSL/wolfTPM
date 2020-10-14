@@ -140,6 +140,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 
 --enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
 --enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: disabled) - WOLFTPM_SWTPM
+--enable-winapi         Use Windows TBS API. (default: disabled) - WOLFTPM_WINAPI
 
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
 WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret for TLS examples.
@@ -215,6 +216,10 @@ sudo adduser yourusername tss
 ### Building for SWTPM
 
 See `docs/SWTPM.md`
+
+### Building for Windows TBS API
+
+See `docs/WindowTBS.md`
 
 ## Running Examples
 

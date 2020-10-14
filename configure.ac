@@ -196,6 +196,23 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
 fi
 
+# Windows TBS device Support
+AC_ARG_ENABLE([winapi],
+    [AS_HELP_STRING([--enable-winapi],[Enable use of TPM through Windows driver (default: disabled)])],
+    [ ENABLED_WINAPI=$enableval ],
+    [ ENABLED_WINAPI=no ]
+    )
+
+if test "x$ENABLED_WINAPI" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes" -o "x$ENABLED_SWTPM" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable swtpm or devtpm with windows API])
+    fi
+
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WINAPI -DNO_WOLFSSL_SERVER -DNO_WOLFSSL_CLIENT"
+fi
+
 
 # STM ST33 Support
 AC_ARG_ENABLE([st33],,
@@ -336,6 +353,7 @@ AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
@@ -455,6 +473,7 @@ echo "   * Advanced IO:               $ENABLED_ADVIO"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
+echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
 echo "   * Infineon SLB9670           $ENABLED_INFINEON"
