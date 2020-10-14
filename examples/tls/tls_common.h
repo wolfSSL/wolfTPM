@@ -108,7 +108,9 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 
         printf("IO RECEIVE ERROR: ");
         switch (errno) {
+        #if SOCKET_EAGAIN != SOCKET_EWOULDBLOCK
         case SOCKET_EAGAIN:
+        #endif
         case SOCKET_EWOULDBLOCK:
             if (wolfSSL_get_using_nonblock(ssl)) {
                 printf("would block\n");
@@ -170,7 +172,9 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 
         printf("IO SEND ERROR: ");
         switch (errno) {
+        #if SOCKET_EAGAIN != SOCKET_EWOULDBLOCK
         case SOCKET_EAGAIN:
+        #endif
         case SOCKET_EWOULDBLOCK:
             printf("would block\n");
             return WOLFSSL_CBIO_ERR_WANT_READ;
@@ -205,6 +209,11 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
 {
     struct sockaddr_in servAddr;
     int optval  = 1;
+
+#ifdef _WIN32
+    WSADATA wsd;
+    WSAStartup(0x0002, &wsd);
+#endif
 
     /* Setup server address */
     memset(&servAddr, 0, sizeof(servAddr));
@@ -261,6 +270,11 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
 {
     struct sockaddr_in servAddr;
     struct hostent* entry;
+
+#ifdef _WIN32
+    WSADATA wsd;
+    WSAStartup(0x0002, &wsd);
+#endif
 
     /* Setup server address */
     memset(&servAddr, 0, sizeof(servAddr));

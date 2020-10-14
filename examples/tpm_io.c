@@ -30,6 +30,9 @@
 /******************************************************************************/
 /* --- BEGIN IO Callback Logic -- */
 /******************************************************************************/
+#if ! (defined(WOLFTPM_LINUX_DEV) || \
+       defined(WOLFTPM_SWTPM) ||     \
+       defined(WOLFTPM_WINAPI) )
 
 /* Configuration for the SPI interface */
 /* SPI Requirement: Mode 0 (CPOL=0, CPHA=0) */
@@ -861,6 +864,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 }
 
 #endif /* WOLFTPM_ADV_IO */
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 /******************************************************************************/
 /* --- END IO Callback Logic -- */

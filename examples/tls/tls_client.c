@@ -29,6 +29,7 @@
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/tls/tls_common.h>
 #include <examples/tls/tls_client.h>
 
@@ -107,6 +108,7 @@ int TPM2_TLS_Client(void* userCtx)
     int total_size;
     int i;
 #endif
+    int tryNV = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
@@ -139,92 +141,33 @@ int TPM2_TLS_Client(void* userCtx)
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
-    /* See if primary storage key already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0) {
-        /* Create primary storage key */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for storage key */
-        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
-    }
+    rc = getPrimaryStoragekey(&dev,
+                              &storageKey,
+                              &publicTemplate,
+                              tryNV);
+    if (rc != 0) goto exit;
 
 #ifndef NO_RSA
     /* Create/Load RSA key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
-    if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
-            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
-            TPM2_DEMO_RSA_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for rsa key */
-        rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
-        XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
-    }
-
-    /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_InitRsaKey_ex(&wolfRsaKey, NULL, tpmDevId);
-    if (rc != 0) goto exit;
-    /* load public portion of key into wolf RSA Key */
-    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &rsaKey, &wolfRsaKey);
+    rc = getRSAPrimaryStoragekey(&dev,
+                                 &storageKey,
+                                 &publicTemplate,
+                                 &rsaKey,
+                                 &wolfRsaKey,
+                                 tpmDevId,
+                                 tryNV);
     if (rc != 0) goto exit;
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
     /* Create/Load ECC key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_DEMO_ECC_KEY_HANDLE);
-    if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-            TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
-            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &eccKey,
-            TPM2_DEMO_ECC_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for ECC key */
-        eccKey.handle.auth.size = sizeof(gKeyAuth)-1;
-        XMEMCPY(eccKey.handle.auth.buffer, gKeyAuth, eccKey.handle.auth.size);
-    }
-
-    /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_ecc_init_ex(&wolfEccKey, NULL, tpmDevId);
-    if (rc != 0) goto exit;
-    /* load public portion of key into wolf ECC Key */
-    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &eccKey, &wolfEccKey);
+    rc = getECCkey(&dev,
+                   &storageKey,
+                   &publicTemplate,
+                   &eccKey,
+                   &wolfEccKey,
+                   tpmDevId,
+                   tryNV);
     if (rc != 0) goto exit;
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
@@ -468,12 +411,9 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
-    wolfSSL_shutdown(ssl);
-
-    CloseAndCleanupSocket(&sockIoCtx);
-    wolfSSL_free(ssl);
-    wolfSSL_CTX_free(ctx);
-
+    if (!tryNV) {
+      wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+    }
 #ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
@@ -482,6 +422,12 @@ exit:
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
+
+    wolfSSL_shutdown(ssl);
+
+    CloseAndCleanupSocket(&sockIoCtx);
+    wolfSSL_free(ssl);
+    wolfSSL_CTX_free(ctx);
 
     wolfTPM2_Cleanup(&dev);
 
