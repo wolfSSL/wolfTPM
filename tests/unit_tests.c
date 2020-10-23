@@ -24,6 +24,7 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_param_enc.h>
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -255,6 +256,35 @@ static void test_wolfTPM2_Cleanup(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_TPM2_KDFa(void)
+{
+    int rc;
+    #define TEST_KDFA_KEYSZ 20
+    TPM2B_DATA keyIn = {
+        .size = TEST_KDFA_KEYSZ,
+        .buffer = {0x27, 0x1F, 0xA0, 0x8B, 0xBD, 0xC5, 0x06, 0x0E, 0xC3, 0xDF,
+	               0xA9, 0x28, 0xFF, 0x9B, 0x73, 0x12, 0x3A, 0x12, 0xDA, 0x0C}
+    };
+    const char label[] = "KDFSELFTESTLABEL";
+    TPM2B_NONCE contextU = {
+        .size = 8,
+        .buffer = {0xCE, 0x24, 0x4F, 0x39, 0x5D, 0xCA, 0x73, 0x91}
+    };
+    TPM2B_NONCE contextV = {
+        .size = 8,
+        .buffer = {0xDA, 0x50, 0x40, 0x31, 0xDD, 0xF1, 0x2E, 0x83}
+    };
+    const byte keyExp[TEST_KDFA_KEYSZ] = {
+        0xbb, 0x02, 0x59, 0xe1, 0xc8, 0xba, 0x60, 0x7e, 0x6a, 0x2c,
+        0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
+    byte key[TEST_KDFA_KEYSZ];
+
+    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key, keyIn.size);
+    AssertIntEQ(sizeof(keyExp), rc);
+
+    AssertIntEQ(XMEMCMP(key, keyExp, sizeof(keyExp)), 0);
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -273,6 +303,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_GetRandom();
     test_wolfTPM2_Cleanup();
+    test_TPM2_KDFa();
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

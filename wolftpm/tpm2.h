@@ -1568,7 +1568,8 @@ typedef struct TPM2B_CREATION_DATA {
 
 typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
-    TPM2B_NONCE nonce;
+    TPM2B_NONCE nonceCaller;
+    TPM2B_NONCE nonceTPM;
     TPMA_SESSION sessionAttributes;
     TPM2B_AUTH auth; /* TCG Spec Part 2 calls this field hmac */
     /* TPM2B_AUTH can be an HMAC, a password or an Empty Auth */

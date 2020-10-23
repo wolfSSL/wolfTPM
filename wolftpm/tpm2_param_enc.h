@@ -29,15 +29,22 @@
     extern "C" {
 #endif
 
+WOLFTPM_API int TPM2_KDFa(
+    TPM_ALG_ID hashAlg, TPM2B_DATA *keyIn,
+    const char *label, TPM2B_NONCE *contextU, TPM2B_NONCE *contextV,
+    BYTE *key, UINT32 keySz
+);
+
 WOLFTPM_LOCAL int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx);
 WOLFTPM_LOCAL int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx);
 /* Perform encryption over the first parameter of a TPM packet */
 WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 TPM2B_MAX_BUFFER *encryptedParameter,
-                                BYTE *paramData, UINT32 paramSz);
-WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
-                                 TPM2B_MAX_BUFFER *encryptedParameter,
-                                 BYTE *paramData, UINT32 paramSz);
+                                const BYTE *paramData, UINT32 paramSz);
+WOLFTPM_LOCAL TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
+                                TPM2B_MAX_BUFFER *decryptedParameter,
+                                const BYTE *paramData, UINT32 paramSz);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

@@ -23,6 +23,7 @@
 #include <wolftpm/tpm2_packet.h>
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+#include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/hmac.h>
 #endif
 
@@ -51,11 +52,11 @@
 /* This function performs key generation according to Part 1 of the TPM spec
  * and returns the number of bytes generated, which may be zero.
  *
- * 'key' or 'authValue' are used to generate the session key.
- * - either 'key' or 'authValue' must be provided.
+ * 'key' input data is used together with the label, ContextU and ContextV to
+ * generate the session key.
  *
- * 'keyStream' points to the buffer storing the generated session key
- * - 'keyStream' can not be NULL.
+ * 'keyStream' points to the buffer storing the generated session key, and
+ * 'keyStream' can not be NULL.
  *
  * 'sizeInBits' must be no larger than (2^18)-1 = 256K bits (32385 bytes).
  *
@@ -74,31 +75,26 @@
  *    >0    the number of bytes in the 'keyStream' buffer
  *
  */
-static int TPM2_KDFa(
-    TPM_ALG_ID  hashAlg,    /* IN: hash algorithm used in HMAC */
-    TPM2B_DATA  *key,       /* IN: key, can also be used as authValue buffer */
-    TPM2B_AUTH  *authValue, /* IN: authValue for unbounded, unsalted session */
+int TPM2_KDFa(
+    TPM_ALG_ID   hashAlg,   /* IN: hash algorithm used in HMAC */
+    TPM2B_DATA  *keyIn,     /* IN: key */
     const char  *label,     /* IN: a 0-byte terminated label used in KDF */
     TPM2B_NONCE *contextU,  /* IN: context U */
     TPM2B_NONCE *contextV,  /* IN: context V */
-    UINT32      sizeInBits, /* IN: size of generated key in bits */
-    BYTE        *keyStream, /* OUT: key buffer */
-    UINT32      *counterInc,/* IN/OUT: See Note for incremental operations */
-    int         doOnce      /* IN: TRUE if only one iteration is performed */
+    BYTE        *key,       /* OUT: key buffer */
+    UINT32       keySz      /* IN: size of generated key in bytes */
 )
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int ret, hashType;
     Hmac hmac;
     word32 counter = 0;
-    int hLen, outLen, lLen = 0;
-    byte *outStream;
-    byte uint32Buf[sizeof(UINT32)];
+    int hLen, lLen = 0;
+    byte uint32Buf[sizeof(UINT32)];;
+    UINT32 sizeInBits = keySz * 8, pos;
+    BYTE* keyStream = key;
 
-    if ((key == NULL && authValue == NULL) || keyStream == NULL)
-        return BAD_FUNC_ARG;
-
-    if (doOnce != 0 && (sizeInBits & 7) != 0)
+    if (key == NULL || keyStream == NULL)
         return BAD_FUNC_ARG;
 
     hashType = TPM2_GetHashType(hashAlg);
@@ -109,103 +105,81 @@ static int TPM2_KDFa(
     if (hLen <= 0)
         return NOT_COMPILED_IN;
 
+    /* get label length if provided, including null termination */
+    if (label != NULL) {
+        lLen = (int)XSTRLEN(label) + 1;
+    }
+
     ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
     if (ret != 0)
         return ret;
 
-    /* setup counter */
-    counter = (counterInc != NULL) ? *counterInc : 0;
-
-    /* get label length if provided */
-    if (label != NULL)
-        lLen = (int)XSTRLEN(label);
-
-    /* generate required bytes */
-    outLen = doOnce ? hLen : (((int)sizeInBits + 7) / 8);
-    outStream = keyStream;
-
-    /* Do we have unbounded, unsalted session? */
-    if (key == NULL) {
-        /* Then, use the authValue to gen session key */
-        key = (TPM2B_DATA *)authValue;
-    }
-
-    for (; outLen > 0; outLen -= hLen) {
-        if (hLen > outLen)
-            hLen = outLen;
-
+    /* generate required bytes - blocks sized digest */
+    for (pos = 0; pos < keySz; pos += hLen) {
+        /* KDFa counter starts at 1 */
         counter++;
 
         /* start HMAC */
-        ret = wc_HmacSetKey(&hmac, hashType, &key->buffer[0], key->size);
+        ret = wc_HmacSetKey(&hmac, hashType, keyIn->buffer, keyIn->size);
         if (ret != 0)
-            break;
+            goto exit;
 
-        /* add counter */
+        /* add counter - KDFa i2 */
         TPM2_Packet_U32ToByteArray(counter, uint32Buf);
         ret = wc_HmacUpdate(&hmac, uint32Buf, (word32)sizeof(uint32Buf));
         if (ret != 0)
-            break;
+            goto exit;
 
-        /* add label */
+        /* add label - KDFa label */
         if (label != NULL) {
             ret = wc_HmacUpdate(&hmac, (byte*)label, lLen);
             if (ret != 0)
-                break;
+                goto exit;
         }
 
         /* add contextU */
-        if (contextU != NULL) {
+        if (contextU != NULL && contextU->size > 0) {
             ret = wc_HmacUpdate(&hmac, contextU->buffer, contextU->size);
             if (ret != 0)
-                break;
+                goto exit;
         }
 
         /* add contextV */
-        if (contextV != NULL) {
+        if (contextV != NULL && contextV->size > 0) {
             ret = wc_HmacUpdate(&hmac, contextV->buffer, contextV->size);
             if (ret != 0)
-                break;
+                goto exit;
         }
 
-
         /* add size in bits */
-        TPM2_Packet_U32ToByteArray(sizeInBits, (byte*)&uint32Buf);
+        TPM2_Packet_U32ToByteArray(sizeInBits, uint32Buf);
         ret = wc_HmacUpdate(&hmac, uint32Buf, (word32)sizeof(uint32Buf));
         if (ret != 0)
-            break;
+            goto exit;
 
         /* get result */
-        ret = wc_HmacFinal(&hmac, outStream);
+        ret = wc_HmacFinal(&hmac, keyStream);
         if (ret != 0)
-            break;
+            goto exit;
 
-        outStream = &outStream[hLen];
+        keyStream += hLen;
     }
+    ret = keySz;
 
+exit:
     wc_HmacFree(&hmac);
 
-    /* mask off bits if not a multiple of byte size */
-    if ((sizeInBits % 8) != 0)
-        keyStream[0] &= ((1 << (sizeInBits % 8)) - 1);
-
-    /* return counter if provided */
-    if (counterInc != NULL)
-        *counterInc = counter;
-
     /* return length rounded up to nearest 8 multiple */
-    return ((sizeInBits + 7) / 8);
+    return ret;
 #else
     (void)hashAlg;
     (void)key;
-    (void)authValue;
     (void)label;
     (void)contextU;
     (void)contextV;
     (void)sizeInBits;
     (void)keyStream;
     (void)counterInc;
-    (void)doOnce;
 
     return NOT_COMPILED_IN;
 #endif
@@ -213,53 +187,152 @@ static int TPM2_KDFa(
 
 
 /* Perform XOR encryption over the first parameter of a TPM packet */
-static TPM_RC TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session,
-                                TPM2B_MAX_BUFFER *encryptedData,
-                                BYTE *paramData, UINT32 paramSz)
+static int TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *encryptedData,
+    const BYTE *paramData, UINT32 paramSz)
 {
-    TPM_RC rc = TPM_RC_FAILURE;
+    int rc = TPM_RC_FAILURE;
     TPM2B_MAX_BUFFER mask;
-    /* authValueKDF used for unbounded, unsalted session */
-    TPM2B_AUTH authValueKDF;
-    TPM2B_NONCE nonceNewer, nonceOlder;
-    UINT32 bits = paramSz * 8;
-    UINT32 i, encryptedBytes;
+    UINT32 i;
 
-    if (session->auth.size <= sizeof(authValueKDF.buffer)) {
-        authValueKDF.size = session->auth.size;
-        XMEMCPY(authValueKDF.buffer, session->auth.buffer, authValueKDF.size);
-    }
-    if (session->nonce.size <= sizeof(nonceNewer.buffer)) {
-        nonceNewer.size = session->nonce.size;
-        XMEMCPY(nonceNewer.buffer, session->nonce.buffer, nonceNewer.size);
-    }
-    if (session->nonce.size <= sizeof(nonceOlder.buffer)) {
-        nonceOlder.size = nonceNewer.size;
-        XMEMCPY(nonceOlder.buffer, nonceNewer.buffer, nonceOlder.size);
+    if (paramSz > sizeof(encryptedData->buffer) ||
+        sizeof(mask.buffer) != sizeof(encryptedData->buffer)) {
+        return BUFFER_E;
     }
 
+    /* Generate XOR Mask stream matching paramater size */
     XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
+    rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "XOR",
+                               nonceCaller, nonceTPM, mask.buffer, paramSz);
+    if ((UINT32)rc != paramSz) {
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("KDFa size error! rc %d != %d\n", rc, paramSz);
+    #endif
+        return TPM_RC_FAILURE;
+    }
 
-    encryptedBytes = TPM2_KDFa(session->authHash, NULL, &authValueKDF, "XOR",
-                               &nonceOlder, &nonceNewer, bits, mask.buffer,
-                               NULL, 1);
-    if (encryptedBytes == paramSz) {
-        for(i = 0; i < paramSz; i++) {
-            encryptedData->buffer[i] = paramData[i] ^ mask.buffer[i];
-        }
-        encryptedData->size = encryptedBytes;
-        /* Data size matched and data encryption completed at this point */
-        rc = TPM_RC_SUCCESS;
+    /* Perform XOR */
+    for (i = 0; i < paramSz; i++) {
+        encryptedData->buffer[i] = paramData[i] ^ mask.buffer[i];
     }
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    else {
-        printf("Encrypted data differs in size = %d\n", encryptedBytes);
-        printf("Parameter data original size is = %d\n", paramSz);
-    }
-#endif
+    encryptedData->size = paramSz;
+    /* Data size matched and data encryption completed at this point */
+    rc = TPM_RC_SUCCESS;
 
     return rc;
 }
+
+/* Perform XOR decryption over the first parameter of a TPM packet */
+static int TPM2_ParamDec_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *paramData,
+    const BYTE *encryptedData, UINT32 encryptedDataSz)
+{
+    int rc = TPM_RC_FAILURE;
+    TPM2B_MAX_BUFFER mask;
+    UINT32 i;
+
+    if (encryptedDataSz > sizeof(paramData->buffer) ||
+            sizeof(mask.buffer) != sizeof(paramData->buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Generate XOR Mask stream matching paramater size */
+    XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
+    rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "XOR",
+                               nonceCaller, nonceTPM, mask.buffer, encryptedDataSz);
+    if ((UINT32)rc != encryptedDataSz) {
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("KDFa size error! rc %d != %d\n", rc, encryptedDataSz);
+    #endif
+        return TPM_RC_FAILURE;
+    }
+
+    /* Perform XOR */
+    for (i = 0; i < encryptedDataSz; i++) {
+        paramData->buffer[i] = encryptedData[i] ^ mask.buffer[i];
+    }
+    paramData->size = encryptedDataSz;
+    /* Data size matched and data encryption completed at this point */
+    rc = TPM_RC_SUCCESS;
+
+    return rc;
+}
+
+#ifdef WOLFSSL_AES_CFB
+/* Perform AES CFB encryption over the first parameter of a TPM packet */
+static int TPM2_ParamEnc_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *encryptedData,
+    const BYTE *paramData, UINT32 paramSz)
+{
+    int rc = TPM_RC_FAILURE;
+    BYTE symKey[32 + 16]; /* AES key (max) + IV (block size) */
+    int symKeySz = session->symmetric.keyBits.aes / 8;
+    const int symKeyIvSz = 16;
+    Aes enc;
+
+    if (paramSz > sizeof(encryptedData->buffer) || symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Generate AES Key and IV */
+    XMEMSET(symKey, 0, sizeof(symKey));
+    rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "CFB",
+        nonceCaller, nonceTPM, symKey, symKeySz + symKeyIvSz);
+    if (rc != symKeySz + symKeyIvSz) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Perform AES CFB Encryption */
+    rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz], AES_ENCRYPTION);
+        if (rc == 0) {
+            rc = wc_AesCfbEncrypt(&enc, encryptedData->buffer, paramData, paramSz);
+            encryptedData->size = paramSz;
+        }
+        wc_AesFree(&enc);
+    }
+
+    return rc;
+}
+
+/* Perform AES CFB decryption over the first parameter of a TPM packet */
+static int TPM2_ParamDec_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *paramData,
+    const BYTE *encryptedData, UINT32 encryptedDataSz)
+{
+    int rc = TPM_RC_FAILURE;
+    BYTE symKey[32 + 16];	/* AES key 128-bit + IV (block size) */
+    int symKeySz = session->symmetric.keyBits.aes / 8;
+    const int symKeyIvSz = 16;
+    Aes dec;
+
+    if (encryptedDataSz > sizeof(paramData->buffer) || symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Generate AES Key and IV */
+    XMEMSET(symKey, 0, sizeof(symKey));
+    rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "CFB",
+        nonceCaller, nonceTPM, symKey, symKeySz + symKeyIvSz);
+    if (rc != symKeySz + symKeyIvSz) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Perform AES CFB Decryption */
+    rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz], AES_DECRYPTION);
+        if (rc == 0) {
+            rc = wc_AesCfbDecrypt(&dec, paramData->buffer, encryptedData, encryptedDataSz);
+            paramData->size = encryptedDataSz;
+        }
+        wc_AesFree(&dec);
+    }
+
+    return rc;
+}
+#endif
 
 /******************************************************************************/
 /* --- Public Functions -- */
@@ -297,40 +370,42 @@ int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx)
 
 TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 TPM2B_MAX_BUFFER *encryptedParameter,
-                                BYTE *paramData, UINT32 paramSz)
+                                const BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
-        rc = TPM2_ParamEnc_XOR(session, encryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonceCaller,
+            &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
-    else {
-        /* TODO: Add CFB mode
-        rc = TPM2_ParamEnc_CFB_Request(sessionParamEnc, encryptedParameter,
-                                       paramData, paramSz);
-        */
-        rc = TPM_RC_FAILURE;
+#ifdef WOLFSSL_AES_CFB
+    else if (session->symmetric.algorithm == TPM_ALG_CFB) {
+        rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonceCaller,
+            &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
+#endif
+
+    /* TODO: generate new nonce? Copy old nonce? */
+    //TPM2_GetNonce(session->nonceCaller.buffer, session->nonceCaller.size);
 
     return rc;
 }
 
-TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
-                                 TPM2B_MAX_BUFFER *encryptedParameter,
-                                 BYTE *paramData, UINT32 paramSz)
+TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
+                                 TPM2B_MAX_BUFFER *decryptedParameter,
+                                 const BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
 
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
-        rc = TPM2_ParamEnc_XOR(session, encryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonceCaller,
+            &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
-    else {
-        /* TODO: Handling CFB mode for response parameter differs
-        rc = TPM2_ParamEnc_CFB_Response(sessionParamEnc, encryptedParameter,
-                                        paramData, paramSz);
-        */
-        rc = TPM_RC_FAILURE;
+#ifdef WOLFSSL_AES_CFB
+    else if (session->symmetric.algorithm == TPM_ALG_CFB) {
+        rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonceCaller,
+            &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
+#endif
 
     return rc;
 }

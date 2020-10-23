@@ -23,11 +23,19 @@ examples_keygen_keyimport_SOURCES      = examples/keygen/keyimport.c \
                                          examples/tpm_io.c
 examples_keygen_keyimport_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_keygen_keyimport_DEPENDENCIES = src/libwolftpm.la
+
+bin_PROGRAMS += examples/keygen/keygen_paramenc
+examples_keygen_keygen_paramenc_SOURCES      = examples/keygen/keygen_paramenc.c \
+                                               examples/tpm_io.c
+examples_keygen_keygen_paramenc_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_keygen_keygen_paramenc_DEPENDENCIES = src/libwolftpm.la
 endif
 
 dist_example_DATA+= examples/keygen/keyload.c
 dist_example_DATA+= examples/keygen/keygen.c
 dist_example_DATA+= examples/keygen/keyimport.c
+dist_example_DATA+= examples/keygen/keygen_paramenc.c
 DISTCLEANFILES+= examples/keygen/.libs/keyload
 DISTCLEANFILES+= examples/keygen/.libs/keygen
 DISTCLEANFILES+= examples/keygen/.libs/keyimport
+DISTCLEANFILES+= examples/keygen/.libs/keygen_paramenc

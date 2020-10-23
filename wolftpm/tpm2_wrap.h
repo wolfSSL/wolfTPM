@@ -43,6 +43,8 @@ typedef struct WOLFTPM2_HANDLE {
 typedef struct WOLFTPM2_SESSION {
     WOLFTPM2_HANDLE handle;
     TPM2B_NONCE     nonceTPM;
+    TPM2B_DIGEST    salt;
+    const char*     bindPassword;
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_KEY {
@@ -131,7 +133,7 @@ WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
-    WOLFTPM2_HANDLE* bind, TPM_SE sesType, int useEncrypDecrypt);
+    WOLFTPM2_HANDLE* bind, TPM_SE sesType, int encDecAlg);
 
 WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, TPM_HANDLE primaryHandle, TPMT_PUBLIC* publicTemplate,

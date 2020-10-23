@@ -29,6 +29,7 @@
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_Keygen_ParamEnc_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
