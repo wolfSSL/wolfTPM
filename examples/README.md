@@ -180,3 +180,26 @@ Note: This example can take an optional argument, the time value in miliseconds 
 Performance benchmarks.
 
 `./examples/bench/bench`
+
+## Key Generation
+
+Examples for generating a TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
+
+```
+$ ./examples/keygen/keygen
+TPM2.0 Key generation example
+wolfTPM2_Init: success
+
+Loading SRK: Storage 0x81000200 (282 bytes)
+Creating new RSA key...
+Created new key (pub 280, priv 222 bytes)
+Wrote 2168 bytes to keyblob.bin
+
+$ ./examples/keygen/keyload
+TPM2.0 Key load example
+wolfTPM2_Init: success
+
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 2168 bytes from keyblob.bin
+Loaded key to 0x80000001
+```
