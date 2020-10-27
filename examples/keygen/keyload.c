@@ -113,6 +113,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         }
     }
     else {
+        rc = BUFFER_E;
         printf("File %s not found!\n", inputFile);
         goto exit;
     }
