@@ -54,8 +54,8 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex, rc = -1;
     const char *filename = NULL;
-    BYTE *data = NULL;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    BYTE *data = NULL;
     XFILE quoteBlob = NULL;
 #endif
     WOLFTPM2_DEV dev;

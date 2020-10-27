@@ -48,6 +48,9 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     if (argc >= 2) {
         inputFile = argv[1];
     }
+#else
+    (void)argc;
+    (void)argv;
 #endif
 
     XMEMSET(session, 0, sizeof(session));
@@ -91,14 +94,23 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         fileSz = XFTELL(f);
         XREWIND(f);
         if (fileSz > sizeof(newKey.priv) + sizeof(newKey.pub)) {
-            rc = BUFFER_E;
-            goto exit;
+            printf("File size check failed\n");
+            rc = BUFFER_E; goto exit;
         }
         printf("Reading %d bytes from %s\n", (int)fileSz, inputFile);
         
         XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
-        XFREAD(&newKey.priv, 1, sizeof(newKey.priv), f);
+        if (fileSz > sizeof(newKey.pub)) {
+            fileSz -= sizeof(newKey.pub);
+            XFREAD(&newKey.priv, 1, fileSz, f);
+        }
         XFCLOSE(f);
+
+        /* sanity check the sizes */
+        if (newKey.pub.size != sizeof(newKey.pub) || newKey.priv.size > sizeof(newKey.priv.buffer)) {
+            printf("Struct size check failed (pub %d, priv %d)\n", newKey.pub.size, newKey.priv.size);
+            rc = BUFFER_E; goto exit;
+        }
     }
     else {
         printf("File %s not found!\n", inputFile);
@@ -106,7 +118,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     }
 #else
     /* TODO: Option to load hex blob */
-    printf("Loading blob from disk not supported\n")
+    printf("Loading blob from disk not supported\n");
 #endif
 
     rc = wolfTPM2_LoadKey(&dev, &newKey, &storage.handle);

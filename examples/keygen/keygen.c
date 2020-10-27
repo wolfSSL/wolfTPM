@@ -47,10 +47,20 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
     const char* outputFile = "keyblob.bin";
+    size_t fileSz = 0;
 
     if (argc >= 2) {
         outputFile = argv[1];
+        if (argc >= 3) {
+            /* ECC vs RSA */
+            if (XSTRNCMP(argv[2], "ECC", 3) == 0) {
+                alg = TPM_ALG_ECC;
+            }
+        }
     }
+#else
+    (void)argc;
+    (void)argv;
 #endif
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
@@ -109,15 +119,15 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     f = XFOPEN(outputFile, "wb");
     if (f != XBADFILE) {
-        XFWRITE(&newKey.pub, 1, sizeof(newKey.pub), f);
-        XFWRITE(&newKey.priv, 1, sizeof(newKey.priv), f);
+        newKey.pub.size = sizeof(newKey.pub);
+        fileSz += XFWRITE(&newKey.pub, 1, sizeof(newKey.pub), f);
+        fileSz += XFWRITE(&newKey.priv, 1, sizeof(UINT16) + newKey.priv.size, f);
         XFCLOSE(f);
     }
-    printf("Wrote %d bytes to %s\n", 
-        (int)sizeof(newKey.pub) + (int)sizeof(newKey.priv), outputFile);
+    printf("Wrote %d bytes to %s\n", (int)fileSz, outputFile);
 #else
     printf("Key Public Blob %d\n", newKey.pub.size);
-    TPM2_PrintBin(newKey.pub.publicArea, newKey.pub.size);
+    TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
     printf("Key Private Blob %d\n", newKey.priv.size);
     TPM2_PrintBin(newKey.priv.buffer, newKey.priv.size);
 #endif
