@@ -48,6 +48,8 @@ pkcs7tpmsignedex.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
 tests/unit.test
+examples/keygen/keyload
+examples/keygen/keygen
 
 # Generated Cert Files
 certs/ca-*.pem
@@ -57,5 +59,8 @@ certs/*.par
 certs/crlnumber*
 certs/serial
 certs/index*
+
 *.dep
 IDE/IAR-EWARM/settings
+quote.blob
+keyblob.bin

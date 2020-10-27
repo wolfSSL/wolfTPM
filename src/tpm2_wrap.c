@@ -609,21 +609,19 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
-int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* key,
     WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz)
 {
     int rc;
     Create_In  createIn;
     Create_Out createOut;
-    Load_In  loadIn;
-    Load_Out loadOut;
 
     if (dev == NULL || key == NULL || parent == NULL || publicTemplate == NULL)
         return BAD_FUNC_ARG;
 
     /* clear output key buffer */
-    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
+    XMEMSET(key, 0, sizeof(*key));
 
     /* set session auth for key */
     dev->session[0].auth = parent->auth;
@@ -656,12 +654,35 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
         createOut.outPrivate.size);
 #endif
+    
+    key->handle.dev  = dev;
+    key->handle.auth = createIn.inSensitive.sensitive.userAuth;
     key->pub = createOut.outPublic;
+    key->priv = createOut.outPrivate;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    return rc;
+}
+
+int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* key,
+    WOLFTPM2_HANDLE* parent)
+{
+    int rc;
+    Load_In loadIn;
+    Load_Out loadOut;
+
+    if (dev == NULL || key == NULL || parent == NULL)
+        return BAD_FUNC_ARG;
+
+    /* set session auth for key */
+    dev->session[0].auth = parent->auth;
 
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = createOut.outPrivate;
+    loadIn.inPrivate = key->priv;
     loadIn.inPublic = key->pub;
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -673,7 +694,6 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     key->handle.dev  = dev;
     key->handle.hndl = loadOut.objectHandle;
-    key->handle.auth = createIn.inSensitive.sensitive.userAuth;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Load Key Handle 0x%x\n", (word32)key->handle.hndl);
@@ -681,6 +701,27 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* clear auth */
     XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    return rc;
+}
+
+int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz)
+{
+    int rc;
+    WOLFTPM2_KEYBLOB keyBlob;
+
+    if (dev == NULL || key == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = wolfTPM2_CreateKey(dev, &keyBlob, parent, publicTemplate, auth, authSz);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_LoadKey(dev, &keyBlob, parent);
+    }
+
+    /* return new key */
+    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
 
     return rc;
 }

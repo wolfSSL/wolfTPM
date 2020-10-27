@@ -50,6 +50,13 @@ typedef struct WOLFTPM2_KEY {
     TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
+typedef struct WOLFTPM2_KEYBLOB {
+    WOLFTPM2_HANDLE   handle;
+    TPM2B_PUBLIC      pub;
+    TPM2B_NAME        name;
+    TPM2B_PRIVATE     priv;
+} WOLFTPM2_KEYBLOB;
+
 typedef struct WOLFTPM2_HASH {
     WOLFTPM2_HANDLE handle;
 } WOLFTPM2_HASH;
@@ -130,6 +137,11 @@ WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     WOLFTPM2_HANDLE* parent, const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* key, WOLFTPM2_HANDLE* parent);
 WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);

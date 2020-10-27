@@ -32,8 +32,8 @@
 #include <stdio.h>
 #include <stdlib.h> /* atoi */
 
-const char defaultFilename[] = "quote.blob\0";
-const char userData[] = "ThisIsData";
+static const char defaultFilename[] = "quote.blob";
+static const char userData[] = "ThisIsData";
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Quote Test with Parameter Encryption over user data   --- */
@@ -54,8 +54,10 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex, rc = -1;
     const char *filename = NULL;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     BYTE *data = NULL;
-    FILE *quoteBlob = NULL;
+    XFILE quoteBlob = NULL;
+#endif
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
 
@@ -102,12 +104,14 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         goto exit_badargs;
     }
 
-    quoteBlob = fopen(filename, "wb");
-    if (quoteBlob == NULL) {
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    quoteBlob = XFOPEN(filename, "wb");
+    if (quoteBlob == XBADFILE) {
         printf("Error opening file %s\n", filename);
         usage();
         goto exit_badargs;
     }
+#endif
 
     printf("Demo of TPM2.0 Quote with parameter encryption over user data\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -240,13 +244,15 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
             attestedData.magic);
     }
 
-    if(quoteBlob) {
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    if (quoteBlob != XBADFILE) {
         data = (UINT8*)&cmdOut.quoteResult.quoted;
         data += 2; /* skip the size field of TPMS_ATTEST */
-        if(fwrite(data, sizeof(TPMS_ATTEST)-2, 1, quoteBlob) != 1) {
+        if (XFWRITE(data, 1, sizeof(TPMS_ATTEST)-2, quoteBlob) != sizeof(TPMS_ATTEST)-2) {
             printf("Error while writing to a %s file\n", filename);
         }
     }
+#endif
 
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);
     printf("\tTPM signed %lu count of PCRs\n",
@@ -276,9 +282,11 @@ exit:
 
 exit_badargs:
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     if (quoteBlob != NULL) {
-        fclose(quoteBlob);
+        XFCLOSE(quoteBlob);
     }
+#endif
 
     return rc;
 }
