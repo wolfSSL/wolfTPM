@@ -210,8 +210,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     /* See if primary storage key already exists */
     rc = getPrimaryStoragekey(&dev,
                               &storageKey,
-                              &publicTemplate,
-                              0);
+                              &publicTemplate);
 
     /* RNG Benchmark */
     bench_stats_start(&count, &start);

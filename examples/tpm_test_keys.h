@@ -25,28 +25,23 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
-                         WOLFTPM2_KEY* pStorageKey,
-                         TPMT_PUBLIC* pPublicTemplate,
-                         int tryNV);
+WOLFTPM_LOCAL int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
+                                       WOLFTPM2_KEY* pStorageKey,
+                                       TPMT_PUBLIC* pPublicTemplate);
 
 #ifndef NO_RSA
-int getRSAPrimaryStoragekey(WOLFTPM2_DEV* pDev,
+WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
-                            TPMT_PUBLIC*  pPublicTemplate,
                             WOLFTPM2_KEY* pRsaKey,
                             RsaKey* pWolfRsaKey,
-                            int tpmDevId,
-                            int tryNV);
+                            int tpmDevId);
 #endif
 
 #ifdef HAVE_ECC
-int getECCkey(WOLFTPM2_DEV* pDev,
-              WOLFTPM2_KEY* pStorageKey,
-              TPMT_PUBLIC*  pPublicTemplate,
-              WOLFTPM2_KEY* pEccKey,
-              ecc_key* pWolfEccKey,
-              int tpmDevId,
-              int tryNV);
+WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
+                            WOLFTPM2_KEY* pStorageKey,
+                            WOLFTPM2_KEY* pEccKey,
+                            ecc_key* pWolfEccKey,
+                            int tpmDevId);
 #endif
 #endif /* _TPM_TEST_KEYS_H_ */

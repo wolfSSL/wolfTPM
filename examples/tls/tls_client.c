@@ -108,7 +108,6 @@ int TPM2_TLS_Client(void* userCtx)
     int total_size;
     int i;
 #endif
-    int tryNV = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
@@ -143,19 +142,16 @@ int TPM2_TLS_Client(void* userCtx)
 
     rc = getPrimaryStoragekey(&dev,
                               &storageKey,
-                              &publicTemplate,
-                              tryNV);
+                              &publicTemplate);
     if (rc != 0) goto exit;
 
 #ifndef NO_RSA
     /* Create/Load RSA key for TLS authentication */
-    rc = getRSAPrimaryStoragekey(&dev,
-                                 &storageKey,
-                                 &publicTemplate,
-                                 &rsaKey,
-                                 &wolfRsaKey,
-                                 tpmDevId,
-                                 tryNV);
+    rc = getRSAkey(&dev,
+                   &storageKey,
+                   &rsaKey,
+                   &wolfRsaKey,
+                   tpmDevId);
     if (rc != 0) goto exit;
 #endif /* !NO_RSA */
 
@@ -163,11 +159,9 @@ int TPM2_TLS_Client(void* userCtx)
     /* Create/Load ECC key for TLS authentication */
     rc = getECCkey(&dev,
                    &storageKey,
-                   &publicTemplate,
                    &eccKey,
                    &wolfEccKey,
-                   tpmDevId,
-                   tryNV);
+                   tpmDevId);
     if (rc != 0) goto exit;
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
@@ -411,9 +405,7 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
-    if (!tryNV) {
-      wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
-    }
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 #ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
