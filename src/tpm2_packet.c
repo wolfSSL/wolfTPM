@@ -272,20 +272,22 @@ void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz)
         TPM2_Packet_AppendU16(packet, 0);
     }
 }
-void TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz)
+int TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz)
 {
+    int rc = 0;
     /* update with actual size */
     if (packet) {
         UINT16 data;
         byte* sizePtr = &packet->buf[markSz];
         markSz += sizeof(UINT16); /* skip marker */
         if (markSz <= packet->pos) {
-            markSz = packet->pos - markSz;
+            rc = packet->pos - markSz;
 
-            data = cpu_to_be16(markSz);
+            data = cpu_to_be16(rc);
             XMEMCPY(sizePtr, &data, sizeof(UINT16));
         }
     }
+    return rc;
 }
 
 void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz)
@@ -657,7 +659,7 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         break;
     }
 
-    TPM2_Packet_PlaceU16(packet, tmpSz);
+    pub->size = TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {

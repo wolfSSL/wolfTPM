@@ -37,6 +37,7 @@ typedef struct WOLFTPM2_HANDLE {
     WOLFTPM2_DEV*   dev;
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
+    TPMT_SYM_DEF    symmetric;
 } WOLFTPM2_HANDLE;
 
 typedef struct WOLFTPM2_SESSION {
@@ -138,10 +139,10 @@ WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     WOLFTPM2_HANDLE* parent, const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
 WOLFTPM_API int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* key, WOLFTPM2_HANDLE* parent);
+    WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent);
 WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
@@ -150,10 +151,18 @@ WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key, const TPM2B_PUBLIC* pub,
     TPM2B_SENSITIVE* sens);
+WOLFTPM_API int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const TPM2B_PUBLIC* pub,
+    TPM2B_SENSITIVE* sens);
 WOLFTPM_API int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent);
 WOLFTPM_API int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent, 
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
+WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
+    const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
 WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
@@ -167,6 +176,11 @@ WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int curveId, const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz);
+WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
+    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    const byte* eccPriv, word32 eccPrivSz);
 WOLFTPM_API int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
     int curveId, const byte* eccPubX, word32 eccPubXSz,

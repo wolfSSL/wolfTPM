@@ -67,7 +67,7 @@ WOLFTPM_LOCAL void TPM2_Packet_AppendS32(TPM2_Packet* packet, INT32 data);
 WOLFTPM_LOCAL void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size);
 WOLFTPM_LOCAL void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz);
-WOLFTPM_LOCAL void TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz);
+WOLFTPM_LOCAL int  TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth, const int authCount);

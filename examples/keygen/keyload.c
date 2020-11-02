@@ -63,8 +63,6 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         printf("\nwolfTPM2_Init failed\n");
         goto exit;
     }
-    printf("wolfTPM2_Init: success\n\n");
-
 
     /* Define the default session auth that has NULL password */
     session[0].sessionHandle = TPM_RS_PW;

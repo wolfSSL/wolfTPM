@@ -50,6 +50,7 @@ examples/tls/tls_client_notpm
 tests/unit.test
 examples/keygen/keyload
 examples/keygen/keygen
+examples/keygen/keyimport
 
 # Generated Cert Files
 certs/ca-*.pem
