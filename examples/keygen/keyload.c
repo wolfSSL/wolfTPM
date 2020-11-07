@@ -34,6 +34,12 @@
 /* --- BEGIN TPM Key Load Example -- */
 /******************************************************************************/
 
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("keyload [keyblob.bin] [ECC/RSA]\n");
+}
+
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
@@ -46,6 +52,12 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     const char* inputFile = "keyblob.bin";
 
     if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+
         inputFile = argv[1];
     }
 #else

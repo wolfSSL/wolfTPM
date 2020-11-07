@@ -34,7 +34,14 @@
 /* --- BEGIN TPM Key Import / Blob Example -- */
 /******************************************************************************/
 
-int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("keyimport [keyblob.bin] [ECC/RSA]\n");
+}
+
+
+int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -49,6 +56,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     size_t fileSz = 0;
 
     if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+
         outputFile = argv[1];
         if (argc >= 3) {
             /* ECC vs RSA */
@@ -152,7 +165,7 @@ int main(int argc, char *argv[])
 {
     int rc;
 
-    rc = TPM2_Keygen_Example(NULL, argc, argv);
+    rc = TPM2_Keyimport_Example(NULL, argc, argv);
 
     return rc;
 }

@@ -33,6 +33,11 @@
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
 /******************************************************************************/
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("keygen [keyblob.bin] [ECC/RSA]\n");
+}
 
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 {
@@ -50,6 +55,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     size_t fileSz = 0;
 
     if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
         outputFile = argv[1];
         if (argc >= 3) {
             /* ECC vs RSA */
@@ -67,6 +77,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&newKey, 0, sizeof(newKey));
 
     printf("TPM2.0 Key generation example\n");
+    printf("\tKey: %s\n", outputFile);
+    printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("\nwolfTPM2_Init failed\n");
