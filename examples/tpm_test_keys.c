@@ -19,6 +19,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+/* use ANSI stdio for support of format strings, must be set before
+ * including stdio.h
+ */
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define __USE_MINGW_ANSI_STDIO 1
+#endif
+
 #include "tpm_test.h"
 #include "tpm_test_keys.h"
 #include <wolftpm/tpm2_wrap.h>
