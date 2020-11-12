@@ -193,7 +193,7 @@ Creating new RSA key...
 Created new key (pub 280, priv 222 bytes)
 Wrote 840 bytes to keyblob.bin
 
-$ ./examples/keygen/keyload keyblob.bin RSA
+$ ./examples/keygen/keyload keyblob.bin
 TPM2.0 Key load example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Reading 840 bytes from keyblob.bin
@@ -207,7 +207,7 @@ Creating new ECC key...
 Created new key (pub 88, priv 126 bytes)
 Wrote 744 bytes to keyblob.bin
 
-$ ./examples/keygen/keyload keyblob.bin ECC
+$ ./examples/keygen/keyload keyblob.bin
 TPM2.0 Key load example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Reading 744 bytes from keyblob.bin
@@ -223,7 +223,7 @@ Loading SRK: Storage 0x81000200 (282 bytes)
 Imported key (pub 278, priv 222 bytes)
 Wrote 840 bytes to keyblob.bin
 
-$ ./examples/keygen/keyload keyblob.bin RSA
+$ ./examples/keygen/keyload keyblob.bin
 TPM2.0 Key load example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Reading 840 bytes from keyblob.bin
@@ -236,9 +236,11 @@ Loading SRK: Storage 0x81000200 (282 bytes)
 Imported key (pub 86, priv 126 bytes)
 Wrote 744 bytes to keyblob.bin
 
-$ ./examples/keygen/keyload keyblob.bin ECC
+$ ./examples/keygen/keyload keyblob.bin
 TPM2.0 Key load example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Reading 744 bytes from keyblob.bin
 Loaded key to 0x80000001
 ```
+
+The `keyload` tool takes only one argument, the filename of the stored key. Because the information what is key scheme (RSA or ECC) is contained within the key blob.

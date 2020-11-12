@@ -55,7 +55,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     size_t fileSz = 0;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
             XSTRNCMP(argv[1], "--help", 6) == 0) {
             usage();
             return 0;

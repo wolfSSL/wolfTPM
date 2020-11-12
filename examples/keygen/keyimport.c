@@ -56,7 +56,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     size_t fileSz = 0;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
             XSTRNCMP(argv[1], "--help", 6) == 0) {
             usage();
             return 0;
@@ -109,12 +110,12 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
             kRsaKeyPubModulus, (word32)sizeof(kRsaKeyPubModulus),
             kRsaKeyPubExponent,
-            kRsaKeyPrivQ,      (word32)sizeof(kRsaKeyPrivQ), 
+            kRsaKeyPrivQ,      (word32)sizeof(kRsaKeyPrivQ),
             TPM_ALG_NULL, TPM_ALG_NULL);
     }
     else if (alg == TPM_ALG_ECC) {
         /* Import raw ECC private key into TPM */
-        rc = wolfTPM2_ImportEccPrivateKey(&dev, &storage, &impKey, 
+        rc = wolfTPM2_ImportEccPrivateKey(&dev, &storage, &impKey,
             TPM_ECC_NIST_P256,
             kEccKeyPubXRaw, (word32)sizeof(kEccKeyPubXRaw),
             kEccKeyPubYRaw, (word32)sizeof(kEccKeyPubYRaw),
@@ -122,8 +123,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     }
     if (rc != 0) goto exit;
 
-    printf("Imported key (pub %d, priv %d bytes)\n",
-        impKey.pub.size, impKey.priv.size);
+    printf("Imported %s key (pub %d, priv %d bytes)\n",
+        TPM2_GetAlgName(alg), impKey.pub.size, impKey.priv.size);
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)

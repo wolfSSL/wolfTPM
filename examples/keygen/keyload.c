@@ -37,7 +37,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("keyload [keyblob.bin] [ECC/RSA]\n");
+    printf("keyload [keyblob.bin]\n");
 }
 
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
@@ -52,7 +52,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     const char* inputFile = "keyblob.bin";
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 || 
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
             XSTRNCMP(argv[1], "--help", 6) == 0) {
             usage();
             return 0;
@@ -108,7 +109,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             rc = BUFFER_E; goto exit;
         }
         printf("Reading %d bytes from %s\n", (int)fileSz, inputFile);
-        
+
         XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
         if (fileSz > sizeof(newKey.pub)) {
             fileSz -= sizeof(newKey.pub);
