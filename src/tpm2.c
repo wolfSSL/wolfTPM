@@ -98,12 +98,15 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 {
     TPM_RC rc = TPM_RC_FAILURE;
     TPM_ST tag;
+    TPM_CC cmdCode;
     BYTE *cmd, *param;
     UINT32 cmdSz, authSz;
     UINT16 requestParamSz = 0;
     UINT32 responseParamSz;
     TPM2B_MAX_BUFFER encryptedParameter;
     int sessionParamEnc;
+
+    (void)flags;
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
@@ -119,6 +122,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* tag = (TPM_ST*)cmd; Can not be processed correctly due to Marshaling */
     packet->pos = 0;
     TPM2_Packet_ParseU16(packet, &tag);
+    TPM2_Packet_ParseU32(packet, &cmdCode); /* Skip packet size */
+    TPM2_Packet_ParseU32(packet, &cmdCode); /* Extract TPM Command Code */
 
     /* Is auth session required for this TPM command? */
     if (tag == TPM_ST_SESSIONS) {
@@ -133,18 +138,24 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPM2_Packet_ParseU32(packet, &authSz);
         /* Pass the Auth Session area, size field already passed by ParseU32 */
         packet->pos += authSz;
+        /* Index the beginning of the parameter data */
+        param += sizeof(authSz) + authSz;
         if (packet->pos + sizeof(requestParamSz) <= cmdSz) {
-            UINT16 paramSz;
-            param += sizeof(UINT16);
+            UINT16 paramSz, tempSz;
             TPM2_Packet_ParseU16(packet, &paramSz);
-            if (flags & CMD_FLAG_DEC2) {
-                param += sizeof(UINT16);
+            param += sizeof(UINT16);
+            /* TODO: Special case per command? */
+            if (cmdCode == TPM_CC_Create) {
                 TPM2_Packet_ParseU16(packet, &paramSz);
+                param += sizeof(UINT16);
+            }
+            else if (cmdCode == TPM_CC_Load) {
+                TPM2_Packet_ParseU16(packet, &tempSz);
+                param += sizeof(UINT16) + tempSz;
+                paramSz -= sizeof(UINT16) + tempSz;
             }
             requestParamSz = paramSz;
         }
-        /* Index the beginning of the parameter data */
-        param += sizeof(authSz) + authSz + sizeof(requestParamSz);
 #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Request parameter (size=%d):\n", requestParamSz);
         TPM2_PrintBin(param, requestParamSz);
