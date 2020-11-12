@@ -48,11 +48,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
-
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
-    const char* outputFile = "keyblob.bin";
     size_t fileSz = 0;
+#endif
+    const char* outputFile = "keyblob.bin";
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -69,10 +69,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             }
         }
     }
-#else
-    (void)argc;
-    (void)argv;
-#endif
+
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));

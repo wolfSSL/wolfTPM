@@ -49,6 +49,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
+#endif
     const char* inputFile = "keyblob.bin";
 
     if (argc >= 2) {
@@ -61,10 +62,6 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 
         inputFile = argv[1];
     }
-#else
-    (void)argc;
-    (void)argv;
-#endif
 
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
