@@ -1,4 +1,4 @@
-/* keygen.c
+/* keyimport.c
  *
  * Copyright (C) 2006-2020 wolfSSL Inc.
  *
@@ -31,21 +31,22 @@
 
 
 /******************************************************************************/
-/* --- BEGIN TPM Keygen Example -- */
+/* --- BEGIN TPM Key Import / Blob Example -- */
 /******************************************************************************/
+
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("keygen [keyblob.bin] [ECC/RSA]\n");
+    printf("keyimport [keyblob.bin] [ECC/RSA]\n");
 }
 
-int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
+
+int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
-    WOLFTPM2_KEYBLOB newKey;
-    TPMT_PUBLIC publicTemplate;
+    WOLFTPM2_KEYBLOB impKey;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
@@ -53,7 +54,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     size_t fileSz = 0;
 #endif
     const char* outputFile = "keyblob.bin";
-
+    
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
             XSTRNCMP(argv[1], "-h", 2) == 0 ||
@@ -61,6 +62,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
+
         outputFile = argv[1];
         if (argc >= 3) {
             /* ECC vs RSA */
@@ -72,9 +74,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
-    XMEMSET(&newKey, 0, sizeof(newKey));
 
-    printf("TPM2.0 Key generation example\n");
+    printf("TPM2.0 Key Import example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
 
@@ -103,42 +104,43 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     session[0].auth.size = sizeof(gStorageKeyAuth)-1;
     XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
 
-    /* Create new key */
+    XMEMSET(&impKey, 0, sizeof(impKey));
     if (alg == TPM_ALG_RSA) {
-        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
+        /* Import raw RSA private key into TPM */
+        rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
+            kRsaKeyPubModulus, (word32)sizeof(kRsaKeyPubModulus),
+            kRsaKeyPubExponent,
+            kRsaKeyPrivQ,      (word32)sizeof(kRsaKeyPrivQ),
+            TPM_ALG_NULL, TPM_ALG_NULL);
     }
     else if (alg == TPM_ALG_ECC) {
-        rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
+        /* Import raw ECC private key into TPM */
+        rc = wolfTPM2_ImportEccPrivateKey(&dev, &storage, &impKey,
+            TPM_ECC_NIST_P256,
+            kEccKeyPubXRaw, (word32)sizeof(kEccKeyPubXRaw),
+            kEccKeyPubYRaw, (word32)sizeof(kEccKeyPubYRaw),
+            kEccKeyPrivD,   (word32)sizeof(kEccKeyPrivD));
     }
-    else {
-        rc = BAD_FUNC_ARG;
-        goto exit;
-    }
-    printf("Creating new %s key...\n", TPM2_GetAlgName(alg));
-    rc = wolfTPM2_CreateKey(&dev, &newKey, &storage.handle,
-        &publicTemplate, (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateKey failed\n");
-        goto exit;
-    }
-    printf("Created new key (pub %d, priv %d bytes)\n",
-        newKey.pub.size, newKey.priv.size);
+    if (rc != 0) goto exit;
+
+    printf("Imported %s key (pub %d, priv %d bytes)\n",
+        TPM2_GetAlgName(alg), impKey.pub.size, impKey.priv.size);
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     f = XFOPEN(outputFile, "wb");
     if (f != XBADFILE) {
-        newKey.pub.size = sizeof(newKey.pub);
-        fileSz += XFWRITE(&newKey.pub, 1, sizeof(newKey.pub), f);
-        fileSz += XFWRITE(&newKey.priv, 1, sizeof(UINT16) + newKey.priv.size, f);
+        impKey.pub.size = sizeof(impKey.pub);
+        fileSz += XFWRITE(&impKey.pub, 1, sizeof(impKey.pub), f);
+        fileSz += XFWRITE(&impKey.priv, 1, sizeof(UINT16) + impKey.priv.size, f);
         XFCLOSE(f);
     }
     printf("Wrote %d bytes to %s\n", (int)fileSz, outputFile);
 #else
-    printf("Key Public Blob %d\n", newKey.pub.size);
-    TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
-    printf("Key Private Blob %d\n", newKey.priv.size);
-    TPM2_PrintBin(newKey.priv.buffer, newKey.priv.size);
+    printf("Key Public Blob %d\n", impKey.pub.size);
+    TPM2_PrintBin((const byte*)&impKey.pub.publicArea, impKey.pub.size);
+    printf("Key Private Blob %d\n", impKey.priv.size);
+    TPM2_PrintBin(impKey.priv.buffer, impKey.priv.size);
 #endif
 
 exit:
@@ -148,7 +150,7 @@ exit:
     }
 
     /* Close key handles */
-    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &impKey.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
@@ -164,7 +166,7 @@ int main(int argc, char *argv[])
 {
     int rc;
 
-    rc = TPM2_Keygen_Example(NULL, argc, argv);
+    rc = TPM2_Keyimport_Example(NULL, argc, argv);
 
     return rc;
 }

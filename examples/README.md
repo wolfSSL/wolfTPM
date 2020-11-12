@@ -186,20 +186,61 @@ Performance benchmarks.
 Examples for generating a TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
 
 ```
-$ ./examples/keygen/keygen
+$ ./examples/keygen/keygen keyblob.bin RSA
 TPM2.0 Key generation example
-wolfTPM2_Init: success
-
 Loading SRK: Storage 0x81000200 (282 bytes)
 Creating new RSA key...
 Created new key (pub 280, priv 222 bytes)
-Wrote 2168 bytes to keyblob.bin
+Wrote 840 bytes to keyblob.bin
 
-$ ./examples/keygen/keyload
+$ ./examples/keygen/keyload keyblob.bin
 TPM2.0 Key load example
-wolfTPM2_Init: success
-
 Loading SRK: Storage 0x81000200 (282 bytes)
-Reading 2168 bytes from keyblob.bin
+Reading 840 bytes from keyblob.bin
+Loaded key to 0x80000001
+
+
+$ ./examples/keygen/keygen keyblob.bin ECC
+TPM2.0 Key generation example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Creating new ECC key...
+Created new key (pub 88, priv 126 bytes)
+Wrote 744 bytes to keyblob.bin
+
+$ ./examples/keygen/keyload keyblob.bin
+TPM2.0 Key load example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 744 bytes from keyblob.bin
 Loaded key to 0x80000001
 ```
+
+Example for importing a private key as TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
+
+```
+$ ./examples/keygen/keyimport keyblob.bin RSA
+TPM2.0 Key import example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Imported key (pub 278, priv 222 bytes)
+Wrote 840 bytes to keyblob.bin
+
+$ ./examples/keygen/keyload keyblob.bin
+TPM2.0 Key load example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 840 bytes from keyblob.bin
+Loaded key to 0x80000001
+
+
+$ ./examples/keygen/keyimport keyblob.bin ECC
+TPM2.0 Key Import example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Imported key (pub 86, priv 126 bytes)
+Wrote 744 bytes to keyblob.bin
+
+$ ./examples/keygen/keyload keyblob.bin
+TPM2.0 Key load example
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 744 bytes from keyblob.bin
+Loaded key to 0x80000001
+```
+
+The `keyload` tool takes only one argument, the filename of the stored key. Because the information what is key scheme (RSA or ECC) is contained within the key blob.

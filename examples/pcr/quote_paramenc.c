@@ -114,6 +114,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 #endif
 
     printf("Demo of TPM2.0 Quote with parameter encryption over user data\n");
+    printf("\tFilename: %s\n", filename);
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));

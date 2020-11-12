@@ -34,6 +34,12 @@
 /* --- BEGIN TPM Key Load Example -- */
 /******************************************************************************/
 
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("keyload [keyblob.bin]\n");
+}
+
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
@@ -43,28 +49,32 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
+#endif
     const char* inputFile = "keyblob.bin";
 
     if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+
         inputFile = argv[1];
     }
-#else
-    (void)argc;
-    (void)argv;
-#endif
 
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
 
     printf("TPM2.0 Key load example\n");
+    printf("\tKey Blob: %s\n", inputFile);
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("\nwolfTPM2_Init failed\n");
         goto exit;
     }
-    printf("wolfTPM2_Init: success\n\n");
-
 
     /* Define the default session auth that has NULL password */
     session[0].sessionHandle = TPM_RS_PW;
@@ -98,7 +108,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             rc = BUFFER_E; goto exit;
         }
         printf("Reading %d bytes from %s\n", (int)fileSz, inputFile);
-        
+
         XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
         if (fileSz > sizeof(newKey.pub)) {
             fileSz -= sizeof(newKey.pub);
