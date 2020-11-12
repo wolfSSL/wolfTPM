@@ -22,6 +22,7 @@
 #ifndef _TPM_TEST_KEYS_H_
 #define _TPM_TEST_KEYS_H_
 
+#if !defined(WOLFTPM2_NO_WRAPPER)
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
@@ -30,18 +31,49 @@ WOLFTPM_LOCAL int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
                                        TPMT_PUBLIC* pPublicTemplate);
 
 #ifndef NO_RSA
+#ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* pRsaKey,
+                            WOLFTPM2_KEY* key);
+#else
+WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
+                            WOLFTPM2_KEY* pStorageKey,
+                            WOLFTPM2_KEY* key,
                             RsaKey* pWolfRsaKey,
                             int tpmDevId);
+#endif /* WOLFTPM2_NO_WOLFCRYPT */
 #endif
 
 #ifdef HAVE_ECC
+#ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* pEccKey,
+                            WOLFTPM2_KEY* key);
+#else
+WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
+                            WOLFTPM2_KEY* pStorageKey,
+                            WOLFTPM2_KEY* key,
                             ecc_key* pWolfEccKey,
                             int tpmDevId);
 #endif
+#endif
+
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+/* stdio, default case */
+#include <stdio.h>
+#define XFILE      FILE*
+#define XFOPEN     fopen
+#define XFSEEK     fseek
+#define XFTELL     ftell
+#define XREWIND    rewind
+#define XFREAD     fread
+#define XFWRITE    fwrite
+#define XFCLOSE    fclose
+#define XSEEK_END  SEEK_END
+#define XBADFILE   NULL
+#define XFGETS     fgets
+#endif
+
+
+#endif /* !defined(WOLFTPM2_NO_WRAPPER) */
 #endif /* _TPM_TEST_KEYS_H_ */

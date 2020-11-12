@@ -108,9 +108,13 @@ To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
 To use symmetric AES/Hashing/HMAC with the TPM define `WOLFTPM_USE_SYMMETRIC`.
 
 Generation of the Client and Server Certificates requires running:
-1. `./examples/csr/csr`
-2. `./certs/certreq.sh`
-3. Copy the CA files from wolfTPM to wolfSSL certs directory.
+
+
+1. `./examples/keygen/keygen rsa_test_blob.raw RSA T`
+2. `./examples/keygen/keygen ecc_test_blob.raw ECC T`
+3. `./examples/csr/csr`
+4. `./certs/certreq.sh`
+5. Copy the CA files from wolfTPM to wolfSSL certs directory.
     a. `cp ./certs/ca-ecc-cert.pem ../wolfssl/certs/tpm-ca-ecc-cert.pem`
     b. `cp ./certs/ca-rsa-cert.pem ../wolfssl/certs/tpm-ca-rsa-cert.pem`
 
@@ -130,7 +134,9 @@ or
 `./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
 
 Then run the wolfTPM TLS client example:
-`./examples/tls/tls_client`
+`./examples/tls/tls_client RSA`
+or
+`./examples/tls/tls_client ECC`
 
 
 ### TLS Server

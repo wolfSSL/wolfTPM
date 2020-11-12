@@ -199,7 +199,7 @@ int TPM2_TLS_Client(void* userCtx)
             goto exit;
         }
     #else
-        //TODO
+        printf("Error: RSA not compiled in\n");
     #endif
     } else {
     #if defined(HAVE_ECC)
@@ -210,40 +210,44 @@ int TPM2_TLS_Client(void* userCtx)
             goto exit;
         }
     #else
-        //TODO
+        printf("Error: ECC not compiled in\n");
     #endif
     }
 #else
     /* Load CA Certificates */
     if (!useECC) {
     #if !defined(NO_RSA)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-rsa-cert.pem cert\n");
-        goto exit;
-    }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-rsa-cert.pem cert\n");
-        goto exit;
-    }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
     #else
-    //TODO
+        printf("Error: RSA not compiled in\n");
+        rc = -1;
+        goto exit;
     #endif
     } else {
     #if defined(HAVE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-ecc-cert.pem cert\n");
-        goto exit;
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-ecc-cert.pem cert\n");
+            goto exit;
     }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+            goto exit;
+        }
     #else
-    //TODO
+        printf("Error: ECC not compiled in\n");
+        rc = -1;
+        goto exit;
     #endif
     }
 #endif /* !NO_FILESYSTEM */
@@ -267,7 +271,7 @@ int TPM2_TLS_Client(void* userCtx)
         }
 #else
         printf("RSA not supported in this build\n");
-        rc = -1; //TODO
+        rc = -1;
         goto exit;
 #endif
     } else {
@@ -282,46 +286,49 @@ int TPM2_TLS_Client(void* userCtx)
         }
 #else
         printf("RSA not supported in this build\n");
-        rc = -1; //TODO
+        rc = -1;
         goto exit;
 #endif
     }
 
     /* Client Certificate (Mutual Authentication) */
     if (!useECC) {
-#if !defined(NO_RSA)
-    printf("Loading RSA certificate\n");
-    #ifdef NO_FILESYSTEM
-    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
-        WOLFSSL_FILETYPE_ASN1);
+    #if !defined(NO_RSA)
+        printf("Loading RSA certificate\n");
+        #ifdef NO_FILESYSTEM
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #else
+        rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
+                                              WOLFSSL_FILETYPE_PEM);
+        #endif
+        if (rc != WOLFSSL_SUCCESS) {
+            printf("Error loading RSA client cert\n");
+            goto exit;
+        }
     #else
-    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem", 
-        WOLFSSL_FILETYPE_PEM);
-    #endif
-    if (rc != WOLFSSL_SUCCESS) {
-        printf("Error loading RSA client cert\n");
+        printf("RSA not supported in this build\n");
+        rc = -1;
         goto exit;
-    }
-
-    #else
-    //TODO
     #endif
     } else {
-#if defined(HAVE_ECC)
-    printf("Loading ECC certificate\n");
-    #ifdef NO_FILESYSTEM
-    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
-        WOLFSSL_FILETYPE_ASN1);
+    #if defined(HAVE_ECC)
+        printf("Loading ECC certificate\n");
+        #ifdef NO_FILESYSTEM
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #else
+        rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
+                                              WOLFSSL_FILETYPE_PEM);
+        #endif
+        if (rc != WOLFSSL_SUCCESS) {
+            printf("Error loading ECC client cert\n");
+            goto exit;
+        }
     #else
-    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem", 
-        WOLFSSL_FILETYPE_PEM);
-    #endif
-    if (rc != WOLFSSL_SUCCESS) {
-        printf("Error loading ECC client cert\n");
+        printf("ECC not supported in this build\n");
+        rc = -1;
         goto exit;
-    }
-    #else
-    //TODO
     #endif
     }
 #endif /* !NO_TLS_MUTUAL_AUTH */
@@ -475,16 +482,19 @@ int main(int argc, const char* argv[])
 {
     int rc = -1;
 
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_WOLFSSL_CLIENT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     if (argc > 1)
         if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
             useECC = 1;
         }
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     rc = TPM2_TLS_Client(NULL);
 #else
+    (void)argc;
+    (void)argv;
+
     printf("Wrapper/Crypto callback code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptocb\n");
 #endif

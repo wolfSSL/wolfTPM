@@ -71,6 +71,7 @@
  * With most browsers you can bypass the certificate warning.
  */
 
+static int useECC = 0;
 
 /******************************************************************************/
 /* --- BEGIN TLS SERVER Example -- */
@@ -210,29 +211,41 @@ int TPM2_TLS_Server(void* userCtx)
     #endif
 #else
     /* Load CA Certificates */
-    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-rsa-cert.pem cert\n");
+    if (!useECC) {
+    #if !defined(NO_RSA)
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
+    #else
+        printf("Error: RSA not compiled in\n");
+        rc = -1;
         goto exit;
-    }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-rsa-cert.pem cert\n");
-        goto exit;
-    }
-    #elif defined(HAVE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
     #endif
+    } else {
+    #if defined(HAVE_ECC)
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-ecc-cert.pem cert\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+            goto exit;
+        }
+    #else
+        printf("Error: ECC not compiled in\n");
+        rc = -1;
+        goto exit;
+    #endif
+    }
 #endif /* !NO_FILESYSTEM */
 #endif
 
@@ -246,39 +259,56 @@ int TPM2_TLS_Server(void* userCtx)
     #endif
 #else
     /* Server certificate */
-#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    printf("Loading RSA certificate and dummy key\n");
+    if (!useECC) {
+    #if !defined(NO_RSA)
+        printf("Loading RSA certificate and dummy key\n");
 
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-rsa-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading RSA client cert\n");
-        goto exit;
-    }
+        if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
+                                                   "./certs/server-rsa-cert.pem",
+                                                   WOLFSSL_FILETYPE_PEM))
+            != WOLFSSL_SUCCESS) {
+            printf("Error loading RSA client cert\n");
+            goto exit;
+        }
 
-    /* Private key is on TPM and crypto dev callbacks are used */
-    /* TLS server requires some dummy key loaded (workaround) */
-    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
-            sizeof(DUMMY_RSA_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-        printf("Failed to set key!\r\n");
+        /* Private key is on TPM and crypto dev callbacks are used */
+        /* TLS server requires some dummy key loaded (workaround) */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
+                                              sizeof(DUMMY_RSA_KEY),
+                                              WOLFSSL_FILETYPE_ASN1)
+            != WOLFSSL_SUCCESS) {
+            printf("Failed to set key!\r\n");
+            goto exit;
+        }
+    #else
+        printf("Error: RSA not compiled in\n");
+        rc = -1;
         goto exit;
-    }
-#elif defined(HAVE_ECC)
-    printf("Loading ECC certificate and dummy key\n");
+    #endif
+    } else {
+    #if defined(HAVE_ECC)
+        printf("Loading ECC certificate and dummy key\n");
 
-    if ((rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/server-ecc-cert.pem",
-        WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
-        printf("Error loading ECC client cert\n");
-        goto exit;
-    }
+        if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
+                "./certs/server-ecc-cert.pem",
+                WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
+            printf("Error loading ECC client cert\n");
+            goto exit;
+        }
 
-    /* Private key is on TPM and crypto dev callbacks are used */
-    /* TLS server requires some dummy key loaded (workaround) */
-    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
-            sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-        printf("Failed to set key!\r\n");
+        /* Private key is on TPM and crypto dev callbacks are used */
+        /* TLS server requires some dummy key loaded (workaround) */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
+                sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Failed to set key!\r\n");
+            goto exit;
+        }
+    #else
+        printf("Error: ECC not compiled in\n");
+        rc = -1;
         goto exit;
+    #endif
     }
-#endif
 #endif /* !NO_FILESYSTEM */
 
 #if 0
