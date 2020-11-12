@@ -75,7 +75,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&newKey, 0, sizeof(newKey));
 
     printf("TPM2.0 Key generation example\n");
-    printf("\tKey: %s\n", outputFile);
+    printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);

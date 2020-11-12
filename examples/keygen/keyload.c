@@ -68,6 +68,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&newKey, 0, sizeof(newKey));
 
     printf("TPM2.0 Key load example\n");
+    printf("\tKey Blob: %s\n", inputFile);
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("\nwolfTPM2_Init failed\n");

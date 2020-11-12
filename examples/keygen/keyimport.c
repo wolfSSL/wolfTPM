@@ -76,6 +76,9 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&storage, 0, sizeof(storage));
 
     printf("TPM2.0 Key Import example\n");
+    printf("\tKey Blob: %s\n", outputFile);
+    printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("\nwolfTPM2_Init failed\n");
