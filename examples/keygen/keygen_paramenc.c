@@ -214,9 +214,6 @@ exit:
 
 exit_badargs:
 
-    if (keyFile)
-        fclose(keyFile);
-
     return rc;
 }
 
