@@ -52,6 +52,7 @@ examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
 examples/keygen/keygen_paramenc
+examples/keygen/keyload_paramenc
 
 # Generated Cert Files
 certs/ca-*.pem
