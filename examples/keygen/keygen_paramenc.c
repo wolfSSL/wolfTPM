@@ -37,10 +37,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/keygen_paramenc [sl] [filename]\n");
-    printf("* s - store the TPM-generated key to the disk\n");
-    printf("* l - load a TPM-generated key from the disk\n");
-    printf("* filename - points to file(data) to measure\n");
+    printf("./examples/pcr/keygen_paramenc [outputFile]\n");
+    printf("* outputFile - points to file(data) to measure\n");
     printf("Demo usage without parameters, generates a new key" \
            "and makes it persistent.\n");
 }
@@ -48,44 +46,37 @@ static void usage(void)
 int TPM2_Keygen_ParamEnc_Example(void* userCtx, int argc, char *argv[])
 {
     int rc = -1;
-    int storeKey, loadKey;
-    const char *filename = NULL;
-    FILE *keyFile = NULL;
+    int storeKey = 0;
+    const char *outputFile = NULL;
+    XFILE keyFile;
+    int fileSz = 0;
     /* TPM ops related variables */
     WOLFTPM2_DEV dev;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
     WOLFTPM2_KEY storage; /* SRK */
-    WOLFTPM2_KEY rsaKey;  /* AIK */
+    WOLFTPM2_KEYBLOB rsaKey; /* AIK */
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_HANDLE bind;
+    TPMT_PUBLIC publicTemplate;
+    TPM_ALG_ID alg = TPM_ALG_RSA;
 
-    rc = storeKey = loadKey = 0;
     XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&bind, 0, sizeof(bind));
 
-    if (argc == 3) {
-        if (argv[1][0] == 's') {
-            storeKey = 1;
-        }
-        else if(argv[1][0] == 'l') {
-            loadKey = 1;
-        }
-        else {
-            storeKey = loadKey = 0;
-        }
-
-        filename = argv[2];
-        keyFile = fopen(filename, "rb");
-        if (keyFile == NULL) {
-            printf("Error opening file %s\n", filename);
-            usage();
-            goto exit_badargs;
+    if (argc >= 2) {
+        outputFile = argv[1];
+        storeKey=1;
+        if (argc >= 3) {
+            /* ECC vs RSA */
+            if (XSTRNCMP(argv[2], "ECC", 3) == 0) {
+                alg = TPM_ALG_ECC;
+            }
         }
     }
-    else if(argc == 1) {
+    else if (argc == 1) {
         printf("Will create a new TPM key and make it persistent\n" \
                "Will not store the new key to disk\n");
     }
@@ -145,10 +136,6 @@ int TPM2_Keygen_ParamEnc_Example(void* userCtx, int argc, char *argv[])
     session[1].symmetric.keyBits.aes = 128;
 #endif
     session[1].authHash = TPM_ALG_SHA256;
-/* Obsolete for salted session
-    session[1].auth.size = sizeof(gXorAuth)-1;
-    XMEMCPY(session[1].auth.buffer, gXorAuth, session[1].auth.size);
-*/
     session[1].nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_GetNonce(session[1].nonceCaller.buffer,
                        session[1].nonceCaller.size);
@@ -160,41 +147,53 @@ int TPM2_Keygen_ParamEnc_Example(void* userCtx, int argc, char *argv[])
     XMEMCPY(session[1].nonceTPM.buffer, tpmSession.nonceTPM.buffer,
             session[1].nonceTPM.size);
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("\n\tCommand with ParamEnc\n");
-#endif
-
-    if (loadKey) {
-        printf("Load key from a file path = %s\n", filename);
-        /* TODO */
-        goto exit;
+    /* Create new key */
+    if (alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetKeyTemplate_RSA_AIK(&publicTemplate);
+    }
+    else if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
     }
     else {
-        /* Create an Attestation RSA key (AIK) */
-        rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
-            (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
-        if (rc != TPM_RC_SUCCESS) {
-            printf("wolfTPM2_CreateAndLoadAIK failed\n");
-            goto exit;
-        }
-        printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
-            (word32)rsaKey.handle.hndl, rsaKey.pub.size);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
 
-        /* Store to disk or make persistent */
-        if(storeKey) {
-            printf("Storing key as file =%s\n", filename);
-            /* TODO */
-            goto exit;
+    /* Create an Attestation Key */
+    printf("Creating new %s key...\n", TPM2_GetAlgName(alg));
+    rc = wolfTPM2_CreateKey(&dev, &rsaKey, &storage.handle,
+        &publicTemplate, (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_CreateKey failed\n");
+       goto exit;
+    }
+    printf("Created new key (pub %d, priv %d bytes)\n",
+           (word32)rsaKey.handle.hndl, rsaKey.pub.size);
+
+    /* Store to disk or make persistent */
+    if(storeKey) {
+ #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+        printf("Storing key as file = %s\n", outputFile);
+        keyFile = XFOPEN(outputFile, "wb");
+        if (keyFile != XBADFILE) {
+            rsaKey.pub.size = sizeof(rsaKey.pub);
+            fileSz += XFWRITE(&rsaKey.pub, 1, sizeof(rsaKey.pub), keyFile);
+            fileSz += XFWRITE(&rsaKey.priv, 1, sizeof(UINT16) + rsaKey.priv.size, keyFile);
+            XFCLOSE(keyFile);
         }
-        else {
-            printf("Making the key from transient TPM object to persistent\n");
-            /* wolfTPM2_NVStoreKey */
-            rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
-                                     TPM2_DEMO_STORAGE_KEY_HANDLE);
-            if (rc != 0) {
-                wolfTPM2_UnloadHandle(&dev, &storage.handle);
-                goto exit;
-            }
+        printf("Wrote %d bytes to %s\n", (int)fileSz, outputFile);
+#else
+        printf("Lack of support for wolfCrypt and Filesystem\n");
+#endif
+    }
+    else {
+        printf("Making the key from transient TPM object to persistent\n");
+        /* wolfTPM2_NVStoreKey */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
+                             TPM2_DEMO_STORAGE_KEY_HANDLE);
+        if (rc != 0) {
+            wolfTPM2_UnloadHandle(&dev, &storage.handle);
+            goto exit;
         }
     }
 
