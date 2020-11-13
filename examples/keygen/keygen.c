@@ -52,7 +52,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     int bAIK = 1;
     byte* auth = NULL;
-    size_t authSz = 0;
+    int authSz = 0;
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
@@ -129,7 +129,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
 
         auth = (byte*)gAiKeyAuth;
-        authSz = sizeof(gAiKeyAuth)-1;
+        authSz = (int)sizeof(gAiKeyAuth)-1;
     } else {
         if (alg == TPM_ALG_RSA) {
             printf("RSA template\n");
@@ -151,7 +151,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
 
         auth = (byte*)gKeyAuth;
-        authSz = sizeof(gKeyAuth)-1;
+        authSz = (int)sizeof(gKeyAuth)-1;
     }
 
     printf("Creating new %s key...\n", TPM2_GetAlgName(alg));

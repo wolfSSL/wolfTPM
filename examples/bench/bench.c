@@ -211,6 +211,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     rc = getPrimaryStoragekey(&dev,
                               &storageKey,
                               &publicTemplate);
+    if (rc != 0) goto exit;
 
     /* RNG Benchmark */
     bench_stats_start(&count, &start);

@@ -191,7 +191,7 @@ int TPM2_TLS_Client(void* userCtx)
 #ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
     if (!useECC) {
-    #if !defined(NO_RSA)
+    #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_cert_der_2048, sizeof_ca_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
@@ -200,9 +200,10 @@ int TPM2_TLS_Client(void* userCtx)
         }
     #else
         printf("Error: RSA not compiled in\n");
-    #endif
-    } else {
-    #if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
@@ -211,12 +212,12 @@ int TPM2_TLS_Client(void* userCtx)
         }
     #else
         printf("Error: ECC not compiled in\n");
-    #endif
+    #endif /* HAVE_ECC */
     }
 #else
     /* Load CA Certificates */
     if (!useECC) {
-    #if !defined(NO_RSA)
+    #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-rsa-cert.pem cert\n");
@@ -231,14 +232,15 @@ int TPM2_TLS_Client(void* userCtx)
         printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
-    } else {
-    #if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    } 
+    else {
+    #ifdef HAVE_ECC
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-ecc-cert.pem cert\n");
             goto exit;
-    }
+        }
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading wolf-ca-ecc-cert.pem cert\n");
@@ -248,7 +250,7 @@ int TPM2_TLS_Client(void* userCtx)
         printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
+    #endif /* HAVE_ECC */
     }
 #endif /* !NO_FILESYSTEM */
 
@@ -259,7 +261,7 @@ int TPM2_TLS_Client(void* userCtx)
      */
 #ifndef NO_TLS_MUTUAL_AUTH
     if (!useECC) {
-#if !defined(NO_RSA)
+    #ifndef NO_RSA
         printf("Loading RSA dummy key\n");
 
         /* Private key is on TPM and crypto dev callbacks are used */
@@ -269,13 +271,14 @@ int TPM2_TLS_Client(void* userCtx)
             printf("Failed to set key!\r\n");
             goto exit;
         }
-#else
+    #else
         printf("RSA not supported in this build\n");
         rc = -1;
         goto exit;
-#endif
-    } else {
-#if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         printf("Loading ECC dummy key\n");
         /* Private key is on TPM and crypto dev callbacks are used */
         /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
@@ -284,16 +287,16 @@ int TPM2_TLS_Client(void* userCtx)
             printf("Failed to set key!\r\n");
             goto exit;
         }
-#else
+    #else
         printf("RSA not supported in this build\n");
         rc = -1;
         goto exit;
-#endif
+    #endif /* HAVE_ECC */
     }
 
     /* Client Certificate (Mutual Authentication) */
     if (!useECC) {
-    #if !defined(NO_RSA)
+    #ifndef NO_RSA
         printf("Loading RSA certificate\n");
         #ifdef NO_FILESYSTEM
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
@@ -310,9 +313,10 @@ int TPM2_TLS_Client(void* userCtx)
         printf("RSA not supported in this build\n");
         rc = -1;
         goto exit;
-    #endif
-    } else {
-    #if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         printf("Loading ECC certificate\n");
         #ifdef NO_FILESYSTEM
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
@@ -329,7 +333,7 @@ int TPM2_TLS_Client(void* userCtx)
         printf("ECC not supported in this build\n");
         rc = -1;
         goto exit;
-    #endif
+    #endif /* HAVE_ECC */
     }
 #endif /* !NO_TLS_MUTUAL_AUTH */
 

@@ -4684,7 +4684,7 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
 /* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for RNG source */
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
-    int rc;
+    int rc = 0;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG* rng = NULL;

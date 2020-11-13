@@ -33,11 +33,12 @@
 #define RSA_FILENAME  "rsa_test_blob.raw"
 #define ECC_FILENAME  "ecc_test_blob.raw"
 
-#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
 #if 0
 static int writeKeyBlob(const char* filename,
-                        WOLFTPM2_KEYBLOB* key) {
+                        WOLFTPM2_KEYBLOB* key)
+{
     int rc = 0;
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE  fp = NULL;
     size_t fileSz = 0;
 
@@ -49,7 +50,10 @@ static int writeKeyBlob(const char* filename,
         XFCLOSE(fp);
     }
     printf("Wrote %d bytes to %s\n", (int)fileSz, filename);
-
+#else
+    (void)filename;
+    (void)key;
+#endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
     return rc;
 }
 #endif
@@ -57,6 +61,7 @@ static int writeKeyBlob(const char* filename,
 static int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 {
     int rc = 0;
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE  fp = NULL;
     size_t fileSz = 0;
     size_t bytes_read = 0;
@@ -82,6 +87,10 @@ static int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         if (fileSz > sizeof(key->pub)) {
             fileSz -= sizeof(key->pub);
             bytes_read = XFREAD(&key->priv, 1, fileSz, fp);
+            if (bytes_read != fileSz) {
+                printf("Read %zu, expected private blob %zu bytes\n", bytes_read, fileSz);
+                goto exit;
+            }
         }
 
         /* sanity check the sizes */
@@ -102,11 +111,12 @@ static int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 exit:
     if (fp)
       XFCLOSE(fp);
-
+#else
+    (void)filename;
+    (void)key;
+#endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
     return rc;
 }
-
-#endif /* !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) */
 
 static int readAndLoadKey(WOLFTPM2_DEV* pDev,
                           WOLFTPM2_KEY* key,

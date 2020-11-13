@@ -212,7 +212,7 @@ int TPM2_TLS_Server(void* userCtx)
 #else
     /* Load CA Certificates */
     if (!useECC) {
-    #if !defined(NO_RSA)
+    #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-rsa-cert.pem cert\n");
@@ -227,9 +227,10 @@ int TPM2_TLS_Server(void* userCtx)
         printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
-    } else {
-    #if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-ecc-cert.pem cert\n");
@@ -244,7 +245,7 @@ int TPM2_TLS_Server(void* userCtx)
         printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
+    #endif /* HAVE_ECC */
     }
 #endif /* !NO_FILESYSTEM */
 #endif
@@ -260,7 +261,7 @@ int TPM2_TLS_Server(void* userCtx)
 #else
     /* Server certificate */
     if (!useECC) {
-    #if !defined(NO_RSA)
+    #ifndef NO_RSA
         printf("Loading RSA certificate and dummy key\n");
 
         if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
@@ -284,9 +285,10 @@ int TPM2_TLS_Server(void* userCtx)
         printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
-    } else {
-    #if defined(HAVE_ECC)
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         printf("Loading ECC certificate and dummy key\n");
 
         if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
@@ -307,7 +309,7 @@ int TPM2_TLS_Server(void* userCtx)
         printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
-    #endif
+    #endif /* HAVE_ECC */
     }
 #endif /* !NO_FILESYSTEM */
 
