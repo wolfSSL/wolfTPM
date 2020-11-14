@@ -6,3 +6,5 @@ if BUILD_SWTPM
 check_SCRIPTS += scripts/swtpm_sim.test
 dist_noinst_SCRIPTS += scripts/swtpm_sim.test
 endif
+
+EXTRA_DIST += scripts/tls_setup.sh

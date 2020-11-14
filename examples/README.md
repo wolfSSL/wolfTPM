@@ -126,12 +126,12 @@ Examples show using a TPM key and certificate for TLS mutual authentication (cli
 This example client connects to localhost on on port 11111 by default. These can be overridden using `TLS_HOST` and `TLS_PORT`.
 
 You can validate using the wolfSSL example server this like:
-`./examples/server/server -b -p 11111 -g -d`
+`./examples/server/server -b -p 11111 -g -d -i -V`
  
 To validate client certificate use the following wolfSSL example server command:
-`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem -i -V`
 or
-`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem -i -V`
 
 Then run the wolfTPM TLS client example:
 `./examples/tls/tls_client RSA`
@@ -146,7 +146,9 @@ This example shows using a TPM key and certificate for a TLS server.
 By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
 
 Run the wolfTPM TLS server example:
-`./examples/tls/tls_server`. 
+`./examples/tls/tls_server RSA`
+or
+`./examples/tls/tls_server ECC`
 
 Then run the wolfSSL example client this like:
 `./examples/client/client -h localhost -p 11111 -g -d`

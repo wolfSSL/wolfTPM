@@ -157,23 +157,27 @@ int TPM2_TLS_Server(void* userCtx)
     if (rc != 0) goto exit;
 
 #ifndef NO_RSA
-    /* Create/Load RSA key for TLS authentication */
-    rc = getRSAkey(&dev,
-                   &storageKey,
-                   &rsaKey,
-                   &wolfRsaKey,
-                   tpmDevId);
-    if (rc != 0) goto exit;
+    if (!useECC) {
+        /* Create/Load RSA key for TLS authentication */
+        rc = getRSAkey(&dev,
+                    &storageKey,
+                    &rsaKey,
+                    &wolfRsaKey,
+                    tpmDevId);
+        if (rc != 0) goto exit;
+    }
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
-    /* Create/Load ECC key for TLS authentication */
-    rc = getECCkey(&dev,
-                   &storageKey,
-                   &eccKey,
-                   &wolfEccKey,
-                   tpmDevId);
-    if (rc != 0) goto exit;
+    if (useECC) {
+        /* Create/Load ECC key for TLS authentication */
+        rc = getECCkey(&dev,
+                    &storageKey,
+                    &eccKey,
+                    &wolfEccKey,
+                    tpmDevId);
+        if (rc != 0) goto exit;
+    }
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
     /* Ephemeral Key */
@@ -451,15 +455,24 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, const char* argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_SERVER) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+    if (argc > 1) {
+        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
+            useECC = 1;
+        }
+    }
+
     rc = TPM2_TLS_Server(NULL);
 #else
+    (void)argc;
+    (void)argv;
+
     printf("Wrapper/Crypto callback code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptocb\n");
 #endif

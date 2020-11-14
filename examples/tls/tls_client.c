@@ -147,23 +147,27 @@ int TPM2_TLS_Client(void* userCtx)
     if (rc != 0) goto exit;
 
 #ifndef NO_RSA
-    /* Create/Load RSA key for TLS authentication */
-    rc = getRSAkey(&dev,
-                   &storageKey,
-                   &rsaKey,
-                   &wolfRsaKey,
-                   tpmDevId);
-    if (rc != 0) goto exit;
+    if (!useECC) {
+        /* Create/Load RSA key for TLS authentication */
+        rc = getRSAkey(&dev,
+                    &storageKey,
+                    &rsaKey,
+                    &wolfRsaKey,
+                    tpmDevId);
+        if (rc != 0) goto exit;
+    }
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
-    /* Create/Load ECC key for TLS authentication */
-    rc = getECCkey(&dev,
-                   &storageKey,
-                   &eccKey,
-                   &wolfEccKey,
-                   tpmDevId);
-    if (rc != 0) goto exit;
+    if (useECC) {
+        /* Create/Load ECC key for TLS authentication */
+        rc = getECCkey(&dev,
+                    &storageKey,
+                    &eccKey,
+                    &wolfEccKey,
+                    tpmDevId);
+        if (rc != 0) goto exit;
+    }
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
     /* Ephemeral Key */
@@ -171,7 +175,6 @@ int TPM2_TLS_Client(void* userCtx)
     tpmCtx.ecdhKey = &ecdhKey;
     #endif
 #endif /* HAVE_ECC */
-
 
     /* Setup the WOLFSSL context (factory) */
     if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
@@ -489,10 +492,11 @@ int main(int argc, const char* argv[])
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    if (argc > 1)
+    if (argc > 1) {
         if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
             useECC = 1;
         }
+    }
 
     rc = TPM2_TLS_Client(NULL);
 #else
