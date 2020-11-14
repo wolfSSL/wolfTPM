@@ -27,6 +27,8 @@
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
+#include <wolftpm/tpm2_socket.h>
+
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tls/tls_common.h>
@@ -92,10 +94,6 @@ typedef struct SockIoCbCtx {
 
 #ifndef WOLFSSL_USER_IO
 /* socket includes */
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <unistd.h>
 
 static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 {
@@ -110,10 +108,10 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 
         printf("IO RECEIVE ERROR: ");
         switch (errno) {
-    #if EAGAIN != EWOULDBLOCK
-        case EAGAIN: /* EAGAIN == EWOULDBLOCK on some systems, but not others */
-    #endif
-        case EWOULDBLOCK:
+        #if SOCKET_EAGAIN != SOCKET_EWOULDBLOCK
+        case SOCKET_EAGAIN:
+        #endif
+        case SOCKET_EWOULDBLOCK:
             if (wolfSSL_get_using_nonblock(ssl)) {
                 printf("would block\n");
                 return WOLFSSL_CBIO_ERR_WANT_READ;
@@ -122,16 +120,16 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
                 printf("socket timeout\n");
                 return WOLFSSL_CBIO_ERR_TIMEOUT;
             }
-        case ECONNRESET:
+        case SOCKET_ECONNRESET:
             printf("connection reset\n");
             return WOLFSSL_CBIO_ERR_CONN_RST;
-        case EINTR:
+        case SOCKET_EINTR:
             printf("socket interrupted\n");
             return WOLFSSL_CBIO_ERR_ISR;
-        case ECONNREFUSED:
+        case SOCKET_ECONNREFUSED:
             printf("connection refused\n");
             return WOLFSSL_CBIO_ERR_WANT_READ;
-        case ECONNABORTED:
+        case SOCKET_ECONNABORTED:
             printf("connection aborted\n");
             return WOLFSSL_CBIO_ERR_CONN_CLOSE;
         default:
@@ -174,19 +172,19 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 
         printf("IO SEND ERROR: ");
         switch (errno) {
-    #if EAGAIN != EWOULDBLOCK
-        case EAGAIN: /* EAGAIN == EWOULDBLOCK on some systems, but not others */
-    #endif
-        case EWOULDBLOCK:
+        #if SOCKET_EAGAIN != SOCKET_EWOULDBLOCK
+        case SOCKET_EAGAIN:
+        #endif
+        case SOCKET_EWOULDBLOCK:
             printf("would block\n");
             return WOLFSSL_CBIO_ERR_WANT_READ;
-        case ECONNRESET:
+        case SOCKET_ECONNRESET:
             printf("connection reset\n");
             return WOLFSSL_CBIO_ERR_CONN_RST;
-        case EINTR:
+        case SOCKET_EINTR:
             printf("socket interrupted\n");
             return WOLFSSL_CBIO_ERR_ISR;
-        case EPIPE:
+        case SOCKET_EPIPE:
             printf("socket EPIPE\n");
             return WOLFSSL_CBIO_ERR_CONN_CLOSE;
         default:
@@ -212,6 +210,11 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     struct sockaddr_in servAddr;
     int optval  = 1;
 
+#ifdef _WIN32
+    WSADATA wsd;
+    WSAStartup(0x0002, &wsd);
+#endif
+
     /* Setup server address */
     memset(&servAddr, 0, sizeof(servAddr));
     servAddr.sin_family = AF_INET;
@@ -227,7 +230,8 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
     }
 
     /* allow reuse */
-    if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
+    if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEADDR,
+                   (void*)&optval, sizeof(optval)) == -1) {
         printf("setsockopt SO_REUSEADDR failed\n");
         return -1;
     }
@@ -251,7 +255,7 @@ static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
 {
     int connd;
     struct sockaddr_in clientAddr;
-    socklen_t          size = sizeof(clientAddr);
+    XSOCKLENT          size = sizeof(clientAddr);
 
     if ((connd = accept(sockIoCtx->listenFd, (struct sockaddr*)&clientAddr, &size)) == -1) {
         printf("ERROR: failed to accept the connection\n\n");
@@ -266,6 +270,11 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
 {
     struct sockaddr_in servAddr;
     struct hostent* entry;
+
+#ifdef _WIN32
+    WSADATA wsd;
+    WSAStartup(0x0002, &wsd);
+#endif
 
     /* Setup server address */
     memset(&servAddr, 0, sizeof(servAddr));
@@ -303,11 +312,11 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
 static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 {
     if (sockIoCtx->fd != -1) {
-        close(sockIoCtx->fd);
+        CloseSocket(sockIoCtx->fd);
         sockIoCtx->fd = -1;
     }
     if (sockIoCtx->listenFd != -1) {
-        close(sockIoCtx->listenFd);
+        CloseSocket(sockIoCtx->listenFd);
         sockIoCtx->listenFd = -1;
     }
 }

@@ -29,6 +29,10 @@
 #endif
 
 /* TPM2 IO Examples */
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#define TPM2_IoCb NULL
+#else
+
 #ifdef WOLFTPM_ADV_IO
 int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx);
@@ -36,6 +40,7 @@ int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
 int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #endif
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 #ifdef __cplusplus
     }  /* extern "C" */

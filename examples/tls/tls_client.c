@@ -29,6 +29,7 @@
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/tls/tls_common.h>
 #include <examples/tls/tls_client.h>
 
@@ -72,6 +73,7 @@
  * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
 
+static int useECC = 0;
 
 /******************************************************************************/
 /* --- BEGIN TPM TLS Client Example -- */
@@ -139,93 +141,33 @@ int TPM2_TLS_Client(void* userCtx)
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
-    /* See if primary storage key already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0) {
-        /* Create primary storage key */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for storage key */
-        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
-    }
+    rc = getPrimaryStoragekey(&dev,
+                              &storageKey,
+                              &publicTemplate);
+    if (rc != 0) goto exit;
 
 #ifndef NO_RSA
-    /* Create/Load RSA key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
-    if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
-            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
-            TPM2_DEMO_RSA_KEY_HANDLE);
+    if (!useECC) {
+        /* Create/Load RSA key for TLS authentication */
+        rc = getRSAkey(&dev,
+                    &storageKey,
+                    &rsaKey,
+                    &wolfRsaKey,
+                    tpmDevId);
         if (rc != 0) goto exit;
     }
-    else {
-        /* specify auth password for rsa key */
-        rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
-        XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
-    }
-
-    /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_InitRsaKey_ex(&wolfRsaKey, NULL, tpmDevId);
-    if (rc != 0) goto exit;
-    /* load public portion of key into wolf RSA Key */
-    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &rsaKey, &wolfRsaKey);
-    if (rc != 0) goto exit;
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
-    /* Create/Load ECC key for TLS authentication */
-    rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_DEMO_ECC_KEY_HANDLE);
-    if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-            TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
-            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &eccKey,
-            TPM2_DEMO_ECC_KEY_HANDLE);
+    if (useECC) {
+        /* Create/Load ECC key for TLS authentication */
+        rc = getECCkey(&dev,
+                    &storageKey,
+                    &eccKey,
+                    &wolfEccKey,
+                    tpmDevId);
         if (rc != 0) goto exit;
     }
-    else {
-        /* specify auth password for ECC key */
-        eccKey.handle.auth.size = sizeof(gKeyAuth)-1;
-        XMEMCPY(eccKey.handle.auth.buffer, gKeyAuth, eccKey.handle.auth.size);
-    }
-
-    /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_ecc_init_ex(&wolfEccKey, NULL, tpmDevId);
-    if (rc != 0) goto exit;
-    /* load public portion of key into wolf ECC Key */
-    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &eccKey, &wolfEccKey);
-    if (rc != 0) goto exit;
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
     /* Ephemeral Key */
@@ -233,7 +175,6 @@ int TPM2_TLS_Client(void* userCtx)
     tpmCtx.ecdhKey = &ecdhKey;
     #endif
 #endif /* HAVE_ECC */
-
 
     /* Setup the WOLFSSL context (factory) */
     if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
@@ -252,46 +193,68 @@ int TPM2_TLS_Client(void* userCtx)
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
-    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+    if (!useECC) {
+    #ifndef NO_RSA
         if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_cert_der_2048, sizeof_ca_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Error loading ca_cert_der_2048 DER cert\n");
             goto exit;
         }
-    #elif defined(HAVE_ECC)
+    #else
+        printf("Error: RSA not compiled in\n");
+    #endif /* !NO_RSA */
+    }
+    else {
+    #ifdef HAVE_ECC
         if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Error loading ca_ecc_cert_der_256 DER cert\n");
             goto exit;
         }
-    #endif
+    #else
+        printf("Error: ECC not compiled in\n");
+    #endif /* HAVE_ECC */
+    }
 #else
     /* Load CA Certificates */
-    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-rsa-cert.pem cert\n");
+    if (!useECC) {
+    #ifndef NO_RSA
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+            goto exit;
+        }
+    #else
+        printf("Error: RSA not compiled in\n");
+        rc = -1;
         goto exit;
-    }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+    #endif /* !NO_RSA */
+    } 
+    else {
+    #ifdef HAVE_ECC
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading ca-ecc-cert.pem cert\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+                                              0) != WOLFSSL_SUCCESS) {
+            printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+            goto exit;
+        }
+    #else
+        printf("Error: ECC not compiled in\n");
+        rc = -1;
         goto exit;
+    #endif /* HAVE_ECC */
     }
-    #elif defined(HAVE_ECC)
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
-    if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
-        0) != WOLFSSL_SUCCESS) {
-        printf("Error loading wolf-ca-ecc-cert.pem cert\n");
-        goto exit;
-    }
-    #endif
 #endif /* !NO_FILESYSTEM */
 
     /* Client Key (Mutual Authentication) */
@@ -300,55 +263,81 @@ int TPM2_TLS_Client(void* userCtx)
      *   The crypto callback will detect use of the dummy key using myTpmCheckKey
      */
 #ifndef NO_TLS_MUTUAL_AUTH
-#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    printf("Loading RSA dummy key\n");
+    if (!useECC) {
+    #ifndef NO_RSA
+        printf("Loading RSA dummy key\n");
 
-    /* Private key is on TPM and crypto dev callbacks are used */
-    /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
-    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
+        /* Private key is on TPM and crypto dev callbacks are used */
+        /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
             sizeof(DUMMY_RSA_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-        printf("Failed to set key!\r\n");
+            printf("Failed to set key!\r\n");
+            goto exit;
+        }
+    #else
+        printf("RSA not supported in this build\n");
+        rc = -1;
         goto exit;
+    #endif /* !NO_RSA */
     }
-#elif defined(HAVE_ECC)
-    printf("Loading ECC dummy key\n");
-    /* Private key is on TPM and crypto dev callbacks are used */
-    /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
-    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
+    else {
+    #ifdef HAVE_ECC
+        printf("Loading ECC dummy key\n");
+        /* Private key is on TPM and crypto dev callbacks are used */
+        /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
             sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-        printf("Failed to set key!\r\n");
+            printf("Failed to set key!\r\n");
+            goto exit;
+        }
+    #else
+        printf("RSA not supported in this build\n");
+        rc = -1;
         goto exit;
+    #endif /* HAVE_ECC */
     }
-#endif
 
     /* Client Certificate (Mutual Authentication) */
-#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    printf("Loading RSA certificate\n");
-    #ifdef NO_FILESYSTEM
-    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
-        WOLFSSL_FILETYPE_ASN1);
+    if (!useECC) {
+    #ifndef NO_RSA
+        printf("Loading RSA certificate\n");
+        #ifdef NO_FILESYSTEM
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #else
+        rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
+                                              WOLFSSL_FILETYPE_PEM);
+        #endif
+        if (rc != WOLFSSL_SUCCESS) {
+            printf("Error loading RSA client cert\n");
+            goto exit;
+        }
     #else
-    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem", 
-        WOLFSSL_FILETYPE_PEM);
-    #endif
-    if (rc != WOLFSSL_SUCCESS) {
-        printf("Error loading RSA client cert\n");
+        printf("RSA not supported in this build\n");
+        rc = -1;
         goto exit;
+    #endif /* !NO_RSA */
     }
-#elif defined(HAVE_ECC)
-    printf("Loading ECC certificate\n");
-    #ifdef NO_FILESYSTEM
-    rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size, 
-        WOLFSSL_FILETYPE_ASN1);
+    else {
+    #ifdef HAVE_ECC
+        printf("Loading ECC certificate\n");
+        #ifdef NO_FILESYSTEM
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #else
+        rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
+                                              WOLFSSL_FILETYPE_PEM);
+        #endif
+        if (rc != WOLFSSL_SUCCESS) {
+            printf("Error loading ECC client cert\n");
+            goto exit;
+        }
     #else
-    rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem", 
-        WOLFSSL_FILETYPE_PEM);
-    #endif
-    if (rc != WOLFSSL_SUCCESS) {
-        printf("Error loading ECC client cert\n");
+        printf("ECC not supported in this build\n");
+        rc = -1;
         goto exit;
+    #endif /* HAVE_ECC */
     }
-#endif
 #endif /* !NO_TLS_MUTUAL_AUTH */
 
 #ifdef TLS_CIPHER_SUITE
@@ -468,12 +457,7 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
-    wolfSSL_shutdown(ssl);
-
-    CloseAndCleanupSocket(&sockIoCtx);
-    wolfSSL_free(ssl);
-    wolfSSL_CTX_free(ctx);
-
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 #ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
@@ -482,6 +466,12 @@ exit:
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
+
+    wolfSSL_shutdown(ssl);
+
+    CloseAndCleanupSocket(&sockIoCtx);
+    wolfSSL_free(ssl);
+    wolfSSL_CTX_free(ctx);
 
     wolfTPM2_Cleanup(&dev);
 
@@ -495,15 +485,24 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, const char* argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+    if (argc > 1) {
+        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
+            useECC = 1;
+        }
+    }
+
     rc = TPM2_TLS_Client(NULL);
 #else
+    (void)argc;
+    (void)argv;
+
     printf("Wrapper/Crypto callback code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptocb\n");
 #endif

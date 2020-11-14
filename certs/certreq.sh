@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo Run from wolftpm root
-echo Run ./examples/crl/crl first to generate the CSR
+echo Run ./examples/csr/csr first to generate the CSR
 
 
 # Make sure required CA files exist and are populated
@@ -23,7 +23,7 @@ if [ "$1" == "clean" ]; then
 	rm -f ./certs/server-*.der
 	rm -f ./certs/*.old
 
-	# cleanup the ./examples/crl/crl generated
+	# cleanup the ./examples/csr/csr generated
 	rm -f ./certs/tpm-*-cert.csr
 	
 	exit 0

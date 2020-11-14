@@ -60,8 +60,15 @@ certs/*.par
 certs/crlnumber*
 certs/serial
 certs/index*
-
+certs/tpm-*.csr
+certs/server-*.der
+certs/server-*.pem
+certs/client-*.der
+certs/client-*.pem
+certs/serial.old
 *.dep
 IDE/IAR-EWARM/settings
 quote.blob
 keyblob.bin
+ecc_test_blob.raw
+rsa_test_blob.raw

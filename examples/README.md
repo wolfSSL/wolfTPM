@@ -108,9 +108,13 @@ To force ECC use with wolfSSL when RSA is enabled define `TLS_USE_ECC`.
 To use symmetric AES/Hashing/HMAC with the TPM define `WOLFTPM_USE_SYMMETRIC`.
 
 Generation of the Client and Server Certificates requires running:
-1. `./examples/csr/csr`
-2. `./certs/certreq.sh`
-3. Copy the CA files from wolfTPM to wolfSSL certs directory.
+
+
+1. `./examples/keygen/keygen rsa_test_blob.raw RSA T`
+2. `./examples/keygen/keygen ecc_test_blob.raw ECC T`
+3. `./examples/csr/csr`
+4. `./certs/certreq.sh`
+5. Copy the CA files from wolfTPM to wolfSSL certs directory.
     a. `cp ./certs/ca-ecc-cert.pem ../wolfssl/certs/tpm-ca-ecc-cert.pem`
     b. `cp ./certs/ca-rsa-cert.pem ../wolfssl/certs/tpm-ca-rsa-cert.pem`
 
@@ -122,15 +126,17 @@ Examples show using a TPM key and certificate for TLS mutual authentication (cli
 This example client connects to localhost on on port 11111 by default. These can be overridden using `TLS_HOST` and `TLS_PORT`.
 
 You can validate using the wolfSSL example server this like:
-`./examples/server/server -b -p 11111 -g -d`
+`./examples/server/server -b -p 11111 -g -d -i -V`
  
 To validate client certificate use the following wolfSSL example server command:
-`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem -i -V`
 or
-`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem`
+`./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem -i -V`
 
 Then run the wolfTPM TLS client example:
-`./examples/tls/tls_client`
+`./examples/tls/tls_client RSA`
+or
+`./examples/tls/tls_client ECC`
 
 
 ### TLS Server
@@ -140,7 +146,9 @@ This example shows using a TPM key and certificate for a TLS server.
 By default it listens on port 11111 and can be overridden at build-time using the `TLS_PORT` macro.
 
 Run the wolfTPM TLS server example:
-`./examples/tls/tls_server`. 
+`./examples/tls/tls_server RSA`
+or
+`./examples/tls/tls_server ECC`
 
 Then run the wolfSSL example client this like:
 `./examples/client/client -h localhost -p 11111 -g -d`

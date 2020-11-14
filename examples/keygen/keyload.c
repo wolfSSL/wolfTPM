@@ -21,11 +21,20 @@
 
 /* Tool and example for creating, storing and loading keys using TPM2.0 */
 
+
+/* use ANSI stdio for support of format strings, must be set before
+ * including stdio.h
+ */
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define __USE_MINGW_ANSI_STDIO 1
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <examples/keygen/keygen.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
 
@@ -45,6 +54,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
+    TPMT_PUBLIC publicTemplate;
     WOLFTPM2_KEYBLOB newKey;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
@@ -81,8 +91,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     session[0].auth.size = 0;
     TPM2_SetSessionAuth(session);
 
-    /* See if SRK already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    /* get SRK */
+    rc =  getPrimaryStoragekey(&dev, &storage, &publicTemplate);
     if (rc != 0) {
         printf("Loading SRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -100,6 +110,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     f = XFOPEN(inputFile, "rb");
     if (f != XBADFILE) {
         size_t fileSz;
+        size_t bytes_read;
+
         XFSEEK(f, 0, XSEEK_END);
         fileSz = XFTELL(f);
         XREWIND(f);
@@ -109,10 +121,16 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         }
         printf("Reading %d bytes from %s\n", (int)fileSz, inputFile);
 
-        XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
+        bytes_read = XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
+        if (bytes_read != sizeof(newKey.pub)) {
+            printf("Read %zu, expected public blob %zu bytes\n", bytes_read, sizeof(newKey.pub));
+            rc = BUFFER_E;
+            goto exit;
+        }
+
         if (fileSz > sizeof(newKey.pub)) {
             fileSz -= sizeof(newKey.pub);
-            XFREAD(&newKey.priv, 1, fileSz, f);
+            bytes_read = XFREAD(&newKey.priv, 1, fileSz, f);
         }
         XFCLOSE(f);
 
@@ -147,6 +165,7 @@ exit:
     }
 
     /* Close key handles */
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &newKey.handle);
 
     wolfTPM2_Cleanup(&dev);

@@ -5,6 +5,7 @@ if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/bench/bench
 noinst_HEADERS  += examples/bench/bench.h
 examples_bench_bench_SOURCES      = examples/bench/bench.c \
+                                    examples/tpm_test_keys.c \
                                     examples/tpm_io.c
 examples_bench_bench_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_bench_bench_DEPENDENCIES = src/libwolftpm.la

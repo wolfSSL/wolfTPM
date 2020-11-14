@@ -42,10 +42,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-
+#include <wolftpm/tpm2_socket.h>
 
 #ifndef TPM2_SWTPM_HOST
 #define TPM2_SWTPM_HOST         "localhost"
@@ -59,7 +56,7 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
 
-    if (ctx == NULL || ctx->tcpCtx.fd <= 0 || buffer == NULL) {
+    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -85,7 +82,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     size_t bytes_remaining = rxSz;
     char* ptr = (char*)buffer;
 
-    if (ctx == NULL || ctx->tcpCtx.fd <= 0 || buffer == NULL) {
+    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -170,7 +167,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     TPM_RC rc = TPM_RC_SUCCESS;
     uint32_t tss_cmd;
 
-    if (ctx == NULL || ctx->tcpCtx.fd <= 0) {
+    if (ctx == NULL || ctx->tcpCtx.fd < 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -212,7 +209,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
     }
 
-    if (ctx->tcpCtx.fd <= 0) {
+    if (ctx->tcpCtx.fd < 0) {
         rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, TPM2_SWTPM_PORT);
     }
 
@@ -282,7 +279,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 #endif
 
-    if (ctx->tcpCtx.fd > 0) {
+    if (ctx->tcpCtx.fd >= 0) {
         TPM_RC rc_disconnect = SwTpmDisconnect(ctx);
         if (rc == TPM_RC_SUCCESS) {
             rc = rc_disconnect;

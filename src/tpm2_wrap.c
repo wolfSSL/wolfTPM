@@ -652,7 +652,9 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
-        createOut.outPrivate.size);
+           createOut.outPrivate.size);
+    printf("save\n");
+    TPM2_PrintBin(createOut.outPrivate.buffer, createOut.outPrivate.size);
 #endif
     
     keyBlob->handle.dev  = dev;

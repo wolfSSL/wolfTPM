@@ -29,6 +29,7 @@
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/bench/bench.h>
 
 #include <stdio.h>
@@ -207,30 +208,10 @@ int TPM2_Wrapper_Bench(void* userCtx)
     if (rc != 0) return rc;
 
     /* See if primary storage key already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0) {
-        /* Create primary storage key */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for storage key */
-        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
-    }
+    rc = getPrimaryStoragekey(&dev,
+                              &storageKey,
+                              &publicTemplate);
+    if (rc != 0) goto exit;
 
     /* RNG Benchmark */
     bench_stats_start(&count, &start);
