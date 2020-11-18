@@ -107,16 +107,13 @@ int TPM2_Keyload_ParamEnc_Example(void* userCtx, int argc, char *argv[])
     session[1].symmetric.keyBits.aes = 128;
 #endif
     session[1].authHash = TPM_ALG_SHA256;
-    session[1].nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(session[1].nonceCaller.buffer,
-                       session[1].nonceCaller.size);
+    session[1].nonce.size = TPM_SHA256_DIGEST_SIZE;
+    rc = TPM2_GetNonce(session[1].nonce.buffer,
+                       session[1].nonce.size);
     if (rc < 0) {
         printf("TPM2_GetNonce failed\n");
         goto exit;
     }
-    session[1].nonceTPM.size = session[1].nonceCaller.size;
-    XMEMCPY(session[1].nonceTPM.buffer, tpmSession.nonceTPM.buffer,
-            session[1].nonceTPM.size);
 
     /* Load encrypted key from the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)

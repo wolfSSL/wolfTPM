@@ -373,19 +373,22 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 const BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
+    /* TODO: second nonce should be nonceTPM from StartAuthSession
+     *       make a new design choice how to pass that nonce
+     *       - using active context
+     *       - using WOLFTPM2_SESSION
+     *       - other?
+     */
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
-        rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonceCaller,
-            &session->nonceTPM, encryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonce,
+            &session->nonce, encryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
     else if (session->symmetric.algorithm == TPM_ALG_CFB) {
-        rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonceCaller,
-            &session->nonceTPM, encryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonce,
+            &session->nonce, encryptedParameter, paramData, paramSz);
     }
 #endif
-
-    /* TODO: generate new nonce? Copy old nonce? */
-    //TPM2_GetNonce(session->nonceCaller.buffer, session->nonceCaller.size);
 
     return rc;
 }
@@ -396,14 +399,15 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
 {
     TPM_RC rc = TPM_RC_FAILURE;
 
+    /* TODO: second nonce should be nonceTPM from StartAuthSession response */
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
-        rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonceCaller,
-            &session->nonceTPM, decryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonce,
+            &session->nonce, decryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
     else if (session->symmetric.algorithm == TPM_ALG_CFB) {
-        rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonceCaller,
-            &session->nonceTPM, decryptedParameter, paramData, paramSz);
+        rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonce,
+            &session->nonce, decryptedParameter, paramData, paramSz);
     }
 #endif
 

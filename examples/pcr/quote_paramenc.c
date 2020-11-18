@@ -200,9 +200,9 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     session[1].authHash = TPM_ALG_SHA256;
     session[1].auth.size = sizeof(gXorAuth)-1;
     XMEMCPY(session[1].auth.buffer, gXorAuth, session[1].auth.size);
-    session[1].nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(session[1].nonceCaller.buffer,
-                       session[1].nonceCaller.size);
+    session[1].nonce.size = TPM_SHA256_DIGEST_SIZE;
+    rc = TPM2_GetNonce(session[1].nonce.buffer,
+                       session[1].nonce.size);
     if (rc < 0) {
         printf("TPM2_GetNonce failed\n");
         goto exit;

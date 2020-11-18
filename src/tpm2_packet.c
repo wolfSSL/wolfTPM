@@ -343,8 +343,8 @@ void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
             auth[i].sessionAttributes |= TPMA_SESSION_continueSession;
         }
         TPM2_Packet_AppendU32(packet, auth[i].sessionHandle);
-        TPM2_Packet_AppendU16(packet, auth[i].nonceCaller.size);
-        TPM2_Packet_AppendBytes(packet, auth[i].nonceCaller.buffer, auth[i].nonceCaller.size);
+        TPM2_Packet_AppendU16(packet, auth[i].nonce.size);
+        TPM2_Packet_AppendBytes(packet, auth[i].nonce.buffer, auth[i].nonce.size);
         TPM2_Packet_AppendU8(packet, auth[i].sessionAttributes);
         TPM2_Packet_AppendU16(packet, auth[i].auth.size);
         TPM2_Packet_AppendBytes(packet, auth[i].auth.buffer, auth[i].auth.size);
