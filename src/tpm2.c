@@ -284,10 +284,10 @@ TPM_RC TPM2_CountAuthSessions(TPM2_CTX *ctx, int *authSessionCount)
 {
     int sessionCount, sessionHandle;
 
-    if(ctx == NULL || ctx->authCmd == NULL || authSessionCount == NULL)
+    if (ctx == NULL || ctx->authCmd == NULL || authSessionCount == NULL)
         return TPM_RC_FAILURE;
 
-    for(sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
+    for (sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
         sessionHandle = ctx->authCmd[sessionCount].sessionHandle;
         /* According to the TCG Spec, Part 1, Chapter 15.4
          * Session Handles have most significant octet at
@@ -296,11 +296,11 @@ TPM_RC TPM2_CountAuthSessions(TPM2_CTX *ctx, int *authSessionCount)
          * Password sessions use predefined value of TPM_RS_PW
          * Trial sessions are not of interest
          */
-        if(sessionHandle != TPM_RS_PW) {
+        if (sessionHandle != TPM_RS_PW) {
             /* Not a password session, mask the most significant octet(MSO) */
             sessionHandle &= 0xFF000000;
             /* Check MSO for an HMAC or Policy session, otherwise invalid */
-            if(sessionHandle ^ 0x02000000 && sessionHandle ^ 0x03000000)
+            if ((sessionHandle ^ 0x02000000) && (sessionHandle ^ 0x03000000))
                 break;
         }
     }
