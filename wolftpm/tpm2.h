@@ -2799,6 +2799,8 @@ WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
 #endif
 
+WOLFTPM_LOCAL TPM_RC TPM2_CountAuthSessions(TPM2_CTX* ctx, int* authSessionCount);
+
 typedef enum {
     TPM_VENDOR_UNKNOWN = 0,
     TPM_VENDOR_INFINEON = 0x15d1,
