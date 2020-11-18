@@ -315,14 +315,25 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
     }
 }
 
-void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPMS_AUTH_COMMAND* auth, const int authCount)
+/* TODO: We should add a return code here */
+void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
 {
     int tmpSz = 0;
-    int i;
+    int i, authCount;
+    TPMS_AUTH_COMMAND *auth;
 
-    if (auth == NULL || authCount > MAX_SESSION_NUM) {
+    if (ctx == NULL)
         return;
-    }
+
+    auth = ctx->authCmd;
+    if (auth == NULL)
+        return;
+
+    if (TPM2_CountAuthSessions(ctx, &authCount) != TPM_RC_SUCCESS)
+        return;
+
+    if (authCount > MAX_SESSION_NUM)
+        return;
 
     TPM2_Packet_MarkU32(packet, &tmpSz);
     for (i=0; i<authCount; i++) {
