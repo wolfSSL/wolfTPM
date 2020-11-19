@@ -108,12 +108,7 @@ int TPM2_Keyload_ParamEnc_Example(void* userCtx, int argc, char *argv[])
 #endif
     session[1].authHash = TPM_ALG_SHA256;
     session[1].nonce.size = TPM_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(session[1].nonce.buffer,
-                       session[1].nonce.size);
-    if (rc < 0) {
-        printf("TPM2_GetNonce failed\n");
-        goto exit;
-    }
+    /* Fresh nonce creation is handled by the wolfTPM stack */
 
     /* Load encrypted key from the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
