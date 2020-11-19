@@ -34,18 +34,21 @@ typedef struct WOLFTPM2_HANDLE {
     TPMT_SYM_DEF    symmetric;
 } WOLFTPM2_HANDLE;
 
+#define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
+
 typedef struct WOLFTPM2_SESSION {
-    TPM_ST_T        type;
-    WOLFTPM2_HANDLE handle;
-    TPM2B_NONCE     nonceTPM;
-    TPM2B_DIGEST    salt;
-    const char*     bindPassword;
+    TPM_ST_T        type;         /* Trial, Policy or HMAC; or TPM_SES_PSWD */
+    WOLFTPM2_HANDLE handle;       /* Session handle from StartAuthSession */
+    TPM2B_NONCE     nonceTPM;     /* Value from StartAuthSession */
+    TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
+    TPM2B_DIGEST    salt;         /* User defined */
+    const char*     bindPassword; /* User defined */
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM]; /* TODO: rename ot authCmd for consistency with native naming */
-    WOLFTPM2_SESSION sessions[MAX_SESSION_NUM];
+    WOLFTPM2_SESSION sessions[MAX_SESSION_NUM]; /* Stores the details of the active TPM session */
 } WOLFTPM2_DEV;
 
 typedef struct WOLFTPM2_KEY {

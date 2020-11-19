@@ -89,10 +89,12 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 
 typedef enum CmdFlags {
     CMD_FLAG_NONE = 0x00,
-    CMD_FLAG_DEC2 = 0x01, /* command has two size fields */
-    CMD_FLAG_ENC2 = 0x02, /* resp has two size fields */
+    CMD_FLAG_DEC = 0x01, /* command request supports parameter encryption */
+    CMD_FLAG_ENC = 0x02, /* command response supports parameter encryption */
 } CmdFlags_t;
 
+/* TODO: SendCommandAuth should use WOLFTPM2_SESSION for nonceTPM, type, etc */
+/* TODO: Remove authCnt arg, obsolete after the new auth session handling */
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     int authCnt, int inHandleCnt, int outHandleCnt, CmdFlags_t flags)
 {
@@ -106,6 +108,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM2B_MAX_BUFFER encryptedParameter;
     int sessionParamEnc;
 
+    /* TODO: Check flags to avoid paramenc for command that don't support it */
     (void)flags;
 
     if (ctx == NULL || packet == NULL)
@@ -144,12 +147,14 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
             UINT16 paramSz, tempSz;
             TPM2_Packet_ParseU16(packet, &paramSz);
             param += sizeof(UINT16);
-            /* TODO: Special case per command? */
+            /* TODO: Do we need table for special cases per command? */
             if (cmdCode == TPM_CC_Create) {
+                /* Encrypt based on inner size field, not on total paramSz */
                 TPM2_Packet_ParseU16(packet, &paramSz);
                 param += sizeof(UINT16);
             }
             else if (cmdCode == TPM_CC_Load) {
+                /* Encrypt only innerWrap and Sensitive together */
                 TPM2_Packet_ParseU16(packet, &tempSz);
                 param += sizeof(UINT16) + tempSz;
                 paramSz -= sizeof(UINT16) + tempSz;
@@ -823,7 +828,7 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Create);
 
         /* send command */
-        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0, CMD_FLAG_DEC2);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 0, CMD_FLAG_DEC);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
@@ -983,7 +988,7 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Load);
 
         /* send command */
-        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 1, CMD_FLAG_DEC2);
+        rc = TPM2_SendCommandAuth(ctx, &packet, 1, 1, 1, CMD_FLAG_DEC);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
