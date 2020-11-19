@@ -609,7 +609,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return rc;
     }
 
-    session->handle.dev = dev;
     session->handle.hndl = authSesOut.sessionHandle;
     session->nonceTPM = authSesOut.nonceTPM;
 
@@ -661,7 +660,6 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #endif
         return rc;
     }
-    key->handle.dev  = dev;
     key->handle.hndl = createPriOut.objectHandle;
     key->handle.auth = createPriIn.inSensitive.sensitive.userAuth;
 
@@ -730,7 +728,6 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
         return rc;
     }
-    key->handle.dev  = dev;
     key->handle.hndl = loadOut.objectHandle;
     key->handle.auth = changeIn.newAuth;
 
@@ -791,8 +788,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     printf("save\n");
     TPM2_PrintBin(createOut.outPrivate.buffer, createOut.outPrivate.size);
 #endif
-    
-    keyBlob->handle.dev  = dev;
+
     keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;
     keyBlob->pub = createOut.outPublic;
     keyBlob->priv = createOut.outPrivate;
@@ -829,7 +825,6 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
         return rc;
     }
-    keyBlob->handle.dev  = dev;
     keyBlob->handle.hndl = loadOut.objectHandle;
 
 #ifdef DEBUG_WOLFTPM
@@ -885,7 +880,6 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #endif
         return rc;
     }
-    key->handle.dev = dev;
     key->handle.hndl = loadExtOut.objectHandle;
     key->pub = loadExtIn.inPublic;
 
@@ -1128,7 +1122,6 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    keyBlob->handle.dev = dev;
     keyBlob->pub = importIn.objectPublic;
     keyBlob->priv = importOut.outPrivate;
 
@@ -1423,7 +1416,6 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
 
-    key->handle.dev = dev;
     key->handle.hndl = readPubIn.objectHandle;
     key->pub = readPubOut.outPublic;
 
@@ -3043,7 +3035,6 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
     /* Load private key */
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc == TPM_RC_SUCCESS) {
-        key->handle.dev = dev;
         key->handle.hndl = loadExtOut.objectHandle;
         key->pub = loadExtIn.inPublic;
 
@@ -3272,7 +3263,6 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
         return rc;
     }
-    key->handle.dev  = dev;
     key->handle.hndl = loadOut.objectHandle;
     key->handle.auth = createIn.inSensitive.sensitive.userAuth;
 
@@ -3427,7 +3417,6 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart, word32 handleC
         return BAD_FUNC_ARG;
     }
     XMEMSET(&handle, 0, sizeof(handle));
-    handle.dev  = dev;
     handle.auth = dev->session[0].auth;
     for (hndl=handleStart; hndl < handleStart+handleCount; hndl++) {
         handle.hndl = hndl;

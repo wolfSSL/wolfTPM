@@ -28,24 +28,25 @@
     extern "C" {
 #endif
 
-typedef struct WOLFTPM2_DEV {
-    TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-} WOLFTPM2_DEV;
-
 typedef struct WOLFTPM2_HANDLE {
-    WOLFTPM2_DEV*   dev;
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
     TPMT_SYM_DEF    symmetric;
 } WOLFTPM2_HANDLE;
 
 typedef struct WOLFTPM2_SESSION {
+    TPM_ST_T        type;
     WOLFTPM2_HANDLE handle;
     TPM2B_NONCE     nonceTPM;
     TPM2B_DIGEST    salt;
     const char*     bindPassword;
 } WOLFTPM2_SESSION;
+
+typedef struct WOLFTPM2_DEV {
+    TPM2_CTX ctx;
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM]; /* TODO: rename ot authCmd for consistency with native naming */
+    WOLFTPM2_SESSION sessions[MAX_SESSION_NUM];
+} WOLFTPM2_DEV;
 
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
