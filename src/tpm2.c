@@ -85,6 +85,26 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 #endif
 }
 
+/* Generates fresh nonce for every Policy or HMAC session */
+static TPM_RC TPM2_FreshNonceCaller(TPM2_CTX *ctx)
+{
+    TPM_RC rc;
+    TPMS_AUTH_COMMAND *auth = ctx->authCmd;
+    int i;
+
+    for ( i = 0; i < MAX_SESSION_NUM; i++) {
+        /* Nonce is not needed for Password sessions */
+        if(auth[i].sessionHandle != TPM_RS_PW) {
+            rc = TPM2_GetNonce(auth[i].nonce.buffer, auth[i].nonce.size);
+            if (rc != 0) {
+             break;
+            }
+        }
+    }
+
+    return rc;
+}
+
 /* Send Command Wrapper */
 
 typedef enum CmdFlags {
@@ -127,6 +147,9 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM2_Packet_ParseU16(packet, &tag);
     TPM2_Packet_ParseU32(packet, &cmdCode); /* Skip packet size */
     TPM2_Packet_ParseU32(packet, &cmdCode); /* Extract TPM Command Code */
+
+    /* Generate fresh nonces for all sessions that are not password auth */
+    TPM2_FreshNonceCaller(ctx);
 
     /* Is auth session required for this TPM command? */
     if (tag == TPM_ST_SESSIONS) {
