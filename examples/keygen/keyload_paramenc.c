@@ -169,8 +169,14 @@ exit:
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    /* Close session */
+    if (tpmSession.handle.hndl != TPM_RH_NULL) {
+        wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    }
+
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
