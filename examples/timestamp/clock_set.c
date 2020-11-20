@@ -63,8 +63,6 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-
     UINT64 oldClock, newClock;
 
     if (argc == 2) {
@@ -91,14 +89,6 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
-
-
-    /* Define the default session auth that has NULL password */
-    XMEMSET(session, 0, sizeof(session));
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0; /* NULL Password */
-    TPM2_SetSessionAuth(session);
-
 
     /* ReadClock the current TPM uptime */
     XMEMSET(&cmdOut.readClock, 0, sizeof(cmdOut.readClock));

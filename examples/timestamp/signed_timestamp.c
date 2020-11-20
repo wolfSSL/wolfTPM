@@ -74,8 +74,6 @@ int TPM2_Timestamp_Test(void* userCtx)
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY rsaKey;  /* AIK */
 
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
@@ -87,14 +85,6 @@ int TPM2_Timestamp_Test(void* userCtx)
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
-
-
-    /* Define the default session auth that has NULL password */
-    XMEMSET(session, 0, sizeof(session));
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0; /* NULL Password */
-    TPM2_SetSessionAuth(session);
-
 
     /* ReadClock for quick test of the TPM communication */
     XMEMSET(&cmdOut.readClock, 0, sizeof(cmdOut.readClock));
@@ -208,12 +198,6 @@ int TPM2_Timestamp_Test(void* userCtx)
      * the creation of Attestation Identity Key (AIK) under the EH can take place.
      */
 
-
-    /* set session auth for storage key */
-    session[0].auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
-
-
     /* Create an Attestation RSA key (AIK) */
     rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
         (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
@@ -227,13 +211,10 @@ int TPM2_Timestamp_Test(void* userCtx)
 
 
     /* set NULL password auth for using EK */
-    session[0].auth.size = 0;
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL, 0);
 
     /* set auth for using the AIK */
-    session[1].sessionHandle = TPM_RS_PW;
-    session[1].auth.size = sizeof(gAiKeyAuth)-1;
-    XMEMCPY(session[1].auth.buffer, gAiKeyAuth, session[1].auth.size);
-
+    wolfTPM2_SetAuthPassword(&dev, 1, &rsaKey.handle.auth, 0);
 
     /* At this stage: The EK is created, AIK is created and loaded,
      * Endorsement Hierarchy is enabled through policySecret,

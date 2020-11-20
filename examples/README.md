@@ -110,8 +110,8 @@ To use symmetric AES/Hashing/HMAC with the TPM define `WOLFTPM_USE_SYMMETRIC`.
 Generation of the Client and Server Certificates requires running:
 
 
-1. `./examples/keygen/keygen rsa_test_blob.raw RSA T`
-2. `./examples/keygen/keygen ecc_test_blob.raw ECC T`
+1. `./examples/keygen/keygen rsa_test_blob.raw -RSA -T`
+2. `./examples/keygen/keygen ecc_test_blob.raw -ECC -T`
 3. `./examples/csr/csr`
 4. `./certs/certreq.sh`
 5. Copy the CA files from wolfTPM to wolfSSL certs directory.
@@ -179,7 +179,7 @@ This way the user can keep track of relative and current time using the TPM cloc
 
 Note: If the new time value makes a change bigger than the TPM clock update interval, then the TPM will first update its volatile register for time and then the non-volatile register for time. This may cause a narrow delay before the commands returns execution to the user. Depending on the TPM manufacturer, the delay can vary from us to few ms.
 
-Note: This example can take an optional argument, the time value in miliseconds used for incrementing the TPM clock. Default value is 50000ms (50 seconds).
+Note: This example can take an optional argument, the time value in milliseconds used for incrementing the TPM clock. Default value is 50000ms (50 seconds).
 
 `./examples/timestamp/clock_set`
 
@@ -194,7 +194,7 @@ Performance benchmarks.
 Examples for generating a TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
 
 ```
-$ ./examples/keygen/keygen keyblob.bin RSA
+$ ./examples/keygen/keygen keyblob.bin -RSA
 TPM2.0 Key generation example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Creating new RSA key...
@@ -208,7 +208,7 @@ Reading 840 bytes from keyblob.bin
 Loaded key to 0x80000001
 
 
-$ ./examples/keygen/keygen keyblob.bin ECC
+$ ./examples/keygen/keygen keyblob.bin -ECC
 TPM2.0 Key generation example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Creating new ECC key...
@@ -225,7 +225,7 @@ Loaded key to 0x80000001
 Example for importing a private key as TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
 
 ```
-$ ./examples/keygen/keyimport keyblob.bin RSA
+$ ./examples/keygen/keyimport keyblob.bin -RSA
 TPM2.0 Key import example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Imported key (pub 278, priv 222 bytes)
@@ -238,7 +238,7 @@ Reading 840 bytes from keyblob.bin
 Loaded key to 0x80000001
 
 
-$ ./examples/keygen/keyimport keyblob.bin ECC
+$ ./examples/keygen/keyimport keyblob.bin -ECC
 TPM2.0 Key Import example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Imported key (pub 86, priv 126 bytes)

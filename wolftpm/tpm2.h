@@ -1568,21 +1568,16 @@ typedef struct TPM2B_CREATION_DATA {
 
 typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
-    TPM2B_NONCE nonce;
+    TPM2B_NONCE nonce; /* nonceCaller */
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth; /* TCG Spec Part 2 calls this field hmac */
-    /* TPM2B_AUTH can be an HMAC, a password or an Empty Auth */
+    TPM2B_AUTH auth; /* spec has this as "hmac" */
 
     /* Implementation specific */
     /* These are used for parameter encrypt/decrypt */
-
+    TPM2B_NONCE nonceTPM;
     /* The symmetric and hash algorithms to use */
     TPMT_SYM_DEF symmetric;
     TPMI_ALG_HASH authHash;
-
-    /* Optional object auth to append with session auth for encrypt/decrypt key */
-    TPM_HANDLE objHandle;
-    TPM2B_AUTH objAuth;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {
@@ -2776,7 +2771,8 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
  * set to a non-NULL function pointer and userCtx is optional.
  */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
+WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *authCmd);
+WOLFTPM_API int    TPM2_GetSessionAuthCount(TPMS_AUTH_COMMAND* authCmd);
 
 WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
@@ -2798,8 +2794,6 @@ WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
 #ifdef WOLFTPM2_USE_WOLF_RNG
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
 #endif
-
-WOLFTPM_LOCAL TPM_RC TPM2_CountAuthSessions(TPM2_CTX* ctx, int* authSessionCount);
 
 typedef enum {
     TPM_VENDOR_UNKNOWN = 0,

@@ -40,8 +40,8 @@ static void usage(void)
     printf("Expected usage:\n");
     printf("./tool/management/flush [handle]\n");
     printf("* handle is a valid TPM2.0 handle index\n");
-    printf("Note: Default behavior, without parameters, the tool flushes"
-           "      all transient TPM2.0 objects (0x8000000x, 0x300000x)\n");
+    printf("Note: Default behavior, without parameters, the tool flushes\n"
+           "\tall transient TPM2.0 objects (0x8000000x, 0x300000x)\n");
 }
 
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
@@ -57,7 +57,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
         if(1) {
             printf("Input value does not look like a TPM handle\n");
             usage();
-            goto exit;
+            return 0;
         }
     }
     else if (argc == 1) {
@@ -66,26 +66,26 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     else {
         printf("Incorrect arguments\n");
         usage();
-        goto exit;
+        return 0;
     }
 
     printf("Preparing to free TPM2.0 Resources\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
+        return rc;
     }
     printf("wolfTPM2_Init: success\n");
 
     if (allTransientObjects) {
         /* Flush key objects */
-        for(handle=0x80000000; handle < (int)0x8000000A; handle+=4) {
+        for (handle=0x80000000; handle < (int)0x8000000A; handle+=4) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
         }
         /* Flush auth sessions */
-        for(handle=0x3000000; handle < (int)0x3000004; handle++) {
+        for (handle=0x3000000; handle < (int)0x3000004; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
@@ -96,8 +96,6 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
         printf("Freeing %X object\n", handle);
         TPM2_FlushContext(&flushCtx);
     }
-
-exit:
 
     wolfTPM2_Cleanup(&dev);
     return rc;

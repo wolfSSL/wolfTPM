@@ -1217,7 +1217,7 @@ int TPM2_Native_Test(void* userCtx)
     cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
     cmdIn.create.inPublic.publicArea.objectAttributes = (
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_noDA | TPMA_OBJECT_decrypt);
+        TPMA_OBJECT_noDA | TPMA_OBJECT_decrypt | TPMA_OBJECT_sign);
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.keyBits.aes = MAX_AES_KEY_BITS;
     cmdIn.create.inPublic.publicArea.parameters.symDetail.sym.mode.aes = TEST_AES_MODE;

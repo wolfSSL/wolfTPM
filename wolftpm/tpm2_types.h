@@ -100,6 +100,9 @@ typedef int64_t  INT64;
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
     #endif
+    #ifndef XFEOF
+        #define XFEOF      feof
+    #endif
 
 #else
 
@@ -143,6 +146,23 @@ typedef int64_t  INT64;
             #define __GNUC_PREREQ(maj, min) (0) /* not GNUC */
         #endif
     #endif
+
+#if !defined(WOLFTPM_CUSTOM_STDIO) && !defined(NO_FILESYSTEM)
+    /* stdio, default case */
+    #define XFILE      FILE*
+    #define XFOPEN     fopen
+    #define XFSEEK     fseek
+    #define XFTELL     ftell
+    #define XREWIND    rewind
+    #define XFREAD     fread
+    #define XFWRITE    fwrite
+    #define XFCLOSE    fclose
+    #define XSEEK_END  SEEK_END
+    #define XBADFILE   NULL
+    #define XFGETS     fgets
+    #define XFEOF      feof
+#endif
+
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /* enable way for customer to override printf */

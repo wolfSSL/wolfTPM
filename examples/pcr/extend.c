@@ -56,19 +56,20 @@ static void usage(void)
 
 int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 {
-    int i, pcrIndex, rc = -1;
-    size_t len;
+    int i, pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
     /* Arbitrary user data provided through a file */
     const char *filename = NULL;
-    FILE *dataFile = NULL;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    XFILE fp = NULL;
+    size_t len;
     BYTE hash[TPM_SHA256_DIGEST_SIZE];
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_SHA256)
+    #if !defined(NO_SHA256)
     /* Using wolfcrypt to hash input data */
     BYTE dataBuffer[1024];
     wc_Sha256 sha256;
+    #endif
 #endif
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
 #ifdef DEBUG_WOLFTPM
@@ -84,32 +85,32 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
 #endif
 
-    if (argc == 3) {
-        pcrIndex = atoi(argv[1]);
-        if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
-            printf("PCR index is out of range (0-23)\n");
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
             usage();
-            goto exit_badargs;
+            return 0;
         }
 
-        filename = argv[2];
-        dataFile = fopen(filename, "rb");
-        if (dataFile == NULL) {
-            printf("Error opening file %s\n", filename);
-            usage();
-            goto exit_badargs;
+        /* Advanced usage */
+        if (argv[1][0] != '-') {
+            if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
+                printf("PCR index is out of range (0-23)\n");
+                usage();
+                return 0;
+            }
+            pcrIndex = atoi(argv[1]);
         }
-    }
-    else if (argc == 1) {
-        pcrIndex = TPM2_TEST_PCR;
-    }
-    else {
-        printf("Incorrect arguments\n");
-        usage();
-        goto exit_badargs;
+
+        if (argc >= 3 && argv[2][0] != '-')
+            filename = argv[2];
     }
 
     printf("Demo how to extend data into a PCR (TPM2.0 measurement)\n");
+    printf("\tData file: %s\n", filename);
+    printf("\tPCR Index: %d\n", pcrIndex);
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -117,36 +118,29 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-
-    /* Define the default session auth that has NULL password */
-    XMEMSET(session, 0, sizeof(session));
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0; /* NULL Password */
-    TPM2_SetSessionAuth(session);
-
     /* Prepare PCR Extend command */
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
+
     /* Prepare the hash from user file or predefined value */
-    if (dataFile == NULL) {
-        for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
-            cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
-        }
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    if (filename) {
+        fp = XFOPEN(filename, "rb");
     }
-    else {
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_SHA256)
+    if (filename && fp) {
+#if !defined(NO_SHA256)
         wc_InitSha256(&sha256);
-        while (!feof(dataFile)) {
-            len = fread(dataBuffer, 1, sizeof(dataBuffer), dataFile);
+        while (!XFEOF(fp)) {
+            len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
             if (len) {
                 wc_Sha256Update(&sha256, dataBuffer, (int)len);
             }
         }
         wc_Sha256Final(&sha256, hash);
 #else
-        len = fread(hash, 1, TPM_SHA256_DIGEST_SIZE, dataFile);
+        len = XFREAD(hash, 1, TPM_SHA256_DIGEST_SIZE, fp);
         if (len != TPM_SHA256_DIGEST_SIZE) {
             printf("Error while reading SHA256 digest from file.\n");
             goto exit;
@@ -155,6 +149,15 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
         XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,
                 hash, TPM_SHA256_DIGEST_SIZE);
     }
+    else
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM */
+    {
+        printf("Error loading file %s, using test data\n", filename);
+        for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
+            cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
+        }
+    }
+
     printf("Hash to be used for measurement:\n");
     for (i=0; i < TPM_SHA256_DIGEST_SIZE; i++)
         printf("%02X", cmdIn.pcrExtend.digests.digests[0].digest.H[i]);
@@ -186,12 +189,6 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
 exit:
 
     wolfTPM2_Cleanup(&dev);
-
-exit_badargs:
-
-    if (dataFile != NULL) {
-        fclose(dataFile);
-    }
 
     return rc;
 }

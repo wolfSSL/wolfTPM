@@ -87,7 +87,7 @@ int TPM2_KDFa(
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int ret, hashType;
-    Hmac hmac;
+    Hmac hmac_ctx;
     word32 counter = 0;
     int hLen, lLen = 0;
     byte uint32Buf[sizeof(UINT32)];;
@@ -110,7 +110,7 @@ int TPM2_KDFa(
         lLen = (int)XSTRLEN(label) + 1;
     }
 
-    ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
+    ret = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
     if (ret != 0)
         return ret;
 
@@ -120,45 +120,45 @@ int TPM2_KDFa(
         counter++;
 
         /* start HMAC */
-        ret = wc_HmacSetKey(&hmac, hashType, keyIn->buffer, keyIn->size);
+        ret = wc_HmacSetKey(&hmac_ctx, hashType, keyIn->buffer, keyIn->size);
         if (ret != 0)
             goto exit;
 
         /* add counter - KDFa i2 */
         TPM2_Packet_U32ToByteArray(counter, uint32Buf);
-        ret = wc_HmacUpdate(&hmac, uint32Buf, (word32)sizeof(uint32Buf));
+        ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
         if (ret != 0)
             goto exit;
 
         /* add label - KDFa label */
         if (label != NULL) {
-            ret = wc_HmacUpdate(&hmac, (byte*)label, lLen);
+            ret = wc_HmacUpdate(&hmac_ctx, (byte*)label, lLen);
             if (ret != 0)
                 goto exit;
         }
 
         /* add contextU */
         if (contextU != NULL && contextU->size > 0) {
-            ret = wc_HmacUpdate(&hmac, contextU->buffer, contextU->size);
+            ret = wc_HmacUpdate(&hmac_ctx, contextU->buffer, contextU->size);
             if (ret != 0)
                 goto exit;
         }
 
         /* add contextV */
         if (contextV != NULL && contextV->size > 0) {
-            ret = wc_HmacUpdate(&hmac, contextV->buffer, contextV->size);
+            ret = wc_HmacUpdate(&hmac_ctx, contextV->buffer, contextV->size);
             if (ret != 0)
                 goto exit;
         }
 
         /* add size in bits */
         TPM2_Packet_U32ToByteArray(sizeInBits, uint32Buf);
-        ret = wc_HmacUpdate(&hmac, uint32Buf, (word32)sizeof(uint32Buf));
+        ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
         if (ret != 0)
             goto exit;
 
         /* get result */
-        ret = wc_HmacFinal(&hmac, keyStream);
+        ret = wc_HmacFinal(&hmac_ctx, keyStream);
         if (ret != 0)
             goto exit;
 
@@ -167,19 +167,18 @@ int TPM2_KDFa(
     ret = keySz;
 
 exit:
-    wc_HmacFree(&hmac);
+    wc_HmacFree(&hmac_ctx);
 
     /* return length rounded up to nearest 8 multiple */
     return ret;
 #else
     (void)hashAlg;
-    (void)key;
+    (void)keyIn;
     (void)label;
     (void)contextU;
     (void)contextV;
-    (void)sizeInBits;
-    (void)keyStream;
-    (void)counterInc;
+    (void)key;
+    (void)keySz;
 
     return NOT_COMPILED_IN;
 #endif
@@ -373,20 +372,15 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 const BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-    /* TODO: second nonce should be nonceTPM from StartAuthSession
-     *       make a new design choice how to pass that nonce
-     *       - using active context
-     *       - using WOLFTPM2_SESSION
-     *       - other?
-     */
+
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonce,
-            &session->nonce, encryptedParameter, paramData, paramSz);
+            &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
-    else if (session->symmetric.algorithm == TPM_ALG_CFB) {
+    else if (session->symmetric.algorithm == TPM_ALG_AES && session->symmetric.mode.aes == TPM_ALG_CFB) {
         rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonce,
-            &session->nonce, encryptedParameter, paramData, paramSz);
+            &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
 #endif
 
@@ -399,15 +393,14 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
 {
     TPM_RC rc = TPM_RC_FAILURE;
 
-    /* TODO: second nonce should be nonceTPM from StartAuthSession response */
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonce,
-            &session->nonce, decryptedParameter, paramData, paramSz);
+            &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
-    else if (session->symmetric.algorithm == TPM_ALG_CFB) {
+    else if (session->symmetric.algorithm == TPM_ALG_AES && session->symmetric.mode.aes == TPM_ALG_CFB) {
         rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonce,
-            &session->nonce, decryptedParameter, paramData, paramSz);
+            &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
 #endif
 

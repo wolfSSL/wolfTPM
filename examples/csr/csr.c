@@ -150,7 +150,6 @@ int TPM2_CSR_Example(void* userCtx)
     WOLFTPM2_KEY eccKey;
     ecc_key wolfEccKey;
 #endif
-    TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
 
@@ -174,21 +173,16 @@ int TPM2_CSR_Example(void* userCtx)
     if (rc != 0) goto exit;
 
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
-
-    storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
 
 #ifndef NO_RSA
     rc = getRSAkey(&dev,
                    &storageKey,
                    &rsaKey,
                    &wolfRsaKey,
-                   tpmDevId);
+                   tpmDevId,
+                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &wolfRsaKey, gClientCertRsaFile);
@@ -201,7 +195,8 @@ int TPM2_CSR_Example(void* userCtx)
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
-                    tpmDevId);
+                    tpmDevId, 
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &wolfEccKey, gClientCertEccFile);

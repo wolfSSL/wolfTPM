@@ -29,6 +29,7 @@
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/pkcs7/pkcs7.h>
 #include <wolfssl/wolfcrypt/pkcs7.h>
 
@@ -321,32 +322,10 @@ int TPM2_PKCS7_Example(void* userCtx)
 #endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc < 0) goto exit;
-
-    /* See if primary storage key already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
-        TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0) {
-        /* Create primary storage key */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreatePrimaryKey(&dev, &storageKey, TPM_RH_OWNER,
-            &publicTemplate, (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
-            TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for storage key */
-        storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-        XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
-    }
+    
+    /* get SRK */
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
 
     /* Create/Load RSA key for PKCS7 signing */
     rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
@@ -369,6 +348,7 @@ int TPM2_PKCS7_Example(void* userCtx)
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
+    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth, 0);
 
 
     /* load DER certificate for TPM key (obtained by running

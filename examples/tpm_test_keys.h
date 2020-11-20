@@ -28,19 +28,21 @@
 
 WOLFTPM_LOCAL int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
                                        WOLFTPM2_KEY* pStorageKey,
-                                       TPMT_PUBLIC* pPublicTemplate);
+                                       TPM_ALG_ID alg);
 
 #ifndef NO_RSA
 #ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key);
+                            WOLFTPM2_KEY* key,
+                            const byte* auth, int authSz);
 #else
 WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
                             RsaKey* pWolfRsaKey,
-                            int tpmDevId);
+                            int tpmDevId,
+                            const byte* auth, int authSz);
 #endif /* WOLFTPM2_NO_WOLFCRYPT */
 #endif
 
@@ -48,32 +50,17 @@ WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
 #ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key);
+                            WOLFTPM2_KEY* key,
+                            const byte* auth, int authSz);
 #else
 WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
                             ecc_key* pWolfEccKey,
-                            int tpmDevId);
+                            int tpmDevId,
+                            const byte* auth, int authSz);
 #endif
 #endif
 
-#ifdef WOLFTPM2_NO_WOLFCRYPT
-/* stdio, default case */
-#include <stdio.h>
-#define XFILE      FILE*
-#define XFOPEN     fopen
-#define XFSEEK     fseek
-#define XFTELL     ftell
-#define XREWIND    rewind
-#define XFREAD     fread
-#define XFWRITE    fwrite
-#define XFCLOSE    fclose
-#define XSEEK_END  SEEK_END
-#define XBADFILE   NULL
-#define XFGETS     fgets
-#endif
-
-
-#endif /* !defined(WOLFTPM2_NO_WRAPPER) */
+#endif /* !WOLFTPM2_NO_WRAPPER */
 #endif /* _TPM_TEST_KEYS_H_ */

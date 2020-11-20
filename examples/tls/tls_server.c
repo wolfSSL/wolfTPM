@@ -92,7 +92,6 @@ int TPM2_TLS_Server(void* userCtx)
     WOLFTPM2_KEY ecdhKey;
     #endif
 #endif
-    TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     SockIoCbCtx sockIoCtx;
     int tpmDevId;
@@ -151,9 +150,7 @@ int TPM2_TLS_Server(void* userCtx)
     if (rc != 0) goto exit;
 
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
 
 #ifndef NO_RSA
@@ -163,7 +160,8 @@ int TPM2_TLS_Server(void* userCtx)
                     &storageKey,
                     &rsaKey,
                     &wolfRsaKey,
-                    tpmDevId);
+                    tpmDevId,
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
     }
 #endif /* !NO_RSA */
@@ -175,7 +173,8 @@ int TPM2_TLS_Server(void* userCtx)
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
-                    tpmDevId);
+                    tpmDevId,
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
     }
 

@@ -37,7 +37,7 @@ typedef struct WOLFTPM2_HANDLE {
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
 
 typedef struct WOLFTPM2_SESSION {
-    TPM_ST_T        type;         /* Trial, Policy or HMAC; or TPM_SES_PSWD */
+    TPM_ST_T        type;         /* Trial, Policy or HMAC; or TPM_SES_PWD */
     WOLFTPM2_HANDLE handle;       /* Session handle from StartAuthSession */
     TPM2B_NONCE     nonceTPM;     /* Value from StartAuthSession */
     TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
@@ -47,8 +47,7 @@ typedef struct WOLFTPM2_SESSION {
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM]; /* TODO: rename ot authCmd for consistency with native naming */
-    WOLFTPM2_SESSION sessions[MAX_SESSION_NUM]; /* Stores the details of the active TPM session */
+    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 } WOLFTPM2_DEV;
 
 typedef struct WOLFTPM2_KEY {
@@ -133,7 +132,13 @@ WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
-    TPM_HANDLE sessionHandle, const byte* auth, int authSz);
+    TPM_HANDLE sessionHandle, TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes);
+WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, 
+    TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes);
+WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
+    WOLFTPM2_HANDLE* handle, TPMA_SESSION sessionAttributes);
+WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index, 
+    WOLFTPM2_SESSION* session, TPMA_SESSION sessionAttributes);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,

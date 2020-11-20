@@ -157,7 +157,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
-        NO, YES);
+        YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
@@ -208,9 +208,7 @@ int TPM2_Wrapper_Bench(void* userCtx)
     if (rc != 0) return rc;
 
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
 
     /* RNG Benchmark */
