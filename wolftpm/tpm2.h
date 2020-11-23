@@ -1572,12 +1572,13 @@ typedef struct TPMS_AUTH_COMMAND {
     TPMA_SESSION sessionAttributes;
     TPM2B_AUTH auth; /* spec has this as "hmac" */
 
-    /* Implementation specific */
+    /* Implementation specific - TODO: Consider finding a diff place */
     /* These are used for parameter encrypt/decrypt */
     TPM2B_NONCE nonceTPM;
     /* The symmetric and hash algorithms to use */
     TPMT_SYM_DEF symmetric;
     TPMI_ALG_HASH authHash;
+    TPM2B_NAME name;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {

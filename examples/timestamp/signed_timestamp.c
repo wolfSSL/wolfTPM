@@ -211,10 +211,10 @@ int TPM2_Timestamp_Test(void* userCtx)
 
 
     /* set NULL password auth for using EK */
-    wolfTPM2_SetAuthPassword(&dev, 0, NULL, 0);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
 
     /* set auth for using the AIK */
-    wolfTPM2_SetAuthPassword(&dev, 1, &rsaKey.handle.auth, 0);
+    wolfTPM2_SetAuthPassword(&dev, 1, &rsaKey.handle.auth);
 
     /* At this stage: The EK is created, AIK is created and loaded,
      * Endorsement Hierarchy is enabled through policySecret,

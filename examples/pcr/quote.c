@@ -161,7 +161,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     }
 
     /* set auth for using the AIK */
-    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth, 0);
+    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth);
 
     /* Prepare Quote request */
     XMEMSET(&cmdIn.quoteAsk, 0, sizeof(cmdIn.quoteAsk));

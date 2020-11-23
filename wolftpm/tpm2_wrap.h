@@ -32,6 +32,7 @@ typedef struct WOLFTPM2_HANDLE {
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
     TPMT_SYM_DEF    symmetric;
+    TPM2B_NAME      name;
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
@@ -42,7 +43,7 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_NONCE     nonceTPM;     /* Value from StartAuthSession */
     TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
     TPM2B_DIGEST    salt;         /* User defined */
-    const char*     bindPassword; /* User defined */
+    TPMI_ALG_HASH   authHash;
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_DEV {
@@ -53,7 +54,6 @@ typedef struct WOLFTPM2_DEV {
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
-    TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
 typedef struct WOLFTPM2_KEYBLOB {
@@ -132,13 +132,12 @@ WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
-    TPM_HANDLE sessionHandle, TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes);
-WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, 
-    TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes);
-WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
-    WOLFTPM2_HANDLE* handle, TPMA_SESSION sessionAttributes);
+    TPM_HANDLE sessionHandle, const TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes,
+    const TPM2B_NAME* name);
+WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, const TPM2B_AUTH* auth);
+WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
 WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index, 
-    WOLFTPM2_SESSION* session, TPMA_SESSION sessionAttributes);
+    const WOLFTPM2_SESSION* session, TPMA_SESSION sessionAttributes);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,

@@ -144,7 +144,6 @@ static int readAndLoadKey(WOLFTPM2_DEV* pDev,
 
     key->handle = keyblob.handle;
     key->pub    = keyblob.pub;
-    key->name   = keyblob.name;
     key->handle.auth.size = authSz;
     XMEMCPY(key->handle.auth.buffer, auth, authSz);
 

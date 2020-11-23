@@ -348,7 +348,7 @@ int TPM2_PKCS7_Example(void* userCtx)
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
-    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth, 0);
+    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth);
 
 
     /* load DER certificate for TPM key (obtained by running

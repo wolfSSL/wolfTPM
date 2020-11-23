@@ -35,8 +35,6 @@ WOLFTPM_API int TPM2_KDFa(
     BYTE *key, UINT32 keySz
 );
 
-WOLFTPM_LOCAL int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx);
-WOLFTPM_LOCAL int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx);
 /* Perform encryption over the first parameter of a TPM packet */
 WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 TPM2B_MAX_BUFFER *encryptedParameter,

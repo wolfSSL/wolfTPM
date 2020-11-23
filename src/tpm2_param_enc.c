@@ -72,14 +72,14 @@
  *
  * Return values:
  *     0    hash algorithm is not supported or is TPM_ALG_NULL
- *    >0    the number of bytes in the 'keyStream' buffer
+ *    >0    the number of bytes in the 'key' buffer
  *
  */
 int TPM2_KDFa(
     TPM_ALG_ID   hashAlg,   /* IN: hash algorithm used in HMAC */
     TPM2B_DATA  *keyIn,     /* IN: key */
     const char  *label,     /* IN: a 0-byte terminated label used in KDF */
-    TPM2B_NONCE *contextU,  /* IN: context U */
+    TPM2B_NONCE *contextU,  /* IN: context U (newer) */
     TPM2B_NONCE *contextV,  /* IN: context V */
     BYTE        *key,       /* OUT: key buffer */
     UINT32       keySz      /* IN: size of generated key in bytes */
@@ -187,8 +187,8 @@ exit:
 
 /* Perform XOR encryption over the first parameter of a TPM packet */
 static int TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
-    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *encryptedData,
-    const BYTE *paramData, UINT32 paramSz)
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, 
+    TPM2B_MAX_BUFFER *encryptedData, const BYTE *paramData, UINT32 paramSz)
 {
     int rc = TPM_RC_FAILURE;
     TPM2B_MAX_BUFFER mask;
@@ -204,8 +204,8 @@ static int TPM2_ParamEnc_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
     rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "XOR",
                                nonceCaller, nonceTPM, mask.buffer, paramSz);
     if ((UINT32)rc != paramSz) {
-    #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("KDFa size error! rc %d != %d\n", rc, paramSz);
+    #ifdef DEBUG_WOLFTPM
+        printf("KDFa XOR Gen Error %d\n", rc);
     #endif
         return TPM_RC_FAILURE;
     }
@@ -238,10 +238,10 @@ static int TPM2_ParamDec_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
     /* Generate XOR Mask stream matching paramater size */
     XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
     rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "XOR",
-                               nonceCaller, nonceTPM, mask.buffer, encryptedDataSz);
+                        nonceCaller, nonceTPM, mask.buffer, encryptedDataSz);
     if ((UINT32)rc != encryptedDataSz) {
-    #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("KDFa size error! rc %d != %d\n", rc, encryptedDataSz);
+    #ifdef DEBUG_WOLFTPM
+        printf("KDFa XOR Gen Error %d\n", rc);
     #endif
         return TPM_RC_FAILURE;
     }
@@ -260,8 +260,8 @@ static int TPM2_ParamDec_XOR(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
 #ifdef WOLFSSL_AES_CFB
 /* Perform AES CFB encryption over the first parameter of a TPM packet */
 static int TPM2_ParamEnc_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
-    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, TPM2B_MAX_BUFFER *encryptedData,
-    const BYTE *paramData, UINT32 paramSz)
+    TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, 
+    TPM2B_MAX_BUFFER *encryptedData, const BYTE *paramData, UINT32 paramSz)
 {
     int rc = TPM_RC_FAILURE;
     BYTE symKey[32 + 16]; /* AES key (max) + IV (block size) */
@@ -278,6 +278,9 @@ static int TPM2_ParamEnc_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
     rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "CFB",
         nonceCaller, nonceTPM, symKey, symKeySz + symKeyIvSz);
     if (rc != symKeySz + symKeyIvSz) {
+    #ifdef DEBUG_WOLFTPM
+        printf("KDFa CFB Gen Error %d\n", rc);
+    #endif
         return TPM_RC_FAILURE;
     }
 
@@ -315,6 +318,9 @@ static int TPM2_ParamDec_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
     rc = TPM2_KDFa(session->authHash, (TPM2B_DATA*)keyIn, "CFB",
         nonceCaller, nonceTPM, symKey, symKeySz + symKeyIvSz);
     if (rc != symKeySz + symKeyIvSz) {
+    #ifdef DEBUG_WOLFTPM
+        printf("KDFa CFB Gen Error %d\n", rc);
+    #endif
         return TPM_RC_FAILURE;
     }
 
@@ -337,36 +343,6 @@ static int TPM2_ParamDec_AESCFB(TPMS_AUTH_COMMAND *session, TPM2B_AUTH* keyIn,
 /* --- Public Functions -- */
 /******************************************************************************/
 
-/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
-int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx)
-{
-    int i;
-
-    for (i=0; i<MAX_SESSION_NUM; i++) {
-        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_decrypt) &&
-            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
-            break;
-        }
-    }
-
-    return i;
-}
-
-/* Returns MAX_SESSION_NUM if no session is found, otherwise session index */
-int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx)
-{
-    int i;
-
-    for (i=0; i<MAX_SESSION_NUM; i++) {
-        if ((ctx->authCmd[i].sessionAttributes & TPMA_SESSION_encrypt) &&
-            ctx->authCmd[i].sessionHandle != TPM_RS_PW) {
-            break;
-        }
-    }
-
-    return i;
-}
-
 TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
                                 TPM2B_MAX_BUFFER *encryptedParameter,
                                 const BYTE *paramData, UINT32 paramSz)
@@ -378,7 +354,8 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
             &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
-    else if (session->symmetric.algorithm == TPM_ALG_AES && session->symmetric.mode.aes == TPM_ALG_CFB) {
+    else if (session->symmetric.algorithm == TPM_ALG_AES && 
+             session->symmetric.mode.aes == TPM_ALG_CFB) {
         rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonce,
             &session->nonceTPM, encryptedParameter, paramData, paramSz);
     }
@@ -398,7 +375,8 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
             &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
 #ifdef WOLFSSL_AES_CFB
-    else if (session->symmetric.algorithm == TPM_ALG_AES && session->symmetric.mode.aes == TPM_ALG_CFB) {
+    else if (session->symmetric.algorithm == TPM_ALG_AES &&
+             session->symmetric.mode.aes == TPM_ALG_CFB) {
         rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonce,
             &session->nonceTPM, decryptedParameter, paramData, paramSz);
     }
