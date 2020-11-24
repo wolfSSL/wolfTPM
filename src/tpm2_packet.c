@@ -315,17 +315,13 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
     }
 }
 
-int TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
+int TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd, 
+    int authCount)
 {
-    int tmpSz = 0;
-    int i, authCount;
+    int i, tmpSz = 0;
 
     if (authCmd == NULL)
         return BAD_FUNC_ARG;
-
-    authCount = TPM2_GetSessionAuthCount(authCmd);
-    if (authCount < 0)
-        return authCount;
 
     TPM2_Packet_MarkU32(packet, &tmpSz);
     for (i=0; i<authCount; i++) {
@@ -349,9 +345,13 @@ int TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
 
 int TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
 {
+    int authCount;
     if (ctx == NULL || ctx->authCmd == NULL)
         return BAD_FUNC_ARG;
-    return TPM2_Packet_AppendAuthCmd(packet, ctx->authCmd);
+    authCount = TPM2_GetSessionAuthCount(ctx->authCmd);
+    if (authCount < 0)
+        return authCount;
+    return TPM2_Packet_AppendAuthCmd(packet, ctx->authCmd, authCount);
 }
 
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
