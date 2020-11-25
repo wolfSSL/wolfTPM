@@ -173,7 +173,7 @@ int TPM2_Native_Test(void* userCtx, int argc, char *argv[])
         "\x39\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB"
         "\x06\xC1";
 
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 
     (void)argc;
     (void)argv;

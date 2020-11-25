@@ -80,6 +80,7 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
     #include <wolfssl/wolfcrypt/asn_public.h>
+    #include <wolfssl/wolfcrypt/hmac.h>
     #ifdef WOLF_CRYPTO_CB
         #include <wolfssl/wolfcrypt/cryptocb.h>
     #elif defined(WOLF_CRYPTO_DEV)

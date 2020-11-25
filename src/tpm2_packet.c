@@ -334,8 +334,8 @@ int TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd,
         TPM2_Packet_AppendU16(packet, authCmd[i].nonce.size);
         TPM2_Packet_AppendBytes(packet, authCmd[i].nonce.buffer, authCmd[i].nonce.size);
         TPM2_Packet_AppendU8(packet, authCmd[i].sessionAttributes);
-        TPM2_Packet_AppendU16(packet, authCmd[i].auth.size);
-        TPM2_Packet_AppendBytes(packet, authCmd[i].auth.buffer, authCmd[i].auth.size);
+        TPM2_Packet_AppendU16(packet, authCmd[i].hmac.size);
+        TPM2_Packet_AppendBytes(packet, authCmd[i].hmac.buffer, authCmd[i].hmac.size);
     }
     /* based on position difference places calculated size at marked U32 above */
     TPM2_Packet_PlaceU32(packet, tmpSz);
@@ -345,13 +345,21 @@ int TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd,
 
 int TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
 {
-    int authCount;
-    if (ctx == NULL || ctx->authCmd == NULL)
+    int rc, authCount, i;
+    if (ctx == NULL || ctx->session == NULL)
         return BAD_FUNC_ARG;
-    authCount = TPM2_GetSessionAuthCount(ctx->authCmd);
+    authCount = TPM2_GetSessionAuthCount(ctx);
     if (authCount < 0)
         return authCount;
-    return TPM2_Packet_AppendAuthCmd(packet, ctx->authCmd, authCount);
+    for (i=0; i<authCount; i++) {
+        /* Note: Casting a TPM2_AUTH_SESSION to TPMS_AUTH_COMMAND here,
+            this is allowed because top of structure matches */
+        rc = TPM2_Packet_AppendAuthCmd(packet, 
+            (TPMS_AUTH_COMMAND*)&ctx->session[i], 1);
+        if (rc != 0)
+            return rc;
+    }
+    return rc;
 }
 
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
@@ -362,8 +370,8 @@ void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
     TPM2_Packet_ParseU16(packet, &authRsp->nonce.size);
     TPM2_Packet_ParseBytes(packet, authRsp->nonce.buffer, authRsp->nonce.size);
     TPM2_Packet_ParseU8(packet, &authRsp->sessionAttributes);
-    TPM2_Packet_ParseU16(packet, &authRsp->auth.size);
-    TPM2_Packet_ParseBytes(packet, authRsp->auth.buffer, authRsp->auth.size);
+    TPM2_Packet_ParseU16(packet, &authRsp->hmac.size);
+    TPM2_Packet_ParseBytes(packet, authRsp->hmac.buffer, authRsp->hmac.size);
 }
 
 void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)

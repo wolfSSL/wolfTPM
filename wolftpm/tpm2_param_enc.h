@@ -36,12 +36,10 @@ WOLFTPM_API int TPM2_KDFa(
 );
 
 /* Perform encryption over the first parameter of a TPM packet */
-WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
-                                TPM2B_MAX_BUFFER *encryptedParameter,
-                                const BYTE *paramData, UINT32 paramSz);
-WOLFTPM_LOCAL TPM_RC TPM2_ParamDec_CmdResponse(TPMS_AUTH_COMMAND *session,
-                                TPM2B_MAX_BUFFER *decryptedParameter,
-                                const BYTE *paramData, UINT32 paramSz);
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
+                                BYTE *paramData, UINT32 paramSz);
+WOLFTPM_LOCAL TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
+                                BYTE *paramData, UINT32 paramSz);
 
 #ifdef __cplusplus
     }  /* extern "C" */

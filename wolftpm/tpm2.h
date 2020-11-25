@@ -1565,27 +1565,36 @@ typedef struct TPM2B_CREATION_DATA {
 
 
 /* Authorization Structures */
-
 typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonce; /* nonceCaller */
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth; /* spec has this as "hmac" */
-
-    /* Implementation specific - TODO: Consider finding a diff place */
-    /* These are used for parameter encrypt/decrypt */
-    TPM2B_NONCE nonceTPM;
-    /* The symmetric and hash algorithms to use */
-    TPMT_SYM_DEF symmetric;
-    TPMI_ALG_HASH authHash;
-    TPM2B_NAME name;
+    TPM2B_AUTH hmac;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
+    TPM2B_AUTH hmac;
 } TPMS_AUTH_RESPONSE;
+
+/* Implementation specific authorization session information */
+typedef struct TPM2_AUTH_SESSION {
+    /* BEGIN */
+    /* This section should match TPMS_AUTH_COMMAND */
+    TPMI_SH_AUTH_SESSION sessionHandle;
+    TPM2B_NONCE nonceCaller;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+    /* END */
+
+    /* additional auth data required for implementation */
+    TPM2B_NONCE nonceTPM;
+    TPMT_SYM_DEF symmetric;
+    TPMI_ALG_HASH authHash;
+    TPM2B_NAME name;
+} TPM2_AUTH_SESSION;
+
 
 
 /* Predetermined TPM 2.0 Indexes */
@@ -1667,8 +1676,8 @@ typedef struct TPM2_CTX {
     word32 did_vid;
     byte rid;
 
-    /* Current TPM auth session */
-    TPMS_AUTH_COMMAND*  authCmd;
+    /* Pointer to current TPM auth sessions */
+    TPM2_AUTH_SESSION* session;
 
     /* Command Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
@@ -2772,8 +2781,8 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
  * set to a non-NULL function pointer and userCtx is optional.
  */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *authCmd);
-WOLFTPM_API int    TPM2_GetSessionAuthCount(TPMS_AUTH_COMMAND* authCmd);
+WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION *session);
+WOLFTPM_API int    TPM2_GetSessionAuthCount(TPM2_CTX* ctx);
 
 WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);

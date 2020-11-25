@@ -48,7 +48,7 @@ typedef struct WOLFTPM2_SESSION {
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 } WOLFTPM2_DEV;
 
 typedef struct WOLFTPM2_KEY {
@@ -137,7 +137,7 @@ WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
 WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, const TPM2B_AUTH* auth);
 WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
 WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index, 
-    const WOLFTPM2_SESSION* session, TPMA_SESSION sessionAttributes);
+    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
