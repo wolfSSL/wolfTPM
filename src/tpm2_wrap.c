@@ -426,12 +426,15 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
     if (index > 1) {
         auth = &dev->session[index-1].auth;
     }
-  
-    rc = wolfTPM2_SetAuth(dev, index, session->handle.hndl, 
+
+    /* TODO: Make use of auth for an earlier session? */
+    (void)auth;
+
+    rc = wolfTPM2_SetAuth(dev, index, session->handle.hndl,
         &session->handle.auth, sessionAttributes, NULL);
     if (rc == 0) {
         TPMS_AUTH_COMMAND* authCmd = &dev->session[index];
-    
+
         /* define the symmetric algorithm */
         authCmd->authHash = session->authHash;
         authCmd->symmetric = session->handle.symmetric;

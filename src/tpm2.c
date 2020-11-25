@@ -27,6 +27,9 @@
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+#include <wolfssl/wolfcrypt/hmac.h>
+#endif
 
 /******************************************************************************/
 /* --- Local Variables -- */
@@ -494,6 +497,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     cmd = packet->buf;
     cmdSz = packet->pos;
+    (void)cmd;
 
     /* restart the unmarshalling position */
     packet->pos = 0;
@@ -504,7 +508,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Is there at least one auth session present? */
         if (info->authCnt < 1 || ctx->authCmd == NULL)
             return TPM_RC_AUTH_MISSING;
-        
+
     #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Found %d auth sessions\n", info->authCnt);
     #endif

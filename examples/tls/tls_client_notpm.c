@@ -91,6 +91,9 @@ int TLS_Client(int argc, char *argv[])
         }
     }
 
+    /* TODO make use of useECC */
+    (void)useECC;
+
     wolfSSL_Debugging_ON();
 
     wolfSSL_Init();

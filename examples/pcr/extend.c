@@ -59,7 +59,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
     int i, pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
     /* Arbitrary user data provided through a file */
-    const char *filename = NULL;
+    const char *filename = "input.data";
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE fp = NULL;
     size_t len;
