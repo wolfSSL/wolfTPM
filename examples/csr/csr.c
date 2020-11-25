@@ -137,7 +137,7 @@ exit:
     return rc;
 }
 
-int TPM2_CSR_Example(void* userCtx)
+int TPM2_CSR_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -154,6 +154,9 @@ int TPM2_CSR_Example(void* userCtx)
     int tpmDevId;
 
     printf("TPM2 CSR Example\n");
+
+    (void)argc;
+    (void)argv;
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -233,14 +236,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLFSSL_CERT_REQ && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     defined(WOLFSSL_CERT_REQ) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    rc = TPM2_CSR_Example(NULL);
+    rc = TPM2_CSR_Example(NULL, argc, argv);
 #else
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptocb\n");

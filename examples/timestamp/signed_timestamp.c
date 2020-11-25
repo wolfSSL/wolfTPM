@@ -38,13 +38,11 @@
 /* --- BEGIN TPM Timestamp Test -- */
 /******************************************************************************/
 
-int TPM2_Timestamp_Test(void* userCtx)
+int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
-
-
 #ifdef WOLFTPM_WINAPI
     int tryNVkey = 0;
 #else
@@ -73,6 +71,9 @@ int TPM2_Timestamp_Test(void* userCtx)
     WOLFTPM2_KEY endorse; /* EK  */
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY rsaKey;  /* AIK */
+
+    (void)argc;
+    (void)argv;
 
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
@@ -214,7 +215,7 @@ int TPM2_Timestamp_Test(void* userCtx)
     wolfTPM2_SetAuthPassword(&dev, 0, NULL);
 
     /* set auth for using the AIK */
-    wolfTPM2_SetAuthPassword(&dev, 1, &rsaKey.handle.auth);
+    wolfTPM2_SetAuthHandle(&dev, 1, &rsaKey.handle);
 
     /* At this stage: The EK is created, AIK is created and loaded,
      * Endorsement Hierarchy is enabled through policySecret,
@@ -294,12 +295,12 @@ exit:
 
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Timestamp_Test(NULL);
+    rc = TPM2_Timestamp_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif /* !WOLFTPM2_NO_WRAPPER */

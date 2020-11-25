@@ -53,7 +53,7 @@ typedef struct tmpHandle {
 } TpmHandle;
 
 
-int TPM2_Native_Test(void* userCtx)
+int TPM2_Native_Test(void* userCtx, int argc, char *argv[])
 {
     int rc;
     TPM2_CTX tpm2Ctx;
@@ -175,6 +175,8 @@ int TPM2_Native_Test(void* userCtx)
 
     TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
+    (void)argc;
+    (void)argv;
 
     printf("TPM2 Demo using Native API's\n");
 
@@ -1367,11 +1369,11 @@ exit:
 
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc;
 
-    rc = TPM2_Native_Test(NULL);
+    rc = TPM2_Native_Test(NULL, argc, argv);
 
     return rc;
 }

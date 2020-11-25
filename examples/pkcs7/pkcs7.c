@@ -293,7 +293,7 @@ exit:
 }
 
 
-int TPM2_PKCS7_Example(void* userCtx)
+int TPM2_PKCS7_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -306,6 +306,9 @@ int TPM2_PKCS7_Example(void* userCtx)
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE* derFile;
 #endif
+
+    (void)argc;
+    (void)argv;
 
     printf("TPM2 PKCS7 Example\n");
 
@@ -348,7 +351,7 @@ int TPM2_PKCS7_Example(void* userCtx)
         rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
         XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
     }
-    wolfTPM2_SetAuthPassword(&dev, 0, &rsaKey.handle.auth);
+    wolfTPM2_SetAuthHandle(&dev, 0, &rsaKey.handle);
 
 
     /* load DER certificate for TPM key (obtained by running
@@ -398,14 +401,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && HAVE_PKCS7 && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     defined(HAVE_PKCS7) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    rc = TPM2_PKCS7_Example(NULL);
+    rc = TPM2_PKCS7_Example(NULL, argc, argv);
 #else
     printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-pkcs7 --enable-cryptocb\n");

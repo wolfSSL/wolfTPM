@@ -73,12 +73,11 @@
  * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
 
-static int useECC = 0;
 
 /******************************************************************************/
 /* --- BEGIN TPM TLS Client Example -- */
 /******************************************************************************/
-int TPM2_TLS_Client(void* userCtx)
+int TPM2_TLS_Client(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -108,12 +107,19 @@ int TPM2_TLS_Client(void* userCtx)
     int total_size;
     int i;
 #endif
+    int useECC = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
 
     printf("TPM2 TLS Client Example\n");
+
+    if (argc > 1) {
+        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
+            useECC = 1;
+        }
+    }
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -484,20 +490,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(int argc, const char* argv[])
+int main(int argc, char* argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    if (argc > 1) {
-        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
-            useECC = 1;
-        }
-    }
-
-    rc = TPM2_TLS_Client(NULL);
+    rc = TPM2_TLS_Client(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;

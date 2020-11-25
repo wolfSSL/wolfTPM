@@ -26,7 +26,7 @@
     extern "C" {
 #endif
 
-int TPM2_PKCS7_Example(void* userCtx);
+int TPM2_PKCS7_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

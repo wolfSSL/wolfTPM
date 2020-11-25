@@ -397,15 +397,21 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 {
     int rc = TPM_RC_SUCCESS;
     BYTE *param, *decParam = NULL;
-    UINT32 paramSz, decParamSz = 0;
+    UINT32 respSz, respCode, paramSz, decParamSz = 0, authPos;
     int i;
 
-    /* Skip the header and output handles */
-    packet->pos = TPM2_HEADER_SIZE + (info->outHandleCnt * sizeof(TPM_HANDLE));
+    /* Parse header */
+    packet->pos = sizeof(UINT16); /* Skip tag */
+    TPM2_Packet_ParseU32(packet, &respSz);    /* Extract Response Size - total size including header */
+    TPM2_Packet_ParseU32(packet, &respCode);        /* Extract TPM Response Code */
+    
+    /* Skip the header output handles */
+    packet->pos += (info->outHandleCnt * sizeof(TPM_HANDLE));
 
-    /* Mark parameter data */
-    param = &packet->buf[packet->pos];
-    paramSz = packet->size - packet->pos;
+    /* Response Parameter Size */
+    TPM2_Packet_ParseU32(packet, &paramSz);
+    param = &packet->buf[packet->pos]; /* Mark parameter data */
+    authPos = packet->pos + paramSz;
 
     /* Mark "first" decryption parameter */
     if (info->flags & CMD_FLAG_DEC2) {
@@ -422,13 +428,36 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("ResponseProcess: Out %d, Total %d, Params %d\n",
-        info->outHandleCnt, packet->size, paramSz);
+    printf("ResponseProcess: Out %d, Total %d, Params %d, Dec %d\n",
+        info->outHandleCnt, packet->size, paramSz, decParamSz);
 #endif
 
     for (i=0; i<info->authCnt; i++) {
         TPMS_AUTH_COMMAND* authCmd = &ctx->authCmd[i];
+        TPMS_AUTH_RESPONSE authRsp;
+        XMEMSET(&authRsp, 0, sizeof(authRsp));
+
+        /* Parse Auth - if exists */
+        if (respSz > authPos) {
+            packet->pos = authPos;
+            TPM2_Packet_ParseAuth(packet, &authRsp);
+            authPos = packet->pos;
+        }
+
         if (authCmd->sessionHandle != TPM_RS_PW) {
+        #ifndef WOLFTPM2_NO_WOLFCRYPT
+            if (authRsp.auth.size > 0) {
+                /* TODO: Verify HMAC */
+                //rc = TPM2_CalcHmac(ctx, info, &authRsp, param, paramSz);
+            }
+        #endif
+
+            /* update nonceTPM */
+            if (authRsp.nonce.size > 0) {
+                authCmd->nonceTPM.size = authRsp.nonce.size;
+                XMEMCPY(authCmd->nonceTPM.buffer, authRsp.nonce.buffer, authRsp.nonce.size);
+            }
+
             /* Handle session request for decryption */
             /* If the response supports decryption */
             if (decParam && authCmd->sessionAttributes & TPMA_SESSION_encrypt) {

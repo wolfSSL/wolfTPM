@@ -49,7 +49,7 @@ void TPM2_Wrapper_SetReset(int reset)
     resetTPM = reset;
 }
 
-int TPM2_Wrapper_Test(void* userCtx)
+int TPM2_Wrapper_Test(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
     WOLFTPM2_DEV dev;
@@ -105,6 +105,10 @@ int TPM2_Wrapper_Test(void* userCtx)
     ecc_key wolfEccPubKey;
     ecc_key wolfEccPrivKey;
 #endif
+
+    (void)argc;
+    (void)argv;
+
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
     XMEMSET(&wolfRsaPrivKey, 0, sizeof(wolfRsaPrivKey));
@@ -862,7 +866,7 @@ int main(int argc, char *argv[])
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Wrapper_Test(NULL);
+    rc = TPM2_Wrapper_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

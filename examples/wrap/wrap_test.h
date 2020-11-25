@@ -27,7 +27,7 @@
 #endif
 
 void TPM2_Wrapper_SetReset(int reset);
-int TPM2_Wrapper_Test(void* userCtx);
+int TPM2_Wrapper_Test(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

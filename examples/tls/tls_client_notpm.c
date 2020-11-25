@@ -62,7 +62,7 @@
 /******************************************************************************/
 /* --- BEGIN TLS Client Example -- */
 /******************************************************************************/
-int TLS_Client(void)
+int TLS_Client(int argc, char *argv[])
 {
     int rc = 0;
     SockIoCbCtx sockIoCtx;
@@ -77,12 +77,19 @@ int TLS_Client(void)
     int total_size;
     int i;
 #endif
+    int useECC = 0;
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
 
     printf("TLS Client Example\n");
+
+    if (argc > 1) {
+        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
+            useECC = 1;
+        }
+    }
 
     wolfSSL_Debugging_ON();
 
@@ -283,13 +290,13 @@ exit:
 
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT)
-    rc = TLS_Client();
+    rc = TLS_Client(argc, argv);
 #else
     printf("WolfSSL Client code not compiled in\n");
 #endif

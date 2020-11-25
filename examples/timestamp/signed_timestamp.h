@@ -26,7 +26,7 @@
     extern "C" {
 #endif
 
-int TPM2_Timestamp_Test(void* userCtx);
+int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

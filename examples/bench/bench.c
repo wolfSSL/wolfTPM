@@ -185,7 +185,7 @@ exit:
 /* --- BEGIN Bench Wrapper -- */
 /******************************************************************************/
 
-int TPM2_Wrapper_Bench(void* userCtx)
+int TPM2_Wrapper_Bench(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -202,6 +202,8 @@ int TPM2_Wrapper_Bench(void* userCtx)
 
     printf("TPM2 Benchmark using Wrapper API's\n");
 
+    (void)argc;
+    (void)argv;
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -434,12 +436,12 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && !NO_TPM_BENCH */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_TPM_BENCH)
-    rc = TPM2_Wrapper_Bench(NULL);
+    rc = TPM2_Wrapper_Bench(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif
