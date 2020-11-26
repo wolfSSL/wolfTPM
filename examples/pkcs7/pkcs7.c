@@ -313,6 +313,7 @@ int TPM2_PKCS7_Example(void* userCtx, int argc, char *argv[])
     printf("TPM2 PKCS7 Example\n");
 
     XMEMSET(&der, 0, sizeof(der));
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);

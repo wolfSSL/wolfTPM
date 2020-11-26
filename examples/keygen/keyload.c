@@ -133,12 +133,18 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (bytes_read != sizeof(newKey.pub)) {
             printf("Read %zu, expected public blob %zu bytes\n", bytes_read, sizeof(newKey.pub));
             rc = BUFFER_E;
+            XFCLOSE(f);
             goto exit;
         }
 
         if (fileSz > sizeof(newKey.pub)) {
             fileSz -= sizeof(newKey.pub);
             bytes_read = XFREAD(&newKey.priv, 1, fileSz, f);
+            if (bytes_read != fileSz) {
+                rc = BUFFER_E;
+                XFCLOSE(f);
+                goto exit;
+            }
         }
         XFCLOSE(f);
 

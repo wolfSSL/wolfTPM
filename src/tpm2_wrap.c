@@ -374,8 +374,8 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
 }
 
 int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
-    TPM_HANDLE sessionHandle, const TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes,
-    const TPM2B_NAME* name)
+    TPM_HANDLE sessionHandle, const TPM2B_AUTH* auth, 
+    TPMA_SESSION sessionAttributes, const TPM2B_NAME* name)
 {
     TPM2_AUTH_SESSION* session;
 
@@ -583,11 +583,6 @@ static int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
         return rc;
     }
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Session Salt %d\n", salt->size);
-    TPM2_PrintBin(salt->buffer, salt->size);
-#endif
-
     switch (tpmKey->pub.publicArea.type) {
     #ifdef HAVE_ECC
         case TPM_ALG_ECC:
@@ -718,11 +713,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             return TPM_RC_FAILURE;
         }
         rc = TPM_RC_SUCCESS;
-
-    #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("Session Key %d\n", session->handle.auth.size);
-        TPM2_PrintBin(session->handle.auth.buffer, session->handle.auth.size);
-    #endif
     }
 
     /* return session */
@@ -1027,6 +1017,7 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
     if (pub == NULL || out == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(out, 0, sizeof(TPM2B_NAME));
     nameAlg = pub->publicArea.nameAlg;
     if (nameAlg == TPM_ALG_NULL)
         return TPM_RC_SUCCESS;
@@ -1189,7 +1180,8 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
             rc = wc_HmacUpdate(&hmac_ctx, name->name, name->size);
 
         /* write result at position after Priv->size and Outer->Size field */
-        rc = wc_HmacFinal(&hmac_ctx, &packet.buf[sizeof(word16)+sizeof(word16)]);
+        if (rc == 0)
+            rc = wc_HmacFinal(&hmac_ctx, &packet.buf[sizeof(word16)+sizeof(word16)]);
         wc_HmacFree(&hmac_ctx);
         if (rc != 0)
             return rc;

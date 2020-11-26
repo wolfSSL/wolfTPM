@@ -79,6 +79,9 @@ int TLS_Client(int argc, char *argv[])
 #endif
     int useECC = 0;
 
+    (void)argc;
+    (void)argv;
+
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
@@ -302,6 +305,8 @@ int main(int argc, char *argv[])
     rc = TLS_Client(argc, argv);
 #else
     printf("WolfSSL Client code not compiled in\n");
+    (void)argc;
+    (void)argv;
 #endif
 
     return rc;

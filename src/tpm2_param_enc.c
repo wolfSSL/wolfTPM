@@ -281,12 +281,6 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
         return TPM_RC_FAILURE;
     }
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("AES Enc Key %d, IV %d\n", symKeySz, symKeyIvSz);
-    TPM2_PrintBin(symKey, symKeySz);
-    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
-#endif
-
     /* Perform AES CFB Encryption */
     rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
     if (rc == 0) {
@@ -326,16 +320,10 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
         return TPM_RC_FAILURE;
     }
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("AES Dec Key %d, IV %d\n", symKeySz, symKeyIvSz);
-    TPM2_PrintBin(symKey, symKeySz);
-    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
-#endif
-
     /* Perform AES CFB Decryption */
     rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
     if (rc == 0) {
-        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz], AES_DECRYPTION);
+        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz], AES_ENCRYPTION);
         if (rc == 0) {
             rc = wc_AesCfbDecrypt(&dec, paramData, paramData, paramSz);
         }
@@ -354,15 +342,6 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("CmdEnc Session Key %d\n", session->auth.size);
-	TPM2_PrintBin(session->auth.buffer, session->auth.size);
-    printf("CmdEnc Nonce caller %d\n", session->nonceCaller.size);
-    TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
-    printf("CmdEnc Nonce TPM %d\n", session->nonceTPM.size);
-    TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
-#endif
 
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonceCaller,
@@ -383,15 +362,6 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
                                  BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("RspDec Session Key %d\n", session->auth.size);
-	TPM2_PrintBin(session->auth.buffer, session->auth.size);
-    printf("RspDec Nonce caller %d\n", session->nonceCaller.size);
-    TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
-    printf("RspDec Nonce TPM %d\n", session->nonceTPM.size);
-    TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
-#endif
 
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonceCaller,

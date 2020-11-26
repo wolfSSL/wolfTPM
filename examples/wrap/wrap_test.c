@@ -106,9 +106,6 @@ int TPM2_Wrapper_Test(void* userCtx, int argc, char *argv[])
     ecc_key wolfEccPrivKey;
 #endif
 
-    (void)argc;
-    (void)argv;
-
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
     XMEMSET(&wolfRsaPrivKey, 0, sizeof(wolfRsaPrivKey));
@@ -118,6 +115,9 @@ int TPM2_Wrapper_Test(void* userCtx, int argc, char *argv[])
     XMEMSET(&wolfEccPrivKey, 0, sizeof(wolfEccPrivKey));
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+    (void)argc;
+    (void)argv;
 
     printf("TPM2 Demo for Wrapper API's\n");
 
