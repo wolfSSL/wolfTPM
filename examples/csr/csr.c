@@ -137,7 +137,11 @@ exit:
     return rc;
 }
 
-int TPM2_CSR_Example(void* userCtx, int argc, char *argv[])
+int TPM2_CSR_Example(void* userCtx)
+{
+    return TPM2_CSR_ExampleArgs(userCtx, 0, NULL);
+}
+int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -243,7 +247,7 @@ int main(int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     defined(WOLFSSL_CERT_REQ) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    rc = TPM2_CSR_Example(NULL, argc, argv);
+    rc = TPM2_CSR_ExampleArgs(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;

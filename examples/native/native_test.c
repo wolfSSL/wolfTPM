@@ -53,7 +53,11 @@ typedef struct tmpHandle {
 } TpmHandle;
 
 
-int TPM2_Native_Test(void* userCtx, int argc, char *argv[])
+int TPM2_Native_Test(void* userCtx)
+{
+    return TPM2_Native_TestArgs(userCtx, 0, NULL);
+}
+int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     TPM2_CTX tpm2Ctx;
@@ -377,7 +381,8 @@ int TPM2_Native_Test(void* userCtx, int argc, char *argv[])
     }
 
     /* PCR Extend and Verify */
-    pcrIndex = 16; /* Working with PCR16 because of next PCR Reset test */
+    /* Working with PCR16 because of next PCR Reset test */
+    pcrIndex = TPM2_TEST_PCR;
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
     cmdIn.pcrExtend.pcrHandle = pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
@@ -414,9 +419,9 @@ int TPM2_Native_Test(void* userCtx, int argc, char *argv[])
 
     /* PCR Reset
         Only PCR16(DEBUG) and PCR23(Application specific) can be reset
-        in locality 0. This is the only locality supoprted by wolfTPM.
+        in locality 0. This is the only locality supported by wolfTPM.
     */
-    pcrIndex = 16;
+    pcrIndex = TPM2_TEST_PCR;
     XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));
     cmdIn.pcrReset.pcrHandle = pcrIndex;
     rc = TPM2_PCR_Reset(&cmdIn.pcrReset);
@@ -1373,7 +1378,7 @@ int main(int argc, char *argv[])
 {
     int rc;
 
-    rc = TPM2_Native_Test(NULL, argc, argv);
+    rc = TPM2_Native_TestArgs(NULL, argc, argv);
 
     return rc;
 }

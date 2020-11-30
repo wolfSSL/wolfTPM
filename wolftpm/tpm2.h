@@ -1679,10 +1679,10 @@ typedef struct TPM2_CTX {
     /* Pointer to current TPM auth sessions */
     TPM2_AUTH_SESSION* session;
 
-    /* Command Buffer */
+    /* Command / Response Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 
-    /* Informational Bits */
+    /* Informational Bits - use unsigned int for best compiler compatibility */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef SINGLE_THREADED
     unsigned int hwLockInit:1;
@@ -2762,8 +2762,8 @@ WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
-/* In when using devtpm or swtpm, the ioCb and userCtx are not used
- * and must be set to NULL. TPM2_Init_minimal() call TPM2_Init_ex()
+/* When using devtpm or swtpm, the ioCb and userCtx are not used
+ * and should be NULL. TPM2_Init_minimal() calls TPM2_Init_ex()
  * with them set to NULL.
  *
  * In other modes, the ioCb shall be set in order to use TIS.
@@ -2800,6 +2800,7 @@ WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
 WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
 WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
+WOLFTPM_LOCAL int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name);
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);

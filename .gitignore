@@ -38,7 +38,6 @@ examples/tls/tls_client
 examples/pkcs7/pkcs7
 examples/timestamp/signed_timestamp
 examples/pcr/quote
-examples/pcr/quote_paramenc
 examples/pcr/extend
 examples/pcr/reset
 examples/timestamp/clock_set
@@ -51,8 +50,6 @@ tests/unit.test
 examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
-examples/keygen/keygen_paramenc
-examples/keygen/keyload_paramenc
 
 # Generated Cert Files
 certs/ca-*.pem

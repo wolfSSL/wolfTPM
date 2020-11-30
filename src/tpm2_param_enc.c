@@ -338,6 +338,150 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
 /* --- Public Functions -- */
 /******************************************************************************/
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+/* Compute the command parameter hash */
+/* TCG TPM 2.0 Part 1 - 18.7 Command Parameter Hash cpHash */
+int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode, 
+    TPM2B_NAME* name1, TPM2B_NAME* name2, TPM2B_NAME* name3,
+    BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash)
+{
+    int rc;
+    wc_HashAlg hash_ctx;
+    enum wc_HashType hashType;
+
+    rc = TPM2_GetHashType(authHash);
+    hashType = (enum wc_HashType)rc;
+    rc = wc_HashGetDigestSize(hashType);
+    if (rc < 0)
+        return rc;
+    hash->size = rc;
+
+    /* Hash of data (name) goes into remainder */
+    rc = wc_HashInit(&hash_ctx, hashType);
+    if (rc == 0) {
+        /* Hash Command Code */
+        UINT32 ccSwap = TPM2_Packet_SwapU32(cmdCode);
+        rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
+
+        /* For Command's only hash each session name */
+        if (rc == 0 && name1 && name1->size > 0)
+            rc = wc_HashUpdate(&hash_ctx, hashType, name1->name, name1->size);
+        if (rc == 0 && name2 && name2->size > 0)
+            rc = wc_HashUpdate(&hash_ctx, hashType, name2->name, name2->size);
+        if (rc == 0 && name3 && name3->size > 0)
+            rc = wc_HashUpdate(&hash_ctx, hashType, name3->name, name3->size);
+
+        /* Hash Remainder of parameters - after handles and auth */
+        if (rc == 0)
+            rc = wc_HashUpdate(&hash_ctx, hashType, param, paramSz);
+
+        if (rc == 0)
+            rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
+
+        wc_HashFree(&hash_ctx, hashType);
+    }
+
+    return rc;
+}
+
+/* Compute the response parameter hash */
+/* TCG TPM 2.0 Part 1 - 18.8 Response Parameter Hash rpHash */
+int TPM2_CalcRpHash(TPMI_ALG_HASH authHash, 
+    TPM_CC cmdCode, BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash)
+{
+    int rc;
+    wc_HashAlg hash_ctx;
+    enum wc_HashType hashType;
+
+    rc = TPM2_GetHashType(authHash);
+    hashType = (enum wc_HashType)rc;
+    rc = wc_HashGetDigestSize(hashType);
+    if (rc < 0)
+        return rc;
+    hash->size = rc;
+
+    /* Hash of data (name) goes into remainder */
+    rc = wc_HashInit(&hash_ctx, hashType);
+    if (rc == 0) {
+        UINT32 ccSwap;
+
+        /* Hash Response Code - HMAC only calculated with success - always 0 */
+        ccSwap = 0;
+        rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
+        
+        /* Hash Command Code */
+        if (rc == 0) {
+            ccSwap = TPM2_Packet_SwapU32(cmdCode);
+            rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
+        }
+
+        /* Hash Remainder of parameters - after handles */
+        if (rc == 0)
+            rc = wc_HashUpdate(&hash_ctx, hashType, param, paramSz);
+
+        if (rc == 0)
+            rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
+
+        wc_HashFree(&hash_ctx, hashType);
+    }
+
+    return rc;
+}
+
+/* Compute the HMAC using cpHash, nonces and session attributes */
+/* TCG TPM 2.0 Part 1 - 19.6.5 - HMAC Computation */
+int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth, 
+    const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew, 
+    const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
+    TPM2B_AUTH* hmac)
+{
+    int rc;
+    Hmac hmac_ctx;
+    enum wc_HashType hashType;
+
+    /* use authHash for hmac hash algorithm */
+    rc = TPM2_GetHashType(authHash);
+    hashType = (enum wc_HashType)rc;
+    hmac->size = TPM2_GetHashDigestSize(authHash);
+    if (hmac->size <= 0)
+        return BAD_FUNC_ARG;
+
+    /* setup HMAC */
+    rc = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
+    if (rc != 0)
+        return rc;
+    /* start HMAC - sessionKey || authValue */
+    /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
+    rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
+
+    /* pHash - hash of command code and parameters */
+    if (rc == 0)
+        rc = wc_HmacUpdate(&hmac_ctx, hash->buffer, hash->size);
+
+    /* nonce new (on cmd caller, on resp tpm) */
+    if (rc == 0)
+        rc = wc_HmacUpdate(&hmac_ctx, nonceNew->buffer, nonceNew->size);
+
+    /* nonce old (on cmd TPM, on resp caller) */
+    if (rc == 0)
+        rc = wc_HmacUpdate(&hmac_ctx, nonceOld->buffer, nonceOld->size);
+
+    /* TODO: nonceTPMDecrypt */
+    /* TODO: nonceTPMEncrypt */
+
+    /* sessionAttributes */
+    if (rc == 0)
+        rc = wc_HmacUpdate(&hmac_ctx, &sessionAttributes, 1);
+
+    /* finalize return into hmac buffer */
+    if (rc == 0)
+        rc = wc_HmacFinal(&hmac_ctx, hmac->buffer);
+    wc_HmacFree(&hmac_ctx);
+
+    return rc;
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
 TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz)
 {

@@ -41,13 +41,14 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/quote [pcr] [filename] [-e]\n");
-    printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
-    printf("* filename for saving the TPMS_ATTEST structure to a file\n");
+    printf("./examples/pcr/quote [pcr] [filename] [-ecc] [-aes/xor]\n");
+    printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
+    printf("* filename: for saving the TPMS_ATTEST structure to a file\n");
+    printf("* -ecc: Use RSA or ECC for EK/AIK\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
     printf("Demo usage without parameters, generates quote over PCR%d and\n"
            "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n",
            TPM2_TEST_PCR);
-    printf("-e: Use Parameter Encryption\n");
 }
 
 int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
@@ -58,11 +59,10 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     int dataSz;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
-
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
     WOLFTPM2_KEY endorse; /* EK  */
     WOLFTPM2_KEY storage; /* SRK */
-    WOLFTPM2_KEY rsaKey;  /* AIK */
-
+    WOLFTPM2_KEY aik;  /* AIK */
     union {
         Quote_In quoteAsk;
         byte maxInput[MAX_COMMAND_SIZE];
@@ -71,11 +71,16 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         Quote_Out quoteResult;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
-    int useParamEnc = 0;
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
 #endif
+
+    XMEMSET(&endorse, 0, sizeof(endorse));
+    XMEMSET(&storage, 0, sizeof(storage));
+    XMEMSET(&aik, 0, sizeof(aik));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -98,21 +103,23 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
             outputFile = argv[2];
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-e", 2) == 0) {
-            useParamEnc = 1;
+        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+            alg = TPM_ALG_ECC;
+        }
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
         }
         argc--;
     }
 
-    XMEMSET(&endorse, 0, sizeof(endorse));
-    XMEMSET(&storage, 0, sizeof(storage));
-    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-
     printf("PCR Quote example - Demo of signed PCR measurement\n");
     printf("\tOutput file: %s\n", outputFile);
     printf("\tPCR Index: %d\n", pcrIndex);
-    printf("\tUse Parameter Encryption: %d\n", useParamEnc);
+    printf("\tUse %s SRK/AIK\n", TPM2_GetAlgName(alg));
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -122,7 +129,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     printf("wolfTPM2_Init: success\n");
 
     /* Create Endorsement Key, also called EK */
-    rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+    rc = wolfTPM2_CreateEK(&dev, &endorse, alg);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateEK: Endorsement failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
@@ -132,11 +139,11 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         (word32)endorse.handle.hndl, endorse.pub.size);
 
     /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    rc = getPrimaryStoragekey(&dev, &storage, alg);
     if (rc != 0) goto exit;
 
-    /* Create an RSA key for Attestation purposes */
-    rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
+    /* Create key for Attestation purposes */
+    rc = wolfTPM2_CreateAndLoadAIK(&dev, &aik, alg, &storage,
         (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
@@ -144,12 +151,12 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
-        (word32)rsaKey.handle.hndl, rsaKey.pub.size);
+        (word32)aik.handle.hndl, aik.pub.size);
 
-    if (useParamEnc) {
-        /* Start an authenticated session (salted / unbound with AES CFB parameter encryption) */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
-            TPM_SE_POLICY, TPM_ALG_CFB);
+            TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
@@ -161,14 +168,14 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     }
 
     /* set auth for using the AIK */
-    wolfTPM2_SetAuthHandle(&dev, 0, &rsaKey.handle);
+    wolfTPM2_SetAuthHandle(&dev, 0, &aik.handle);
 
     /* Prepare Quote request */
     XMEMSET(&cmdIn.quoteAsk, 0, sizeof(cmdIn.quoteAsk));
     XMEMSET(&cmdOut.quoteResult, 0, sizeof(cmdOut.quoteResult));
-    cmdIn.quoteAsk.signHandle = rsaKey.handle.hndl;
-    cmdIn.quoteAsk.inScheme.scheme = TPM_ALG_RSASSA;
-    cmdIn.quoteAsk.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
+    cmdIn.quoteAsk.signHandle = aik.handle.hndl;
+    cmdIn.quoteAsk.inScheme.scheme = alg == TPM_ALG_RSA ? TPM_ALG_RSASSA : TPM_ALG_ECDSA;
+    cmdIn.quoteAsk.inScheme.details.any.hashAlg = TPM_ALG_SHA256;
     cmdIn.quoteAsk.qualifyingData.size = 0; /* optional */
     /* Choose PCR for signing */
     TPM2_SetupPCRSel(&cmdIn.quoteAsk.PCRselect, TPM_ALG_SHA256, pcrIndex);
@@ -223,7 +230,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 exit:
 
     /* Close key handles */
-    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &aik.handle);
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);

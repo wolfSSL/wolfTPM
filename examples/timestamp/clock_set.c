@@ -39,7 +39,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/clock/clockSet [time]\n");
+    printf("./examples/clock/clock_set [time]\n");
     printf("* time is a value in miliseconds used as increment (optional)\n");
     printf("* Default time value is 50000 ms (50 seconds)\n");
     printf("\tThe TPM clock can be set only forward.\n");

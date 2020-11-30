@@ -292,8 +292,11 @@ exit:
     return rc;
 }
 
-
-int TPM2_PKCS7_Example(void* userCtx, int argc, char *argv[])
+int TPM2_PKCS7_Example(void* userCtx)
+{
+    return TPM2_PKCS7_ExampleArgs(userCtx, 0, NULL);
+}
+int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -409,7 +412,7 @@ int main(int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     defined(HAVE_PKCS7) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    rc = TPM2_PKCS7_Example(NULL, argc, argv);
+    rc = TPM2_PKCS7_ExampleArgs(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;

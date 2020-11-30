@@ -26,7 +26,8 @@
     extern "C" {
 #endif
 
-int TPM2_TLS_Server(void* userCtx, int argc, char* argv[]);
+int TPM2_TLS_Server(void* userCtx);
+int TPM2_TLS_ServerArgs(void* userCtx, int argc, char* argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

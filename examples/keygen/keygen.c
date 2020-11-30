@@ -37,9 +37,10 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("keygen [keyblob.bin] [-ECC/-RSA] [-T] [-e]\n");
-    printf("-T: Use default template (otherwise AIK)\n");
-    printf("-e: Use Parameter Encryption\n");
+    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa] [-t] [-aes/xor]\n");
+    printf("* -ecc: Use RSA or ECC for keys\n");
+    printf("* -t: Use default template (otherwise AIK)\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
@@ -50,7 +51,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB newKey;
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
-    int useParamEnc = 0;
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
     int bAIK = 1;
@@ -71,14 +72,17 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             outputFile = argv[1];
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-ECC", 4) == 0) {
+        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRNCMP(argv[argc-1], "-T", 2) == 0) {
+        if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
             bAIK = 0;
         }
-        if (XSTRNCMP(argv[argc-1], "-e", 2) == 0) {
-            useParamEnc = 1;
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
         }
         argc--;
     }
@@ -92,7 +96,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
     printf("\tTemplate: %s\n", bAIK ? "AIK" : "Default");
-    printf("\tUse Parameter Encryption: %d\n", useParamEnc);
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -104,10 +108,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
     if (rc != 0) goto exit;
 
-    if (useParamEnc) {
-        /* Start an authenticated session (salted / unbound with AES CFB parameter encryption) */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
-            TPM_SE_POLICY, TPM_ALG_CFB);
+            TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);

@@ -366,6 +366,11 @@ WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
+/* for salted auth sessions */
+WOLFTPM_LOCAL int wolfTPM2_RSA_Salt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea);
+WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt);
 
 
 #if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)

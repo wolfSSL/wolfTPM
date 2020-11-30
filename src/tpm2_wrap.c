@@ -21,10 +21,6 @@
 
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-#include <wolfssl/wolfcrypt/aes.h>
-#include <wolfssl/wolfcrypt/hmac.h>
-#endif
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -398,7 +394,7 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
 
     TPM2_SetSessionAuth(dev->session);
 
-    return 0;
+    return TPM_RC_SUCCESS;
 }
 
 int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, 
@@ -410,31 +406,27 @@ int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index,
 int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, 
     const WOLFTPM2_HANDLE* handle)
 {
-    return wolfTPM2_SetAuth(dev, index, TPM_RS_PW, &handle->auth, 0, &handle->name);
+    const TPM2B_AUTH* auth = NULL;
+    const TPM2B_NAME* name = NULL;
+    if (handle) {
+        auth = &handle->auth;
+        name = &handle->name;
+    }
+    return wolfTPM2_SetAuth(dev, index, TPM_RS_PW, auth, 0, name);
 }
 
 int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index, 
     const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes)
 {
     int rc;
-    TPM2B_AUTH* auth = NULL;
 
     if (dev == NULL || index >= MAX_SESSION_NUM) {
         return BAD_FUNC_ARG;
     }
-    /* use auth from earlier session */
-    if (index > 1) {
-        auth = &dev->session[index-1].auth;
-    }
-
-    /* TODO: Make use of auth for an earlier session? */
-    /* If the encrypt session is associated with a handle, the authValue of the 
-        handle will be concatenated with sessionKey to generate encryption key */
-    (void)auth;
 
     rc = wolfTPM2_SetAuth(dev, index, tpmSession->handle.hndl,
         &tpmSession->handle.auth, sessionAttributes, NULL);
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         TPM2_AUTH_SESSION* session = &dev->session[index];
 
         /* define the symmetric algorithm */
@@ -497,7 +489,7 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
 /* returns both the plaintext and encrypted salt, based on the salt key bPublic. */
-static int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea)
 {
     int rc;
@@ -563,7 +555,7 @@ static int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 }
 #endif /* !NO_RSA */
 
-static int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt)
 {
     int rc;
@@ -632,10 +624,15 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     /* set session auth for key */
-    wolfTPM2_SetAuthHandle(dev, 0, &tpmKey->handle);
-
-    authSesIn.tpmKey = tpmKey ? tpmKey->handle.hndl :
-                                (TPMI_DH_OBJECT)TPM_RH_NULL;
+    if (tpmKey) {
+        wolfTPM2_SetAuthHandle(dev, 0, &tpmKey->handle);
+        authSesIn.tpmKey = tpmKey->handle.hndl;
+    }
+    else {
+        wolfTPM2_SetAuthPassword(dev, 0, NULL);
+        authSesIn.tpmKey = (TPMI_DH_OBJECT)TPM_RH_NULL;
+    }
+    /* setup bind key */
     authSesIn.bind = (TPMI_DH_ENTITY)TPM_RH_NULL;
     if (bind) {
         authSesIn.bind = bind->hndl;
@@ -716,6 +713,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     /* return session */
+    session->type = authSesIn.sessionType;
     session->authHash = authSesIn.authHash;
     session->handle.hndl = authSesOut.sessionHandle;
     session->handle.symmetric = authSesIn.symmetric;

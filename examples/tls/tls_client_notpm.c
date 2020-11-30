@@ -62,7 +62,11 @@
 /******************************************************************************/
 /* --- BEGIN TLS Client Example -- */
 /******************************************************************************/
-int TLS_Client(int argc, char *argv[])
+int TLS_Client(void)
+{
+    return TLS_ClientArgs(0, NULL);
+}
+int TLS_ClientArgs(int argc, char *argv[])
 {
     int rc = 0;
     SockIoCbCtx sockIoCtx;
@@ -302,7 +306,7 @@ int main(int argc, char *argv[])
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT)
-    rc = TLS_Client(argc, argv);
+    rc = TLS_ClientArgs(argc, argv);
 #else
     printf("WolfSSL Client code not compiled in\n");
     (void)argc;

@@ -45,8 +45,8 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/pcr/extend [pcr] [filename]\n");
-    printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
-    printf("* filename points to file(data) to measure\n");
+    printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
+    printf("* filename: points to file(data) to measure\n");
     printf("\tIf wolfTPM is built with --disable-wolfcrypt the file\n"
            "\tmust contain SHA256 digest ready for extend operation.\n"
            "\tOtherwise, the extend tool computes the hash using wolfcrypt.\n");

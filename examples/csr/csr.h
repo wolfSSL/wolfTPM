@@ -26,7 +26,8 @@
     extern "C" {
 #endif
 
-int TPM2_CSR_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_CSR_Example(void* userCtx);
+int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

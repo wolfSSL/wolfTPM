@@ -60,7 +60,7 @@
 /* force use of a TLS cipher suite */
 #if 0
     #ifndef TLS_CIPHER_SUITE
-        #define TLS_CIPHER_SUITE "ECDHE-RSA-AES128-SHA256"
+        #define TLS_CIPHER_SUITE "ECDHE-rsa-AES128-SHA256"
     #endif
 #endif
 

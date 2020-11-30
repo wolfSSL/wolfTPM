@@ -88,190 +88,19 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 /* Send Command Wrapper */
 typedef enum CmdFlags {
     CMD_FLAG_NONE = 0x00,
-    CMD_FLAG_ENC2 = 0x01, /* size of first command parameter */
-    CMD_FLAG_ENC4 = 0x02,
-    CMD_FLAG_DEC2 = 0x04, /* size of first response parameter */
-    CMD_FLAG_DEC4 = 0x08,
+    CMD_FLAG_ENC2 = 0x01, /* 16-bit size of first command parameter */
+    CMD_FLAG_ENC4 = 0x02, /* 32-bit size (not used) */
+    CMD_FLAG_DEC2 = 0x04, /* 16-bit size of first response parameter */
+    CMD_FLAG_DEC4 = 0x08, /* 32-bit size (not used) */
 } CmdFlags_t;
 
+/* Command Details */
 typedef struct {
-    int authCnt;
-    int inHandleCnt;
-    int outHandleCnt;
-    int flags;
+    int authCnt;      /* number of authentication handles - determined at run-time */
+    int inHandleCnt;  /* number of input handles - fixed */
+    int outHandleCnt; /* number of output handles - fixed */
+    int flags;        /* If command allows param enc or dec - fixed */
 } CmdInfo_t;
-
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-/* Get name for object/handle */
-static int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name)
-{
-    TPM2_AUTH_SESSION* session;
-
-    XMEMSET(name, 0, sizeof(TPM2B_NAME));
-
-    if (idx >= handleCnt)
-        return TPM_RC_SUCCESS;
-
-    session = &ctx->session[idx];
-    if (session->name.size > 0) {
-        name->size = session->name.size;
-        XMEMCPY(name->name, session->name.name, name->size);
-    }
-    return TPM_RC_SUCCESS;
-}
-
-/* Compute the command parameter hash */
-/* TCG TPM 2.0 Part 1 - 18.7 Command Parameter Hash cpHash */
-static int TPM2_CalcCpHash(TPM2_CTX* ctx, CmdInfo_t* info,
-    TPMI_ALG_HASH authHash, TPM_CC cmdCode, BYTE* param, UINT32 paramSz, 
-    TPM2B_DIGEST* hash)
-{
-    int rc;
-    wc_HashAlg hash_ctx;
-    enum wc_HashType hashType;
-    TPM2B_NAME name1, name2, name3;
-
-    rc =  TPM2_GetName(ctx, info->inHandleCnt, 0, &name1);
-    rc |= TPM2_GetName(ctx, info->inHandleCnt, 1, &name2);
-    rc |= TPM2_GetName(ctx, info->inHandleCnt, 2, &name3);
-    if (rc != TPM_RC_SUCCESS)
-        return BAD_FUNC_ARG;
-
-    rc = TPM2_GetHashType(authHash);
-    hashType = (enum wc_HashType)rc;
-    rc = wc_HashGetDigestSize(hashType);
-    if (rc < 0)
-        return rc;
-    hash->size = rc;
-
-    /* Hash of data (name) goes into remainder */
-    rc = wc_HashInit(&hash_ctx, hashType);
-    if (rc == 0) {
-        /* Hash Command Code */
-        UINT32 ccSwap = TPM2_Packet_SwapU32(cmdCode);
-        rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
-
-        /* For Command's only hash each session name */
-        if (rc == 0 && name1.size > 0)
-            rc = wc_HashUpdate(&hash_ctx, hashType, name1.name, name1.size);
-        if (rc == 0 && name2.size > 0)
-            rc = wc_HashUpdate(&hash_ctx, hashType, name2.name, name2.size);
-        if (rc == 0 && name3.size > 0)
-            rc = wc_HashUpdate(&hash_ctx, hashType, name3.name, name3.size);
-
-        /* Hash Remainder of parameters - after handles and auth */
-        if (rc == 0)
-            rc = wc_HashUpdate(&hash_ctx, hashType, param, paramSz);
-
-        if (rc == 0)
-            rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
-
-        wc_HashFree(&hash_ctx, hashType);
-    }
-    (void)ctx;
-
-    return rc;
-}
-
-/* Compute the response parameter hash */
-/* TCG TPM 2.0 Part 1 - 18.8 Response Parameter Hash rpHash */
-static int TPM2_CalcRpHash(TPM2_CTX* ctx, TPMI_ALG_HASH authHash, 
-    TPM_CC cmdCode, BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash)
-{
-    int rc;
-    wc_HashAlg hash_ctx;
-    enum wc_HashType hashType;
-
-    rc = TPM2_GetHashType(authHash);
-    hashType = (enum wc_HashType)rc;
-    rc = wc_HashGetDigestSize(hashType);
-    if (rc < 0)
-        return rc;
-    hash->size = rc;
-
-    /* Hash of data (name) goes into remainder */
-    rc = wc_HashInit(&hash_ctx, hashType);
-    if (rc == 0) {
-        UINT32 ccSwap;
-
-        /* Hash Response Code - HMAC only calculated with success - always 0 */
-        ccSwap = 0;
-        rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
-        
-        /* Hash Command Code */
-        if (rc == 0) {
-            ccSwap = TPM2_Packet_SwapU32(cmdCode);
-            rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
-        }
-
-        /* Hash Remainder of parameters - after handles */
-        if (rc == 0)
-            rc = wc_HashUpdate(&hash_ctx, hashType, param, paramSz);
-
-        if (rc == 0)
-            rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
-
-        wc_HashFree(&hash_ctx, hashType);
-    }
-    (void)ctx;
-
-    return rc;
-}
-
-/* Compute the HMAC using cpHash, nonces and session attributes */
-/* TCG TPM 2.0 Part 1 - 19.6.5 - HMAC Computation */
-static int TPM2_CalcHmac(TPM2_CTX* ctx, TPMI_ALG_HASH authHash, TPM2B_AUTH* auth, 
-    const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew, 
-    const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
-    TPM2B_AUTH* hmac)
-{
-    int rc;
-    Hmac hmac_ctx;
-    enum wc_HashType hashType;
-
-    /* use authHash for hmac hash algorithm */
-    rc = TPM2_GetHashType(authHash);
-    hashType = (enum wc_HashType)rc;
-    hmac->size = TPM2_GetHashDigestSize(authHash);
-    if (hmac->size <= 0)
-        return BAD_FUNC_ARG;
-
-    /* setup HMAC */
-    rc = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
-    if (rc != 0)
-        return rc;
-    /* start HMAC - sessionKey || authValue */
-    rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
-
-    /* pHash - hash of command code and parameters */
-    if (rc == 0)
-        rc = wc_HmacUpdate(&hmac_ctx, hash->buffer, hash->size);
-
-    /* nonce new (on cmd caller, on resp tpm) */
-    if (rc == 0)
-        rc = wc_HmacUpdate(&hmac_ctx, nonceNew->buffer, nonceNew->size);
-
-    /* nonce old (on cmd TPM, on resp caller) */
-    if (rc == 0)
-        rc = wc_HmacUpdate(&hmac_ctx, nonceOld->buffer, nonceOld->size);
-
-    /* TODO: nonceTPMDecrypt */
-    /* TODO: nonceTPMEncrypt */
-
-    /* sessionAttributes */
-    if (rc == 0)
-        rc = wc_HmacUpdate(&hmac_ctx, &sessionAttributes, 1);
-
-    /* finalize return into hmac buffer */
-    if (rc == 0)
-        rc = wc_HmacFinal(&hmac_ctx, hmac->buffer);
-    wc_HmacFree(&hmac_ctx);
-
-    (void)ctx;
-
-    return rc;
-}
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
@@ -330,8 +159,18 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
         if (session->sessionHandle != TPM_RS_PW) {
         #ifndef WOLFTPM2_NO_WOLFCRYPT
+            TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
         #endif
+
+            /* if param enc is not supported for this command then clear flag */
+            /* session attribute flags are from TPM perspective */
+            if ((info->flags & (CMD_FLAG_ENC2 | CMD_FLAG_ENC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_decrypt;
+            }
+            if ((info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4)) == 0) {
+                authCmd.sessionAttributes &= ~TPMA_SESSION_encrypt;
+            }
 
             /* Handle session request for encryption */
             if (encParam && session->sessionAttributes & TPMA_SESSION_decrypt) {
@@ -346,9 +185,19 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #ifndef WOLFTPM2_NO_WOLFCRYPT
+            rc =  TPM2_GetName(ctx, info->inHandleCnt, 0, &name1);
+            rc |= TPM2_GetName(ctx, info->inHandleCnt, 1, &name2);
+            rc |= TPM2_GetName(ctx, info->inHandleCnt, 2, &name3);
+            if (rc != TPM_RC_SUCCESS) {
+            #ifdef DEBUG_WOLFTPM
+                printf("Error getting names for cpHash!\n");
+            #endif
+                return BAD_FUNC_ARG;
+            }
+
             /* calculate "cpHash" hash for command code, names and parameters */
-            rc = TPM2_CalcCpHash(ctx, info, session->authHash, cmdCode, 
-                param, paramSz, &hash);
+            rc = TPM2_CalcCpHash(session->authHash, cmdCode, &name1, 
+                &name2, &name3, param, paramSz, &hash);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating cpHash!\n");
@@ -357,7 +206,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
             /* Calculate HMAC for policy, hmac or salted sessions */
             /* this is done after encryption */
-            rc = TPM2_CalcHmac(ctx, session->authHash, &session->auth, &hash, 
+            rc = TPM2_CalcHmac(session->authHash, &session->auth, &hash, 
                 &session->nonceCaller, &session->nonceTPM, 
                 session->sessionAttributes, &authCmd.hmac);
             if (rc != TPM_RC_SUCCESS) {
@@ -439,8 +288,8 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 TPM2B_AUTH hmac;
 
                 /* calculate "rpHash" hash for command code and parameters */
-                rc = TPM2_CalcRpHash(ctx, session->authHash, cmdCode, 
-                    param, paramSz, &hash);
+                rc = TPM2_CalcRpHash(session->authHash, cmdCode, param, paramSz,
+                    &hash);
                 if (rc != TPM_RC_SUCCESS) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Error calculating rpHash!\n");
@@ -449,7 +298,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 }
 
                 /* Calculate HMAC prior to decryption */
-                rc = TPM2_CalcHmac(ctx, session->authHash, &session->auth, &hash, 
+                rc = TPM2_CalcHmac(session->authHash, &session->auth, &hash, 
                     &session->nonceTPM, &session->nonceCaller, 
                     session->sessionAttributes, &hmac);
                 if (rc != TPM_RC_SUCCESS) {
@@ -570,8 +419,11 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
-    if (ctx && ctx->session && TPM2_GetSessionAuthCount(ctx) > 0) {
-        st = TPM_ST_SESSIONS;
+    if (ctx && ctx->session) {
+        int authCount = TPM2_GetSessionAuthCount(ctx);
+        if (authCount == 1 && ctx->session[0].sessionHandle != TPM_RS_PW) {
+            st = TPM_ST_SESSIONS;
+        }
     }
     return st;
 }
@@ -594,6 +446,61 @@ static inline void TPM2_WolfCrypt_Init(void)
 /******************************************************************************/
 /* --- Public Functions -- */
 /******************************************************************************/
+TPM2_CTX* TPM2_GetActiveCtx(void)
+{
+    return gActiveTPM;
+}
+
+void TPM2_SetActiveCtx(TPM2_CTX* ctx)
+{
+    gActiveTPM = ctx;
+}
+
+TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION* session)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->session = session;
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+/* Finds the number of active Auth Session in the given TPM2 context */
+int TPM2_GetSessionAuthCount(TPM2_CTX* ctx)
+{
+    int sessionCount, sessionHandle;
+
+    if (ctx == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    for (sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
+        sessionHandle = ctx->session[sessionCount].sessionHandle;
+        /* According to the TCG Spec, Part 1, Chapter 15.4
+         * Session Handles have most significant octet at
+         * 0x02 for HMAC sessions
+         * 0x03 for Policy sessions
+         * Password sessions use predefined value of TPM_RS_PW
+         * Trial sessions are not of interest
+         */
+        if (sessionHandle != TPM_RS_PW) {
+            /* Not a password session, mask the most significant octet(MSO) */
+            sessionHandle &= 0xFF000000;
+            /* Check MSO for an HMAC or Policy session, otherwise invalid */
+            if ((sessionHandle ^ 0x02000000) && (sessionHandle ^ 0x03000000))
+                break;
+        }
+    }
+
+    return sessionCount;
+}
 
 TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
 {
@@ -5316,62 +5223,6 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
-TPM2_CTX* TPM2_GetActiveCtx(void)
-{
-    return gActiveTPM;
-}
-
-void TPM2_SetActiveCtx(TPM2_CTX* ctx)
-{
-    gActiveTPM = ctx;
-}
-
-TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION* session)
-{
-    TPM_RC rc;
-    TPM2_CTX* ctx = TPM2_GetActiveCtx();
-
-    if (ctx == NULL)
-        return BAD_FUNC_ARG;
-
-    rc = TPM2_AcquireLock(ctx);
-    if (rc == TPM_RC_SUCCESS) {
-        ctx->session = session;
-
-        TPM2_ReleaseLock(ctx);
-    }
-    return rc;
-}
-
-/* Finds the number of active Auth Session in the given TPM2 context */
-int TPM2_GetSessionAuthCount(TPM2_CTX* ctx)
-{
-    int sessionCount, sessionHandle;
-
-    if (ctx == NULL || ctx->session == NULL)
-        return BAD_FUNC_ARG;
-
-    for (sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
-        sessionHandle = ctx->session[sessionCount].sessionHandle;
-        /* According to the TCG Spec, Part 1, Chapter 15.4
-         * Session Handles have most significant octet at
-         * 0x02 for HMAC sessions
-         * 0x03 for Policy sessions
-         * Password sessions use predefined value of TPM_RS_PW
-         * Trial sessions are not of interest
-         */
-        if (sessionHandle != TPM_RS_PW) {
-            /* Not a password session, mask the most significant octet(MSO) */
-            sessionHandle &= 0xFF000000;
-            /* Check MSO for an HMAC or Policy session, otherwise invalid */
-            if ((sessionHandle ^ 0x02000000) && (sessionHandle ^ 0x03000000))
-                break;
-        }
-    }
-
-    return sessionCount;
-}
-
 /* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for RNG source */
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
@@ -5412,6 +5263,24 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 #endif
 
     return rc;
+}
+
+/* Get name for object/handle */
+int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name)
+{
+    TPM2_AUTH_SESSION* session;
+
+    XMEMSET(name, 0, sizeof(TPM2B_NAME));
+
+    if (idx >= handleCnt)
+        return TPM_RC_SUCCESS;
+
+    session = &ctx->session[idx];
+    if (session->name.size > 0) {
+        name->size = session->name.size;
+        XMEMCPY(name->name, session->name.name, name->size);
+    }
+    return TPM_RC_SUCCESS;
 }
 
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)

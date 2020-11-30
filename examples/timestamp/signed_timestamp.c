@@ -29,6 +29,7 @@
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include "signed_timestamp.h"
 
 #include <stdio.h>
@@ -38,48 +39,72 @@
 /* --- BEGIN TPM Timestamp Test -- */
 /******************************************************************************/
 
-int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("./examples/timestamp/signed_timestamp [-ecc] [-aes/xor]\n");
+    printf("* -ecc: Use RSA or ECC for EK/AIK\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
+}
+
+int TPM2_Timestamp_Test(void* userCtx)
+{
+    return TPM2_Timestamp_TestArgs(userCtx, 0, NULL);
+}
+int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
-#ifdef WOLFTPM_WINAPI
-    int tryNVkey = 0;
-#else
-    int tryNVkey = 1;
-#endif
-
     union {
-        /* For managing TPM session */
-        StartAuthSession_In authSes;
         PolicySecret_In policySecret;
-        /* For removing keys after use */
-        FlushContext_In flushCtx;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
         ReadClock_Out readClock;
         GetTime_Out getTime;
-        /* Output from session operations */
-        StartAuthSession_Out authSes;
         PolicySecret_Out policySecret;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
-
-    TPM_HANDLE sessionHandle = TPM_RH_NULL;
-
     WOLFTPM2_KEY endorse; /* EK  */
     WOLFTPM2_KEY storage; /* SRK */
-    WOLFTPM2_KEY rsaKey;  /* AIK */
-
-    (void)argc;
-    (void)argv;
+    WOLFTPM2_KEY aik;  /* AIK */
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
+    TPMA_SESSION sessionAttributes;
 
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
-    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+    XMEMSET(&aik, 0, sizeof(aik));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+            alg = TPM_ALG_ECC;
+        }
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
+    }
 
     printf("TPM2 Demo of generating signed timestamp from the TPM\n");
+    printf("\tUse %s SRK/AIK\n", TPM2_GetAlgName(alg));
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
+
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -99,7 +124,7 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
 
 
     /* Create Endorsement Key, also called EK */
-    rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+    rc = wolfTPM2_CreateEK(&dev, &endorse, alg);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateEK: Endorsement failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
@@ -109,45 +134,8 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
         (word32)endorse.handle.hndl, endorse.pub.size);
 
 
-    /* Create RSA Storage Key, also called SRK */
-    /* See if SRK already exists */
-    if (tryNVkey) {
-        rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
-#ifdef TEST_WRAP_DELETE_KEY
-        if (rc == 0) {
-            storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
-            rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storage);
-            if (rc != 0) goto exit;
-            rc = TPM_RC_HANDLE; /* mark handle as missing */
-        }
-#endif
-    }
-
-    if (!tryNVkey || (tryNVkey && rc != 0)) {
-        /* Create primary storage key (RSA) */
-        rc = wolfTPM2_CreateSRK(&dev, &storage, TPM_ALG_RSA,
-            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-        if (rc != 0) goto exit;
-
-        if (tryNVkey) {
-            /* Move storage key into persistent NV */
-            rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storage,
-                TPM2_DEMO_STORAGE_KEY_HANDLE);
-            if (rc != 0) {
-                wolfTPM2_UnloadHandle(&dev, &storage.handle);
-                goto exit;
-            }
-        }
-
-        printf("Created new RSA Primary Storage Key at 0x%x\n",
-               storage.handle.hndl);
-    }
-    else {
-        /* specify auth password for storage key */
-        storage.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-        XMEMCPY(storage.handle.auth.buffer, gStorageKeyAuth,
-            storage.handle.auth.size);
-    }
+    /* Create Storage Key, also called SRK */
+    rc = getPrimaryStoragekey(&dev, &storage, alg);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateSRK: Storage failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -156,36 +144,21 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
     printf("wolfTPM2_CreateSRK: Storage 0x%x (%d bytes)\n",
         (word32)storage.handle.hndl, storage.pub.size);
 
+    /* Start an authenticated session (salted / unbound) */
+    rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
+        TPM_SE_POLICY, paramEncAlg);
+    if (rc != 0) goto exit;
+    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+        (word32)tpmSession.handle.hndl);
 
-    /* Start Auth Session */
-    XMEMSET(&cmdIn.authSes, 0, sizeof(cmdIn.authSes));
-    cmdIn.authSes.sessionType = TPM_SE_POLICY;
-    cmdIn.authSes.tpmKey = TPM_RH_NULL;
-    cmdIn.authSes.bind = TPM_RH_NULL;
-    cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.authSes.authHash = TPM_ALG_SHA256;
-    cmdIn.authSes.nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
-    rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
-                       cmdIn.authSes.nonceCaller.size);
-    if (rc < 0) {
-        printf("TPM2_GetNonce failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    rc = TPM2_StartAuthSession(&cmdIn.authSes, &cmdOut.authSes);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_StartAuthSession failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    sessionHandle = cmdOut.authSes.sessionHandle;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
-
+    /* Set the endorsement password (blank) */
+    rc = wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    if (rc != 0) goto exit;
 
     /* Set PolicySecret for our session to enable use of the Endorsement Hierarchy */
     XMEMSET(&cmdIn.policySecret, 0, sizeof(cmdIn.policySecret));
     cmdIn.policySecret.authHandle = TPM_RH_ENDORSEMENT;
-    cmdIn.policySecret.policySession = sessionHandle;
+    cmdIn.policySecret.policySession = tpmSession.handle.hndl;
     rc = TPM2_PolicySecret(&cmdIn.policySecret, &cmdOut.policySecret);
     if (rc != TPM_RC_SUCCESS) {
         printf("policySecret failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -193,14 +166,13 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_policySecret success\n"); /* No use of the output */
 
-
     /* At this stage, the EK is created and NULL password has already been set
      * The EH is enabled through policySecret over the active TPM session and
      * the creation of Attestation Identity Key (AIK) under the EH can take place.
      */
 
-    /* Create an Attestation RSA key (AIK) */
-    rc = wolfTPM2_CreateAndLoadAIK(&dev, &rsaKey, TPM_ALG_RSA, &storage,
+    /* Create an Attestation key (AIK) */
+    rc = wolfTPM2_CreateAndLoadAIK(&dev, &aik, alg, &storage,
         (const byte*)gAiKeyAuth, sizeof(gAiKeyAuth)-1);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_CreateAndLoadAIK failed 0x%x: %s\n", rc,
@@ -208,14 +180,27 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
-        (word32)rsaKey.handle.hndl, rsaKey.pub.size);
+        (word32)aik.handle.hndl, aik.pub.size);
 
 
     /* set NULL password auth for using EK */
     wolfTPM2_SetAuthPassword(&dev, 0, NULL);
 
     /* set auth for using the AIK */
-    wolfTPM2_SetAuthHandle(&dev, 1, &rsaKey.handle);
+    wolfTPM2_SetAuthHandle(&dev, 1, &aik.handle);
+
+    /* set session for authorization of the storage key */
+    sessionAttributes = TPMA_SESSION_continueSession;
+    if (paramEncAlg != TPM_ALG_NULL) {
+        sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
+    }
+#if 0
+    /* TODO: Investigate param enc with signed timestamp */
+    rc = wolfTPM2_SetAuthSession(&dev, 2, &tpmSession, sessionAttributes);
+    if (rc != 0) goto exit;
+#else
+    (void)sessionAttributes;
+#endif
 
     /* At this stage: The EK is created, AIK is created and loaded,
      * Endorsement Hierarchy is enabled through policySecret,
@@ -224,7 +209,7 @@ int TPM2_Timestamp_Test(void* userCtx, int argc, char *argv[])
      */
 
     /* Get signed by the TPM timestamp using the AIK key */
-    rc = wolfTPM2_GetTime(&rsaKey, &cmdOut.getTime);
+    rc = wolfTPM2_GetTime(&aik, &cmdOut.getTime);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_GetTime failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -269,19 +254,9 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    /* Close session */
-    if (sessionHandle != TPM_RH_NULL) {
-        cmdIn.flushCtx.flushHandle = sessionHandle;
-        TPM2_FlushContext(&cmdIn.flushCtx);
-    }
-
-    /* Close key handles */
-    if (!tryNVkey) {
-        wolfTPM2_UnloadHandle(&dev, &storage.handle);
-    }
-
-    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &aik.handle);
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
@@ -300,7 +275,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Timestamp_Test(NULL, argc, argv);
+    rc = TPM2_Timestamp_TestArgs(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif /* !WOLFTPM2_NO_WRAPPER */

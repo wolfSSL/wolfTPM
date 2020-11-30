@@ -26,7 +26,8 @@
     extern "C" {
 #endif
 
-int TPM2_Native_Test(void* userCtx, int argc, char *argv[]);
+int TPM2_Native_Test(void* userCtx);
+int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
