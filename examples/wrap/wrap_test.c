@@ -117,9 +117,11 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     ecc_key wolfEccPubKey;
     ecc_key wolfEccPrivKey;
 #endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
     XMEMSET(&wolfRsaPrivKey, 0, sizeof(wolfRsaPrivKey));
@@ -128,8 +130,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&wolfEccPubKey, 0, sizeof(wolfEccPubKey));
     XMEMSET(&wolfEccPrivKey, 0, sizeof(wolfEccPrivKey));
 #endif
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||

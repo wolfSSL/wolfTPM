@@ -139,6 +139,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n", 
         info->authCnt, info->inHandleCnt, cmdSz, authSz, paramSz, encParamSz);
+#else
+    (void)paramSz;
 #endif
 
     for (i=0; i<info->authCnt; i++) {

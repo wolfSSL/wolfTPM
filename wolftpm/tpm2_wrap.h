@@ -38,7 +38,7 @@ typedef struct WOLFTPM2_HANDLE {
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
 
 typedef struct WOLFTPM2_SESSION {
-    TPM_ST_T        type;         /* Trial, Policy or HMAC; or TPM_SES_PWD */
+    TPM_ST          type;         /* Trial, Policy or HMAC; or TPM_SES_PWD */
     WOLFTPM2_HANDLE handle;       /* Session handle from StartAuthSession */
     TPM2B_NONCE     nonceTPM;     /* Value from StartAuthSession */
     TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */

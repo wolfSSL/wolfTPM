@@ -1138,6 +1138,9 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
                 rc = wc_AesCfbEncrypt(&enc, &packet.buf[innerSz], &packet.buf[innerSz], sensSz);
             wc_AesFree(&enc);
         }
+    #else
+        (void)innerAlg;
+        (void)sensSz;
     #endif
     }
 
@@ -1712,6 +1715,7 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (dev == NULL || tpmKey == NULL || wolfKey == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(tpmKey, 0, sizeof(*tpmKey));
     XMEMSET(qx, 0, sizeof(qx));
     XMEMSET(qy, 0, sizeof(qy));
 
@@ -4099,6 +4103,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte sigRS[MAX_ECC_BYTES*2];
             byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
             word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
+            XMEMSET(&eccPub, 0, sizeof(eccPub));
 
             /* Decode ECDSA Header */
             rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,

@@ -213,6 +213,8 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
 #else
     printf("Quote Blob %d\n", dataSz);
     TPM2_PrintBin(data, dataSz);
+    (void)data;
+    (void)dataSz;
 #endif
 
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);

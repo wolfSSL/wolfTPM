@@ -230,10 +230,10 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
 
     printf("TPM with signature attests (type 0x%x):\n", attestedData.type);
     /* time value in milliseconds that advances while the TPM is powered */
-    printf("\tTPM uptime since last power-up(in ms): %lu\n",
+    printf("\tTPM uptime since last power-up (in ms): %lu\n",
         (unsigned long)attestedData.attested.time.time.time);
     /* time value in milliseconds that advances while the TPM is powered */
-    printf("\tTPM clock, total time the TPM has been on(in ms): %lu\n",
+    printf("\tTPM clock, total time the TPM has been on (in ms): %lu\n",
         (unsigned long)attestedData.attested.time.time.clockInfo.clock);
     /* number of occurrences of TPM Reset since the last TPM2_Clear() */
     printf("\tReset Count: %u\n",
@@ -245,7 +245,7 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
     printf("\tClock Safe: %u\n",
         attestedData.attested.time.time.clockInfo.safe);
     /* a TPM vendor-specific value indicating the version number of the firmware */
-    printf("\tFirmware Version(vendor specific): 0x%lX\n",
+    printf("\tFirmware Version (vendor specific): 0x%lX\n",
         (unsigned long)attestedData.attested.time.firmwareVersion);
 
 exit:
