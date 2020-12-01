@@ -374,7 +374,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 
 #if 0
     /* Optionally choose the cipher suite */
-    rc = wolfSSL_CTX_set_cipher_list(ctx, "ECDHE-rsa-AES128-GCM-SHA256");
+    rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
     if (rc != WOLFSSL_SUCCESS) {
         goto exit;
     }

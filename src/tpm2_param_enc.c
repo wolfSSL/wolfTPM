@@ -52,11 +52,11 @@
 /* This function performs key generation according to Part 1 of the TPM spec
  * and returns the number of bytes generated, which may be zero.
  *
- * 'key' input data is used together with the label, ContextU and ContextV to
+ * 'keyIn' input data is used together with the label, ContextU and ContextV to
  * generate the session key.
  *
- * 'keyStream' points to the buffer storing the generated session key, and
- * 'keyStream' can not be NULL.
+ * 'key' points to the buffer storing the generated session key, and
+ * 'key' can not be NULL.
  *
  * 'sizeInBits' must be no larger than (2^18)-1 = 256K bits (32385 bytes).
  *
@@ -94,7 +94,7 @@ int TPM2_KDFa(
     UINT32 sizeInBits = keySz * 8, pos;
     BYTE* keyStream = key;
 
-    if (key == NULL || keyStream == NULL)
+    if (key == NULL)
         return BAD_FUNC_ARG;
 
     hashType = TPM2_GetHashType(hashAlg);
