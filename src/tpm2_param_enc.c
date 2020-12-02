@@ -120,7 +120,12 @@ int TPM2_KDFa(
         counter++;
 
         /* start HMAC */
-        ret = wc_HmacSetKey(&hmac_ctx, hashType, keyIn->buffer, keyIn->size);
+        if (keyIn) {
+            ret = wc_HmacSetKey(&hmac_ctx, hashType, keyIn->buffer, keyIn->size);
+        }
+        else {
+            ret = wc_HmacSetKey(&hmac_ctx, hashType, NULL, 0);
+        }
         if (ret != 0)
             goto exit;
 
@@ -452,7 +457,12 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
         return rc;
     /* start HMAC - sessionKey || authValue */
     /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
-    rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
+    if (auth) {
+        rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
+    }
+    else {
+        rc = wc_HmacSetKey(&hmac_ctx, hashType, NULL, 0);
+    }
 
     /* pHash - hash of command code and parameters */
     if (rc == 0)

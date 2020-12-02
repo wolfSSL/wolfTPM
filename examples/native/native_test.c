@@ -22,6 +22,7 @@
 /* This example shows using the TPM2_ specification API's in TPM2_Native_Test() */
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_param_enc.h>
 
 #include <examples/native/native_test.h>
 #include <examples/tpm_io.h>
@@ -178,6 +179,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         "\x06\xC1";
 
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    TPM2B_AUTH sessionAuth;
+#endif
 
     (void)argc;
     (void)argv;
@@ -454,7 +458,13 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     cmdIn.authSes.tpmKey = TPM_RH_NULL;
     cmdIn.authSes.bind = TPM_RH_NULL;
     cmdIn.authSes.sessionType = TPM_SE_POLICY;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    cmdIn.authSes.symmetric.algorithm = TPM_ALG_AES;
+    cmdIn.authSes.symmetric.keyBits.aes = 128;
+    cmdIn.authSes.symmetric.mode.aes = TPM_ALG_CFB;
+#else
     cmdIn.authSes.symmetric.algorithm = TPM_ALG_NULL;
+#endif
     cmdIn.authSes.authHash = TPM_ALG_SHA256;
     cmdIn.authSes.nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
     rc = TPM2_GetNonce(cmdIn.authSes.nonceCaller.buffer,
@@ -471,8 +481,22 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     sessionHandle = cmdOut.authSes.sessionHandle;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
+    session[0].nonceTPM = cmdOut.authSes.nonceTPM;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* calculate session key */
+    sessionAuth.size = TPM2_GetHashDigestSize(cmdIn.authSes.authHash);
+    rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, "ATH", 
+            &cmdOut.authSes.nonceTPM, &cmdIn.authSes.nonceCaller,
+            sessionAuth.buffer, sessionAuth.size);
+    if (rc != sessionAuth.size) {
+        printf("KDFa ATH Gen Error %d\n", rc);
+        rc = TPM_RC_FAILURE;
+        goto exit;
+    }
+    rc = TPM_RC_SUCCESS;
+#endif
+    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
 
     /* Policy Get Digest */
     XMEMSET(&cmdIn.policyGetDigest, 0, sizeof(cmdIn.policyGetDigest));
@@ -515,6 +539,17 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     printf("wc_Hash of PCR[0]: size %d\n", hash_len);
     TPM2_PrintBin(hash, hash_len);
 
+    /* Set Auth Session index 0 */
+    session[0].sessionHandle = sessionHandle;
+    session[0].sessionAttributes = (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_continueSession);
+    session[0].authHash = WOLFTPM2_WRAP_DIGEST;
+    session[0].symmetric.algorithm = TPM_ALG_AES;
+    session[0].symmetric.keyBits.aes = 128;
+    session[0].symmetric.mode.aes = TPM_ALG_CFB;
+    session[0].nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+    session[0].auth = sessionAuth;
+
     /* Policy PCR */
     pcrIndex = 0;
     XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
@@ -531,6 +566,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     else {
         printf("TPM2_PolicyPCR: Updated\n");
     }
+    XMEMSET(&session[0], 0, sizeof(TPM2_AUTH_SESSION));
+    session[0].sessionHandle = TPM_RS_PW;
 #endif
 
     /* Policy Restart (for session) */
