@@ -137,10 +137,16 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     sockIoCtx.fd = -1;
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
 #endif
 #ifdef HAVE_ECC
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
+    #ifndef WOLFTPM2_USE_SW_ECDHE
+    /* Ephemeral Key */
+    XMEMSET(&ecdhKey, 0, sizeof(ecdhKey));
+    #endif
 #endif
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
@@ -236,7 +242,6 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 
     #ifndef WOLFTPM2_USE_SW_ECDHE
     /* Ephemeral Key */
-    XMEMSET(&ecdhKey, 0, sizeof(ecdhKey));
     tpmCtx.ecdhKey = &ecdhKey;
     #endif
 #endif /* HAVE_ECC */
@@ -497,6 +502,7 @@ exit:
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
 

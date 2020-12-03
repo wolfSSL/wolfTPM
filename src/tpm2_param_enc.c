@@ -286,6 +286,12 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
         return TPM_RC_FAILURE;
     }
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("AES Enc Key %d, IV %d\n", symKeySz, symKeyIvSz);
+    TPM2_PrintBin(symKey, symKeySz);
+    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
+#endif
+
     /* Perform AES CFB Encryption */
     rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
     if (rc == 0) {
@@ -324,6 +330,12 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     #endif
         return TPM_RC_FAILURE;
     }
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("AES Dec Key %d, IV %d\n", symKeySz, symKeyIvSz);
+    TPM2_PrintBin(symKey, symKeySz);
+    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
+#endif
 
     /* Perform AES CFB Decryption */
     rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
@@ -386,6 +398,11 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
         wc_HashFree(&hash_ctx, hashType);
     }
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("cpHash: cmd %x, size %d\n", cmdCode, hash->size);
+    TPM2_PrintBin(hash->buffer, hash->size);
+#endif
+
     return rc;
 }
 
@@ -430,6 +447,11 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
         wc_HashFree(&hash_ctx, hashType);
     }
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("rpHash: cmd %x, size %d\n", cmdCode, hash->size);
+    TPM2_PrintBin(hash->buffer, hash->size);
+#endif
+
     return rc;
 }
 
@@ -455,9 +477,14 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     rc = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
     if (rc != 0)
         return rc;
+
     /* start HMAC - sessionKey || authValue */
     /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
     if (auth) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("HMAC Key: %d\n", auth->size);
+    TPM2_PrintBin(auth->buffer, auth->size);
+#endif
         rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
     }
     else {
@@ -488,6 +515,11 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
         rc = wc_HmacFinal(&hmac_ctx, hmac->buffer);
     wc_HmacFree(&hmac_ctx);
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("HMAC Auth: attrib %x, size %d\n", sessionAttributes, hmac->size);
+    TPM2_PrintBin(hmac->buffer, hmac->size);
+#endif
+
     return rc;
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
@@ -496,6 +528,16 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
+
+ #ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("CmdEnc Session Key %d\n", session->auth.size);
+    TPM2_PrintBin(session->auth.buffer, session->auth.size);
+    printf("CmdEnc Nonce caller %d\n", session->nonceCaller.size);
+    TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
+    printf("CmdEnc Nonce TPM %d\n", session->nonceTPM.size);
+    TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
+ #endif
+
 
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonceCaller,
@@ -516,6 +558,15 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
                                  BYTE *paramData, UINT32 paramSz)
 {
     TPM_RC rc = TPM_RC_FAILURE;
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("RspDec Session Key %d\n", session->auth.size);
+    TPM2_PrintBin(session->auth.buffer, session->auth.size);
+    printf("RspDec Nonce caller %d\n", session->nonceCaller.size);
+    TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
+    printf("RspDec Nonce TPM %d\n", session->nonceTPM.size);
+    TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
+ #endif
 
     if (session->symmetric.algorithm == TPM_ALG_XOR) {
         rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonceCaller,

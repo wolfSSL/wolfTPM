@@ -175,7 +175,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
             /* Handle session request for encryption */
-            if (encParam && session->sessionAttributes & TPMA_SESSION_decrypt) {
+            if (encParam && authCmd.sessionAttributes & TPMA_SESSION_decrypt) {
                 /* Encrypt the first command parameter */
                 rc = TPM2_ParamEnc_CmdRequest(session, encParam, encParamSz);
                 if (rc != TPM_RC_SUCCESS) {
@@ -210,7 +210,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             /* this is done after encryption */
             rc = TPM2_CalcHmac(session->authHash, &session->auth, &hash, 
                 &session->nonceCaller, &session->nonceTPM, 
-                session->sessionAttributes, &authCmd.hmac);
+                authCmd.sessionAttributes, &authCmd.hmac);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating command HMAC!\n");
@@ -302,7 +302,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 /* Calculate HMAC prior to decryption */
                 rc = TPM2_CalcHmac(session->authHash, &session->auth, &hash, 
                     &session->nonceTPM, &session->nonceCaller, 
-                    session->sessionAttributes, &hmac);
+                    authRsp.sessionAttributes, &hmac);
                 if (rc != TPM_RC_SUCCESS) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Error calculating response HMAC!\n");
@@ -323,7 +323,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
             /* Handle session request for decryption */
             /* If the response supports decryption */
-            if (decParam && session->sessionAttributes & TPMA_SESSION_encrypt) {
+            if (decParam && authRsp.sessionAttributes & TPMA_SESSION_encrypt) {
                 /* Decrypt the first response parameter */
                 rc = TPM2_ParamDec_CmdResponse(session, decParam, decParamSz);
                 if (rc != TPM_RC_SUCCESS) {
@@ -5282,6 +5282,10 @@ int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name)
         name->size = session->name.size;
         XMEMCPY(name->name, session->name.name, name->size);
     }
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Name %d: %d\n", idx, name->size);
+    TPM2_PrintBin(name->name, name->size);
+#endif
     return TPM_RC_SUCCESS;
 }
 

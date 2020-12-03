@@ -121,6 +121,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
 
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
+    XMEMSET(&publicKey, 0, sizeof(publicKey));
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
@@ -415,6 +417,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Close TPM session based on RSA storage key */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
 
 
     /*------------------------------------------------------------------------*/
@@ -462,6 +465,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             storageKey.handle.auth.size);
     }
 
+#if 0 /* disabled until ECC Encrypted salt is added */
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
@@ -475,6 +479,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
+#endif
 
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
@@ -630,9 +635,11 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
 
+#if 0 /* disabled until ECC Encrypted salt is added */
     /* Close TPM session based on ECC storage key */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
+#endif
 
     /*------------------------------------------------------------------------*/
     /* NV TESTS */
@@ -792,7 +799,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
-    XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
         TEST_AES_KEY, (word32)sizeof(TEST_AES_KEY));
     if (rc != 0) goto exit;
@@ -904,6 +910,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Shutdown(&dev, 0); /* 0=just shutdown, no startup */
 
