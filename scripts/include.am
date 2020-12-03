@@ -2,9 +2,5 @@
 # included from Top Level Makefile.am
 # All paths should be given relative to the root
 
-if BUILD_SWTPM
-check_SCRIPTS += scripts/swtpm_sim.test
-dist_noinst_SCRIPTS += scripts/swtpm_sim.test
-endif
-
+EXTRA_DIST += scripts/swtpm_sim.test
 EXTRA_DIST += scripts/tls_setup.sh

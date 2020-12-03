@@ -39,7 +39,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/clock/clockSet [time]\n");
+    printf("./examples/clock/clock_set [time]\n");
     printf("* time is a value in miliseconds used as increment (optional)\n");
     printf("* Default time value is 50000 ms (50 seconds)\n");
     printf("\tThe TPM clock can be set only forward.\n");
@@ -62,8 +62,6 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
         ReadClock_Out readClock;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
-
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     UINT64 oldClock, newClock;
 
@@ -91,14 +89,6 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
-
-
-    /* Define the default session auth that has NULL password */
-    XMEMSET(session, 0, sizeof(session));
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0; /* NULL Password */
-    TPM2_SetSessionAuth(session);
-
 
     /* ReadClock the current TPM uptime */
     XMEMSET(&cmdOut.readClock, 0, sizeof(cmdOut.readClock));

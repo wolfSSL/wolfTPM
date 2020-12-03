@@ -26,6 +26,7 @@
 #include <examples/keygen/keygen.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
 
@@ -37,9 +38,10 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("keyimport [keyblob.bin] [ECC/RSA]\n");
+    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-aes/xor]\n");
+    printf("* -ecc: Use RSA or ECC for keys\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
 }
-
 
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 {
@@ -47,8 +49,9 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB impKey;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
     size_t fileSz = 0;
@@ -63,21 +66,30 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
 
-        outputFile = argv[1];
-        if (argc >= 3) {
-            /* ECC vs RSA */
-            if (XSTRNCMP(argv[2], "ECC", 3) == 0) {
-                alg = TPM_ALG_ECC;
-            }
+        if (argv[1][0] != '-')
+            outputFile = argv[1];
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+            alg = TPM_ALG_ECC;
         }
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
     }
 
-    XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
+    XMEMSET(&impKey, 0, sizeof(impKey));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     printf("TPM2.0 Key Import example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -85,26 +97,28 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Define the default session auth that has NULL password */
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0;
-    TPM2_SetSessionAuth(session);
+    /* get SRK */
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
 
-    /* See if SRK already exists */
-    rc = wolfTPM2_ReadPublicKey(&dev, &storage, TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc != 0) {
-        printf("Loading SRK: Storage failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
     }
-    printf("Loading SRK: Storage 0x%x (%d bytes)\n",
-        (word32)storage.handle.hndl, storage.pub.size);
 
-    /* set session for authorization of the storage key */
-    session[0].auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
+    /* setup an auth value */
+    impKey.handle.auth.size = (int)sizeof(gKeyAuth)-1;
+    XMEMCPY(impKey.handle.auth.buffer, gKeyAuth, impKey.handle.auth.size);
 
-    XMEMSET(&impKey, 0, sizeof(impKey));
     if (alg == TPM_ALG_RSA) {
         /* Import raw RSA private key into TPM */
         rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
@@ -150,7 +164,9 @@ exit:
     }
 
     /* Close key handles */
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &impKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;

@@ -47,9 +47,8 @@ static void usage(void)
 
 int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
 {
-    int pcrIndex, rc = -1;
+    int pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
 
     union {
 #ifdef DEBUG_WOLFTPM
@@ -89,13 +88,6 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
-
-
-    /* Define the default session auth that has NULL password */
-    XMEMSET(session, 0, sizeof(session));
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0; /* NULL Password */
-    TPM2_SetSessionAuth(session);
 
     /* Prepare PCR Reset command */
     XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));

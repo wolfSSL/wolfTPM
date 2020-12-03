@@ -29,15 +29,28 @@
     extern "C" {
 #endif
 
-WOLFTPM_LOCAL int TPM2_ParamEnc_FindDecryptSession(TPM2_CTX *ctx);
-WOLFTPM_LOCAL int TPM2_ParamEnc_FindEncryptSession(TPM2_CTX *ctx);
+WOLFTPM_API int TPM2_KDFa(
+    TPM_ALG_ID hashAlg, TPM2B_DATA *keyIn,
+    const char *label, TPM2B_NONCE *contextU, TPM2B_NONCE *contextV,
+    BYTE *key, UINT32 keySz
+);
+
+WOLFTPM_LOCAL int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth, 
+    const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew, 
+    const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
+    TPM2B_AUTH* hmac);
+WOLFTPM_LOCAL int TPM2_CalcRpHash(TPMI_ALG_HASH authHash, 
+    TPM_CC cmdCode, BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash);
+WOLFTPM_LOCAL int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode, 
+    TPM2B_NAME* name1, TPM2B_NAME* name2, TPM2B_NAME* name3,
+    BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash);
+
 /* Perform encryption over the first parameter of a TPM packet */
-WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPMS_AUTH_COMMAND *session,
-                                TPM2B_MAX_BUFFER *encryptedParameter,
+WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz);
-WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdResponse(TPMS_AUTH_COMMAND *session,
-                                 TPM2B_MAX_BUFFER *encryptedParameter,
-                                 BYTE *paramData, UINT32 paramSz);
+WOLFTPM_LOCAL TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
+                                BYTE *paramData, UINT32 paramSz);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

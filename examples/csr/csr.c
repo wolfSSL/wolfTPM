@@ -139,6 +139,10 @@ exit:
 
 int TPM2_CSR_Example(void* userCtx)
 {
+    return TPM2_CSR_ExampleArgs(userCtx, 0, NULL);
+}
+int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
+{
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
@@ -150,11 +154,13 @@ int TPM2_CSR_Example(void* userCtx)
     WOLFTPM2_KEY eccKey;
     ecc_key wolfEccKey;
 #endif
-    TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
 
     printf("TPM2 CSR Example\n");
+
+    (void)argc;
+    (void)argv;
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -174,21 +180,16 @@ int TPM2_CSR_Example(void* userCtx)
     if (rc != 0) goto exit;
 
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
-
-    storageKey.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(storageKey.handle.auth.buffer, gStorageKeyAuth,
-            storageKey.handle.auth.size);
 
 #ifndef NO_RSA
     rc = getRSAkey(&dev,
                    &storageKey,
                    &rsaKey,
                    &wolfRsaKey,
-                   tpmDevId);
+                   tpmDevId,
+                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &wolfRsaKey, gClientCertRsaFile);
@@ -201,7 +202,8 @@ int TPM2_CSR_Example(void* userCtx)
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
-                    tpmDevId);
+                    tpmDevId, 
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &wolfEccKey, gClientCertEccFile);
@@ -238,15 +240,18 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLFSSL_CERT_REQ && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     defined(WOLFSSL_CERT_REQ) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    rc = TPM2_CSR_Example(NULL);
+    rc = TPM2_CSR_ExampleArgs(NULL, argc, argv);
 #else
+    (void)argc;
+    (void)argv;
+
     printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptocb\n");
 #endif

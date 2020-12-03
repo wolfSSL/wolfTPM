@@ -46,7 +46,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("keyload [keyblob.bin]\n");
+    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor]\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
@@ -54,9 +55,9 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
-    TPMT_PUBLIC publicTemplate;
     WOLFTPM2_KEYBLOB newKey;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE f;
 #endif
@@ -70,15 +71,26 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
 
-        inputFile = argv[1];
+        if (argv[1][0] != '-')
+            inputFile = argv[1];
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
     }
 
-    XMEMSET(session, 0, sizeof(session));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     printf("TPM2.0 Key load example\n");
     printf("\tKey Blob: %s\n", inputFile);
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -86,24 +98,23 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Define the default session auth that has NULL password */
-    session[0].sessionHandle = TPM_RS_PW;
-    session[0].auth.size = 0;
-    TPM2_SetSessionAuth(session);
-
     /* get SRK */
-    rc =  getPrimaryStoragekey(&dev, &storage, &publicTemplate);
-    if (rc != 0) {
-        printf("Loading SRK: Storage failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("Loading SRK: Storage 0x%x (%d bytes)\n",
-        (word32)storage.handle.hndl, storage.pub.size);
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
 
-    /* set session for authorization of the storage key */
-    session[0].auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(session[0].auth.buffer, gStorageKeyAuth, session[0].auth.size);
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
 
     /* Load encrypted key from the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
@@ -125,12 +136,18 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (bytes_read != sizeof(newKey.pub)) {
             printf("Read %zu, expected public blob %zu bytes\n", bytes_read, sizeof(newKey.pub));
             rc = BUFFER_E;
+            XFCLOSE(f);
             goto exit;
         }
 
         if (fileSz > sizeof(newKey.pub)) {
             fileSz -= sizeof(newKey.pub);
             bytes_read = XFREAD(&newKey.priv, 1, fileSz, f);
+            if (bytes_read != fileSz) {
+                rc = BUFFER_E;
+                XFCLOSE(f);
+                goto exit;
+            }
         }
         XFCLOSE(f);
 
@@ -167,6 +184,7 @@ exit:
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;

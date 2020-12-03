@@ -26,6 +26,7 @@
     extern "C" {
 #endif
 
+int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[]);
 int TPM2_Wrapper_Bench(void* userCtx);
 
 #ifdef __cplusplus

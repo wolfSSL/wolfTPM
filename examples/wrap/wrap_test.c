@@ -49,7 +49,19 @@ void TPM2_Wrapper_SetReset(int reset)
     resetTPM = reset;
 }
 
+static void usage(void)
+{
+    printf("Expected Usage:\n");
+    printf("./examples/wrap/wrap_test [-aes/xor]\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
+
+}
+
 int TPM2_Wrapper_Test(void* userCtx)
+{
+    return TPM2_Wrapper_TestArgs(userCtx, 0, NULL);
+}
+int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
     WOLFTPM2_DEV dev;
@@ -105,6 +117,13 @@ int TPM2_Wrapper_Test(void* userCtx)
     ecc_key wolfEccPubKey;
     ecc_key wolfEccPrivKey;
 #endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
+
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
+    XMEMSET(&publicKey, 0, sizeof(publicKey));
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
     XMEMSET(&wolfRsaPubKey, 0, sizeof(wolfRsaPubKey));
     XMEMSET(&wolfRsaPrivKey, 0, sizeof(wolfRsaPrivKey));
@@ -114,8 +133,28 @@ int TPM2_Wrapper_Test(void* userCtx)
     XMEMSET(&wolfEccPrivKey, 0, sizeof(wolfEccPrivKey));
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
+    }
 
     printf("TPM2 Demo for Wrapper API's\n");
+
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -201,6 +240,19 @@ int TPM2_Wrapper_Test(void* userCtx)
             storageKey.handle.auth.size);
     }
 
+    /* Start an authenticated session (salted / unbound) with parameter encryption */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
 
     /* Create RSA key for sign/verify */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -363,6 +415,10 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
 
+    /* Close TPM session based on RSA storage key */
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
+
 
     /*------------------------------------------------------------------------*/
     /* ECC TESTS */
@@ -409,6 +465,21 @@ int TPM2_Wrapper_Test(void* userCtx)
             storageKey.handle.auth.size);
     }
 
+#if 0 /* disabled until ECC Encrypted salt is added */
+    /* Start an authenticated session (salted / unbound) with parameter encryption */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
+#endif
 
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
@@ -564,6 +635,11 @@ int TPM2_Wrapper_Test(void* userCtx)
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
 
+#if 0 /* disabled until ECC Encrypted salt is added */
+    /* Close TPM session based on ECC storage key */
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
+#endif
 
     /*------------------------------------------------------------------------*/
     /* NV TESTS */
@@ -723,7 +799,6 @@ int TPM2_Wrapper_Test(void* userCtx)
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
-    XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
         TEST_AES_KEY, (word32)sizeof(TEST_AES_KEY));
     if (rc != 0) goto exit;
@@ -835,6 +910,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Shutdown(&dev, 0); /* 0=just shutdown, no startup */
 
@@ -862,7 +938,7 @@ int main(int argc, char *argv[])
     (void)argv;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Wrapper_Test(NULL);
+    rc = TPM2_Wrapper_TestArgs(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

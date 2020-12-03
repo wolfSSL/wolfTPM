@@ -73,12 +73,24 @@
  * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
 
-static int useECC = 0;
 
 /******************************************************************************/
 /* --- BEGIN TPM TLS Client Example -- */
 /******************************************************************************/
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("./examples/tls/tls_client [-ecc] [-aes/xor]\n");
+    printf("* -ecc: Use RSA or ECC key\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
+}
+
 int TPM2_TLS_Client(void* userCtx)
+{
+    return TPM2_TLS_ClientArgs(userCtx, 0, NULL);
+}
+
+int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -94,7 +106,6 @@ int TPM2_TLS_Client(void* userCtx)
     WOLFTPM2_KEY ecdhKey;
     #endif
 #endif
-    TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     SockIoCbCtx sockIoCtx;
     int tpmDevId;
@@ -109,12 +120,49 @@ int TPM2_TLS_Client(void* userCtx)
     int total_size;
     int i;
 #endif
+    int useECC = 0;
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
 
     /* initialize variables */
+    XMEMSET(&storageKey, 0, sizeof(storageKey));
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+#ifndef NO_RSA
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
+#endif
+#ifdef HAVE_ECC
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
+#endif
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+            useECC = 1;
+        }
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
+    }
 
     printf("TPM2 TLS Client Example\n");
+    printf("\tUse %s keys\n", useECC ? "ECC" : "RSA");
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -124,13 +172,10 @@ int TPM2_TLS_Client(void* userCtx)
     }
 
     /* Setup the wolf crypto device callback */
-    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
-    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
     tpmCtx.rsaKey = &rsaKey;
 #endif
 #ifdef HAVE_ECC
-    XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
     tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
@@ -141,10 +186,22 @@ int TPM2_TLS_Client(void* userCtx)
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc != 0) goto exit;
 
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
+
+    /* Start an authenticated session (salted / unbound) with parameter encryption */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
 
 #ifndef NO_RSA
     if (!useECC) {
@@ -153,7 +210,8 @@ int TPM2_TLS_Client(void* userCtx)
                     &storageKey,
                     &rsaKey,
                     &wolfRsaKey,
-                    tpmDevId);
+                    tpmDevId,
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
     }
 #endif /* !NO_RSA */
@@ -165,7 +223,8 @@ int TPM2_TLS_Client(void* userCtx)
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
-                    tpmDevId);
+                    tpmDevId,
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
     }
 
@@ -466,6 +525,7 @@ exit:
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
 #endif
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfSSL_shutdown(ssl);
 
@@ -485,20 +545,14 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
 
 #ifndef NO_MAIN_DRIVER
-int main(int argc, const char* argv[])
+int main(int argc, char* argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
-    if (argc > 1) {
-        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
-            useECC = 1;
-        }
-    }
-
-    rc = TPM2_TLS_Client(NULL);
+    rc = TPM2_TLS_ClientArgs(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;

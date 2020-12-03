@@ -157,7 +157,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
-        NO, YES);
+        YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
@@ -181,11 +181,22 @@ exit:
     return rc;
 }
 
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("./examples/bench/bench [-aes/xor]\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");   
+}
+
 /******************************************************************************/
 /* --- BEGIN Bench Wrapper -- */
 /******************************************************************************/
-
 int TPM2_Wrapper_Bench(void* userCtx)
+{
+    return TPM2_Wrapper_BenchArgs(userCtx, 0, NULL);
+}
+
+int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
@@ -199,19 +210,57 @@ int TPM2_Wrapper_Bench(void* userCtx)
     TPM2B_ECC_POINT pubPoint;
     double start;
     int count;
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    WOLFTPM2_SESSION tpmSession;
+
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
+        }
+    }
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        argc--;
+    }
+
+    XMEMSET(&storageKey, 0, sizeof(storageKey));
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+
 
     printf("TPM2 Benchmark using Wrapper API's\n");
-
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev,
-                              &storageKey,
-                              &publicTemplate);
+    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
+
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
 
     /* RNG Benchmark */
     bench_stats_start(&count, &start);
@@ -423,6 +472,7 @@ exit:
 
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
 
@@ -436,12 +486,12 @@ exit:
 #endif /* !WOLFTPM2_NO_WRAPPER && !NO_TPM_BENCH */
 
 #ifndef NO_MAIN_DRIVER
-int main(void)
+int main(int argc, char *argv[])
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_TPM_BENCH)
-    rc = TPM2_Wrapper_Bench(NULL);
+    rc = TPM2_Wrapper_BenchArgs(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
 #endif

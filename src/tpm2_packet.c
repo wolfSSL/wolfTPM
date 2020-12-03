@@ -315,54 +315,53 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
     }
 }
 
-/* TODO: We should add a return code here */
-void TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
+void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
 {
-    int tmpSz = 0;
-    int i, authCount;
-    TPMS_AUTH_COMMAND *auth;
-
-    if (ctx == NULL)
+    if (packet == NULL || authCmd == NULL)
         return;
 
-    auth = ctx->authCmd;
-    if (auth == NULL)
-        return;
+    /* make sure continueSession is set for TPM_RS_PW */
+    if (authCmd->sessionHandle == TPM_RS_PW &&
+        (authCmd->sessionAttributes & TPMA_SESSION_continueSession) == 0) {
+        authCmd->sessionAttributes |= TPMA_SESSION_continueSession;
+    }
+    TPM2_Packet_AppendU32(packet, authCmd->sessionHandle);
+    TPM2_Packet_AppendU16(packet, authCmd->nonce.size);
+    TPM2_Packet_AppendBytes(packet, authCmd->nonce.buffer, authCmd->nonce.size);
+    TPM2_Packet_AppendU8(packet, authCmd->sessionAttributes);
+    TPM2_Packet_AppendU16(packet, authCmd->hmac.size);
+    TPM2_Packet_AppendBytes(packet, authCmd->hmac.buffer, authCmd->hmac.size);
+}
 
-    if (TPM2_CountAuthSessions(ctx, &authCount) != TPM_RC_SUCCESS)
-        return;
-
-    if (authCount > MAX_SESSION_NUM)
-        return;
+int TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
+{
+    int authCount, i, tmpSz = 0;
+    if (ctx == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+    authCount = TPM2_GetSessionAuthCount(ctx);
 
     TPM2_Packet_MarkU32(packet, &tmpSz);
     for (i=0; i<authCount; i++) {
-        /* make sure continueSession is set for TPM_RS_PW */
-        if (auth[i].sessionHandle == TPM_RS_PW &&
-           (auth[i].sessionAttributes & TPMA_SESSION_continueSession) == 0) {
-            auth[i].sessionAttributes |= TPMA_SESSION_continueSession;
-        }
-        TPM2_Packet_AppendU32(packet, auth[i].sessionHandle);
-        TPM2_Packet_AppendU16(packet, auth[i].nonce.size);
-        TPM2_Packet_AppendBytes(packet, auth[i].nonce.buffer, auth[i].nonce.size);
-        TPM2_Packet_AppendU8(packet, auth[i].sessionAttributes);
-        TPM2_Packet_AppendU16(packet, auth[i].auth.size);
-        TPM2_Packet_AppendBytes(packet, auth[i].auth.buffer, auth[i].auth.size);
+        /* Note: Casting a TPM2_AUTH_SESSION to TPMS_AUTH_COMMAND here,
+            this is allowed because top of structure matches */
+        TPM2_Packet_AppendAuthCmd(packet, (TPMS_AUTH_COMMAND*)&ctx->session[i]);
     }
     /* based on position difference places calculated size at marked U32 above */
     TPM2_Packet_PlaceU32(packet, tmpSz);
+
+    return authCount;
 }
 
-void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth)
+void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
 {
-    if (auth == NULL)
+    if (authRsp == NULL)
         return;
 
-    TPM2_Packet_ParseU16(packet, &auth->nonce.size);
-    TPM2_Packet_ParseBytes(packet, auth->nonce.buffer, auth->nonce.size);
-    TPM2_Packet_ParseU8(packet, &auth->sessionAttributes);
-    TPM2_Packet_ParseU16(packet, &auth->auth.size);
-    TPM2_Packet_ParseBytes(packet, auth->auth.buffer, auth->auth.size);
+    TPM2_Packet_ParseU16(packet, &authRsp->nonce.size);
+    TPM2_Packet_ParseBytes(packet, authRsp->nonce.buffer, authRsp->nonce.size);
+    TPM2_Packet_ParseU8(packet, &authRsp->sessionAttributes);
+    TPM2_Packet_ParseU16(packet, &authRsp->hmac.size);
+    TPM2_Packet_ParseBytes(packet, authRsp->hmac.buffer, authRsp->hmac.size);
 }
 
 void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)

@@ -1565,31 +1565,36 @@ typedef struct TPM2B_CREATION_DATA {
 
 
 /* Authorization Structures */
-
 typedef struct TPMS_AUTH_COMMAND {
     TPMI_SH_AUTH_SESSION sessionHandle;
-    TPM2B_NONCE nonce;
+    TPM2B_NONCE nonce; /* nonceCaller */
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth; /* TCG Spec Part 2 calls this field hmac */
-    /* TPM2B_AUTH can be an HMAC, a password or an Empty Auth */
-
-    /* Implementation specific */
-    /* These are used for parameter encrypt/decrypt */
-
-    /* The symmetric and hash algorithms to use */
-    TPMT_SYM_DEF symmetric;
-    TPMI_ALG_HASH authHash;
-
-    /* Optional object auth to append with session auth for encrypt/decrypt key */
-    TPM_HANDLE objHandle;
-    TPM2B_AUTH objAuth;
+    TPM2B_AUTH hmac;
 } TPMS_AUTH_COMMAND;
 
 typedef struct TPMS_AUTH_RESPONSE {
     TPM2B_NONCE nonce;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
+    TPM2B_AUTH hmac;
 } TPMS_AUTH_RESPONSE;
+
+/* Implementation specific authorization session information */
+typedef struct TPM2_AUTH_SESSION {
+    /* BEGIN */
+    /* This section should match TPMS_AUTH_COMMAND */
+    TPMI_SH_AUTH_SESSION sessionHandle;
+    TPM2B_NONCE nonceCaller;
+    TPMA_SESSION sessionAttributes;
+    TPM2B_AUTH auth;
+    /* END */
+
+    /* additional auth data required for implementation */
+    TPM2B_NONCE nonceTPM;
+    TPMT_SYM_DEF symmetric;
+    TPMI_ALG_HASH authHash;
+    TPM2B_NAME name;
+} TPM2_AUTH_SESSION;
+
 
 
 /* Predetermined TPM 2.0 Indexes */
@@ -1671,13 +1676,13 @@ typedef struct TPM2_CTX {
     word32 did_vid;
     byte rid;
 
-    /* Current TPM auth session */
-    TPMS_AUTH_COMMAND*  authCmd;
+    /* Pointer to current TPM auth sessions */
+    TPM2_AUTH_SESSION* session;
 
-    /* Command Buffer */
+    /* Command / Response Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 
-    /* Informational Bits */
+    /* Informational Bits - use unsigned int for best compiler compatibility */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef SINGLE_THREADED
     unsigned int hwLockInit:1;
@@ -2757,8 +2762,8 @@ WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
 
 /* Non-standard API's */
 #define _TPM_Init TPM2_Init
-/* In when using devtpm or swtpm, the ioCb and userCtx are not used
- * and must be set to NULL. TPM2_Init_minimal() call TPM2_Init_ex()
+/* When using devtpm or swtpm, the ioCb and userCtx are not used
+ * and should be NULL. TPM2_Init_minimal() calls TPM2_Init_ex()
  * with them set to NULL.
  *
  * In other modes, the ioCb shall be set in order to use TIS.
@@ -2776,7 +2781,8 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
  * set to a non-NULL function pointer and userCtx is optional.
  */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
-WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPMS_AUTH_COMMAND *cmd);
+WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION *session);
+WOLFTPM_API int    TPM2_GetSessionAuthCount(TPM2_CTX* ctx);
 
 WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
@@ -2794,12 +2800,11 @@ WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
 WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
 WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
+WOLFTPM_LOCAL int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name);
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
 WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
 #endif
-
-WOLFTPM_LOCAL TPM_RC TPM2_CountAuthSessions(TPM2_CTX* ctx, int* authSessionCount);
 
 typedef enum {
     TPM_VENDOR_UNKNOWN = 0,

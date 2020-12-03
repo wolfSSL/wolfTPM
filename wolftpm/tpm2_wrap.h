@@ -28,27 +28,32 @@
     extern "C" {
 #endif
 
-typedef struct WOLFTPM2_DEV {
-    TPM2_CTX ctx;
-    TPMS_AUTH_COMMAND session[MAX_SESSION_NUM];
-} WOLFTPM2_DEV;
-
 typedef struct WOLFTPM2_HANDLE {
-    WOLFTPM2_DEV*   dev;
     TPM_HANDLE      hndl;
     TPM2B_AUTH      auth;
     TPMT_SYM_DEF    symmetric;
+    TPM2B_NAME      name;
 } WOLFTPM2_HANDLE;
 
+#define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
+
 typedef struct WOLFTPM2_SESSION {
-    WOLFTPM2_HANDLE handle;
-    TPM2B_NONCE     nonceTPM;
+    TPM_ST          type;         /* Trial, Policy or HMAC; or TPM_SES_PWD */
+    WOLFTPM2_HANDLE handle;       /* Session handle from StartAuthSession */
+    TPM2B_NONCE     nonceTPM;     /* Value from StartAuthSession */
+    TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
+    TPM2B_DIGEST    salt;         /* User defined */
+    TPMI_ALG_HASH   authHash;
 } WOLFTPM2_SESSION;
+
+typedef struct WOLFTPM2_DEV {
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
+} WOLFTPM2_DEV;
 
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
-    TPM2B_NAME        name;
 } WOLFTPM2_KEY;
 
 typedef struct WOLFTPM2_KEYBLOB {
@@ -127,11 +132,16 @@ WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
 
 WOLFTPM_API int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
-    TPM_HANDLE sessionHandle, const byte* auth, int authSz);
+    TPM_HANDLE sessionHandle, const TPM2B_AUTH* auth, TPMA_SESSION sessionAttributes,
+    const TPM2B_NAME* name);
+WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, const TPM2B_AUTH* auth);
+WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
+WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index, 
+    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
-    WOLFTPM2_HANDLE* bind, TPM_SE sesType, int useEncrypDecrypt);
+    WOLFTPM2_HANDLE* bind, TPM_SE sesType, int encDecAlg);
 
 WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, TPM_HANDLE primaryHandle, TPMT_PUBLIC* publicTemplate,
@@ -356,6 +366,11 @@ WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
+/* for salted auth sessions */
+WOLFTPM_LOCAL int wolfTPM2_RSA_Salt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea);
+WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt);
 
 
 #if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)

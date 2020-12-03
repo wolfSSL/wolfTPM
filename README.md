@@ -24,6 +24,7 @@ Portable TPM 2.0 project designed for embedded use.
 	* TLS Client
 	* TLS Server
 	* Benchmarking TPM algorithms and TLS
+* Parameter encryption support using AES-CFB or XOR. Supports salted unbound authenticated sessions.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -111,7 +112,7 @@ Mfg NTC (0), Vendor NPCT75x"!!4rls, Fw 7.2 (131072), FIPS 140-2 1, CC-EAL4 0
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
-./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
+./configure --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb --enable-aescfb
 make
 sudo make install
 sudo ldconfig
@@ -636,9 +637,11 @@ Connection: close
 
 ## Todo
 
-* Add support for SensitiveToPrivate inner and outer.
-* Add runtime support for detecting module type ST33, SLB9670 or ATTPM20.
 * Update to v1.59 of specification.
+* Add HMAC support for "authValue".
+* Add ECC encrypted salt.
+* Add bound auth session support.
+* Add multiple auth session (nonceTPMDecrypt and nonceTPMEncrypt) support.
 
 ## Support
 

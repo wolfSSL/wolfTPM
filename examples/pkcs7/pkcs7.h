@@ -27,6 +27,7 @@
 #endif
 
 int TPM2_PKCS7_Example(void* userCtx);
+int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

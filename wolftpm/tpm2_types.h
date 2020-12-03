@@ -80,6 +80,8 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
     #include <wolfssl/wolfcrypt/asn_public.h>
+    #include <wolfssl/wolfcrypt/hmac.h>
+    #include <wolfssl/wolfcrypt/aes.h>
     #ifdef WOLF_CRYPTO_CB
         #include <wolfssl/wolfcrypt/cryptocb.h>
     #elif defined(WOLF_CRYPTO_DEV)
@@ -99,6 +101,9 @@ typedef int64_t  INT64;
     #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x03015004
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
+    #endif
+    #ifndef XFEOF
+        #define XFEOF      feof
     #endif
 
 #else
@@ -143,6 +148,23 @@ typedef int64_t  INT64;
             #define __GNUC_PREREQ(maj, min) (0) /* not GNUC */
         #endif
     #endif
+
+#if !defined(WOLFTPM_CUSTOM_STDIO) && !defined(NO_FILESYSTEM)
+    /* stdio, default case */
+    #define XFILE      FILE*
+    #define XFOPEN     fopen
+    #define XFSEEK     fseek
+    #define XFTELL     ftell
+    #define XREWIND    rewind
+    #define XFREAD     fread
+    #define XFWRITE    fwrite
+    #define XFCLOSE    fclose
+    #define XSEEK_END  SEEK_END
+    #define XBADFILE   NULL
+    #define XFGETS     fgets
+    #define XFEOF      feof
+#endif
+
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /* enable way for customer to override printf */
