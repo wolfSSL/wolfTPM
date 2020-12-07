@@ -129,6 +129,7 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
     double start;
     WOLFTPM2_HASH hash;
 
+    XMEMSET(&hash, 0, sizeof(hash));
     bench_stats_start(&count, &start);
     do {
         rc = wolfTPM2_HashStart(dev, &hash, algo,
@@ -185,7 +186,7 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/bench/bench [-aes/xor]\n");
-    printf("* -aes/xor: Use Parameter Encryption\n");   
+    printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
 /******************************************************************************/
@@ -257,7 +258,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -494,6 +495,8 @@ int main(int argc, char *argv[])
     rc = TPM2_Wrapper_BenchArgs(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
+    (void)argc;
+    (void)argv;
 #endif
 
     return rc;

@@ -129,7 +129,7 @@ This example client connects to localhost on on port 11111 by default. These can
 
 You can validate using the wolfSSL example server this like:
 `./examples/server/server -b -p 11111 -g -d -i -V`
- 
+
 To validate client certificate use the following wolfSSL example server command:
 `./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem -i -V`
 or

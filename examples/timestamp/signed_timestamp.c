@@ -272,12 +272,14 @@ exit:
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc = -1;
+    int rc = NOT_COMPILED_IN;
 
 #ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Timestamp_TestArgs(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
+    (void)argc;
+    (void)argv;
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return rc;

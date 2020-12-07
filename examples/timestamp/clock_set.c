@@ -138,7 +138,7 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
 #endif
     newClock = cmdOut.readClock.currentTime.clockInfo.clock;
 
-    printf("\n\t oldClock=%lu \n\t newClock=%lu \n\n", 
+    printf("\n\t oldClock=%lu \n\t newClock=%lu \n\n",
         (long unsigned int)oldClock, (long unsigned int)newClock);
 
 exit:

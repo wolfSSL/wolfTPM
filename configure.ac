@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2020 wolfSSL Inc.])
-AC_INIT([wolftpm],[1.9.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[2.0.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -23,7 +23,7 @@ AC_ARG_PROGRAM
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=9:0:0
+WOLFTPM_LIBRARY_VERSION=10:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -328,7 +328,7 @@ fi
 
 # TIS / SPI Check Wait State support
 # Required for all but Infineon only
-if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno" 
+if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno"
 then
     ENABLED_CHECKWAITSTATE=yes
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_CHECK_WAIT_STATE"

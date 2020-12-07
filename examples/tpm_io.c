@@ -561,7 +561,7 @@
     #define XSpiPs_RecvByte(BaseAddress) \
         XSpiPs_In32((u32)((BaseAddress) + (u32)XSPIPS_RXD_OFFSET))
 
-    /* Modified version of XSpiPs_PolledTransfer that allows enable and CS to 
+    /* Modified version of XSpiPs_PolledTransfer that allows enable and CS to
      * be used across multiple transfers */
     static s32 TPM2_IoCb_Xilinx_SPITransfer(XSpiPs *InstancePtr, u8 *SendBufPtr,
         u8 *RecvBufPtr, u32 ByteCount)
@@ -585,10 +585,10 @@
 
             /* Fill the TXFIFO with as many bytes as it will take (or as
              * many as we have to send). */
-            while ((InstancePtr->RemainingBytes > (u32)0U) && 
+            while ((InstancePtr->RemainingBytes > (u32)0U) &&
                 ((u32)TransCount < (u32)XSPIPS_FIFO_DEPTH))
             {
-                XSpiPs_SendByte(InstancePtr->Config.BaseAddress, 
+                XSpiPs_SendByte(InstancePtr->Config.BaseAddress,
                     *InstancePtr->SendBufferPtr);
                 InstancePtr->SendBufferPtr += 1;
                 InstancePtr->RemainingBytes--;
@@ -597,24 +597,24 @@
 
             /* If master mode and manual start mode, issue manual start
              * command to start the transfer. */
-            if ((XSpiPs_IsManualStart(InstancePtr) == TRUE) && 
+            if ((XSpiPs_IsManualStart(InstancePtr) == TRUE) &&
                 (XSpiPs_IsMaster(InstancePtr) == TRUE))
             {
-                ConfigReg = XSpiPs_ReadReg(InstancePtr->Config.BaseAddress, 
+                ConfigReg = XSpiPs_ReadReg(InstancePtr->Config.BaseAddress,
                     XSPIPS_CR_OFFSET);
                 ConfigReg |= XSPIPS_CR_MANSTRT_MASK;
-                XSpiPs_WriteReg(InstancePtr->Config.BaseAddress, 
+                XSpiPs_WriteReg(InstancePtr->Config.BaseAddress,
                     XSPIPS_CR_OFFSET, ConfigReg);
             }
 
             /* Wait for the transfer to finish by polling Tx fifo status. */
             CheckTransfer = (u32)0U;
             while (CheckTransfer == 0U) {
-                StatusReg = XSpiPs_ReadReg(InstancePtr->Config.BaseAddress, 
+                StatusReg = XSpiPs_ReadReg(InstancePtr->Config.BaseAddress,
                     XSPIPS_SR_OFFSET);
                 if ((StatusReg & XSPIPS_IXR_MODF_MASK) != 0U) {
                     /* Clear the mode fail bit */
-                    XSpiPs_WriteReg(InstancePtr->Config.BaseAddress, 
+                    XSpiPs_WriteReg(InstancePtr->Config.BaseAddress,
                         XSPIPS_SR_OFFSET, XSPIPS_IXR_MODF_MASK);
                     return (s32)XST_SEND_ERROR;
                 }
@@ -661,14 +661,14 @@
             if (SpiConfig == NULL) {
                 return TPM_RC_FAILURE;
             }
-            status = XSpiPs_CfgInitialize(&SpiInstance, SpiConfig, 
+            status = XSpiPs_CfgInitialize(&SpiInstance, SpiConfig,
                 SpiConfig->BaseAddress);
             if (status != XST_SUCCESS) {
                 return TPM_RC_FAILURE;
             }
 
             /* Set the SPI device as a master */
-            XSpiPs_SetOptions(&SpiInstance, XSPIPS_MASTER_OPTION | 
+            XSpiPs_SetOptions(&SpiInstance, XSPIPS_MASTER_OPTION |
                 XSPIPS_FORCE_SSELECT_OPTION | XSPIPS_MANUAL_START_OPTION);
             XSpiPs_SetClkPrescaler(&SpiInstance, XSPIPS_CLK_PRESCALE_8);
 
@@ -680,7 +680,7 @@
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         /* Send Header */
-        status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance, 
+        status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance,
             (byte*)txBuf, rxBuf, TPM_TIS_HEADER_SZ);
         if (status != XST_SUCCESS) {
             XSpiPs_SetSlaveSelect(&SpiInstance, 0xF); /* deselect CS (set high) */
@@ -692,7 +692,7 @@
         if ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0) {
             do {
                 /* Check for SPI ready */
-                status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance, 
+                status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance,
                     (byte*)txBuf, rxBuf, 1);
                 if (status == XST_SUCCESS && rxBuf[0] & TPM_TIS_READY_MASK)
                     break;
@@ -714,7 +714,7 @@
             xferSz - TPM_TIS_HEADER_SZ);
     #else
         /* Send Entire Message - no wait states */
-        status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance, 
+        status = TPM2_IoCb_Xilinx_SPITransfer(&SpiInstance,
             (byte*)txBuf, rxBuf, xferSz);
     #endif /* WOLFTPM_CHECK_WAIT_STATE */
         if (status == XST_SUCCESS) {

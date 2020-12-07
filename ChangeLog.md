@@ -1,5 +1,33 @@
 ## Release Notes
 
+### wolfTPM Release 2.0 (12/07/2020)
+
+**Summary**
+
+Added AES CFB parameter encryption, HMAC sessions, TPM simulator, Windows TPM (TBSI) support and more examples for time/keys.
+
+**Detail**
+
+* Refactor of the session authentication. New struct `TPM2_AUTH_SESSION`  and `wolfTPM2_SetAuth_*` API's. (PR #129 and #133)
+* Added Windows TPM TBSI support (PR #127)
+* Added TPM simulator support using TPM TCP protocol (PR #121)
+* Added minGW support (PR #127)
+* Added AES CFB parameter encryption support (PR #129)
+* Added XOR parameter encryption support (PR #122)
+* Added "-aes" or "-xor" option to some examples to enable parameter encryption. (PR #129)
+* Added HMAC session support (PR #129)
+* Added support for encrypted RSA salt for salted-unbounded session (PR #129)
+* Added innerWrap and outerWrap support for sensitive to private. (PR #129)
+* Improvements to the KDFa (PR #129)
+* Improved the param encryption to use buffers inline (PR #129)
+* Added Key generation and loading examples using disk to store the key (PR #131)
+* Added support for importing external private key to get a key blob for easy re-loading. (PR #132)
+* Add TPM clock increment example (PR #117)
+* Add test vectors for AES CFB and make it the default for tests (PR #125)
+* Improved documentation and code comments (PR #126)
+* Add script to run unit tests with software TPM (PR #124)
+
+
 ### wolfTPM Release 1.9 (08/24/2020)
 
 **Summary**

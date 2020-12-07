@@ -329,7 +329,7 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
 #endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc < 0) goto exit;
-    
+
     /* get SRK */
     rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;

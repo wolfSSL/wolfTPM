@@ -30,6 +30,7 @@
 
 #include <stdio.h>
 
+#ifndef WOLFTPM2_NO_WRAPPER
 
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
@@ -117,7 +118,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -139,7 +140,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         /* set session for authorization key */
         auth.size = (int)sizeof(gAiKeyAuth)-1;
         XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
-        
+
     }
     else {
         if (alg == TPM_ALG_RSA) {
@@ -208,16 +209,22 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TPM Timestamp Test -- */
+/* --- END TPM Keygen Example -- */
 /******************************************************************************/
-
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = NOT_COMPILED_IN;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Keygen_Example(NULL, argc, argv);
+#else
+    printf("KeyGen code not compiled in\n");
+    (void)argc;
+    (void)argv;
+#endif
 
     return rc;
 }

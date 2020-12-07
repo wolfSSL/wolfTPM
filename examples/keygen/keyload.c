@@ -39,6 +39,7 @@
 #include <stdio.h>
 
 
+#ifndef WOLFTPM2_NO_WRAPPER
 /******************************************************************************/
 /* --- BEGIN TPM Key Load Example -- */
 /******************************************************************************/
@@ -111,7 +112,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -191,16 +192,22 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TPM Timestamp Test -- */
+/* --- END TPM Key Load Example -- */
 /******************************************************************************/
-
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = NOT_COMPILED_IN;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Keyload_Example(NULL, argc, argv);
+#else
+    printf("KeyImport code not compiled in\n");
+    (void)argc;
+    (void)argv;
+#endif
 
     return rc;
 }

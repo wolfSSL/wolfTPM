@@ -486,7 +486,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* calculate session key */
     sessionAuth.size = TPM2_GetHashDigestSize(cmdIn.authSes.authHash);
-    rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, "ATH", 
+    rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, "ATH",
             &cmdOut.authSes.nonceTPM, &cmdIn.authSes.nonceCaller,
             sessionAuth.buffer, sessionAuth.size);
     if (rc != sessionAuth.size) {
@@ -494,7 +494,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         rc = TPM_RC_FAILURE;
         goto exit;
     }
-    rc = TPM_RC_SUCCESS;
 #endif
     printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
 
@@ -1389,9 +1388,8 @@ exit:
 
     /* Shutdown */
     cmdIn.shutdown.shutdownType = TPM_SU_CLEAR;
-    rc = TPM2_Shutdown(&cmdIn.shutdown);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Shutdown failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+    if (TPM2_Shutdown(&cmdIn.shutdown) != TPM_RC_SUCCESS) {
+        printf("TPM2_Shutdown failed\n");
     }
 
     TPM2_Cleanup(&tpm2Ctx);
