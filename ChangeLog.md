@@ -1,6 +1,6 @@
 ## Release Notes
 
-### wolfTPM Release 2.0 (12/04/2020)
+### wolfTPM Release 2.0 (12/07/2020)
 
 **Summary**
 
@@ -8,7 +8,7 @@ Added AES CFB parameter encryption, HMAC sessions, TPM simulator, Windows TPM (T
 
 **Detail**
 
-* Refactor of the session authentication. New TPM2_AUTH_SESSION struct and wolfTPM2_SetAuth API's. (PR #129)
+* Refactor of the session authentication. New struct `TPM2_AUTH_SESSION`  and `wolfTPM2_SetAuth_*` API's. (PR #129)
 * Added Windows TPM TBSI support (PR #127)
 * Added TPM simulator support using TPM TCP protocol (PR #121)
 * Added minGW support (PR #127)

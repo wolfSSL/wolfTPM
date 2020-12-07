@@ -33,6 +33,8 @@
 #define RSA_FILENAME  "rsa_test_blob.raw"
 #define ECC_FILENAME  "ecc_test_blob.raw"
 
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #if 0
 static int writeKeyBlob(const char* filename,
                         WOLFTPM2_KEYBLOB* key)
@@ -150,7 +152,6 @@ static int readAndLoadKey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-#if !defined(WOLFTPM2_NO_WRAPPER)
 int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
                                        WOLFTPM2_KEY* pStorageKey,
                                        TPM_ALG_ID alg)
@@ -161,7 +162,7 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
     rc = wolfTPM2_ReadPublicKey(pDev, pStorageKey, TPM2_DEMO_STORAGE_KEY_HANDLE);
     if (rc != 0) {
         /* Create primary storage key */
-        rc = wolfTPM2_CreateSRK(pDev, pStorageKey, alg, 
+        rc = wolfTPM2_CreateSRK(pDev, pStorageKey, alg,
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
     #ifndef WOLFTPM_WINAPI
         if (rc == TPM_RC_SUCCESS) {
@@ -262,4 +263,4 @@ int getECCkey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 #endif /* HAVE_ECC */
-#endif /* !defined(WOLFTPM2_NO_WRAPPER) */
+#endif /* !WOLFTPM2_NO_WRAPPER */

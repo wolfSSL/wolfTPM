@@ -22,7 +22,7 @@
 #ifndef _TPM_TEST_KEYS_H_
 #define _TPM_TEST_KEYS_H_
 
-#if !defined(WOLFTPM2_NO_WRAPPER)
+#ifndef WOLFTPM2_NO_WRAPPER
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 

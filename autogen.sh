@@ -42,4 +42,4 @@ else
   WARNINGS="all"
 fi
 
-autoreconf --install --force --verbose 
+autoreconf --install --force --verbose

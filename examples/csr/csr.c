@@ -202,7 +202,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
-                    tpmDevId, 
+                    tpmDevId,
                     (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
     if (rc != 0) goto exit;
 

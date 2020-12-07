@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h> /* atoi */
 
-
+#ifndef WOLFTPM2_NO_WRAPPER
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Flush tool  -- */
 /******************************************************************************/
@@ -104,14 +104,20 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
 /******************************************************************************/
 /* --- END TPM2.0 PCR Reset example tool -- */
 /******************************************************************************/
-
+#endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-    int rc;
+    int rc = NOT_COMPILED_IN;
 
+#ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Flush_Tool(NULL, argc, argv);
+#else
+    printf("Flush tool not compiled in\n");
+    (void)argc;
+    (void)argv;
+#endif
 
     return rc;
 }

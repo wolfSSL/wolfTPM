@@ -328,7 +328,7 @@ fi
 
 # TIS / SPI Check Wait State support
 # Required for all but Infineon only
-if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno" 
+if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno"
 then
     ENABLED_CHECKWAITSTATE=yes
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_CHECK_WAIT_STATE"

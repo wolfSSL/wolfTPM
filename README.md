@@ -91,7 +91,7 @@ TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.9 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
 Microchip ATTPM20
-TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1 
+TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1
 Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
 Nations Technologies Inc. TPM 2.0 module
@@ -432,7 +432,7 @@ ECDHE    256 agree         35 ops took 1.029 sec, avg 29.402 ms, 34.011 ops/sec
 ```
 ./examples/native/native_test
 TPM2 Demo using Native API's
-TPM2: Caps 0x30000495, Did 0x0000, Vid 0x104a, Rid 0x4e 
+TPM2: Caps 0x30000495, Did 0x0000, Vid 0x104a, Rid 0x4e
 TPM2_Startup pass
 TPM2_SelfTest pass
 TPM2_GetTestResult: Size 12, Rc 0x0
@@ -578,7 +578,7 @@ CCqGSM49BAMCA0gAMEUCIQCR9cbyRt3cbEZUIOBa4GNSRTlgFdB3X1EOwm+cA5/k
 ### TPM2 PKCS 7 Example
 
 ```
-./examples/pkcs7/pkcs7 
+./examples/pkcs7/pkcs7
 TPM2 PKCS7 Example
 PKCS7 Signed Container 1625
 PKCS7 Container Verified (using TPM)
