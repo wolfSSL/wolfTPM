@@ -63,6 +63,22 @@ called "TPM Locality Read/Write" that are similar to the LPC I/O Read/Write.
 #define LPC_CYCLE_START_VALUE 0x0101 /* Defined by the TCG TIS specification */
 #define LPC_LADO_LENGTH 4 /* 4-bite wide shared data bus */
 
+#ifndef LPC_LADO_PIN0
+#define LPC_LADO_PIN0 17
+#endif
+
+#ifndef LPC_LADO_PIN1
+#define LPC_LADO_PIN1 27
+#endif
+
+#ifndef LPC_LADO_PIN2
+#define LPC_LADO_PIN2 22
+#endif
+
+#ifndef LPC_LADO_PIN3
+#define LPC_LADO_PIN3 23
+#endif
+
 /* Values for the LP state machine executing the write and read */
 typedef enum LPC_STATE {
     LPC_IDLE   = 0,
@@ -87,7 +103,7 @@ struct LPC_LADO {
     int fdValue;
 };
 
-/* TODO: Make member of TPM2_CTX and then gLPCstate becomes a pointer */
+/* TODO: Make member of TPM2_CTX and make gTPMlpc a pointer */
 struct TPM_LPC {
     LPC_STATE lpcState;
     LPC_LADO[LPC_LADO_LENGTH];
@@ -96,6 +112,9 @@ struct TPM_LPC {
 #define STR_GPIO_PIN_MAX 3
 #define STR_VALUE_MAX 30
 #define STR_DIRECTION_MAX 35
+#define LADO_OUTPUT 1
+#define LADO_INPUT 0
+#define LADO_IDLE 0xFF
 
 /* Helper functions for sysfs gpio access */
 static int LPC_GPIO_Init(LPC_LADO* lado)
@@ -119,30 +138,32 @@ static int LPC_GPIO_Init(LPC_LADO* lado)
     }
     close(fd);
 
-    /* Get handle on pin direction */
+    /* Get handle on pin's direction */
     snprintf(buffer, STR_DIRECTION_MAX, "/sys/class/gpio/gpio%d/direction", pin);
     fd = open(buffer, O_WRONLY);
     if (-1 == fd) {
         fprintf(stderr, "Failed to access sysfs direction\n");
         return -1;
     }
+    lado->fdDir = fd;
     close(fd);
 
-    /* Get handle on pin output value */
-    snprintf(buffer, STR_VALUE_MAX, "/sys/class/gpio/gpio%d/direction", pin);
+    /* Get handle for pin's value */
+    snprintf(buffer, STR_VALUE_MAX, "/sys/class/gpio/gpio%d/value", pin);
     fd = open(buffer, O_WRONLY);
     if (-1 == fd) {
         fprintf(stderr, "Failed to access sysfs direction\n");
         return -1;
     }
+    lado->fdValue = fd;
     close(fd);
 
-    /* TODO: Set pull-ups */
+    /* TODO: Set pull-up */
 
     return 0;
 }
 
-static int GPIO_Write(LPC_LADO* lado, int value)
+static int LPC_GPIO_Write(LPC_LADO* lado, int value)
 {
     if (1 != write(lado->fdValue, value, 1)) {
         fprintf(stderr, "Failed to set GPIO%d value\n", lado->pin);
@@ -151,7 +172,7 @@ static int GPIO_Write(LPC_LADO* lado, int value)
     return 0;
 }
 
-static int GPIO_Read(LPC_LADO* lado, int *value)
+static int LPC_GPIO_Read(LPC_LADO* lado, int *value)
 {
     char buffer[3];
 
@@ -164,7 +185,7 @@ static int GPIO_Read(LPC_LADO* lado, int *value)
     return 0;
 }
 
-static int GPIO_SetDirection(LPC_LADO* lado, int output)
+static int LPC_GPIO_SetDir(LPC_LADO* lado, int output)
 {
     static const char strOut[] = "out";
     static const char strIn[] = "in";
@@ -194,11 +215,22 @@ static int GPIO_SetDirection(LPC_LADO* lado, int output)
  */
 int TPM2_LPC_Init(void)
 {
-    int rc = 0;
+    int i, rc = 0;
 
-    /* Init Linux SPI for LCLK and LFRAME */
+    /* TODO: Configure Linux SPI for LCLK and LFRAME */
 
-    /* TODO: Init GPIO for LADO{0:3} */
+    /* Init GPIO for LADO{0:3} */
+    gLPC.lado[0] = LPC_LADO_PIN0;
+    gLPC.lado[1] = LPC_LADO_PIN1;
+    gLPC.lado[2] = LPC_LADO_PIN2;
+    gLPC.lado[3] = LPC_LADO_PIN3;
+    for (i=0; i < LPC_LADO_LENGTH; i++) {
+        LPC_GPIO_Init(gTPMlpc.lado[i]);
+        LPC_GPIO_SetDir(gTPMlpc.lado[i], LADO_OUTPUT);
+        LPC_GPIO_Write(gTPMlpc.lado[i], LADO_IDLE);
+    }
+
+    /* TODO: Set pull-ups for LADO lines */
 
     return 0;
 }
