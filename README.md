@@ -129,6 +129,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
+--enable-lpc            Enable LPC TPM Support (default: disabled, requires advio) - WOLFTPM_LPC
 --enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
 --enable-smallstack     Enable options to reduce stack usage
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK

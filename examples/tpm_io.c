@@ -51,7 +51,7 @@
         #include <sys/ioctl.h>
         #include <sys/types.h>
         #include <sys/stat.h>
-    #else
+    #else /* Linux SPIdev is used for both SPI and LPC support */
         #include <linux/spi/spidev.h>
     #endif
     #include <fcntl.h>
@@ -62,6 +62,8 @@
         #define TPM2_I2C_ADDR 0x2e
         #define TPM2_I2C_DEV  "/dev/i2c-1"
         #define TPM2_I2C_HZ   400000 /* 400kHz */
+    #elif defined(WOLFTPM_LPC)
+        #define TPM2_SPI_DEV_CS "1" /* used as LFRAME signal */
     #else
         /* SPI */
         #ifdef WOLFTPM_MCHP
@@ -86,6 +88,7 @@
             static int foundSpiDev = 0;
         #else
             #define TPM2_SPI_DEV "/dev/spidev0."TPM2_SPI_DEV_CS
+            /* Note: SPI CLK used to generate LCLK when LPC is used */
         #endif
     #endif
 
@@ -210,6 +213,26 @@
         return ret;
     }
 
+#elif defined(WOLFTPM_LPC)
+    static int TPM2_IoCb_Linux_LPC(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+        word16 xferSz, void* userCtx)
+    {
+        int ret = TPM_RC_FAILURE;
+
+        /* TODO: Use the functionality from tpm_lpc.c
+        TPM2_LPC_Write();
+        ...
+        TPM2_LPC_Read();
+        */
+
+        (void)ctx;
+        (void)txBuf;
+        (void)rxBuf;
+        (void)xferSz;
+        (void)userCtx;
+
+        return ret;
+    }
 #else
     /* Use Linux SPI synchronous access */
     static int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
@@ -740,7 +763,9 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 {
     int ret = TPM_RC_FAILURE;
 
-#if defined(__linux__)
+#if defined(WOLFTPM_LPC)
+    ret = TPM2_IoCb_Linux_LPC(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(__linux__)
     ret = TPM2_IoCb_Linux_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
     ret = TPM2_IoCb_STCubeMX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);

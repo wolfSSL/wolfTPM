@@ -154,6 +154,19 @@ then
 fi
 
 
+# LPC Support
+AC_ARG_ENABLE([lpc],
+    [AS_HELP_STRING([--enable-lpc],[Enable LPC TPM Support (default: disabled)])],
+    [ ENABLED_LPC=$enableval ],
+    [ ENABLED_LPC=no ]
+    )
+
+if test "x$ENABLED_LPC" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LPC"
+fi
+
+
 # Advanced IO
 AC_ARG_ENABLE([advio],
     [AS_HELP_STRING([--enable-advio],[Enable Advanced IO (default: disabled)])],
@@ -347,6 +360,7 @@ AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
 AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
+AM_CONDITIONAL([BUILD_LPC], [test "x$ENABLED_LPC" = "xyes"])
 AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
 AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
@@ -471,6 +485,7 @@ echo "   * Examples:                  $ENABLED_EXAMPLES"
 echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
 echo "   * Advanced IO:               $ENABLED_ADVIO"
 echo "   * I2C:                       $ENABLED_I2C"
+echo "   * LPC:                       $ENABLED_LPC"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * WINAPI:                    $ENABLED_WINAPI"
