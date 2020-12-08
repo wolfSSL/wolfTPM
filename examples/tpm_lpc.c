@@ -22,11 +22,16 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_tis.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 /* This file implements LPC bus support for TPM devices
 
-TPM LPC must use LFRAME, LCLK, LADO
-
+TPM LPC must use at least the LFRAME, LCLK, LADO lines:
     - LFRAME is used for starting new LPC cycle
     - LCKL is a free running bus clock
     - LADO{0:3} is the shared data, control and address bus, 4-bit wide
@@ -56,6 +61,7 @@ called "TPM Locality Read/Write" that are similar to the LPC I/O Read/Write.
 
 */
 #define LPC_CYCLE_START_VALUE 0x0101 /* Defined by the TCG TIS specification */
+#define LPC_LADO_LENGTH 4 /* 4-bite wide shared data bus */
 
 /* Values for the LP state machine executing the write and read */
 typedef enum LPC_STATE {
@@ -75,8 +81,110 @@ typedef enum LPC_STATE {
 }LPC_IO_CYCLE_STATE_T;
 typedef UINT16 LPC_IO_CYCLE_STATE;
 
+struct LPC_LADO {
+    int pin;
+    int fdDir;
+    int fdValue;
+};
+
 /* TODO: Make member of TPM2_CTX and then gLPCstate becomes a pointer */
-static LPC_IO_CYCLE_STATE gLPCstate = LPC_IDLE;
+struct TPM_LPC {
+    LPC_STATE lpcState;
+    LPC_LADO[LPC_LADO_LENGTH];
+}gTPMlpc;
+
+#define STR_GPIO_PIN_MAX 3
+#define STR_VALUE_MAX 30
+#define STR_DIRECTION_MAX 35
+
+/* Helper functions for sysfs gpio access */
+static int LPC_GPIO_Init(LPC_LADO* lado)
+{
+    int ret, fd;
+    char buffer[STR_DIRECTION_MAX];
+    sszite_t bytes;
+
+    /* Get acccess to GPIO */
+    fd = open("/sys/class/gpio/export", O_WRONLY);
+    if (-1 == fd) {
+        fprintf(stderr, "Failed to access sysfs export\n");
+        return -1;
+    }
+
+    bytes = snprintf(buffer, STR_GPIO_PIN_MAX, "%d", lado->pin);
+    ret = write(fd, buffer, bytes);
+    if (ret != bytes) {
+        fprintf(stderr, "Failed to export GPIO%d\n");
+        return -1;
+    }
+    close(fd);
+
+    /* Get handle on pin direction */
+    snprintf(buffer, STR_DIRECTION_MAX, "/sys/class/gpio/gpio%d/direction", pin);
+    fd = open(buffer, O_WRONLY);
+    if (-1 == fd) {
+        fprintf(stderr, "Failed to access sysfs direction\n");
+        return -1;
+    }
+    close(fd);
+
+    /* Get handle on pin output value */
+    snprintf(buffer, STR_VALUE_MAX, "/sys/class/gpio/gpio%d/direction", pin);
+    fd = open(buffer, O_WRONLY);
+    if (-1 == fd) {
+        fprintf(stderr, "Failed to access sysfs direction\n");
+        return -1;
+    }
+    close(fd);
+
+    /* TODO: Set pull-ups */
+
+    return 0;
+}
+
+static int GPIO_Write(LPC_LADO* lado, int value)
+{
+    if (1 != write(lado->fdValue, value, 1)) {
+        fprintf(stderr, "Failed to set GPIO%d value\n", lado->pin);
+        return -1;
+    }
+    return 0;
+}
+
+static int GPIO_Read(LPC_LADO* lado, int *value)
+{
+    char buffer[3];
+
+    if (-1 == read(lado->fdValue, buffer, sizeof(buffer))) {
+        fprintf(stderr, "Failed to read GPIO%d value\n", lado->pin);
+        return -1;
+    }
+
+    *value = atoi(buffer);
+    return 0;
+}
+
+static int GPIO_SetDirection(LPC_LADO* lado, int output)
+{
+    static const char strOut[] = "out";
+    static const char strIn[] = "in";
+    int ret;
+
+    if (output) {
+        ret = write(lado->fdDir, strOut, sizeof(strOut));
+        ret -= sizeof(strOut));
+    }
+    else {
+        ret = write(lado->fdDir, strIn, sizeof(strIn))
+        ret -= sizeof(strIn));
+    }
+
+    if (ret) {
+        fprintf(stderr, "Failed to set GPIO%d as output\n");
+        return -1;
+    }
+    return 0;
+}
 
 /* Prepare LPC-like interface on a Linux-powered device that does not have LPC
  * - Use SPI to drive LCLK(SPI CLK) and LFRAME(CS)
@@ -88,11 +196,9 @@ int TPM2_LPC_Init(void)
 {
     int rc = 0;
 
-    /* Init Linux SPI */
+    /* Init Linux SPI for LCLK and LFRAME */
 
     /* TODO: Init GPIO for LADO{0:3} */
-
-    /* TODO: Pull-ups required on LADO lines */
 
     return 0;
 }
@@ -111,12 +217,12 @@ int TPM2_LPC_LADOtoHost(void)
 
 void TPM2_LPC_GetState(LPC_IO_CYCLE_STATE* state)
 {
-    *state = gLPCstate;
+    *state = gTPMlpc.lpcState;
 }
 
 void TPM2_LPC_SetState(LPC_IO_CYCLE_STATE state)
 {
-    gLPCstate = state;
+    gTPMlpc.lpcState = state;
 }
 
 int TPM2_LPC_Read(void)
