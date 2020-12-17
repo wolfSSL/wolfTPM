@@ -35,8 +35,7 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#if 0
-static int writeKeyBlob(const char* filename,
+int writeKeyBlob(const char* filename,
                         WOLFTPM2_KEYBLOB* key)
 {
     int rc = 0;
@@ -58,9 +57,8 @@ static int writeKeyBlob(const char* filename,
 #endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
     return rc;
 }
-#endif
 
-static int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
+int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 {
     int rc = 0;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
@@ -93,6 +91,7 @@ static int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
                 printf("Read %zu, expected private blob %zu bytes\n", bytes_read, fileSz);
                 goto exit;
             }
+            rc = 0; /* success */
         }
 
         /* sanity check the sizes */
@@ -120,7 +119,65 @@ exit:
     return rc;
 }
 
-static int readAndLoadKey(WOLFTPM2_DEV* pDev,
+int createAndLoadKey(WOLFTPM2_DEV* pDev,
+                WOLFTPM2_KEY* key,
+                WOLFTPM2_HANDLE* parent,
+                const char* filename,
+                const byte* auth,
+                int authSz,
+                TPMT_PUBLIC* publicTemplate)
+{
+    int rc;
+    WOLFTPM2_KEYBLOB keyblob;
+
+    rc = readAndLoadKey(pDev, key, parent, filename, auth, authSz);
+    if (rc == 0) {
+        return rc;
+    }
+    /* read failed, so let's create a new key */
+    
+    /* if a public template was not provided we cannot create */
+    if (publicTemplate == NULL) {
+        return BUFFER_E;
+    }
+
+
+    XMEMSET(&keyblob, 0, sizeof(keyblob));
+    rc = wolfTPM2_CreateKey(pDev, &keyblob, parent,
+                            publicTemplate, auth, authSz);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_CreateKey failed\n");
+        return rc;
+    }
+    printf("Created new key (pub %d, priv %d bytes)\n",
+        keyblob.pub.size, keyblob.priv.size);
+
+    /* Save key as encrypted blob to the disk */
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    rc = writeKeyBlob(filename, &keyblob);
+    if (rc != 0) {
+        return rc;
+    }
+#endif
+
+    /* Load Key */
+    rc = wolfTPM2_LoadKey(pDev, &keyblob, parent);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_LoadKey failed\n");
+        return rc;
+    }
+    printf("Loaded key to 0x%x\n",
+        (word32)keyblob.handle.hndl);
+
+    key->handle = keyblob.handle;
+    key->pub    = keyblob.pub;
+    key->handle.auth.size = authSz;
+    XMEMCPY(key->handle.auth.buffer, auth, authSz);
+
+    return rc;
+}
+
+int readAndLoadKey(WOLFTPM2_DEV* pDev,
                           WOLFTPM2_KEY* key,
                           WOLFTPM2_HANDLE* parent,
                           const char* filename,
@@ -134,7 +191,11 @@ static int readAndLoadKey(WOLFTPM2_DEV* pDev,
     XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
 
     rc = readKeyBlob(filename, &keyblob);
-    if (rc != 0) return rc;
+    if (rc != 0) {
+        /* if does not exist - create */
+
+        return rc;
+    }
 
     rc = wolfTPM2_LoadKey(pDev, &keyblob, parent);
     if (rc != TPM_RC_SUCCESS) {
@@ -188,79 +249,71 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-#ifndef NO_RSA
-#ifdef WOLFTPM2_NO_WOLFCRYPT
 int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
-                            const byte* auth, int authSz)
-#else
-int getRSAkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            RsaKey* pWolfRsaKey,
+                            void* pWolfRsaKey,
                             int tpmDevId,
-                            const byte* auth, int authSz)
-#endif /* WOLFTPM2_NO_WOLFCRYPT */
-
+                            const byte* auth, int authSz,
+                            TPMT_PUBLIC* publicTemplate)
 {
     int rc = 0;
 
-    rc = readAndLoadKey(pDev, key, &pStorageKey->handle,
+    /* Create/Load RSA key */
+    rc = createAndLoadKey(pDev, key, &pStorageKey->handle,
                         RSA_FILENAME,
-                        auth, authSz);
+                        auth, authSz, publicTemplate);
     if (rc != 0) {
         return rc;
     }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT)
-    /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_InitRsaKey_ex(pWolfRsaKey, NULL, tpmDevId);
-    if (rc != 0) return rc;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    if (pWolfRsaKey) {
+        /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
+        rc = wc_InitRsaKey_ex(pWolfRsaKey, NULL, tpmDevId);
+        if (rc != 0) return rc;
 
-    /* load public portion of key into wolf RSA Key */
-    rc = wolfTPM2_RsaKey_TpmToWolf(pDev, key, pWolfRsaKey);
-#endif /* !defined(WOLFTPM2_NO_WOLFCRYPT) */
+        /* load public portion of key into wolf RSA Key */
+        rc = wolfTPM2_RsaKey_TpmToWolf(pDev, key, (RsaKey*)pWolfRsaKey);
+    }
+#else
+    (void)pWolfRsaKey;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
     return rc;
 }
-#endif /* !NO_RSA */
 
-
-#ifdef HAVE_ECC
-#ifdef WOLFTPM2_NO_WOLFCRYPT
 int getECCkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
-                            const byte* auth, int authSz)
-#else
-int getECCkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            ecc_key* pWolfEccKey,
+                            void* pWolfEccKey,
                             int tpmDevId,
-                            const byte* auth, int authSz)
-#endif
+                            const byte* auth, int authSz,
+                            TPMT_PUBLIC* publicTemplate)
 {
     int rc = 0;
 
     /* Create/Load ECC key */
-    rc = readAndLoadKey(pDev, key, &pStorageKey->handle,
+    rc = createAndLoadKey(pDev, key, &pStorageKey->handle,
                         ECC_FILENAME,
-                        auth, authSz);
+                        auth, authSz, publicTemplate);
     if (rc != 0) {
         return rc;
     }
-#if !defined(WOLFTPM2_NO_WOLFCRYPT)
-    /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
-    rc = wc_ecc_init_ex(pWolfEccKey, NULL, tpmDevId);
-    if (rc != 0) return rc;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    if (pWolfEccKey) {
+        /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
+        rc = wc_ecc_init_ex(pWolfEccKey, NULL, tpmDevId);
+        if (rc != 0) return rc;
 
-    /* load public portion of key into wolf ECC Key */
-    rc = wolfTPM2_EccKey_TpmToWolf(pDev, key, pWolfEccKey);
-#endif /* !defined(WOLFTPM2_NO_WOLFCRYPT) */
+        /* load public portion of key into wolf ECC Key */
+        rc = wolfTPM2_EccKey_TpmToWolf(pDev, key, (ecc_key*)pWolfEccKey);
+    }
+#else
+    (void)pWolfEccKey;
+#endif /* !WOLFTPM2_NO_WRAPPER && HAVE_ECC */
 
     return rc;
 }
-#endif /* HAVE_ECC */
+
 #endif /* !WOLFTPM2_NO_WRAPPER */

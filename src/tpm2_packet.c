@@ -410,6 +410,7 @@ void TPM2_Packet_AppendSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 }
 void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 {
+    XMEMSET(symmetric, 0, sizeof(TPMT_SYM_DEF));
     TPM2_Packet_ParseU16(packet, &symmetric->algorithm);
     switch (symmetric->algorithm) {
         case TPM_ALG_XOR:

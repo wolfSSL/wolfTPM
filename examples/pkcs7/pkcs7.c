@@ -335,26 +335,19 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     /* Create/Load RSA key for PKCS7 signing */
-    rc = wolfTPM2_ReadPublicKey(&dev, &rsaKey, TPM2_DEMO_RSA_KEY_HANDLE);
-    if (rc != 0) {
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
-            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-        if (rc != 0) goto exit;
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                    TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
 
-        /* Move this key into persistent storage */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &rsaKey,
-            TPM2_DEMO_RSA_KEY_HANDLE);
-        if (rc != 0) goto exit;
-    }
-    else {
-        /* specify auth password for rsa key */
-        rsaKey.handle.auth.size = sizeof(gKeyAuth)-1;
-        XMEMCPY(rsaKey.handle.auth.buffer, gKeyAuth, rsaKey.handle.auth.size);
-    }
+    rc = getRSAkey(&dev,
+                   &storageKey,
+                   &rsaKey,
+                   NULL,
+                   tpmDevId,
+                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                   &publicTemplate);
+    if (rc != 0) goto exit;
     wolfTPM2_SetAuthHandle(&dev, 0, &rsaKey.handle);
 
 

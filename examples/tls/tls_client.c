@@ -123,6 +123,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     int useECC = 0;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
+    TPMT_PUBLIC publicTemplate;
 
     /* initialize variables */
     XMEMSET(&storageKey, 0, sizeof(storageKey));
@@ -206,12 +207,17 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #ifndef NO_RSA
     if (!useECC) {
         /* Create/Load RSA key for TLS authentication */
+        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                    TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        if (rc != 0) goto exit;
         rc = getRSAkey(&dev,
                     &storageKey,
                     &rsaKey,
                     &wolfRsaKey,
                     tpmDevId,
-                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                    &publicTemplate);
         if (rc != 0) goto exit;
     }
 #endif /* !NO_RSA */
@@ -219,12 +225,18 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #ifdef HAVE_ECC
     if (useECC) {
         /* Create/Load ECC key for TLS authentication */
+        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+        if (rc != 0) goto exit;
         rc = getECCkey(&dev,
                     &storageKey,
                     &eccKey,
                     &wolfEccKey,
                     tpmDevId,
-                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                    &publicTemplate);
         if (rc != 0) goto exit;
     }
 

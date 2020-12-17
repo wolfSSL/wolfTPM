@@ -56,10 +56,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
     int bAIK = 1;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    XFILE f;
-    size_t fileSz = 0;
-#endif
     const char* outputFile = "keyblob.bin";
 
     if (argc >= 2) {
@@ -178,14 +174,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    f = XFOPEN(outputFile, "wb");
-    if (f != XBADFILE) {
-        newKey.pub.size = sizeof(newKey.pub);
-        fileSz += XFWRITE(&newKey.pub, 1, sizeof(newKey.pub), f);
-        fileSz += XFWRITE(&newKey.priv, 1, sizeof(UINT16) + newKey.priv.size, f);
-        XFCLOSE(f);
-    }
-    printf("Wrote %d bytes to %s\n", (int)fileSz, outputFile);
+    rc = writeKeyBlob(outputFile, &newKey);
 #else
     printf("Key Public Blob %d\n", newKey.pub.size);
     TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);

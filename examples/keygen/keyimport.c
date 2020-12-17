@@ -54,10 +54,6 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    XFILE f;
-    size_t fileSz = 0;
-#endif
     const char* outputFile = "keyblob.bin";
 
     if (argc >= 2) {
@@ -144,14 +140,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    f = XFOPEN(outputFile, "wb");
-    if (f != XBADFILE) {
-        impKey.pub.size = sizeof(impKey.pub);
-        fileSz += XFWRITE(&impKey.pub, 1, sizeof(impKey.pub), f);
-        fileSz += XFWRITE(&impKey.priv, 1, sizeof(UINT16) + impKey.priv.size, f);
-        XFCLOSE(f);
-    }
-    printf("Wrote %d bytes to %s\n", (int)fileSz, outputFile);
+    rc = writeKeyBlob(outputFile, &impKey);
 #else
     printf("Key Public Blob %d\n", impKey.pub.size);
     TPM2_PrintBin((const byte*)&impKey.pub.publicArea, impKey.pub.size);

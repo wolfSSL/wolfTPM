@@ -59,9 +59,6 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB newKey;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    XFILE f;
-#endif
     const char* inputFile = "keyblob.bin";
 
     if (argc >= 2) {
@@ -119,50 +116,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 
     /* Load encrypted key from the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    f = XFOPEN(inputFile, "rb");
-    if (f != XBADFILE) {
-        size_t fileSz;
-        size_t bytes_read;
-
-        XFSEEK(f, 0, XSEEK_END);
-        fileSz = XFTELL(f);
-        XREWIND(f);
-        if (fileSz > sizeof(newKey.priv) + sizeof(newKey.pub)) {
-            printf("File size check failed\n");
-            rc = BUFFER_E; goto exit;
-        }
-        printf("Reading %d bytes from %s\n", (int)fileSz, inputFile);
-
-        bytes_read = XFREAD(&newKey.pub, 1, sizeof(newKey.pub), f);
-        if (bytes_read != sizeof(newKey.pub)) {
-            printf("Read %zu, expected public blob %zu bytes\n", bytes_read, sizeof(newKey.pub));
-            rc = BUFFER_E;
-            XFCLOSE(f);
-            goto exit;
-        }
-
-        if (fileSz > sizeof(newKey.pub)) {
-            fileSz -= sizeof(newKey.pub);
-            bytes_read = XFREAD(&newKey.priv, 1, fileSz, f);
-            if (bytes_read != fileSz) {
-                rc = BUFFER_E;
-                XFCLOSE(f);
-                goto exit;
-            }
-        }
-        XFCLOSE(f);
-
-        /* sanity check the sizes */
-        if (newKey.pub.size != sizeof(newKey.pub) || newKey.priv.size > sizeof(newKey.priv.buffer)) {
-            printf("Struct size check failed (pub %d, priv %d)\n", newKey.pub.size, newKey.priv.size);
-            rc = BUFFER_E; goto exit;
-        }
-    }
-    else {
-        rc = BUFFER_E;
-        printf("File %s not found!\n", inputFile);
-        goto exit;
-    }
+    rc = readKeyBlob(inputFile, &newKey);
+    if (rc != 0) goto exit;
 #else
     /* TODO: Option to load hex blob */
     printf("Loading blob from disk not supported\n");
