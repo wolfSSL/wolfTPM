@@ -21,6 +21,10 @@ if BUILD_WINAPI
 src_libwolftpm_la_SOURCES      += src/tpm2_winapi.c
 src_libwolftpm_la_LIBADD       = -ltbs
 endif
+if BUILD_CYUSB
+src_libwolftpm_la_SOURCES      += src/tpm2_cyusb.c
+src_libwolftpm_la_LIBADD       = -lcyusbserial
+endif
 
 src_libwolftpm_la_CFLAGS       = $(src_libwolftpm_la_EXTRAS) -DBUILDING_WOLFTPM $(AM_CFLAGS)
 src_libwolftpm_la_CPPFLAGS     = -DBUILDING_WOLFTPM $(AM_CPPFLAGS)

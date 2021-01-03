@@ -26,6 +26,7 @@
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_winapi.h>
+#include <wolftpm/tpm2_cyusb.h>
 #include <wolftpm/tpm2_param_enc.h>
 
 /******************************************************************************/
@@ -46,6 +47,9 @@ static volatile int gWolfCryptRefCount = 0;
 #elif defined(WOLFTPM_WINAPI)
 #define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx) TPM2_WinApi_Cleanup(ctx)
+#elif defined(WOLFTPM_CYUSB)
+#define INTERNAL_SEND_COMMAND      TPM2_CYUSB_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #else
 #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)

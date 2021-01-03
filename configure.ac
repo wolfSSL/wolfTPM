@@ -213,6 +213,22 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WINAPI"
 fi
 
+# LetsTrust TPM2.0 on UBS stick / Cypress USB2SPI Support
+AC_ARG_ENABLE([cyusb],
+    [AS_HELP_STRING([--enable-cyusb],[Enable use of TPM through a Cypress USB2SPI bridge (default: disabled)])],
+    [ ENABLED_CYUSB=$enableval ],
+    [ ENABLED_CYUSB=no ]
+    )
+
+if test "x$ENABLED_CYUSB" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both cyusb and devtpm])
+    fi
+
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_CYUSB"
+fi
 
 # STM ST33 Support
 AC_ARG_ENABLE([st33],,
@@ -354,6 +370,7 @@ AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
+AM_CONDITIONAL([BUILD_CYUSB], [test "x$ENABLED_CYUSB" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
@@ -474,6 +491,7 @@ echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * WINAPI:                    $ENABLED_WINAPI"
+echo "   * CYUSB/LetsTrust USB2GO:    $ENABLED_CYUSB"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
 echo "   * Infineon SLB9670           $ENABLED_INFINEON"
