@@ -137,7 +137,8 @@ int TPM2_CYUSB_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             readBuf.buffer = packet->buf;
 
             /* Send the TPM command over the Cypress USB channel */
-            CySpiReadWrite(handle, &readBuf, &writeBuf, 5000);
+            rStatus = CySpiReadWrite(handle, &readBuf, &writeBuf, 5000);
+            printf("CYUSB: Unable to write to the TPM2.0 on USB ERRNO=%d\n", rStatus);
 
             /* The caller parses the TPM_Packet for correctness */
             if (readBuf.transferCount >= TPM2_HEADER_SIZE) {
