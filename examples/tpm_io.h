@@ -29,7 +29,7 @@
 #endif
 
 /* TPM2 IO Examples */
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI) || defined(WOLFTPM_CYUSB)
 #define TPM2_IoCb NULL
 #else
 
