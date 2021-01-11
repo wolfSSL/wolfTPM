@@ -120,6 +120,12 @@ Generation of the Client and Server Certificates requires running:
     a. `cp ./certs/ca-ecc-cert.pem ../wolfssl/certs/tpm-ca-ecc-cert.pem`
     b. `cp ./certs/ca-rsa-cert.pem ../wolfssl/certs/tpm-ca-rsa-cert.pem`
 
+Note: The `wolf-ca-rsa-cert.pem` and `wolf-ca-ecc-cert.pem` files come from the wolfSSL example certificates here:
+
+```
+cp ../wolfssl/certs/ca-cert.pem ./certs/wolf-ca-rsa-cert.pem
+cp ../wolfssl/certs/ca-ecc-cert.pem ./certs/wolf-ca-ecc-cert.pem
+```
 
 ### TLS Client
 
