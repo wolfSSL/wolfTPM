@@ -26,41 +26,46 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+WOLFTPM_LOCAL int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
+WOLFTPM_LOCAL int writeKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
+
+
+WOLFTPM_LOCAL int readAndLoadKey(WOLFTPM2_DEV* pDev,
+                          WOLFTPM2_KEY* key,
+                          WOLFTPM2_HANDLE* parent,
+                          const char* filename,
+                          const byte* auth,
+                          int authSz);
+
+WOLFTPM_LOCAL int createAndLoadKey(WOLFTPM2_DEV* pDev,
+                WOLFTPM2_KEY* key,
+                WOLFTPM2_HANDLE* parent,
+                const char* filename,
+                const byte* auth,
+                int authSz,
+                TPMT_PUBLIC* publicTemplate);
+
+
 WOLFTPM_LOCAL int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
                                        WOLFTPM2_KEY* pStorageKey,
                                        TPM_ALG_ID alg);
 
-#ifndef NO_RSA
-#ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
-                            const byte* auth, int authSz);
-#else
-WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            RsaKey* pWolfRsaKey,
+                            void* pWolfRsaKey,
                             int tpmDevId,
-                            const byte* auth, int authSz);
-#endif /* WOLFTPM2_NO_WOLFCRYPT */
-#endif
+                            const byte* auth, int authSz,
+                            TPMT_PUBLIC* publicTemplate);
 
-#ifdef HAVE_ECC
-#ifdef WOLFTPM2_NO_WOLFCRYPT
 WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,
-                            const byte* auth, int authSz);
-#else
-WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            ecc_key* pWolfEccKey,
+                            void* pWolfEccKey,
                             int tpmDevId,
-                            const byte* auth, int authSz);
-#endif
-#endif
+                            const byte* auth, int authSz,
+                            TPMT_PUBLIC* publicTemplate);
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
+
 #endif /* _TPM_TEST_KEYS_H_ */

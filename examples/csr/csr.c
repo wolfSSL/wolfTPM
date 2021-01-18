@@ -156,6 +156,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 #endif
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
+    TPMT_PUBLIC publicTemplate;
 
     printf("TPM2 CSR Example\n");
 
@@ -169,10 +170,12 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
     tpmCtx.rsaKey = &rsaKey;
 #endif
 #ifdef HAVE_ECC
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
     XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
@@ -184,12 +187,18 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
 #ifndef NO_RSA
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                    TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
+
     rc = getRSAkey(&dev,
                    &storageKey,
                    &rsaKey,
                    &wolfRsaKey,
                    tpmDevId,
-                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                   &publicTemplate);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &wolfRsaKey, gClientCertRsaFile);
@@ -198,12 +207,18 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 
 
 #ifdef HAVE_ECC
-    rc =  getECCkey(&dev,
-                    &storageKey,
-                    &eccKey,
-                    &wolfEccKey,
-                    tpmDevId,
-                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    if (rc != 0) goto exit;
+    rc = getECCkey(&dev,
+                  &storageKey,
+                  &eccKey,
+                  &wolfEccKey,
+                  tpmDevId,
+                  (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                  &publicTemplate);
     if (rc != 0) goto exit;
 
     rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &wolfEccKey, gClientCertEccFile);
