@@ -100,6 +100,7 @@ extendedKeyUsage = clientAuth, emailProtection
 basicConstraints = CA:FALSE
 nsCertType = server
 subjectKeyIdentifier = hash
+subjectAltName=IP:127.0.0.1
 authorityKeyIdentifier = keyid,issuer:always
 keyUsage = critical, digitalSignature, keyEncipherment, keyAgreement
 extendedKeyUsage = serverAuth
