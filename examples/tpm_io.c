@@ -89,10 +89,10 @@
         #endif
     #endif
 
-#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
-    #define TPM2_I2C_ADDR 0x2e
-
-#elif defined(WOLFSSL_STM32_CUBEMX_SPI)
+#elif defined(WOLFSSL_STM32_CUBEMX)
+    #ifdef WOLFTPM_I2C
+        #define TPM2_I2C_ADDR 0x2e
+    #endif
 
 #elif defined(WOLFSSL_ATMEL)
     #include "asf.h"
@@ -325,7 +325,8 @@
     }
 #endif /* WOLFTPM_I2C */
 
-#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
+#elif defined(WOLFSSL_STM32_CUBEMX)
+    #ifdef WOLFTPM_I2C
     /* STM32 CubeMX HAL I2C */
     #define STM32_CUBEMX_I2C_TIMEOUT 250
     static int i2c_read(void* userCtx, word32 reg, byte* data, int len)
@@ -389,10 +390,9 @@
         (void)ctx;
 
         return ret;
-    } /* WOLFSSL_STM32_CUBEMX_SPI */
+    }
 
-#elif defined(WOLFSSL_STM32_CUBEMX_SPI)
-    /* STM32 CubeMX Hal SPI */
+    #else /* STM32 CubeMX Hal SPI */
     #define STM32_CUBEMX_SPI_TIMEOUT 250
     static int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         word16 xferSz, void* userCtx)
@@ -464,7 +464,8 @@
         (void)ctx;
 
         return ret;
-    } /* WOLFSSL_STM32_CUBEMX_SPI */
+    }
+    #endif /* WOLFTPM_I2C */
 
 #elif defined(WOLFSSL_ATMEL)
     /* Atmel ASF */
@@ -840,7 +841,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-#if !defined(WOLFTPM_I2C) && !defined(WOLFSSL_STM32_CUBEMX_I2C)
+#if !defined(WOLFTPM_I2C)
     byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
     byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
 #endif
@@ -858,6 +859,9 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
     #if defined(__linux__)
         /* Use Linux I2C */
         ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size, userCtx);
+    #elif defined(WOLFSSL_STM32_CUBEMX)
+        /* Use STM32 CubeMX HAL for I2C */
+        ret = TPM2_IoCb_STCubeMX_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");
@@ -867,9 +871,6 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
         (void)size;
         (void)userCtx;
     #endif
-#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
-    /* Use STM32 CubeMX HAL for I2C */
-    ret = TPM2_IoCb_STCubeMX_I2C(ctx, isRead, addr, buf, size, userCtx);
 #else
     /* Build SPI format buffer */
     if (isRead) {
