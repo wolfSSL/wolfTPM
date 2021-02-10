@@ -89,10 +89,10 @@
         #endif
     #endif
 
-#elif defined(WOLFTPM_STM32_CUBEMX_I2C)
+#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
     #define TPM2_I2C_ADDR 0x2e
 
-#elif defined(WOLFTPM_STM32_CUBEMX_SPI)
+#elif defined(WOLFSSL_STM32_CUBEMX_SPI)
 
 #elif defined(WOLFSSL_ATMEL)
     #include "asf.h"
@@ -325,7 +325,7 @@
     }
 #endif /* WOLFTPM_I2C */
 
-#elif defined(WOLFTPM_STM32_CUBEMX_I2C)
+#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
     /* STM32 CubeMX HAL I2C */
     #define STM32_CUBEMX_I2C_TIMEOUT 250
     static int i2c_read(void* userCtx, word32 reg, byte* data, int len)
@@ -389,9 +389,9 @@
         (void)ctx;
 
         return ret;
-    } /* WOLFTPM_STM32_CUBEMX_SPI */
+    } /* WOLFSSL_STM32_CUBEMX_SPI */
 
-#elif defined(WOLFTPM_STM32_CUBEMX_SPI)
+#elif defined(WOLFSSL_STM32_CUBEMX_SPI)
     /* STM32 CubeMX Hal SPI */
     #define STM32_CUBEMX_SPI_TIMEOUT 250
     static int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
@@ -464,7 +464,7 @@
         (void)ctx;
 
         return ret;
-    } /* WOLFTPM_STM32_CUBEMX_SPI */
+    } /* WOLFSSL_STM32_CUBEMX_SPI */
 
 #elif defined(WOLFSSL_ATMEL)
     /* Atmel ASF */
@@ -810,7 +810,7 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 #if defined(__linux__)
     ret = TPM2_IoCb_Linux_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
-#elif defined(WOLFTPM_STM32_CUBEMX)
+#elif defined(WOLFSSL_STM32_CUBEMX)
     ret = TPM2_IoCb_STCubeMX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFSSL_ATMEL)
     ret = TPM2_IoCb_Atmel_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
@@ -840,7 +840,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_STM32_CUBEMX_I2C)
+#if !defined(WOLFTPM_I2C) && !defined(WOLFSSL_STM32_CUBEMX_I2C)
     byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
     byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
 #endif
@@ -867,7 +867,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
         (void)size;
         (void)userCtx;
     #endif
-#elif defined(WOLFTPM_STM32_CUBEMX_I2C)
+#elif defined(WOLFSSL_STM32_CUBEMX_I2C)
     /* Use STM32 CubeMX HAL for I2C */
     ret = TPM2_IoCb_STCubeMX_I2C(ctx, isRead, addr, buf, size, userCtx);
 #else

@@ -22,8 +22,8 @@ extern "C" {
 #undef  WOLFSSL_STM32F4
 #define WOLFSSL_STM32F4
 
-#undef  WOLFTPM_STM32_CUBEMX_SPI
-#define WOLFTPM_STM32_CUBEMX_SPI
+#undef  WOLFSSL_STM32_CUBEMX_SPI
+#define WOLFSSL_STM32_CUBEMX_SPI
 
 /* Optionally Disable Hardware Hashing Support */
 //#define NO_STM32_HASH
