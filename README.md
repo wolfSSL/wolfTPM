@@ -12,19 +12,23 @@ Portable TPM 2.0 project designed for embedded use.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
 * The design allows for easy portability to different platforms:
-	* Native C code designed for embedded use.
-	* Single IO callback for hardware SPI interface.
-	* No external dependencies.
-	* Compact code size and minimal memory use.
+    * Native C code designed for embedded use.
+    * Single IO callback for hardware SPI interface.
+    * No external dependencies.
+    * Compact code size and minimal memory use.
 * Includes example code for:
     * Most TPM2 native API’s
     * All TPM2 wrapper API's
-	* PKCS 7
-	* Certificate Signing Request (CSR)
-	* TLS Client
-	* TLS Server
-	* Benchmarking TPM algorithms and TLS
-* Parameter encryption support using AES-CFB or XOR. Supports salted unbound authenticated sessions.
+    * PKCS 7
+    * Certificate Signing Request (CSR)
+    * TLS Client
+    * TLS Server
+    * Use of the TPM's Non-volatile memory
+    * Attestation (TPM2_Quote and TPM2_GetTime)
+    * Benchmarking TPM algorithms and TLS
+* Parameter encryption support using AES-CFB or XOR.
+* Support for salted unbound authenticated sessions.
+* Support for HMAC Sessions.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
