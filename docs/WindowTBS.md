@@ -2,6 +2,22 @@
 
 wolfTPM can be built to use Windows native TBS (TPM Base Services)
 
+## Limitations
+
+wolfTPM has been tested on Windows 10 with TPM 2.0 devices. While
+Windows does support TPM 1.2, functionality is limited and not
+supported by wolfTPM.
+
+Presence of TPM 2.0 can be checked by opening PowerShell
+and running `Get-PnpDevice -Class SecurityDevices`
+
+```
+Status     Class           FriendlyName
+------     -----           ------------
+OK         SecurityDevices Trusted Platform Module 2.0
+Unknown    SecurityDevices Trusted Platform Module 2.0
+```
+
 ## Building in MSYS2
 
 Tested using MSYS2
