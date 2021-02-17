@@ -4609,9 +4609,10 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_AppendU32(&packet, in->authHandle);
         info.authCnt = TPM2_Packet_AppendAuth(&packet, ctx);
 
+        /* 1st TPM2B parameter, TPM2B_AUTH different from Authorization Area */
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
-
+        /* 2nd TPM2B parameter, TPM2B_PUBLIC */
         in->publicInfo.size = 4 + 2 + 4 + 2 +
             in->publicInfo.nvPublic.authPolicy.size + 2;
         TPM2_Packet_AppendU16(&packet, in->publicInfo.size);
@@ -5685,6 +5686,20 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
         buffer += sz;
         length -= sz;
     }
+}
+
+void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
+{
+    if (authCmd == NULL)
+        return;
+
+    printf("authCmd:\n");
+    printf("sessionHandle=0x%7X\n", authCmd->sessionHandle);
+    printf("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
+    TPM2_PrintBin(authCmd->nonce.buffer, authCmd->nonce.size);
+    printf("sessionAttributes=0x%2X\n", authCmd->sessionAttributes);
+    printf("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
+    TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
 }
 #endif
 
