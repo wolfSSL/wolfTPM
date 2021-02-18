@@ -320,7 +320,9 @@ void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
     if (packet == NULL || authCmd == NULL)
         return;
 
+#ifdef WOLFTPM_DEBUG_VERBOSE
     TPM2_PrintAuth(authCmd);
+#endif
 
     /* make sure continueSession is set for TPM_RS_PW */
     if (authCmd->sessionHandle == TPM_RS_PW &&
