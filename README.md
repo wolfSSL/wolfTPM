@@ -218,6 +218,57 @@ Note: When using a TPM device through the Linux kernel driver make sure sufficie
 sudo adduser yourusername tss
 ```
 
+#### With QEMU and swtpm
+
+This demonstrates using wolfTPM in QEMU to communicate using the linux
+kernel device "/dev/tpmX". You will need to install or build
+[swtpm](https://github.com/stefanberger/swtpm).
+
+You can setup a basic linux installation. Other installation bases can
+be used. This step will take some time to install the base linux
+system.
+
+```
+# download mini install image
+curl -O http://archive.ubuntu.com/ubuntu/dists/bionic-updates/main/installer-amd64/current/images/netboot/mini.iso
+# create qemu image file
+qemu-img create -f qcow2 lubuntu.qcow2 5G
+# start swtpm and start qemu with install media
+swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20 &
+qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
+  -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock \
+  -tpmdev emulator,id=tpm0,chardev=chrtpm \
+  -device tpm-tis,tpmdev=tpm0 -hda lubuntu.qcow2 -cdrom mini.iso
+```
+
+Once a base system is installed you will need to build wolfSSL and wolfTPM.
+
+```
+swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20 &
+qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
+  -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock \
+  -tpmdev emulator,id=tpm0,chardev=chrtpm \
+  -device tpm-tis,tpmdev=tpm0 -hda lubuntu.qcow2 -nographic
+```
+In the QEMU terminal
+
+```
+sudo apt install automake libtool gcc git make
+
+# get and build wolfSSL
+git clone https://github.com/wolfssl/wolfssl.git
+pushd wolfssl
+./autogen.sh && ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../inst && make install
+popd
+
+# get and build wolfTPM
+git clone https://github.com/wolfssl/wolftpm.git
+pushd wolftpm
+./autogen.sh && ./configure --enable-devtpm --prefix=$PWD/../inst --enable-debug && make install
+popd
+```
+You can now run the examples such as `./examples/wrap/wrap` within QEMU
+
 ### Building for SWTPM
 
 See `docs/SWTPM.md`
