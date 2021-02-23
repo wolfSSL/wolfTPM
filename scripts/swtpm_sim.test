@@ -11,6 +11,7 @@ TOP_DIR=$(realpath $(dirname $0)/..)
 
 die() {
     echo $* >&2
+    ps $swtpm_pid > /dev/null && kill $swtpm_pid
     exit 1
 }
 

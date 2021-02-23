@@ -222,7 +222,23 @@ sudo adduser yourusername tss
 
 This demonstrates using wolfTPM in QEMU to communicate using the linux
 kernel device "/dev/tpmX". You will need to install or build
-[swtpm](https://github.com/stefanberger/swtpm).
+[swtpm](https://github.com/stefanberger/swtpm). Below are a short
+method to build. You may need to consult the instructions for
+[libtpms](https://github.com/stefanberger/libtpms/wiki#compile-and-install-on-linux)
+and
+[swtpm](https://github.com/stefanberger/swtpm/wiki#compile-and-install-on-linux)
+
+```
+PREFIX=$PWD/inst
+git clone git@github.com:stefanberger/libtpms.git
+cd libtpms/
+./autogen.sh --with-openssl --with-tpm2 --prefix=$PREFIX && make install
+cd ..
+git clone git@github.com:stefanberger/swtpm.git
+cd swtpm
+PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/ ./autogen.sh --with-openssl --with-tpm2 --prefix=$PREFIX && make install
+cd ..
+```
 
 You can setup a basic linux installation. Other installation bases can
 be used. This step will take some time to install the base linux
