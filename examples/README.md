@@ -44,6 +44,14 @@ More information about how to test and use PCR attestation can be found in the i
 
 ## Parameter Encryption
 
+### Key generation with encrypted authorization
+
+Detailed information can be found in this file under section "Key generation"
+
+### Secure vault for keys with encrypted NVRAM authorization
+
+Detailed information can be found in this file under section "Storing keys into the TPM's NVRAM"
+
 ### TPM2.0 Quote with encrypted user data
 
 Example for demonstrating how to use parameter encryption to protect the user data between the Host and the TPM.
@@ -260,3 +268,29 @@ Loaded key to 0x80000001
 ```
 
 The `keyload` tool takes only one argument, the filename of the stored key. Because the information what is key scheme (RSA or ECC) is contained within the key blob.
+
+## Storing keys into the TPM's NVRAM
+
+These examples demonstrates how to use the TPM as secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" or "-xor" is given on the commmand line.
+
+Before running the examples, make sure there is a keyblob.bin generated using the keygen tool. The key can be of any type, RSA, ECC or symmetric. The example will store the private and public part. In case of a symmetric key the public part is meta data from the TPM. How to generate a key you can see above, in the description of the keygen example.
+
+Typical output for storing and then reading an RSA key using parameter encryption:
+
+```
+$ ./examples/nvram/store -aes
+TPM2_StartAuthSession: sessionHandle 0x2000000
+Reading 840 bytes from keyblob.bin
+Storing key at TPM NV index 0x1800203 with password protection
+Public part = 616 bytes
+Private part = 222 bytes
+NV write succeeded
+
+$ ./examples/nvram/read 616 222 -aes
+TPM2_StartAuthSession: sessionHandle 0x2000000
+Trying to read 616 bytes of public key part from NV
+Trying to read 222 bytes of private key part from NV
+Extraction of key from NVRAM at index 0x1800203 succeeded
+```
+
+The read example takes as first argument the size of the public part and as second argument the private part. This information is given from the store example. The "-aes" swiches triggers the use of parameter encryption.
