@@ -106,7 +106,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
 {
     int rc = TPM_RC_SUCCESS;
-    UINT32 authSz;
+    UINT32 authSz, handleValue;
     BYTE *param, *encParam = NULL;
     int paramSz, encParamSz = 0;
     int i, authPos, handlePos;
@@ -188,8 +188,6 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #ifndef WOLFTPM2_NO_WOLFCRYPT
-            UINT32 handleValue;
-
             handlePos = packet->pos;
             packet->pos = TPM2_HEADER_SIZE; /* Handles are right after header */
             TPM2_Packet_ParseU32(packet, &handleValue);
@@ -5288,13 +5286,6 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
     session = &ctx->session[idx];
 
-#if 0
-    if (session->name.size > 0) {
-        name->size = session->name.size;
-        XMEMCPY(name->name, session->name.name, name->size);
-    }
-    (void)handleValue;
-#else
     if ((handleValue >= TRANSIENT_FIRST) ||
         (handleValue >= NV_INDEX_FIRST && handleValue <= NV_INDEX_LAST)) {
         if (session->name.size > 0) {
@@ -5307,7 +5298,6 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
         name->size = sizeof(handleValue);
         XMEMCPY(name->name, (byte*)&handleValue, name->size);
     }
-#endif
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Name %d: %d\n", idx, name->size);
@@ -5680,11 +5670,12 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 {
     int rc;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    int hashSize, nameAlgValue, nameAlgSize;
+    int hashSize, nameAlgSize;
+    UINT16 nameAlgValue;
     wc_HashAlg hash;
     enum wc_HashType hashType;
     byte appending[sizeof(TPMS_NV_PUBLIC)];
-    TPM2B_DIGEST digest;
+    TPM2B_DATA digest;
     TPM2_Packet packet;
 
     /* Prepare temporary buffer */
@@ -5711,7 +5702,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     hashSize = rc;
 
     rc = wc_HashInit(&hash, hashType);
-    if(rc == 0) {
+    if (rc == 0) {
         rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
     }
 
@@ -5726,13 +5717,14 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         XMEMCPY(&buffer[2], digest.buffer, hashSize);
         /* account for nameAlg concatenation */
         *size = hashSize + nameAlgSize;
+        rc = TPM_RC_SUCCESS;
     }
 
     wc_HashFree(&hash, hashType);
 
-    return TPM_RC_SUCCESS;
+    return rc;
 #else
-    return TPM_RC_FAILURE;
+    return TPM_RC_SUCCESS;
 #endif
 }
 
@@ -5781,10 +5773,10 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
         return;
 
     printf("authCmd:\n");
-    printf("sessionHandle=0x%7X\n", authCmd->sessionHandle);
+    printf("sessionHandle=0x%08X\n", authCmd->sessionHandle);
     printf("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
     TPM2_PrintBin(authCmd->nonce.buffer, authCmd->nonce.size);
-    printf("sessionAttributes=0x%2X\n", authCmd->sessionAttributes);
+    printf("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
     printf("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
     TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
 }
