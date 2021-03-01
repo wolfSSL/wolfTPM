@@ -281,7 +281,7 @@ Typical output for storing and then reading an RSA key using parameter encryptio
 $ ./examples/nvram/store -aes
 TPM2_StartAuthSession: sessionHandle 0x2000000
 Reading 840 bytes from keyblob.bin
-Storing key at TPM NV index 0x1800203 with password protection
+Storing key at TPM NV index 0x1800202 with password protection
 Public part = 616 bytes
 Private part = 222 bytes
 NV write succeeded
@@ -290,7 +290,7 @@ $ ./examples/nvram/read 616 222 -aes
 TPM2_StartAuthSession: sessionHandle 0x2000000
 Trying to read 616 bytes of public key part from NV
 Trying to read 222 bytes of private key part from NV
-Extraction of key from NVRAM at index 0x1800203 succeeded
+Extraction of key from NVRAM at index 0x1800202 succeeded
 ```
 
 The read example takes as first argument the size of the public part and as second argument the private part. This information is given from the store example. The "-aes" swiches triggers the use of parameter encryption.

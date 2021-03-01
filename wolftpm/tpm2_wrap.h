@@ -139,7 +139,7 @@ WOLFTPM_API int wolfTPM2_SetAuthPassword(WOLFTPM2_DEV* dev, int index, const TPM
 WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
 WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
     const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
-WOLFTPM_API int wolfTPM2_SetNameHandle(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
+WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const WOLFTPM2_HANDLE* handle);
 
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,

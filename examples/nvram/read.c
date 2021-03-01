@@ -120,28 +120,28 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 
     /* Prepare auth for NV Index */
     XMEMSET(&nv, 0, sizeof(nv));
-    nv.handle.hndl = TPM2_DEMO_NVRAM_STORE_PRIV_INDEX;
+    nv.handle.hndl = TPM2_DEMO_NVRAM_STORE_INDEX;
     nv.handle.auth.size = auth.size;
     XMEMCPY(nv.handle.auth.buffer, auth.buffer, auth.size);
 
     readSize = keyBlob.pub.size;
     printf("Trying to read %d bytes of public key part from NV\n", readSize);
-    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX,
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
         (byte*)&keyBlob.pub.publicArea, &readSize, 0);
     if (rc != 0) goto exit;
 
     readSize = keyBlob.priv.size;
     printf("Trying to read %d bytes of private key part from NV\n", readSize);
-    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX,
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
         (byte*)&keyBlob.priv.buffer, &readSize, keyBlob.pub.size);
     if (rc != 0) goto exit;
 
     parent.hndl = TPM_RH_OWNER;
-    rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX);
+    rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NVRAM_STORE_INDEX);
     if (rc != 0) goto exit;
 
     printf("Extraction of key from NVRAM at index 0x%x succeeded\n" ,
-        TPM2_DEMO_NVRAM_STORE_PRIV_INDEX);
+        TPM2_DEMO_NVRAM_STORE_INDEX);
 
 exit:
 

@@ -5675,7 +5675,6 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     wc_HashAlg hash;
     enum wc_HashType hashType;
     byte appending[sizeof(TPMS_NV_PUBLIC)];
-    TPM2B_DATA digest;
     TPM2_Packet packet;
 
     /* Prepare temporary buffer */
@@ -5707,14 +5706,14 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     }
 
     if (rc == 0) {
-        rc = wc_HashFinal(&hash, hashType, digest.buffer);
+        rc = wc_HashFinal(&hash, hashType, &buffer[2]);
     }
 
     if (rc == 0) {
+        /* Concatenate the nvPublic digest with nameAlg at the front */
         nameAlgValue = TPM2_Packet_SwapU16(nvPublic->nameAlg);
         nameAlgSize = sizeof(nvPublic->nameAlg);
         XMEMCPY(buffer, (byte*)&nameAlgValue, nameAlgSize);
-        XMEMCPY(&buffer[2], digest.buffer, hashSize);
         /* account for nameAlg concatenation */
         *size = hashSize + nameAlgSize;
         rc = TPM_RC_SUCCESS;

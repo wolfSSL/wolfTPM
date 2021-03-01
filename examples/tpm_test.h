@@ -42,8 +42,7 @@
 
 #define TPM2_DEMO_NV_TEST_INDEX         0x01800200
 #define TPM2_DEMO_NV_TEST_AUTH_INDEX    0x01800201
-#define TPM2_DEMO_NVRAM_STORE_PUB_INDEX 0x01800202
-#define TPM2_DEMO_NVRAM_STORE_PRIV_INDEX 0x01800203
+#define TPM2_DEMO_NVRAM_STORE_INDEX     0x01800202
 #define TPM2_DEMO_NV_TEST_SIZE          1024 /* max size on Infineon SLB9670 is 1664 */
 
 static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";

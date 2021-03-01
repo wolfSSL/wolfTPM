@@ -430,7 +430,7 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
     return wolfTPM2_SetAuth(dev, index, TPM_RS_PW, auth, 0, name);
 }
 
-int wolfTPM2_SetNameHandle(WOLFTPM2_DEV* dev, int index,
+int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     const WOLFTPM2_HANDLE* handle)
 {
     const TPM2B_NAME* name = NULL;
@@ -2602,6 +2602,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         return rc;
     }
 
+    XMEMSET(nv, 0, sizeof(*nv));
     /* Compute NV Index name in case of parameter encryption */
     rc = TPM2_HashNvPublic(&in.publicInfo.nvPublic,
                             (byte*)&nv->handle.name.name,
@@ -2611,7 +2612,6 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     }
 
     /* return new NV handle */
-    XMEMSET(nv, 0, sizeof(*nv));
     nv->handle.hndl = (TPM_HANDLE)nvIndex;
     nv->handle.auth = in.auth;
     /* nv->handle.name already populated by TPM2_HashNvPublic above */
@@ -2675,11 +2675,11 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetNameHandle(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetNameHandle(dev, 1, &nv->handle);
+    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
-        return rc;
+        return TPM_RC_FAILURE;
     }
 
     while (dataSz > 0) {
@@ -2761,11 +2761,11 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetNameHandle(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetNameHandle(dev, 1, &nv->handle);
+    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
-        return rc;
+        return TPM_RC_FAILURE;
     }
 
     dataSz = *pDataSz;

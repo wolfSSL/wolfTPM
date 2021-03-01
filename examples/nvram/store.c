@@ -116,20 +116,20 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     /* Our wolfTPM2 wrapper for NV_Define */
-    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX,
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
         nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
     if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
     printf("Storing key at TPM NV index 0x%x with password protection\n",
-             TPM2_DEMO_NVRAM_STORE_PRIV_INDEX);
+             TPM2_DEMO_NVRAM_STORE_INDEX);
 
     printf("Public part = %d bytes\n", keyBlob.pub.size);
-    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX,
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
         (byte*)&keyBlob.pub.publicArea, keyBlob.pub.size, 0);
     if (rc != 0) goto exit;
 
     printf("Private part = %d bytes\n", keyBlob.priv.size);
-    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_PRIV_INDEX,
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
         keyBlob.priv.buffer, keyBlob.priv.size, keyBlob.pub.size);
     if (rc != 0) goto exit;
 
