@@ -223,6 +223,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #endif
                 return rc;
             }
+        #else
+            (void)handleValue;
+            (void)handlePos;
         #endif
         }
 
@@ -5668,8 +5671,8 @@ UINT16 TPM2_GetVendorID(void)
 /* Stores nameAlg + the digest of nvPublic in buffer, total size in size */
 int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 {
-    int rc;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
     int hashSize, nameAlgSize;
     UINT16 nameAlgValue;
     wc_HashAlg hash;
@@ -5723,6 +5726,9 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 
     return rc;
 #else
+    (void)nvPublic;
+    (void)buffer;
+    (void)size;
     return TPM_RC_SUCCESS;
 #endif
 }
