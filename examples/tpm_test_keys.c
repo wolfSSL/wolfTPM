@@ -278,6 +278,7 @@ int getRSAkey(WOLFTPM2_DEV* pDev,
     }
 #else
     (void)pWolfRsaKey;
+    (void)tpmDevId;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
     return rc;
@@ -311,6 +312,7 @@ int getECCkey(WOLFTPM2_DEV* pDev,
     }
 #else
     (void)pWolfEccKey;
+    (void)tpmDevId;
 #endif /* !WOLFTPM2_NO_WRAPPER && HAVE_ECC */
 
     return rc;

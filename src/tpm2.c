@@ -106,9 +106,10 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
 {
     int rc = TPM_RC_SUCCESS;
-    UINT32 authSz;
+    UINT32 authSz, handleValue;
     BYTE *param, *encParam = NULL;
-    int paramSz, encParamSz = 0, authPos, i;
+    int paramSz, encParamSz = 0;
+    int i, authPos, handlePos;
 
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
@@ -187,9 +188,14 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #ifndef WOLFTPM2_NO_WOLFCRYPT
-            rc =  TPM2_GetName(ctx, info->inHandleCnt, 0, &name1);
-            rc |= TPM2_GetName(ctx, info->inHandleCnt, 1, &name2);
-            rc |= TPM2_GetName(ctx, info->inHandleCnt, 2, &name3);
+            handlePos = packet->pos;
+            packet->pos = TPM2_HEADER_SIZE; /* Handles are right after header */
+            TPM2_Packet_ParseU32(packet, &handleValue);
+            packet->pos = handlePos;
+
+            rc =  TPM2_GetName(ctx, handleValue, info->inHandleCnt, 0, &name1);
+            rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 1, &name2);
+            rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
@@ -217,6 +223,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #endif
                 return rc;
             }
+        #else
+            (void)handleValue;
+            (void)handlePos;
         #endif
         }
 
@@ -4609,9 +4618,10 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
         TPM2_Packet_AppendU32(&packet, in->authHandle);
         info.authCnt = TPM2_Packet_AppendAuth(&packet, ctx);
 
+        /* 1st TPM2B parameter, TPM2B_AUTH different from Authorization Area */
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
-
+        /* 2nd TPM2B parameter, TPM2B_PUBLIC */
         in->publicInfo.size = 4 + 2 + 4 + 2 +
             in->publicInfo.nvPublic.authPolicy.size + 2;
         TPM2_Packet_AppendU16(&packet, in->publicInfo.size);
@@ -5268,7 +5278,7 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 }
 
 /* Get name for object/handle */
-int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name)
+int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2B_NAME* name)
 {
     TPM2_AUTH_SESSION* session;
 
@@ -5278,10 +5288,20 @@ int TPM2_GetName(TPM2_CTX* ctx, int handleCnt, int idx, TPM2B_NAME* name)
         return TPM_RC_SUCCESS;
 
     session = &ctx->session[idx];
-    if (session->name.size > 0) {
-        name->size = session->name.size;
-        XMEMCPY(name->name, session->name.name, name->size);
+
+    if ((handleValue >= TRANSIENT_FIRST) ||
+        (handleValue >= NV_INDEX_FIRST && handleValue <= NV_INDEX_LAST)) {
+        if (session->name.size > 0) {
+            name->size = session->name.size;
+            XMEMCPY(name->name, session->name.name, name->size);
+        }
     }
+    else {
+        handleValue = TPM2_Packet_SwapU32(handleValue);
+        name->size = sizeof(handleValue);
+        XMEMCPY(name->name, (byte*)&handleValue, name->size);
+    }
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Name %d: %d\n", idx, name->size);
     TPM2_PrintBin(name->name, name->size);
@@ -5648,6 +5668,71 @@ UINT16 TPM2_GetVendorID(void)
     return vid;
 }
 
+/* Stores nameAlg + the digest of nvPublic in buffer, total size in size */
+int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    int hashSize, nameAlgSize;
+    UINT16 nameAlgValue;
+    wc_HashAlg hash;
+    enum wc_HashType hashType;
+    byte appending[sizeof(TPMS_NV_PUBLIC)];
+    TPM2_Packet packet;
+
+    /* Prepare temporary buffer */
+    packet.buf = appending;
+    packet.pos = 0;
+    packet.size = sizeof(appending);
+
+    /* nvPublic must be in Marshaled state for hashing */
+    TPM2_Packet_AppendU32(&packet, nvPublic->nvIndex);
+    TPM2_Packet_AppendU16(&packet, nvPublic->nameAlg);
+    TPM2_Packet_AppendU32(&packet, nvPublic->attributes);
+    TPM2_Packet_AppendU16(&packet, nvPublic->authPolicy.size);
+    TPM2_Packet_AppendBytes(&packet, nvPublic->authPolicy.buffer,
+        nvPublic->authPolicy.size);
+    TPM2_Packet_AppendU16(&packet, nvPublic->dataSize);
+
+    /* Hashing nvPublic */
+    rc = TPM2_GetHashType(nvPublic->nameAlg);
+    hashType = (enum wc_HashType)rc;
+    rc = wc_HashGetDigestSize(hashType);
+    if (rc < 0) {
+        return rc;
+    }
+    hashSize = rc;
+
+    rc = wc_HashInit(&hash, hashType);
+    if (rc == 0) {
+        rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
+    }
+
+    if (rc == 0) {
+        rc = wc_HashFinal(&hash, hashType, &buffer[2]);
+    }
+
+    if (rc == 0) {
+        /* Concatenate the nvPublic digest with nameAlg at the front */
+        nameAlgValue = TPM2_Packet_SwapU16(nvPublic->nameAlg);
+        nameAlgSize = sizeof(nvPublic->nameAlg);
+        XMEMCPY(buffer, (byte*)&nameAlgValue, nameAlgSize);
+        /* account for nameAlg concatenation */
+        *size = hashSize + nameAlgSize;
+        rc = TPM_RC_SUCCESS;
+    }
+
+    wc_HashFree(&hash, hashType);
+
+    return rc;
+#else
+    (void)nvPublic;
+    (void)buffer;
+    (void)size;
+    return TPM_RC_SUCCESS;
+#endif
+}
+
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
 void TPM2_PrintBin(const byte* buffer, word32 length)
@@ -5685,6 +5770,20 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
         buffer += sz;
         length -= sz;
     }
+}
+
+void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
+{
+    if (authCmd == NULL)
+        return;
+
+    printf("authCmd:\n");
+    printf("sessionHandle=0x%08X\n", authCmd->sessionHandle);
+    printf("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
+    TPM2_PrintBin(authCmd->nonce.buffer, authCmd->nonce.size);
+    printf("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
+    printf("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
+    TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
 }
 #endif
 
