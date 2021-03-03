@@ -47,6 +47,7 @@
     printf("\nERROR - %s line %d failed with:", __FILE__, __LINE__);           \
     printf("\n    expected: "); printf description;                            \
     printf("\n    result:   "); printf result; printf("\n\n");                 \
+    fflush(stdout);                                                            \
     XABORT();                                                                  \
 } while(0)
 #define Assert(test, description, result) if (!(test)) Fail(description, result)
