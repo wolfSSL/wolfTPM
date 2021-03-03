@@ -300,10 +300,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
-    test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_GetRandom();
-    test_wolfTPM2_Cleanup();
     test_TPM2_KDFa();
+    test_wolfTPM2_ReadPublicKey();
+    test_wolfTPM2_Cleanup();
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

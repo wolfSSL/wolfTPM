@@ -89,10 +89,11 @@ int TPM2_KDFa(
     int ret, hashType;
     Hmac hmac_ctx;
     word32 counter = 0;
-    int hLen, lLen = 0;
-    byte uint32Buf[sizeof(UINT32)];;
+    int hLen, copyLen, lLen = 0;
+    byte uint32Buf[sizeof(UINT32)];
     UINT32 sizeInBits = keySz * 8, pos;
     BYTE* keyStream = key;
+    byte hash[WC_MAX_DIGEST_SIZE];
 
     if (key == NULL)
         return BAD_FUNC_ARG;
@@ -102,7 +103,7 @@ int TPM2_KDFa(
         return NOT_COMPILED_IN;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
-    if (hLen <= 0)
+    if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
         return NOT_COMPILED_IN;
 
     /* get label length if provided, including null termination */
@@ -118,6 +119,7 @@ int TPM2_KDFa(
     for (pos = 0; pos < keySz; pos += hLen) {
         /* KDFa counter starts at 1 */
         counter++;
+        copyLen = hLen;
 
         /* start HMAC */
         if (keyIn) {
@@ -163,12 +165,18 @@ int TPM2_KDFa(
             goto exit;
 
         /* get result */
-        ret = wc_HmacFinal(&hmac_ctx, keyStream);
+        ret = wc_HmacFinal(&hmac_ctx, hash);
         if (ret != 0)
             goto exit;
 
-        keyStream += hLen;
+        if ((UINT32)hLen > keySz - pos) {
+          copyLen = keySz - pos;
+        }
+
+        memcpy(keyStream, hash, copyLen);
+        keyStream += copyLen;
     }
+    ret = pos;
     ret = keySz;
 
 exit:
