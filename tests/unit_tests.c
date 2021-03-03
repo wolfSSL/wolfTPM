@@ -61,7 +61,7 @@
 #define AssertInt(x, y, op, er) do {                                           \
     int _x = (int)x;                                                           \
     int _y = (int)y;                                                           \
-    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d " #er " %d", _x, _y));    \
+    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d(0x%x) " #er " %d(0x%x)", _x, _x, _y, _y)); \
 } while(0)
 #define AssertIntEQ(x, y) AssertInt(x, y, ==, !=)
 #define AssertIntNE(x, y) AssertInt(x, y, !=, ==)
@@ -199,10 +199,9 @@ static void test_wolfTPM2_ReadPublicKey(void)
     /* Test success: read storage primary key */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc == TPM_RC_HANDLE) {
+    if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
         rc = 0; /* okay if not found */
     }
-
     AssertIntEQ(rc, 0);
     wolfTPM2_Cleanup(&dev);
 
