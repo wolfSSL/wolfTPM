@@ -47,6 +47,7 @@
     printf("\nERROR - %s line %d failed with:", __FILE__, __LINE__);           \
     printf("\n    expected: "); printf description;                            \
     printf("\n    result:   "); printf result; printf("\n\n");                 \
+    fflush(stdout);                                                            \
     XABORT();                                                                  \
 } while(0)
 #define Assert(test, description, result) if (!(test)) Fail(description, result)
@@ -60,7 +61,7 @@
 #define AssertInt(x, y, op, er) do {                                           \
     int _x = (int)x;                                                           \
     int _y = (int)y;                                                           \
-    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d " #er " %d", _x, _y));    \
+    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d(0x%x) " #er " %d(0x%x)", _x, _x, _y, _y)); \
 } while(0)
 #define AssertIntEQ(x, y) AssertInt(x, y, ==, !=)
 #define AssertIntNE(x, y) AssertInt(x, y, !=, ==)
@@ -198,10 +199,9 @@ static void test_wolfTPM2_ReadPublicKey(void)
     /* Test success: read storage primary key */
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_KEY_HANDLE);
-    if (rc == TPM_RC_HANDLE) {
+    if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
         rc = 0; /* okay if not found */
     }
-
     AssertIntEQ(rc, 0);
     wolfTPM2_Cleanup(&dev);
 
@@ -300,10 +300,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Init();
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
-    test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_GetRandom();
-    test_wolfTPM2_Cleanup();
     test_TPM2_KDFa();
+    test_wolfTPM2_ReadPublicKey();
+    test_wolfTPM2_Cleanup();
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

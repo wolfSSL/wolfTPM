@@ -41,7 +41,7 @@ if [ 0 -ne $? ]; then
 fi;
 
 # start swtpm server
-$SWTPM_EXEC >/dev/null &
+$SWTPM_EXEC -rm >/dev/null &
 swtpm_pid=$!
 ps $swtpm_pid > /dev/null
 if [ 0 -eq $? ]; then
