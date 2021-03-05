@@ -2723,7 +2723,8 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 {
     WOLFTPM2_NV nv;
     XMEMSET(&nv, 0, sizeof(nv));
-    nv.handle.hndl = authHandle;
+    nv.handle.hndl = (TPM_HANDLE)nvIndex;
+    (void)authHandle;
     return wolfTPM2_NVWriteAuth(dev, &nv, nvIndex, dataBuf, dataSz, offset);
 }
 
@@ -2819,7 +2820,8 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 {
     WOLFTPM2_NV nv;
     XMEMSET(&nv, 0, sizeof(nv));
-    nv.handle.hndl = authHandle;
+    nv.handle.hndl = (TPM_HANDLE)nvIndex;
+    (void)authHandle;
     return wolfTPM2_NVReadAuth(dev, &nv, nvIndex, dataBuf, pDataSz, offset);
 }
 
