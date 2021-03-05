@@ -955,6 +955,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     printf("TPM2_Create key: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
     TPM2_PrintBin(createOut.outPrivate.buffer, createOut.outPrivate.size);
+    TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
 
     keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;

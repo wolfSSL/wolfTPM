@@ -2821,9 +2821,11 @@ WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 #ifdef DEBUG_WOLFTPM
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
 WOLFTPM_API void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd);
+WOLFTPM_API void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub);
 #else
 #define TPM2_PrintBin(b, l)
 #define TPM2_PrintAuth(b, l)
+#define TPM2_PrintPublicArea(b)
 #endif
 
 #ifdef __cplusplus
