@@ -58,6 +58,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storage;
     WOLFTPM2_KEYBLOB keyBlob;
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_HANDLE parent;
@@ -95,6 +96,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&parent, 0, sizeof(parent));
     XMEMSET(&auth, 0, sizeof(auth));
+    XMEMSET(&storage, 0, sizeof(storage));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -142,6 +144,21 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 
     printf("Extraction of key from NVRAM at index 0x%x succeeded\n" ,
         TPM2_DEMO_NVRAM_STORE_INDEX);
+
+#if 1
+    /* get SRK */
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
+
+    printf("Trying to load the key extracted from NVRAM\n");
+    rc = wolfTPM2_LoadKey(&dev, &keyBlob, &storage.handle);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_LoadKey failed\n");
+        goto exit;
+    }
+    printf("Loaded key to 0x%x\n",
+        (word32)keyBlob.handle.hndl);
+#endif
 
 exit:
 
