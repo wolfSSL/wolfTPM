@@ -1341,7 +1341,11 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
             cmdOut.encDec.outData.size) == 0) {
         printf("Encrypt/Decrypt test success\n");
     }
-    else if (rc != TPM_RC_COMMAND_CODE) {
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("Encrypt/Decrypt test result allowed as pass since hardware doesn't support.\n");
+        rc = TPM_RC_SUCCESS;
+    }
+    else {
         printf("Encrypt/Decrypt test failed, result not as expected!\n");
         goto exit;
     }
