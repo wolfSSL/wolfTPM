@@ -68,6 +68,9 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     int paramEncAlg = TPM_ALG_NULL;
     int partialStore = 0;
     int offset = 0;
+    /* Needed for TPM2_AppendPublic */
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -147,12 +150,32 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
              TPM2_DEMO_NVRAM_STORE_INDEX);
 
     if (partialStore != PRIVATE_PART_ONLY) {
-        printf("Public part = %lu bytes\n", sizeof(keyBlob.pub));
+        printf("Public part = %hu bytes\n", keyBlob.pub.size);
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-            (byte*)&keyBlob.pub, sizeof(keyBlob.pub), 0);
+            (byte*)&keyBlob.pub.size, sizeof(keyBlob.pub.size), 0);
+        if (rc != 0) goto exit;
+        printf("Stored 2-byte size marker before the private part\n");
+        offset += sizeof(keyBlob.pub.size);
+
+        /* Necessary for storing the publicArea with the correct byte encoding */
+        rc = TPM2_AppendPublic(pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize, &keyBlob.pub);
+        /* Note:
+         * Public Area is the only part of a TPM key that can be stored encoded
+         * Private Area is stored as-is, because TPM2B_PRIVATE is byte buffer
+         * and UINT16 size field, while Public Area is a complex TCG structure.
+         */
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Encoding of the publicArea failed. Unable to store.\n");
+            goto exit;
+        }
+
+        /* The buffer holds pub.publicArea and also pub.size(UINT16) */
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            pubAreaBuffer, sizeof(UINT16) + keyBlob.pub.size, offset);
         if (rc != 0) goto exit;
         printf("NV write of public part succeeded\n\n");
-        offset = sizeof(keyBlob.pub);
+        offset += sizeof(UINT16) + keyBlob.pub.size;
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
         TPM2_PrintPublicArea(&keyBlob.pub);
         printf("\n");

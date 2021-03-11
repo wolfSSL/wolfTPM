@@ -70,7 +70,7 @@ static void usage(void)
 static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
                      char* symMode)
 {
-    unsigned long len = XSTRLEN(arg);
+    size_t len = XSTRLEN(arg);
 
     if (len != SYM_EXTRA_OPTS_LEN) {
         return TPM_RC_FAILURE;
@@ -96,7 +96,7 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
     }
 
     *keyBits = atoi(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
-    if(*keyBits != 128 && *keyBits != 256) {
+    if(*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
         return TPM_RC_FAILURE;
     }
 
@@ -119,7 +119,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int bAIK = 1;
     int keyBits = 256;
     const char* outputFile = "keyblob.bin";
-    unsigned long len = 0;
+    size_t len = 0;
     char symMode[] = "aesctr";
 
     if (argc >= 2) {

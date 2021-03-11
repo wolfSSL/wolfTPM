@@ -67,6 +67,9 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     int paramEncAlg = TPM_ALG_NULL;
     int partialRead = 0;
     int offset = 0;
+    /* Needed for TPM2_ParsePublic */
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -137,16 +140,32 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     XMEMCPY(nv.handle.auth.buffer, auth.buffer, auth.size);
 
     if (partialRead != PRIVATE_PART_ONLY) {
-        readSize = sizeof(keyBlob.pub);
-        printf("Trying to read %d bytes of public key part from NV\n", readSize);
+        readSize = sizeof(keyBlob.pub.size);
+        printf("Trying to read %d bytes of public key size marker\n", readSize);
         rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-            (byte*)&keyBlob.pub, &readSize, 0);
+            (byte*)&keyBlob.pub.size, &readSize, 0);
         if (rc != 0) {
             printf("Was a public key part written? (see nvram/store)\n");
             goto exit;
         }
         printf("Successfully read public key part from NV\n\n");
-        offset = readSize;
+        offset += readSize;
+
+        readSize = sizeof(UINT16) + keyBlob.pub.size; /* account for TPM2B size marker */
+        printf("Trying to read %d bytes of public key part from NV\n", keyBlob.pub.size);
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            pubAreaBuffer, &readSize, offset);
+        if (rc != 0) goto exit;
+        printf("Successfully read public key part from NV\n\n");
+        offset += readSize;
+
+        /* Necessary for storing the publicArea with the correct encoding */
+        rc = TPM2_ParsePublic(&keyBlob.pub, pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Decoding of PublicArea failed. Unable to extract correctly.\n");
+            goto exit;
+        }
+
 #ifdef WOLFTPM_DEBUG_VERBOSE
         TPM2_PrintPublicArea(&keyBlob.pub);
         printf("\n");

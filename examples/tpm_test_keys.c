@@ -42,11 +42,26 @@ int writeKeyBlob(const char* filename,
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE  fp = NULL;
     size_t fileSz = 0;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
     fp = XFOPEN(filename, "wb");
     if (fp != XBADFILE) {
-        key->pub.size = sizeof(key->pub);
-        fileSz += XFWRITE(&key->pub, 1, sizeof(key->pub), fp);
+        /* Make publicArea in encoded format to eliminate empty fields, save space */
+        rc = TPM2_AppendPublic(pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize, &key->pub);
+        if (rc != TPM_RC_SUCCESS) return rc;
+        if (pubAreaSize != (key->pub.size + sizeof(key->pub.size))) {
+#ifdef DEBUG_WOLFTPM
+            printf("writeKeyBlob: Sanity check for publicArea size failed\n");
+#endif
+            return -1;
+        }
+        TPM2_PrintBin(pubAreaBuffer, pubAreaSize);
+        /* Write size marker for the public part */
+        fileSz += XFWRITE(&key->pub.size, 1, sizeof(key->pub.size), fp);
+        /* Write the public part with bytes aligned */
+        fileSz += XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
+        /* Write the private part, size marker is included */
         fileSz += XFWRITE(&key->priv, 1, sizeof(UINT16) + key->priv.size, fp);
         XFCLOSE(fp);
     }
@@ -65,6 +80,8 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
     XFILE  fp = NULL;
     size_t fileSz = 0;
     size_t bytes_read = 0;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
     XMEMSET(key, 0, sizeof(WOLFTPM2_KEYBLOB));
 
@@ -79,13 +96,29 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         }
         printf("Reading %d bytes from %s\n", (int)fileSz, filename);
 
-        bytes_read = XFREAD(&key->pub, 1, sizeof(key->pub), fp);
-        if (bytes_read != sizeof(key->pub)) {
-            printf("Read %zu, expected public blob %zu bytes\n", bytes_read, sizeof(key->pub));
+        bytes_read = XFREAD(&key->pub.size, 1, sizeof(key->pub.size), fp);
+        if (bytes_read != sizeof(key->pub.size)) {
+            printf("Read %zu, expected size marker of %zu bytes\n", bytes_read, sizeof(key->pub.size));
             goto exit;
         }
-        if (fileSz > sizeof(key->pub)) {
-            fileSz -= sizeof(key->pub);
+        fileSz -= bytes_read;
+
+        bytes_read = XFREAD(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
+        if (bytes_read != sizeof(UINT16) + key->pub.size) {
+            printf("Read %zu, expected public blob %lu bytes\n", bytes_read, sizeof(UINT16) + key->pub.size);
+            goto exit;
+        }
+        fileSz -= bytes_read; /* Reminder bytes for private key part */
+
+        /* Decode the byte stream into a publicArea structure ready for use */
+        rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize);
+        if (rc != TPM_RC_SUCCESS) return rc;
+#ifdef DEBUG_WOLFTPM
+        TPM2_PrintPublicArea(&key->pub);
+#endif
+
+        if (fileSz > 0) {
+            printf("Reading the private part of the key\n");
             bytes_read = XFREAD(&key->priv, 1, fileSz, fp);
             if (bytes_read != fileSz) {
                 printf("Read %zu, expected private blob %zu bytes\n", bytes_read, fileSz);
@@ -95,7 +128,8 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         }
 
         /* sanity check the sizes */
-        if (key->pub.size != sizeof(key->pub) || key->priv.size > sizeof(key->priv.buffer)) {
+        if (pubAreaSize != (key->pub.size + sizeof(key->pub.size)) ||
+             key->priv.size > sizeof(key->priv.buffer)) {
             printf("Struct size check failed (pub %d, priv %d)\n",
                    key->pub.size, key->priv.size);
             rc = BUFFER_E;

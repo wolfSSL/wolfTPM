@@ -5733,6 +5733,52 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 #endif
 }
 
+WOLFTPM_API int TPM2_AppendPublic(byte* buf, size_t size, int* sizeUsed, TPM2B_PUBLIC* pub)
+{
+    TPM2_Packet packet;
+
+    if (buf == NULL || sizeUsed == NULL)
+        return BAD_FUNC_ARG;
+
+    if (size < sizeof(TPM2B_PUBLIC)) {
+        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+        return TPM_RC_FAILURE;
+    }
+
+    /* Prepare temporary buffer */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+
+    TPM2_Packet_AppendPublic(&packet, pub);
+    *sizeUsed = packet.pos;
+
+    return TPM_RC_SUCCESS;
+}
+
+WOLFTPM_API int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, size_t size, int* sizeUsed)
+{
+    TPM2_Packet packet;
+
+    if (buf == NULL || sizeUsed == NULL)
+        return BAD_FUNC_ARG;
+
+    if (size < sizeof(TPM2B_PUBLIC)) {
+        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+        return TPM_RC_FAILURE;
+    }
+
+    /* Prepare temporary buffer */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+
+    TPM2_Packet_ParsePublic(&packet, pub);
+    *sizeUsed = packet.pos;
+
+    return TPM_RC_SUCCESS;
+}
+
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
 void TPM2_PrintBin(const byte* buffer, word32 length)
@@ -5864,7 +5910,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             TPM2_PrintBin(pub->publicArea.unique.derive.context.buffer, pub->publicArea.unique.derive.context.size);
             break;
     }
-
+    printf("\n");
 }
 #endif
 
