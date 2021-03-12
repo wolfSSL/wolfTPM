@@ -48,7 +48,8 @@ int writeKeyBlob(const char* filename,
     fp = XFOPEN(filename, "wb");
     if (fp != XBADFILE) {
         /* Make publicArea in encoded format to eliminate empty fields, save space */
-        rc = TPM2_AppendPublic(pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize, &key->pub);
+        rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+            &pubAreaSize, &key->pub);
         if (rc != TPM_RC_SUCCESS) return rc;
         if (pubAreaSize != (key->pub.size + sizeof(key->pub.size))) {
 #ifdef DEBUG_WOLFTPM
@@ -98,20 +99,23 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 
         bytes_read = XFREAD(&key->pub.size, 1, sizeof(key->pub.size), fp);
         if (bytes_read != sizeof(key->pub.size)) {
-            printf("Read %zu, expected size marker of %zu bytes\n", bytes_read, sizeof(key->pub.size));
+            printf("Read %zu, expected size marker of %zu bytes\n",
+                bytes_read, sizeof(key->pub.size));
             goto exit;
         }
         fileSz -= bytes_read;
 
         bytes_read = XFREAD(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
         if (bytes_read != sizeof(UINT16) + key->pub.size) {
-            printf("Read %zu, expected public blob %lu bytes\n", bytes_read, sizeof(UINT16) + key->pub.size);
+            printf("Read %zu, expected public blob %lu bytes\n",
+                bytes_read, sizeof(UINT16) + key->pub.size);
             goto exit;
         }
         fileSz -= bytes_read; /* Reminder bytes for private key part */
 
         /* Decode the byte stream into a publicArea structure ready for use */
-        rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize);
+        rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
+            (word32)sizeof(pubAreaBuffer), &pubAreaSize);
         if (rc != TPM_RC_SUCCESS) return rc;
 #ifdef DEBUG_WOLFTPM
         TPM2_PrintPublicArea(&key->pub);
@@ -121,7 +125,8 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             printf("Reading the private part of the key\n");
             bytes_read = XFREAD(&key->priv, 1, fileSz, fp);
             if (bytes_read != fileSz) {
-                printf("Read %zu, expected private blob %zu bytes\n", bytes_read, fileSz);
+                printf("Read %zu, expected private blob %zu bytes\n",
+                    bytes_read, fileSz);
                 goto exit;
             }
             rc = 0; /* success */

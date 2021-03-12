@@ -5721,7 +5721,6 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     if (rc == 0) {
         rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
     }
-
     if (rc == 0) {
         rc = wc_HashFinal(&hash, hashType, &buffer[2]);
     }
@@ -5747,11 +5746,11 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 #endif
 }
 
-WOLFTPM_API int TPM2_AppendPublic(byte* buf, size_t size, int* sizeUsed, TPM2B_PUBLIC* pub)
+int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
 {
     TPM2_Packet packet;
 
-    if (buf == NULL || sizeUsed == NULL)
+    if (buf == NULL || pub == NULL || sizeUsed == NULL)
         return BAD_FUNC_ARG;
 
     if (size < sizeof(TPM2B_PUBLIC)) {
@@ -5770,11 +5769,11 @@ WOLFTPM_API int TPM2_AppendPublic(byte* buf, size_t size, int* sizeUsed, TPM2B_P
     return TPM_RC_SUCCESS;
 }
 
-WOLFTPM_API int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, size_t size, int* sizeUsed)
+int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
 {
     TPM2_Packet packet;
 
-    if (buf == NULL || sizeUsed == NULL)
+    if (buf == NULL || pub == NULL || sizeUsed == NULL)
         return BAD_FUNC_ARG;
 
     if (size < sizeof(TPM2B_PUBLIC)) {

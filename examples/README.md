@@ -298,7 +298,7 @@ The `keyload` tool takes only one argument, the filename of the stored key. Beca
 
 ## Storing keys into the TPM's NVRAM
 
-These examples demonstrates how to use the TPM as a secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" is given on the commmand line.
+These examples demonstrates how to use the TPM as a secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" is given on the command line.
 
 Before running the examples, make sure there is a keyblob.bin generated using the keygen tool. The key can be of any type, RSA, ECC or symmetric. The example will store the private and public part. In case of a symmetric key the public part is meta data from the TPM. How to generate a key you can see above, in the description of the keygen example.
 
@@ -341,7 +341,7 @@ Loaded key to 0x80000001
 
 ```
 
-The "read" example will try to load the extracted key, if both the public and private part of the key were stored in NVRAM. The "-aes" swiches triggers the use of parameter encryption.
+The "read" example will try to load the extracted key, if both the public and private part of the key were stored in NVRAM. The "-aes" switches triggers the use of parameter encryption.
 
 The examples can work with partial key material - private or public. This is achieved by using the "-priv" and "-pub" options.
 

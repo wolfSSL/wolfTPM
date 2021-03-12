@@ -160,7 +160,8 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         offset += readSize;
 
         /* Necessary for storing the publicArea with the correct encoding */
-        rc = TPM2_ParsePublic(&keyBlob.pub, pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize);
+        rc = TPM2_ParsePublic(&keyBlob.pub, pubAreaBuffer,
+            (word32)sizeof(pubAreaBuffer), &pubAreaSize);
         if (rc != TPM_RC_SUCCESS) {
             printf("Decoding of PublicArea failed. Unable to extract correctly.\n");
             goto exit;

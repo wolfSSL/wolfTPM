@@ -2664,7 +2664,7 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NvPublic\n");
+        printf("Failed to read fresh NV Public\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -2677,7 +2677,7 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
@@ -2751,7 +2751,7 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NvPublic\n");
+        printf("Failed to read fresh NV Public\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -2764,7 +2764,7 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
@@ -2772,7 +2772,6 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     dataSz = *pDataSz;
-
     while (dataSz > 0) {
         toread = dataSz;
         if (toread > MAX_NV_BUFFER_SIZE)
@@ -2810,7 +2809,6 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
         pos += toread;
         dataSz -= toread;
     }
-
     *pDataSz = pos;
 
     return rc;

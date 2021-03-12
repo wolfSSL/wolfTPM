@@ -158,7 +158,8 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         offset += sizeof(keyBlob.pub.size);
 
         /* Necessary for storing the publicArea with the correct byte encoding */
-        rc = TPM2_AppendPublic(pubAreaBuffer, sizeof(pubAreaBuffer), &pubAreaSize, &keyBlob.pub);
+        rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+            &pubAreaSize, &keyBlob.pub);
         /* Note:
          * Public Area is the only part of a TPM key that can be stored encoded
          * Private Area is stored as-is, because TPM2B_PRIVATE is byte buffer
