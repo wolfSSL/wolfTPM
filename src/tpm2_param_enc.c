@@ -267,7 +267,7 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     return rc;
 }
 
-#ifdef WOLFSSL_AES_CFB
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
 /* Perform AES CFB encryption over the first parameter of a TPM packet */
 static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM, BYTE *paramData,
@@ -551,13 +551,15 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
         rc = TPM2_ParamEnc_XOR(session, &session->auth, &session->nonceCaller,
             &session->nonceTPM, paramData, paramSz);
     }
-#ifdef WOLFSSL_AES_CFB
     else if (session->symmetric.algorithm == TPM_ALG_AES &&
              session->symmetric.mode.aes == TPM_ALG_CFB) {
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
         rc = TPM2_ParamEnc_AESCFB(session, &session->auth, &session->nonceCaller,
             &session->nonceTPM, paramData, paramSz);
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
     }
-#endif
 
     return rc;
 }
@@ -580,13 +582,15 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
         rc = TPM2_ParamDec_XOR(session, &session->auth, &session->nonceCaller,
             &session->nonceTPM, paramData, paramSz);
     }
-#ifdef WOLFSSL_AES_CFB
     else if (session->symmetric.algorithm == TPM_ALG_AES &&
              session->symmetric.mode.aes == TPM_ALG_CFB) {
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB) 
         rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonceCaller,
             &session->nonceTPM, paramData, paramSz);
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
     }
-#endif
 
     return rc;
 }

@@ -226,6 +226,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         #else
             (void)handleValue;
             (void)handlePos;
+            return NOT_COMPILED_IN;
         #endif
         }
 
@@ -328,6 +329,9 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return TPM_RC_HMAC;
                 }
             }
+        #else
+            (void)cmdCode;
+            return NOT_COMPILED_IN;
         #endif
 
             /* Handle session request for decryption */
@@ -339,12 +343,12 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                     printf("Response parameter decryption failed\n");
             #endif
-                    return TPM_RC_FAILURE;
+                    return rc;
                 }
             }
         }
     }
-    (void)cmdCode;
+
     return rc;
 }
 
@@ -5345,6 +5349,16 @@ const char* TPM2_GetRCString(int rc)
         #else
             return wc_GetErrorString(rc);
         #endif
+    #else
+        switch (rc) {
+            TPM_RC_STR(BAD_FUNC_ARG, "Bad function argument provided");
+            TPM_RC_STR(BUFFER_E, "Output buffer too small or input too large");
+            TPM_RC_STR(NOT_COMPILED_IN, "Feature not compiled in");
+            TPM_RC_STR(BAD_MUTEX_E, "Bad mutex operation");
+            TPM_RC_STR(WC_TIMEOUT_E, "Timeout error");
+            default:
+                break;
+        }
     #endif
     }
     else if (rc == 0) {
@@ -5729,7 +5743,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     (void)nvPublic;
     (void)buffer;
     (void)size;
-    return TPM_RC_SUCCESS;
+    return NOT_COMPILED_IN;
 #endif
 }
 
