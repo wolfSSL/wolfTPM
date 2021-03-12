@@ -44,7 +44,7 @@ static void usage(void)
     printf("./examples/pcr/quote [pcr] [filename] [-ecc] [-aes/xor]\n");
     printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
     printf("* filename: for saving the TPMS_ATTEST structure to a file\n");
-    printf("* -ecc: Use RSA or ECC for EK/AIK\n");
+    printf("* -ecc: Use RSA or ECC for SRK/AIK\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("Demo usage without parameters, generates quote over PCR%d and\n"
            "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n",
@@ -60,7 +60,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
-    WOLFTPM2_KEY endorse; /* EK  */
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY aik;  /* AIK */
     union {
@@ -77,7 +76,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
     XFILE f;
 #endif
 
-    XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&aik, 0, sizeof(aik));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
@@ -127,16 +125,6 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
-
-    /* Create Endorsement Key, also called EK */
-    rc = wolfTPM2_CreateEK(&dev, &endorse, alg);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateEK: Endorsement failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("wolfTPM2_CreateEK: Endorsement 0x%x (%d bytes)\n",
-        (word32)endorse.handle.hndl, endorse.pub.size);
 
     /* get SRK */
     rc = getPrimaryStoragekey(&dev, &storage, alg);
@@ -234,7 +222,6 @@ exit:
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &aik.handle);
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
-    wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
