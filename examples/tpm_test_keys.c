@@ -51,7 +51,7 @@ int writeKeyBlob(const char* filename,
         rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
             &pubAreaSize, &key->pub);
         if (rc != TPM_RC_SUCCESS) return rc;
-        if (pubAreaSize != (key->pub.size + sizeof(key->pub.size))) {
+        if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
 #ifdef DEBUG_WOLFTPM
             printf("writeKeyBlob: Sanity check for publicArea size failed\n");
 #endif
@@ -133,7 +133,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         }
 
         /* sanity check the sizes */
-        if (pubAreaSize != (key->pub.size + sizeof(key->pub.size)) ||
+        if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size)) ||
              key->priv.size > sizeof(key->priv.buffer)) {
             printf("Struct size check failed (pub %d, priv %d)\n",
                    key->pub.size, key->priv.size);
