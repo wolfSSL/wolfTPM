@@ -107,7 +107,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 
         bytes_read = XFREAD(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
         if (bytes_read != sizeof(UINT16) + key->pub.size) {
-            printf("Read %zu, expected public blob %lu bytes\n",
+            printf("Read %zu, expected public blob %zu bytes\n",
                 bytes_read, sizeof(UINT16) + key->pub.size);
             goto exit;
         }
