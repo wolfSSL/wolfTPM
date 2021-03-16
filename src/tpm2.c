@@ -226,6 +226,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         #else
             (void)handleValue;
             (void)handlePos;
+            return NOT_COMPILED_IN;
         #endif
         }
 
@@ -328,6 +329,9 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return TPM_RC_HMAC;
                 }
             }
+        #else
+            (void)cmdCode;
+            return NOT_COMPILED_IN;
         #endif
 
             /* Handle session request for decryption */
@@ -339,12 +343,12 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                     printf("Response parameter decryption failed\n");
             #endif
-                    return TPM_RC_FAILURE;
+                    return rc;
                 }
             }
         }
     }
-    (void)cmdCode;
+
     return rc;
 }
 
@@ -5345,6 +5349,16 @@ const char* TPM2_GetRCString(int rc)
         #else
             return wc_GetErrorString(rc);
         #endif
+    #else
+        switch (rc) {
+            TPM_RC_STR(BAD_FUNC_ARG, "Bad function argument provided");
+            TPM_RC_STR(BUFFER_E, "Output buffer too small or input too large");
+            TPM_RC_STR(NOT_COMPILED_IN, "Feature not compiled in");
+            TPM_RC_STR(BAD_MUTEX_E, "Bad mutex operation");
+            TPM_RC_STR(WC_TIMEOUT_E, "Timeout error");
+            default:
+                break;
+        }
     #endif
     }
     else if (rc == 0) {
@@ -5707,7 +5721,6 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     if (rc == 0) {
         rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
     }
-
     if (rc == 0) {
         rc = wc_HashFinal(&hash, hashType, &buffer[2]);
     }
@@ -5729,8 +5742,54 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     (void)nvPublic;
     (void)buffer;
     (void)size;
-    return TPM_RC_SUCCESS;
+    return NOT_COMPILED_IN;
 #endif
+}
+
+int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
+{
+    TPM2_Packet packet;
+
+    if (buf == NULL || pub == NULL || sizeUsed == NULL)
+        return BAD_FUNC_ARG;
+
+    if (size < sizeof(TPM2B_PUBLIC)) {
+        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+        return TPM_RC_FAILURE;
+    }
+
+    /* Prepare temporary buffer */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+
+    TPM2_Packet_AppendPublic(&packet, pub);
+    *sizeUsed = packet.pos;
+
+    return TPM_RC_SUCCESS;
+}
+
+int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
+{
+    TPM2_Packet packet;
+
+    if (buf == NULL || pub == NULL || sizeUsed == NULL)
+        return BAD_FUNC_ARG;
+
+    if (size < sizeof(TPM2B_PUBLIC)) {
+        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+        return TPM_RC_FAILURE;
+    }
+
+    /* Prepare temporary buffer */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)size;
+
+    TPM2_Packet_ParsePublic(&packet, pub);
+    *sizeUsed = packet.pos;
+
+    return TPM_RC_SUCCESS;
 }
 
 #ifdef DEBUG_WOLFTPM
@@ -5784,6 +5843,87 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
     printf("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
     printf("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
     TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
+}
+
+void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
+{
+    printf("publicArea:\n");
+    printf("Total public area size is = %d\n", pub->size);
+    /* Sanity check */
+    if (pub->size > (sizeof(TPM2B_PUBLIC)) || pub->size == 0) {
+        printf("Incorrect publicArea size. Aborting debug print\n");
+        return;
+    }
+    printf("algType = 0x%2.2X\n", pub->publicArea.type);
+    printf("nameAlg = 0x%2.2X\n", pub->publicArea.nameAlg);
+    printf("objectAttributes = 0x%X\n", pub->publicArea.objectAttributes);
+    printf("authPolicy size = %d\n", pub->publicArea.authPolicy.size);
+    /* authPolicy is optional */
+    if (pub->publicArea.authPolicy.size > 0 &&
+        pub->publicArea.authPolicy.size < sizeof(pub->publicArea.authPolicy)) {
+        TPM2_PrintBin(pub->publicArea.authPolicy.buffer,
+                      pub->publicArea.authPolicy.size);
+    }
+    else {
+        printf("authPolicy size is incorrect = %d\n", pub->publicArea.authPolicy.size);
+    }
+    /* parameters and unique field depend on algType */
+    switch(pub->publicArea.type) {
+        case TPM_ALG_KEYEDHASH:
+            printf("KeyedHash scheme = 0x%2.2X\n", pub->publicArea.parameters.keyedHashDetail.scheme.scheme);
+            printf("KeyedHash details = 0x%2.2X\n", pub->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg);
+
+            printf("KeyedHash unique\n");
+            TPM2_PrintBin(pub->publicArea.unique.keyedHash.buffer, pub->publicArea.unique.keyedHash.size);
+            break;
+
+        case TPM_ALG_SYMCIPHER:
+            printf("symDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.algorithm);
+            printf("symDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.keyBits.sym);
+            printf("symDetail mode = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.mode.sym);
+
+            printf("symDetail unique\n");
+            TPM2_PrintBin(pub->publicArea.unique.sym.buffer, pub->publicArea.unique.sym.size);
+            break;
+
+        case TPM_ALG_RSA:
+            printf("rsaDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.algorithm);
+            printf("rsaDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym);
+            printf("rsaDetail mode = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.mode.sym);
+            printf("rsaDetail scheme = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.scheme.scheme);
+            printf("rsaDetail scheme details = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
+            printf("rsaDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.keyBits);
+            printf("rsaDetail exponent = 0x%X\n", pub->publicArea.parameters.rsaDetail.exponent);
+
+            printf("RSA Detail unique\n");
+            TPM2_PrintBin(pub->publicArea.unique.rsa.buffer, pub->publicArea.unique.rsa.size);
+            break;
+
+        case TPM_ALG_ECC:
+            printf("eccDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.algorithm);
+            printf("eccDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.keyBits.sym);
+            printf("eccDetail mode = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.mode.sym);
+            printf("eccDetail scheme = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.scheme.scheme);
+            printf("eccDetail scheme details = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg);
+            printf("eccDetail curveID = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.curveID);
+            printf("eccDetail KDF scheme = 0x%X\n", pub->publicArea.parameters.eccDetail.kdf.scheme);
+            printf("eccDetail KDF details = 0x%X\n", pub->publicArea.parameters.eccDetail.kdf.details.any.hashAlg);
+
+            printf("ECC Detail unique X\n");
+            TPM2_PrintBin(pub->publicArea.unique.ecc.x.buffer, pub->publicArea.unique.ecc.x.size);
+            printf("ECC Detail unique Y\n");
+            TPM2_PrintBin(pub->publicArea.unique.ecc.y.buffer, pub->publicArea.unique.ecc.y.size);
+            break;
+
+        default:
+            /* derive does not seem to have specific fields in the parameters struct */
+            printf("Derive unique label\n");
+            TPM2_PrintBin(pub->publicArea.unique.derive.label.buffer, pub->publicArea.unique.derive.label.size);
+            printf("Derive unique context\n");
+            TPM2_PrintBin(pub->publicArea.unique.derive.context.buffer, pub->publicArea.unique.derive.context.size);
+            break;
+    }
+    printf("\n");
 }
 #endif
 

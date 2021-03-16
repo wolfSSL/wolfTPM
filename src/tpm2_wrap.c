@@ -534,8 +534,7 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #endif
 }
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-#ifndef NO_RSA
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
 /* returns both the plaintext and encrypted salt, based on the salt key bPublic. */
 int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea)
@@ -601,7 +600,7 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     return 0;
 }
-#endif /* !NO_RSA */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
 int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt)
@@ -613,6 +612,7 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
         return TPM_RC_SUCCESS;
     }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     /* generate a salt */
     salt->size = TPM2_GetHashDigestSize(in->authHash);
     if (salt->size <= 0) {
@@ -645,12 +645,17 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             rc = NOT_COMPILED_IN;
             break;
     }
+#else
+    (void)dev;
+    (void)in;
+    (void)salt;
+    rc = NOT_COMPILED_IN;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     (void)bindAuth; /* TODO: Add bind support */
 
     return rc;
 }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     WOLFTPM2_KEY* tpmKey, WOLFTPM2_HANDLE* bind, TPM_SE sesType,
@@ -693,15 +698,12 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     authSesIn.sessionType = sesType;
-#ifdef WOLFSSL_AES_CFB
     if (encDecAlg == TPM_ALG_CFB) {
         authSesIn.symmetric.algorithm = TPM_ALG_AES;
         authSesIn.symmetric.keyBits.aes = 128;
         authSesIn.symmetric.mode.aes = TPM_ALG_CFB;
     }
-    else
-#endif
-    if (encDecAlg == TPM_ALG_XOR) {
+    else if (encDecAlg == TPM_ALG_XOR) {
         authSesIn.symmetric.algorithm = TPM_ALG_XOR;
         authSesIn.symmetric.keyBits.xorr = TPM_ALG_SHA256;
         authSesIn.symmetric.mode.sym = TPM_ALG_NULL;
@@ -719,7 +721,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return rc;
     }
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Generate and Encrypt salt using "SECRET" */
     rc = wolfTPM2_EncryptSalt(dev, tpmKey, &authSesIn, bindAuth, &session->salt);
     if (rc != 0) {
@@ -727,8 +728,8 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         printf("Building encrypted salt failed %d: %s!\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        return rc;
     }
-#endif
 
     rc = TPM2_StartAuthSession(&authSesIn, &authSesOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -955,6 +956,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     printf("TPM2_Create key: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
     TPM2_PrintBin(createOut.outPrivate.buffer, createOut.outPrivate.size);
+    TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
 
     keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;
@@ -2662,7 +2664,7 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NvPublic\n");
+        printf("Failed to read fresh NV Public\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -2675,7 +2677,7 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
@@ -2749,7 +2751,7 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NvPublic\n");
+        printf("Failed to read fresh NV Public\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -2762,7 +2764,7 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Storing NV Index Name failed\n");
@@ -2770,7 +2772,6 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     dataSz = *pDataSz;
-
     while (dataSz > 0) {
         toread = dataSz;
         if (toread > MAX_NV_BUFFER_SIZE)
@@ -2808,7 +2809,6 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
         pos += toread;
         dataSz -= toread;
     }
-
     *pDataSz = pos;
 
     return rc;

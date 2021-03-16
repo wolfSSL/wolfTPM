@@ -236,7 +236,34 @@ TPM2.0 Key load example
 Loading SRK: Storage 0x81000200 (282 bytes)
 Reading 744 bytes from keyblob.bin
 Loaded key to 0x80000001
+
+./examples/keygen/keygen -sym=aescfb128
+TPM2.0 Key generation example
+	Key Blob: keyblob.bin
+	Algorithm: SYMCIPHER
+		 aescfb mode, 128 keybits
+	Template: Default
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+Symmetric template
+Creating new SYMCIPHER key...
+Created new key (pub 50, priv 142 bytes)
+Wrote 198 bytes to keyblob.bin
+
+$ ./examples/keygen/keyload
+TPM2.0 Key load example
+	Key Blob: keyblob.bin
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 198 bytes from keyblob.bin
+Reading the private part of the key
+Loaded key to 0x80000001
+
 ```
+
+When filename is not supplied, a default filename "keyblob.bin" is used, therefore `keyload` and `keygen` can be used without additional parameters for quick TPM 2.0 key generation demonstration.
+
+To see the complete list of supported cryptographic algorithms and options by the `keygen` example, use one of the `--help` switches.
 
 Example for importing a private key as TPM key blob and storing to disk, then loading from disk and loading into temporary TPM handle.
 
@@ -271,26 +298,79 @@ The `keyload` tool takes only one argument, the filename of the stored key. Beca
 
 ## Storing keys into the TPM's NVRAM
 
-These examples demonstrates how to use the TPM as secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" or "-xor" is given on the commmand line.
+These examples demonstrates how to use the TPM as a secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" is given on the command line.
 
 Before running the examples, make sure there is a keyblob.bin generated using the keygen tool. The key can be of any type, RSA, ECC or symmetric. The example will store the private and public part. In case of a symmetric key the public part is meta data from the TPM. How to generate a key you can see above, in the description of the keygen example.
 
-Typical output for storing and then reading an RSA key using parameter encryption:
+Typical output for storing and then reading an RSA key with parameter encryption enabled:
 
 ```
+
 $ ./examples/nvram/store -aes
+Parameter Encryption: Enabled (AES CFB).
+
 TPM2_StartAuthSession: sessionHandle 0x2000000
 Reading 840 bytes from keyblob.bin
 Storing key at TPM NV index 0x1800202 with password protection
-Public part = 616 bytes
-Private part = 222 bytes
-NV write succeeded
 
-$ ./examples/nvram/read 616 222 -aes
+Public part = 616 bytes
+NV write of public part succeeded
+
+Private part = 222 bytes
+Stored 2-byte size marker before the private part
+NV write of private part succeeded
+
+
+$ ./examples/nvram/read -aes
+Parameter Encryption: Enabled (AES CFB).
+
 TPM2_StartAuthSession: sessionHandle 0x2000000
 Trying to read 616 bytes of public key part from NV
+Successfully read public key part from NV
+
+Trying to read size marker of the private key part from NV
+Successfully read size marker from NV
+
 Trying to read 222 bytes of private key part from NV
+Successfully read private key part from NV
+
 Extraction of key from NVRAM at index 0x1800202 succeeded
+Loading SRK: Storage 0x81000200 (282 bytes)
+Trying to load the key extracted from NVRAM
+Loaded key to 0x80000001
+
 ```
 
-The read example takes as first argument the size of the public part and as second argument the private part. This information is given from the store example. The "-aes" swiches triggers the use of parameter encryption.
+The "read" example will try to load the extracted key, if both the public and private part of the key were stored in NVRAM. The "-aes" switches triggers the use of parameter encryption.
+
+The examples can work with partial key material - private or public. This is achieved by using the "-priv" and "-pub" options.
+
+Typical output of storing only the private key of RSA asymmetric key pair in NVRAM and without parameter encryption enabled.
+
+```
+
+$ ./examples/nvram/store -priv
+Parameter Encryption: Not enabled (try -aes or -xor).
+
+Reading 506 bytes from keyblob.bin
+Reading the private part of the key
+Storing key at TPM NV index 0x1800202 with password protection
+
+Private part = 222 bytes
+Stored 2-byte size marker before the private part
+NV write of private part succeeded
+
+$ ./examples/nvram/read -priv
+Parameter Encryption: Not enabled (try -aes or -xor).
+
+Trying to read size marker of the private key part from NV
+Successfully read size marker from NV
+
+Trying to read 222 bytes of private key part from NV
+Successfully read private key part from NV
+
+Extraction of key from NVRAM at index 0x1800202 succeeded
+
+```
+
+After successful key extraction using "read", the NV Index is destroyed. Therefore, to use "read" again, the "store" example must be run again as well.

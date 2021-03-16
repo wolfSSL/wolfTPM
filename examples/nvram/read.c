@@ -38,9 +38,8 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#define ARGC_PUB_SIZE  1
-#define ARGC_PRIV_SIZE 2
-#define ARGC_PARAM_ENC 3
+#define PRIVATE_PART_ONLY   0x01
+#define PUBLIC_PART_ONLY    0x02
 
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
@@ -48,9 +47,9 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/nvram/read priv pub [-aes/-xor]\n");
-    printf("* priv: size in bytes of the private part of the key in NV\n");
-    printf("* pub: size in bytes of the public part of the key in NV\n");
+    printf("./examples/nvram/read [-priv] [-pub] [-aes/-xor]\n");
+    printf("* -priv: Read ony the private part\n");
+    printf("* -pub: Read only the public part\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
@@ -58,6 +57,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storage;
     WOLFTPM2_KEYBLOB keyBlob;
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_HANDLE parent;
@@ -65,36 +65,51 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     TPM2B_AUTH auth;
     word32 readSize;
     int paramEncAlg = TPM_ALG_NULL;
+    int partialRead = 0;
+    int offset = 0;
+    /* Needed for TPM2_ParsePublic */
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
-    if (argc > 2) {
-        XMEMSET(&keyBlob, 0, sizeof(keyBlob));
-        keyBlob.pub.size = atoi(argv[ARGC_PUB_SIZE]);
-        keyBlob.priv.size = atoi(argv[ARGC_PRIV_SIZE]);
-
-        if (argc == 4) {
-            if (XSTRNCMP(argv[ARGC_PARAM_ENC], "-aes", 4) == 0) {
-                paramEncAlg = TPM_ALG_CFB;
-            }
-            if (XSTRNCMP(argv[ARGC_PARAM_ENC], "-xor", 4) == 0) {
-                paramEncAlg = TPM_ALG_XOR;
-            }
-            argc--;
+    if (argc >= 2) {
+        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
+            XSTRNCMP(argv[1], "-h", 2) == 0 ||
+            XSTRNCMP(argv[1], "--help", 6) == 0) {
+            usage();
+            return 0;
         }
     }
+    while(argc) {
+        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+            paramEncAlg = TPM_ALG_CFB;
+        }
+        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        if (XSTRNCMP(argv[argc-1], "-priv", 5) == 0) {
+            partialRead = PRIVATE_PART_ONLY;
+        }
+        if (XSTRNCMP(argv[argc-1], "-pub", 4) == 0) {
+            partialRead = PUBLIC_PART_ONLY;
+        }
+        argc--;
+    }
+
+    if (paramEncAlg == TPM_ALG_CFB) {
+        printf("Parameter Encryption: Enabled. (AES CFB)\n\n");
+    }
+    else if (paramEncAlg == TPM_ALG_XOR) {
+        printf("Parameter Encryption: Enabled. (XOR)\n\n");
+    }
     else {
-        usage();
-        return 0;
+        printf("Parameter Encryption: Not enabled (try -aes or -xor).\n\n");
     }
 
-    if (keyBlob.priv.size == 0 || keyBlob.pub.size == 0) {
-        printf("Specify size of private and public part of the key\n");
-        usage();
-        return 0;
-    }
-
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&parent, 0, sizeof(parent));
     XMEMSET(&auth, 0, sizeof(auth));
+    XMEMSET(&storage, 0, sizeof(storage));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -124,17 +139,59 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     nv.handle.auth.size = auth.size;
     XMEMCPY(nv.handle.auth.buffer, auth.buffer, auth.size);
 
-    readSize = keyBlob.pub.size;
-    printf("Trying to read %d bytes of public key part from NV\n", readSize);
-    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-        (byte*)&keyBlob.pub.publicArea, &readSize, 0);
-    if (rc != 0) goto exit;
+    if (partialRead != PRIVATE_PART_ONLY) {
+        readSize = sizeof(keyBlob.pub.size);
+        printf("Trying to read %d bytes of public key size marker\n", readSize);
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            (byte*)&keyBlob.pub.size, &readSize, 0);
+        if (rc != 0) {
+            printf("Was a public key part written? (see nvram/store)\n");
+            goto exit;
+        }
+        printf("Successfully read public key part from NV\n\n");
+        offset += readSize;
 
-    readSize = keyBlob.priv.size;
-    printf("Trying to read %d bytes of private key part from NV\n", readSize);
-    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-        (byte*)&keyBlob.priv.buffer, &readSize, keyBlob.pub.size);
-    if (rc != 0) goto exit;
+        readSize = sizeof(UINT16) + keyBlob.pub.size; /* account for TPM2B size marker */
+        printf("Trying to read %d bytes of public key part from NV\n", keyBlob.pub.size);
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            pubAreaBuffer, &readSize, offset);
+        if (rc != 0) goto exit;
+        printf("Successfully read public key part from NV\n\n");
+        offset += readSize;
+
+        /* Necessary for storing the publicArea with the correct encoding */
+        rc = TPM2_ParsePublic(&keyBlob.pub, pubAreaBuffer,
+            (word32)sizeof(pubAreaBuffer), &pubAreaSize);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Decoding of PublicArea failed. Unable to extract correctly.\n");
+            goto exit;
+        }
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        TPM2_PrintPublicArea(&keyBlob.pub);
+        printf("\n");
+#endif
+    }
+
+    if (partialRead != PUBLIC_PART_ONLY) {
+        printf("Trying to read size marker of the private key part from NV\n");
+        readSize = sizeof(keyBlob.priv.size);
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            (byte*)&keyBlob.priv.size, &readSize, offset);
+        if (rc != 0) {
+            printf("Was a private key part written? (see nvram/store)\n");
+            goto exit;
+        }
+        printf("Successfully read size marker from NV\n\n");
+        offset += readSize;
+
+        readSize = keyBlob.priv.size;
+        printf("Trying to read %d bytes of private key part from NV\n", readSize);
+        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            (byte*)&keyBlob.priv.buffer, &readSize, offset);
+        if (rc != 0) goto exit;
+        printf("Successfully read private key part from NV\n\n");
+    }
 
     parent.hndl = TPM_RH_OWNER;
     rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NVRAM_STORE_INDEX);
@@ -143,12 +200,28 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     printf("Extraction of key from NVRAM at index 0x%x succeeded\n" ,
         TPM2_DEMO_NVRAM_STORE_INDEX);
 
+    if (!partialRead) {
+        /* get SRK */
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+        if (rc != 0) goto exit;
+
+        printf("Trying to load the key extracted from NVRAM\n");
+        rc = wolfTPM2_LoadKey(&dev, &keyBlob, &storage.handle);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_LoadKey failed\n");
+            goto exit;
+        }
+        printf("Loaded key to 0x%x\n",
+            (word32)keyBlob.handle.hndl);
+    }
+
 exit:
 
     if (rc != 0) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    wolfTPM2_UnloadHandle(&dev, &keyBlob.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 

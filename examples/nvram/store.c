@@ -37,15 +37,20 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
+#define PRIVATE_PART_ONLY   0x01
+#define PUBLIC_PART_ONLY    0x02
+
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
 /******************************************************************************/
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/nvram/store [filename] [-aes/-xor]\n");
+    printf("./examples/nvram/store [filename] [-priv] [-pub] [-aes/-xor]\n");
     printf("* filename: point to a file containing a TPM key\n");
-    printf("\tIf not supplied, default filename is \"keyblob.bin\"\n");
+    printf("\tDefault filename is \"keyblob.bin\"\n");
+    printf("* -priv: Store only the private part of the key\n");
+    printf("* -pub: Store only the public part of the key\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
@@ -61,6 +66,11 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     word32 nvAttributes;
     const char* filename = "keyblob.bin";
     int paramEncAlg = TPM_ALG_NULL;
+    int partialStore = 0;
+    int offset = 0;
+    /* Needed for TPM2_AppendPublic */
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -80,8 +90,24 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+        if (XSTRNCMP(argv[argc-1], "-priv", 5) == 0) {
+            partialStore = PRIVATE_PART_ONLY;
+        }
+        if (XSTRNCMP(argv[argc-1], "-pub", 4) == 0) {
+            partialStore = PUBLIC_PART_ONLY;
+        }
         argc--;
     };
+
+    if (paramEncAlg == TPM_ALG_CFB) {
+        printf("Parameter Encryption: Enabled. (AES CFB)\n\n");
+    }
+    else if (paramEncAlg == TPM_ALG_XOR) {
+        printf("Parameter Encryption: Enabled. (XOR)\n\n");
+    }
+    else {
+        printf("Parameter Encryption: Not enabled (try -aes or -xor).\n\n");
+    }
 
     XMEMSET(&keyBlob, 0, sizeof(keyBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
@@ -120,20 +146,55 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
     if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
-    printf("Storing key at TPM NV index 0x%x with password protection\n",
+    printf("Storing key at TPM NV index 0x%x with password protection\n\n",
              TPM2_DEMO_NVRAM_STORE_INDEX);
 
-    printf("Public part = %d bytes\n", keyBlob.pub.size);
-    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-        (byte*)&keyBlob.pub.publicArea, keyBlob.pub.size, 0);
-    if (rc != 0) goto exit;
+    if (partialStore != PRIVATE_PART_ONLY) {
+        printf("Public part = %hu bytes\n", keyBlob.pub.size);
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            (byte*)&keyBlob.pub.size, sizeof(keyBlob.pub.size), 0);
+        if (rc != 0) goto exit;
+        printf("Stored 2-byte size marker before the private part\n");
+        offset += sizeof(keyBlob.pub.size);
 
-    printf("Private part = %d bytes\n", keyBlob.priv.size);
-    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
-        keyBlob.priv.buffer, keyBlob.priv.size, keyBlob.pub.size);
-    if (rc != 0) goto exit;
+        /* Necessary for storing the publicArea with the correct byte encoding */
+        rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+            &pubAreaSize, &keyBlob.pub);
+        /* Note:
+         * Public Area is the only part of a TPM key that can be stored encoded
+         * Private Area is stored as-is, because TPM2B_PRIVATE is byte buffer
+         * and UINT16 size field, while Public Area is a complex TCG structure.
+         */
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Encoding of the publicArea failed. Unable to store.\n");
+            goto exit;
+        }
 
-    printf("NV write succeeded\n");
+        /* The buffer holds pub.publicArea and also pub.size(UINT16) */
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            pubAreaBuffer, sizeof(UINT16) + keyBlob.pub.size, offset);
+        if (rc != 0) goto exit;
+        printf("NV write of public part succeeded\n\n");
+        offset += sizeof(UINT16) + keyBlob.pub.size;
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        TPM2_PrintPublicArea(&keyBlob.pub);
+        printf("\n");
+#endif
+    }
+    if (partialStore != PUBLIC_PART_ONLY) {
+        printf("Private part = %d bytes\n", keyBlob.priv.size);
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            (byte*)&keyBlob.priv.size, sizeof(keyBlob.priv.size), offset);
+        if (rc != 0) goto exit;
+        printf("Stored 2-byte size marker before the private part\n");
+        offset += sizeof(keyBlob.priv.size);
+
+        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NVRAM_STORE_INDEX,
+            keyBlob.priv.buffer, keyBlob.priv.size, offset);
+        if (rc != 0) goto exit;
+        printf("NV write of private part succeeded\n\n");
+    }
 
 exit:
 

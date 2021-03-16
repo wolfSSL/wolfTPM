@@ -50,6 +50,8 @@ tests/unit.test
 examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
+examples/nvram/store
+examples/nvram/read
 
 # Generated Cert Files
 certs/ca-*.pem

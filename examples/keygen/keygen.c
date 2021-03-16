@@ -1,6 +1,6 @@
 /* keygen.c
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2021 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -29,8 +29,16 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
+#include <stdlib.h> /* atoi */
 
 #ifndef WOLFTPM2_NO_WRAPPER
+
+#define SYM_EXTRA_OPTS_LEN 14 /* 5 for "-sym=" and 6 for extra options */
+#define SYM_EXTRA_OPTS_POS 4  /* Array pos of the equal sign for extra opts */
+#define SYM_EXTRA_OPTS_AES_MODE_POS 8
+#define SYM_EXTRA_OPTS_KEY_BITS_POS 11
+
+
 
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
@@ -38,10 +46,62 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa] [-t] [-aes/xor]\n");
-    printf("* -ecc: Use RSA or ECC for keys\n");
+    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor]\n");
+    printf("* -rsa: Use RSA for asymmetric key generation (DEFAULT)\n");
+    printf("* -ecc: Use ECC for asymmetric key generation \n");
+    printf("* -sym: Use Symmetric Cypher for key generation\n");
+    printf("\tDefault Symmetric Cypher is AES CTR with 256 bits\n");
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("Example usage:\n");
+    printf("\t* RSA, default template\n");
+    printf("\t\t keygen -t\n");
+    printf("\t* ECC, Attestation Key template "\
+           "with AES CFB parameter encryption\n");
+    printf("\t\t keygen -ecc -aes\n");
+    printf("\t* Symmetric key, AES, CTR mode, 128 bits\n");
+    printf("\t\t keygen -sym=aesctr128\n");
+    printf("\t* Symmetric key, AES, CFB mode, 256 bits\n");
+    printf("\t\t keygen -sym=aescfb256\n");
+    printf("\t* Symmetric key, AES, CBC mode, 128 bits, "\
+           "with XOR parameter encryption\n");
+    printf("\t\t keygen -sym=aescbc256 -xor\n");
+}
+
+static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
+                     char* symMode)
+{
+    size_t len = XSTRLEN(arg);
+
+    if (len != SYM_EXTRA_OPTS_LEN) {
+        return TPM_RC_FAILURE;
+    }
+    if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_POS+1], "aes", 3)) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Copy string for user information later */
+    XMEMCPY(symMode, &arg[SYM_EXTRA_OPTS_POS+1], 6);
+
+    if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cfb", 3) == 0) {
+        *algSym = TPM_ALG_CFB;
+    }
+    else if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "ctr", 3) == 0) {
+        *algSym = TPM_ALG_CTR;
+    }
+    else if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cbc", 3) == 0) {
+        *algSym = TPM_ALG_CBC;
+    }
+    else {
+        return TPM_RC_FAILURE;
+    }
+
+    *keyBits = atoi(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
+    if(*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
+        return TPM_RC_FAILURE;
+    }
+
+    return TPM_RC_SUCCESS;
 }
 
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
@@ -49,14 +109,19 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY aesKey; /* Symmetric key */
     WOLFTPM2_KEYBLOB newKey;
     TPMT_PUBLIC publicTemplate;
-    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
+    TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cypher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
     int bAIK = 1;
+    int keyBits = 256;
     const char* outputFile = "keyblob.bin";
+    size_t len = 0;
+    char symMode[] = "aesctr";
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -69,8 +134,28 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             outputFile = argv[1];
     }
     while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-rsa", 4) == 0) {
+            alg = TPM_ALG_RSA;
+        }
         if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
             alg = TPM_ALG_ECC;
+        }
+        if (XSTRNCMP(argv[argc-1], "-sym", 4) == 0) {
+            len = XSTRLEN(argv[argc-1]);
+            if (len >= SYM_EXTRA_OPTS_LEN) {
+                /* Did the user provide specific options? */
+                if (argv[argc-1][SYM_EXTRA_OPTS_POS] == '=') {
+                    rc = symChoice(argv[argc-1], &algSym, &keyBits, symMode);
+                }
+                /* In case of incorrect extra options, abort execution */
+                if (rc != TPM_RC_SUCCESS) {
+                    usage();
+                    return 0;
+                }
+                /* Otherwise, defaults are used: AES CTR, 256 key bits */
+            }
+            alg = TPM_ALG_SYMCIPHER;
+            bAIK = 0;
         }
         if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
             bAIK = 0;
@@ -86,12 +171,16 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
+    XMEMSET(&aesKey, 0, sizeof(aesKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&auth, 0, sizeof(auth));
 
     printf("TPM2.0 Key generation example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
+    if(alg == TPM_ALG_SYMCIPHER) {
+        printf("\t\t %s mode, %d keybits\n", symMode, keyBits);
+    }
     printf("\tTemplate: %s\n", bAIK ? "AIK" : "Default");
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
@@ -129,6 +218,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("ECC AIK template\n");
             rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
         }
+        else if (alg == TPM_ALG_SYMCIPHER) {
+            printf("AIK are expected to be RSA or ECC, not symmetric keys.\n");
+            rc = BAD_FUNC_ARG;
+        }
         else {
             rc = BAD_FUNC_ARG;
         }
@@ -151,6 +244,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                      TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                      TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                      TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+        }
+        else if (alg == TPM_ALG_SYMCIPHER) {
+            printf("Symmetric template\n");
+            rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits,
+                    algSym, YES, YES);
         }
         else {
             rc = BAD_FUNC_ARG;
@@ -176,6 +274,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     rc = writeKeyBlob(outputFile, &newKey);
 #else
+    if(alg == TPM_ALG_SYMCIPHER) {
+        printf("The Public Part of a symmetric key contains only meta data\n");
+    }
     printf("Key Public Blob %d\n", newKey.pub.size);
     TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
     printf("Key Private Blob %d\n", newKey.priv.size);
