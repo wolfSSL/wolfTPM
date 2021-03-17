@@ -1,6 +1,6 @@
 /* tpm2.c
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2021 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -226,7 +226,6 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         #else
             (void)handleValue;
             (void)handlePos;
-            return NOT_COMPILED_IN;
         #endif
         }
 
@@ -331,7 +330,6 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
         #else
             (void)cmdCode;
-            return NOT_COMPILED_IN;
         #endif
 
             /* Handle session request for decryption */
@@ -5847,85 +5845,106 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
 
 void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
 {
-    printf("publicArea:\n");
-    printf("Total public area size is = %d\n", pub->size);
+    printf("Public Area (size %d):\n", pub->size);
+
     /* Sanity check */
     if (pub->size > (sizeof(TPM2B_PUBLIC)) || pub->size == 0) {
-        printf("Incorrect publicArea size. Aborting debug print\n");
+        printf("Invalid TPM2B_PUBLIC size\n");
         return;
     }
-    printf("algType = 0x%2.2X\n", pub->publicArea.type);
-    printf("nameAlg = 0x%2.2X\n", pub->publicArea.nameAlg);
-    printf("objectAttributes = 0x%X\n", pub->publicArea.objectAttributes);
-    printf("authPolicy size = %d\n", pub->publicArea.authPolicy.size);
-    /* authPolicy is optional */
-    if (pub->publicArea.authPolicy.size > 0 &&
-        pub->publicArea.authPolicy.size < sizeof(pub->publicArea.authPolicy)) {
-        TPM2_PrintBin(pub->publicArea.authPolicy.buffer,
-                      pub->publicArea.authPolicy.size);
-    }
-    else {
-        printf("authPolicy size is incorrect = %d\n", pub->publicArea.authPolicy.size);
-    }
+    printf("  Type: %s (0x%X), name: %s (0x%X), objAttr: 0x%X, authPolicy sz: %d\n",
+        TPM2_GetAlgName(pub->publicArea.type), pub->publicArea.type,
+        TPM2_GetAlgName(pub->publicArea.nameAlg), pub->publicArea.nameAlg,
+        pub->publicArea.objectAttributes,
+        pub->publicArea.authPolicy.size);
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+    TPM2_PrintBin(pub->publicArea.authPolicy.buffer, pub->publicArea.authPolicy.size);
+    #endif
+
     /* parameters and unique field depend on algType */
-    switch(pub->publicArea.type) {
+    switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            printf("KeyedHash scheme = 0x%2.2X\n", pub->publicArea.parameters.keyedHashDetail.scheme.scheme);
-            printf("KeyedHash details = 0x%2.2X\n", pub->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg);
-
-            printf("KeyedHash unique\n");
+            printf("  Keyed Hash: scheme: %s (0x%X), scheme hash: %s (0x%X), unique size %d\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.keyedHashDetail.scheme.scheme),
+                pub->publicArea.parameters.keyedHashDetail.scheme.scheme,
+                TPM2_GetAlgName(pub->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg),
+                pub->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg,
+                pub->publicArea.unique.keyedHash.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
             TPM2_PrintBin(pub->publicArea.unique.keyedHash.buffer, pub->publicArea.unique.keyedHash.size);
+            #endif
             break;
-
         case TPM_ALG_SYMCIPHER:
-            printf("symDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.algorithm);
-            printf("symDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.keyBits.sym);
-            printf("symDetail mode = 0x%2.2X\n", pub->publicArea.parameters.symDetail.sym.mode.sym);
-
-            printf("symDetail unique\n");
+            printf("  Symmetric Cipher: algorithm: %s (0x%X), keyBits: %d, mode: %s (0x%X), unique size %d\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.symDetail.sym.algorithm),
+                pub->publicArea.parameters.symDetail.sym.algorithm,
+                pub->publicArea.parameters.symDetail.sym.keyBits.sym,
+                TPM2_GetAlgName(pub->publicArea.parameters.symDetail.sym.mode.sym),
+                pub->publicArea.parameters.symDetail.sym.mode.sym,
+                pub->publicArea.unique.sym.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
             TPM2_PrintBin(pub->publicArea.unique.sym.buffer, pub->publicArea.unique.sym.size);
+            #endif
             break;
-
         case TPM_ALG_RSA:
-            printf("rsaDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.algorithm);
-            printf("rsaDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym);
-            printf("rsaDetail mode = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.symmetric.mode.sym);
-            printf("rsaDetail scheme = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.scheme.scheme);
-            printf("rsaDetail scheme details = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
-            printf("rsaDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.rsaDetail.keyBits);
-            printf("rsaDetail exponent = 0x%X\n", pub->publicArea.parameters.rsaDetail.exponent);
-
-            printf("RSA Detail unique\n");
+            printf("  RSA: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.algorithm),
+                pub->publicArea.parameters.rsaDetail.symmetric.algorithm,
+                pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym, 
+                TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.mode.sym),
+                pub->publicArea.parameters.rsaDetail.symmetric.mode.sym);
+            printf("       scheme: %s (0x%X), scheme hash: %s (0x%X)\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.scheme.scheme),
+                pub->publicArea.parameters.rsaDetail.scheme.scheme,
+                TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg),
+                pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
+            printf("       keyBits: %d, exponent: 0x%X, unique size %d\n",
+                pub->publicArea.parameters.rsaDetail.keyBits,
+                pub->publicArea.parameters.rsaDetail.exponent,
+                pub->publicArea.unique.rsa.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
             TPM2_PrintBin(pub->publicArea.unique.rsa.buffer, pub->publicArea.unique.rsa.size);
+            #endif
             break;
-
         case TPM_ALG_ECC:
-            printf("eccDetail algorithm = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.algorithm);
-            printf("eccDetail keyBits = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.keyBits.sym);
-            printf("eccDetail mode = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.symmetric.mode.sym);
-            printf("eccDetail scheme = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.scheme.scheme);
-            printf("eccDetail scheme details = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg);
-            printf("eccDetail curveID = 0x%2.2X\n", pub->publicArea.parameters.eccDetail.curveID);
-            printf("eccDetail KDF scheme = 0x%X\n", pub->publicArea.parameters.eccDetail.kdf.scheme);
-            printf("eccDetail KDF details = 0x%X\n", pub->publicArea.parameters.eccDetail.kdf.details.any.hashAlg);
-
-            printf("ECC Detail unique X\n");
+            printf("  ECC: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.symmetric.algorithm),
+                pub->publicArea.parameters.eccDetail.symmetric.algorithm,
+                pub->publicArea.parameters.eccDetail.symmetric.keyBits.sym,
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.symmetric.mode.sym),
+                pub->publicArea.parameters.eccDetail.symmetric.mode.sym);
+            printf("       scheme: %s (0x%X), scheme hash: %s (0x%X), curveID: size %d, 0x%X\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.scheme.scheme),
+                pub->publicArea.parameters.eccDetail.scheme.scheme,
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg),
+                pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg,
+                TPM2_GetCurveSize(pub->publicArea.parameters.eccDetail.curveID),
+                pub->publicArea.parameters.eccDetail.curveID);
+            printf("       KDF scheme: %s (0x%X), KDF alg: %s (0x%X), unique X/Y size %d/%d\n",
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.kdf.scheme),
+                pub->publicArea.parameters.eccDetail.kdf.scheme,
+                TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.kdf.details.any.hashAlg),
+                pub->publicArea.parameters.eccDetail.kdf.details.any.hashAlg,
+                pub->publicArea.unique.ecc.x.size,
+                pub->publicArea.unique.ecc.y.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
             TPM2_PrintBin(pub->publicArea.unique.ecc.x.buffer, pub->publicArea.unique.ecc.x.size);
-            printf("ECC Detail unique Y\n");
             TPM2_PrintBin(pub->publicArea.unique.ecc.y.buffer, pub->publicArea.unique.ecc.y.size);
+            #endif
             break;
-
         default:
             /* derive does not seem to have specific fields in the parameters struct */
-            printf("Derive unique label\n");
-            TPM2_PrintBin(pub->publicArea.unique.derive.label.buffer, pub->publicArea.unique.derive.label.size);
-            printf("Derive unique context\n");
+            printf("Derive Type: unique label size %d, context size %d\n",
+                pub->publicArea.unique.derive.label.size,
+                pub->publicArea.unique.derive.context.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
+            TPM2_PrintBin(pub->publicArea.unique.derive.label.buffer,pub->publicArea.unique.derive.label.size);
             TPM2_PrintBin(pub->publicArea.unique.derive.context.buffer, pub->publicArea.unique.derive.context.size);
+            #endif
             break;
     }
-    printf("\n");
 }
-#endif
+#endif /* DEBUG_WOLFTPM */
 
 /******************************************************************************/
 /* --- END Helpful API's -- */

@@ -1,6 +1,6 @@
 /* tpm_test_keys.c
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2021 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -50,14 +50,15 @@ int writeKeyBlob(const char* filename,
         /* Make publicArea in encoded format to eliminate empty fields, save space */
         rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
             &pubAreaSize, &key->pub);
-        if (rc != TPM_RC_SUCCESS) return rc;
+        if (rc != TPM_RC_SUCCESS)
+            return rc;
         if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
-#ifdef DEBUG_WOLFTPM
             printf("writeKeyBlob: Sanity check for publicArea size failed\n");
-#endif
-            return -1;
+            return BUFFER_E;
         }
+    #ifdef WOLFTPM_DEBUG_VERBOSE
         TPM2_PrintBin(pubAreaBuffer, pubAreaSize);
+    #endif
         /* Write size marker for the public part */
         fileSz += XFWRITE(&key->pub.size, 1, sizeof(key->pub.size), fp);
         /* Write the public part with bytes aligned */
@@ -117,9 +118,9 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
             (word32)sizeof(pubAreaBuffer), &pubAreaSize);
         if (rc != TPM_RC_SUCCESS) return rc;
-#ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         TPM2_PrintPublicArea(&key->pub);
-#endif
+    #endif
 
         if (fileSz > 0) {
             printf("Reading the private part of the key\n");
@@ -309,7 +310,7 @@ int getRSAkey(WOLFTPM2_DEV* pDev,
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
     if (pWolfRsaKey) {
         /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
-        rc = wc_InitRsaKey_ex(pWolfRsaKey, NULL, tpmDevId);
+        rc = wc_InitRsaKey_ex((RsaKey*)pWolfRsaKey, NULL, tpmDevId);
         if (rc != 0) return rc;
 
         /* load public portion of key into wolf RSA Key */
@@ -343,7 +344,7 @@ int getECCkey(WOLFTPM2_DEV* pDev,
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     if (pWolfEccKey) {
         /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
-        rc = wc_ecc_init_ex(pWolfEccKey, NULL, tpmDevId);
+        rc = wc_ecc_init_ex((ecc_key*)pWolfEccKey, NULL, tpmDevId);
         if (rc != 0) return rc;
 
         /* load public portion of key into wolf ECC Key */

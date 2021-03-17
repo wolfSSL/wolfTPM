@@ -1,6 +1,20 @@
-## Release Notes
+# Release Notes
 
-### wolfTPM Release 2.0 (12/07/2020)
+## wolfTPM Release 2.1 (03/17/2021)
+
+* Fixed possible KDFa buffer overrun (PR #147)
+* Fixed typo on `WOLFTPM_USER_SETTINGS` (PR #140)
+* Improved examples to use the key templates. (PR #136)
+* Added symmetric key support for key generation examples (PR #143)
+* Added NVRAM examples (PR #145)
+* Added STM32 CubeMX I2C support (PR #142)
+* Added details for TPM 2.0 with Windows TBS (PR #144)
+* Added alternate subject name to example certificates for TLS (PR #141)
+* Updated expired wolfSSL certs (PR #139)
+* Removed EK from the attestation and signed timestamp examples (PR #152)
+
+
+## wolfTPM Release 2.0 (12/07/2020)
 
 **Summary**
 
@@ -28,7 +42,7 @@ Added AES CFB parameter encryption, HMAC sessions, TPM simulator, Windows TPM (T
 * Add script to run unit tests with software TPM (PR #124)
 
 
-### wolfTPM Release 1.9 (08/24/2020)
+## wolfTPM Release 1.9 (08/24/2020)
 
 **Summary**
 
@@ -53,7 +67,7 @@ Added NPCT75x Nuvoton support, dynamic module detection, and attestation key wra
 * Add TPM benchmarking results for Nuvoton NPCT650 TPM2.0 module. (PR #92)
 
 
-### wolfTPM Release 1.8 (04/28/2020)
+## wolfTPM Release 1.8 (04/28/2020)
 
 **Summary**
 
@@ -75,7 +89,7 @@ Added Xilinx Zynq UltraScale+ MPSoC, Linux TIS kernel driver, Nuvoton and Nation
 * Moved the chip specific settings to `tpm2_types.h`. (PR #85)
 
 
-### wolfTPM Release 1.7 (12/27/2019)
+## wolfTPM Release 1.7 (12/27/2019)
 
 **Summary**
 
@@ -91,7 +105,7 @@ Adds new wrappers for Non-Volatile (NV), changing auth for a key and shutdown.
 * Added new wrappers for shutdown and handle cleanup. (PR #81)
 
 
-### wolfTPM Release 1.6 (08/01/2019)
+## wolfTPM Release 1.6 (08/01/2019)
 
 **Summary**
 
@@ -124,7 +138,7 @@ Improvements for compatibility, chip detection, initialization options and small
 * Added way to include generated `wolftpm/options.h` (or customized one) using `WOLFTPM_USER_SETTINGS`. (PR #63)
 
 
-### wolfTPM Release 1.5 (02/20/2019)
+## wolfTPM Release 1.5 (02/20/2019)
 
 **Summary**
 
@@ -155,7 +169,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Updated benchmarks and console output for examples in README.md.
 
 
-### wolfTPM Release 1.4 (11/13/2018)
+## wolfTPM Release 1.4 (11/13/2018)
 
 * Fixed cryptodev ECC callback to use R and S for the signature verify. (PR #39)
 * Fixed printf type warnings with `DEBUG_WOLFTPM` defined. (PR #37)
@@ -198,7 +212,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Cleanup to move types and configuration/port specific items into new `tpm2_types.h`. (PR #24)
 
 
-### wolfTPM Release 1.3 (07/20/2018)
+## wolfTPM Release 1.3 (07/20/2018)
 
 * Fixed the TIS TPM_BASE_ADDRESS to conform to specification. (PR #19)
 * Fixed static analysis warnings. (PR #20)
@@ -215,7 +229,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * Moved some of the example configuration into `./examples/tpm_io.h`. (PR #17)
 
 
-### wolfTPM Release 1.1 (03/09/2018)
+## wolfTPM Release 1.1 (03/09/2018)
 
 * Added TPM2 wrapper layer to simplify key creation, RSA encrypt/decrypt, ECC sign/verify and ECDH.
 * Added TPM2 wrapper example code.
@@ -229,7 +243,7 @@ Adds support for the Microchip ATTPM20 TPM 2.0 module and Barebox bootloader. Im
 * New tests for TPM2 native API's (test coverage is about 75%).
 
 
-### wolfTPM Release 1.0 (02/06/2018)
+## wolfTPM Release 1.0 (02/06/2018)
 
 * Support for all TPM2 native API's using TIS and SPI IO callback.
 * Helper for getting TPM return code string `TPM2_GetRCString`.
