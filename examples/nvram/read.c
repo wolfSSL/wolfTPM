@@ -169,7 +169,6 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
         TPM2_PrintPublicArea(&keyBlob.pub);
-        printf("\n");
 #endif
     }
 

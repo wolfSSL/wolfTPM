@@ -146,11 +146,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 /* Did the user provide specific options? */
                 if (argv[argc-1][SYM_EXTRA_OPTS_POS] == '=') {
                     rc = symChoice(argv[argc-1], &algSym, &keyBits, symMode);
-                }
-                /* In case of incorrect extra options, abort execution */
-                if (rc != TPM_RC_SUCCESS) {
-                    usage();
-                    return 0;
+                    /* In case of incorrect extra options, abort execution */
+                    if (rc != TPM_RC_SUCCESS) {
+                        usage();
+                        return 0;
+                    }
                 }
                 /* Otherwise, defaults are used: AES CTR, 256 key bits */
             }

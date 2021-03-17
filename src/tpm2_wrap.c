@@ -1,6 +1,6 @@
 /* tpm2_wrap.c
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2021 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -925,6 +925,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
     /* clear output key buffer */
     XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
+    XMEMSET(&createOut, 0, sizeof(createOut)); /* make sure pub struct is zero init */
 
     /* set session auth for parent key */
     wolfTPM2_SetAuthHandle(dev, 0, parent);
@@ -955,7 +956,6 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Create key: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
-    TPM2_PrintBin(createOut.outPrivate.buffer, createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
 
@@ -3470,6 +3470,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
         createOut.outPrivate.size);
+    TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
     key->handle.symmetric = createOut.outPublic.publicArea.parameters.asymDetail.symmetric;
     key->pub = createOut.outPublic;

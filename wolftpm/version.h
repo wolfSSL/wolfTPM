@@ -1,6 +1,6 @@
 /* version.h.in
  *
- * Copyright (C) 2006-2020 wolfSSL Inc.
+ * Copyright (C) 2006-2021 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -34,8 +34,8 @@
 extern "C" {
 #endif
 
-#define LIBWOLFTPM_VERSION_STRING "2.0.0"
-#define LIBWOLFTPM_VERSION_HEX 0x02000000
+#define LIBWOLFTPM_VERSION_STRING "2.1.0"
+#define LIBWOLFTPM_VERSION_HEX 0x02001000
 
 #ifdef __cplusplus
 }

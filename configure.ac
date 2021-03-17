@@ -1,9 +1,9 @@
 # wolftpm
-# Copyright (C) 2020 wolfSSL Inc.
+# Copyright (C) 2021 wolfSSL Inc.
 # All right reserved.
 
-AC_COPYRIGHT([Copyright (C) 2014-2020 wolfSSL Inc.])
-AC_INIT([wolftpm],[2.0.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_COPYRIGHT([Copyright (C) 2014-2021 wolfSSL Inc.])
+AC_INIT([wolftpm],[2.1.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -23,7 +23,7 @@ AC_ARG_PROGRAM
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=10:0:0
+WOLFTPM_LIBRARY_VERSION=11:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -392,7 +392,7 @@ rm -f $OPTION_FILE
 echo "/* wolftpm options.h" > $OPTION_FILE
 echo " * generated from configure options" >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
-echo " * Copyright (C) 2006-2020 wolfSSL Inc." >> $OPTION_FILE
+echo " * Copyright (C) 2006-2021 wolfSSL Inc." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
 echo " * * This file is part of wolfTPM." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
