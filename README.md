@@ -236,7 +236,9 @@ cd libtpms/
 cd ..
 git clone git@github.com:stefanberger/swtpm.git
 cd swtpm
-PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/ ./autogen.sh --with-openssl --with-tpm2 --prefix=$PREFIX && make install
+PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/ ./autogen.sh --with-openssl --with-tpm2 \
+    --prefix=$PREFIX && \
+  make install
 cd ..
 ```
 
@@ -249,24 +251,33 @@ system.
 curl -O http://archive.ubuntu.com/ubuntu/dists/bionic-updates/main/installer-amd64/current/images/netboot/mini.iso
 # create qemu image file
 qemu-img create -f qcow2 lubuntu.qcow2 5G
-# start swtpm and start qemu with install media
-swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20 &
+# create directory for tpm state and socket
+mkdir $PREFIX/mytpm
+# start swtpm
+$PREFIX/bin/swtpm socket --tpm2 --tpmstate dir=$PREFIX/mytpm \
+  --ctrl type=unixio,path=$PREFIX/mytpm/swtpm-sock --log level=20 &
+# start qemu for installation
 qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
-  -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock \
+  -chardev socket,id=chrtpm,path=$PREFIX/mytpm/swtpm-sock \
   -tpmdev emulator,id=tpm0,chardev=chrtpm \
   -device tpm-tis,tpmdev=tpm0 -hda lubuntu.qcow2 -cdrom mini.iso
 ```
 
-Once a base system is installed you will need to build wolfSSL and wolfTPM.
+Once a base system is installed it's ready to start the qemu and build
+wolfSSL and wolfTPM in the qemu instance.
 
 ```
-swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20 &
+# start swtpm again
+$PREFIX/bin/swtpm socket --tpm2 --tpmstate dir=$PREFIX/mytpm \
+  --ctrl type=unixio,path=$PREFIX/mytpm/swtpm-sock --log level=20 &
+# start qemu system to install and run wolfTPM
 qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
-  -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock \
+  -chardev socket,id=chrtpm,path=$PREFIX/mytpm/swtpm-sock \
   -tpmdev emulator,id=tpm0,chardev=chrtpm \
-  -device tpm-tis,tpmdev=tpm0 -hda lubuntu.qcow2 -nographic
+  -device tpm-tis,tpmdev=tpm0 -hda lubuntu.qcow2
 ```
-In the QEMU terminal
+
+To build checkout and build wolfTPM, in the QEMU terminal
 
 ```
 sudo apt install automake libtool gcc git make
@@ -274,16 +285,23 @@ sudo apt install automake libtool gcc git make
 # get and build wolfSSL
 git clone https://github.com/wolfssl/wolfssl.git
 pushd wolfssl
-./autogen.sh && ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../inst && make install
+./autogen.sh && \
+  ./configure --enable-wolftpm --disable-examples --prefix=$PWD/../inst && \
+  make install
 popd
 
 # get and build wolfTPM
 git clone https://github.com/wolfssl/wolftpm.git
 pushd wolftpm
-./autogen.sh && ./configure --enable-devtpm --prefix=$PWD/../inst --enable-debug && make install
+./autogen.sh && \
+  ./configure --enable-devtpm --prefix=$PWD/../inst --enable-debug && \
+  make install
+sudo make check
 popd
 ```
-You can now run the examples such as `./examples/wrap/wrap` within QEMU
+
+You can now run the examples such as `sudo ./examples/wrap/wrap`
+within QEMU. Using `sudo` maybe required for access to `/dev/tpm0`.
 
 ### Building for SWTPM
 
