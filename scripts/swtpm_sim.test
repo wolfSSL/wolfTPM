@@ -11,6 +11,7 @@ TOP_DIR=$(realpath $(dirname $0)/..)
 
 die() {
     echo $* >&2
+    ps $swtpm_pid > /dev/null && kill $swtpm_pid
     exit 1
 }
 
@@ -47,7 +48,7 @@ ps $swtpm_pid > /dev/null
 if [ 0 -eq $? ]; then
     echo "Started $SWTPM_EXEC (pid:$swtpm_pid)";
 else
-    echo "WARNING: $SWTPM_EXEC unable to start. Trying tests in case other instnace is running" >&2
+    echo "WARNING: $SWTPM_EXEC unable to start. Trying tests in case other instance is running" >&2
 fi
 
 # execute unit test
