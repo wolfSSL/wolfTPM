@@ -2680,7 +2680,9 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("Storing NV Index Name failed\n");
+    #endif
         return TPM_RC_FAILURE;
     }
 
@@ -2767,7 +2769,9 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("Storing NV Index Name failed\n");
+    #endif
         return TPM_RC_FAILURE;
     }
 
