@@ -5752,7 +5752,9 @@ int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
         return BAD_FUNC_ARG;
 
     if (size < sizeof(TPM2B_PUBLIC)) {
+    #ifdef DEBUG_WOLFTPM
         printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+    #endif
         return TPM_RC_FAILURE;
     }
 
@@ -5775,7 +5777,9 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
         return BAD_FUNC_ARG;
 
     if (size < sizeof(TPM2B_PUBLIC)) {
+    #ifdef DEBUG_WOLFTPM
         printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+    #endif
         return TPM_RC_FAILURE;
     }
 
