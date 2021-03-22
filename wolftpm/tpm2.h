@@ -232,6 +232,7 @@ typedef enum {
     TPM_CC_SetCommandSet            = CC_VEND + 0x0309,
     TPM_CC_RestoreEK                = CC_VEND + 0x030A,
     TPM_CC_SetCommandSetLock        = CC_VEND + 0x030B,
+    TPM_CC_GPIO_Config              = CC_VEND + 0x030F,
 #endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
@@ -2758,6 +2759,63 @@ typedef struct {
     TPM_MODE_SET modeSet;
 } SetMode_In;
 WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
+
+#undef MAX_GPIO_COUNT
+#ifdef WOLFTPM_I2C
+#define MAX_GPIO_COUNT 4
+#else /* SPI variant */
+#define MAX_GPIO_COUNT 2
+#endif
+/* ST33 variants can have different count of GPIO available:
+ * * SPI variant - 0, 1 or 2
+ * * I2C variant - 0, 1, 2, 3 or 4
+ * The user can configure this option at build or use default value.
+ */
+#ifndef TPM_GPIO_COUNT
+#define TPM_GPIO_COUNT MAX_GPIO_COUNT
+#endif
+
+/* GPIO configuration uses specific range of NV space */
+#define TPM_NV_GPIO_SPACE     0x01C40000
+#define MAX_TPM_NV_GPIO_SPACE 0x01C4000F
+
+typedef enum {
+    TPM_GPIO_PP = 0x00000000, /* GPIO A by default is a Physical Presence pin */
+    TPM_GPIO_LP = 0x00000001, /* GPIO B can only be used as an input */
+#ifdef WOLFTPM_I2C
+    /* Only the I2C variant of ST33 has GPIO C and D */
+    TPM_GPIO_C  = 0x00000002,
+    TPM_GPIO_D  = 0x00000003,
+#endif
+} TPMI_GPIO_NAME_T;
+typedef UINT32 TPMI_GPIO_NAME;
+
+typedef enum {
+    TPM_GPIO_STANDARD   = 0x00000000,
+    TPM_GPIO_FLOATING   = 0x00000001,
+    TPM_GPIO_PULLUP     = 0x00000002,
+    TPM_GPIO_PULLDOWN   = 0x00000003,
+    TPM_GPIO_OPENDRAIN  = 0x00000004,
+    TPM_GPIO_PUSHPULL   = 0x00000005,
+} TPMI_GPIO_MODE_T;
+typedef UINT32 TPMI_GPIO_MODE;
+
+typedef struct TPMS_GPIO_CONFIG {
+    TPMI_GPIO_NAME name;
+    TPMI_RH_NV_INDEX index;
+    TPMI_GPIO_MODE mode;
+} TPMS_GPIO_CONFIG;
+
+typedef struct TPML_GPIO_CONFIG {
+    UINT32 count;
+    TPMS_GPIO_CONFIG gpio[MAX_GPIO_COUNT];
+} TPML_GPIO_CONFIG;
+
+typedef struct {
+    TPMI_RH_PLATFORM   authHandle;
+    TPML_GPIO_CONFIG config;
+} GpioConfig_In;
+WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 /* Non-standard API's */
