@@ -1,0 +1,34 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+noinst_PROGRAMS += examples/gpio/config \
+                   examples/gpio/read \
+                   examples/gpio/set
+
+noinst_HEADERS  += examples/gpio/gpio.h
+
+examples_gpio_config_SOURCES      = examples/gpio/config.c \
+                                    examples/tpm_io.c
+examples_gpio_config_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_gpio_config_DEPENDENCIES = src/libwolftpm.la
+
+examples_gpio_read_SOURCES      = examples/gpio/read.c \
+                                  examples/tpm_io.c
+examples_gpio_read_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_gpio_read_DEPENDENCIES = src/libwolftpm.la
+
+examples_gpio_set_SOURCES      = examples/gpio/set.c \
+                                 examples/tpm_io.c
+examples_gpio_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_gpio_set_DEPENDENCIES = src/libwolftpm.la
+
+endif
+
+dist_example_DATA+= examples/gpio/config.c
+dist_example_DATA+= examples/gpio/read.c
+dist_example_DATA+= examples/gpio/set.c
+
+DISTCLEANFILES+= examples/gpio/.libs/config
+DISTCLEANFILES+= examples/gpio/.libs/read
+DISTCLEANFILES+= examples/gpio/.libs/set

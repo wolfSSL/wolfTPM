@@ -12,6 +12,7 @@ include examples/pcr/include.am
 include examples/management/include.am
 include examples/keygen/include.am
 include examples/nvram/include.am
+include examples/gpio/include.am
 
 dist_example_DATA+= examples/README.md \
                     examples/tpm_io.c \
