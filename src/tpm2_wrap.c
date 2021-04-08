@@ -2606,12 +2606,14 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     XMEMSET(nv, 0, sizeof(*nv));
     /* Compute NV Index name in case of parameter encryption */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_HashNvPublic(&in.publicInfo.nvPublic,
                             (byte*)&nv->handle.name.name,
                             &nv->handle.name.size);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
+#endif
 
     /* return new NV handle */
     nv->handle.hndl = (TPM_HANDLE)nvIndex;
@@ -2670,11 +2672,13 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Compute NV Index name in case of parameter encryption */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
                             &nv->handle.name.size);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
+#endif
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
@@ -2759,11 +2763,13 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     }
 
     /* Compute NV Index name in case of parameter encryption */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
                             &nv->handle.name.size);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
+#endif
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);

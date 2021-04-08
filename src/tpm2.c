@@ -5189,6 +5189,42 @@ int TPM2_SetMode(SetMode_In* in)
     }
     return rc;
 }
+
+int TPM2_GPIO_Config(GpioConfig_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    UINT32 i;
+
+    if (ctx == NULL || in == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        CmdInfo_t info = {
+            .inHandleCnt = 1,
+        };
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        /* Process the nvIndex used for GPIO configuration */
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        info.authCnt = TPM2_Packet_AppendAuth(&packet, ctx);
+        TPM2_Packet_AppendU32(&packet, in->config.count);
+        /* Process the GPIO configuration */
+        for (i=0; i < in->config.count; i++) {
+            TPM2_Packet_AppendU32(&packet, in->config.gpio[i].name);
+            TPM2_Packet_AppendU32(&packet, in->config.gpio[i].index);
+            TPM2_Packet_AppendU32(&packet, in->config.gpio[i].mode);
+        }
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GPIO_Config);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
 #endif
 /******************************************************************************/
 /* --- END Manufacture Specific TPM API's -- */

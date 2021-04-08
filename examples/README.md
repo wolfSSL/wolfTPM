@@ -8,6 +8,8 @@ The PKCS #7 and TLS examples require generating CSR's and signing them using a t
 
 To enable parameter encryption use `-aes` for AES-CFB mode or `-xor` for XOR mode. Only some TPM commands / responses support parameter encryption. If the TPM2_ API has .flags `CMD_FLAG_ENC2` or `CMD_FLAG_DEC2` set then the command will use parameter encryption / decryption.
 
+There are some vendor specific examples, like the TPM 2.0 extra GPIO examples for ST33.
+
 ## Native API Test
 
 Demonstrates calling native TPM2_* API's.
@@ -374,3 +376,74 @@ Extraction of key from NVRAM at index 0x1800202 succeeded
 ```
 
 After successful key extraction using "read", the NV Index is destroyed. Therefore, to use "read" again, the "store" example must be run again as well.
+
+## GPIO control
+
+Some TPM 2.0 modules have extra I/O functionalities and additional GPIO that the developer could use. This extra GPIO could be used to signal other subsystems about security events or system states.
+
+Currently, the GPIO control examples support only ST33 TPM 2.0 modules.
+
+There are three examples available: `gpio/config`, `gpio/set`, `gpio/read`.
+
+Every example has a help option `-h`. Please consult with `config -h` about the various GPIO modes.
+
+Demo usage is available, when no parameters are supplied. Then, GPIO 0 is used in output mode.
+
+
+```
+
+examples/gpio/config -h
+Expected usage:
+./examples/gpio/gpio [num] [mode]
+* num is a GPIO number between 0-3 (default 0)
+* mode is a number selecting the GPIO mode between 0-6 (default 3):
+	0. standard - reset to the GPIO's default mode
+	1. floating - input in floating configuration.
+	2. pullup   - input with pull up enabled
+	3. pulldown - input with pull down enabled
+	4. opendrain - output in open drain configuration
+	5. pushpull  - output in push pull configuration
+	6. unconfigure - delete the NV index for the selected GPIO
+Example usage, without parameters, configures GPIO0 as input with a pull down.
+
+```
+
+Example usage for configuring a GPIO to output can be found below:
+
+```
+
+$ ./examples/gpio/config
+GPIO num is: 0
+GPIO mode is: 5
+Example how to use extra GPIO on a TPM 2.0 modules
+wolfTPM2_Init: success
+Trying to configure GPIO0...
+TPM2_GPIO_Config success
+NV Index for GPIO access created
+
+$ ./examples/gpio/set
+GPIO0 set to high level
+
+```
+
+Switching a GPIO configuration is seamless, because gpio/config takes care of deleting existing NV Index, so a new GPIO configuration can be chosen.
+
+Example usage for configuring a GPIO as input with a pulp-up can be found below:
+
+```
+
+$ ./examples/gpio/config 0 3
+GPIO num is: 0
+GPIO mode is: 3
+Demo how to use extra GPIO on a TPM 2.0 modules
+wolfTPM2_Init: success
+Trying to configure GPIO0...
+TPM2_GPIO_Config success
+NV Index for GPIO access created
+
+$ ./examples/gpio/read 0
+GPIO0 is Low
+
+```
+
+If you need more information about using these examples please contact us at support@wolfssl.com
