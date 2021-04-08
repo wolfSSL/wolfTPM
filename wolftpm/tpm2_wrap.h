@@ -200,6 +200,10 @@ WOLFTPM_API int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev,
     const byte* eccPriv, word32 eccPrivSz);
 WOLFTPM_API int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM_HANDLE handle);
+WOLFTPM_API int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent,
+    TPMT_PUBLIC* publicTemplate, const byte* auth, int authSz,
+    const byte* sealData, int sealSize);
 
 WOLFTPM_API int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out);
 WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
@@ -348,6 +352,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate,
     int keyBits, TPM_ALG_ID algMode, int isSign, int isDecrypt);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID hashAlg, int isSign, int isDecrypt);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_EK(TPMT_PUBLIC* publicTemplate);
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_SRK(TPMT_PUBLIC* publicTemplate);
