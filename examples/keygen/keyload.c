@@ -47,8 +47,9 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor]\n");
+    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -persistent: Load the TPM key as persistent\n");
 }
 
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
@@ -57,9 +58,11 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB newKey;
+    WOLFTPM2_KEY persistKey;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* inputFile = "keyblob.bin";
+    int persistent = 0;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -79,11 +82,15 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+        if (XSTRNCMP(argv[argc-1], "-persistent", 11) == 0) {
+            persistent = 1;
+        }
         argc--;
     }
 
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
+    XMEMSET(&persistKey, 0, sizeof(persistKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     printf("TPM2.0 Key load example\n");
@@ -131,6 +138,21 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     printf("Loaded key to 0x%x\n",
         (word32)newKey.handle.hndl);
 
+    /* Make the TPM key persistent, so it remains loaded after example exit */
+    if (persistent) {
+        /* Prepare key in the format expected by the wolfTPM wrapper */
+        persistKey.handle.hndl = newKey.handle.hndl;
+        XMEMCPY((BYTE*)&persistKey.pub, (BYTE*)&newKey.pub, sizeof(persistKey.pub));
+        /* Make key persistent */
+        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &persistKey,
+                                    TPM2_DEMO_PERSISTENT_KEY_HANDLE);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_NVStoreKey failed\n");
+            goto exit;
+        }
+        printf("Key was made persistent at 0x%X\n", persistKey.handle.hndl);
+    }
+
 exit:
 
     if (rc != 0) {
@@ -139,7 +161,8 @@ exit:
 
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
-    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
+    if (!persistent) wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
