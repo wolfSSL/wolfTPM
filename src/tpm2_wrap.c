@@ -3790,16 +3790,16 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
     return TPM_RC_SUCCESS;
 }
 
-int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate)
+int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID nameAlg)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
     /* Seal Object can be only of type KEYEDHASH and can not be used for
-     * signing or encryption. SHA256 is chosen as common hash algorithm.
+     * signing or encryption. Hash algorithm can be chosen by the developer.
      */
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_KEYEDHASH;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
