@@ -27,7 +27,7 @@ export PREFIX=$PWD/tmp_install
 
 cd wolfssl
 ./autogen.sh
-./configure --prefix="$PREFIX" --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
+./configure --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
@@ -55,17 +55,20 @@ cd ..
 Build
 ```
 export PREFIX=$PWD/tmp_install
+export CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600 -DUSE_WOLF_STRTOK"
+export LIBS="-lws2_32"
 
 cd wolfssl
 ./autogen.sh
-./configure --host=i686 CC=i686-w64-mingw32-gcc CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600" LIBS="-lws2_32" --prefix="$PREFIX" --enable-certgen --enable-certreq --enable-certext --enable-pkcs7 --enable-cryptocb
+./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-wolftpm
 make
 make install
 
 cd ../wolftpm/
 ./autogen.sh
-./configure --host=i686 CC=i686-w64-mingw32-gcc CFLAGS="-DWIN32 -DMINGW -D_WIN32_WINNT=0x0600" LIBS="-lws2_32" --prefix="$PREFIX" --enable-winapi
+./configure --host=i686 CC=i686-w64-mingw32-gcc --prefix="$PREFIX" --enable-winapi
 make
+cd ..
 ```
 
 ## Running on Windows
