@@ -52,8 +52,10 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY key;
     TPM2B_AUTH auth;
     const char *filename = "unseal.bin";
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE fp = NULL;
     size_t len;
+#endif
     Unseal_In cmdIn_unseal;
     Unseal_Out cmdOut_unseal;
 
@@ -101,7 +103,7 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     TPM2_PrintBin(cmdOut_unseal.outData.buffer, cmdOut_unseal.outData.size);
 #endif
 
-#if !defined(NO_FILESYSTEM)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     /* Output the unsealed data to a file */
     if (filename) {
         fp = XFOPEN(filename, "wb");
@@ -115,6 +117,8 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
         printf("Stored unsealed data to file = %s\n", filename);
         XFCLOSE(fp);
     }
+#else
+    printf("Unable to store unsealed data to a file. Enable wolfcrypt support.\n");
 #endif
 
     /* Remove the loaded TPM seal object */

@@ -136,6 +136,8 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     rc = writeKeyBlob(outputFile, &newKey);
+#else
+    printf("Storing key seal to file is not supported.\n");
 #endif
 
 #ifdef DEBUG_WOLFTPM

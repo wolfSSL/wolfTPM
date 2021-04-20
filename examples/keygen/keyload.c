@@ -127,7 +127,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 #else
     /* TODO: Option to load hex blob */
-    printf("Loading blob from disk not supported\n");
+    printf("Loading blob from disk not supported. Enable wolfcrypt support.\n");
+    goto exit;
 #endif
 
     rc = wolfTPM2_LoadKey(&dev, &newKey, &storage.handle);
