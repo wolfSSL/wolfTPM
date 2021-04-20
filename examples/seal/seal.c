@@ -137,12 +137,13 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     rc = writeKeyBlob(outputFile, &newKey);
 #endif
-//#else
-    printf("Key Public Blob %d\n", newKey.pub.size);
+
+#ifdef DEBUG_WOLFTPM
+    printf("Key Seal, Public Blob %d\n", newKey.pub.size);
     TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
-    printf("Key Private Blob %d\n", newKey.priv.size);
+    printf("Key Seal, Private Blob %d\n", newKey.priv.size);
     TPM2_PrintBin(newKey.priv.buffer, newKey.priv.size);
-//#endif
+#endif
 
 exit:
 

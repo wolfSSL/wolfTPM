@@ -4007,6 +4007,15 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (dev == NULL || keyBlob == NULL || parent == NULL || publicTemplate == NULL)
         return BAD_FUNC_ARG;
 
+    /* Seal size is limited to TCG defined MAX_SYM_DATA, which is 128 bytes */
+    if (sealSize < 0 || sealSize > 128) {
+        printf("wolfTPM2_CreateKeySeal failed. Seal size is invalid.\n");
+#ifdef DEBUG_WOLFTPM
+        printf("Seal size %d should not be larger than 128 bytes\n", sealSize);
+#endif
+        return BAD_FUNC_ARG;
+    }
+
     /* clear output key buffer */
     XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
     XMEMSET(&createOut, 0, sizeof(createOut)); /* make sure pub struct is zero init */
@@ -4031,13 +4040,13 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("wolfTPM2_CreateKeySeal failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Create key: pub %d, priv %d\n",
+    printf("wolfTPM2_CreateKeySeal generated key with: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
