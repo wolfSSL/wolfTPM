@@ -3787,7 +3787,23 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
         (isDecrypt ? TPMA_OBJECT_decrypt : 0));
     publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
     publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg = hashAlg;
+    return TPM_RC_SUCCESS;
+}
 
+int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID nameAlg)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+    /* Seal Object can be only of type KEYEDHASH and can not be used for
+     * signing or encryption. Hash algorithm can be chosen by the developer.
+     */
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_KEYEDHASH;
+    publicTemplate->nameAlg = nameAlg;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
+    publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_NULL;
     return TPM_RC_SUCCESS;
 }
 
@@ -3976,6 +3992,70 @@ int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKey,
 
     rc = wolfTPM2_CreateAndLoadKey(dev, aikKey, &srkKey->handle,
         &publicTemplate, auth, authSz);
+
+    return rc;
+}
+
+int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
+    WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz, const byte* sealData, int sealSize)
+{
+    int rc;
+    Create_In  createIn;
+    Create_Out createOut;
+
+    if (dev == NULL || keyBlob == NULL || parent == NULL || publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    /* Seal size is limited to TCG defined MAX_SYM_DATA, which is 128 bytes */
+    if (sealSize < 0 || sealSize > MAX_SYM_DATA) {
+#ifdef DEBUG_WOLFTPM
+        printf("Seal size %d should not be larger than %d bytes\n",
+            sealSize, MAX_SYM_DATA);
+#endif
+        return BAD_FUNC_ARG;
+    }
+
+    /* clear output key buffer */
+    XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
+    XMEMSET(&createOut, 0, sizeof(createOut)); /* make sure pub struct is zero init */
+
+    /* set session auth for parent key */
+    wolfTPM2_SetAuthHandle(dev, 0, parent);
+
+    XMEMSET(&createIn, 0, sizeof(createIn));
+    createIn.parentHandle = parent->hndl;
+    if (auth) {
+        createIn.inSensitive.sensitive.userAuth.size = authSz;
+        XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, auth,
+            createIn.inSensitive.sensitive.userAuth.size);
+    }
+    XMEMCPY(&createIn.inPublic.publicArea, publicTemplate, sizeof(TPMT_PUBLIC));
+
+    /* Seal user (arbitrary) data in the newly generated TPM key */
+    createIn.inSensitive.sensitive.data.size = sealSize;
+    XMEMCPY(createIn.inSensitive.sensitive.data.buffer, sealData,
+            createIn.inSensitive.sensitive.data.size);
+
+    rc = TPM2_Create(&createIn, &createOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_CreateKeySeal failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_CreateKeySeal generated key with: pub %d, priv %d\n",
+        createOut.outPublic.size, createOut.outPrivate.size);
+    TPM2_PrintPublicArea(&createOut.outPublic);
+#endif
+
+    keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;
+    keyBlob->handle.symmetric = createOut.outPublic.publicArea.parameters.asymDetail.symmetric;
+
+    keyBlob->pub = createOut.outPublic;
+    keyBlob->priv = createOut.outPrivate;
 
     return rc;
 }

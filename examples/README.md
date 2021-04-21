@@ -377,6 +377,56 @@ Extraction of key from NVRAM at index 0x1800202 succeeded
 
 After successful key extraction using "read", the NV Index is destroyed. Therefore, to use "read" again, the "store" example must be run again as well.
 
+## Seal / Unseal
+
+TPM 2.0 can protect secrets using a standard Seal/Unseal procedure. Seal can be created using a TPM 2.0 key or against a set of PCR values. Note: Secret data sealed in a key is limited to a maximum size of 128 bytes.
+
+There are two examples available: `seal/seal` and `seal/unseal`.
+
+Demo usage is available, without parameters.
+
+### Sealing data into a TPM 2.0 Key
+
+Using the `seal` example we store securely our data in a newly generated TPM 2.0 key. Only when this key is loaded into the TPM, we could read back our secret data.
+
+Please find example output from sealing and unsealing a secret message:
+
+```
+
+$ ./examples/seal/seal keyblob.bin mySecretMessage
+TPM2.0 Simple Seal example
+	Key Blob: keyblob.bin
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+Sealing the user secret into a new TPM key
+Created new TPM seal key (pub 46, priv 141 bytes)
+Wrote 193 bytes to keyblob.bin
+Key Public Blob 46
+Key Private Blob 141
+
+$ ./examples/keygen/keyload -persistent
+TPM2.0 Key load example
+	Key Blob: keyblob.bin
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+Reading 193 bytes from keyblob.bin
+Reading the private part of the key
+Loaded key to 0x80000001
+Key was made persistent at 0x81000202
+
+$ ./examples/seal/unseal message.raw
+Example how to unseal data using TPM2.0
+wolfTPM2_Init: success
+Unsealing succeeded
+Stored unsealed data to file = message.raw
+
+$ cat message.raw
+mySecretMessage
+
+```
+
+After a successful unsealing, the data is stored into a new file. If no filename is provided, the `unseal` tool stores the data in `unseal.bin`.
+
 ## GPIO control
 
 Some TPM 2.0 modules have extra I/O functionalities and additional GPIO that the developer could use. This extra GPIO could be used to signal other subsystems about security events or system states.

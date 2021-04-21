@@ -32,6 +32,7 @@
 /* Test Configuration */
 #define TPM2_DEMO_STORAGE_KEY_HANDLE    0x81000200  /* Persistent Storage Key Handle (RSA) */
 #define TPM2_DEMO_STORAGE_EC_KEY_HANDLE 0x81000201  /* Persistent Storage Key Handle (ECC) */
+#define TPM2_DEMO_PERSISTENT_KEY_HANDLE 0x81000202  /* Persistent Key Handle for common use */
 #define TPM2_DEMO_RSA_IDX               0x20        /* offset handle to unused index */
 #define TPM2_DEMO_RSA_KEY_HANDLE        (0x81000000 + TPM2_DEMO_RSA_IDX) /* Persistent Key Handle */
 #define TPM2_DEMO_RSA_CERT_HANDLE       (0x01800000 + TPM2_DEMO_RSA_IDX) /* NV Handle */

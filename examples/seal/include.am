@@ -1,0 +1,27 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+noinst_PROGRAMS += examples/seal/seal \
+                   examples/seal/unseal
+
+noinst_HEADERS  += examples/seal/seal.h
+
+examples_seal_seal_SOURCES      = examples/seal/seal.c \
+                                    examples/tpm_test_keys.c \
+                                    examples/tpm_io.c
+examples_seal_seal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_seal_seal_DEPENDENCIES = src/libwolftpm.la
+
+examples_seal_unseal_SOURCES      = examples/seal/unseal.c \
+                                      examples/tpm_io.c
+examples_seal_unseal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_seal_unseal_DEPENDENCIES = src/libwolftpm.la
+
+endif
+
+dist_example_DATA+= examples/seal/seal.c
+dist_example_DATA+= examples/seal/unseal.c
+
+DISTCLEANFILES+= examples/seal/.libs/seal
+DISTCLEANFILES+= examples/seal/.libs/unseal

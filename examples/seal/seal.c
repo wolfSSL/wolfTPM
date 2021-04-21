@@ -1,4 +1,4 @@
-/* keyload.c
+/* seal.c
  *
  * Copyright (C) 2006-2021 wolfSSL Inc.
  *
@@ -19,50 +19,42 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* Tool and example for creating, storing and loading keys using TPM2.0 */
-
-
-/* use ANSI stdio for support of format strings, must be set before
- * including stdio.h
- */
-#if defined(__MINGW32__) || defined(__MINGW64__)
-#define __USE_MINGW_ANSI_STDIO 1
-#endif
+/* Example for TPM 2.0 sealing a user secret using TPM key */
 
 #include <wolftpm/tpm2_wrap.h>
 
-#include <examples/keygen/keygen.h>
+#include <examples/seal/seal.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 
-#include <stdio.h>
-
-
 #ifndef WOLFTPM2_NO_WRAPPER
-/******************************************************************************/
-/* --- BEGIN TPM Key Load Example -- */
-/******************************************************************************/
 
+/******************************************************************************/
+/* --- BEGIN TPM2.0 Seal Example -- */
+/******************************************************************************/
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent]\n");
-    printf("* -aes/xor: Use Parameter Encryption\n");
-    printf("* -persistent: Load the TPM key as persistent\n");
+    printf("./examples/seal/seal [filename] [userdata]\n");
+    printf("* filename: Name of the file where the TPM key will be stored\n");
+    printf("* userdata: Arbitrary data to seal inside the TPM key (no whitespaces)\n");
+    printf("Demo usage, without parameters, uses keyblob.bin as a filename\n");
 }
 
-int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
+int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB newKey;
-    WOLFTPM2_KEY persistKey;
+    TPMT_PUBLIC publicTemplate;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
-    const char* inputFile = "keyblob.bin";
-    int persistent = 0;
+    TPM2B_AUTH auth;
+    const char* outputFile = "keyblob.bin";
+    char defaultData[] = "My1Pass2Phrase3";
+    char *userData = defaultData;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -71,9 +63,14 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-
-        if (argv[1][0] != '-')
-            inputFile = argv[1];
+        if (argv[1][0] != '-') {
+            outputFile = argv[1];
+        }
+    }
+    if (argc >= 3) {
+        if (argv[2][0] != '-') {
+            userData = argv[2];
+        }
     }
     while (argc > 1) {
         if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
@@ -82,19 +79,16 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRNCMP(argv[argc-1], "-persistent", 11) == 0) {
-            persistent = 1;
-        }
         argc--;
     }
 
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
-    XMEMSET(&persistKey, 0, sizeof(persistKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&auth, 0, sizeof(auth));
 
-    printf("TPM2.0 Key load example\n");
-    printf("\tKey Blob: %s\n", inputFile);
+    printf("TPM2.0 Simple Seal example\n");
+    printf("\tKey Blob: %s\n", outputFile);
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -119,40 +113,39 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
+
     }
 
-    /* Load encrypted key from the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    rc = readKeyBlob(inputFile, &newKey);
-    if (rc != 0) goto exit;
-#else
-    /* TODO: Option to load hex blob */
-    printf("Loading blob from disk not supported. Enable wolfcrypt support.\n");
-    goto exit;
-#endif
+    wolfTPM2_GetKeyTemplate_KeySeal(&publicTemplate, TPM_ALG_SHA256);
 
-    rc = wolfTPM2_LoadKey(&dev, &newKey, &storage.handle);
+    /* set session for authorization key */
+    auth.size = (int)sizeof(gKeyAuth)-1;
+    XMEMCPY(auth.buffer, gKeyAuth, auth.size);
+
+    printf("Sealing the user secret into a new TPM key\n");
+    rc = wolfTPM2_CreateKeySeal(&dev, &newKey, &storage.handle,
+                                &publicTemplate, auth.buffer, auth.size,
+                                (BYTE*)userData, (int)strlen(userData));
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_LoadKey failed\n");
+        printf("wolfTPM2_CreateKey failed\n");
         goto exit;
     }
-    printf("Loaded key to 0x%x\n",
-        (word32)newKey.handle.hndl);
+    printf("Created new TPM seal key (pub %d, priv %d bytes)\n",
+        newKey.pub.size, newKey.priv.size);
 
-    /* Make the TPM key persistent, so it remains loaded after example exit */
-    if (persistent) {
-        /* Prepare key in the format expected by the wolfTPM wrapper */
-        persistKey.handle.hndl = newKey.handle.hndl;
-        XMEMCPY((BYTE*)&persistKey.pub, (BYTE*)&newKey.pub, sizeof(persistKey.pub));
-        /* Make key persistent */
-        rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &persistKey,
-                                    TPM2_DEMO_PERSISTENT_KEY_HANDLE);
-        if (rc != TPM_RC_SUCCESS) {
-            printf("wolfTPM2_NVStoreKey failed\n");
-            goto exit;
-        }
-        printf("Key was made persistent at 0x%X\n", persistKey.handle.hndl);
-    }
+    /* Save key as encrypted blob to the disk */
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    rc = writeKeyBlob(outputFile, &newKey);
+#else
+    printf("Storing key seal to file is not supported.\n");
+#endif
+
+#ifdef DEBUG_WOLFTPM
+    printf("Key Seal, Public Blob %d\n", newKey.pub.size);
+    TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
+    printf("Key Seal, Private Blob %d\n", newKey.priv.size);
+    TPM2_PrintBin(newKey.priv.buffer, newKey.priv.size);
+#endif
 
 exit:
 
@@ -160,10 +153,9 @@ exit:
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    /* Close key handles */
+    /* Close handles */
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
-    /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
-    if (!persistent) wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
@@ -171,7 +163,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TPM Key Load Example -- */
+/* --- END TPM2.0 Seal Example -- */
 /******************************************************************************/
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -181,9 +173,9 @@ int main(int argc, char *argv[])
     int rc = NOT_COMPILED_IN;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Keyload_Example(NULL, argc, argv);
+    rc = TPM2_Seal_Example(NULL, argc, argv);
 #else
-    printf("KeyImport code not compiled in\n");
+    printf("KeyGen code not compiled in\n");
     (void)argc;
     (void)argv;
 #endif
