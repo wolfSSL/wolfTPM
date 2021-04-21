@@ -119,6 +119,7 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     }
 #else
     printf("Unable to store unsealed data to a file. Enable wolfcrypt support.\n");
+    (void)filename;
 #endif
 
     /* Remove the loaded TPM seal object */

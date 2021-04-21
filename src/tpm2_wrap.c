@@ -4008,10 +4008,10 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         return BAD_FUNC_ARG;
 
     /* Seal size is limited to TCG defined MAX_SYM_DATA, which is 128 bytes */
-    if (sealSize < 0 || sealSize > 128) {
-        printf("wolfTPM2_CreateKeySeal failed. Seal size is invalid.\n");
+    if (sealSize < 0 || sealSize > MAX_SYM_DATA) {
 #ifdef DEBUG_WOLFTPM
-        printf("Seal size %d should not be larger than 128 bytes\n", sealSize);
+        printf("Seal size %d should not be larger than %d bytes\n",
+            sealSize, MAX_SYM_DATA);
 #endif
         return BAD_FUNC_ARG;
     }
