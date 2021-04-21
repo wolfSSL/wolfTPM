@@ -44,7 +44,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/gpio/gpio [num] [mode]\n");
+    printf("./examples/gpio/gpio_config [num] [mode]\n");
     printf("* num is a GPIO number between %d-%d (default %d)\n", GPIO_NUM_MIN, GPIO_NUM_MAX, TPM_GPIO_A);
     printf("* mode is a number selecting the GPIO mode between 0-%d (default %d):\n", GPIO_MODE_MAX, TPM_GPIO_MODE_PULLDOWN);
     printf("\t0. standard - reset to the GPIO's default mode\n");

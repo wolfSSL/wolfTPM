@@ -1,4 +1,4 @@
-/* set.c
+/* read.c
  *
  * Copyright (C) 2006-2021 wolfSSL Inc.
  *
@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* Example for setting the voltage level of TPM's GPIO
+/* Example for reading the voltage level of TPM's GPIO
  *
  * Note: GPIO must be first configured using gpio/config
  *
@@ -31,31 +31,32 @@
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
+
 #include <stdio.h>
 #include <stdlib.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
 /******************************************************************************/
-/* --- BEGIN TPM GPIO Set Example -- */
+/* --- BEGIN TPM GPIO Read Example -- */
 /******************************************************************************/
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/gpio/set [num] [-high/-low]\n");
+    printf("./examples/gpio/gpio_read [num]\n");
     printf("* num is a GPIO number between %d-%d (default %d)\n", GPIO_NUM_MIN, GPIO_NUM_MAX, TPM_GPIO_A);
-    printf("Example usage, without parameters, set GPIO%d high\n", TPM_GPIO_A);
+    printf("Example usage, without parameters, read GPIO%d\n", TPM_GPIO_A);
 }
 
-int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
+int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
 {
     int rc, pin = 0;
+    word32 readSize;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_NV nv;
     WOLFTPM2_HANDLE parent;
+    WOLFTPM2_NV nv;
     TPM_HANDLE nvIndex = TPM_NV_GPIO_SPACE;
-    word32 writeSize;
-    BYTE pinState = 0x01;
+    BYTE pinState;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -71,15 +72,6 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
         }
         nvIndex += pin;
     }
-    while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-high", 5) == 0) {
-            pinState = 0x01;
-        }
-        if (XSTRNCMP(argv[argc-1], "-low", 4) == 0) {
-            pinState = 0x00;
-        }
-        argc--;
-    };
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -95,18 +87,21 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
     XMEMCPY(nv.handle.auth.buffer, (byte*)gNvAuth, nv.handle.auth.size);
     parent.hndl = TPM_RH_OWNER;
     /* Read GPIO state */
-    writeSize = sizeof(pinState);
-    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, &pinState, writeSize, 0);
+    readSize = sizeof(pinState);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, &pinState, &readSize, 0);
     if (rc != 0) {
-            printf("Error while setting GPIO state\n");
-            goto exit;
+        printf("Error while reading GPIO state\n");
+        goto exit;
     }
 
-    if (pinState) {
-        printf("GPIO%d set to high level\n", pin);
+    if (pinState == 0x01) {
+        printf("GPIO%d is High.\n", pin);
+    }
+    else if (pinState == 0x00) {
+        printf("GPIO%d is Low.\n", pin);
     }
     else {
-        printf("GPIO%d set to low level\n", pin);
+        printf("GPIO%d level read, invalid value = 0x%X\n", pin, pinState);
     }
 
 exit:
@@ -120,7 +115,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TPM GPIO Set Example -- */
+/* --- END TPM GPIO Store Example -- */
 /******************************************************************************/
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -130,7 +125,7 @@ int main(int argc, char *argv[])
     int rc = NOT_COMPILED_IN;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_GPIO_Set_Example(NULL, argc, argv);
+    rc = TPM2_GPIO_Read_Example(NULL, argc, argv);
 #else
     printf("GPIO code not compiled in\n");
     (void)argc;
