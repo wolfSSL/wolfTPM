@@ -43,7 +43,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/gpio/read [num]\n");
+    printf("./examples/gpio/gpio_read [num]\n");
     printf("* num is a GPIO number between %d-%d (default %d)\n", GPIO_NUM_MIN, GPIO_NUM_MAX, TPM_GPIO_A);
     printf("Example usage, without parameters, read GPIO%d\n", TPM_GPIO_A);
 }

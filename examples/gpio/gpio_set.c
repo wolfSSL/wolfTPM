@@ -42,7 +42,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/gpio/set [num] [-high/-low]\n");
+    printf("./examples/gpio/gpio_set [num] [-high/-low]\n");
     printf("* num is a GPIO number between %d-%d (default %d)\n", GPIO_NUM_MIN, GPIO_NUM_MAX, TPM_GPIO_A);
     printf("Example usage, without parameters, set GPIO%d high\n", TPM_GPIO_A);
 }

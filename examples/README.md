@@ -433,18 +433,18 @@ Some TPM 2.0 modules have extra I/O functionalities and additional GPIO that the
 
 Currently, the GPIO control examples support only ST33 TPM 2.0 modules.
 
-There are three examples available: `gpio/config`, `gpio/set`, `gpio/read`.
+There are three examples available: `gpio/gpio_config`, `gpio/gpio_set`, `gpio/gpio_read`.
 
-Every example has a help option `-h`. Please consult with `config -h` about the various GPIO modes.
+Every example has a help option `-h`. Please consult with `gpio_config -h` about the various GPIO modes.
 
 Demo usage is available, when no parameters are supplied. Then, GPIO 0 is used in output mode.
 
 
 ```
 
-examples/gpio/config -h
+examples/gpio/gpio_config -h
 Expected usage:
-./examples/gpio/gpio [num] [mode]
+./examples/gpio/gpio_config [num] [mode]
 * num is a GPIO number between 0-3 (default 0)
 * mode is a number selecting the GPIO mode between 0-6 (default 3):
 	0. standard - reset to the GPIO's default mode
@@ -462,7 +462,7 @@ Example usage for configuring a GPIO to output can be found below:
 
 ```
 
-$ ./examples/gpio/config
+$ ./examples/gpio/gpio_config
 GPIO num is: 0
 GPIO mode is: 5
 Example how to use extra GPIO on a TPM 2.0 modules
@@ -471,7 +471,7 @@ Trying to configure GPIO0...
 TPM2_GPIO_Config success
 NV Index for GPIO access created
 
-$ ./examples/gpio/set
+$ ./examples/gpio/gpio_set
 GPIO0 set to high level
 
 ```
@@ -482,7 +482,7 @@ Example usage for configuring a GPIO as input with a pulp-up can be found below:
 
 ```
 
-$ ./examples/gpio/config 0 3
+$ ./examples/gpio/gpio_config 0 3
 GPIO num is: 0
 GPIO mode is: 3
 Demo how to use extra GPIO on a TPM 2.0 modules
@@ -491,7 +491,7 @@ Trying to configure GPIO0...
 TPM2_GPIO_Config success
 NV Index for GPIO access created
 
-$ ./examples/gpio/read 0
+$ ./examples/gpio/gpio_read 0
 GPIO0 is Low
 
 ```
