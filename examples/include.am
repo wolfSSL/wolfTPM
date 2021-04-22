@@ -14,6 +14,7 @@ include examples/keygen/include.am
 include examples/nvram/include.am
 include examples/gpio/include.am
 include examples/seal/include.am
+include examples/attestation/include.am
 
 dist_example_DATA+= examples/README.md \
                     examples/tpm_io.c \
