@@ -1,4 +1,4 @@
-# Remote Attestatino Examples
+# Remote Attestation Examples
 
 This folder contains examples for performing remote attestation. You will learn how to perform a challenge-response between an end node and attestation server.
 
@@ -24,11 +24,11 @@ For this process to take place, the client and server must establish initial tru
 
 This way the challenge can only be decrypted by the TPM that can load the private part of the PAK and AK. Because the PAK and AK are bound to the TPM using a fixedTPM key attribute, the only TPM that can load these keys is the TPM where they were originally created.
 
-3. After the challenge is created, it is transfered from the server to the client.
+3. After the challenge is created, it is transferred from the server to the client.
 
 4. ActivateCredential uses the TPM 2.0 loaded PAK and AK to decrypt the challenge and retrieve the secret. Once retrieved, the client can respond to the server challenge.
 
-This way the client confirms to the server it posesses the expected TPM 2.0 System Identity and Attestation Key.
+This way the client confirms to the server it possesses the expected TPM 2.0 System Identity and Attestation Key.
 
 Note:
 

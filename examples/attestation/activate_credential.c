@@ -157,7 +157,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&cmdOut.activCred, 0, sizeof(cmdOut.activCred));
     cmdIn.activCred.activateHandle = akKey.handle.hndl;
     cmdIn.activCred.keyHandle = TPM2_DEMO_STORAGE_KEY_HANDLE;
-    /* Read credeitnail from the user file */
+    /* Read credential from the user file */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     fp = XFOPEN(input, "rb");
     if (fp != XBADFILE) {
