@@ -33,7 +33,7 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#define SYM_EXTRA_OPTS_LEN 14 /* 5 for "-sym=" and 6 for extra options */
+#define SYM_EXTRA_OPTS_LEN 14 /* 5 chars for "-sym=" and 9 for extra options */
 #define SYM_EXTRA_OPTS_POS 4  /* Array pos of the equal sign for extra opts */
 #define SYM_EXTRA_OPTS_AES_MODE_POS 8
 #define SYM_EXTRA_OPTS_KEY_BITS_POS 11

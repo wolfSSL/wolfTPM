@@ -57,6 +57,8 @@ examples/gpio/gpio_set
 examples/gpio/gpio_read
 examples/seal/seal
 examples/seal/unseal
+examples/attestation/make_credential
+examples/attestation/activate_credential
 
 # Generated Cert Files
 certs/ca-*.pem
