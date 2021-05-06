@@ -2823,13 +2823,39 @@ WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 /* Non-standard API's */
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Initializes a TPM with HAL IO callback and user supplied context.
+    When using devtpm or swtpm, the ioCb and userCtx are not used. 
+    Note: TPM2_Init_minimal() calls TPM2_Init_ex() with both ioCb and userCtx set to NULL.
+    In other modes, the ioCb shall be set in order to use TIS.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: general error (possibly IO)
+    \return BAD_FUNC_ARG Check arguments provided
+
+    \param ctx pointer to a TPM2_CTX struct
+    \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
+    \param userCtx pointer to the user's context that will be stored as a member of the ctx struct
+
+    _Example_
+    \code
+    int rc;
+    TPM2_CTX tpm2Ctx;
+
+    rc = TPM2_Init(&tpm2Ctx, TPM2_IoCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        // TPM2_Init failed
+    }
+    \endcode
+
+    \sa TPM2_Startup
+    \sa TPM2_GetRCString
+    \sa TPM2_Init_minimal
+    \sa TPM2_Init_ex
+*/
 #define _TPM_Init TPM2_Init
-/* When using devtpm or swtpm, the ioCb and userCtx are not used
- * and should be NULL. TPM2_Init_minimal() calls TPM2_Init_ex()
- * with them set to NULL.
- *
- * In other modes, the ioCb shall be set in order to use TIS.
- */
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries);
