@@ -2,6 +2,14 @@
 
 wolfTPM can be built to use Windows native TBS (TPM Base Services)
 
+When using the Windows TBS interface the NV access is blocked by default. TPM NV storage space is very limited and when filled can cause undefined behaviors, such as failures loading key handles. These are not managed by TBS.
+
+The TPM is designed to return an encrypted private key blob on key creation using `TPM2_Create`, which you can safely store on the disk and load when needed. The symmetric encryption key used to protect the private key blob is only known by the TPM. When you load a key using `TPM2_Load` you get a transient handle, which can be used for signing and even encryption/decryption.
+
+For primary keys created with `TPM2_CreatePrimary` you get back a handle. There is no encrypted private data returned. That handle will remain loaded until `TPM2_FlushContext` is called.
+
+For normal key creation using `TPM2_Create` you get back a `TPM2B_PRIVATE outPrivate`, which is the encrypted blob that you can store and load anytime using `TPM2_Load`.
+
 ## Limitations
 
 wolfTPM has been tested on Windows 10 with TPM 2.0 devices. While
@@ -75,6 +83,4 @@ cd ..
 
 To confirm presence and status of TPM on the machine run `tpm.msc`
 
-See [examples/README.md](examples/README.md)
-
-
+See [examples/README.md](/examples/README.md)
