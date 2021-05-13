@@ -51,10 +51,12 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage;
     WOLFTPM2_KEYBLOB akKey;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     FILE *fp;
+    int dataSize = 0;
+#endif
     const char *output = "cred.blob";
     const char *keyblob = "keyblob.bin";
-    int dataSize = 0;
 
     union {
         MakeCredential_In makeCred;
