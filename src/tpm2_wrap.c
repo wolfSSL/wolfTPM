@@ -2462,9 +2462,9 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     int rc;
     PCR_Read_In  pcrReadIn;
     PCR_Read_Out pcrReadOut;
-    int digestLen;
+    int digestLen = 0;
 
-    if (dev == NULL)
+    if (dev == NULL || pcrIndex < PCR_FIRST || pcrIndex > PCR_LAST)
         return BAD_FUNC_ARG;
 
     /* set session auth to blank */
