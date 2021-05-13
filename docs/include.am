@@ -5,3 +5,4 @@
 EXTRA_DIST+= docs/README.md
 EXTRA_DIST+= docs/SWTPM.md
 EXTRA_DIST+= docs/WindowTBS.md
+EXTRA_DIST+= docs/Doxyfile

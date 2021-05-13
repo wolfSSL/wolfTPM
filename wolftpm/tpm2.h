@@ -2824,16 +2824,18 @@ WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 
 /* Non-standard API's */
 
+#define _TPM_Init TPM2_Init
 /*!
     \ingroup TPM2_Proprietary
     \brief Initializes a TPM with HAL IO callback and user supplied context.
-    When using devtpm or swtpm, the ioCb and userCtx are not used. 
+    When using wolfTPM with --enable-devtpm or --enable-swtpm configuration, the ioCb and userCtx are not used.
     Note: TPM2_Init_minimal() calls TPM2_Init_ex() with both ioCb and userCtx set to NULL.
     In other modes, the ioCb shall be set in order to use TIS.
+    Example ioCB for baremetal and RTOS applications are provided in examples/tpm_io.c
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: general error (possibly IO)
-    \return BAD_FUNC_ARG Check arguments provided
+    \return BAD_FUNC_ARG check arguments provided
 
     \param ctx pointer to a TPM2_CTX struct
     \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
@@ -2854,43 +2856,567 @@ WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
     \sa TPM2_GetRCString
     \sa TPM2_Init_minimal
     \sa TPM2_Init_ex
+    \sa wolfTPM2_Init
 */
-#define _TPM_Init TPM2_Init
 WOLFTPM_API TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Initializes a TPM with timeoutTries, HAL IO callback and user supplied context.
+    Note: It is recommended to use TPM2_Init instead of using TPM2_Init_ex directly.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: general error (possibly IO)
+    \return BAD_FUNC_ARG check arguments provided
+
+    \param ctx pointer to a TPM2_CTX struct
+    \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
+    \param userCtx pointer to the user's context that will be stored as a member of the ctx struct
+    \param timeoutTries specifies the number of attempts to confirm that TPM2 startup has completed
+
+    \sa TPM2_GetRCString
+    \sa TPM2_Init_minimal
+    \sa TPM2_Init
+    \sa wolfTPM2_Init_ex
+*/
 WOLFTPM_API TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Initializes a TPM and sets the wolfTPM2 context that will be used.
+    This function is typically used for rich operating systems, like Windows.
+    Note: It is recommended to use TPM2_Init instead of using TPM2_Init_minimal directly.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: general error (possibly IO)
+    \return BAD_FUNC_ARG check arguments provided
+
+    \param ctx pointer to a TPM2_CTX struct
+
+    \sa TPM2_GetRCString
+    \sa TPM2_Init
+*/
 WOLFTPM_API TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Deinitializes a TPM and wolfcrypt (if it was initialized)
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context
+    \return BAD_FUNC_ARG: the TPM2 device structure is a NULL pointer
+
+    \param dev pointer to a TPM2_DEV struct
+
+    _Example_
+    \code
+    int rc;
+    TPM2_CTX tpm2Ctx;
+
+    rc = TPM2_Cleanup(&tpm2Ctx->dev);
+    if (rc != TPM_RC_SUCCESS) {
+        // TPM2_Cleanup failed
+    }
+    \endcode
+
+    \sa TPM2_GetRCString
+    \sa TPM2_Init
+    \sa wolfTPM2_Cleanup
+*/
 WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
 /* Other API's - Not in TPM Specification */
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Makes sure the TPM2 startup has completed and extracts the TPM device information
+    Note: This function is used in TPM2_Init_ex
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: general error (possibly IO)
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_TIMEOUT: timeout occurred
+
+    \param ctx pointer to a TPM2_CTX struct
+    \param timeoutTries specifies the number of attempts to check if TPM2 startup has completed
+
+    \sa TPM2_GetRCString
+    \sa TPM2_TIS_StartupWait
+    \sa TPM2_TIS_RequestLocality
+    \sa TPM2_TIS_GetInfo
+    \sa TPM2_Init_ex
+*/
 WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
-/* SetHalIoCb will fail if built with devtpm or swtpm as the callback
- * is not used for TPM. For other configuration builds, ioCb must be
- * set to a non-NULL function pointer and userCtx is optional.
- */
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Sets the user's context and IO callbacks needed for TPM communication
+    \brief Typically, TPM2_Init or wolfTPM2_Init are used to set the HAL IO.
+    Note: SetHalIoCb will fail if built with devtpm or swtpm as the callback
+    is not used for TPM. For other configuration builds, ioCb must be
+    set to a non-NULL function pointer and userCtx is optional.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context
+    \return BAD_FUNC_ARG: the TPM2 device structure is a NULL pointer
+
+    \param ctx pointer to a TPM2_CTX struct
+    \param ioCb pointer to TPM2HalIoCb (HAL IO) callback function
+    \param userCtx pointer to the user's context that will be stored as a member of the ctx struct
+
+    \sa TPM2_GetRCString
+    \sa TPM2_Init
+    \sa wolfTPM2_Init
+*/
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Sets the structure holding the TPM Authorizations.
+    \brief Rarely used, because TPM2_Init functions and wolfTPM2_Init perform this initialization as well
+    TPM 2.0 Commands can have up to three authorization slots,
+    therefore it is recommended to supply an array of size
+    MAX_SESSION_NUM to TPM2_SetSessionAuth(see example below).
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: could not acquire the lock on the wolfTPM2 context
+    \return BAD_FUNC_ARG: the TPM2 context structure is a NULL pointer
+
+    \param session pointer to an array of type TPM2_AUTH_SESSION
+
+    _Example_
+    \code
+    int rc;
+    TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
+
+    XMEMSET(session, 0, sizeof(session));
+    session[0].sessionHandle = TPM_RS_PW;
+
+    rc = TPM2_SetSessionAuth(session);
+    if (rc != TPM_RC_SUCCESS) {
+        // TPM2_SetSessionAuth failed
+    }
+    \endcode
+
+    \sa TPM2_GetRCString
+    \sa TPM2_Init
+    \sa wolfTPM2_Init
+*/
 WOLFTPM_API TPM_RC TPM2_SetSessionAuth(TPM2_AUTH_SESSION *session);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Determine the number of currently set TPM Authorizations
+
+    \return the number of active TPM Authorizations (between one and three)
+    \return BAD_FUNC_ARG: check the arguments provided for a NULL pointer
+
+    \param dev pointer to a TPM2_DEV struct
+
+    _Example_
+    \code
+    int authCount;
+    TPM2_CTX tpm2Ctx;
+
+    authCount = TPM2_GetSessionAuthCount(tpm2ctx);
+    if (authCount == BAD_FUNC_ARG) {
+        // TPM2_GetSessionAuthCount failed
+    }
+    \endcode
+
+    \sa TPM2_CTX
+    \sa TPM2_AUTH_SESSION
+*/
 WOLFTPM_API int    TPM2_GetSessionAuthCount(TPM2_CTX* ctx);
 
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Sets a new TPM2 context for use
+
+    \return does not return a value
+
+    \param ctx pointer to a TPM2_CTX struct
+
+    _Example_
+    \code
+    TPM2_CTX tpm2Ctx;
+
+    TPM2_SetActiveCtx(tpm2ctx);
+    \endcode
+
+    \sa TPM2_CTX
+    \sa TPM2_AUTH_SESSION
+*/
 WOLFTPM_API void      TPM2_SetActiveCtx(TPM2_CTX* ctx);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Provides a pointer to the TPM2 context in use
+
+    \return ctx pointer to a TPM2_CTX struct
+
+    \param takes no parameters
+
+    _Example_
+    \code
+    TPM2_CTX *tpm2Ctx;
+
+    tpm2Ctx = TPM2_GetActiveCtx();
+    \endcode
+
+    \sa TPM2_CTX
+    \sa TPM2_AUTH_SESSION
+*/
 WOLFTPM_API TPM2_CTX* TPM2_GetActiveCtx(void);
 
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Determine the size in bytes of a TPM 2.0 hash digest
+
+    \return the size of a TPM 2.0 hash digest as number of bytes
+    \return 0 if hash type is invalid
+
+    \param hashAlg a valid TPM 2.0 hash type
+
+    _Example_
+    \code
+    int digestSize = 0;
+    TPMI_ALG_HASH hashAlg = TPM_ALG_SHA256;
+
+    digestSize = TPM2_GetHashDigestSize(hashAlg);
+    if (digestSize > 0) {
+        //digestSize contains a valid value
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Translate a TPM2 hash type to its coresponding wolfcrypt hash type
+
+    \return a value specifying a hash type to use with wolfcrypt
+    \return 0 if hash type is invalid
+
+    \param hashAlg a valid TPM 2.0 hash type
+
+    _Example_
+    \code
+    int wc_hashType;
+    TPMI_ALG_HASH hashAlg = TPM_ALG_SHA256;
+
+    wc_hashType = TPM2_GetHashDigestSize(hashAlg);
+    if (wc_hashType > 0) {
+        //wc_hashType contains a valid wolfcrypt hash type
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_GetHashType(TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Generate a fresh nonce of random numbers
+    Note: Can use the TPM random number generator if WOLFTPM2_USE_HW_RNG is defined
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (TPM IO issue or wolfcrypt configuration)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param nonceBuf pointer to a BYTE buffer
+    \param nonceSz size of the nonce in bytes
+
+    _Example_
+    \code
+    int rc, nonceSize = 32;
+    BYTE freshNonce[32];
+
+    rc = TPM2_GetNonce(&freshNonce, nonceSize);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_GetNonce failed
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
 
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Helper function to prepare a correct PCR selection
+    \brief For example, when preparing to create a TPM2_Quote
+
+    \return has no return value
+
+    \param pcr pointer to a structure of type TPML_PCR_SELECTION
+    \param alg value of type TPM_ALG_ID specifying the type of hash algorithm used
+    \param pcrIndex value between 0 and 23 specifying the PCR register for use
+
+    _Example_
+    \code
+    int pcrIndex = 16; // This is a PCR register for DEBUG & testing purposes
+    PCR_Read_In pcrRead;
+
+    TPM2_SetupPCRSel(&pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
+    \endcode
+
+    \sa TPM2_PCR_Read
+    \sa TPM2_PCR_Extend
+    \sa TPM2_PCR_Reset
+    \sa TPM2_Quote
+*/
 WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     int pcrIndex);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Get a human readable string for any TPM 2.0 return code
+
+    \return pointer to a string constant
+
+    \param rc integer value representing a TPM return code
+
+    _Example_
+    \code
+    int rc;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        return rc;
+    }
+    \endcode
+*/
 WOLFTPM_API const char* TPM2_GetRCString(int rc);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Get a human readable string for any TPM 2.0 algorithm
+
+    \return pointer to a string constant
+
+    \param alg value of type TPM_ALG_ID specifying a valid TPM 2.0 algorithm
+
+    _Example_
+    \code
+    int paramEncAlg = TPM_ALG_CFB;
+
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
+    \endcode
+*/
 WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Determine the size in bytes of any TPM ECC Curve
+
+    \return 0 in case of invalid curve type
+    \return integer value representing the number of bytes
+
+    \param curveID value of type TPM_ECC_CURVE
+
+    _Example_
+    \code
+    int bytes;
+    TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
+
+    bytes = TPM2_GetCurveSize(curve);
+    if (bytes == 0) {
+        //TPM2_GetCurveSize failed
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Translate a wolfcrypt curve type to its coresponding TPM curve type
+
+    \return integer value representing a wolfcrypt curve type
+    \return ECC_CURVE_OID_E in case of invalid curve type
+
+    \param curveIDnonceBuf pointer to a BYTE buffer
+
+    _Example_
+    \code
+    int tpmCurve;
+    int wc_curve = ECC_SECP256R1;
+
+    tpmCurve = TPM2_GetTpmCurve(curve);
+    \\in this case tpmCurve will be TPM_ECC_NIST_P256
+    if (tpmCurve = ECC_CURVE_OID_E) {
+        //TPM2_GetTpmCurve failed
+    }
+    \endcode
+
+    \sa TPM2_GetWolfCurve
+*/
 WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Translate a TPM curve type to its coresponding wolfcrypt curve type
+
+    \return integer value representing a TPM curve type
+    \return -1 or ECC_CURVE_OID_E in case of invalid curve type
+
+    \param curveIDnonceBuf pointer to a BYTE buffer
+
+    _Example_
+    \code
+    int tpmCurve = TPM_ECC_NIST_P256;
+    int wc_curve;
+
+    wc_curve = TPM2_GetWolfCurve(tpmCurve);
+    \\in this case tpmCurve will be ECC_SECP256R1
+    if (wc_curve = ECC_CURVE_OID_E || wc_curve == -1) {
+        //TPM2_GetWolfCurve failed
+    }
+    \endcode
+
+    \sa TPM2_GetTpmCurve
+*/
 WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Parses TPM2B_ATTEST and populates the data in TPMS_ATTEST structure
+    Note: This is public API of the helper function TPM2_Packet_ParseAttest
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param in pointer to a structure of a TPM2B_ATTEST type
+    \param out pointer to a structure of a TPMS_ATTEST type
+
+    _Example_
+    \code
+    TPM2B_ATTEST in; //for example, as part of a TPM2_Quote
+    TPMS_ATTEST out
+
+    rc = TPM2_GetNonce(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_ParseAttest failed
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Computes fresh NV Index name based on a nvPublic structure
+
+    \return TPM_RC_SUCCESS: successful
+    \return negative integer value in case of an error
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return NOT_COMPILED_IN: check if wolfcrypt is enabled
+
+    \param nvPublic
+    \param buffer pointer to a structure of a TPMS_ATTEST type
+    \param size pointer to a variable of UINT16 type to store the size of the nvIndex
+
+    _Example_
+    \code
+    TPMS_NV_PUBLIC nvPublic;
+    BYTE buffer[TPM_MAX_DIGEST_SIZE];
+    UINT16 size;
+
+    rc = TPM2_HashNvPublic(&nvPublic, &buffer, &size);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_HashNvPublic failed
+    }
+    \endcode
+*/
 WOLFTPM_API int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Populates TPM2B_PUBLIC structure based on a user provided buffer
+    Note: Public API of the helper function TPM2_Packet_AppendPublic
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: insufficient buffer size
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param buf pointer to a user buffer
+    \param size integer value of word32 type, specifying the size of the user buffer
+    \param sizeUsed pointer to an integer variable, stores the used size of pub->buffer
+    \param pub pointer to an empty structure of TPM2B_PUBLIC type
+
+    _Example_
+    \code
+    TPM2B_PUBLIC pub; //empty
+    int sizeUsed, rc;
+    BYTE buffer[sizeof(TPM2B_PUBLIC)];
+    word32 size = sizeof(buffer);
+
+    rc = TPM2_AppendPublic(&buffer, size, &sizeUsed, &pub);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_AppendPublic failed
+    }
+    \endcode
+
+    \sa TPM2_ParsePublic
+*/
 WOLFTPM_API int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Parses TPM2B_PUBLIC structure and stores in a user provided buffer
+    Note: Public API of the helper function TPM2_Packet_ParsePublic
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: insufficient buffer size
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param pub pointer to a populated structure of TPM2B_PUBLIC type
+    \param buf pointer to an empty user buffer
+    \param size integer value of word32 type, specifying the available size of the user buffer
+    \param sizeUsed pointer to an integer variable, stores the used size of the user buffer
+
+    _Example_
+    \code
+    TPM2B_PUBLIC pub; //populated
+    int sizeUsed, rc;
+    BYTE buffer[sizeof(TPM2B_PUBLIC)];
+    word32 size = sizeof(buffer);
+
+    rc = TPM2_ParsePublic(&pub, buffer, size, &sizeUsed);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_ParsePublic failed
+    }
+    \endcode
+
+    \sa TPM2_AppendPublic
+*/
 WOLFTPM_API int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Provides the Name of a TPM object
+    Note: The object is reference by its TPM handle and session index
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param ctx pointer to a TPM2 context
+    \param handleValue value of UINT32 type, specifying a valid TPM handle
+    \param handleCnt total number of handles used in the current TPM command/session
+    \param idx index value, between one and three, specifying a valid TPM Authorization session
+    \param name pointer to an empty structure of TPM2B_NAME type
+
+    _Example_
+    \code
+    int rc;
+    UINT32 handleValue = TRANSIENT_FIRST;
+    handleCount = 1;
+    sessionIdx = 0;
+    TPM2B_NAME name;
+
+    rc = TPM2_GetName(ctx, handleValue, handleCount, sessionIdx, &name);
+    if (rc != TPM_RC_SUCCESS) {
+        //TPM2_GetName failed
+    }
+    \endcode
+*/
 WOLFTPM_LOCAL int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2B_NAME* name);
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
@@ -2906,11 +3432,96 @@ typedef enum {
     TPM_VENDOR_NATIONTECH = 0x1B4E,
 } TPM_Vendor_t;
 
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Provides the vendorID of the active TPM2 context
+    Note: Depends on correctly read TPM device info during TPM Init
+
+    \return integer value of UINT16 type, specifying the vendor ID
+    \return 0 if TPM2 context is invalid or NULL
+
+    \param no parameters, uses the active TPM2 context
+
+    _Example_
+    \code
+    TPM2_CTX *tpm2Ctx;
+
+    tpm2Ctx = TPM2_GetActiveCtx();
+    \endcode
+
+    \sa TPM2_GetCapabilities
+    \sa TPM2_GetTpmDevId
+    \sa TPM2_Init
+*/
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 
 #ifdef DEBUG_WOLFTPM
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Helper function to print a binary buffer in a formated way
+    Note: Requires DEBUG_WOLFTPM to be defined
+
+    \return does not return a value
+
+    \param buffer pointer to a buffer of BYTE type
+    \param length integer value of word32 type, containing the size of the buffer
+
+    _Example_
+    \code
+    BYTE buffer[] = {0x01,0x02,0x03,0x04};
+    length = sizeof(buffer);
+
+    TPM2_PrintBin(&buffer, length);
+    \endcode
+
+    \sa TPM2_PrintAuth
+    \sa TPM2_PrintPublicArea
+*/
 WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Helper function to print a structure of TPMS_AUTH_COMMAND type in a human readable way
+    Note: Requires DEBUG_WOLFTPM to be defined
+
+    \return does not return a value
+
+    \param authCmd pointer to a populated structure of TPMS_AUTH_COMMAND type
+
+    _Example_
+    \code
+    TPMS_AUTH_COMMAND authCmd; //for example, part of a TPM Authorization session
+
+    TPM2_PrintAuthCmd(&authCmd);
+    \endcode
+
+    \sa TPM2_PrintBin
+    \sa TPM2_PrintPublicArea
+*/
 WOLFTPM_API void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Helper function to print a structure of TPM2B_PUBLIC type in a human readable way
+    Note: Requires DEBUG_WOLFTPM to be defined
+
+    \return does not return a value
+
+    \param pub pointer to a populated structure of TPM2B_PUBLIC type
+
+    _Example_
+    \code
+    TPM2B_PUBLIC pub; //for example, part of the output of a successful TPM2_Create
+
+    TPM2_PrintPublicArea(&pub);
+    \endcode
+
+    \sa TPM2_PrintBin
+    \sa TPM2_PrintAuth
+    \sa TPM2_Create
+    \sa TPM2_ReadPublic
+*/
 WOLFTPM_API void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub);
 #else
 #define TPM2_PrintBin(b, l)
