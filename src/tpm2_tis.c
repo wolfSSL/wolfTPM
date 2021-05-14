@@ -194,7 +194,6 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     txBuf[1] = (addr>>16) & 0xFF;
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
-    txBuf[4] = 0x00;
     XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, len);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
@@ -230,7 +229,6 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     txBuf[1] = (addr>>16) & 0xFF;
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
-    txBuf[4] = 0x00;
     XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], value, len);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 

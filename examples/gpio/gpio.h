@@ -26,8 +26,10 @@
     extern "C" {
 #endif
 
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 #define GPIO_NUM_MIN TPM_GPIO_A
 #define GPIO_NUM_MAX (TPM_GPIO_COUNT-1) /* see wolftpm/tpm2.h */
+#endif
 
 int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[]);

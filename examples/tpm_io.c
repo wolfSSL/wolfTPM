@@ -872,23 +872,19 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
         (void)userCtx;
     #endif
 #else
-    /* Build SPI format buffer */
+    /* Build TPM header */
+    txBuf[1] = (addr>>16) & 0xFF;
+    txBuf[2] = (addr>>8)  & 0xFF;
+    txBuf[3] = (addr)     & 0xFF;
     if (isRead) {
         txBuf[0] = TPM_TIS_READ | ((size & 0xFF) - 1);
-        txBuf[1] = (addr>>16) & 0xFF;
-        txBuf[2] = (addr>>8)  & 0xFF;
-        txBuf[3] = (addr)     & 0xFF;
-        txBuf[4] = 0x00;
         XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, size);
     }
     else {
         txBuf[0] = TPM_TIS_WRITE | ((size & 0xFF) - 1);
-        txBuf[1] = (addr>>16) & 0xFF;
-        txBuf[2] = (addr>>8)  & 0xFF;
-        txBuf[3] = (addr)     & 0xFF;
-        txBuf[4] = 0x00;
         XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], buf, size);
     }
+    XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     ret = TPM2_IoCb_SPI(ctx, txBuf, rxBuf, size + TPM_TIS_HEADER_SZ, userCtx);
 

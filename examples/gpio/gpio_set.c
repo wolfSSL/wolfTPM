@@ -34,7 +34,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
 
 /******************************************************************************/
 /* --- BEGIN TPM GPIO Set Example -- */
@@ -122,14 +123,15 @@ exit:
 /******************************************************************************/
 /* --- END TPM GPIO Set Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_WRAPPER && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = NOT_COMPILED_IN;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
     rc = TPM2_GPIO_Set_Example(NULL, argc, argv);
 #else
     printf("GPIO code not compiled in\n");
