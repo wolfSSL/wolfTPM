@@ -54,10 +54,12 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY storage;
     WOLFTPM2_KEYBLOB akKey;
     WOLFTPM2_SESSION tpmSession;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     FILE *fp;
+    int dataSize = 0;
+#endif
     const char *input = "cred.blob";
     const char *keyblob = "keyblob.bin";
-    int dataSize = 0;
 
     union {
         ActivateCredential_In activCred;

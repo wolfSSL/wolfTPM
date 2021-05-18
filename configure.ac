@@ -126,7 +126,26 @@ then
 fi
 
 
-# wolfCrypt
+# wolfSSL/wolfCrypt
+AC_MSG_CHECKING([for wolfSSL/wolfCrypt
+])
+wcpath="/usr/local/"
+WOLFSSL_URL="http://www.wolfssl.com/download.html"
+AC_ARG_WITH(wolfcrypt,
+  [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
+  [
+    if test "x$withval" != "xno" ; then
+      if test -d "${withval}/lib" && test -d "${withval}/include"; then 
+        wcpath=${withval}
+      else
+        AC_MSG_ERROR([wolfCrypt path error (${withval}): missing lib and include])
+      fi
+    fi
+    LDFLAGS="$LDFLAGS -L${wcpath}/lib"
+    CPPFLAGS="$CPPFLAGS -I${wcpath}/include"    
+  ]
+)
+
 AC_ARG_ENABLE([wolfcrypt],
     [AS_HELP_STRING([--enable-wolfcrypt],[Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled)])],
     [ ENABLED_WOLFCRYPT=$enableval ],
@@ -135,10 +154,31 @@ AC_ARG_ENABLE([wolfcrypt],
 
 if test "x$ENABLED_WOLFCRYPT" = "xyes"
 then
-    TAO_REQUIRE_LIBWOLFSSL
+    LIBS="$LIBS -lwolfssl"
+
+    AC_LIB_HAVE_LINKFLAGS(wolfssl,,
+    [
+        #include <wolfssl/wolfcrypt/wc_port.h>
+    ],[
+        wolfCrypt_Init();
+    ])
+    AM_CONDITIONAL(HAVE_LIBWOLFSSL, [test "x${ac_cv_libwolfssl}" = "xyes"])
+
+    AS_IF([test "x${ac_cv_libwolfssl}" = "xyes"],[
+        save_LIBS="${LIBS}"
+        LIBS="${LIBS} ${LTLIBWOLFSSL}"
+        AC_CHECK_FUNCS(wolfCrypt_Cleanup)
+        LIBS="$save_LIBS"
+    ])
+
+    if test "x$ac_cv_libwolfssl" = "xno" && test "x$ENABLED_WOLFCRYPT" = "xno"; then
+      AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
+        If it's already installed, specify its path using --with-wolfcrypt=/dir/])
+    fi
 else
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
 fi
+AC_MSG_NOTICE([wolfCrypt path: ${wcpath}])
 
 
 # I2C Support

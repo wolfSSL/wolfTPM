@@ -62,7 +62,6 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
-    TPM2B_AUTH auth;
     word32 nvAttributes;
     const char* filename = "keyblob.bin";
     int paramEncAlg = TPM_ALG_NULL;
@@ -112,7 +111,6 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&keyBlob, 0, sizeof(keyBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&parent, 0, sizeof(parent));
-    XMEMSET(&auth, 0, sizeof(auth));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
