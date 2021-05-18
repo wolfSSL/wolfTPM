@@ -126,24 +126,23 @@ then
 fi
 
 
-# wolfCrypt
-AC_MSG_CHECKING([for wolfSSL])
+# wolfSSL/wolfCrypt
+AC_MSG_CHECKING([for wolfSSL/wolfCrypt
+])
+wcpath="/usr/local/"
 WOLFSSL_URL="http://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
   [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
   [
     if test "x$withval" != "xno" ; then
-      if test -d "$withval/lib"; then
-        LDFLAGS="$LDFLAGS -L${withval}/lib"
-      fi
-      if test -d "$withval/include"; then
-        CPPFLAGS="$CPPFLAGS -I${withval}/include"
+      if test -d "${withval}/lib" && test -d "${withval}/include"; then 
+        wcpath=${withval}
+      else
+        AC_MSG_ERROR([wolfCrypt path error (${withval}): missing lib and include])
       fi
     fi
-    if test "x$withval" = "xyes" ; then
-      LDFLAGS="$LDFLAGS -L/usr/local/lib"
-      CPPFLAGS="$CPPFLAGS -I/usr/local/include"
-    fi
+    LDFLAGS="$LDFLAGS -L${wcpath}/lib"
+    CPPFLAGS="$CPPFLAGS -I${wcpath}/include"    
   ]
 )
 
@@ -179,7 +178,7 @@ then
 else
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
 fi
-
+AC_MSG_NOTICE([wolfCrypt path: ${wcpath}])
 
 
 # I2C Support
