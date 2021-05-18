@@ -1,6 +1,6 @@
-/* tpm_io.h
+/* tpm2_cyusb.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2020 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -19,31 +19,21 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _TPM_IO_H_
-#define _TPM_IO_H_
+#ifndef _TPM2_CYUSB_H_
+#define _TPM2_CYUSB_H_
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_packet.h>
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
-/* TPM2 IO Examples */
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI) || defined(WOLFTPM_CYUSB)
-#define TPM2_IoCb NULL
-#else
-
-#ifdef WOLFTPM_ADV_IO
-int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
-    void* userCtx);
-#else
-int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-    word16 xferSz, void* userCtx);
-#endif
-#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
+/* TPM2 IO for using TPM through a Cypress USB2SPI converter */
+WOLFTPM_LOCAL int TPM2_CYUSB_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _TPM_IO_H_ */
+#endif /* _TPM2_CYUSB_H_ */

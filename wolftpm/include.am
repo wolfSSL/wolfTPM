@@ -11,6 +11,7 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_linux.h \
                          wolftpm/tpm2_swtpm.h \
                          wolftpm/tpm2_winapi.h \
+                         wolftpm/tpm2_cyusb.h \
                          wolftpm/tpm2_param_enc.h \
                          wolftpm/tpm2_socket.h \
                          wolftpm/version.h \
