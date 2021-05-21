@@ -1826,6 +1826,7 @@ int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     if (dev == NULL || wolfKey == NULL || pubPoint == NULL)
         return BAD_FUNC_ARG;
 
+    XMEMSET(pubPoint, 0, sizeof(TPM2B_ECC_POINT));
     xSz = sizeof(pubPoint->point.x.buffer);;
     ySz = sizeof(pubPoint->point.y.buffer);;
 
@@ -2244,7 +2245,7 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
 
     XMEMSET(&ecdhZIn, 0, sizeof(ecdhZIn));
     ecdhZIn.keyHandle = privKey->handle.hndl;
-    ecdhZIn.inPoint = *pubPoint;
+    XMEMCPY(&ecdhZIn.inPoint.point, &pubPoint->point, sizeof(TPMS_ECC_POINT));
     rc = TPM2_ECDH_ZGen(&ecdhZIn, &ecdhZOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -2327,8 +2328,8 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     XMEMSET(&inZGen2Ph, 0, sizeof(inZGen2Ph));
     inZGen2Ph.keyA = ecdhKey->handle.hndl;
     ecdhKey->handle.hndl = TPM_RH_NULL;
-    inZGen2Ph.inQsB = *pubPoint;
-    inZGen2Ph.inQeB = *pubPoint;
+    XMEMCPY(&inZGen2Ph.inQsB.point, &pubPoint->point, sizeof(TPMS_ECC_POINT));
+    XMEMCPY(&inZGen2Ph.inQeB.point, &pubPoint->point, sizeof(TPMS_ECC_POINT));
     inZGen2Ph.inScheme = TPM_ALG_ECDH;
     inZGen2Ph.counter = (UINT16)ecdhKey->handle.hndl;
 
