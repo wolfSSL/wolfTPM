@@ -66,6 +66,37 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 #endif
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
+/* Platform support, in alphabetical order */
+#ifdef WOLFTPM_I2C
+#if defined(__linux_)
+int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
+    word16 size, void* userCtx);
+#elif defined(WOLFSSL_STM32_CUBEMX)
+int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
+#endif /* __linux__ */
+#else /* SPI */
+#if defined(WOLFSSL_ATMEL)
+int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+    word16 xferSz, void* userCtx);
+#elif defined(__BAREBOX__)
+int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(__linux_)
+int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+    word16 xferSz, void* userCtx);
+#elif defined(WOLFSSL_STM32_CUBEMX)
+int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+    word16 xferSz, void* userCtx);
+#elif defined(__QNX__) || defined(__QNXTO__)
+int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(__XILINX__)
+int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#endif /* WOLFSSL_ATMEL */
+#endif /* WOLFTPM_I2C */
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
