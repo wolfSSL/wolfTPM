@@ -2,7 +2,15 @@
 # included from Top Level Makefile.am
 # All paths should be given relative to the root
 
-EXTRA_DIST+= docs/README.md
-EXTRA_DIST+= docs/SWTPM.md
-EXTRA_DIST+= docs/WindowTBS.md
-EXTRA_DIST+= docs/Doxyfile
+dist_doc_DATA+= docs/README.md
+dist_doc_DATA+= docs/SWTPM.md
+dist_doc_DATA+= docs/WindowTBS.md
+dist_doc_DATA+= docs/Doxyfile
+
+
+dox:
+	echo "Generating HTML"
+	doxygen ./docs/Doxyfile
+
+clean-local:
+	-rm -rf docs/html/

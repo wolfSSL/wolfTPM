@@ -80,3 +80,6 @@ quote.blob
 keyblob.bin
 ecc_test_blob.raw
 rsa_test_blob.raw
+
+# Generated Documentation
+docs/html
