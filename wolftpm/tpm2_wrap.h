@@ -2191,9 +2191,57 @@ typedef struct TpmCryptoDevCtx {
     unsigned short useFIPSMode:1; /* if set requires FIPS mode on TPM and no fallback to software algos */
 } TpmCryptoDevCtx;
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief A reference crypto callback API for using the TPM for crypto offload.
+    This callback function is registered using wolfTPM2_SetCryptoDevCb or wc_CryptoDev_RegisterDevice
+
+    \return TPM_RC_SUCCESS: successful
+    \return CRYPTOCB_UNAVAILABLE: Do not use TPM hardware, fall-back to default software crypto.
+    \return WC_HW_E: generic hardware failure
+
+    \param devId The devId used when registering the callback. Any signed integer value besides INVALID_DEVID
+    \param info point to wc_CryptoInfo structure with detailed information about crypto type and parameters
+    \param ctx The user context supplied when callback was registered with wolfTPM2_SetCryptoDevCb
+
+    \sa wolfTPM2_SetCryptoDevCb
+    \sa wolfTPM2_ClearCryptoDevCb
+*/
 WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Register a crypto callback function and return assigned devId.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param cb The wolfTPM2_CryptoDevCb API is a template, but you can also provide your own
+    \param tpmCtx The user supplied context. For wolfTPM2_CryptoDevCb use TpmCryptoDevCtx, but can also be your own.
+    \param pDevId Pointer to automatically assigned device ID.
+
+    \sa wolfTPM2_CryptoDevCb
+    \sa wolfTPM2_ClearCryptoDevCb
+*/
 WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
     TpmCryptoDevCtx* tpmCtx, int* pDevId);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Clears the registered crypto callback
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param devId The devId used when registering the callback
+
+    \sa wolfTPM2_CryptoDevCb
+    \sa wolfTPM2_SetCryptoDevCb
+*/
 WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 
 #endif /* WOLF_CRYPTO_CB */
