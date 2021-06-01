@@ -653,6 +653,7 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     (void)bindAuth; /* TODO: Add bind support */
+    (void)dev;
 
     return rc;
 }
@@ -2567,7 +2568,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz)
 {
-    int rc;
+    int rc, alreadyExists = 0;
     NV_DefineSpace_In in;
 
     if (dev == NULL || nv == NULL)
@@ -2593,6 +2594,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     rc = TPM2_NV_DefineSpace(&in);
     if (rc == TPM_RC_NV_DEFINED) {
+        alreadyExists = 1;
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_DefineSpace: handle already exists\n");
     #endif
@@ -2629,7 +2631,8 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         in.publicInfo.nvPublic.dataSize);
 #endif
 
-    return rc;
+    /* if handle already existed then return `TPM_RC_NV_DEFINED` */
+    return (rc == TPM_RC_SUCCESS && alreadyExists) ? TPM_RC_NV_DEFINED : rc;
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVCreateAuth */
@@ -2928,11 +2931,11 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 {
-#ifdef WOLFTPM2_USE_WOLF_RNG
     if (dev) {
+    #ifdef WOLFTPM2_USE_WOLF_RNG
         return &dev->ctx.rng;
+    #endif
     }
-#endif
     return NULL;
 }
 #endif

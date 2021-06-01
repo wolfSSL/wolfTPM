@@ -41,7 +41,7 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/seal/unseal [filename]\n");
-    printf("* filename - File containg a TPM seal key\n");
+    printf("* filename - File contaning a TPM seal key\n");
     printf("Demo usage, without arguments, uses keyblob.bin file input.\n");
 }
 
@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_FILESYSTEM)
     rc = TPM2_Unseal_Example(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");

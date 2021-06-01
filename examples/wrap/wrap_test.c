@@ -107,8 +107,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         "\x88\x1d\xc2\x00\xc9\x83\x3d\xa7\x26\xe9\x37\x6c\x2e\x32\xcf\xf7";
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+#if defined(HAVE_ECC) || !defined(NO_RSA)
     int tpmDevId = INVALID_DEVID;
     word32 idx;
+#endif
 #ifndef NO_RSA
     RsaKey wolfRsaPubKey;
     RsaKey wolfRsaPrivKey;
