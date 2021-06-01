@@ -635,10 +635,10 @@
     /* customization to QNX SPI master to allow keeping 
         CS asserted (low) till spi_close. See IDE/QNX for spi_master patch */
     #ifndef SPI_MODE_MAN_CS
-    #define SPI_MODE_MAN_CS (1 << 17) /* Manual Chip select */
+    #define SPI_MODE_MAN_CS   (1 << 17) /* Manual Chip select */
     #endif
     #ifndef SPI_MODE_CLEAR_CS
-    #define SPI_MODE_CLEAR_CS (1 << 18) /* Clear all chip selects (used with SPI_MODE_MAN_CS) */
+    #define SPI_MODE_CLEAR_CS (1 << 18) /* Clear all chip selects (must be used with SPI_MODE_MAN_CS) */
     #endif
     static int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
         byte* rxBuf, word16 xferSz, void* userCtx)
@@ -658,12 +658,14 @@
         }
         XMEMSET(&cfg, 0, sizeof(cfg));
         cfg.mode = 8; /* 8-bits - CPOL=0/CPHA=0 */
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
         cfg.mode |= SPI_MODE_MAN_CS; /* manual chip select - leave asserted */
+    #endif
         cfg.clock_rate = TPM2_SPI_HZ;
         status = spi_setcfg(fd, SPI_DEV_DEFAULT, &cfg);
         if (status != 0) {
             spi_close(fd);
-            return ret;
+            return TPM_RC_FAILURE;
         }
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
@@ -671,8 +673,11 @@
         status = spi_xchange(fd, SPI_DEV_DEFAULT, 
             (byte*)txBuf, rxBuf, TPM_TIS_HEADER_SZ);
         if (status == -1) {
+            /* inform spi_master we are done... de-assert SPI */
+            cfg.mode |= (SPI_MODE_MAN_CS | SPI_MODE_CLEAR_CS);
+            (void)spi_setcfg(fd, SPI_DEV_DEFAULT, &cfg);
             spi_close(fd);
-            return ret;
+            return TPM_RC_FAILURE;
         }
 
         /* Check for wait states */
@@ -688,6 +693,9 @@
             printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
         #endif
             if (timeout <= 0) {
+                /* inform spi_master we are done... de-assert SPI */
+                cfg.mode |= (SPI_MODE_MAN_CS | SPI_MODE_CLEAR_CS);
+                (void)spi_setcfg(fd, SPI_DEV_DEFAULT, &cfg);
                 spi_close(fd);
                 return TPM_RC_FAILURE;
             }
