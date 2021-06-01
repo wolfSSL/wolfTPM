@@ -118,6 +118,19 @@ typedef struct WOLFTPM2_CAPS {
 
 
 /* Wrapper API's to simplify TPM use */
+
+/** @defgroup wolfTPM2_Wrappers wolfTPM2 Wrappers
+ *
+ * This module describes the rich API of wolfTPM called wrappers.
+ *
+ * wolfTPM wrappers are used in two main cases:
+ * * Perform common TPM 2.0 tasks, like key generation and storage
+ * * Perform complex TPM 2.0 tasks, like attestation and parameter encryption
+ *
+ * wolfTPM enables quick and rapid use of TPM 2.0 thanks to its many wrapper functions.
+ *
+ */
+
 /* For devtpm and swtpm builds, the ioCb and userCtx are not used and should be set to NULL */
 
 /*!

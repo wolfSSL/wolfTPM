@@ -28,6 +28,28 @@
     extern "C" {
 #endif
 
+
+/** @defgroup TPM2_Standard TPM2 Standard Commands
+ *
+ * wolfTPM has support for all TPM 2.0 Commands as defined in the TCG specification.
+ *
+ * wolfTPM has internal TIS layer to enable communication with a TPM 2.0 on every system:
+ * * Baremetal
+ * * RTOS
+ * * Windows systems
+ * * Hybrid SoC
+ * * Linux using /dev/tpm0
+ * * Linux using devspi
+ * * Linux using i2c driver
+ *
+ * Typically, a wolfTPM developer would use the wolfTPM2 wrappers for quicker development.
+ *
+ * If you want to use TPM 2.0 Commands directly See tpm2.h under Files -> File List above.
+ *
+ */
+
+
+
 /* ---------------------------------------------------------------------------*/
 /* TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -2823,6 +2845,16 @@ WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 /* Non-standard API's */
+
+/** @defgroup TPM2_Proprietary TPM2 Proprietary
+ *
+ * This module describes TPM2 commands specific only to wolfTPM.
+ *
+ * Typically, these commands include helpers for handling TPM 2.0 data structures.
+ *
+ * There are also functions to help debugging and testing during development.
+ *
+ */
 
 #define _TPM_Init TPM2_Init
 /*!
