@@ -41,6 +41,8 @@ typedef struct tpmKey {
     TPM2B_PRIVATE       priv;
     TPM2B_PUBLIC        pub;
     TPM2B_NAME          name;
+    TPM2B_DIGEST        creationHash;
+    TPMT_TK_CREATION    creationTicket;
 } TpmKey;
 
 typedef TpmKey TpmRsaKey;
@@ -104,6 +106,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECDH_KeyGen_In ecdh;
         ECDH_ZGen_In ecdhZ;
         EncryptDecrypt2_In encDec;
+        CertifyCreation_In certifyCreationIn;
         HMAC_In hmac;
         HMAC_Start_In hmacStart;
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
@@ -139,6 +142,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECDH_KeyGen_Out ecdh;
         ECDH_ZGen_Out ecdhZ;
         EncryptDecrypt2_Out encDec;
+        CertifyCreation_Out certifyCreationOut;
         HMAC_Out hmac;
         HMAC_Start_Out hmacStart;
         byte maxOutput[MAX_RESPONSE_SIZE];
@@ -1102,6 +1106,11 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         cmdOut.create.outPrivate.size);
     rsaKey.pub = cmdOut.create.outPublic;
     rsaKey.priv = cmdOut.create.outPrivate;
+    /* Keep creation Hash for certifyCreation unit test below */
+    rsaKey.creationHash.size = cmdOut.create.creationHash.size;
+    XMEMCPY(rsaKey.creationHash.buffer, cmdOut.create.creationHash.buffer, rsaKey.creationHash.size);
+    /* Keep creation Ticket for certifyCreation unit test below */
+    XMEMCPY(&rsaKey.creationTicket, &cmdOut.create.creationTicket, sizeof(rsaKey.creationTicket));
 
     /* Load new key */
     XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
@@ -1163,10 +1172,28 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         printf("RSA Encrypt/Decrypt test passed\n");
     }
 
+    /* Use the RSA key for Encrypt/Decrypt to unit test certifyCreation */
+    cmdIn.certifyCreationIn.signHandle = rsaKey.handle;
+    cmdIn.certifyCreationIn.objectHandle = rsaKey.handle;
+    cmdIn.certifyCreationIn.creationHash.size = rsaKey.creationHash.size;
+    XMEMCPY(cmdIn.certifyCreationIn.creationHash.buffer, rsaKey.creationHash.buffer, cmdIn.certifyCreationIn.creationHash.size);
+    XMEMCPY(&cmdIn.certifyCreationIn.creationTicket, &rsaKey.creationTicket, sizeof(rsaKey.creationTicket));
+    cmdIn.certifyCreationIn.inScheme.scheme = TPM_ALG_RSASSA;
+    cmdIn.certifyCreationIn.inScheme.details.any.hashAlg = TPM_ALG_SHA256;
+    cmdIn.certifyCreationIn.qualifyingData.size = 0; /* optional */
+    rc = TPM2_CertifyCreation(&cmdIn.certifyCreationIn, &cmdOut.certifyCreationOut);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_CertifyCreation RSA key failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    else {
+        printf("TPM2_CertifyCreation test passed\n");
+    }
+
     cmdIn.flushCtx.flushHandle = rsaKey.handle;
     rsaKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
-
 
     /* NVRAM Access */
 
