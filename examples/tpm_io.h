@@ -29,6 +29,30 @@
 #endif
 
 /* TPM2 IO Examples */
+
+/** @defgroup TPM2_IO wolfTPM2 IO HAL Callbacks
+ *
+ * This module describes the available example TPM 2.0 IO HAL Callbacks in wolfTPM
+ *
+ * wolfTPM uses a single IO callback function.
+ * This allows the TPM 2.0 stack to be highly portable.
+ * These IO Callbacks are working examples for various embedded platforms and operating systems.
+ *
+ * Here is a non exhaustive list of the existing TPM 2.0 IO Callbacks
+ * * ST Micro STM32, through STM32 CubeMX HAL
+ * * Native Linux (/dev/tpm0)
+ * * Linux through spidev without kernel driver thanks to wolfTPM own TIS layer
+ * * Linux through i2c without kernel driver thanks to wolfTPM own TIS layer
+ * * Native Windows
+ * * Atmel MCUs
+ * * Xilinx Zynq
+ * * Barebox
+ * * QNX
+ *
+ * Using custom IO Callback is always possible.
+ *
+ */
+
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
 #define TPM2_IoCb NULL
 #else

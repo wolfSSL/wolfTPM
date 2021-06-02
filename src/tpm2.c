@@ -5320,6 +5320,10 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 {
     TPM2_AUTH_SESSION* session;
 
+    if (ctx == NULL || name == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     XMEMSET(name, 0, sizeof(TPM2B_NAME));
 
     if (idx >= handleCnt)
@@ -5727,6 +5731,10 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
     enum wc_HashType hashType;
     byte appending[sizeof(TPMS_NV_PUBLIC)];
     TPM2_Packet packet;
+
+    if (nvPublic == NULL || buffer == NULL || size == NULL) {
+        return BAD_FUNC_ARG;
+    }
 
     /* Prepare temporary buffer */
     packet.buf = appending;
