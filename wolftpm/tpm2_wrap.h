@@ -28,6 +28,14 @@
     extern "C" {
 #endif
 
+
+typedef struct WOLFTPM2_HANDLE {
+    TPM_HANDLE      hndl;
+    TPM2B_AUTH      auth;
+    TPMT_SYM_DEF    symmetric;
+    TPM2B_NAME      name;
+} WOLFTPM2_HANDLE;
+
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
 
 typedef struct WOLFTPM2_SESSION {
@@ -38,13 +46,6 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_DIGEST    salt;         /* User defined */
     TPMI_ALG_HASH   authHash;
 } WOLFTPM2_SESSION;
-
-typedef struct WOLFTPM2_HANDLE {
-    TPM_HANDLE      hndl;
-    TPM2B_AUTH      auth;
-    TPMT_SYM_DEF    symmetric;
-    TPM2B_NAME      name;
-} WOLFTPM2_HANDLE;
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
