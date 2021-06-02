@@ -28,13 +28,6 @@
     extern "C" {
 #endif
 
-typedef struct WOLFTPM2_HANDLE {
-    TPM_HANDLE      hndl;
-    TPM2B_AUTH      auth;
-    TPMT_SYM_DEF    symmetric;
-    TPM2B_NAME      name;
-} WOLFTPM2_HANDLE;
-
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
 
 typedef struct WOLFTPM2_SESSION {
@@ -45,6 +38,13 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_DIGEST    salt;         /* User defined */
     TPMI_ALG_HASH   authHash;
 } WOLFTPM2_SESSION;
+
+typedef struct WOLFTPM2_HANDLE {
+    TPM_HANDLE      hndl;
+    TPM2B_AUTH      auth;
+    TPMT_SYM_DEF    symmetric;
+    TPM2B_NAME      name;
+} WOLFTPM2_HANDLE;
 
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
@@ -141,7 +141,7 @@ typedef struct WOLFTPM2_CAPS {
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param ioCB function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
     \param caps to a structure of WOLFTPM2_CAPS type for returning the TPM capabilities (can be NULL)
 
@@ -159,7 +159,7 @@ WOLFTPM_API int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* ca
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to an empty structure of WOLFTPM2_DEV type
-    \param ioCB function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
 
     _Example_
@@ -189,7 +189,7 @@ WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to an empty structure of WOLFTPM2_DEV type
-    \param ioCB function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
 
     \sa wolfTPM2_Init
@@ -469,6 +469,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const W
     \param session pointer to an empty WOLFTPM2_SESSION struct
     \param tpmKey pointer to a WOLFTPM2_KEY that will be used as a salt for the session
     \param bind pointer to a WOLFTPM2_HANDLE that will be used to make the session bounded
+    \param sesType byte value, the session type (HMAC, Policy or Trial)
     \param encDecAlg integer value, specifying the algorithm in case of parameter encryption
 
     \sa wolfTPM2_SetAuthSession
@@ -649,7 +650,7 @@ WOLFTPM_API int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev,
 
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys)
-    \param key pointer to an empty struct of WOLFTPM2_KEY type
+    \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
     \param sens pointer to a populated structure of TPM2B_SENSITIVE type
 
@@ -672,7 +673,7 @@ WOLFTPM_API int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev,
     \param dev pointer to a TPM2_DEV struct
     \param key pointer to an empty struct of WOLFTPM2_KEY type
     \param rsaPub pointer to a byte buffer containing the public key material
-    \param rsaPubsize integer value of word32 type, specifying the buffer size
+    \param rsaPubSz integer value of word32 type, specifying the buffer size
     \param exponent integer value of word32 type, specifying the RSA exponent
 
     \sa wolfTPM2_LoadRsaPublicKey_ex
@@ -806,7 +807,7 @@ WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
 
     \param dev pointer to a TPM2_DEV struct
     \param key pointer to an empty struct of WOLFTPM2_KEY type
-    \param curveID integer value, one of the accepted TPM_ECC_CURVE values
+    \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
     \param eccPubXSz integer value of word32 type, specifying the point X buffer size
     \param eccPubY pointer to a byte buffer containing the public material of point Y
@@ -833,7 +834,7 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
-    \param curveID integer value, one of the accepted TPM_ECC_CURVE values
+    \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
     \param eccPubXSz integer value of word32 type, specifying the point X buffer size
     \param eccPubY pointer to a byte buffer containing the public material of point Y
@@ -862,7 +863,7 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
     \param key pointer to an empty struct of WOLFTPM2_KEY type
-    \param curveID integer value, one of the accepted TPM_ECC_CURVE values
+    \param curveId integer value, one of the accepted TPM_ECC_CURVE values
     \param eccPubX pointer to a byte buffer containing the public material of point X
     \param eccPubXSz integer value of word32 type, specifying the point X buffer size
     \param eccPubY pointer to a byte buffer containing the public material of point Y
@@ -951,7 +952,7 @@ WOLFTPM_API int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out);
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param sense pointer to a correctly populated structure of TPM2B_SENSITIVE type
+    \param sens pointer to a correctly populated structure of TPM2B_SENSITIVE type
     \param priv pointer to an empty struct of TPM2B_PRIVATE type
     \param nameAlg integer value of TPMI_ALG_HASH type, specifying a valid TPM2 hashing algorithm
     \param name pointer to a TPM2B_NAME structure
@@ -1232,7 +1233,7 @@ WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
 
     \param dev pointer to a TPM2_DEV struct
     \param privKey pointer to a structure of WOLFTPM2_KEY type
-    \param pubPointer pointer to an empty structure of TPM2B_ECC_POINT type
+    \param pubPoint pointer to an empty structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the generated shared secret
     \param outSz integer value, specifying the size of the shared secret, in bytes
 
@@ -1254,7 +1255,7 @@ WOLFTPM_API int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
 
     \param dev pointer to a TPM2_DEV struct
     \param privKey pointer to a structure of WOLFTPM2_KEY type, containing a valid TPM handle
-    \param pubPointer pointer to a populated structure of TPM2B_ECC_POINT type
+    \param pubPoint pointer to a populated structure of TPM2B_ECC_POINT type
     \param out pointer to a byte buffer, to store the computed shared secret
     \param outSz integer value, specifying the size of the shared secret, in bytes
 
@@ -1347,7 +1348,6 @@ WOLFTPM_API int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param in pointer to a byte buffer, containing the encrypted data
     \param inSz integer value, specifying the size of the encrypted data buffer
     \param msg pointer to a byte buffer, containing the decrypted data
-    \param msgSz[in,out] integer value, specifying the size of the encrypted data buffer
     \param[in,out] msgSz pointer to size of the encrypted data buffer, on return set actual size
 
     \sa wolfTPM2_RsaEcnrypt
@@ -1369,7 +1369,7 @@ WOLFTPM_API int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param pcrIndex integer value, specifying a valid PCR index, between 0 and 23 (TPM locality could have an impact on successful access)
     \param hashAlg integer value, specifying a TPM_ALG_SHA256 or TPM_ALG_SHA1 registers to be accessed
     \param digest pointer to a byte buffer, where the PCR values will be stored
-    \param pDigestLen pointer to an integer variable, where the size of the digest buffer will be stored
+    \param[in,out] pDigestLen pointer to an integer variable, where the size of the digest buffer will be stored
 
     \sa wolfTPM2_ExtendPCR
 */
@@ -1851,7 +1851,7 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param enableFlag integer value, non-zero values represent "perform Startup after Shutdown"
+    \param doStartup integer value, non-zero values represent "perform Startup after Shutdown"
 
     \sa wolfTPM2_Init
 */
@@ -1867,7 +1867,7 @@ WOLFTPM_API int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup);
 
     \param dev pointer to a TPM2_DEV struct
     \param handleStart integer value of word32 type, specifying the value of the first TPM handle
-    \param handleStart integer value of word32 type, specifying the value of the last TPM handle
+    \param handleCount integer value of word32 type, specifying the number of handles
 
     \sa wolfTPM2_Init
 */
@@ -1980,7 +1980,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
-    \param hashAlg integer value of TPM_ALG_ID type, specifying a TPM supported hashing algorithm, typically TPM_ALG_SHA256 for SHA 256
+    \param nameAlg integer value of TPM_ALG_ID type, specifying a TPM supported hashing algorithm, typically TPM_ALG_SHA256 for SHA 256
 
     \sa wolfTPM2_GetKeyTemplate_ECC
     \sa wolfTPM2_GetKeyTemplate_Symmetric
