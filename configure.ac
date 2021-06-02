@@ -341,7 +341,13 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SMALL_STACK"
 
     # Reduces max packet and buffer sizes to 1024 bytes
-    AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1024 -DWOLFTPM2_MAX_BUFFER=1500 -DMAX_SESSION_NUM=1 -DMAX_DIGEST_BUFFER=973"
+    AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1024 -DWOLFTPM2_MAX_BUFFER=1500 -DMAX_DIGEST_BUFFER=973"
+
+    # If parameter encryption is not used then maximum session count is one
+    if test "x$ENABLED_WOLFCRYPT" = "xno"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DMAX_SESSION_NUM=1"
+    fi
 fi
 
 # Runtime Module Detection

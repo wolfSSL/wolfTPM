@@ -22,7 +22,7 @@
 #ifndef _TPM2_SOCKET_H_
 #define _TPM2_SOCKET_H_
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFCRYPT_ONLY)
 #include <wolfssl/wolfio.h>
 #endif
 

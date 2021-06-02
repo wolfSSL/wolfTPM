@@ -24,7 +24,7 @@
 #include <wolftpm/tpm2_wrap.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT)
+    !defined(NO_WOLFSSL_CLIENT) && !defined(WOLFCRYPT_ONLY)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -305,7 +305,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT)
+    !defined(NO_WOLFSSL_CLIENT) && !defined(WOLFCRYPT_ONLY)
     rc = TLS_ClientArgs(argc, argv);
 #else
     printf("WolfSSL Client code not compiled in\n");
