@@ -63,7 +63,9 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 
     if (!ctx->hwLockInit) {
         if (wc_InitMutex(&ctx->hwLock) != 0) {
-            WOLFSSL_MSG("TPM Mutex Init failed");
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM Mutex Init failed\n");
+        #endif
             return TPM_RC_FAILURE;
         }
         ctx->hwLockInit = 1;
