@@ -41,8 +41,7 @@ examples_pcr_reset_SOURCES      = examples/pcr/reset.c \
                                   examples/tpm_io_linux.c \
                                   examples/tpm_io_st.c \
                                   examples/tpm_io_qnx.c \
-                                  examples/tpm_io_xilinx.c
-
+                                  examples/tpm_io_xilinx.c \
                                   examples/tpm_test_keys.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
