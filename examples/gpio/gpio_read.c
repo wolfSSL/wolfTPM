@@ -36,7 +36,7 @@
 #include <stdlib.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT))
 
 /******************************************************************************/
 /* --- BEGIN TPM GPIO Read Example -- */
@@ -71,7 +71,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        nvIndex += pin;
+        nvIndex = TPM_NV_GPIO_SPACE + (pin-GPIO_NUM_MIN);
     }
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -86,7 +86,11 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
     nv.handle.hndl = nvIndex;
     nv.handle.auth.size = sizeof(gNvAuth)-1;
     XMEMCPY(nv.handle.auth.buffer, (byte*)gNvAuth, nv.handle.auth.size);
+#ifdef WOLFTPM_NUVOTON
+    parent.hndl = TPM_RH_PLATFORM;
+#else
     parent.hndl = TPM_RH_OWNER;
+#endif
     /* Read GPIO state */
     readSize = sizeof(pinState);
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, &pinState, &readSize, 0);
@@ -118,7 +122,7 @@ exit:
 /******************************************************************************/
 /* --- END TPM GPIO Store Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WRAPPER && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
+#endif /* !WOLFTPM2_NO_WRAPPER && (WOLFTPM_ST33 || WOLFTPM_NUVOTON || WOLFTPM_AUTODETECT) */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
@@ -126,7 +130,7 @@ int main(int argc, char *argv[])
     int rc = NOT_COMPILED_IN;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT))
     rc = TPM2_GPIO_Read_Example(NULL, argc, argv);
 #else
     printf("GPIO code not compiled in\n");

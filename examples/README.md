@@ -8,7 +8,7 @@ The PKCS #7 and TLS examples require generating CSR's and signing them using a t
 
 To enable parameter encryption use `-aes` for AES-CFB mode or `-xor` for XOR mode. Only some TPM commands / responses support parameter encryption. If the TPM2_ API has .flags `CMD_FLAG_ENC2` or `CMD_FLAG_DEC2` set then the command will use parameter encryption / decryption.
 
-There are some vendor specific examples, like the TPM 2.0 extra GPIO examples for ST33.
+There are some vendor specific examples, like the TPM 2.0 extra GPIO examples for ST33 and NPCT75x.
 
 ## Native API Test
 
@@ -433,13 +433,13 @@ Some TPM 2.0 modules have extra I/O functionalities and additional GPIO that the
 
 Currently, the GPIO control examples support only ST33 TPM 2.0 modules.
 
-There are three examples available: `gpio/gpio_config`, `gpio/gpio_set`, `gpio/gpio_read`.
+There are four examples available: `gpio/gpio_config` for ST33 and `gpio/gpio_nuvoton` for NPCT75x. Once configured, a GPIO can be controlled using `gpio/gpio_set` and `gpio/gpio_read`.
 
 Every example has a help option `-h`. Please consult with `gpio_config -h` about the various GPIO modes.
 
-Demo usage is available, when no parameters are supplied. Then, GPIO 0 is used in output mode.
+Demo usage is available, when no parameters are supplied. Recommended is to use carefully selected options, because GPIO interact with the physical world.
 
-
+ST33 supports 6 modes, information from `gpio/gpio_config` below:
 ```
 
 examples/gpio/gpio_config -h
@@ -458,8 +458,25 @@ Example usage, without parameters, configures GPIO0 as input with a pull down.
 
 ```
 
+NPCT75x supports 3 output modes, information from `gpio/gpio_nuvoton` below:
+
+```
+xpected usage:
+./examples/gpio/gpio_config [num] [mode]
+* num is a GPIO number between 3 and 4 (default 3)
+* mode is either push-pull, open-drain or open-drain with pull-up
+	1. pushpull  - output in push pull configuration
+	2. opendrain - output in open drain configuration
+	3. pullup - output in open drain with pull-up enabled
+	4. unconfig - delete NV index for GPIO access
+Example usage, without parameters, configures GPIO3 as push-pull output.
+```
+
+Please note that NPCT75x GPIO numbering starts from GPIO3, while ST33 starts from GPIO0.
+
 Example usage for configuring a GPIO to output can be found below:
 
+- ST33
 ```
 
 $ ./examples/gpio/gpio_config
@@ -476,9 +493,24 @@ GPIO0 set to high level
 
 ```
 
-Switching a GPIO configuration is seamless, because gpio/config takes care of deleting existing NV Index, so a new GPIO configuration can be chosen.
+- NPCT75xx
 
-Example usage for configuring a GPIO as input with a pulp-up can be found below:
+```
+pi@raspberrypi:~/wolftpm $ sudo ./examples/gpio/gpio_nuvoton 4 1
+Example for GPIO configuration of a NPTC7xx TPM 2.0 module
+GPIO number: 4
+GPIO mode: 1
+wolfTPM2_Init: success
+First, the current NPCT7xx config will be read
+then modified with the new GPIO configuration
+Successfully read the current NPCT7xx configuration
+NTC2_PreConfig success
+NV Index for GPIO access created
+```
+
+Switching a GPIO configuration is seamless. Because for ST33 `gpio/gpio_config` takes care of deleting existing NV Index, so a new GPIO configuration can be chosen. And for NPCT75xx `gpio/gpio_nuvoton` can reconfigure any GPIO without deleteing the creating NV index.
+
+Example usage for configuring a GPIO as input with a pull-up on ST33 can be found below:
 
 ```
 

@@ -2816,7 +2816,7 @@ typedef enum {
 } TPMI_GPIO_NAME_T;
 typedef UINT32 TPMI_GPIO_NAME;
 
-/* For readability in code */
+/* For portability and readability in code */
 #define TPM_GPIO_A TPM_GPIO_PP
 #define TPM_GPIO_B TPM_GPIO_LP
 
@@ -2852,9 +2852,11 @@ WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 #undef MAX_GPIO_COUNT
 #define MAX_GPIO_COUNT 2
 /* NPCT7XX supports a maximum of 2 GPIO for user control */
-#ifndef TPM_GPIO_COUNT
-    #define TPM_GPIO_COUNT MAX_GPIO_COUNT
-#endif
+#undef TPM_GPIO_COUNT
+#define TPM_GPIO_COUNT MAX_GPIO_COUNT
+/* For portability */
+#undef TPM_GPIO_A
+#define TPM_GPIO_A 3 /* NPCT75xx GPIO start at number 3 */
 
 /* GPIO configuration uses specific range of NV space */
 #define TPM_NV_GPIO_SPACE     0x01C40003
@@ -2866,7 +2868,7 @@ typedef struct {
     BYTE GpioAltCfg;
     BYTE GpioInitValue;
     BYTE GpioPullUp;
-    BYTE GpioPullDown;
+    BYTE GpioPushPull;
     BYTE Cfg_A;
     BYTE Cfg_B;
     BYTE Cfg_C;
