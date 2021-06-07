@@ -6,6 +6,12 @@ noinst_PROGRAMS += examples/wrap/wrap_test
 noinst_HEADERS  += examples/wrap/wrap_test.h
 examples_wrap_wrap_test_SOURCES      = examples/wrap/wrap_test.c \
                                        examples/tpm_io.c
+                                       examples/tpm_io_atmel.c \
+                                       examples/tpm_io_barebox.c \
+                                       examples/tpm_io_linux.c \
+                                       examples/tpm_io_st.c \
+                                       examples/tpm_io_qnx.c \
+                                       examples/tpm_io_xilinx.c
 examples_wrap_wrap_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_wrap_wrap_test_DEPENDENCIES = src/libwolftpm.la
 endif

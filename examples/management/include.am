@@ -7,7 +7,13 @@ noinst_PROGRAMS += examples/management/flush
 noinst_HEADERS  += examples/management/flush.h
 
 examples_management_flush_SOURCES      = examples/management/flush.c \
-                                         examples/tpm_io.c
+                                         examples/tpm_io.c \
+                                         examples/tpm_io_atmel.c \
+                                         examples/tpm_io_barebox.c \
+                                         examples/tpm_io_linux.c \
+                                         examples/tpm_io_st.c \
+                                         examples/tpm_io_qnx.c \
+                                         examples/tpm_io_xilinx.c
 examples_management_flush_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_management_flush_DEPENDENCIES = src/libwolftpm.la
 endif
