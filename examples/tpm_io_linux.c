@@ -30,10 +30,12 @@
 #include <wolftpm/tpm2_tis.h>
 #include "tpm_io.h"
 
-
 /******************************************************************************/
 /* --- BEGIN IO Callback Logic -- */
 /******************************************************************************/
+
+/* Included via tpm_io.c if WOLFTPM_INCLUDE_IO_FILE is defined */
+#ifdef WOLFTPM_INCLUDE_IO_FILE
 
 /* Use the max speed by default - see tpm2_types.h for chip specific max values */
 #ifndef TPM2_SPI_HZ
@@ -295,6 +297,7 @@
     }
 #endif /* WOLFTPM_I2C */
 #endif /* __linux__ */
+#endif /* WOLFTPM_INCLUDE_IO_FILE */
 
 /******************************************************************************/
 /* --- END IO Callback Logic -- */

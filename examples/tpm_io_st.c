@@ -26,10 +26,13 @@
 #include <wolftpm/tpm2_tis.h>
 #include "tpm_io.h"
 
-
 /******************************************************************************/
 /* --- BEGIN IO Callback Logic -- */
 /******************************************************************************/
+
+/* Included via tpm_io.c if WOLFTPM_INCLUDE_IO_FILE is defined */
+#ifdef WOLFTPM_INCLUDE_IO_FILE
+
 #if defined(WOLFSSL_STM32_CUBEMX)
     #ifdef WOLFTPM_I2C
     #define TPM2_I2C_ADDR 0x2e
@@ -173,6 +176,7 @@
     }
     #endif /* WOLFTPM_I2C */
 #endif
+#endif /* WOLFTPM_INCLUDE_IO_FILE */
 
 /******************************************************************************/
 /* --- END IO Callback Logic -- */

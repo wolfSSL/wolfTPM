@@ -11,38 +11,20 @@ noinst_HEADERS  += examples/pcr/quote.h \
                    examples/pcr/reset.h
 
 examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
-                                  examples/tpm_io.c \
-                                  examples/tpm_io_atmel.c \
-                                  examples/tpm_io_barebox.c \
-                                  examples/tpm_io_linux.c \
-                                  examples/tpm_io_st.c \
-                                  examples/tpm_io_qnx.c \
-                                  examples/tpm_io_xilinx.c \
-                                  examples/tpm_test_keys.c
+                                  examples/tpm_test_keys.c \
+                                  examples/tpm_io.c
 examples_pcr_quote_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_quote_DEPENDENCIES = src/libwolftpm.la
 
 examples_pcr_extend_SOURCES      = examples/pcr/extend.c \
-                                   examples/tpm_io.c \
-                                   examples/tpm_io_atmel.c \
-                                   examples/tpm_io_barebox.c \
-                                   examples/tpm_io_linux.c \
-                                   examples/tpm_io_st.c \
-                                   examples/tpm_io_qnx.c \
-                                   examples/tpm_io_xilinx.c \
-                                   examples/tpm_test_keys.c
+                                   examples/tpm_test_keys.c \
+                                   examples/tpm_io.c
 examples_pcr_extend_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_extend_DEPENDENCIES = src/libwolftpm.la
 
 examples_pcr_reset_SOURCES      = examples/pcr/reset.c \
-                                  examples/tpm_io.c \
-                                  examples/tpm_io_atmel.c \
-                                  examples/tpm_io_barebox.c \
-                                  examples/tpm_io_linux.c \
-                                  examples/tpm_io_st.c \
-                                  examples/tpm_io_qnx.c \
-                                  examples/tpm_io_xilinx.c \
-                                  examples/tpm_test_keys.c
+                                  examples/tpm_test_keys.c \
+                                  examples/tpm_io.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
 endif
