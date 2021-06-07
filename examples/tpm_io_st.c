@@ -33,6 +33,10 @@
 /* Included via tpm_io.c if WOLFTPM_INCLUDE_IO_FILE is defined */
 #ifdef WOLFTPM_INCLUDE_IO_FILE
 
+#if ! (defined(WOLFTPM_LINUX_DEV) || \
+       defined(WOLFTPM_SWTPM) ||     \
+       defined(WOLFTPM_WINAPI) )
+
 #if defined(WOLFSSL_STM32_CUBEMX)
     #ifdef WOLFTPM_I2C
     #define TPM2_I2C_ADDR 0x2e
@@ -176,6 +180,7 @@
     }
     #endif /* WOLFTPM_I2C */
 #endif
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 
 /******************************************************************************/

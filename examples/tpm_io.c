@@ -35,6 +35,16 @@
 #include <wolftpm/tpm2_tis.h>
 #include "tpm_io.h"
 
+/******************************************************************************/
+/* --- BEGIN IO Callback Logic -- */
+/******************************************************************************/
+
+/* Native Windows, native Linux and TPM Simulator do not need an IO callback */
+#if ! (defined(WOLFTPM_LINUX_DEV) || \
+       defined(WOLFTPM_SWTPM) ||     \
+       defined(WOLFTPM_WINAPI) )
+
+/* Set WOLFTPM_INCLUDE_IO_FILE so each .c is built here and not compiled directly */
 #define WOLFTPM_INCLUDE_IO_FILE
 #if defined(__linux__)
 #include "examples/tpm_io_linux.c"
@@ -49,16 +59,6 @@
 #elif defined(__XILINX__)
 #include "examples/tpm_io_xilinx.c"
 #endif
-
-
-/******************************************************************************/
-/* --- BEGIN IO Callback Logic -- */
-/******************************************************************************/
-
-/* Native Windows, native Linux and TPM Simulator do not need an IO callback */
-#if ! (defined(WOLFTPM_LINUX_DEV) || \
-       defined(WOLFTPM_SWTPM) ||     \
-       defined(WOLFTPM_WINAPI) )
 
 #if !defined(WOLFTPM_I2C)
 static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
