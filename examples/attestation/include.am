@@ -8,14 +8,14 @@ noinst_PROGRAMS += examples/attestation/make_credential \
 noinst_HEADERS  += examples/attestation/credential.h
 
 examples_attestation_make_credential_SOURCES      = examples/attestation/make_credential.c \
-                                                      examples/tpm_io.c \
-                                                      examples/tpm_test_keys.c
+                                                    examples/tpm_io.c \
+                                                    examples/tpm_test_keys.c
 examples_attestation_make_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_make_credential_DEPENDENCIES = src/libwolftpm.la
 
-examples_attestation_activate_credential_SOURCES      = examples/attestation/activate_credential.c \
-                                  examples/tpm_io.c \
-                                  examples/tpm_test_keys.c
+examples_attestation_activate_credential_SOURCES  = examples/attestation/activate_credential.c \
+                                                    examples/tpm_io.c \
+                                                    examples/tpm_test_keys.c
 examples_attestation_activate_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_activate_credential_DEPENDENCIES = src/libwolftpm.la
 
