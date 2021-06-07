@@ -68,7 +68,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 /* Platform support, in alphabetical order */
 #ifdef WOLFTPM_I2C
-#if defined(__linux_)
+#if defined(__linux__)
 int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
     word16 size, void* userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
@@ -82,7 +82,7 @@ int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 #elif defined(__BAREBOX__)
 int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
-#elif defined(__linux_)
+#elif defined(__linux__)
 int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
