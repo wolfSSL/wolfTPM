@@ -501,6 +501,35 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
     return rc;
 }
 
+int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
+                                        WOLFTPM2_SESSION* tpmSession)
+{
+    int rc = TPM_RC_FAILURE;
+    PolicySecret_In policySecretIn;
+    PolicySecret_Out policySecretOut;
+
+    /* Endorsement Key requires authorization with Policy */
+    rc = wolfTPM2_StartSession(dev, tpmSession, NULL, NULL,
+                               TPM_SE_POLICY, TPM_ALG_NULL);
+    if (rc == TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+                (word32)tpmSession->handle.hndl);
+        #endif
+        /* Provide Endorsement Auth using PolicySecret */
+        XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
+        policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
+        policySecretIn.policySession = tpmSession->handle.hndl;
+        rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
+        #ifdef DEBUG_WOLFTPM
+        if (rc == TPM_RC_SUCCESS) {
+            printf("policySecret applied on session\n");
+        }
+        #endif
+    }
+    return rc;
+}
+
 int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 {
     int rc = 0;
@@ -884,7 +913,6 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (dev == NULL || key == NULL || parent == NULL)
         return BAD_FUNC_ARG;
 
-    /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
     XMEMSET(&changeIn, 0, sizeof(changeIn));
@@ -954,7 +982,9 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     XMEMSET(&createOut, 0, sizeof(createOut)); /* make sure pub struct is zero init */
 
     /* set session auth for parent key */
-    wolfTPM2_SetAuthHandle(dev, 0, parent);
+    if (!parent->policyAuth) {
+        wolfTPM2_SetAuthHandle(dev, 0, parent);
+    }
 
     XMEMSET(&createIn, 0, sizeof(createIn));
     createIn.parentHandle = parent->hndl;
@@ -1006,7 +1036,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         return BAD_FUNC_ARG;
 
     /* set session auth for parent key */
-    if (dev->ctx.session) {
+    if (dev->ctx.session && !parent->policyAuth) {
         wolfTPM2_SetAuthHandle(dev, 0, parent);
     }
 
@@ -1049,6 +1079,60 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* return loaded key */
     XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+
+    return rc;
+}
+
+int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
+    WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz)
+{
+    int rc;
+    CreateLoaded_In  createLoadedIn;
+    CreateLoaded_Out createLoadedOut;
+
+    if (dev == NULL || keyBlob == NULL || parent == NULL || publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear output key buffer */
+    XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
+    XMEMSET(&createLoadedOut, 0, sizeof(createLoadedOut)); /* make sure pub struct is zero init */
+
+    /* set session auth for parent key */
+    if (!parent->policyAuth) {
+        wolfTPM2_SetAuthHandle(dev, 0, parent);
+    }
+
+    XMEMSET(&createLoadedIn, 0, sizeof(createLoadedIn));
+    createLoadedIn.parentHandle = parent->hndl;
+    if (auth) {
+        createLoadedIn.inSensitive.sensitive.userAuth.size = authSz;
+        XMEMCPY(createLoadedIn.inSensitive.sensitive.userAuth.buffer, auth,
+            createLoadedIn.inSensitive.sensitive.userAuth.size);
+    }
+    XMEMCPY(&createLoadedIn.inPublic.publicArea, publicTemplate, sizeof(TPMT_PUBLIC));
+
+    rc = TPM2_CreateLoaded(&createLoadedIn, &createLoadedOut);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_CreateLoaded key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_CreateLoaded key: pub %d, priv %d\n",
+        createLoadedOut.outPublic.size, createLoadedOut.outPrivate.size);
+    TPM2_PrintPublicArea(&createLoadedOut.outPublic);
+#endif
+
+    keyBlob->handle.auth = createLoadedIn.inSensitive.sensitive.userAuth;
+    keyBlob->handle.symmetric = createLoadedOut.outPublic.publicArea.parameters.asymDetail.symmetric;
+
+    keyBlob->handle.hndl = createLoadedOut.objectHandle;
+    keyBlob->pub = createLoadedOut.outPublic;
+    keyBlob->priv = createLoadedOut.outPrivate;
+    keyBlob->name = createLoadedOut.name;
 
     return rc;
 }
@@ -1697,6 +1781,33 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     return rc;
 }
 
+int wolfTPM2_RsaKey_TpmToPem(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+                             byte* pem, int* pemSz, byte* tempBuf, int tempSz)
+{
+    int rc = TPM_RC_FAILURE;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM)
+    int derSz;
+    RsaKey rsaKey;
+
+    /* Prepare wolfCrypt key structure */
+    rc = wc_InitRsaKey(&rsaKey, NULL);
+    if (rc != 0) return rc;
+    /* Convert the wolfTPM key to wolfCrypt format */
+    rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
+    if (rc != 0) return rc;
+    /* Convert the wolfCrypt key to DER format */
+    rc = wc_RsaKeyToPublicDer(&rsaKey, tempBuf, tempSz);
+    if (rc <= 0) return rc;
+    derSz = rc;
+    /* Convert the DER key to PEM format */
+    rc = wc_DerToPem(tempBuf, derSz, pem, tempSz, PUBLICKEY_TYPE);
+    if (rc <= 0) return rc;
+    *pemSz = rc;
+    rc = TPM_RC_SUCCESS;
+#endif
+    return rc;
+}
+
 static word32 wolfTPM2_RsaKey_Exponent(byte* e, word32 eSz)
 {
     word32 exponent = 0, i;
@@ -1761,6 +1872,31 @@ int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     WOLFTPM2_KEY* tpmKey)
 {
     return wolfTPM2_RsaKey_WolfToTpm_ex(dev, NULL, wolfKey, tpmKey);
+}
+
+int wolfTPM2_RsaKey_PemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+                             byte *tempBuf, int tempSz, const char *filename)
+{
+    int rc = TPM_RC_FAILURE;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_CERT_EXT) && \
+    defined(WOLFSSL_PUB_PEM_TO_DER) && defined(WOLFSSL_PEM_TO_DER)
+    word32 idx;
+    RsaKey rsaKey;
+
+    /* Prepare wolfCrypt key structure */
+    rc = wc_InitRsaKey(&rsaKey, NULL);
+    if (rc != 0) return rc;
+    /* Convert PEM format key from file to DER */
+    rc = wc_PemPubKeyToDer(filename, tempBuf, tempSz);
+    if (rc != 0) return rc;
+    /* Convert DER to wolfCrypt file */
+    idx = 0;
+    rc = wc_RsaPublicKeyDecode(tempBuf, &idx, &rsaKey, tempSz);
+    if (rc != 0) return rc;
+    /* Load into the TPM */
+    rc = wolfTPM2_RsaKey_WolfToTpm(dev, &rsaKey, tpmKey);
+#endif
+    return rc;
 }
 #endif /* !NO_RSA */
 
@@ -3712,6 +3848,7 @@ int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
 {
     return wolfTPM2_UnloadHandles(dev, TRANSIENT_FIRST, MAX_HANDLE_NUM);
 }
+
 
 
 /******************************************************************************/

@@ -47,7 +47,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent]\n");
+    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent] [-eh]\n");
+    printf("* -eh: Key is from the Endorsement Hierarchy, requires EK\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -persistent: Load the TPM key as persistent\n");
 }
@@ -56,13 +57,16 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY endorse; /* EK */
     WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEYBLOB newKey;
     WOLFTPM2_KEY persistKey;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* inputFile = "keyblob.bin";
     int persistent = 0;
+    int endorseKey = 0;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -72,8 +76,12 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
 
-        if (argv[1][0] != '-')
+        if (argv[1][0] != '-') {
             inputFile = argv[1];
+        }
+        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+            endorseKey = 1;
+        }
     }
     while (argc > 1) {
         if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
@@ -88,6 +96,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
     XMEMSET(&persistKey, 0, sizeof(persistKey));
@@ -103,9 +112,26 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
-    if (rc != 0) goto exit;
+    if (endorseKey) {
+        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+        if (rc != 0) goto exit;
+        endorse.handle.policyAuth = 1;
+        primary = &endorse;
+    }
+    else { /* SRK */
+        rc = getPrimaryStoragekey(&dev, primary, TPM_ALG_RSA);
+        if (rc != 0) goto exit;
+        primary = &storage;
+    }
+
+    if (endorseKey) {
+        /* Fresh policy session for EK auth */
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+        /* Set the created Policy Session for use in next operation */
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        if (rc != 0) goto exit;
+    }
 
     if (paramEncAlg != TPM_ALG_NULL) {
         /* Start an authenticated session (salted / unbound) with parameter encryption */
@@ -131,7 +157,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     goto exit;
 #endif
 
-    rc = wolfTPM2_LoadKey(&dev, &newKey, &storage.handle);
+    rc = wolfTPM2_LoadKey(&dev, &newKey, &primary->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_LoadKey failed\n");
         goto exit;
@@ -161,10 +187,15 @@ exit:
     }
 
     /* Close key handles */
-    wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    wolfTPM2_UnloadHandle(&dev, &primary->handle);
     /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
-    if (!persistent) wolfTPM2_UnloadHandle(&dev, &newKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    if (!persistent) {
+        wolfTPM2_UnloadHandle(&dev, &newKey.handle);
+    }
+    /* EK policy is destroyed after use, flush parameter encryption session */
+    if (!endorseKey) {
+        wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    }
 
     wolfTPM2_Cleanup(&dev);
     return rc;

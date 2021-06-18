@@ -42,7 +42,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/attestation/activate_credential [cred.blob]\n");
+    printf("./examples/attestation/activate_credential [cred.blob] [-eh]\n");
     printf("* cred.blob is a input file holding the generated credential.\n");
     printf("Demo usage without parameters, uses \"cred.blob\" filename.\n");
 }
@@ -50,8 +50,11 @@ static void usage(void)
 int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 {
     int rc = -1;
+    int endorseKey = 0;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY endorse;
     WOLFTPM2_KEY storage;
+    WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEYBLOB akKey;
     WOLFTPM2_SESSION tpmSession;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
@@ -63,7 +66,6 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
     union {
         ActivateCredential_In activCred;
-        PolicyCommandCode_In policyCommandCode;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
@@ -84,6 +86,10 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-') {
             input = argv[1];
         }
+        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+            printf("Use Endorsement Key\n");
+            endorseKey = 1;
+        }
     }
     else {
         printf("Incorrect arguments\n");
@@ -91,6 +97,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         goto exit_badargs;
     }
 
+    XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&akKey, 0, sizeof(akKey));
 
@@ -104,61 +111,67 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
     printf("Credential will be read from %s\n", input);
 
-    /* Load SRK, required to unwrap credential */
-    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
-    if (rc != 0) goto exit;
-    printf("SRK loaded\n");
-    /* Prepare the auth password for the Storage Key */
-    storage.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(storage.handle.auth.buffer, gStorageKeyAuth,
-            storage.handle.auth.size);
-    wolfTPM2_SetAuthHandle(&dev, 0, &storage.handle);
+    /* Load key, required to unwrap credential */
+    if (endorseKey) {
+        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+        if (rc != 0) goto exit;
+        printf("EK loaded\n");
+        /* Endorsement Key requires authorization with Policy */
+        endorse.handle.policyAuth = 1;
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+        /* Set the created Policy Session for use in next operation */
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        if (rc != 0) goto exit;
+
+        primary = &endorse;
+    }
+    else {
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+        if (rc != 0) goto exit;
+        printf("SRK loaded\n");
+        wolfTPM2_SetAuthHandle(&dev, 0, &storage.handle);
+
+        primary = &storage;
+    }
 
     /* Load AK, required to verify the Key Attributes in the credential */
     rc = readKeyBlob(keyblob, &akKey);
     if (rc != TPM_RC_SUCCESS) {
         printf("Failure to read keyblob.\n");
     }
-    storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
-    rc = wolfTPM2_LoadKey(&dev, &akKey, &storage.handle);
+    rc = wolfTPM2_LoadKey(&dev, &akKey, &primary->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("Failure to load the AK and read its Name.\n");
         goto exit;
     }
     printf("AK loaded at 0x%x\n", (word32)akKey.handle.hndl);
+
+    rc = wolfTPM2_UnsetAuth(&dev, 0);
+
+    if (endorseKey) {
+        /* Fresh policy session for EK auth */
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+        /* Set the created Policy Session for use in next operation */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 0);
+        if (rc != 0) goto exit;
+    }
+    else {
+        wolfTPM2_SetAuthHandle(&dev, 1, &storage.handle);
+    }
+
     /* Prepare the auth password for the Attestation Key */
     akKey.handle.auth.size = sizeof(gAiKeyAuth)-1;
     XMEMCPY(akKey.handle.auth.buffer, gAiKeyAuth,
             akKey.handle.auth.size);
     wolfTPM2_SetAuthHandle(&dev, 0, &akKey.handle);
 
-    /* Start an authenticated session (salted / unbound) */
-    rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
-    if (rc != 0) goto exit;
-    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
-        (word32)tpmSession.handle.hndl);
-
-    /* ADMIN role required for Activate Credential command */
-    XMEMSET(&cmdIn.policyCommandCode, 0, sizeof(cmdIn.policyCommandCode));
-    cmdIn.policyCommandCode.policySession = tpmSession.handle.hndl;
-    cmdIn.policyCommandCode.code = TPM_CC_ActivateCredential;
-    rc = TPM2_PolicyCommandCode(&cmdIn.policyCommandCode);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("policyCommandCode failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_policyCommandCode success\n"); /* No command response payload */
-
-    /* Prepare Key Auths in correct order for ActivateCredential */
-    wolfTPM2_SetAuthHandle(&dev, 0, &akKey.handle);
-    wolfTPM2_SetAuthHandle(&dev, 1, &storage.handle);
-
     /* Prepare the Activate Credential command */
     XMEMSET(&cmdIn.activCred, 0, sizeof(cmdIn.activCred));
     XMEMSET(&cmdOut.activCred, 0, sizeof(cmdOut.activCred));
     cmdIn.activCred.activateHandle = akKey.handle.hndl;
-    cmdIn.activCred.keyHandle = TPM2_DEMO_STORAGE_KEY_HANDLE;
+    cmdIn.activCred.keyHandle = primary->handle.hndl;
     /* Read credential from the user file */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     fp = XFOPEN(input, "rb");
@@ -185,7 +198,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &akKey.handle);
     wolfTPM2_Cleanup(&dev);
 

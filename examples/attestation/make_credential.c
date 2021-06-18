@@ -40,35 +40,47 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/attestation/make_credential [cred.blob]\n");
-    printf("* cred.blob is a output file holding the generated credential.\n");
-    printf("Demo usage without parameters, uses \"cred.blob\" filename.\n");
+    printf("./examples/attestation/make_credential [-eh]\n");
+    printf("* -eh: Use the EK public key to encrypt the challenge\n");
+    printf("Notes:\n");
+    printf("\tName digest is loaded from \"ak.name\" file\n");
+    printf("\tPublic key is loaded from a file containing TPM2B_PUBLIC\n");
+    printf("\t\"tek.pub\" for EK pub");
+    printf("\t\"tsrk.pub\" for SRK pub");
+    printf("\tOutput is stored in \"cred.blob\"\n");
+    printf("Demo usage without parameters, uses SRK pub\n");
 }
 
 int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
 {
     int rc = -1;
+    int endorseKey = 0;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY storage;
-    WOLFTPM2_KEYBLOB akKey;
+    WOLFTPM2_KEYBLOB primary;
+    WOLFTPM2_HANDLE handle;
+    TPM2B_NAME name;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     FILE *fp;
     int dataSize = 0;
 #endif
     const char *output = "cred.blob";
-    const char *keyblob = "keyblob.bin";
+    const char *ekPubFile = "ek.pub";
+    const char *srkPubFile = "srk.pub";
+    const char *pubFilename = NULL;
 
     union {
         MakeCredential_In makeCred;
+        LoadExternal_In  loadExtIn;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
     union {
         MakeCredential_Out makeCred;
+        LoadExternal_Out loadExtOut;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
     if (argc == 1) {
-        printf("Using default values\n");
+        printf("Using public key from SRK to create the challenge\n");
     }
     else if (argc == 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -77,8 +89,9 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        if (argv[1][0] != '-') {
-            output = argv[1];
+        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+            printf("Using keys under the Endorsement Hierarchy\n");
+            endorseKey = 1;
         }
     }
     else {
@@ -87,50 +100,64 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         goto exit_badargs;
     }
 
-    XMEMSET(&storage, 0, sizeof(storage));
-    XMEMSET(&akKey, 0, sizeof(akKey));
+    XMEMSET(&name, 0, sizeof(name));
+    XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
+    XMEMSET(&cmdOut.makeCred, 0, sizeof(cmdOut.makeCred));
+    XMEMSET(&cmdIn.loadExtIn, 0, sizeof(cmdIn.loadExtIn));
+    XMEMSET(&cmdOut.loadExtOut, 0, sizeof(cmdOut.loadExtOut));
 
-    printf("Demo how to create a credential blob for remote attestation\n");
+    printf("Demo how to create a credential challenge for remote attestation\n");
+    printf("Credential will be stored in %s\n", output);
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
 
-    printf("Credential will be stored in %s\n", output);
+    /* Load encrypting public key from disk */
+    if (endorseKey) {
+        pubFilename = ekPubFile;
+    }
+    else {
+        pubFilename = srkPubFile;
+    }
+    rc = readKeyBlob(pubFilename, &primary);
+    if (rc != 0) {
+        printf("Failure to load %s\n", pubFilename);
+        goto exit;
+    }
+    /* Prepare the key for use by the TPM */
+    XMEMCPY(&cmdIn.loadExtIn.inPublic, &primary.pub, sizeof(cmdIn.loadExtIn.inPublic));
+    cmdIn.loadExtIn.hierarchy = TPM_RH_NULL;
+    rc = TPM2_LoadExternal(&cmdIn.loadExtIn, &cmdOut.loadExtOut);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_LoadExternal: failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+    printf("Public key for encryption loaded\n");
+    handle.hndl = cmdOut.loadExtOut.objectHandle;
 
-    /* Prepare the auth password for the storage key */
-    storage.handle.auth.size = sizeof(gStorageKeyAuth)-1;
-    XMEMCPY(storage.handle.auth.buffer, gStorageKeyAuth,
-            storage.handle.auth.size);
-    wolfTPM2_SetAuthPassword(&dev, 0, &storage.handle.auth);
+    /* Load AK Name digest */
+    fp = XFOPEN("ak.name", "rb");
+    if (fp != XBADFILE) {
+        XFREAD((BYTE*)&name, 1, sizeof(name), fp);
+        printf("Read AK Name digest\n");
+        XFCLOSE(fp);
+    }
 
-    /* Prepare the Make Credential command */
-    XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
-    XMEMSET(&cmdOut.makeCred, 0, sizeof(cmdOut.makeCred));
-    cmdIn.makeCred.handle = TPM2_DEMO_STORAGE_KEY_HANDLE;
-    /* Create secret for the attestation server - a symmetric key seed */
+    /* Create secret for the attestation server */
     cmdIn.makeCred.credential.size = CRED_SECRET_SIZE;
     wolfTPM2_GetRandom(&dev, cmdIn.makeCred.credential.buffer,
                         cmdIn.makeCred.credential.size);
-    /* Acquire the Name of the Attestation Key */
-    rc = readKeyBlob(keyblob, &akKey);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("Failure to read keyblob.\n");
-    }
-    storage.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
-    rc = wolfTPM2_LoadKey(&dev, &akKey, &storage.handle);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("Failure to load the AK and read its Name.\n");
-        goto exit;
-    }
-    printf("AK loaded at 0x%x\n", (word32)akKey.handle.hndl);
-    /* Copy the AK name into the command request */
-    cmdIn.makeCred.objectName.size = akKey.handle.name.size;
-    XMEMCPY(cmdIn.makeCred.objectName.name, akKey.handle.name.name,
+    /* Prepare the AK name */
+    cmdIn.makeCred.objectName.size = name.size;
+    XMEMCPY(cmdIn.makeCred.objectName.name, name.name,
                 cmdIn.makeCred.objectName.size);
-    /* All required data for a credential is prepared */
+    /* Set TPM key and execute */
+    cmdIn.makeCred.handle = handle.hndl;
     rc = TPM2_MakeCredential(&cmdIn.makeCred, &cmdOut.makeCred);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_MakeCredentials failed 0x%x: %s\n", rc,
@@ -155,7 +182,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    wolfTPM2_UnloadHandle(&dev, &akKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &handle);
     wolfTPM2_Cleanup(&dev);
 
 exit_badargs:

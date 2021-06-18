@@ -54,6 +54,11 @@ static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
 static const char gXorAuth[] =        "ThisIsMyXorAuth";
 
+static const char pemFileAk[] = "ak.pem";
+static const char pemFileEk[] = "ek.pem";
+static const char pemFileSrk[] = "srk.pem";
+static const char pemFileKey[] = "key.pem";
+
 /* Default Test PCR */
 /* PCR16 is for DEBUG purposes, thus safe to use */
 #define TPM2_TEST_PCR 16

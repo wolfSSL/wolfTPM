@@ -31,9 +31,10 @@
 
 typedef struct WOLFTPM2_HANDLE {
     TPM_HANDLE      hndl;
-    TPM2B_AUTH      auth;
+    TPM2B_AUTH      auth;       /* Used if policyAuth is not set */
     TPMT_SYM_DEF    symmetric;
     TPM2B_NAME      name;
+    int             policyAuth; /* Handle requires Policy, not password Auth */
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
@@ -481,6 +482,24 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Creates a TPM session with Policy Secret to satisfy the default EK policy
+    \note This wrapper can be used only if the EK authorization is not changed from default
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_FAILURE: check TPM return code, check available handles, check TPM IO
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session pointer to an empty WOLFTPM2_SESSION struct
+
+    \sa wolfTPM2_SetAuthSession
+    \sa wolfTPM2_StartAuthSession
+*/
+WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
+                                                    WOLFTPM2_SESSION* tpmSession);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Single function to prepare and create a TPM 2.0 Primary Key
     \note TPM 2.0 allows only asymmetric RSA or ECC primary keys. Afterwards, both symmetric and asymmetric keys can be created under a TPM 2.0 Primary Key
     Typically, Primary Keys are used to create Hierarchies of TPM 2.0 Keys.
@@ -595,6 +614,29 @@ WOLFTPM_API int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Creates and loads a key using single TPM 2.0 operation, and stores encrypted private key material
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type, contains private key material as encrypted data
+    \param parent pointer to a struct of WOLFTPM2_HANDLE type, specifying a TPM 2.0 Primary Key to be used as the parent(Storage Key)
+    \param publicTemplate pointer to a TPMT_PUBLIC structure populated manually or using one of the wolfTPM2_GetKeyTemplate_... wrappers
+    \param auth pointer to a string constant, specifying the password authorization of the TPM 2.0 key
+    \param authSz integer value, specifying the size of the password authorization, in bytes
+
+    \sa wolfTPM2_CreateAndLoadKey
+    \sa wolfTPM2_CreateKey
+    \sa wolfTPM2_LoadKey
+*/
+WOLFTPM_API int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
+    WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
 
 /*!
@@ -989,6 +1031,30 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Convert a public RSA TPM key to PEM format public key
+    Note: pem and tempBuf must be different buffers, of equal size
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param keyBlob pointer to a struct of WOLFTPM2_KEY type, holding a TPM key
+    \param pem pointer to an array of byte type, used as temporary storage for PEM conversation
+    \param pemSz pointer to integer variable, to store the used buffer size
+    \param tempBuf pointer to an array of byte type, used as temporary storage for conversation
+    \param tempSz integer, specifying the size of the tempSz
+
+    \sa wolfTPM2_RsaKey_TpmToWolf
+    \sa wolfTPM2_RsaKey_WolfToTpm
+*/
+WOLFTPM_API int wolfTPM2_RsaKey_TpmToPem(WOLFTPM2_DEV* dev,
+                                         WOLFTPM2_KEY* keyBlob,
+                                         byte* pem, int* pemSz,
+                                         byte* tempBuf, int tempSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Import a RSA wolfcrypt key into the TPM
     \note Allows the use of externally generated keys by wolfcrypt to be used with TPM 2.0
 
@@ -1019,11 +1085,31 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     \param wolfKey pointer to a struct of RsaKey type, holding a wolfcrypt key
     \param tpmKey pointer to an empty struct of WOLFTPM2_KEY type, to hold the imported TPM key
 
-    \sa wolfTPM2_RsaKey_WolfToTPM
+    \sa wolfTPM2_RsaKey_WolfToTpm
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
 WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, RsaKey* wolfKey, WOLFTPM2_KEY* tpmKey);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Import a PEM format public key from a file into the TPM
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmKey pointer to an empty struct of WOLFTPM2_KEY type, to hold the imported TPM key
+    \param tempBuf pointer to an array of byte type, to be used as temporary storage
+    \param tempSz integer variable, specifying the size of the buffer
+    \param filename pointer to a const string, specifying the name of the PEM file
+
+    \sa wolfTPM2_RsaKey_WolfToTpm
+    \sa wolfTPM2_RsaKey_TpmToPem
+    \sa wolfTPM2_RsaKey_TpmToWolf
+*/
+int wolfTPM2_RsaKey_PemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+                             byte *tempBuf, int tempSz, const char *filename);
 #endif
 #ifdef HAVE_ECC
 /*!
