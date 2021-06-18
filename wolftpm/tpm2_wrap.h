@@ -2080,6 +2080,20 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Prepares a TPM public template for generating a new TPM key that can be used with the SSH protocol
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
+
+    \sa wolfTPM2_GetKeyTemplate_RSA
+    \sa wolfTPM2_GetKeyTemplate_RSA_AIK
+*/
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_SSH(TPMT_PUBLIC* publicTemplate);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Prepares a TPM NV Index template
 
     \return TPM_RC_SUCCESS: successful

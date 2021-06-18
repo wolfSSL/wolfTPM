@@ -52,6 +52,7 @@ static void usage(void)
     printf("* -sym: Use Symmetric Cypher for key generation\n");
     printf("\tDefault Symmetric Cypher is AES CTR with 256 bits\n");
     printf("* -t: Use default template (otherwise AIK)\n");
+    printf("* -ssh: Use template for SSH key (only RSA algorithm)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("Example usage:\n");
     printf("\t* RSA, default template\n");
@@ -118,6 +119,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
     int bAIK = 1;
+    int bSSH = 0;
     int keyBits = 256;
     const char* outputFile = "keyblob.bin";
     size_t len = 0;
@@ -158,6 +160,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             bAIK = 0;
         }
         if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
+            bAIK = 0;
+        }
+        if (XSTRNCMP(argv[argc-1], "-ssh", 4) == 0) {
+            bSSH = 1;
             bAIK = 0;
         }
         if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
@@ -230,6 +236,20 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         auth.size = (int)sizeof(gAiKeyAuth)-1;
         XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
 
+    }
+    else if (bSSH) {
+        if (alg == TPM_ALG_RSA) {
+            printf("SSH template for RSA key\n");
+            rc = wolfTPM2_GetKeyTemplate_RSA_SSH(&publicTemplate);
+
+            /* set session for authorization key */
+            auth.size = (int)sizeof(gKeyAuth)-1;
+            XMEMCPY(auth.buffer, gKeyAuth, auth.size);
+        }
+        else {
+            printf("SSH template for ECC key not implemented\n");
+            rc = BAD_FUNC_ARG;
+        }
     }
     else {
         if (alg == TPM_ALG_RSA) {
