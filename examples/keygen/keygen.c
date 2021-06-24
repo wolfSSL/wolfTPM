@@ -240,7 +240,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     else if (bSSH) {
         if (alg == TPM_ALG_RSA) {
             printf("SSH template for RSA key\n");
-            rc = wolfTPM2_GetKeyTemplate_RSA_SSH(&publicTemplate);
+            rc = wolfTPM2_GetKeyTemplate_RSA_SSH(&publicTemplate, TPM_ALG_SHA1);
 
             /* set session for authorization key */
             auth.size = (int)sizeof(gKeyAuth)-1;

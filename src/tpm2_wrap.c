@@ -3901,7 +3901,7 @@ int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate)
     return ret;
 }
 
-int wolfTPM2_GetKeyTemplate_RSA_SSH(TPMT_PUBLIC* publicTemplate)
+int wolfTPM2_GetKeyTemplate_RSA_SSH(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID hashAlg)
 {
     int ret;
     TPMA_OBJECT objectAttributes = (
@@ -3913,7 +3913,7 @@ int wolfTPM2_GetKeyTemplate_RSA_SSH(TPMT_PUBLIC* publicTemplate)
      * at least 2048 bits
      * OAEP signature scheme with SHA1 hash algorithm */
     ret = GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
-        objectAttributes, 2048, 0, TPM_ALG_OAEP, TPM_ALG_SHA1);
+        objectAttributes, 2048, 0, TPM_ALG_OAEP, hashAlg);
     if (ret == 0) {
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
     }
