@@ -5355,7 +5355,7 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 {
-    if (pcr && pcrIndex >= PCR_FIRST && pcrIndex <= PCR_LAST) {
+    if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
         pcr->count = 1;
         pcr->pcrSelections[0].hash = alg;
         pcr->pcrSelections[0].sizeofSelect = PCR_SELECT_MIN;
