@@ -37,6 +37,8 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in);
 static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in);
 static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in);
 static void wolfTPM2_CopyEccParam(TPM2B_ECC_PARAMETER* out, const TPM2B_ECC_PARAMETER* in);
+static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* keyBlob);
+static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in);
 
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
@@ -1499,11 +1501,7 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     }
 
     /* return loaded key */
-    key->handle.hndl = keyBlob.handle.hndl;
-    wolfTPM2_CopyAuth(&key->handle.auth, &keyBlob.handle.auth);
-    wolfTPM2_CopyName(&key->handle.name, &keyBlob.handle.name);
-    wolfTPM2_CopySymmetric(&key->handle.symmetric, &keyBlob.handle.symmetric);
-    wolfTPM2_CopyPub(&key->pub, &keyBlob.pub);
+    wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
     return rc;
 }
@@ -1619,11 +1617,7 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     }
 
     /* return loaded key */
-    key->handle.hndl = keyBlob.handle.hndl;
-    wolfTPM2_CopyAuth(&key->handle.auth, &keyBlob.handle.auth);
-    wolfTPM2_CopyName(&key->handle.name, &keyBlob.handle.name);
-    wolfTPM2_CopySymmetric(&key->handle.symmetric, &keyBlob.handle.symmetric);
-    wolfTPM2_CopyPub(&key->pub, &keyBlob.pub);
+    wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
     return rc;
 }
@@ -2919,21 +2913,7 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
 #endif
 
     if (nvPublic) {
-        nvPublic->attributes = out.nvPublic.nvPublic.attributes;
-        nvPublic->authPolicy.size = out.nvPublic.nvPublic.authPolicy.size;
-        if (nvPublic->authPolicy.size > 0) {
-            if (nvPublic->authPolicy.size > 
-                    (UINT16)sizeof(nvPublic->authPolicy.buffer)) {
-                nvPublic->authPolicy.size = 
-                    (UINT16)sizeof(nvPublic->authPolicy.buffer);
-            }
-            XMEMCPY(nvPublic->authPolicy.buffer,
-                    out.nvPublic.nvPublic.authPolicy.buffer,
-                    nvPublic->authPolicy.size);
-        }
-        nvPublic->dataSize = out.nvPublic.nvPublic.dataSize;
-        nvPublic->nameAlg = out.nvPublic.nvPublic.nameAlg;
-        nvPublic->nvIndex = out.nvPublic.nvPublic.nvIndex;
+        wolfTPM2_CopyNvPublic(nvPublic, &out.nvPublic.nvPublic);
     }
     /* TODO: For HMAC calc out.nvName will need captured */
 
@@ -4341,6 +4321,34 @@ static void wolfTPM2_CopyEccParam(TPM2B_ECC_PARAMETER* out,
     }
 }
 
+static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* keyBlob)
+{
+    if (key != NULL && keyBlob != NULL) {
+        key->handle.hndl = keyBlob->handle.hndl;
+        wolfTPM2_CopyAuth(&key->handle.auth, &keyBlob->handle.auth);
+        wolfTPM2_CopyName(&key->handle.name, &keyBlob->handle.name);
+        wolfTPM2_CopySymmetric(&key->handle.symmetric, &keyBlob->handle.symmetric);
+        wolfTPM2_CopyPub(&key->pub, &keyBlob->pub);
+    }
+}
+
+static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
+{
+    if (out != NULL && in != NULL) {
+        out->attributes = in->attributes;
+        out->authPolicy.size = in->authPolicy.size;
+        if (out->authPolicy.size > 0) {
+            if (out->authPolicy.size > (UINT16)sizeof(out->authPolicy.buffer)) {
+                out->authPolicy.size = (UINT16)sizeof(out->authPolicy.buffer);
+            }
+            XMEMCPY(out->authPolicy.buffer, in->authPolicy.buffer, out->authPolicy.size);
+        }
+        out->dataSize = in->dataSize;
+        out->nameAlg = in->nameAlg;
+        out->nvIndex = in->nvIndex;
+    }
+}
+
 
 /******************************************************************************/
 /* --- END Utility Functions -- */
@@ -4917,7 +4925,7 @@ int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
         devId = rc;
         tpmCtx->dev = dev;
 
-        rc = wc_CryptoCb_RegisterDevice(devId, cb, tpmCtx);
+        rc = wc_CryptoDev_RegisterDevice(devId, cb, tpmCtx);
     }
 
     if (pDevId) {
