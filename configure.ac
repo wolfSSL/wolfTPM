@@ -129,7 +129,13 @@ fi
 # wolfSSL/wolfCrypt
 AC_MSG_CHECKING([for wolfSSL/wolfCrypt
 ])
-wcpath=$prefix
+if test "x$prefix" = "xNONE"
+then
+    wcpath=$ac_default_prefix
+else
+    wcpath=$prefix
+fi
+AC_MSG_NOTICE([prefix ${prefix}])
 WOLFSSL_URL="http://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
   [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
@@ -171,9 +177,9 @@ then
         LIBS="$save_LIBS"
     ])
 
-    if test "x$ac_cv_libwolfssl" = "xno" && test "x$ENABLED_WOLFCRYPT" = "xno"; then
+    if test "x$ac_cv_libwolfssl" = "xno" && test "x$ENABLED_WOLFCRYPT" != "xno"; then
       AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
-        If it's already installed, specify its path using --with-wolfcrypt=/dir/])
+        If it's already installed, specify its path using --with-wolfcrypt=/dir or --prefix=/dir])
     fi
 else
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
