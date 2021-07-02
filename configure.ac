@@ -129,7 +129,7 @@ fi
 # wolfSSL/wolfCrypt
 AC_MSG_CHECKING([for wolfSSL/wolfCrypt
 ])
-wcpath="/usr/local/"
+wcpath=$prefix
 WOLFSSL_URL="http://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
   [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
@@ -141,8 +141,6 @@ AC_ARG_WITH(wolfcrypt,
         AC_MSG_ERROR([wolfCrypt path error (${withval}): missing lib and include])
       fi
     fi
-    LDFLAGS="$LDFLAGS -L${wcpath}/lib"
-    CPPFLAGS="$CPPFLAGS -I${wcpath}/include"    
   ]
 )
 
@@ -155,6 +153,8 @@ AC_ARG_ENABLE([wolfcrypt],
 if test "x$ENABLED_WOLFCRYPT" = "xyes"
 then
     LIBS="$LIBS -lwolfssl"
+    LDFLAGS="$LDFLAGS -L${wcpath}/lib"
+    CPPFLAGS="$CPPFLAGS -I${wcpath}/include"
 
     AC_LIB_HAVE_LINKFLAGS(wolfssl,,
     [
