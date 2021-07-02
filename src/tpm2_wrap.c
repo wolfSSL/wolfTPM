@@ -30,7 +30,15 @@
 
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
-
+static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in);
+static void wolfTPM2_CopyName(TPM2B_NAME* out, const TPM2B_NAME* in);
+static void wolfTPM2_CopyAuth(TPM2B_AUTH* out, const TPM2B_AUTH* in);
+static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in);
+static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in);
+static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in);
+static void wolfTPM2_CopyEccParam(TPM2B_ECC_PARAMETER* out, const TPM2B_ECC_PARAMETER* in);
+static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* keyBlob);
+static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in);
 
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
@@ -51,7 +59,8 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
     rc = TPM2_Init_minimal(ctx);
     /* Using standard file I/O for the Linux TPM device */
     (void)ioCb;
@@ -500,7 +509,8 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         return BAD_FUNC_ARG;
     }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     /* make sure crypto dev callback is unregistered */
     rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
     if (rc != 0)
@@ -514,7 +524,8 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         rc = TPM2_Shutdown(&shutdownIn);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Shutdown failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+            printf("TPM2_Shutdown failed %d: %s\n",
+                rc, wolfTPM2_GetRCString(rc));
         #endif
             /* finish cleanup and return error */
         }
@@ -537,7 +548,8 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
 /* returns both the plaintext and encrypted salt, based on the salt key bPublic. */
 int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea)
+    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt,
+    TPMT_PUBLIC *publicArea)
 {
     int rc;
     WC_RNG* rng;
@@ -777,11 +789,20 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     session->type = authSesIn.sessionType;
     session->authHash = authSesIn.authHash;
     session->handle.hndl = authSesOut.sessionHandle;
-    session->handle.symmetric = authSesIn.symmetric;
-    if (bind)
-        session->handle.name = bind->name;
-    session->nonceCaller = authSesIn.nonceCaller;
-    session->nonceTPM = authSesOut.nonceTPM;
+    wolfTPM2_CopySymmetric(&session->handle.symmetric, &authSesIn.symmetric);
+    if (bind) {
+        wolfTPM2_CopyName(&session->handle.name, &bind->name);
+    }
+    session->nonceCaller.size = authSesIn.nonceCaller.size;
+    if (session->nonceCaller.size > (UINT16)sizeof(session->nonceCaller.buffer))
+        session->nonceCaller.size = (UINT16)sizeof(session->nonceCaller.buffer);
+    XMEMCPY(session->nonceCaller.buffer, authSesIn.nonceCaller.buffer,
+        authSesIn.nonceCaller.size);
+    session->nonceTPM.size = authSesOut.nonceTPM.size;
+    if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
+        session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
+    XMEMCPY(session->nonceTPM.buffer, authSesOut.nonceTPM.buffer,
+        session->nonceTPM.size);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_StartAuthSession: handle 0x%x, algorithm %s\n",
@@ -836,11 +857,12 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
     key->handle.hndl = createPriOut.objectHandle;
-    key->handle.auth = createPriIn.inSensitive.sensitive.userAuth;
-    key->handle.name = createPriOut.name;
-    key->handle.symmetric = createPriOut.outPublic.publicArea.parameters.asymDetail.symmetric;
-
-    key->pub = createPriOut.outPublic;
+    wolfTPM2_CopyAuth(&key->handle.auth,
+        &createPriIn.inSensitive.sensitive.userAuth);
+    wolfTPM2_CopyName(&key->handle.name, &createPriOut.name);
+    wolfTPM2_CopySymmetric(&key->handle.symmetric,
+        &createPriOut.outPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyPub(&key->pub, &createPriOut.outPublic);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
@@ -893,8 +915,8 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = changeOut.outPrivate;
-    loadIn.inPublic = key->pub;
+    wolfTPM2_CopyPriv(&loadIn.inPrivate, &changeOut.outPrivate);
+    wolfTPM2_CopyPub(&loadIn.inPublic, &key->pub);
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -903,11 +925,12 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
     key->handle.hndl = loadOut.objectHandle;
-    key->handle.auth = changeIn.newAuth;
-    key->handle.name = loadOut.name;
+    wolfTPM2_CopyAuth(&key->handle.auth, &changeIn.newAuth);
+    wolfTPM2_CopyName(&key->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_ChangeAuthKey: Key Handle 0x%x\n", (word32)key->handle.hndl);
+    printf("wolfTPM2_ChangeAuthKey: Key Handle 0x%x\n",
+        (word32)key->handle.hndl);
 #endif
 
     return rc;
@@ -921,8 +944,10 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     Create_In  createIn;
     Create_Out createOut;
 
-    if (dev == NULL || keyBlob == NULL || parent == NULL || publicTemplate == NULL)
+    if (dev == NULL || keyBlob == NULL || parent == NULL ||
+            publicTemplate == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* clear output key buffer */
     XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
@@ -960,11 +985,12 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
 
-    keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;
-    keyBlob->handle.symmetric = createOut.outPublic.publicArea.parameters.asymDetail.symmetric;
-
-    keyBlob->pub = createOut.outPublic;
-    keyBlob->priv = createOut.outPrivate;
+    wolfTPM2_CopyAuth(&keyBlob->handle.auth,
+        &createIn.inSensitive.sensitive.userAuth);
+    wolfTPM2_CopySymmetric(&keyBlob->handle.symmetric,
+            &createOut.outPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyPub(&keyBlob->pub, &createOut.outPublic);
+    wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
     return rc;
 }
@@ -987,8 +1013,8 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = keyBlob->priv;
-    loadIn.inPublic = keyBlob->pub;
+    wolfTPM2_CopyPriv(&loadIn.inPrivate, &keyBlob->priv);
+    wolfTPM2_CopyPub(&loadIn.inPublic, &keyBlob->pub);
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -997,7 +1023,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         return rc;
     }
     keyBlob->handle.hndl = loadOut.objectHandle;
-    keyBlob->handle.name = loadOut.name;
+    wolfTPM2_CopyName(&keyBlob->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Load Key Handle 0x%x\n", (word32)keyBlob->handle.hndl);
@@ -1039,7 +1065,7 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* Loading public key */
     XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
-    loadExtIn.inPublic = *pub;
+    wolfTPM2_CopyPub(&loadExtIn.inPublic, pub);
     loadExtIn.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -1050,10 +1076,10 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
     key->handle.hndl = loadExtOut.objectHandle;
-    key->handle.symmetric = loadExtIn.inPublic.publicArea.parameters.asymDetail.symmetric;
-    key->handle.name = loadExtOut.name;
-
-    key->pub = loadExtIn.inPublic;
+    wolfTPM2_CopySymmetric(&key->handle.symmetric,
+            &loadExtIn.inPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyName(&key->handle.name, &loadExtOut.name);
+    wolfTPM2_CopyPub(&key->pub, &loadExtIn.inPublic);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_LoadExternal: 0x%x\n", (word32)loadExtOut.objectHandle);
@@ -1167,7 +1193,8 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     sensSz = packet.pos - innerSz - outerSz;
 
     if (innerWrap) {
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_AES) && defined(WOLFSSL_AES_CFB)
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_AES) && \
+        defined(WOLFSSL_AES_CFB)
         Aes enc;
         TPM2B_IV ivField;
         TPM2B_SYM_KEY symKey;
@@ -1197,7 +1224,8 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
                               ivField.buffer, AES_ENCRYPTION);
             /* Encryption in-place */
             if (rc == 0)
-                rc = wc_AesCfbEncrypt(&enc, &packet.buf[innerSz], &packet.buf[innerSz], sensSz);
+                rc = wc_AesCfbEncrypt(&enc, &packet.buf[innerSz],
+                    &packet.buf[innerSz], sensSz);
             wc_AesFree(&enc);
         }
     #else
@@ -1244,7 +1272,8 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
 
         /* write result at position after Priv->size and Outer->Size field */
         if (rc == 0)
-            rc = wc_HmacFinal(&hmac_ctx, &packet.buf[sizeof(word16)+sizeof(word16)]);
+            rc = wc_HmacFinal(&hmac_ctx,
+                &packet.buf[sizeof(word16)+sizeof(word16)]);
         wc_HmacFree(&hmac_ctx);
         if (rc != 0)
             return rc;
@@ -1287,7 +1316,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     /* Import private key */
     XMEMSET(&importIn, 0, sizeof(importIn));
     importIn.parentHandle = parentHandle;
-    importIn.objectPublic = *pub;
+    wolfTPM2_CopyPub(&importIn.objectPublic, pub);
     importIn.symmetricAlg.algorithm = TPM_ALG_NULL;
     rc = wolfTPM2_ComputeName(pub, &name);
     if (rc != TPM_RC_SUCCESS) {
@@ -1316,9 +1345,10 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    keyBlob->handle.symmetric = importIn.objectPublic.publicArea.parameters.asymDetail.symmetric;
-    keyBlob->pub = importIn.objectPublic;
-    keyBlob->priv = importOut.outPrivate;
+    wolfTPM2_CopySymmetric(&keyBlob->handle.symmetric,
+            &importIn.objectPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyPub(&keyBlob->pub, &importIn.objectPublic);
+    wolfTPM2_CopyPriv(&keyBlob->priv, &importOut.outPrivate);
 
     return rc;
 }
@@ -1350,8 +1380,11 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     }
 
     /* return loaded key */
-    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
-    key->handle.auth = sens->sensitiveArea.authValue;
+    key->handle.hndl = keyBlob.handle.hndl;
+    wolfTPM2_CopyName(&key->handle.name, &keyBlob.handle.name);
+    wolfTPM2_CopySymmetric(&key->handle.symmetric, &keyBlob.handle.symmetric);
+    wolfTPM2_CopyPub(&key->pub, &keyBlob.pub);
+    wolfTPM2_CopyAuth(&key->handle.auth, &sens->sensitiveArea.authValue);
 
     return rc;
 }
@@ -1405,9 +1438,9 @@ int wolfTPM2_LoadRsaPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
-int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
-    WOLFTPM2_KEYBLOB* keyBlob, const byte* rsaPub, word32 rsaPubSz, word32 exponent,
-    const byte* rsaPriv, word32 rsaPrivSz,
+int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* rsaPub,
+    word32 rsaPubSz, word32 exponent, const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
     TPM2B_PUBLIC pub;
@@ -1448,9 +1481,9 @@ int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKe
     return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
 }
 
-int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
-    WOLFTPM2_KEY* key, const byte* rsaPub, word32 rsaPubSz, word32 exponent,
-    const byte* rsaPriv, word32 rsaPrivSz,
+int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key, const byte* rsaPub,
+    word32 rsaPubSz, word32 exponent, const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
     int rc;
@@ -1463,11 +1496,12 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentK
     rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, &keyBlob, rsaPub, rsaPubSz,
         exponent, rsaPriv, rsaPrivSz, scheme, hashAlg);
     if (rc == 0) {
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, (WOLFTPM2_HANDLE*)&parentKey->handle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
-    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
     return rc;
 }
@@ -1578,11 +1612,12 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, &keyBlob, curveId,
         eccPubX, eccPubXSz, eccPubY, eccPubYSz, eccPriv, eccPrivSz);
     if (rc == 0) {
-        rc = wolfTPM2_LoadKey(dev, &keyBlob, (WOLFTPM2_HANDLE*)&parentKey->handle);
+        rc = wolfTPM2_LoadKey(dev, &keyBlob,
+            (WOLFTPM2_HANDLE*)&parentKey->handle);
     }
 
     /* return loaded key */
-    XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
+    wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
     return rc;
 }
@@ -1609,9 +1644,10 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
     key->handle.hndl = readPubIn.objectHandle;
-    key->handle.symmetric = readPubOut.outPublic.publicArea.parameters.asymDetail.symmetric;
-    key->handle.name = readPubOut.name;
-    key->pub = readPubOut.outPublic;
+    wolfTPM2_CopySymmetric(&key->handle.symmetric,
+            &readPubOut.outPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyName(&key->handle.name, &readPubOut.name);
+    wolfTPM2_CopyPub(&key->pub, &readPubOut.outPublic);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
@@ -1806,7 +1842,8 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         /* export the raw public ECC portion */
         rc = wc_ecc_export_public_raw(wolfKey, qx, &qxSz, qy, &qySz);
         if (rc == 0) {
-            rc = wolfTPM2_LoadEccPublicKey(dev, tpmKey, curve_id, qx, qxSz, qy, qySz);
+            rc = wolfTPM2_LoadEccPublicKey(dev, tpmKey, curve_id, qx, qxSz,
+                qy, qySz);
         }
     }
 
@@ -2205,7 +2242,9 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return rc;
     }
 
-    *pubPoint = ecdhOut.pubPoint;
+    pubPoint->size = ecdhOut.pubPoint.size;
+    wolfTPM2_CopyEccParam(&pubPoint->point.x, &ecdhOut.pubPoint.point.x);
+    wolfTPM2_CopyEccParam(&pubPoint->point.y, &ecdhOut.pubPoint.point.y);
     *outSz = ecdhOut.zPoint.point.x.size;
     XMEMCPY(out, ecdhOut.zPoint.point.x.buffer, ecdhOut.zPoint.point.x.size);
 
@@ -2292,7 +2331,8 @@ int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id)
     }
 
     /* Save the point and counter (commit ID) into ecdhKey */
-    ecdhKey->pub.publicArea.unique.ecc = out.Q.point;
+    wolfTPM2_CopyEccParam(&ecdhKey->pub.publicArea.unique.ecc.x, &out.Q.point.x);
+    wolfTPM2_CopyEccParam(&ecdhKey->pub.publicArea.unique.ecc.y, &out.Q.point.y);
     ecdhKey->handle.hndl = (UINT32)out.counter;
 
     return rc;
@@ -2466,7 +2506,7 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     PCR_Read_Out pcrReadOut;
     int digestLen = 0;
 
-    if (dev == NULL || pcrIndex < PCR_FIRST || pcrIndex > PCR_LAST)
+    if (dev == NULL || pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST)
         return BAD_FUNC_ARG;
 
     /* set session auth to blank */
@@ -2620,7 +2660,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     /* return new NV handle */
     nv->handle.hndl = (TPM_HANDLE)nvIndex;
-    nv->handle.auth = in.auth;
+    wolfTPM2_CopyAuth(&nv->handle.auth, &in.auth);
     /* nv->handle.name already populated by TPM2_HashNvPublic above */
 
 #ifdef DEBUG_WOLFTPM
@@ -2873,7 +2913,7 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
 #endif
 
     if (nvPublic) {
-        XMEMCPY(nvPublic, &out.nvPublic.nvPublic, sizeof(*nvPublic));
+        wolfTPM2_CopyNvPublic(nvPublic, &out.nvPublic.nvPublic);
     }
     /* TODO: For HMAC calc out.nvName will need captured */
 
@@ -3030,7 +3070,7 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     XMEMCPY(hash->handle.auth.buffer, usageAuth, usageAuthSz);
 
     XMEMSET(&in, 0, sizeof(in));
-    in.auth = hash->handle.auth;
+    wolfTPM2_CopyAuth(&in.auth, &hash->handle.auth);
     in.hashAlg = hashAlg;
     rc = TPM2_HashSequenceStart(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
@@ -3225,7 +3265,8 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
     LoadExternal_Out loadExtOut;
     int hashAlg, hashAlgDigSz;
 
-    if (dev == NULL || key == NULL || keyBuf == NULL || (keySz != 16 && keySz != 32)) {
+    if (dev == NULL || key == NULL || keyBuf == NULL || 
+            (keySz != 16 && keySz != 32)) {
         return BAD_FUNC_ARG;
     }
     if (keySz > sizeof(loadExtIn.inPrivate.sensitiveArea.sensitive.sym.buffer)) {
@@ -3274,11 +3315,13 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc == TPM_RC_SUCCESS) {
         key->handle.hndl = loadExtOut.objectHandle;
-        key->handle.symmetric = loadExtIn.inPublic.publicArea.parameters.asymDetail.symmetric;
-        key->pub = loadExtIn.inPublic;
+        wolfTPM2_CopySymmetric(&key->handle.symmetric,
+                &loadExtIn.inPublic.publicArea.parameters.asymDetail.symmetric);
+        wolfTPM2_CopyPub(&key->pub, &loadExtIn.inPublic);
 
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_LoadSymmetricKey: 0x%x\n", (word32)loadExtOut.objectHandle);
+        printf("wolfTPM2_LoadSymmetricKey: 0x%x\n",
+            (word32)loadExtOut.objectHandle);
     #endif
         return rc;
     }
@@ -3287,8 +3330,8 @@ exit:
 
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_LoadExternal: failed %d: %s\n", rc,
-            wolfTPM2_GetRCString(rc));
+        printf("TPM2_LoadExternal: failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -3305,7 +3348,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     EncryptDecrypt2_In encDecIn;
     EncryptDecrypt2_Out encDecOut;
 
-    if (dev == NULL || key == NULL || in == NULL || out == NULL || inOutSz == 0) {
+    if (dev == NULL || key == NULL || in == NULL || out == NULL ||
+            inOutSz == 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -3486,14 +3530,15 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
-    key->handle.symmetric = createOut.outPublic.publicArea.parameters.asymDetail.symmetric;
-    key->pub = createOut.outPublic;
+    wolfTPM2_CopySymmetric(&key->handle.symmetric,
+            &createOut.outPublic.publicArea.parameters.asymDetail.symmetric);
+    wolfTPM2_CopyPub(&key->pub, &createOut.outPublic);
 
     /* Load new key */
     XMEMSET(&loadIn, 0, sizeof(loadIn));
     loadIn.parentHandle = parent->hndl;
-    loadIn.inPrivate = createOut.outPrivate;
-    loadIn.inPublic = key->pub;
+    wolfTPM2_CopyPriv(&loadIn.inPrivate, &createOut.outPrivate);
+    wolfTPM2_CopyPub(&loadIn.inPublic, &key->pub);
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -3502,8 +3547,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
     key->handle.hndl = loadOut.objectHandle;
-    key->handle.auth = createIn.inSensitive.sensitive.userAuth;
-    key->handle.name = loadOut.name;
+    wolfTPM2_CopyAuth(&key->handle.auth, &createIn.inSensitive.sensitive.userAuth);
+    wolfTPM2_CopyName(&key->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
     printf("wolfTPM2_LoadKeyedHashKey Key Handle 0x%x\n",
@@ -3514,8 +3559,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 
 int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
-    WOLFTPM2_HANDLE* parent, TPMI_ALG_HASH hashAlg, const byte* keyBuf, word32 keySz,
-    const byte* usageAuth, word32 usageAuthSz)
+    WOLFTPM2_HANDLE* parent, TPMI_ALG_HASH hashAlg, const byte* keyBuf,
+    word32 keySz, const byte* usageAuth, word32 usageAuthSz)
 {
     int rc;
     HMAC_Start_In in;
@@ -3533,8 +3578,8 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 
     if (!hmac->hmacKeyLoaded || hmac->key.handle.hndl == TPM_RH_NULL) {
         /* Load Keyed Hash Key */
-        rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf, keySz,
-            usageAuth, usageAuthSz);
+        rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf,
+            keySz, usageAuth, usageAuthSz);
         if (rc != 0) {
             return rc;
         }
@@ -3549,7 +3594,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     /* Setup HMAC start command */
     XMEMSET(&in, 0, sizeof(in));
     in.handle = hmac->key.handle.hndl;
-    in.auth = hmac->hash.handle.auth;
+    wolfTPM2_CopyAuth(&in.auth, &hmac->hash.handle.auth);
     in.hashAlg = hashAlg;
     rc = TPM2_HMAC_Start(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
@@ -3629,7 +3674,8 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
         rc = TPM2_Startup(&startupIn);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+            printf("TPM2_Startup failed %d: %s\n",
+                rc, wolfTPM2_GetRCString(rc));
         #endif
             return rc;
         }
@@ -3642,7 +3688,8 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
     return rc;
 }
 
-int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart, word32 handleCount)
+int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
+    word32 handleCount)
 {
     int rc = TPM_RC_SUCCESS;
     word32 hndl;
@@ -3651,7 +3698,8 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart, word32 handleC
         return BAD_FUNC_ARG;
     }
     XMEMSET(&handle, 0, sizeof(handle));
-    handle.auth = dev->session[0].auth;
+    wolfTPM2_CopyAuth(&handle.auth, &dev->session[0].auth);
+
     for (hndl=handleStart; hndl < handleStart+handleCount; hndl++) {
         handle.hndl = hndl;
         /* ignore return code failures */
@@ -4034,7 +4082,7 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, auth,
             createIn.inSensitive.sensitive.userAuth.size);
     }
-    XMEMCPY(&createIn.inPublic.publicArea, publicTemplate, sizeof(TPMT_PUBLIC));
+    wolfTPM2_CopyPubT(&createIn.inPublic.publicArea, publicTemplate);
 
     /* Seal user (arbitrary) data in the newly generated TPM key */
     createIn.inSensitive.sensitive.data.size = sealSize;
@@ -4044,7 +4092,8 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_CreateKeySeal failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("wolfTPM2_CreateKeySeal failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -4055,11 +4104,12 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
 
-    keyBlob->handle.auth = createIn.inSensitive.sensitive.userAuth;
-    keyBlob->handle.symmetric = createOut.outPublic.publicArea.parameters.asymDetail.symmetric;
+    wolfTPM2_CopyAuth(&keyBlob->handle.auth, &createIn.inSensitive.sensitive.userAuth);
+    wolfTPM2_CopySymmetric(&keyBlob->handle.symmetric,
+            &createOut.outPublic.publicArea.parameters.asymDetail.symmetric);
 
-    keyBlob->pub = createOut.outPublic;
-    keyBlob->priv = createOut.outPrivate;
+    wolfTPM2_CopyPub(&keyBlob->pub, &createOut.outPublic);
+    wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
     return rc;
 }
@@ -4069,7 +4119,7 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
     int rc;
     GetTime_In getTimeCmd;
 
-    if(getTimeOut == NULL) return BAD_FUNC_ARG;
+    if (getTimeOut == NULL) return BAD_FUNC_ARG;
 
     /* GetTime */
     XMEMSET(&getTimeCmd, 0, sizeof(getTimeCmd));
@@ -4091,13 +4141,222 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
     return rc;
 }
 
+static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in)
+{
+    if (out == NULL || in == NULL)
+        return;
+
+    out->algorithm = in->algorithm;
+    switch (out->algorithm) {
+        case TPM_ALG_XOR:
+            out->keyBits.xorr = in->keyBits.xorr;
+            break;
+        case TPM_ALG_AES:
+            out->keyBits.aes = in->keyBits.aes;
+            out->mode.aes = in->mode.aes;
+            break;
+        case TPM_ALG_NULL:
+            break;
+        default:
+            out->keyBits.sym = in->keyBits.sym;
+            out->mode.sym = in->mode.sym;
+            break;
+    }
+}
+
+static void wolfTPM2_CopyName(TPM2B_NAME* out, const TPM2B_NAME* in)
+{
+    if (out != NULL && in != NULL) {
+        out->size = in->size;
+        if (out->size > (UINT16)sizeof(out->name))
+            out->size = (UINT16)sizeof(out->name);
+        XMEMCPY(out->name, in->name, out->size);
+    }
+}
+
+static void wolfTPM2_CopyAuth(TPM2B_AUTH* out, const TPM2B_AUTH* in)
+{
+    if (out != NULL && in != NULL) {
+        out->size = in->size;
+        if (out->size > (UINT16)sizeof(out->buffer))
+            out->size = (UINT16)sizeof(out->buffer);
+        XMEMCPY(out->buffer, in->buffer, out->size);
+    }
+}
+
+static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
+{
+    if (out == NULL || in == NULL)
+        return;
+
+    out->type = in->type;
+    out->nameAlg = in->nameAlg;
+    out->objectAttributes = in->objectAttributes;
+    out->authPolicy.size = in->authPolicy.size;
+    if (out->authPolicy.size > 0) {
+        if (out->authPolicy.size > 
+                (UINT16)sizeof(out->authPolicy.buffer))
+            out->authPolicy.size = 
+                (UINT16)sizeof(out->authPolicy.buffer);
+        XMEMCPY(out->authPolicy.buffer,
+                in->authPolicy.buffer,
+                out->authPolicy.size);
+    }
+    
+    switch (out->type) {
+    case TPM_ALG_KEYEDHASH:
+        out->parameters.keyedHashDetail.scheme = 
+            in->parameters.keyedHashDetail.scheme;
+        
+        out->unique.keyedHash.size = 
+            in->unique.keyedHash.size;
+        if (out->unique.keyedHash.size > 
+                (UINT16)sizeof(out->unique.keyedHash.buffer)) {
+            out->unique.keyedHash.size = 
+                (UINT16)sizeof(out->unique.keyedHash.buffer);
+        }
+        XMEMCPY(out->unique.keyedHash.buffer,
+                in->unique.keyedHash.buffer,
+                out->unique.keyedHash.size);
+        break;
+    case TPM_ALG_SYMCIPHER:
+        out->parameters.symDetail.sym.algorithm = 
+            in->parameters.symDetail.sym.algorithm;
+        out->parameters.symDetail.sym.keyBits.sym = 
+            in->parameters.symDetail.sym.keyBits.sym;
+        out->parameters.symDetail.sym.mode.sym = 
+            in->parameters.symDetail.sym.mode.sym;
+
+        out->unique.sym.size = 
+            in->unique.sym.size;
+        if (out->unique.sym.size > 
+                (UINT16)sizeof(out->unique.sym.buffer)) {
+            out->unique.sym.size =
+                (UINT16)sizeof(out->unique.sym.buffer);
+        }
+        XMEMCPY(out->unique.sym.buffer,
+                in->unique.sym.buffer,
+                out->unique.sym.size);
+        break;
+    case TPM_ALG_RSA:
+        wolfTPM2_CopySymmetric(&out->parameters.rsaDetail.symmetric,
+            &in->parameters.rsaDetail.symmetric);
+        out->parameters.rsaDetail.scheme.scheme = 
+            in->parameters.rsaDetail.scheme.scheme;
+        if (out->parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL)
+            out->parameters.rsaDetail.scheme.details.anySig.hashAlg = 
+                in->parameters.rsaDetail.scheme.details.anySig.hashAlg;
+        out->parameters.rsaDetail.keyBits = 
+            in->parameters.rsaDetail.keyBits;
+        out->parameters.rsaDetail.exponent = 
+            in->parameters.rsaDetail.exponent;
+
+        out->unique.rsa.size = 
+            in->unique.rsa.size;
+        if (out->unique.rsa.size > 
+                (UINT16)sizeof(out->unique.rsa.buffer)) {
+            out->unique.rsa.size = 
+                (UINT16)sizeof(out->unique.rsa.buffer);
+        }
+        XMEMCPY(out->unique.rsa.buffer,
+                in->unique.rsa.buffer,
+                out->unique.rsa.size);
+        break;
+    case TPM_ALG_ECC:
+        wolfTPM2_CopySymmetric(&out->parameters.eccDetail.symmetric,
+            &in->parameters.eccDetail.symmetric);
+        out->parameters.eccDetail.scheme.scheme = 
+            in->parameters.eccDetail.scheme.scheme;
+        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL)
+            out->parameters.eccDetail.scheme.details.any.hashAlg = 
+                in->parameters.eccDetail.scheme.details.any.hashAlg;
+        out->parameters.eccDetail.curveID = 
+            in->parameters.eccDetail.curveID;
+        out->parameters.eccDetail.kdf = 
+            in->parameters.eccDetail.kdf;
+
+        wolfTPM2_CopyEccParam(&out->unique.ecc.x,
+            &in->unique.ecc.x);
+        wolfTPM2_CopyEccParam(&out->unique.ecc.y,
+            &in->unique.ecc.y);
+        break;
+    default:
+        wolfTPM2_CopySymmetric(&out->parameters.asymDetail.symmetric,
+            &in->parameters.asymDetail.symmetric);
+        out->parameters.asymDetail.scheme.scheme = 
+            in->parameters.asymDetail.scheme.scheme;
+        if (out->parameters.asymDetail.scheme.scheme != TPM_ALG_NULL)
+            out->parameters.asymDetail.scheme.details.anySig.hashAlg = 
+                in->parameters.asymDetail.scheme.details.anySig.hashAlg;
+        break;
+    }
+}
+
+static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in)
+{
+    if (out != NULL && in != NULL) {
+        out->size = in->size;
+        wolfTPM2_CopyPubT(&out->publicArea, &in->publicArea);
+    }
+}
+
+static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in)
+{
+    if (out != NULL && in != NULL) {
+        out->size = in->size;
+        if (out->size > (UINT16)sizeof(out->buffer))
+            out->size = (UINT16)sizeof(out->buffer);
+        XMEMCPY(out->buffer, in->buffer, out->size);
+    }
+}
+
+static void wolfTPM2_CopyEccParam(TPM2B_ECC_PARAMETER* out,
+    const TPM2B_ECC_PARAMETER* in)
+{
+    if (out != NULL && in != NULL) {
+        out->size = in->size;
+        if (out->size > (UINT16)sizeof(out->buffer))
+            out->size = (UINT16)sizeof(out->buffer);
+        XMEMCPY(out->buffer, in->buffer, out->size);
+    }
+}
+
+static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* keyBlob)
+{
+    if (key != NULL && keyBlob != NULL) {
+        key->handle.hndl = keyBlob->handle.hndl;
+        wolfTPM2_CopyAuth(&key->handle.auth, &keyBlob->handle.auth);
+        wolfTPM2_CopyName(&key->handle.name, &keyBlob->handle.name);
+        wolfTPM2_CopySymmetric(&key->handle.symmetric, &keyBlob->handle.symmetric);
+        wolfTPM2_CopyPub(&key->pub, &keyBlob->pub);
+    }
+}
+
+static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
+{
+    if (out != NULL && in != NULL) {
+        out->attributes = in->attributes;
+        out->authPolicy.size = in->authPolicy.size;
+        if (out->authPolicy.size > 0) {
+            if (out->authPolicy.size > (UINT16)sizeof(out->authPolicy.buffer)) {
+                out->authPolicy.size = (UINT16)sizeof(out->authPolicy.buffer);
+            }
+            XMEMCPY(out->authPolicy.buffer, in->authPolicy.buffer, out->authPolicy.size);
+        }
+        out->dataSize = in->dataSize;
+        out->nameAlg = in->nameAlg;
+        out->nvIndex = in->nvIndex;
+    }
+}
+
 
 /******************************************************************************/
 /* --- END Utility Functions -- */
 /******************************************************************************/
 
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || \
+    defined(WOLF_CRYPTO_CB))
 /******************************************************************************/
 /* --- BEGIN wolf Crypto Device Support -- */
 /******************************************************************************/
