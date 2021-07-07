@@ -1100,16 +1100,17 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 
     \param dev pointer to a TPM2_DEV struct
     \param tpmKey pointer to an empty struct of WOLFTPM2_KEY type, to hold the imported TPM key
+    \param pem pointer to an array of byte type, containing a PEM formated public key material
+    \param pemSz pointer to integer variable, specifying the size of PEM key data
     \param tempBuf pointer to an array of byte type, to be used as temporary storage
     \param tempSz integer variable, specifying the size of the buffer
-    \param filename pointer to a const string, specifying the name of the PEM file
 
     \sa wolfTPM2_RsaKey_WolfToTpm
     \sa wolfTPM2_RsaKey_TpmToPem
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
-int wolfTPM2_RsaKey_PemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-                             byte *tempBuf, int tempSz, const char *filename);
+int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+                                byte* pem, int pemSz, byte* tempBuf, int tempSz);
 #endif
 #ifdef HAVE_ECC
 /*!

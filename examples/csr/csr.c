@@ -166,6 +166,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
+    XMEMSET(&storageKey, 0, sizeof(storageKey));
 
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));

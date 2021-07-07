@@ -72,6 +72,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY eccKey;
     WOLFTPM2_KEY publicKey;
     WOLFTPM2_KEY aesKey;
+    WOLFTPM2_KEYBLOB testKey;
     byte aesIv[MAX_AES_BLOCK_SIZE_BYTES];
     WOLFTPM2_BUFFER message;
     WOLFTPM2_BUFFER cipher;
@@ -136,6 +137,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&storageKey, 0, sizeof(storageKey));
+    XMEMSET(&testKey, 0, sizeof(testKey));
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -251,10 +254,21 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
+
+    /* Create RSA key to test CreateLoaded */
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_CreateLoadedKey(&dev, &testKey, &storageKey.handle,
+            &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    if (rc != 0) goto exit;
+    printf("Creating a loaded new TPM 2.0 key Test Passed\n");
+    wolfTPM2_UnloadHandle(&dev, &testKey.handle);
 
     /* Create RSA key for sign/verify */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,

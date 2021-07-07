@@ -78,6 +78,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         PCR_Reset_In pcrReset;
         CreatePrimary_In createPri;
         Create_In create;
+        CreateLoaded_In createLoaded;
         EvictControl_In evict;
         ReadPublic_In readPub;
         StartAuthSession_In authSes;
@@ -123,6 +124,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         PCR_Read_Out pcrRead;
         CreatePrimary_Out createPri;
         Create_Out create;
+        CreateLoaded_Out createLoaded;
         ReadPublic_Out readPub;
         StartAuthSession_Out authSes;
         Load_Out load;
@@ -729,6 +731,34 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     /* set session auth for storage key */
     session[0].auth.size = sizeof(storagePwd)-1;
     XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
+
+    /* Create a loaded new TPM 2.0 key and then unload it */
+    XMEMSET(&cmdIn.createLoaded, 0, sizeof(cmdOut.createLoaded));
+    cmdIn.createLoaded.parentHandle = storage.handle;
+    cmdIn.createLoaded.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
+    XMEMCPY(cmdIn.createLoaded.inSensitive.sensitive.userAuth.buffer, usageAuth,
+        cmdIn.createLoaded.inSensitive.sensitive.userAuth.size);
+    cmdIn.createLoaded.inSensitive.sensitive.data.size = sizeof(userKey)-1;
+    XMEMCPY(cmdIn.createLoaded.inSensitive.sensitive.data.buffer, userKey,
+        cmdIn.createLoaded.inSensitive.sensitive.data.size);
+    cmdIn.createLoaded.inPublic.publicArea.type = TPM_ALG_KEYEDHASH;
+    cmdIn.createLoaded.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.createLoaded.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    cmdIn.createLoaded.inPublic.publicArea.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    cmdIn.createLoaded.inPublic.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg = TPM_ALG_SHA256;
+    rc = TPM2_CreateLoaded(&cmdIn.createLoaded, &cmdOut.createLoaded);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_CreateLoaded failed %d: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("TPM2_CreateLoaded: handle 0x%x pub %d, priv %d\n",
+        cmdOut.createLoaded.objectHandle, cmdOut.createLoaded.outPublic.size,
+        cmdOut.createLoaded.outPrivate.size);
+
+    cmdIn.flushCtx.flushHandle = cmdOut.createLoaded.objectHandle;
+    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* Load public key */

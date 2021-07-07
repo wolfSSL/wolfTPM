@@ -1126,13 +1126,16 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     TPM2_PrintPublicArea(&createLoadedOut.outPublic);
 #endif
 
-    keyBlob->handle.auth = createLoadedIn.inSensitive.sensitive.userAuth;
-    keyBlob->handle.symmetric = createLoadedOut.outPublic.publicArea.parameters.asymDetail.symmetric;
-
     keyBlob->handle.hndl = createLoadedOut.objectHandle;
-    keyBlob->pub = createLoadedOut.outPublic;
-    keyBlob->priv = createLoadedOut.outPrivate;
-    keyBlob->name = createLoadedOut.name;
+
+    wolfTPM2_CopyAuth(&keyBlob->handle.auth,
+        &createLoadedIn.inSensitive.sensitive.userAuth);
+    wolfTPM2_CopySymmetric(&keyBlob->handle.symmetric,
+      &createLoadedOut.outPublic.publicArea.parameters.asymDetail.symmetric);
+
+    wolfTPM2_CopyPub(&keyBlob->pub, &createLoadedOut.outPublic);
+    wolfTPM2_CopyPriv(&keyBlob->priv, &createLoadedOut.outPrivate);
+    wolfTPM2_CopyName(&keyBlob->name, &createLoadedOut.name);
 
     return rc;
 }
@@ -1874,8 +1877,8 @@ int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     return wolfTPM2_RsaKey_WolfToTpm_ex(dev, NULL, wolfKey, tpmKey);
 }
 
-int wolfTPM2_RsaKey_PemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-                             byte *tempBuf, int tempSz, const char *filename)
+int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+                             byte* pem, int pemSz, byte* tempBuf, int tempSz)
 {
     int rc = TPM_RC_FAILURE;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_CERT_EXT) && \
@@ -1887,7 +1890,7 @@ int wolfTPM2_RsaKey_PemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     rc = wc_InitRsaKey(&rsaKey, NULL);
     if (rc != 0) return rc;
     /* Convert PEM format key from file to DER */
-    rc = wc_PemPubKeyToDer(filename, tempBuf, tempSz);
+    rc = wc_PubKeyPemToDer(pem, pemSz, tempBuf, tempSz);
     if (rc != 0) return rc;
     /* Convert DER to wolfCrypt file */
     idx = 0;
