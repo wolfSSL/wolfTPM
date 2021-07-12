@@ -5227,6 +5227,61 @@ int TPM2_GPIO_Config(GpioConfig_In* in)
     }
     return rc;
 }
+#elif defined(WOLFTPM_NUVOTON)
+int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (in == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        CmdInfo_t info = {
+            .inHandleCnt = 1,
+        };
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        /* Process the auth handle for GPIO configuration */
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        info.authCnt = TPM2_Packet_AppendAuth(&packet, ctx);
+        /* Process the NPCT7xx configuration */
+        TPM2_Packet_AppendBytes(&packet, (byte*)&in->preConfig, sizeof(in->preConfig));
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_NTC2_PreConfig);
+
+        /* Send the new NPCT7xx configuration */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (out == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_NTC2_GetConfig);
+
+        /* Request the current NPCT7xx configuration */
+        rc = TPM2_SendCommand(ctx, &packet);
+        if (rc == TPM_RC_SUCCESS) {
+            TPM2_Packet_ParseBytes(&packet, (byte*)&out->preConfig, sizeof(out->preConfig));
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
 #endif
 /******************************************************************************/
 /* --- END Manufacture Specific TPM API's -- */

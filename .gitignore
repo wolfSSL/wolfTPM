@@ -55,6 +55,7 @@ examples/nvram/read
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read
+examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
 examples/attestation/make_credential

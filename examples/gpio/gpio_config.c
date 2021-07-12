@@ -150,7 +150,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 
     /* Enable TPM2_GPIO_Config command */
     if (caps.mfg != TPM_MFG_STM) {
-        printf("Extra GPIO is supported only on ST33 TPM 2.0 modules\n");
+        printf("TPM model mismatch. GPIO support requires an ST33 TPM 2.0 module\n");
         goto exit;
     }
 
@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     rc = TPM2_GPIO_Config_Example(NULL, argc, argv);
 #else
-    printf("Extra GPIO is supported only on ST33 TPM 2.0 modules.\n");
+    printf("GPIO configuration requires an ST33 TPM 2.0 module built with WOLFTPM_ST33 or --enable-st33\n");
     (void)argc;
     (void)argv;
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */

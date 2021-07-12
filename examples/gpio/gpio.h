@@ -26,14 +26,24 @@
     extern "C" {
 #endif
 
-#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT)
 #define GPIO_NUM_MIN TPM_GPIO_A
-#define GPIO_NUM_MAX (TPM_GPIO_COUNT-1) /* see wolftpm/tpm2.h */
+#define GPIO_NUM_MAX TPM_GPIO_A+TPM_GPIO_COUNT-1 /* see wolftpm/tpm2.h */
+#endif
+
+#ifdef WOLFTPM_NUVOTON
+/* Nuvoton GPIO Modes - only output */
+#define NUVOTON_GPIO_MODE_PUSHPULL  1
+#define NUVOTON_GPIO_MODE_OPENDRAIN 2
+#define NUVOTON_GPIO_MODE_PULLUP    3
+#define NUVOTON_GPIO_MODE_UNCONFIG  4 /* Not a real GPIO mode, deleting NV index */
+#define NUVOTON_GPIO_MODE_MAX 4
 #endif
 
 int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
