@@ -42,7 +42,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/gpio/gpio_config [num] [mode]\n");
+    printf("./examples/gpio/gpio_nuvoton [num] [mode]\n");
     printf("* num is a GPIO number between 3 and 4 (default %d)\n", GPIO_NUM_MIN);
     printf("* mode is either push-pull, open-drain or open-drain with pull-up\n");
     printf("\t1. pushpull  - output in push pull configuration\n");
@@ -127,58 +127,39 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
 
     /* Confirm the TPM vendor */
     if (caps.mfg != TPM_MFG_NUVOTON) {
-        printf("TPM model mismatch. This example demonstrates extra GPIO on NPCT7xx.\n");
+        printf("TPM model mismatch. GPIO support requires a Nuvoton NPCT7xx TPM 2.0 module\n");
         goto exit;
     }
 
-#if 0 /* TODO: Satisfy NV_POLICY_DELETE */
-#ifdef DEBUG_WOLFTPM
-    printf("Trying to remove NV index 0x%8.8X used for GPIO\n", nvIndex);
-#endif
-    /* Make sure NV Index for this GPIO is cleared before use
-     * This way we make sure a new GPIO config can be set
-     */
-    rc = wolfTPM2_NVDelete(&dev, TPM_RH_PLATFORM, nvIndex);
-    if (rc == TPM_RC_SUCCESS) {
-        printf("NV index undefined\n");
-    }
-    else if (rc == (TPM_RC_HANDLE | TPM_RC_2)) {
-        printf("NV Index is available for GPIO use\n");
-    }
-    else {
-        printf("wolfTPM2_NVDelete failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-    }
-#endif
     /* GPIO un-configuration is done using NVDelete, no further action needed */
+    /* Nuvoton can reconfigure any GPIO without deleting the created NV index */
     if (gpioMode == NUVOTON_GPIO_MODE_UNCONFIG) {
         printf("Reconfiguration does not require to NV index deletion\n");
         goto exit;
     }
 
-    printf("First, the current NPCT7xx config will be read\n" \
-           "then modified with the new GPIO configuration\n");
-
     XMEMSET(&newConfig, 0, sizeof(newConfig));
     XMEMSET(&getConfig, 0, sizeof(getConfig));
     rc = TPM2_NTC2_GetConfig(&getConfig);
     if (rc != TPM_RC_SUCCESS) {
-        printf("NTC2_getConfig failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_NTC2_GetConfig failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("Successfully read the current NPCT7xx configuration\n");
+    printf("Successfully read the current configuration\n");
     XMEMCPY(&newConfig, &getConfig.preConfig, sizeof(newConfig));
 
-#ifdef DEBUG_WOLFTPM
+#ifdef WOLFTPM_DEBUG_VERBOSE
     printf("getConfig CFG_CONFIG structure:\n");
     TPM2_PrintBin((byte*)&getConfig.preConfig, sizeof(getConfig.preConfig));
 #endif
 
     /* Prepare GPIO configuration according to Nuvoton requirements */
     if(gpioMode == NUVOTON_GPIO_MODE_PUSHPULL) {
+        /* For NUVOTON_GPIO_MODE_PUSHPULL */
         newConfig.GpioPushPull |= (1 << gpioNum);
     }
     else {
-        /* NUVOTON_GPIO_MODE_OPENDRAIN || NUVOTON_GPIO_MODE_PULLUP */
+        /* For NUVOTON_GPIO_MODE_OPENDRAIN or NUVOTON_GPIO_MODE_PULLUP */
         newConfig.GpioPushPull &= ~(1 << gpioNum);
     }
 
@@ -190,7 +171,7 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
         newConfig.GpioPullUp &= ~(1 << gpioNum);
     }
 
-#ifdef DEBUG_WOLFTPM
+#ifdef WOLFTPM_DEBUG_VERBOSE
     printf("newConfig CFG_CONFIG structure:\n");
     TPM2_PrintBin((byte*)&newConfig, sizeof(newConfig));
 #endif
@@ -204,10 +185,10 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
     XMEMCPY(&preConfig.preConfig, &newConfig, sizeof(newConfig));
     rc = TPM2_NTC2_PreConfig(&preConfig);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("TPM2_NTC2_PreConfig failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("NTC2_PreConfig success\n");
+    printf("Successfully wrote new configuration\n");
 
     /* Configure NV Index for access to this GPIO */
     XMEMSET(&nv, 0, sizeof(nv));
@@ -257,7 +238,7 @@ int main(int argc, char *argv[])
 #if defined(WOLFTPM_NUVOTON)
     rc = TPM2_GPIO_Nuvoton_Example(NULL, argc, argv);
 #else
-    printf("This example demonstrates extra GPIO on Nuvoton TPM 2.0 modules.\n");
+    printf("GPIO configuration requires a Nuvoton NPCT75x TPM 2.0 module built with WOLFTPM_NUVOTON or --enable-nuvoton.\n");
     (void)argc;
     (void)argv;
 #endif /* WOLFTPM_NUVOTON */

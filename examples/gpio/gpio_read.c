@@ -21,7 +21,7 @@
 
 /* Example for reading the voltage level of TPM's GPIO
  *
- * Note: GPIO must be first configured using gpio/config
+ * Note: GPIO must be first configured using gpio/gpio_config
  *
  */
 
