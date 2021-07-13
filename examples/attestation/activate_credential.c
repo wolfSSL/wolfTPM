@@ -182,7 +182,8 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
                                 sizeof(cmdIn.activCred.secret), fp);
         XFCLOSE(fp);
     }
-    printf("Read credential blob and secret from %s, %d bytes\n", input, dataSize);
+    printf("Read credential blob and secret from %s, %d bytes\n",
+        input, dataSize);
 #else
     printf("Can not load credential. File support not enabled\n");
     goto exit;

@@ -101,7 +101,7 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
     }
 
     *keyBits = atoi(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
-    if(*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
+    if (*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
         return TPM_RC_FAILURE;
     }
 
@@ -116,7 +116,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEY aesKey; /* Symmetric key */
-    WOLFTPM2_KEY newKey; /* child or attestation key */
     WOLFTPM2_KEYBLOB newKeyBlob; /* newKey as WOLFTPM2_KEYBLOB */
     WOLFTPM2_KEYBLOB primaryBlob; /* Primary key as WOLFTPM2_KEYBLOB */
     TPMT_PUBLIC publicTemplate;
@@ -194,7 +193,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&aesKey, 0, sizeof(aesKey));
-    XMEMSET(&newKey, 0, sizeof(newKey));
     XMEMSET(&newKeyBlob, 0, sizeof(newKeyBlob));
     XMEMSET(&primaryBlob, 0, sizeof(primaryBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
@@ -215,7 +213,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    if(endorseKey) {
+    if (endorseKey) {
         rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
         endorse.handle.policyAuth = 1; /* EK requires Policy auth, not Password */
         pubFilename = ekPubFile;
@@ -329,7 +327,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
     }
 #else
-    if(alg == TPM_ALG_SYMCIPHER) {
+    if (alg == TPM_ALG_SYMCIPHER) {
         printf("The Public Part of a symmetric key contains only meta data\n");
     }
     printf("Key Public Blob %d\n", newKeyBlob.pub.size);
@@ -341,32 +339,31 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     /* Save EK public key as PEM format file to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     if (pemFiles) {
-        byte pem[MAX_RSA_KEY_BYTES], tempBuf[MAX_RSA_KEY_BYTES];
-        int pemSz, tempSz = sizeof(tempBuf);
+        byte pem[MAX_RSA_KEY_BYTES];
+        word32 pemSz;
 
-        if (endorseKey) {
-            pemFilename = pemFileEk;
-        }
-        else {
-            pemFilename = pemFileSrk;
-        }
-
-        rc = wolfTPM2_RsaKey_TpmToPem(&dev, primary, pem, &pemSz, tempBuf, tempSz);
+        pemFilename = (endorseKey) ? pemFileEk : pemFileSrk;
+        pemSz = (word32)sizeof(pem);
+        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, primary, pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, (word32)pemSz);
+            rc = writeKeyPubPem(pemFilename, pem, pemSz);
         }
 
-        if (bAIK) {
-            pemFilename = pemFileAk;
-        }
-        else {
-            pemFilename = pemFileKey;
-        }
-
-        rc = wolfTPM2_RsaKey_TpmToPem(&dev, &newKey, pem, &pemSz, tempBuf, tempSz);
+        pemFilename = (bAIK) ? pemFileAk : pemFileKey;
+        pemSz = (word32)sizeof(pem);
+        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
+            pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, (word32)pemSz);
+            rc = writeKeyPubPem(pemFilename, pem, pemSz);
         }
+        wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
+
+    #if 0
+        /* example for loading public pem to TPM */
+        rc = wolfTPM2_RsaKey_PubPemToTpm(&dev, (WOLFTPM2_KEY*)&newKeyBlob, pem, pemSz);
+        printf("wolfTPM2_RsaKey_PubPemToTpm rc=%d\n", rc);
+        rc = 0;
+    #endif
     }
 #else
     printf("Unable to store EK pub as PEM file. Lack of file support\n");

@@ -1784,29 +1784,58 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     return rc;
 }
 
-int wolfTPM2_RsaKey_TpmToPem(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-                             byte* pem, int* pemSz, byte* tempBuf, int tempSz)
+int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    byte* pem, word32* pemSz)
 {
     int rc = TPM_RC_FAILURE;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM)
-    int derSz;
     RsaKey rsaKey;
+    byte* derBuf = NULL;
+    int derSz = 0;
+#endif
 
+    if (dev == NULL || tpmKey == NULL || pem == NULL || pemSz == NULL)
+        return BAD_FUNC_ARG;
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM)
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
-    if (rc != 0) return rc;
-    /* Convert the wolfTPM key to wolfCrypt format */
-    rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
-    if (rc != 0) return rc;
-    /* Convert the wolfCrypt key to DER format */
-    rc = wc_RsaKeyToPublicDer(&rsaKey, tempBuf, tempSz);
-    if (rc <= 0) return rc;
-    derSz = rc;
-    /* Convert the DER key to PEM format */
-    rc = wc_DerToPem(tempBuf, derSz, pem, tempSz, PUBLICKEY_TYPE);
-    if (rc <= 0) return rc;
-    *pemSz = rc;
-    rc = TPM_RC_SUCCESS;
+    if (rc == 0) {
+        /* Convert the wolfTPM key to wolfCrypt format */
+        rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
+        if (rc == 0) {
+            /* Get DER size - newer API can be called with NULL to get size */
+            rc = wc_RsaKeyToPublicDer(&rsaKey, NULL, 0);
+            if (rc > 0) {
+                derSz = rc;
+            }
+            else if (rc == BAD_FUNC_ARG) {
+                /* for older wolfSSL estimate based on key size */
+                derSz = wc_RsaEncryptSize(&rsaKey) * 2;
+                rc = 0;
+            }
+        }
+        if (derSz > 0) {
+            derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            if (derBuf == NULL)
+                rc = MEMORY_E;
+        }
+        if (rc == 0) {
+            /* Convert the wolfCrypt key to DER format */
+            rc = wc_RsaKeyToPublicDer(&rsaKey, derBuf, derSz);
+        }
+        if (rc >= 0) {
+            /* Convert the DER key to PEM format */
+            derSz = rc;
+            rc = wc_DerToPem(derBuf, derSz, pem, *pemSz, PUBLICKEY_TYPE);
+        }
+        if (rc >= 0) {
+            *pemSz = rc;
+            rc = TPM_RC_SUCCESS;
+        }
+        XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        wc_FreeRsaKey(&rsaKey);
+    }
 #endif
     return rc;
 }
@@ -1878,27 +1907,49 @@ int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
 }
 
 int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-                             byte* pem, int pemSz, byte* tempBuf, int tempSz)
+    const byte* pem, word32 pemSz)
 {
     int rc = TPM_RC_FAILURE;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_CERT_EXT) && \
-    defined(WOLFSSL_PUB_PEM_TO_DER) && defined(WOLFSSL_PEM_TO_DER)
-    word32 idx;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
+    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER))
     RsaKey rsaKey;
+#endif
 
+    if (dev == NULL || tpmKey == NULL || pem == NULL)
+        return BAD_FUNC_ARG;
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
+    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER))
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
-    if (rc != 0) return rc;
-    /* Convert PEM format key from file to DER */
-    rc = wc_PubKeyPemToDer(pem, pemSz, tempBuf, tempSz);
-    if (rc != 0) return rc;
-    /* Convert DER to wolfCrypt file */
-    idx = 0;
-    rc = wc_RsaPublicKeyDecode(tempBuf, &idx, &rsaKey, tempSz);
-    if (rc != 0) return rc;
-    /* Load into the TPM */
-    rc = wolfTPM2_RsaKey_WolfToTpm(dev, &rsaKey, tpmKey);
+    if (rc == 0) {
+        /* allocate buffer for DER */
+        word32 derSz = pemSz; /* DER is always smaller */
+        byte* derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        if (derBuf == NULL) {
+            rc = MEMORY_E;
+        }
+        if (rc == 0) {
+            /* Convert PEM format key from file to DER - inline okay */
+            rc = wc_PubKeyPemToDer(pem, pemSz, derBuf, derSz);
+        }
+        if (rc >= 0) {
+            /* Convert DER to wolfCrypt file */
+            word32 idx = 0;
+            derSz = (word32)rc;
+            rc = wc_RsaPublicKeyDecode(derBuf, &idx, &rsaKey, derSz);
+        }
+        if (rc == 0) {
+            /* Load into the TPM */
+            rc = wolfTPM2_RsaKey_WolfToTpm(dev, &rsaKey, tpmKey);
+        }
+        XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        wc_FreeRsaKey(&rsaKey);
+    }
+#else
+    (void)pemSz;
 #endif
+
     return rc;
 }
 #endif /* !NO_RSA */

@@ -129,7 +129,8 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     /* Prepare the key for use by the TPM */
-    XMEMCPY(&cmdIn.loadExtIn.inPublic, &primary.pub, sizeof(cmdIn.loadExtIn.inPublic));
+    XMEMCPY(&cmdIn.loadExtIn.inPublic, &primary.pub,
+        sizeof(cmdIn.loadExtIn.inPublic));
     cmdIn.loadExtIn.hierarchy = TPM_RH_NULL;
     rc = TPM2_LoadExternal(&cmdIn.loadExtIn, &cmdOut.loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -175,7 +176,8 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
                                 sizeof(cmdOut.makeCred.secret), fp);
         XFCLOSE(fp);
     }
-    printf("Wrote credential blob and secret to %s, %d bytes\n", output, dataSize);
+    printf("Wrote credential blob and secret to %s, %d bytes\n",
+        output, dataSize);
 #else
     printf("Can not store credential. File support not enabled\n");
 #endif

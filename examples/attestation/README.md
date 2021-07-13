@@ -43,7 +43,6 @@ Note:
 Using the `keygen` example we can create the necessary TPM 2.0 Attestation Key and TPM 2.0 Primary Storage Key that will be used as a Primary Attestation Key(PAK).
 
 ```
-
 $ ./examples/keygen/keygen -rsa
 TPM2.0 Key generation example
 	Key Blob: keyblob.bin
@@ -55,7 +54,6 @@ RSA AIK template
 Creating new RSA key...
 Created new key (pub 280, priv 222 bytes)
 Wrote 508 bytes to keyblob.bin
-
 ```
 
 ### Make Credential Example Usage
@@ -63,7 +61,6 @@ Wrote 508 bytes to keyblob.bin
 Using the `make_credential` example an attestation server can generate remote attestation challenge. The secret is 32 bytes of randomly generated seed that could be used for a symmetric key in some remote attestation schemes.
 
 ```
-
 $ ./examples/attestation/make_credential
 Using default values
 Demo how to create a credential blob for remote attestation
@@ -74,7 +71,6 @@ Reading the private part of the key
 AK loaded at 0x80000001
 TPM2_MakeCredential success
 Wrote credential blob and secret to cred.blob, 514 bytes
-
 ```
 
 The transfer of the PAK and AK public parts between the client and attestation server is not part of the `make_credential` example, because the exchange is implementation specific.
@@ -84,7 +80,6 @@ The transfer of the PAK and AK public parts between the client and attestation s
 Using the `activate_credential` example a client can decrypt the remote attestation challenge. The secret will be exposed in plain and can be exchanged with the attestation server.
 
 ```
-
 $ ./examples/attestation/activate_credential
 Using default values
 Demo how to create a credential blob for remote attestation
@@ -99,7 +94,6 @@ TPM2_StartAuthSession: sessionHandle 0x3000000
 TPM2_policyCommandCode success
 Read credential blob and secret from cred.blob, 514 bytes
 TPM2_ActivateCredential success
-
 ```
 
 The transfer of the challenge response containing the secret in plain (or used as a symmetric key seed) is not part of the `activate_credential` example, because the exchange is also implementation specific.

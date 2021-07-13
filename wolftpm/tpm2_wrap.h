@@ -1042,16 +1042,13 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
     \param keyBlob pointer to a struct of WOLFTPM2_KEY type, holding a TPM key
     \param pem pointer to an array of byte type, used as temporary storage for PEM conversation
     \param pemSz pointer to integer variable, to store the used buffer size
-    \param tempBuf pointer to an array of byte type, used as temporary storage for conversation
-    \param tempSz integer, specifying the size of the tempSz
 
     \sa wolfTPM2_RsaKey_TpmToWolf
     \sa wolfTPM2_RsaKey_WolfToTpm
 */
-WOLFTPM_API int wolfTPM2_RsaKey_TpmToPem(WOLFTPM2_DEV* dev,
+WOLFTPM_API int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev,
                                          WOLFTPM2_KEY* keyBlob,
-                                         byte* pem, int* pemSz,
-                                         byte* tempBuf, int tempSz);
+                                         byte* pem, word32* pemSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1102,15 +1099,13 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
     \param tpmKey pointer to an empty struct of WOLFTPM2_KEY type, to hold the imported TPM key
     \param pem pointer to an array of byte type, containing a PEM formated public key material
     \param pemSz pointer to integer variable, specifying the size of PEM key data
-    \param tempBuf pointer to an array of byte type, to be used as temporary storage
-    \param tempSz integer variable, specifying the size of the buffer
 
     \sa wolfTPM2_RsaKey_WolfToTpm
     \sa wolfTPM2_RsaKey_TpmToPem
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
-int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-                                byte* pem, int pemSz, byte* tempBuf, int tempSz);
+WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* tpmKey, const byte* pem, word32 pemSz);
 #endif
 #ifdef HAVE_ECC
 /*!
