@@ -513,6 +513,9 @@ exit:
 #ifdef HAVE_ECC
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    #ifndef WOLFTPM2_USE_SW_ECDHE
+        wolfTPM2_UnloadHandle(&dev, &ecdhKey.handle);
+    #endif
 #endif
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
