@@ -401,7 +401,6 @@ Using the `seal` example we store securely our data in a newly generated TPM 2.0
 Please find example output from sealing and unsealing a secret message:
 
 ```
-
 $ ./examples/seal/seal keyblob.bin mySecretMessage
 TPM2.0 Simple Seal example
 	Key Blob: keyblob.bin
@@ -431,7 +430,6 @@ Stored unsealed data to file = message.raw
 
 $ cat message.raw
 mySecretMessage
-
 ```
 
 After a successful unsealing, the data is stored into a new file. If no filename is provided, the `unseal` tool stores the data in `unseal.bin`.
@@ -497,7 +495,7 @@ NV Index for GPIO access created
 
 ### GPIO Config (NPCT75xx)
 
-NPCT75x supports 3 output modes, information from `gpio/gpio_nuvoton` below:
+NPCT75x supports 3 output modes (no input modes), information from `gpio/gpio_nuvoton` below:
 
 ```
 $ ./examples/gpio/gpio_nuvoton -h

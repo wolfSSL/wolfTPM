@@ -119,7 +119,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         primary = &endorse;
     }
     else { /* SRK */
-        rc = getPrimaryStoragekey(&dev, primary, TPM_ALG_RSA);
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
         if (rc != 0) goto exit;
         primary = &storage;
     }
