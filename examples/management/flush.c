@@ -41,7 +41,10 @@ static void usage(void)
     printf("./tool/management/flush [handle]\n");
     printf("* handle is a valid TPM2.0 handle index\n");
     printf("Note: Default behavior, without parameters, the tool flushes\n"
-           "\tall transient TPM2.0 objects (0x8000000x, 0x300000x)\n");
+           "\tcommon transient TPM2.0 objects, including:\n"
+           "- Transient Key handles 0x8000000\n"
+           "- Transient Policy sessions 0x0300000x\n"
+           "- Transient HMAC sessions 0x0200000x\n");
 }
 
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
@@ -79,12 +82,18 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
 
     if (allTransientObjects) {
         /* Flush key objects */
-        for (handle=0x80000000; handle < (int)0x8000000A; handle+=4) {
+        for (handle=0x80000000; handle < (int)0x8000000A; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
         }
-        /* Flush auth sessions */
+        /* Flush policy sessions */
+        for (handle=0x3000000; handle < (int)0x3000004; handle++) {
+            flushCtx.flushHandle = handle;
+            printf("Freeing %X object\n", handle);
+            TPM2_FlushContext(&flushCtx);
+        }
+        /* Flush hmac sessions */
         for (handle=0x3000000; handle < (int)0x3000004; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);

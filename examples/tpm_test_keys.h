@@ -28,7 +28,7 @@
 
 WOLFTPM_LOCAL int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
 WOLFTPM_LOCAL int writeKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
-
+WOLFTPM_LOCAL int writeKeyPubPem(const char* filename, byte *buf, int bufSz);
 
 WOLFTPM_LOCAL int readAndLoadKey(WOLFTPM2_DEV* pDev,
                           WOLFTPM2_KEY* key,

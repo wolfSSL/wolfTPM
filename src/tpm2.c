@@ -112,13 +112,18 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     BYTE *param, *encParam = NULL;
     int paramSz, encParamSz = 0;
     int i, authPos, handlePos;
+    int tmpSz = 0; /* Used to calculate the new total size of the Auth Area */
 
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
 
     /* Parse Auth */
     TPM2_Packet_ParseU32(packet, &authSz);
-    authPos = packet->pos; /* mark position for start of auth */
+    packet->pos -= sizeof(authSz);
+    /* Later Auth Area size is updated */
+    TPM2_Packet_MarkU32(packet, &tmpSz);
+    /* Mark the position of the Auth Area data */
+    authPos = packet->pos;
     packet->pos += authSz;
 
     /* Mark parameter data */
@@ -162,7 +167,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Note: Copy between TPM2_AUTH_SESSION and TPMS_AUTH_COMMAND is allowed */
         XMEMCPY(&authCmd, session, sizeof(TPMS_AUTH_COMMAND));
 
-        if (session->sessionHandle != TPM_RS_PW) {
+        /* Skip Policy session, because Enhanced Authorization is not yet implemented */
+        if (TPM2_IS_HMAC_SESSION(session->sessionHandle)) {
         #ifndef WOLFTPM2_NO_WOLFCRYPT
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
@@ -236,6 +242,10 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPM2_Packet_AppendAuthCmd(packet, &authCmd);
         authPos = packet->pos; /* update auth position */
     }
+
+    /* Update the Auth Area size in the command packet */
+    TPM2_Packet_PlaceU32(packet, tmpSz);
+
     (void)cmdCode;
     return rc;
 }
@@ -1061,6 +1071,51 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
             TPM2_Packet_ParseBytes(&packet,
                         out->creationTicket.digest.buffer,
                         out->creationTicket.digest.size);
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_CreateLoaded(CreateLoaded_In* in, CreateLoaded_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        CmdInfo_t info = {
+            .inHandleCnt = 1,
+            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
+        };
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, in->parentHandle);
+        info.authCnt = TPM2_Packet_AppendAuth(&packet, ctx);
+        TPM2_Packet_AppendSensitiveCreate(&packet, &in->inSensitive);
+        TPM2_Packet_AppendPublic(&packet, &in->inPublic);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_CreateLoaded);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &out->objectHandle);
+            TPM2_Packet_ParseU32(&packet, &paramSz);
+
+            TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
+            TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
+                out->outPrivate.size);
+
+            TPM2_Packet_ParsePublic(&packet, &out->outPublic);
+
+            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
         }
 
         TPM2_ReleaseLock(ctx);

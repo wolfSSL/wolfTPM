@@ -44,6 +44,15 @@ More information about how to test and use PCR attestation can be found in the i
 `./examples/pcr/extend`
 `./examples/pcr/reset`
 
+### Remote Attestation challenge
+
+Demonstrates how to create Remote Attestation challenge using the TPM 2.0 and afterwards prepare a response.
+
+Detailed information about using these examples can be found in  [examples/attestation/README.md](./examples/attestation/README.md)
+
+`./examples/attestation/make_credential`
+`./examples/attestation/activate_credential`
+
 ## Parameter Encryption
 
 ### Key generation with encrypted authorization

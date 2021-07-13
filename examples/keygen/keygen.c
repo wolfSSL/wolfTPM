@@ -46,7 +46,11 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor]\n");
+    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor] [-eh] [-pem]\n");
+    printf("* -pem: Store the primary and child public keys as PEM formated files\n");
+    printf("\t child public key filename: ak.pem or key.pem\n");
+    printf("\t primary public key filename: ek.pem or srk.pem\n");
+    printf("* -eh: Create keys under the Endorsement Hierarchy (EK)\n");
     printf("* -rsa: Use RSA for asymmetric key generation (DEFAULT)\n");
     printf("* -ecc: Use ECC for asymmetric key generation \n");
     printf("* -sym: Use Symmetric Cypher for key generation\n");
@@ -97,7 +101,7 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
     }
 
     *keyBits = atoi(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
-    if(*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
+    if (*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
         return TPM_RC_FAILURE;
     }
 
@@ -108,20 +112,31 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY endorse; /* EK */
     WOLFTPM2_KEY storage; /* SRK */
+    WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEY aesKey; /* Symmetric key */
-    WOLFTPM2_KEYBLOB newKey;
+    WOLFTPM2_KEYBLOB newKeyBlob; /* newKey as WOLFTPM2_KEYBLOB */
+    WOLFTPM2_KEYBLOB primaryBlob; /* Primary key as WOLFTPM2_KEYBLOB */
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cypher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
+    int endorseKey = 0;
+    int pemFiles = 0;
     int bAIK = 1;
     int keyBits = 256;
-    const char* outputFile = "keyblob.bin";
+    const char *outputFile = "keyblob.bin";
+    const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
+    const char *ekPubFile = "ek.pub";
+    const char *srkPubFile = "srk.pub";
+    const char *pubFilename = NULL;
+    const char *pemFilename = NULL;
     size_t len = 0;
     char symMode[] = "aesctr";
+    FILE *fp;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -160,6 +175,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
             bAIK = 0;
         }
+        if (XSTRNCMP(argv[argc-1], "-eh", 3) == 0) {
+            endorseKey = 1;
+        }
+        if (XSTRNCMP(argv[argc-1], "-pem", 4) == 0) {
+            pemFiles = 1;
+        }
         if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
@@ -169,9 +190,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
-    XMEMSET(&newKey, 0, sizeof(newKey));
     XMEMSET(&aesKey, 0, sizeof(aesKey));
+    XMEMSET(&newKeyBlob, 0, sizeof(newKeyBlob));
+    XMEMSET(&primaryBlob, 0, sizeof(primaryBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&auth, 0, sizeof(auth));
 
@@ -190,22 +213,39 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (endorseKey) {
+        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+        endorse.handle.policyAuth = 1; /* EK requires Policy auth, not Password */
+        pubFilename = ekPubFile;
+        primary = &endorse;
+    }
+    else {
+        /* get SRK */
+        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+        pubFilename = srkPubFile;
+        primary = &storage;
+    }
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
         /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, primary, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
+        /* set session for authorization of the primary key */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
+    }
+
+    if (endorseKey) {
+        /* Endorsement Key requires authorization with Policy */
+        wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        /* Set the created Policy Session for use in next operation */
+        wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
     }
 
     /* Create new key */
@@ -261,26 +301,72 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     printf("Creating new %s key...\n", TPM2_GetAlgName(alg));
-    rc = wolfTPM2_CreateKey(&dev, &newKey, &storage.handle,
+    rc = wolfTPM2_CreateLoadedKey(&dev, &newKeyBlob, &primary->handle,
                             &publicTemplate, auth.buffer, auth.size);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateKey failed\n");
+        printf("wolfTPM2_CreateLoadedKey failed\n");
         goto exit;
     }
-    printf("Created new key (pub %d, priv %d bytes)\n",
-        newKey.pub.size, newKey.priv.size);
+    printf("New key created and loaded (pub %d, priv %d bytes)\n",
+        newKeyBlob.pub.size, newKeyBlob.priv.size);
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
-    rc = writeKeyBlob(outputFile, &newKey);
+    rc = writeKeyBlob(outputFile, &newKeyBlob);
+    /* Generate key artifacts needed for remote attestation */
+    if (bAIK) {
+        /* Store primary public key */
+        XMEMCPY(&primaryBlob.pub, &primary->pub, sizeof(primaryBlob.pub));
+        rc |= writeKeyBlob(pubFilename, &primaryBlob);
+        /* Write AK's Name digest */
+        fp = XFOPEN(nameFile, "wb");
+        if (fp != XBADFILE) {
+            XFWRITE((BYTE*)&newKeyBlob.name, 1, sizeof(newKeyBlob.name), fp);
+            printf("Wrote AK Name digest\n");
+            XFCLOSE(fp);
+        }
+    }
 #else
-    if(alg == TPM_ALG_SYMCIPHER) {
+    if (alg == TPM_ALG_SYMCIPHER) {
         printf("The Public Part of a symmetric key contains only meta data\n");
     }
-    printf("Key Public Blob %d\n", newKey.pub.size);
-    TPM2_PrintBin((const byte*)&newKey.pub.publicArea, newKey.pub.size);
-    printf("Key Private Blob %d\n", newKey.priv.size);
-    TPM2_PrintBin(newKey.priv.buffer, newKey.priv.size);
+    printf("Key Public Blob %d\n", newKeyBlob.pub.size);
+    TPM2_PrintBin((const byte*)&newKeyBlob.pub.publicArea, newKeyBlob.pub.size);
+    printf("Key Private Blob %d\n", newKeyBlob.priv.size);
+    TPM2_PrintBin(newKeyBlob.priv.buffer, newKeyBlob.priv.size);
+#endif
+
+    /* Save EK public key as PEM format file to the disk */
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    if (pemFiles) {
+        byte pem[MAX_RSA_KEY_BYTES];
+        word32 pemSz;
+
+        pemFilename = (endorseKey) ? pemFileEk : pemFileSrk;
+        pemSz = (word32)sizeof(pem);
+        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, primary, pem, &pemSz);
+        if (rc == 0) {
+            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+        }
+
+        pemFilename = (bAIK) ? pemFileAk : pemFileKey;
+        pemSz = (word32)sizeof(pem);
+        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
+            pem, &pemSz);
+        if (rc == 0) {
+            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+        }
+        wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
+
+    #if 0
+        /* example for loading public pem to TPM */
+        rc = wolfTPM2_RsaKey_PubPemToTpm(&dev, (WOLFTPM2_KEY*)&newKeyBlob, pem, pemSz);
+        printf("wolfTPM2_RsaKey_PubPemToTpm rc=%d\n", rc);
+        rc = 0;
+    #endif
+    }
+#else
+    printf("Unable to store EK pub as PEM file. Lack of file support\n");
 #endif
 
 exit:
@@ -290,9 +376,12 @@ exit:
     }
 
     /* Close handles */
-    wolfTPM2_UnloadHandle(&dev, &storage.handle);
-    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &primary->handle);
+    wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
+    /* EK policy is destroyed after use, flush parameter encryption session */
+    if(!endorseKey) {
+        wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    }
 
     wolfTPM2_Cleanup(&dev);
     return rc;

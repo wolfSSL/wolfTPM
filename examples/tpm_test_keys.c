@@ -35,6 +35,35 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
+int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
+{
+    int rc = TPM_RC_FAILURE;
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    XFILE fp = NULL;
+    size_t fileSz = 0;
+
+    if (filename == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
+    fp = XFOPEN(filename, "wt");
+    if (fp != XBADFILE) {
+        fileSz = XFWRITE(buf, 1, bufSz, fp);
+        /* sanity check */
+        if (fileSz == (word32)bufSz) {
+            rc = TPM_RC_SUCCESS;
+        }
+#ifdef DEBUG_WOLFTPM
+        printf("Public PEM file size = %zu\n", fileSz);
+        TPM2_PrintBin(buf, bufSz);
+#endif
+        XFCLOSE(fp);
+    }
+#endif
+    return rc;
+}
+
+
 int writeKeyBlob(const char* filename,
                         WOLFTPM2_KEYBLOB* key)
 {

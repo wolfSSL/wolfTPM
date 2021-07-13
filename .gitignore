@@ -26,8 +26,10 @@ src/.deps
 src/.libs
 RemoteSystemsTempFiles
 *.o
+*.dep
 *.deps
 *.libs
+IDE/IAR-EWARM/settings
 wolftpm/options.h
 
 examples/wrap/wrap_test
@@ -75,12 +77,16 @@ certs/server-*.pem
 certs/client-*.der
 certs/client-*.pem
 certs/serial.old
-*.dep
-IDE/IAR-EWARM/settings
+
+# Test files
 quote.blob
 keyblob.bin
 ecc_test_blob.raw
 rsa_test_blob.raw
+ak.name
+cred.blob
+ek.pub
+srk.pub
 
 # Generated Documentation
 docs/html

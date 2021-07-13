@@ -317,6 +317,7 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
 
     XMEMSET(&der, 0, sizeof(der));
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+    XMEMSET(&storageKey, 0, sizeof(storageKey));
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);

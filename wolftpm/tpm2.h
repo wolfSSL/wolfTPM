@@ -1621,7 +1621,10 @@ typedef struct TPM2_AUTH_SESSION {
     TPM2B_NAME name;
 } TPM2_AUTH_SESSION;
 
-
+/* Macros to determine TPM 2.0 Session type */
+#define TPM2_IS_PWD_SESSION(sessionHandle) ((sessionHandle) == TPM_RS_PW)
+#define TPM2_IS_HMAC_SESSION(sessionHandle) ((sessionHandle & 0xFF000000) == HMAC_SESSION_FIRST)
+#define TPM2_IS_POLICY_SESSION(sessionHandle) ((sessionHandle & 0xFF000000) == POLICY_SESSION_FIRST)
 
 /* Predetermined TPM 2.0 Indexes */
 #define TPM_20_TPM_MFG_NV_SPACE        ((TPM_HT_NV_INDEX << 24) | (0x00 << 22))
