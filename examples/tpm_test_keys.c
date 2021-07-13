@@ -39,12 +39,12 @@ int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
 {
     int rc = TPM_RC_FAILURE;
 
+    if (filename == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE fp = NULL;
     size_t fileSz = 0;
-
-    if (filename == NULL || buf == NULL)
-        return BAD_FUNC_ARG;
 
     fp = XFOPEN(filename, "wt");
     if (fp != XBADFILE) {
@@ -59,6 +59,8 @@ int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
 #endif
         XFCLOSE(fp);
     }
+#else
+    (void)bufSz;
 #endif
     return rc;
 }

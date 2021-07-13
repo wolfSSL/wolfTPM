@@ -129,14 +129,16 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int bAIK = 1;
     int keyBits = 256;
     const char *outputFile = "keyblob.bin";
-    const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
     const char *ekPubFile = "ek.pub";
     const char *srkPubFile = "srk.pub";
     const char *pubFilename = NULL;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
     const char *pemFilename = NULL;
+    FILE *fp;
+#endif
     size_t len = 0;
     char symMode[] = "aesctr";
-    FILE *fp;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -348,6 +350,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = writeKeyPubPem(pemFilename, pem, pemSz);
         }
+        if (rc != 0) goto exit;
 
         pemFilename = (bAIK) ? pemFileAk : pemFileKey;
         pemSz = (word32)sizeof(pem);

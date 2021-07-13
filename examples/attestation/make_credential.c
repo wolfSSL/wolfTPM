@@ -141,6 +141,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     printf("Public key for encryption loaded\n");
     handle.hndl = cmdOut.loadExtOut.objectHandle;
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     /* Load AK Name digest */
     fp = XFOPEN("ak.name", "rb");
     if (fp != XBADFILE) {
@@ -148,6 +149,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         printf("Read AK Name digest\n");
         XFCLOSE(fp);
     }
+#endif
 
     /* Create secret for the attestation server */
     cmdIn.makeCred.credential.size = CRED_SECRET_SIZE;
@@ -172,8 +174,10 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     if (fp != XBADFILE) {
         dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.credentialBlob, 1,
                                 sizeof(cmdOut.makeCred.credentialBlob), fp);
-        dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.secret, 1,
-                                sizeof(cmdOut.makeCred.secret), fp);
+        if (dataSize > 0) {
+            dataSize += (int)XFWRITE((BYTE*)&cmdOut.makeCred.secret, 1,
+                                     sizeof(cmdOut.makeCred.secret), fp);
+        }
         XFCLOSE(fp);
     }
     printf("Wrote credential blob and secret to %s, %d bytes\n",

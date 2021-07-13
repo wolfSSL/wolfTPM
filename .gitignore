@@ -87,6 +87,8 @@ ak.name
 cred.blob
 ek.pub
 srk.pub
+ak.pem
+ek.pem
 
 # Generated Documentation
 docs/html
