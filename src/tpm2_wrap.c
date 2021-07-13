@@ -1788,7 +1788,8 @@ int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     byte* pem, word32* pemSz)
 {
     int rc = TPM_RC_FAILURE;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM) && \
+    (defined(WOLFSSL_KEY_GEN) || defined(OPENSSL_EXTRA)) && !defined(NO_RSA)
     RsaKey rsaKey;
     byte* derBuf = NULL;
     int derSz = 0;
@@ -1797,7 +1798,9 @@ int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     if (dev == NULL || tpmKey == NULL || pem == NULL || pemSz == NULL)
         return BAD_FUNC_ARG;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM) && \
+    (defined(WOLFSSL_KEY_GEN) || defined(OPENSSL_EXTRA)) && !defined(NO_RSA)
+
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
     if (rc == 0) {
