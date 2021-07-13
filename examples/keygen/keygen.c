@@ -348,6 +348,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = writeKeyPubPem(pemFilename, pem, pemSz);
         }
+        if (rc != 0) goto exit;
 
         pemFilename = (bAIK) ? pemFileAk : pemFileKey;
         pemSz = (word32)sizeof(pem);

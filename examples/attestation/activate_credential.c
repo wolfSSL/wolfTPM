@@ -148,6 +148,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     printf("AK loaded at 0x%x\n", (word32)akKey.handle.hndl);
 
     rc = wolfTPM2_UnsetAuth(&dev, 0);
+    if (rc != 0) goto exit;
 
     if (endorseKey) {
         /* Fresh policy session for EK auth */
@@ -178,8 +179,10 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     if (fp != XBADFILE) {
         dataSize = (int)XFREAD((BYTE*)&cmdIn.activCred.credentialBlob, 1,
                                 sizeof(cmdIn.activCred.credentialBlob), fp);
-        dataSize = (int)XFREAD((BYTE*)&cmdIn.activCred.secret, 1,
-                                sizeof(cmdIn.activCred.secret), fp);
+        if (dataSize > 0) {
+            dataSize += (int)XFREAD((BYTE*)&cmdIn.activCred.secret, 1,
+                                    sizeof(cmdIn.activCred.secret), fp);
+        }
         XFCLOSE(fp);
     }
     printf("Read credential blob and secret from %s, %d bytes\n",

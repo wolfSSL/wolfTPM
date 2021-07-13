@@ -172,8 +172,10 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     if (fp != XBADFILE) {
         dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.credentialBlob, 1,
                                 sizeof(cmdOut.makeCred.credentialBlob), fp);
-        dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.secret, 1,
-                                sizeof(cmdOut.makeCred.secret), fp);
+        if (dataSize > 0) {
+            dataSize += (int)XFWRITE((BYTE*)&cmdOut.makeCred.secret, 1,
+                                     sizeof(cmdOut.makeCred.secret), fp);
+        }
         XFCLOSE(fp);
     }
     printf("Wrote credential blob and secret to %s, %d bytes\n",
