@@ -1,5 +1,44 @@
 # Release Notes
 
+## wolfTPM Release 2.2 (07/13/2021)
+
+**Summary**
+
+Added new examples for remote attestation, make credential and GPIO support. Added Endorsement hierarchy support to many examples. Refactored the reference HAL IO code into separate files.
+
+**Detail**
+
+* Fixed total auth area size when multiple auth sessions are used (PR #174)
+* Fixed `TPM2_SetupPCRSel` to only allow valid pcrIndex values (PR #165 and PR #167)
+* Fixed `TPM2_MakeCredential` to work without auth as TCG spec defines (PR #174)
+* Fixed `TPM2_MakeCredential` to support using EK pub to encrypt challenge (PR #174)
+* Fixed `TPM2_ActivateCredential` to work with EK pub to decrypt challenge (PR #174)
+* Fix to only enable `printf` in library proper if `DEBUG_WOLFTPM` is set (PR #154)
+* Added support for QNX with wolfTPM (PR #156)
+* Added credential examples for remote attestation (PR #161)
+* Added new example for sealing a secret using TPM key (PR #157)
+* Added GPIO config, read and set examples (PR #155 and #172)
+* Added GPIO support and examples for ST33 (PR #155)
+* Added GPIO support and examples for Nuvoton NPCT75x (PR #172)
+* Added Endorsement support for keygen and attestation examples using `-eh` (PR #174)
+* Added missing `TPM2_CreateLoaded` command and added wrapper `wolfTPM2_CreateLoadedKey` (PR #174)
+* Added new wrappers for public PEM support `wolfTPM2_RsaKey_TpmToPemPub` and `wolfTPM2_RsaKey_PemPubToTpm` (PR #174)
+* Added keygen option to output PEM files for TPM public keys (PR #174)
+* Added saving of EK's TPM2B_PUBLIC for attestation purposes (PR #174)
+* Added new wrapper for satisfying EK policy (PR #174)
+* Added unit test for `TPM2_CertifyCreation` (PR #169)
+* Added support for `--with-wolfcrypt=/dir/` (PR #166)
+* Added documentation for using QEMU with `--enable-devtpm` for testing (PR #146)
+* Modified keygen to use new `wolfTPM2_CreateLoaded` wrapper to acquire correct AK name (PR #174)
+* Modified keyload to be able to load keys created under the EK/EH (PR #174)
+* Cleanup the ECC point code to appease some coverity warnings (PR #168)
+* Cleanup obsolete `txBuf[4] = 0x00;` because handled with SPI check wait state logic (PR #162)
+* Improved API documentation using Doxygen for wolfTPM wrappers and proprietary API's (PR #164)
+* Improved the Windows TBS documentation (PR #163)
+* Refactor the assignment of structs to use memcpy (PR #176)
+* Refactor of the TPM IO code to separate files (PR #171)
+
+
 ## wolfTPM Release 2.1 (03/17/2021)
 
 * Fixed possible KDFa buffer overrun (PR #147)
