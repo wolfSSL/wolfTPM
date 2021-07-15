@@ -581,7 +581,7 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     TPMT_PUBLIC *publicArea)
 {
     int rc;
-    WC_RNG* rng;
+    WC_RNG rng;
     enum wc_HashType hashType;
     const char* label = "SECRET";
     int mgf;
@@ -603,43 +603,49 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
         return NOT_COMPILED_IN;
     }
 
-    rc = TPM2_GetWolfRng(&rng);
-    if (rc != TPM_RC_SUCCESS)
+    rc = wc_InitRng(&rng);
+    if (rc != 0)
         return rc;
 
     rc = wc_InitRsaKey_ex(&rsaKey, NULL, INVALID_DEVID);
     if (rc != 0) {
-        return rc;
-    }
-    wc_RsaSetRNG(&rsaKey, rng);
-    rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
-    if (rc != 0) {
-        wc_FreeRsaKey(&rsaKey);
+        wc_FreeRng(&rng);
         return rc;
     }
 
-    encSalt->size = publicArea->unique.rsa.size;
-    rc = wc_RsaPublicEncrypt_ex(
-        salt->buffer,    /* in pointer to the buffer for encryption */
-        salt->size,      /* inLen length of in parameter */
-        encSalt->secret, /* out encrypted msg created */
-        encSalt->size,   /* outLen length of buffer available to hold encrypted msg */
-        &rsaKey,         /* key initialized RSA key struct */
-        rng,             /* rng initialized WC_RNG struct */
-        WC_RSA_OAEP_PAD, /* type type of padding to use (WC_RSA_OAEP_PAD or WC_RSA_PKCSV15_PAD) */
-        hashType,        /* hash type of hash to use (choices can be found in hash.h) */
-        mgf,             /* mgf type of mask generation function to use */
-        (byte*)label,    /* label an optional label to associate with encrypted message */
-        (word32)XSTRLEN(label)+1 /* labelSz size of the optional label used */
-    );
+#ifdef WC_RSA_BLINDING
+    wc_RsaSetRNG(&rsaKey, &rng);
+#endif
+
+    rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
+    if (rc == 0) {
+        encSalt->size = publicArea->unique.rsa.size;
+        rc = wc_RsaPublicEncrypt_ex(
+            salt->buffer,    /* in pointer to the buffer for encryption */
+            salt->size,      /* inLen length of in parameter */
+            encSalt->secret, /* out encrypted msg created */
+            encSalt->size,   /* outLen length of buffer available to hold encrypted msg */
+            &rsaKey,         /* key initialized RSA key struct */
+            &rng,            /* rng initialized WC_RNG struct */
+            WC_RSA_OAEP_PAD, /* type type of padding to use (WC_RSA_OAEP_PAD or WC_RSA_PKCSV15_PAD) */
+            hashType,        /* hash type of hash to use (choices can be found in hash.h) */
+            mgf,             /* mgf type of mask generation function to use */
+            (byte*)label,    /* label an optional label to associate with encrypted message */
+            (word32)XSTRLEN(label)+1 /* labelSz size of the optional label used */
+        );
+    }
 
     wc_FreeRsaKey(&rsaKey);
+    wc_FreeRng(&rng);
 
-    if (rc != encSalt->size) {
-        return BUFFER_E;
+    if (rc == encSalt->size) {
+        rc = 0; /* success */
+    }
+    else {
+        rc = BUFFER_E;
     }
 
-    return 0;
+    return rc;
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
