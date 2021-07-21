@@ -369,6 +369,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     #endif
     }
 #else
+    (void)pemFiles;
+    (void)pubFilename;
     printf("Unable to store EK pub as PEM file. Lack of file support\n");
 #endif
 

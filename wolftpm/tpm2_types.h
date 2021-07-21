@@ -38,6 +38,10 @@
     extern "C" {
 #endif
 
+#ifdef WOLFTPM_WINAPI
+#include <minwindef.h>
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* TPM TYPES */
 /* ---------------------------------------------------------------------------*/
@@ -52,8 +56,11 @@ typedef uint16_t UINT16;
 typedef int16_t  INT16;
 typedef uint32_t UINT32;
 typedef int32_t  INT32;
+
+#ifndef _W64
 typedef uint64_t UINT64;
 typedef int64_t  INT64;
+#endif
 
 #ifndef YES
 #define YES 1
