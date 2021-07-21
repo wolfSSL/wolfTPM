@@ -1660,7 +1660,7 @@ struct wolfTPM_tcpContext {
 struct wolfTPM_winContext {
   TBS_HCONTEXT tbs_context;
 };
-#endif /* WOLFTPM_SWTPM */
+#endif /* WOLFTPM_WINAPI */
 
 /* make sure advanced IO is enabled for I2C */
 #ifdef WOLFTPM_I2C
