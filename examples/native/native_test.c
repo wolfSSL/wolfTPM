@@ -733,7 +733,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
 
     /* Create a loaded new TPM 2.0 key and then unload it */
-    XMEMSET(&cmdIn.createLoaded, 0, sizeof(cmdOut.createLoaded));
+    XMEMSET(&cmdIn.createLoaded, 0, sizeof(cmdIn.createLoaded));
     cmdIn.createLoaded.parentHandle = storage.handle;
     cmdIn.createLoaded.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
     XMEMCPY(cmdIn.createLoaded.inSensitive.sensitive.userAuth.buffer, usageAuth,
