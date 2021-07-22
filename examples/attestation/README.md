@@ -52,8 +52,10 @@ TPM2.0 Key generation example
 Loading SRK: Storage 0x81000200 (282 bytes)
 RSA AIK template
 Creating new RSA key...
-Created new key (pub 280, priv 222 bytes)
+New key created and loaded (pub 280, priv 222 bytes)
 Wrote 508 bytes to keyblob.bin
+Wrote 288 bytes to srk.pub
+Wrote AK Name digest
 ```
 
 ### Make Credential Example Usage
@@ -62,15 +64,16 @@ Using the `make_credential` example an attestation server can generate remote at
 
 ```
 $ ./examples/attestation/make_credential
-Using default values
-Demo how to create a credential blob for remote attestation
-wolfTPM2_Init: success
+Using public key from SRK to create the challenge
+Demo how to create a credential challenge for remote attestation
 Credential will be stored in cred.blob
-Reading 508 bytes from keyblob.bin
+wolfTPM2_Init: success
+Reading 288 bytes from srk.pub
 Reading the private part of the key
-AK loaded at 0x80000001
+Public key for encryption loaded
+Read AK Name digest success
 TPM2_MakeCredential success
-Wrote credential blob and secret to cred.blob, 514 bytes
+Wrote credential blob and secret to cred.blob, 648 bytes
 ```
 
 The transfer of the PAK and AK public parts between the client and attestation server is not part of the `make_credential` example, because the exchange is implementation specific.
@@ -90,9 +93,7 @@ SRK loaded
 Reading 508 bytes from keyblob.bin
 Reading the private part of the key
 AK loaded at 0x80000001
-TPM2_StartAuthSession: sessionHandle 0x3000000
-TPM2_policyCommandCode success
-Read credential blob and secret from cred.blob, 514 bytes
+Read credential blob and secret from cred.blob, 648 bytes
 TPM2_ActivateCredential success
 ```
 
