@@ -226,7 +226,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
     if (rc != 0) {
         /* Create primary storage key (RSA) */
-        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_RSA, 
+        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_RSA,
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
@@ -266,9 +266,17 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateLoadedKey(&dev, &testKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
-    if (rc != 0) goto exit;
-    printf("Creating a loaded new TPM 2.0 key Test Passed\n");
-    wolfTPM2_UnloadHandle(&dev, &testKey.handle);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("Creating a loaded new TPM 2.0 key Test Passed\n");
+        wolfTPM2_UnloadHandle(&dev, &testKey.handle);
+    }
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("CreateLoadedKey: Feature is not suppored on this hardware\n");
+        rc = TPM_RC_SUCCESS; /* clear error code */
+    }
+    else {
+        goto exit;
+    }
 
     /* Create RSA key for sign/verify */
     rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -462,7 +470,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
     if (rc != 0) {
         /* Create primary storage key (ECC) */
-        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC, 
+        rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC,
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
@@ -491,7 +499,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }

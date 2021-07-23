@@ -258,10 +258,10 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&cmdIn.incSelfTest, 0, sizeof(cmdIn.incSelfTest));
     cmdIn.incSelfTest.toTest.count = 1;
     cmdIn.incSelfTest.toTest.algorithms[0] = TPM_ALG_RSA;
-	rc = TPM2_IncrementalSelfTest(&cmdIn.incSelfTest, &cmdOut.incSelfTest);
-	printf("TPM2_IncrementalSelfTest: Rc 0x%x, Alg 0x%x (Todo %d)\n",
-			rc, cmdIn.incSelfTest.toTest.algorithms[0],
-            (int)cmdOut.incSelfTest.toDoList.count);
+    rc = TPM2_IncrementalSelfTest(&cmdIn.incSelfTest, &cmdOut.incSelfTest);
+    printf("TPM2_IncrementalSelfTest: Rc 0x%x, Alg 0x%x (Todo %d)\n",
+           rc, cmdIn.incSelfTest.toTest.algorithms[0],
+           (int)cmdOut.incSelfTest.toDoList.count);
 
 
     /* Get Capability for Property */
@@ -748,18 +748,22 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     cmdIn.createLoaded.inPublic.publicArea.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
     cmdIn.createLoaded.inPublic.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg = TPM_ALG_SHA256;
     rc = TPM2_CreateLoaded(&cmdIn.createLoaded, &cmdOut.createLoaded);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_CreateLoaded: handle 0x%x pub %d, priv %d\n",
+               cmdOut.createLoaded.objectHandle, cmdOut.createLoaded.outPublic.size,
+               cmdOut.createLoaded.outPrivate.size);
+        cmdIn.flushCtx.flushHandle = cmdOut.createLoaded.objectHandle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    else if (rc == TPM_RC_COMMAND_CODE) {
+        printf("TPM2_CreatLoaded: Command is not supported on this hardware\n");
+        rc = TPM_RC_SUCCESS; /* clear error code */
+    }
+    else {
         printf("TPM2_CreateLoaded failed %d: %s\n", rc,
-            TPM2_GetRCString(rc));
+               TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("TPM2_CreateLoaded: handle 0x%x pub %d, priv %d\n",
-        cmdOut.createLoaded.objectHandle, cmdOut.createLoaded.outPublic.size,
-        cmdOut.createLoaded.outPrivate.size);
-
-    cmdIn.flushCtx.flushHandle = cmdOut.createLoaded.objectHandle;
-    TPM2_FlushContext(&cmdIn.flushCtx);
-
 
     /* Load public key */
     XMEMSET(&cmdIn.loadExt, 0, sizeof(cmdIn.loadExt));
@@ -1262,9 +1266,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         cmdOut.nvReadPub.nvPublic.size,
-		(word32)cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
+           (word32)cmdOut.nvReadPub.nvPublic.nvPublic.nvIndex,
         cmdOut.nvReadPub.nvPublic.nvPublic.nameAlg,
-		(word32)cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
+           (word32)cmdOut.nvReadPub.nvPublic.nvPublic.attributes,
         cmdOut.nvReadPub.nvPublic.nvPublic.authPolicy.size,
         cmdOut.nvReadPub.nvPublic.nvPublic.dataSize,
         cmdOut.nvReadPub.nvName.size);
