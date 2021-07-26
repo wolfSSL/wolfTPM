@@ -59,6 +59,7 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_CAPS caps;
     WOLFTPM2_NV nv;
     WOLFTPM2_HANDLE parent;
+    WOLFTPM2_SESSION tpmSessionIndex, tpmSessionPlatform;
     TPM_HANDLE nvIndex = TPM_NV_GPIO_SPACE;
     word32 nvAttributes;
     int gpioNum = 0;
@@ -67,6 +68,11 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
     CFG_STRUCT newConfig;
     NTC2_GetConfig_Out getConfig;
     NTC2_PreConfig_In preConfig;
+    /* Required for NV Index deletion */
+    PolicyCommandCode_In policyCC;
+    PolicySecret_In policySecretIn;
+    PolicySecret_Out policySecretOut;
+    NV_UndefineSpaceSpecial_In undefSpecial;
 
    if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -134,7 +140,76 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
     /* GPIO un-configuration is done using NVDelete, no further action needed */
     /* Nuvoton can reconfigure any GPIO without deleting the created NV index */
     if (gpioMode == NUVOTON_GPIO_MODE_UNCONFIG) {
-        printf("Reconfiguration does not require to NV index deletion\n");
+        printf("Deleting GPIO NV Index\n");
+
+        XMEMSET(&tpmSessionIndex, 0, sizeof(tpmSessionIndex));
+        XMEMSET(&tpmSessionPlatform, 0, sizeof(tpmSessionPlatform));
+
+        /* This procedure requires CommandCode policy and EK Auth policy */
+        rc = wolfTPM2_StartSession(&dev, &tpmSessionIndex, NULL, NULL,
+                                   TPM_SE_POLICY, TPM_ALG_NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            printf("index ok\n");
+        }
+
+        rc = wolfTPM2_StartSession(&dev, &tpmSessionPlatform, NULL, NULL,
+                                   TPM_SE_POLICY, TPM_ALG_NULL);
+
+        if (rc == TPM_RC_SUCCESS) {
+            #ifdef DEBUG_WOLFTPM
+            printf("TPM2_StartAuthSession: tpmSessionIndex 0x%x\n",
+                    (word32)tpmSessionIndex.handle.hndl);
+            printf("TPM2_StartAuthSession: tpmSessionPlatforme 0x%x\n",
+                    (word32)tpmSessionPlatform.handle.hndl);
+            #endif
+
+            /* Allow object change auth */
+            XMEMSET(&policyCC, 0, sizeof(policyCC));
+            policyCC.policySession = tpmSessionIndex.handle.hndl;
+            policyCC.code = TPM_CC_NV_UndefineSpaceSpecial;
+            rc = TPM2_PolicyCommandCode(&policyCC);
+            if (rc != TPM_RC_SUCCESS) {
+                printf("TPM2_PolicyCommandCode failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+                goto exit;
+            }
+            printf("TPM2_PolicyCommandCode: success\n");
+
+            /* Provide Endorsement Auth using PolicySecret */
+            XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
+            policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
+            policySecretIn.policySession = tpmSessionIndex.handle.hndl;
+            rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
+            if (rc == TPM_RC_SUCCESS) {
+                printf("TPM2_PolicySecret: success\n");
+            }
+        }
+
+        /* Slot 0 for Index */
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSessionIndex, 0);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Failure to set Index auth session\n");
+            goto exit;
+        }
+        /* Slot 1 for Platform */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSessionPlatform, 0);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Failure to set Platform auth session\n");
+            goto exit;
+        }
+
+        undefSpecial.nvIndex = nvIndex;
+        undefSpecial.platform = TPM_RH_PLATFORM;
+        printf("UndefSpecial\n\n\n");
+        rc = TPM2_NV_UndefineSpaceSpecial(&undefSpecial);
+        if (rc == TPM_RC_SUCCESS) {
+            printf("GPIO NV Index deleted\n");
+        }
+        else {
+            printf("Deleting the NV Index failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        }
+        /* Procedure for mode 4 (delete GPIO NV index) ends here */
         goto exit;
     }
 
@@ -218,6 +293,8 @@ int TPM2_GPIO_Nuvoton_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
+    wolfTPM2_UnloadHandle(&dev, &tpmSessionIndex.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSessionPlatform.handle);
     wolfTPM2_Cleanup(&dev);
 
 exit_badargs:
