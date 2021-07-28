@@ -3,12 +3,12 @@
 
 if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/pcr/quote \
+                   examples/pcr/read \
                    examples/pcr/extend \
                    examples/pcr/reset
 
 noinst_HEADERS  += examples/pcr/quote.h \
-                   examples/pcr/extend.h \
-                   examples/pcr/reset.h
+                   examples/pcr/pcr.h
 
 examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
                                   examples/tpm_test_keys.c \
@@ -16,24 +16,29 @@ examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
 examples_pcr_quote_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_quote_DEPENDENCIES = src/libwolftpm.la
 
+examples_pcr_read_SOURCES      = examples/pcr/read.c \
+                                   examples/tpm_io.c
+examples_pcr_read_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_pcr_read_DEPENDENCIES = src/libwolftpm.la
+
 examples_pcr_extend_SOURCES      = examples/pcr/extend.c \
-                                   examples/tpm_test_keys.c \
                                    examples/tpm_io.c
 examples_pcr_extend_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_extend_DEPENDENCIES = src/libwolftpm.la
 
 examples_pcr_reset_SOURCES      = examples/pcr/reset.c \
-                                  examples/tpm_test_keys.c \
                                   examples/tpm_io.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
 endif
 
 dist_example_DATA+= examples/pcr/quote.c \
+                    examples/pcr/read.c \
                     examples/pcr/extend.c \
                     examples/pcr/reset.c
 
 DISTCLEANFILES+= examples/pcr/.libs/quote \
+                 examples/pcr/.libs/read \
                  examples/pcr/.libs/extend \
                  examples/pcr/.libs/reset
 

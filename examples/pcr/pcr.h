@@ -1,4 +1,4 @@
-/* reset.h
+/* pcr.h
  *
  * Copyright (C) 2006-2021 wolfSSL Inc.
  *
@@ -19,17 +19,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _CLEAR_H_
-#define _CLEAR_H_
+#ifndef _PCR_H_
+#define _PCR_H_
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
+int TPM2_Read_Test(void* userCtx, int argc, char *argv[]);
+int TPM2_Extend_Test(void* userCtx, int argc, char *argv[]);
 int TPM2_Reset_Test(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _CLEAR_H_ */
+#endif /* _PCR_H_ */

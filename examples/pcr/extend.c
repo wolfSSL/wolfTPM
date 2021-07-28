@@ -29,7 +29,7 @@
 #include <wolfssl/wolfcrypt/hash.h>
 #endif
 
-#include <examples/pcr/extend.h>
+#include <examples/pcr/pcr.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
