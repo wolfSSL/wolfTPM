@@ -48,6 +48,7 @@
  * * Xilinx Zynq
  * * Barebox
  * * QNX
+ * * Uboot
  *
  * Using custom IO Callback is always possible.
  *
@@ -90,6 +91,9 @@ int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #elif defined(__QNX__) || defined(__QNXTO__)
 int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(__UBOOT__)
+int TPM2_IoCb_Uboot_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(__XILINX__)
 int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
