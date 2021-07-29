@@ -42,9 +42,18 @@
     #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
 #endif
 
+#ifndef CONFIG_DEFAULT_SPI_BUS
+    #define CONFIG_DEFAULT_SPI_BUS	1
+    #define CONFIG_DEFAULT_SPI_CS 	0
+    #define CONFIG_DEFAULT_SPI_FREQ 1000000
+    #define CONFIG_DEFAULT_SPI_MODE	SPI_MODE_3
+    #define CONFIG_DEFAULT_SPI_NAME "generic_1:0\0"
+#endif
+
 #if defined(__UBOOT__)
-    #include <spi/spi.h>
-    #include <spi/spi_gpio.h>
+    #include <common.h>
+    #include <dm.h>
+    #include <spi.h>
 
     int TPM2_IoCb_Uboot_SPI(TPM2_CTX* ctx, const byte* txBuf,
         byte* rxBuf, word16 xferSz, void* userCtx)
@@ -64,8 +73,21 @@
             return TPM_RC_FAILURE;
         }
 
+        #if CONFIG_IS_ENABLED(DM_SPI)
+        /* If Driver-model is enabled, we can acquire SPI udevice using bus number */
+        ret = spi_get_bus_and_cs(CONFIG_DEFAULT_SPI_BUS, CONFIG_DEFAULT_SPI_CS,
+                             CONFIG_DEFAULT_SPI_FREQ, CONFIG_DEFAULT_SPI_MODE,
+                             "spi_generic_drv", CONFIG_DEFAULT_SPI_NAME,
+                             &dev, &slave);
+        if (ret) {
+            return ret;
+        }
+
+        #else
+        /* Acquire the SPI bus from manually passed udevice through wolfTPM2_Init */
         udev = (struct udevice*)userCtx;
         slave = dev_get_parent_priv(dev);
+        #endif
 
         ret = spi_claim_bus(slave);
         if (ret < 0) {
