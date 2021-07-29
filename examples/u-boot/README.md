@@ -1,10 +1,12 @@
 # Experimental support for U-boot 
 
-Thanks to wolfTPM, U-boot can perform all TPM 2.0 operations
+wolfTPM could be used with all platforms that have hardware SPI support or can use the U-boot software bit-bang implementation(SPI_SOFT).
 
-## Current state of U-boot
+The example wolfTPM IO Callback was tested on RPI3 model B with ST33 TPM 2.0 module, using `make rpi_3_32b_defconfig` and changes to the DeviceTree as described below in `U-boot preparations`.
 
-The existing U-boot support for TPM is limited to only several commands:
+## Current state of TPM support in U-boot
+
+The internal U-boot support for TPM is limited to only several commands:
 
 * TPM2_PCR_Read
 * TPM2_PCR_Extend
@@ -13,6 +15,8 @@ The existing U-boot support for TPM is limited to only several commands:
 and few others for maintenance purposes, like TPM2_Clear.
 
 ## Using wolfTPM with U-boot
+
+Thanks to wolfTPM, U-boot can perform all TPM 2.0 operations, including TPM2_Seal/Unseal, TPM2_Quote, TPM2_EncryptDecrypt2 and TPM2_NV_Write/TPM2_NV_Read.
 
 ### U-boot preparation
 
@@ -25,6 +29,7 @@ To enable U-boot's software SPI driver make sure to enable SPI_SOFT in your U-bo
 Once enabled, it is also needed to add Device Tree entry for SPI Slave device
 
 ```
+
 tpm2-spi {
 
 		compatible = "spi-gpio"; /* Selection the SPI_SOFT driver */
@@ -37,21 +42,31 @@ tpm2-spi {
 		};
 	};
 
+```
+
 Note:
 
-When initializing wolfTPM in U-boot it is required to pass handle to the SPI device registered as the user context. Example below:
+U-boot should use the new Driver Model or when initializing wolfTPM in U-boot it is required to pass handle to the SPI device registered as the user context. Example below:
 
 ```
+
 struct udevice *uDev = &spiDev; /* replace with correct udevice instance */
 WOLFTPM2_DEV tpmDev;
 wolfTPM2_Init(&tpmDev, TPM2_IoCb_SPI, uDev);
+
 ```
 
 In case U-boot's driver model is used, then the Io Callback will try to automatically acquire the spi device at the default SPI bus.
 
 ### wolfTPM compilation
 
-Use the provided options.h in examples/u-boot to build static version of wolfTPM for U-boot. This way later u-boot can be linked(combined) with wolfTPM.
+To build static version of wolfTPM for U-boot, use the configure script or use the example options.h file in examples/u-boot.
+
+To use configure:
+
+./configure --disable-shared --enable-autodetect --disable-wolfcrypt
+
+This way u-boot can be later linked together with wolfTPM.
 
 ## Benfits of using wolfTPM with U-boot
 

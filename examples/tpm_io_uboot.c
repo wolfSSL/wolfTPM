@@ -100,13 +100,13 @@
         ret = spi_xfer(slave, xferSz * 8, tx_buf, rx_buf,
                     SPI_XFER_BEGIN | /* Assert CS before transfer */
                     SPI_XFER_END); /* Deassert CS after transfer */
-        if (ret < 0) {
         #ifdef DEBUG_WOLFTPM
+        if (ret < 0) {
             printf("Failed to transmit data over the SPI bus\n");
-            return ret;
-        #endif
         }
+        #endif
 
+        /* Regardless of the SPI operation outcome, release the SPI bus */
         spi_release_bus(slave);
 
         if (ret == 0) {
