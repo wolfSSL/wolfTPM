@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
-* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
+* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate over SPI.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
@@ -74,7 +74,7 @@ There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The adva
 
 Tested with:
 
-* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
+* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670 and SLB9672.
     - LetsTrust: [http://letstrust.de] (<https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module).> Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
 * Microchip ATTPM20 module
@@ -83,8 +83,12 @@ Tested with:
 #### Device Identification
 
 Infineon SLB9670:
-TIS: TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
 Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
+
+Infineon SLB9672:
+TPM2: Caps 0x30000697, Did 0x001d, Vid 0x15d1, Rid 0x36
+Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), FIPS 140-2 1, CC-EAL4 1
 
 ST ST33TP SPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
@@ -138,7 +142,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
---enable-infineon       Enable Infineon SLB9670 TPM Support (default: disabled)
+--enable-infineon       Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)
 --enable-st             Enable ST ST33TPM Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MCHP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
@@ -153,7 +157,7 @@ TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 ```
 
-### Building Infineon SLB9670
+### Building Infineon SLB9670/SLB9672
 
 Build wolfTPM:
 
@@ -161,7 +165,7 @@ Build wolfTPM:
 git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
 ./autogen.sh
-./configure
+./configure --enable-infineon
 make
 ```
 
