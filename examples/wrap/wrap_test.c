@@ -360,6 +360,24 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     printf("RSA Encrypt/Decrypt OAEP Test Passed\n");
 
+    /* Perform RSA encrypt / decrypt (RSAES pad) */
+    message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    cipher.size = sizeof(cipher.buffer); /* encrypted data */
+    rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_RSAES,
+        message.buffer, message.size, cipher.buffer, &cipher.size);
+    if (rc != 0) goto exit;
+    plain.size = sizeof(plain.buffer);
+    rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_RSAES,
+        cipher.buffer, cipher.size, plain.buffer, &plain.size);
+    if (rc != 0) goto exit;
+    /* Validate encrypt / decrypt */
+    if (message.size != plain.size ||
+                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+        rc = TPM_RC_TESTING; goto exit;
+    }
+    printf("RSA Encrypt/Decrypt RSAES Test Passed\n");
+
 
     /*------------------------------------------------------------------------*/
     /* RSA KEY LOADING TESTS */
