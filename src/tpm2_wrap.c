@@ -306,7 +306,7 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 caps->fwVerMinor = val & 0xFFFF;
                 break;
             case TPM_PT_FIRMWARE_VERSION_2:
-                if (caps->mfg == TPM_MFG_INFINEON || caps->mfg == TPM_MFG_NUVOTON) {
+                if (caps->mfg == TPM_MFG_INFINEON) {
                     caps->fwVerVendor = val >> 8;
                     caps->cc_eal4 = (val & 0x00000002) ? 0 : 1;
                 }
@@ -3190,7 +3190,7 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         return BAD_FUNC_ARG;
 
     while (pos < len) {
-        /* caclulate size to get */
+        /* calculate size to get */
         sz = len - pos;
         if (sz > MAX_RNG_REQ_SIZE)
             sz = MAX_RNG_REQ_SIZE;
