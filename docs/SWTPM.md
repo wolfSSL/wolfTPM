@@ -18,7 +18,7 @@ Two implementations were used in testing:
 ## Building with SW TPM support
 
 ```
-./configure --enable-swtpm
+./configure --enable-swtpm --enable-debug
 make
 ```
 
@@ -35,7 +35,7 @@ make
 
 Running:
 ```
-./tpm_server --rm
+./tpm_server -rm
 ```
 
 The rm switch is optional and remove the cache file
