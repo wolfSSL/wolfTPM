@@ -320,18 +320,27 @@ int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
 
     rc = TPM2_TIS_Read(ctx, TPM_INTF_CAPS(ctx->locality), (byte*)&reg,
         sizeof(reg));
+#ifdef BIG_ENDIAN_ORDER
+    reg = ByteReverseWord32(reg);
+#endif
     if (rc == TPM_RC_SUCCESS) {
         ctx->caps = reg;
     }
 
     rc = TPM2_TIS_Read(ctx, TPM_DID_VID(ctx->locality), (byte*)&reg,
         sizeof(reg));
+#ifdef BIG_ENDIAN_ORDER
+    reg = ByteReverseWord32(reg);
+#endif
     if (rc == TPM_RC_SUCCESS) {
         ctx->did_vid = reg;
     }
 
     reg = 0;
     rc = TPM2_TIS_Read(ctx, TPM_RID(ctx->locality), (byte*)&reg, 1);
+#ifdef BIG_ENDIAN_ORDER
+    reg = ByteReverseWord32(reg);
+#endif
     if (rc == TPM_RC_SUCCESS) {
         ctx->rid = reg;
     }
@@ -390,6 +399,9 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
         do {
             rc = TPM2_TIS_Read(ctx, TPM_BURST_COUNT(ctx->locality),
                 (byte*)burstCount, sizeof(*burstCount));
+        #ifdef BIG_ENDIAN_ORDER
+            *burstCount = ByteReverseWord16(*burstCount);
+        #endif
             if (rc == TPM_RC_SUCCESS && *burstCount > 0)
                 break;
             XTPM_WAIT();

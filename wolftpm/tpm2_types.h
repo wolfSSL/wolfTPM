@@ -550,6 +550,107 @@ typedef int64_t  INT64;
     #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_KEY_BITS*8)
 #endif
 
+
+/* ---------------------------------------------------------------------------*/
+/* ENDIANESS HELPERS */
+/* ---------------------------------------------------------------------------*/
+
+#ifdef __ICCARM__
+    #include "intrinsics.h"
+#endif
+
+#ifdef INTEL_INTRINSICS
+    /* for non visual studio probably need no long version, 32 bit only
+     * i.e., _rotl and _rotr */
+    #include <stdlib.h>      /* get intrinsic definitions */
+    #pragma intrinsic(_lrotl, _lrotr)
+    static inline word32 rotlFixed(word32 x, word32 y) {
+        return y ? _lrotl(x, y) : x;
+    }
+    static inline word32 rotrFixed(word32 x, word32 y) {
+        return y ? _lrotr(x, y) : x;
+    }
+#elif defined(__CCRX__)
+    #include <builtin.h>      /* get intrinsic definitions */
+    static inline word32 rotlFixed(word32 x, word32 y) {
+        return _builtin_rotl(x, y);
+    }
+    static inline word32 rotrFixed(word32 x, word32 y) {
+        return _builtin_rotr(x, y);
+    }
+#else /* generic */
+    /* This routine performs a left circular arithmetic shift of <x> by <y> value. */
+    static inline word32 rotlFixed(word32 x, word32 y) {
+        return (x << y) | (x >> (sizeof(y) * 8 - y));
+    }
+    /* This routine performs a right circular arithmetic shift of <x> by <y> value. */
+    static inline word32 rotrFixed(word32 x, word32 y)
+    {
+        return (x >> y) | (x << (sizeof(y) * 8 - y));
+    }
+#endif
+
+static inline word16 ByteReverseWord16(word16 value)
+{
+#if defined(__ICCARM__)
+    return (word16)__REV16(value);
+#elif defined(KEIL_INTRINSICS)
+    return (word16)__rev16(value);
+#elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+    return (word16)__builtin_bswap16(value);
+#else
+    return (value >> 8) | (value << 8);
+#endif
+}
+
+static inline word32 ByteReverseWord32(word32 value)
+{
+#ifdef PPC_INTRINSICS
+    /* PPC: load reverse indexed instruction */
+    return (word32)__lwbrx(&value,0);
+#elif defined(__ICCARM__)
+    return (word32)__REV(value);
+#elif defined(KEIL_INTRINSICS)
+    return (word32)__rev(value);
+#elif defined(__CCRX__)
+    return (word32)_builtin_revl(value);
+#elif defined(WOLF_ALLOW_BUILTIN) && \
+        defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+    return (word32)__builtin_bswap32(value);
+#elif defined(WOLFSSL_BYTESWAP32_ASM) && defined(__GNUC__) && \
+      defined(__aarch64__)
+    __asm__ volatile (
+        "REV32 %0, %0  \n"
+        : "+r" (value)
+        :
+    );
+    return value;
+#elif defined(WOLFSSL_BYTESWAP32_ASM) && defined(__GNUC__) && \
+      (defined(__thumb__) || defined(__arm__))
+    __asm__ volatile (
+        "REV %0, %0  \n"
+        : "+r" (value)
+        :
+    );
+    return value;
+#elif defined(FAST_ROTATE)
+    /* 5 instructions with rotate instruction, 9 without */
+    return (rotrFixed(value, 8U) & 0xff00ff00) |
+           (rotlFixed(value, 8U) & 0x00ff00ff);
+#else
+    /* 6 instructions with rotate instruction, 8 without */
+    value = ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
+    return rotlFixed(value, 16U);
+#endif
+}
+
+static inline word64 ByteReverseWord64(word64 value)
+{
+    return (word64)((word64)ByteReverseWord32((word32)value)) << 32 |
+                    (word64)ByteReverseWord32((word32)(value  >> 32));
+}
+
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
