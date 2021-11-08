@@ -31,67 +31,6 @@
     #define be16_to_cpu(d) ByteReverseWord16(d)
     #define be32_to_cpu(d) ByteReverseWord32(d)
     #define be64_to_cpu(d) ByteReverseWord64(d)
-
-    #ifdef PPC_INTRINSICS
-
-    #elif defined(__ICCARM__)
-        #include "intrinsics.h"
-    #elif defined(KEIL_INTRINSICS)
-
-    #elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
-
-    #else
-        #if defined(FAST_ROTATE)
-            static inline word32 rotrFixed(word32 x, word32 y) {
-                return (x >> y) | (x << (sizeof(y) * 8 - y));
-            }
-        #endif
-        static inline word32 rotlFixed(word32 x, word32 y) {
-            return (x << y) | (x >> (sizeof(y) * 8 - y));
-        }
-    #endif
-
-    static inline word16 ByteReverseWord16(word16 value)
-    {
-    #if defined(__ICCARM__)
-        return (word16)__REV16(value);
-    #elif defined(KEIL_INTRINSICS)
-        return (word16)__rev16(value);
-    #elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
-        return (word16)__builtin_bswap16(value);
-    #else
-        return (value >> 8) | (value << 8);
-    #endif
-    }
-
-    static inline word32 ByteReverseWord32(word32 value)
-    {
-    #ifdef PPC_INTRINSICS
-        /* PPC: load reverse indexed instruction */
-        return (word32)__lwbrx(&value,0);
-    #elif defined(__ICCARM__)
-        return (word32)__REV(value);
-    #elif defined(KEIL_INTRINSICS)
-        return (word32)__rev(value);
-    #elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
-        return (word32)__builtin_bswap32(value);
-    #elif defined(FAST_ROTATE)
-        /* 5 instructions with rotate instruction, 9 without */
-        return (rotrFixed(value, 8U) & 0xff00ff00) |
-               (rotlFixed(value, 8U) & 0x00ff00ff);
-    #else
-        /* 6 instructions with rotate instruction, 8 without */
-        value = ((value & 0xFF00FF00) >> 8) | ((value & 0x00FF00FF) << 8);
-        return rotlFixed(value, 16U);
-    #endif
-    }
-
-    static inline word64 ByteReverseWord64(word64 value)
-    {
-        return (word64)((word64)ByteReverseWord32((word32) value)) << 32 |
-                        (word64)ByteReverseWord32((word32)(value   >> 32));
-    }
-
 #else
     #define cpu_to_be16(d) (d)
     #define cpu_to_be32(d) (d)
