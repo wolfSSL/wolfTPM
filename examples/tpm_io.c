@@ -56,6 +56,8 @@
 #include "examples/tpm_io_barebox.c"
 #elif defined(__QNX__) || defined(__QNXNTO__)
 #include "examples/tpm_io_qnx.c"
+#elif defined(__UBOOT__)
+#include "examples/tpm_io_uboot.c"
 #elif defined(__XILINX__)
 #include "examples/tpm_io_xilinx.c"
 #endif
@@ -76,6 +78,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_Barebox_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__QNX__) || defined(__QNXNTO__)
     ret = TPM2_IoCb_QNX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(__UBOOT__)
+    ret = TPM2_IoCb_Uboot_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__XILINX__)
     ret = TPM2_IoCb_Xilinx_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
