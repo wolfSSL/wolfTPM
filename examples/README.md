@@ -441,7 +441,7 @@ Some TPM 2.0 modules have extra I/O functionalities and additional GPIO that the
 
 Currently, the GPIO control examples support ST33 and NPCT75x TPM 2.0 modules.
 
-There are four examples available: `gpio/gpio_config` for ST33 and `gpio/gpio_nuvoton` for NPCT75x.
+There are four examples available. Configuration using `gpio/gpio_config`.
 
 Every example has a help option `-h`. Please consult with `gpio_config -h` about the various GPIO modes.
 
@@ -495,12 +495,12 @@ NV Index for GPIO access created
 
 ### GPIO Config (NPCT75xx)
 
-NPCT75x supports 3 output modes (no input modes), information from `gpio/gpio_nuvoton` below:
+NPCT75x supports 3 output modes (no input modes), information from `gpio/gpio_config` below:
 
 ```
-$ ./examples/gpio/gpio_nuvoton -h
+$ ./examples/gpio/gpio_config -h
 Expected usage:
-./examples/gpio/gpio_nuvoton [num] [mode]
+./examples/gpio/gpio_config [num] [mode]
 * num is a GPIO number between 3 and 4 (default 3)
 * mode is either push-pull, open-drain or open-drain with pull-up
 	1. pushpull  - output in push pull configuration
@@ -526,7 +526,7 @@ NV Index for GPIO access created
 
 Switching a GPIO configuration is seamless.
 * For ST33 `gpio/gpio_config` takes care of deleting existing NV Index, so a new GPIO configuration can be chosen.
-* For NPCT75xx `gpio/gpio_nuvoton` can reconfigure any GPIO without deleting the created NV index.
+* For NPCT75xx `gpio/gpio_config` can reconfigure any GPIO without deleting the created NV index.
 
 ```
 $ ./examples/gpio/gpio_set 0 -high

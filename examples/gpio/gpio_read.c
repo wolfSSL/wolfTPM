@@ -36,7 +36,7 @@
 #include <stdlib.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON))
 
 /******************************************************************************/
 /* --- BEGIN TPM GPIO Read Example -- */
@@ -45,18 +45,18 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/gpio/gpio_read [num]\n");
-    printf("* num is a GPIO number between %d-%d (default %d)\n", GPIO_NUM_MIN, GPIO_NUM_MAX, TPM_GPIO_A);
+    printf("* num is a GPIO number between %d-%d (default %d)\n", TPM_GPIO_NUM_MIN, TPM_GPIO_NUM_MAX, TPM_GPIO_A);
     printf("Example usage, without parameters, read GPIO%d\n", TPM_GPIO_A);
 }
 
 int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
 {
-    int rc, pin = 0;
+    int rc, pin = TPM_GPIO_A;
     word32 readSize;
     WOLFTPM2_DEV dev;
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
-    TPM_HANDLE nvIndex = TPM_NV_GPIO_SPACE;
+    TPM_HANDLE nvIndex;
     BYTE pinState;
 
     if (argc >= 2) {
@@ -67,12 +67,12 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
         pin = atoi(argv[1]);
-        if(pin < GPIO_NUM_MIN || pin > GPIO_NUM_MAX) {
+        if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
             usage();
             return 0;
         }
-        nvIndex = TPM_NV_GPIO_SPACE + (pin-GPIO_NUM_MIN);
     }
+    nvIndex = TPM_NV_GPIO_SPACE + (pin-TPM_GPIO_NUM_MIN);
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -96,6 +96,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, &pinState, &readSize, 0);
     if (rc != 0) {
         printf("Error while reading GPIO state\n");
+        printf("Make sure GPIO has been configured with './examples/gpio/gpio_config'\n");
         goto exit;
     }
 
@@ -122,7 +123,7 @@ exit:
 /******************************************************************************/
 /* --- END TPM GPIO Store Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WRAPPER && (WOLFTPM_ST33 || WOLFTPM_NUVOTON || WOLFTPM_AUTODETECT) */
+#endif /* !WOLFTPM2_NO_WRAPPER && (WOLFTPM_ST33 || WOLFTPM_NUVOTON) */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
@@ -130,10 +131,10 @@ int main(int argc, char *argv[])
     int rc = NOT_COMPILED_IN;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON))
     rc = TPM2_GPIO_Read_Example(NULL, argc, argv);
 #else
-    printf("GPIO code not compiled in\n");
+    printf("GPIO configuration requires a STM ST33 or Nuvoton NPCT750 TPM 2.0 module built\n");
     (void)argc;
     (void)argv;
 #endif

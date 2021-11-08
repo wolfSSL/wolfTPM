@@ -24,21 +24,11 @@ examples_gpio_gpio_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_gpio_gpio_set_DEPENDENCIES = src/libwolftpm.la
 endif
 
-if BUILD_NUVOTON
-noinst_PROGRAMS += examples/gpio/gpio_nuvoton
-examples_gpio_gpio_nuvoton_SOURCES      = examples/gpio/gpio_nuvoton.c \
-                                          examples/tpm_io.c
-examples_gpio_gpio_nuvoton_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
-examples_gpio_gpio_nuvoton_DEPENDENCIES = src/libwolftpm.la
-endif
-
 
 dist_example_DATA+= examples/gpio/gpio_config.c
 dist_example_DATA+= examples/gpio/gpio_read.c
 dist_example_DATA+= examples/gpio/gpio_set.c
-dist_example_DATA+= examples/gpio/gpio_nuvoton.c
 
 DISTCLEANFILES+= examples/gpio/.libs/gpio_config
 DISTCLEANFILES+= examples/gpio/.libs/gpio_read
 DISTCLEANFILES+= examples/gpio/.libs/gpio_set
-DISTCLEANFILES+= examples/gpio/.libs/gpio_nuvoton

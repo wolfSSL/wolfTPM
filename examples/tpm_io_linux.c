@@ -211,9 +211,9 @@
             printf("Trying TPM @ %s (%d MHz)\n", TPM2_SPI_DEV, maxSpeed/1000000);
         }
         #endif
-        #ifdef WOLFTPM_CHECK_WAIT_STATE
+    #endif
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
         timeout = TPM_SPI_WAIT_RETRY;
-        #endif
     #endif
 
         spiDev = open(TPM2_SPI_DEV, O_RDWR);
