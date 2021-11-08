@@ -272,7 +272,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     else if (rc == TPM_RC_COMMAND_CODE) {
         printf("CreateLoadedKey: Feature is not suppored on this hardware\n");
-        rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
         goto exit;

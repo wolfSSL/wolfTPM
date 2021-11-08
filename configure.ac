@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2021 wolfSSL Inc.])
-AC_INIT([wolftpm],[2.2.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[2.3.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -23,7 +23,7 @@ AC_ARG_PROGRAM
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=12:0:0
+WOLFTPM_LIBRARY_VERSION=12:1:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -366,7 +366,7 @@ AC_ARG_ENABLE([autodetect],
 if test "x$ENABLED_AUTODETECT" = "xtest"
 then
     # If a module hasn't been selected then enable auto-detection
-    if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST" = "xno" && test "x$ENABLED_NUVOTON" = "xno"
+    if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST33" = "xno" && test "x$ENABLED_NUVOTON" = "xno"
     then
         ENABLED_AUTODETECT=yes
     fi
@@ -400,7 +400,7 @@ AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
-AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
+AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
@@ -529,7 +529,7 @@ echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
 echo "   * Infineon SLB9670           $ENABLED_INFINEON"
-echo "   * STM ST33:                  $ENABLED_ST"
+echo "   * STM ST33:                  $ENABLED_ST33"
 echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
