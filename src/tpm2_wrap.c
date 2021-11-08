@@ -4149,6 +4149,25 @@ int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate)
     return ret;
 }
 
+int wolfTPM2_GetKeyTemplate_RSA_SSH(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID hashAlg)
+{
+    int ret;
+    TPMA_OBJECT objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+
+    /* "ssh-rsa" requires RSA key be:
+     * at least 2048 bits
+     * OAEP signature scheme with SHA1 hash algorithm */
+    ret = GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, 2048, 0, TPM_ALG_OAEP, hashAlg);
+    if (ret == 0) {
+        publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
+    }
+    return ret;
+}
+
 int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
 {
     if (nvAttributes == NULL)

@@ -30,6 +30,8 @@
 
 #include <stdio.h>
 #include <stdlib.h> /* atoi */
+#include <wolfssl/wolfcrypt/rsa.h>
+#include <wolfssl/wolfcrypt/asn_public.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -56,6 +58,9 @@ static void usage(void)
     printf("* -sym: Use Symmetric Cypher for key generation\n");
     printf("\tDefault Symmetric Cypher is AES CTR with 256 bits\n");
     printf("* -t: Use default template (otherwise AIK)\n");
+    printf("* -ssh: Use template for SSH key (only RSA algorithm)\n");
+    printf("\tStores public key in id_rsa.pub\n");
+    printf("\tStores private key in keyblob.bin\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("Example usage:\n");
     printf("\t* RSA, default template\n");
@@ -108,6 +113,34 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
     return TPM_RC_SUCCESS;
 }
 
+static int writeKeyPubSsh(const char *filename, const byte *buf, word32 buf_size)
+{
+    int rc = TPM_RC_FAILURE;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    XFILE fp = NULL;
+    size_t fileSz = 0;
+
+    if (filename == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
+    fp = XFOPEN(filename, "wt");
+    if (fp != XBADFILE) {
+        fileSz = XFWRITE(buf, 1, buf_size, fp);
+        /* sanity check */
+        if (fileSz == buf_size) {
+            rc = TPM_RC_SUCCESS;
+        }
+#ifdef DEBUG_WOLFTPM
+        printf("Public PEM file size = %zu\n", fileSz);
+        TPM2_PrintBin(buf, buf_size);
+#endif
+        XFCLOSE(fp);
+    }
+#endif
+    return rc;
+
+}
+
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
@@ -127,6 +160,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int endorseKey = 0;
     int pemFiles = 0;
     int bAIK = 1;
+    int bSSH = 0;
     int keyBits = 256;
     const char *outputFile = "keyblob.bin";
     const char *ekPubFile = "ek.pub";
@@ -182,6 +216,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         if (XSTRNCMP(argv[argc-1], "-pem", 4) == 0) {
             pemFiles = 1;
+        }
+        if (XSTRNCMP(argv[argc-1], "-ssh", 4) == 0) {
+            bSSH = 1;
+            bAIK = 0;
         }
         if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
             paramEncAlg = TPM_ALG_CFB;
@@ -273,6 +311,20 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
 
     }
+    else if (bSSH) {
+        if (alg == TPM_ALG_RSA) {
+            printf("SSH template for RSA key\n");
+            rc = wolfTPM2_GetKeyTemplate_RSA_SSH(&publicTemplate, TPM_ALG_SHA1);
+
+            /* set session for authorization key */
+            auth.size = (int)sizeof(gKeyAuth)-1;
+            XMEMCPY(auth.buffer, gKeyAuth, auth.size);
+        }
+        else {
+            printf("SSH template for ECC key not implemented\n");
+            rc = BAD_FUNC_ARG;
+        }
+    }
     else {
         if (alg == TPM_ALG_RSA) {
             printf("RSA template\n");
@@ -315,6 +367,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     rc = writeKeyBlob(outputFile, &newKeyBlob);
+    if (rc != 0) {
+        printf("Failure to store key blob\n");
+        goto exit;
+    }
+
     /* Generate key artifacts needed for remote attestation */
     if (bAIK) {
         /* Store primary public key */
@@ -327,6 +384,33 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("Wrote AK Name digest\n");
             XFCLOSE(fp);
         }
+    }
+
+    if (bSSH) {
+        WOLFTPM2_KEY tpmKey;
+        RsaKey rsaKey;
+        byte der[MAX_RSA_KEY_BYTES], pem[MAX_RSA_KEY_BYTES];
+        int  derSz, pemSz;
+
+        /* Prepare wolfCrypt key structure */
+        rc = wc_InitRsaKey(&rsaKey, NULL);
+        if (rc != 0) goto exit;
+        /* Prepare wolfTPM key structure */
+        XMEMCPY(&tpmKey.handle, &newKey.handle, sizeof(tpmKey.handle));
+        XMEMCPY(&tpmKey.pub, &newKey.pub, sizeof(tpmKey.pub));
+        /* Convert the wolfTPM key to wolfCrypt format */
+        rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &tpmKey, &rsaKey);
+        if (rc != 0) goto exit;
+        /* Convert the wolfCrypt key to DER format */
+        rc = wc_RsaKeyToPublicDer(&rsaKey, der, sizeof(der));
+        if (rc <= 0) goto exit;
+        derSz = rc;
+        /* Convert the DER key to PEM format */
+        rc = wc_DerToPem(der, derSz, pem, sizeof(pem), PUBLICKEY_TYPE);
+        if (rc <= 0) goto exit;
+        pemSz = rc;
+        /* Store PEM output to file */
+        rc = writeKeyPubSsh("id_rsa.pub", pem, (word32)pemSz);
     }
 #else
     if (alg == TPM_ALG_SYMCIPHER) {
