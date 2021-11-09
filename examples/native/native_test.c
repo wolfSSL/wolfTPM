@@ -757,7 +757,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     }
     else if (rc == TPM_RC_COMMAND_CODE) {
         printf("TPM2_CreatLoaded: Command is not supported on this hardware\n");
-        rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
         printf("TPM2_CreateLoaded failed %d: %s\n", rc,

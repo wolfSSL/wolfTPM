@@ -1,5 +1,24 @@
 # Release Notes
 
+## wolfTPM Release 2.3 (11/08/2021)
+
+**Summary**
+
+Fixes for minor build issues, refactor of GPIO configure to combine and new PCR Read example.
+
+**Detail**
+
+* Refactor GPIO support (single gpio_config) (PR #194)
+* Fix for Linux HAL IO try again timeout logic  (PR #194)
+* Fix for big endian in TIS layer (PR #191)
+* Fix for RSAES padding (RSA_Encrypt) (PR #187)
+* Fix in tests to allow command code error for CreateLoaded (not supported on hardware) (PR #184)
+* Fix for compiler warning for file read in make_credential.c (PR #182)
+* Fixes for Windows builds (PR #181)
+* Fixes for RSA RNG in edge case builds (fixes wolfBoot build error) (PR #180)
+* Added PCR Read example (PR #185)
+
+
 ## wolfTPM Release 2.2 (07/13/2021)
 
 **Summary**
