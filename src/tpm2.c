@@ -5248,7 +5248,10 @@ int TPM2_SetMode(SetMode_In* in)
     }
     return rc;
 }
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
+/* GPIO Vendor Specific API's */
+#ifdef WOLFTPM_ST33
 int TPM2_GPIO_Config(GpioConfig_In* in)
 {
     TPM_RC rc;
@@ -5284,7 +5287,9 @@ int TPM2_GPIO_Config(GpioConfig_In* in)
     }
     return rc;
 }
+
 #elif defined(WOLFTPM_NUVOTON)
+
 int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
 {
     int rc;
@@ -5339,7 +5344,7 @@ int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
     }
     return rc;
 }
-#endif
+#endif /* WOLFTPM_NUVOTON */
 /******************************************************************************/
 /* --- END Manufacture Specific TPM API's -- */
 /******************************************************************************/

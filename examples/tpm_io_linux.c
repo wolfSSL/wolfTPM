@@ -196,7 +196,7 @@
         int ret = TPM_RC_FAILURE;
         int spiDev;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
-        int timeout = TPM_SPI_WAIT_RETRY;
+        int timeout;
     #endif
 
         /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
@@ -206,6 +206,14 @@
 
     #ifdef WOLFTPM_AUTODETECT
     tryagain:
+        #ifdef DEBUG_WOLFTPM
+        if (!foundSpiDev) {
+            printf("Trying TPM @ %s (%d MHz)\n", TPM2_SPI_DEV, maxSpeed/1000000);
+        }
+        #endif
+    #endif
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
+        timeout = TPM_SPI_WAIT_RETRY;
     #endif
 
         spiDev = open(TPM2_SPI_DEV, O_RDWR);

@@ -184,7 +184,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     if (rc != 0) goto exit;
 
-    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (%u), "
+    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), "
         "FIPS 140-2 %d, CC-EAL4 %d\n",
         caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
         caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
