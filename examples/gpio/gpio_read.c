@@ -94,7 +94,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
     /* Read GPIO state */
     readSize = sizeof(pinState);
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, &pinState, &readSize, 0);
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
         printf("Error while reading GPIO state\n");
         printf("Make sure GPIO has been configured with './examples/gpio/gpio_config'\n");
         goto exit;
@@ -112,7 +112,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 

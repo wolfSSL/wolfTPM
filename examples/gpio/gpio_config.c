@@ -78,8 +78,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 #ifdef WOLFTPM_ST33
     GpioConfig_In gpio;
     SetCommandSet_In setCmdSet;
-#endif
-#ifdef WOLFTPM_NUVOTON
+#elif defined(WOLFTPM_NUVOTON)
     CFG_STRUCT newConfig;
     NTC2_GetConfig_Out getConfig;
     NTC2_PreConfig_In preConfig;
@@ -161,7 +160,6 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    printf("wolfTPM2_Init: success\n");
 
     /* Get TPM capabilities, to discover the TPM vendor */
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
@@ -172,26 +170,24 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     /* Confirm the TPM vendor */
 #ifdef WOLFTPM_ST33
     if (caps.mfg != TPM_MFG_STM) {
-        printf("TPM model mismatch. GPIO support requires an ST33 TPM 2.0 module\n");
+        printf("TPM vendor mismatch. GPIO support requires an ST33 TPM 2.0 module\n");
         goto exit;
     }
 
+    /* Make sure NV Index for this GPIO is cleared before use
+     * This way we make sure a new GPIO config can be set */
 #ifdef DEBUG_WOLFTPM
     printf("Trying to remove NV index 0x%8.8X used for GPIO\n", nvIndex);
 #endif
-
-    /* Make sure NV Index for this GPIO is cleared before use
-     * This way we make sure a new GPIO config can be set
-     */
     rc = wolfTPM2_NVDelete(&dev, TPM_RH_OWNER, nvIndex);
     if (rc == TPM_RC_SUCCESS) {
-        printf("NV index undefined\n");
+        printf("NV Index undefined\n");
     }
     else if (rc == (TPM_RC_HANDLE | TPM_RC_2)) {
         printf("NV Index is available for GPIO use\n");
     }
     else {
-        printf("wolfTPM2_NVDelete failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("NV Index delete failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
     }
 
     /* GPIO un-configuration is done using NVDelete, no further action needed */
@@ -205,14 +201,14 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     setCmdSet.enableFlag = 1;
     rc = TPM2_SetCommandSet(&setCmdSet);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("Enable GPIO config command failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
         goto exit;
     }
 
     /* Configuring a TPM GPIO requires a PLATFORM authorization. Afterwards,
      * using that GPIO is up to the user. Therefore, NV Indexes are operated
-     * using OWNER authorization. See below NVCreateAuth.
-     */
+     * using OWNER authorization. See below NVCreateAuth. */
     XMEMSET(&gpio, 0, sizeof(gpio));
     gpio.authHandle = TPM_RH_PLATFORM;
     gpio.config.count = 1;
@@ -234,7 +230,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     /* Prep NV attributes */
     parent.hndl = TPM_RH_OWNER;
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
         printf("Setting NV attributes failed\n");
         goto exit;
     }
@@ -252,7 +248,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
         BYTE dummy = 0;
         /* Writing a dummy byte has no impact on the input, but is required */
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, &dummy, sizeof(dummy), 0);
-        if (rc != 0) {
+        if (rc != TPM_RC_SUCCESS) {
             printf("Error while configuring the GPIO as an Input.\n");
         }
     }
@@ -260,7 +256,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 #elif defined(WOLFTPM_NUVOTON)
 
     if (caps.mfg != TPM_MFG_NUVOTON) {
-        printf("TPM model mismatch. GPIO support requires a Nuvoton NPCT7xx TPM 2.0 module\n");
+        printf("TPM vendor mismatch. GPIO support requires Nuvoton NPCT7xx TPM 2.0 module\n");
         goto exit;
     }
 
@@ -272,53 +268,62 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
         /* This procedure requires CommandCode policy and EK Auth policy */
         rc = wolfTPM2_StartSession(&dev, &tpmSessionIndex, NULL, NULL,
                                    TPM_SE_POLICY, TPM_ALG_NULL);
-        if (rc == TPM_RC_SUCCESS) {
-            printf("index ok\n");
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_StartSession index failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
         }
-
         rc = wolfTPM2_StartSession(&dev, &tpmSessionPlatform, NULL, NULL,
                                    TPM_SE_POLICY, TPM_ALG_NULL);
-
-        if (rc == TPM_RC_SUCCESS) {
-            #ifdef DEBUG_WOLFTPM
-            printf("TPM2_StartAuthSession: tpmSessionIndex 0x%x\n",
-                    (word32)tpmSessionIndex.handle.hndl);
-            printf("TPM2_StartAuthSession: tpmSessionPlatforme 0x%x\n",
-                    (word32)tpmSessionPlatform.handle.hndl);
-            #endif
-
-            /* Allow object change auth */
-            XMEMSET(&policyCC, 0, sizeof(policyCC));
-            policyCC.policySession = tpmSessionIndex.handle.hndl;
-            policyCC.code = TPM_CC_NV_UndefineSpaceSpecial;
-            rc = TPM2_PolicyCommandCode(&policyCC);
-            if (rc != TPM_RC_SUCCESS) {
-                printf("TPM2_PolicyCommandCode failed 0x%x: %s\n", rc,
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_StartSession policy failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
-                goto exit;
-            }
-            printf("TPM2_PolicyCommandCode: success\n");
-
-            /* Provide Endorsement Auth using PolicySecret */
-            XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
-            policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
-            policySecretIn.policySession = tpmSessionIndex.handle.hndl;
-            rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
-            if (rc == TPM_RC_SUCCESS) {
-                printf("TPM2_PolicySecret: success\n");
-            }
+            goto exit;
         }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_StartAuthSession: tpmSessionIndex 0x%x\n",
+                (word32)tpmSessionIndex.handle.hndl);
+        printf("TPM2_StartAuthSession: tpmSessionPlatforme 0x%x\n",
+                (word32)tpmSessionPlatform.handle.hndl);
+    #endif
+
+        /* Allow object change auth */
+        XMEMSET(&policyCC, 0, sizeof(policyCC));
+        policyCC.policySession = tpmSessionIndex.handle.hndl;
+        policyCC.code = TPM_CC_NV_UndefineSpaceSpecial;
+        rc = TPM2_PolicyCommandCode(&policyCC);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PolicyCommandCode failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("TPM2_PolicyCommandCode: success\n");
+
+        /* Provide Endorsement Auth using PolicySecret */
+        XMEMSET(&policySecretIn, 0, sizeof(policySecretIn));
+        policySecretIn.authHandle = TPM_RH_ENDORSEMENT;
+        policySecretIn.policySession = tpmSessionIndex.handle.hndl;
+        rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_PolicySecret failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("TPM2_PolicySecret: success\n");
 
         /* Slot 0 for Index */
         rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSessionIndex, 0);
         if (rc != TPM_RC_SUCCESS) {
-            printf("Failure to set Index auth session\n");
+            printf("Failure to set Index auth session (0x%x: %s)\n", rc,
+                TPM2_GetRCString(rc));
             goto exit;
         }
         /* Slot 1 for Platform */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSessionPlatform, 0);
         if (rc != TPM_RC_SUCCESS) {
-            printf("Failure to set Platform auth session\n");
+            printf("Failure to set Platform auth session (0x%x: %s)\n", rc,
+                TPM2_GetRCString(rc));
             goto exit;
         }
 
@@ -332,6 +337,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
             printf("Deleting the NV Index failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         }
+
         /* Procedure for mode 4 (delete GPIO NV index) ends here */
         goto exit;
     }
@@ -396,7 +402,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     /* Add NV attributes required by Nuvoton specification */
     nvAttributes |= (TPMA_NV_PLATFORMCREATE | TPMA_NV_POLICY_DELETE);
     nvAttributes |= (TPM_NT_ORDINARY & TPMA_NV_TPM_NT);
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
         printf("Setting NV attributes failed\n");
         goto exit;
     }
@@ -418,7 +424,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-#ifdef WOLFTPM_NUVOTON
+#if defined(WOLFTPM_NUVOTON) && !defined(WOLFTPM_ST33)
     wolfTPM2_UnloadHandle(&dev, &tpmSessionIndex.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSessionPlatform.handle);
 #endif

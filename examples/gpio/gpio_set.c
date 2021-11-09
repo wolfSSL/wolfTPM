@@ -102,7 +102,7 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
     /* Write GPIO state */
     writeSize = sizeof(pinState);
     rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, &pinState, writeSize, 0);
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
             printf("Error while setting GPIO state\n");
             printf("Make sure GPIO has been configured with './examples/gpio/gpio_config'\n");
             goto exit;
@@ -117,7 +117,7 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    if (rc != 0) {
+    if (rc != TPM_RC_SUCCESS) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
 
