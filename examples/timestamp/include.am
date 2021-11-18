@@ -9,12 +9,8 @@ examples_timestamp_signed_timestamp_SOURCES      = examples/timestamp/signed_tim
                                                    examples/tpm_io.c
 examples_timestamp_signed_timestamp_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_timestamp_signed_timestamp_DEPENDENCIES = src/libwolftpm.la
-endif
 
-dist_example_DATA+= examples/timestamp/signed_timestamp.c
-DISTCLEANFILES+= examples/timestamp/.libs/signed_timestamp
 
-if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/timestamp/clock_set
 noinst_HEADERS  += examples/timestamp/clock_set.h
 examples_timestamp_clock_set_SOURCES      = examples/timestamp/clock_set.c \
@@ -23,5 +19,10 @@ examples_timestamp_clock_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_timestamp_clock_set_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/timestamp/clock_set.c
+example_timestampdir = $(exampledir)/timestamp
+dist_example_timestamp_DATA = \
+  examples/timestamp/clock_set.c \
+  examples/timestamp/signed_timestamp.c
+
+DISTCLEANFILES+= examples/timestamp/.libs/signed_timestamp
 DISTCLEANFILES+= examples/timestamp/.libs/clock_set

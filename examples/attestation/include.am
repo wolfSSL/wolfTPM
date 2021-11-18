@@ -20,9 +20,10 @@ examples_attestation_activate_credential_LDADD        = src/libwolftpm.la $(LIB_
 examples_attestation_activate_credential_DEPENDENCIES = src/libwolftpm.la
 
 endif
-
-dist_example_DATA+= examples/attestation/make_credential.c \
-                    examples/attestation/activate_credential.c
+example_attestationdir = $(exampledir)/attestation
+dist_example_attestation_DATA = \
+  examples/attestation/make_credential.c \
+  examples/attestation/activate_credential.c
 
 DISTCLEANFILES+= examples/attestation/.libs/make_credential \
                  examples/attestation/.libs/activate_credential

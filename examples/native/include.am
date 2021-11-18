@@ -10,5 +10,7 @@ examples_native_native_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_native_native_test_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/native/native_test.c
+example_nativedir = $(exampledir)/native
+dist_example_native_DATA = examples/native/native_test.c
+
 DISTCLEANFILES+= examples/native/.libs/native_test

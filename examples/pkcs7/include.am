@@ -11,5 +11,7 @@ examples_pkcs7_pkcs7_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pkcs7_pkcs7_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/pkcs7/pkcs7.c
+example_pkcs7dir = $(exampledir)/pkcs7
+dist_example_pkcs7_DATA = examples/pkcs7/pkcs7.c
+
 DISTCLEANFILES+= examples/pkcs7/.libs/pkcs7

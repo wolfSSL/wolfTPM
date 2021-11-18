@@ -11,5 +11,7 @@ examples_csr_csr_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_csr_csr_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/csr/csr.c
+example_csrdir = $(exampledir)/csr
+dist_example_csr_DATA = examples/csr/csr.c
+
 DISTCLEANFILES+= examples/csr/.libs/csr

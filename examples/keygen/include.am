@@ -4,21 +4,21 @@
 if BUILD_EXAMPLES
 noinst_HEADERS += examples/keygen/keygen.h
 
-bin_PROGRAMS += examples/keygen/keyload
+noinst_PROGRAMS += examples/keygen/keyload
 examples_keygen_keyload_SOURCES      = examples/keygen/keyload.c \
                                        examples/tpm_test_keys.c \
                                        examples/tpm_io.c
 examples_keygen_keyload_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_keygen_keyload_DEPENDENCIES = src/libwolftpm.la
 
-bin_PROGRAMS += examples/keygen/keygen
+noinst_PROGRAMS += examples/keygen/keygen
 examples_keygen_keygen_SOURCES      = examples/keygen/keygen.c \
                                       examples/tpm_test_keys.c \
                                       examples/tpm_io.c
 examples_keygen_keygen_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_keygen_keygen_DEPENDENCIES = src/libwolftpm.la
 
-bin_PROGRAMS += examples/keygen/keyimport
+noinst_PROGRAMS += examples/keygen/keyimport
 examples_keygen_keyimport_SOURCES      = examples/keygen/keyimport.c \
                                          examples/tpm_test_keys.c \
                                          examples/tpm_io.c
@@ -26,9 +26,12 @@ examples_keygen_keyimport_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_keygen_keyimport_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/keygen/keyload.c
-dist_example_DATA+= examples/keygen/keygen.c
-dist_example_DATA+= examples/keygen/keyimport.c
+example_keygendir = $(exampledir)/keygen
+dist_example_keygen_DATA = \
+  examples/keygen/keyload.c \
+  examples/keygen/keygen.c \
+  examples/keygen/keyimport.c
+
 DISTCLEANFILES+= examples/keygen/.libs/keyload
 DISTCLEANFILES+= examples/keygen/.libs/keygen
 DISTCLEANFILES+= examples/keygen/.libs/keyimport
