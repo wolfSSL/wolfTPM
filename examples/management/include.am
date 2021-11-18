@@ -12,6 +12,7 @@ examples_management_flush_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_management_flush_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/management/flush.c
+example_managementdir = $(exampledir)/management
+dist_example_management_DATA = examples/management/flush.c
 
 DISTCLEANFILES+= examples/management/.libs/flush

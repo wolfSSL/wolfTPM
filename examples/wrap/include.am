@@ -10,5 +10,7 @@ examples_wrap_wrap_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_wrap_wrap_test_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/wrap/wrap_test.c
+example_wrapdir = $(exampledir)/wrap
+dist_example_wrap_DATA = examples/wrap/wrap_test.c
+
 DISTCLEANFILES+= examples/wrap/.libs/wrap_test

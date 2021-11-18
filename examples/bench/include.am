@@ -11,5 +11,7 @@ examples_bench_bench_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_bench_bench_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/bench/bench.c
+example_benchdir = $(exampledir)/bench
+dist_example_bench_DATA = examples/bench/bench.c
+
 DISTCLEANFILES+= examples/bench/.libs/bench

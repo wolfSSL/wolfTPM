@@ -31,8 +31,10 @@ examples_tls_tls_server_DEPENDENCIES = src/libwolftpm.la
 
 endif
 
-dist_example_DATA+= examples/tls/tls_client.c
-DISTCLEANFILES+= examples/tls/.libs/tls_client
+example_tlsdir = $(exampledir)/tls
+dist_example_tls_DATA = \
+  examples/tls/tls_client.c \
+  examples/tls/tls_server.c
 
-dist_example_DATA+= examples/tls/tls_server.c
+DISTCLEANFILES+= examples/tls/.libs/tls_client
 DISTCLEANFILES+= examples/tls/.libs/tls_server

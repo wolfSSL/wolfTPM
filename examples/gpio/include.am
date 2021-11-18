@@ -24,10 +24,11 @@ examples_gpio_gpio_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_gpio_gpio_set_DEPENDENCIES = src/libwolftpm.la
 endif
 
-
-dist_example_DATA+= examples/gpio/gpio_config.c
-dist_example_DATA+= examples/gpio/gpio_read.c
-dist_example_DATA+= examples/gpio/gpio_set.c
+example_gpiodir = $(exampledir)/gpio
+dist_example_gpio_DATA = \
+  examples/gpio/gpio_config.c \
+  examples/gpio/gpio_read.c \
+  examples/gpio/gpio_set.c
 
 DISTCLEANFILES+= examples/gpio/.libs/gpio_config
 DISTCLEANFILES+= examples/gpio/.libs/gpio_read

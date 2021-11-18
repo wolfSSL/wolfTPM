@@ -32,10 +32,12 @@ examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
 endif
 
-dist_example_DATA+= examples/pcr/quote.c \
-                    examples/pcr/read_pcr.c \
-                    examples/pcr/extend.c \
-                    examples/pcr/reset.c
+example_pcrdir = $(exampledir)/pcr
+dist_example_pcr_DATA = \
+  examples/pcr/quote.c \
+  examples/pcr/read_pcr.c \
+  examples/pcr/extend.c \
+  examples/pcr/reset.c
 
 DISTCLEANFILES+= examples/pcr/.libs/quote \
                  examples/pcr/.libs/read_pcr \
