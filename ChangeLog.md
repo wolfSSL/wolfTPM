@@ -1,5 +1,15 @@
 # Release Notes
 
+## wolfTPM Release 2.3.1 (11/18/2021)
+
+**Summary**
+
+Fix for `make install`
+
+**Detail**
+
+* Fix for installing example code on linux builds (PR #196)
+
 ## wolfTPM Release 2.3 (11/08/2021)
 
 **Summary**
