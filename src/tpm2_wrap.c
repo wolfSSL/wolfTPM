@@ -543,7 +543,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
     /* make sure crypto dev callback is unregistered */
     rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
     if (rc != 0)
-    	return rc;
+        return rc;
 #endif
 
     if (doShutdown)  {
@@ -3464,7 +3464,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
     LoadExternal_Out loadExtOut;
     int hashAlg, hashAlgDigSz;
 
-    if (dev == NULL || key == NULL || keyBuf == NULL || 
+    if (dev == NULL || key == NULL || keyBuf == NULL ||
             (keySz != 16 && keySz != 32)) {
         return BAD_FUNC_ARG;
     }
@@ -4394,25 +4394,25 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
     out->objectAttributes = in->objectAttributes;
     out->authPolicy.size = in->authPolicy.size;
     if (out->authPolicy.size > 0) {
-        if (out->authPolicy.size > 
+        if (out->authPolicy.size >
                 (UINT16)sizeof(out->authPolicy.buffer))
-            out->authPolicy.size = 
+            out->authPolicy.size =
                 (UINT16)sizeof(out->authPolicy.buffer);
         XMEMCPY(out->authPolicy.buffer,
                 in->authPolicy.buffer,
                 out->authPolicy.size);
     }
-    
+
     switch (out->type) {
     case TPM_ALG_KEYEDHASH:
-        out->parameters.keyedHashDetail.scheme = 
+        out->parameters.keyedHashDetail.scheme =
             in->parameters.keyedHashDetail.scheme;
-        
-        out->unique.keyedHash.size = 
+
+        out->unique.keyedHash.size =
             in->unique.keyedHash.size;
-        if (out->unique.keyedHash.size > 
+        if (out->unique.keyedHash.size >
                 (UINT16)sizeof(out->unique.keyedHash.buffer)) {
-            out->unique.keyedHash.size = 
+            out->unique.keyedHash.size =
                 (UINT16)sizeof(out->unique.keyedHash.buffer);
         }
         XMEMCPY(out->unique.keyedHash.buffer,
@@ -4420,16 +4420,16 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
                 out->unique.keyedHash.size);
         break;
     case TPM_ALG_SYMCIPHER:
-        out->parameters.symDetail.sym.algorithm = 
+        out->parameters.symDetail.sym.algorithm =
             in->parameters.symDetail.sym.algorithm;
-        out->parameters.symDetail.sym.keyBits.sym = 
+        out->parameters.symDetail.sym.keyBits.sym =
             in->parameters.symDetail.sym.keyBits.sym;
-        out->parameters.symDetail.sym.mode.sym = 
+        out->parameters.symDetail.sym.mode.sym =
             in->parameters.symDetail.sym.mode.sym;
 
-        out->unique.sym.size = 
+        out->unique.sym.size =
             in->unique.sym.size;
-        if (out->unique.sym.size > 
+        if (out->unique.sym.size >
                 (UINT16)sizeof(out->unique.sym.buffer)) {
             out->unique.sym.size =
                 (UINT16)sizeof(out->unique.sym.buffer);
@@ -4441,21 +4441,21 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
     case TPM_ALG_RSA:
         wolfTPM2_CopySymmetric(&out->parameters.rsaDetail.symmetric,
             &in->parameters.rsaDetail.symmetric);
-        out->parameters.rsaDetail.scheme.scheme = 
+        out->parameters.rsaDetail.scheme.scheme =
             in->parameters.rsaDetail.scheme.scheme;
         if (out->parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL)
-            out->parameters.rsaDetail.scheme.details.anySig.hashAlg = 
+            out->parameters.rsaDetail.scheme.details.anySig.hashAlg =
                 in->parameters.rsaDetail.scheme.details.anySig.hashAlg;
-        out->parameters.rsaDetail.keyBits = 
+        out->parameters.rsaDetail.keyBits =
             in->parameters.rsaDetail.keyBits;
-        out->parameters.rsaDetail.exponent = 
+        out->parameters.rsaDetail.exponent =
             in->parameters.rsaDetail.exponent;
 
-        out->unique.rsa.size = 
+        out->unique.rsa.size =
             in->unique.rsa.size;
-        if (out->unique.rsa.size > 
+        if (out->unique.rsa.size >
                 (UINT16)sizeof(out->unique.rsa.buffer)) {
-            out->unique.rsa.size = 
+            out->unique.rsa.size =
                 (UINT16)sizeof(out->unique.rsa.buffer);
         }
         XMEMCPY(out->unique.rsa.buffer,
@@ -4465,14 +4465,14 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
     case TPM_ALG_ECC:
         wolfTPM2_CopySymmetric(&out->parameters.eccDetail.symmetric,
             &in->parameters.eccDetail.symmetric);
-        out->parameters.eccDetail.scheme.scheme = 
+        out->parameters.eccDetail.scheme.scheme =
             in->parameters.eccDetail.scheme.scheme;
         if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL)
-            out->parameters.eccDetail.scheme.details.any.hashAlg = 
+            out->parameters.eccDetail.scheme.details.any.hashAlg =
                 in->parameters.eccDetail.scheme.details.any.hashAlg;
-        out->parameters.eccDetail.curveID = 
+        out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
-        out->parameters.eccDetail.kdf = 
+        out->parameters.eccDetail.kdf =
             in->parameters.eccDetail.kdf;
 
         wolfTPM2_CopyEccParam(&out->unique.ecc.x,
@@ -4483,10 +4483,10 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
     default:
         wolfTPM2_CopySymmetric(&out->parameters.asymDetail.symmetric,
             &in->parameters.asymDetail.symmetric);
-        out->parameters.asymDetail.scheme.scheme = 
+        out->parameters.asymDetail.scheme.scheme =
             in->parameters.asymDetail.scheme.scheme;
         if (out->parameters.asymDetail.scheme.scheme != TPM_ALG_NULL)
-            out->parameters.asymDetail.scheme.details.anySig.hashAlg = 
+            out->parameters.asymDetail.scheme.details.anySig.hashAlg =
                 in->parameters.asymDetail.scheme.details.anySig.hashAlg;
         break;
     }
@@ -4818,7 +4818,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
             /* Make sure an ECDH key has been set */
             if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL ||
-            		tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
+                    tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
                 return exit_rc;
             }
 

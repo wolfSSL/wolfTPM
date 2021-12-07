@@ -1,4 +1,4 @@
-/* store.h
+/* nvram.h
  *
  * Copyright (C) 2006-2021 wolfSSL Inc.
  *
@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _STORE_H_
-#define _STORE_H_
+#ifndef _NVRAM_EXAMPLE_H_
+#define _NVRAM_EXAMPLE_H_
 
 #ifdef __cplusplus
     extern "C" {
@@ -33,4 +33,4 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[]);
     }  /* extern "C" */
 #endif
 
-#endif /* _Store_H_ */
+#endif /* _NVRAM_EXAMPLE_H_ */

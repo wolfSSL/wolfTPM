@@ -642,7 +642,7 @@ WOLFTPM_API int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* ke
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Wrapper to load the public part of an external key
-    \note The key must be formated to the format expected by the TPM, see the 'pub' argument and the alternative wrappers.
+    \note The key must be formatted to the format expected by the TPM, see the 'pub' argument and the alternative wrappers.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1097,7 +1097,7 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 
     \param dev pointer to a TPM2_DEV struct
     \param tpmKey pointer to an empty struct of WOLFTPM2_KEY type, to hold the imported TPM key
-    \param pem pointer to an array of byte type, containing a PEM formated public key material
+    \param pem pointer to an array of byte type, containing a PEM formatted public key material
     \param pemSz pointer to integer variable, specifying the size of PEM key data
 
     \sa wolfTPM2_RsaKey_WolfToTpm

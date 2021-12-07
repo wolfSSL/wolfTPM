@@ -321,15 +321,15 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
     }
 }
 #else
-	/* Provide you own socket implementation code */
-	int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx);
-	int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx);
-	int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host,
-		word32 port);
-	void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx);
+    /* Provide you own socket implementation code */
+    int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx);
+    int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx);
+    int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host,
+        word32 port);
+    void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx);
 
-	int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port);
-	int SocketWaitClient(SockIoCbCtx* sockIoCtx);
+    int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port);
+    int SocketWaitClient(SockIoCbCtx* sockIoCtx);
 #endif /* !WOLFSSL_USER_IO */
 
 /******************************************************************************/

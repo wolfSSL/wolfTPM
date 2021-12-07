@@ -47,7 +47,7 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor] [-eh] [-pem]\n");
-    printf("* -pem: Store the primary and child public keys as PEM formated files\n");
+    printf("* -pem: Store the primary and child public keys as PEM formatted files\n");
     printf("\t child public key filename: ak.pem or key.pem\n");
     printf("\t primary public key filename: ek.pem or srk.pem\n");
     printf("* -eh: Create keys under the Endorsement Hierarchy (EK)\n");

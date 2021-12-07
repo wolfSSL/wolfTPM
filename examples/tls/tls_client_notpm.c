@@ -122,21 +122,21 @@ int TLS_ClientArgs(int argc, char *argv[])
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 
     /* Load CA Certificates from Buffer */
-	#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    	if (wolfSSL_CTX_load_verify_buffer(ctx,
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_cert_der_2048, sizeof_ca_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-			printf("Error loading ca_cert_der_2048 DER cert\n");
-			goto exit;
-		}
-	#elif defined(HAVE_ECC)
-    	if (wolfSSL_CTX_load_verify_buffer(ctx,
+            printf("Error loading ca_cert_der_2048 DER cert\n");
+            goto exit;
+        }
+    #elif defined(HAVE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-			printf("Error loading ca_ecc_cert_der_256 DER cert\n");
-			goto exit;
-		}
-	#endif
+            printf("Error loading ca_ecc_cert_der_256 DER cert\n");
+            goto exit;
+        }
+    #endif
 #endif
 
 #ifndef NO_TLS_MUTUAL_AUTH

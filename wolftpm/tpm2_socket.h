@@ -84,6 +84,6 @@
     #define SOCKET_ECONNABORTED ECONNABORTED
 #endif /* USE_WINDOWS_API */
 
-#endif /* ! USE_WOLFSSL_IO */
+#endif /* !USE_WOLFSSL_IO */
 
 #endif /* _TPM2_SOCKET_H_ */

@@ -206,7 +206,7 @@ int createAndLoadKey(WOLFTPM2_DEV* pDev,
         return rc;
     }
     /* read failed, so let's create a new key */
-    
+
     /* if a public template was not provided we cannot create */
     if (publicTemplate == NULL) {
         return BUFFER_E;
