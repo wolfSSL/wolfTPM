@@ -583,7 +583,7 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
     }
     else if (session->symmetric.algorithm == TPM_ALG_AES &&
              session->symmetric.mode.aes == TPM_ALG_CFB) {
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB) 
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
         rc = TPM2_ParamDec_AESCFB(session, &session->auth, &session->nonceCaller,
             &session->nonceTPM, paramData, paramSz);
     #else

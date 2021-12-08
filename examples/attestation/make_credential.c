@@ -147,7 +147,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     if (fp != XBADFILE) {
         size_t nameReadSz = XFREAD((BYTE*)&name, 1, sizeof(name), fp);
         printf("Read AK Name digest %s\n",
-            nameReadSz == sizeof(name) ? "success" : "failed");        
+            nameReadSz == sizeof(name) ? "success" : "failed");
         XFCLOSE(fp);
     }
 #endif

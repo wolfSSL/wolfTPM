@@ -3209,7 +3209,7 @@ WOLFTPM_API int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg);
 
 /*!
     \ingroup TPM2_Proprietary
-    \brief Translate a TPM2 hash type to its coresponding wolfcrypt hash type
+    \brief Translate a TPM2 hash type to its corresponding wolfcrypt hash type
 
     \return a value specifying a hash type to use with wolfcrypt
     \return 0 if hash type is invalid
@@ -3341,7 +3341,7 @@ WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
 
 /*!
     \ingroup TPM2_Proprietary
-    \brief Translate a wolfcrypt curve type to its coresponding TPM curve type
+    \brief Translate a wolfcrypt curve type to its corresponding TPM curve type
 
     \return integer value representing a wolfcrypt curve type
     \return ECC_CURVE_OID_E in case of invalid curve type
@@ -3366,7 +3366,7 @@ WOLFTPM_API int TPM2_GetTpmCurve(int curveID);
 
 /*!
     \ingroup TPM2_Proprietary
-    \brief Translate a TPM curve type to its coresponding wolfcrypt curve type
+    \brief Translate a TPM curve type to its corresponding wolfcrypt curve type
 
     \return integer value representing a TPM curve type
     \return -1 or ECC_CURVE_OID_E in case of invalid curve type
@@ -3570,7 +3570,7 @@ WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 #ifdef DEBUG_WOLFTPM
 /*!
     \ingroup TPM2_Proprietary
-    \brief Helper function to print a binary buffer in a formated way
+    \brief Helper function to print a binary buffer in a formatted way
     \note Requires DEBUG_WOLFTPM to be defined
 
     \param buffer pointer to a buffer of BYTE type

@@ -2,7 +2,7 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-noinst_HEADERS += examples/nvram/store.h
+noinst_HEADERS += examples/nvram/nvram.h
 
 noinst_PROGRAMS += examples/nvram/store
 examples_nvram_store_SOURCES      = examples/nvram/store.c \

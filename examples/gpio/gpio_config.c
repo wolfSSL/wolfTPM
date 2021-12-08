@@ -105,7 +105,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
                 goto exit_badargs;
             }
             /* Check if mode is for GPIO Input to perform extra config step */
-            if (gpioMode >= TPM_GPIO_MODE_INPUT_MIN && 
+            if (gpioMode >= TPM_GPIO_MODE_INPUT_MIN &&
                 gpioMode <= TPM_GPIO_MODE_INPUT_MAX) {
                 /* GPIO Input mode */
                 gpioInput = 1;

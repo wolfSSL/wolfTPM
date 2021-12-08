@@ -6056,7 +6056,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             printf("  RSA: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.algorithm),
                 pub->publicArea.parameters.rsaDetail.symmetric.algorithm,
-                pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym, 
+                pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym,
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.mode.sym),
                 pub->publicArea.parameters.rsaDetail.symmetric.mode.sym);
             printf("       scheme: %s (0x%X), scheme hash: %s (0x%X)\n",
