@@ -47,22 +47,18 @@ static void usage(void)
 
 int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
 {
-    int pcrIndex = TPM2_TEST_PCR, rc = -1;
+    int i, j, pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
 
     union {
-#ifdef DEBUG_WOLFTPM
         PCR_Read_In pcrRead;
-#endif
         PCR_Reset_In pcrReset;
         byte maxInput[MAX_COMMAND_SIZE];
     } cmdIn;
-#ifdef DEBUG_WOLFTPM
     union {
         PCR_Read_Out pcrRead;
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
-#endif
 
     if (argc == 2) {
         pcrIndex = atoi(argv[1]);
@@ -101,20 +97,19 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_PCR_Reset success\n");
 
-#ifdef DEBUG_WOLFTPM
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
-        TEST_WRAP_DIGEST, pcrIndex);
+    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TEST_WRAP_DIGEST, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-
-    printf("PCR%d digest:\n", pcrIndex);
-    TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                  cmdOut.pcrRead.pcrValues.digests[0].size);
-#endif
+    for (i=0; i < (int)cmdOut.pcrRead.pcrValues.count; i++) {
+        printf("PCR%d (idx %d) digest:\n", pcrIndex, i);
+        for (j=0; j < cmdOut.pcrRead.pcrValues.digests[i].size; j++)
+            printf("%02X", cmdOut.pcrRead.pcrValues.digests[i].buffer[j]);
+        printf("\n");
+    }
 
 exit:
 

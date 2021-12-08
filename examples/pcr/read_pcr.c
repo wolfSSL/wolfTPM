@@ -52,10 +52,17 @@ static void usage(void)
 
 int TPM2_Read_Test(void* userCtx, int argc, char *argv[])
 {
-    int rc = -1;
+    int rc = -1, i, j;
     int pcrIndex = TPM2_TEST_PCR;
     WOLFTPM2_DEV dev;
-    TPM2B_DIGEST pcrValue;
+    union {
+        PCR_Read_In pcrRead;
+        byte maxInput[MAX_COMMAND_SIZE];
+    } cmdIn;
+    union {
+        PCR_Read_Out pcrRead;
+        byte maxOutput[MAX_RESPONSE_SIZE];
+    } cmdOut;
 
     if (argc >= 2) {
         if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
@@ -85,23 +92,22 @@ int TPM2_Read_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-/*
+
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
-    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn,
-        TEST_WRAP_DIGEST, pcrIndex);
+    /* Note: TPM2_SetupPCRSel can be called with multiple PCR indexes to 
+     * read more than one at a time */
+    TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TEST_WRAP_DIGEST, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
-*/
-
-    rc = wolfTPM2_ReadPCR(&dev, pcrIndex, TEST_WRAP_DIGEST, pcrValue.buffer, (int*)&pcrValue.size);
-    if (rc != TPM_RC_SUCCESS ) {
-        printf("wolfTPM2_PCR_Read failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
+    for (i=0; i < (int)cmdOut.pcrRead.pcrValues.count; i++) {
+        printf("PCR%d (idx %d) digest:\n", pcrIndex, i);
+        for (j=0; j < cmdOut.pcrRead.pcrValues.digests[i].size; j++)
+            printf("%02X", cmdOut.pcrRead.pcrValues.digests[i].buffer[j]);
+        printf("\n");
     }
-    printf("wolfTPM2_PCR_Read: success\n");
 
 exit:
 

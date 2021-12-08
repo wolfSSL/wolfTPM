@@ -2713,6 +2713,7 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
         wolfTPM2_SetAuthPassword(dev, 0, NULL);
     }
 
+    XMEMSET(&pcrReadIn, 0, sizeof(pcrReadIn));
     wolfTPM2_SetupPCRSel(&pcrReadIn.pcrSelectionIn, hashAlg, pcrIndex);
     rc = TPM2_PCR_Read(&pcrReadIn, &pcrReadOut);
     if (rc != TPM_RC_SUCCESS) {
