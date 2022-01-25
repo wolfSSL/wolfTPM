@@ -187,6 +187,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         "\x39\xA3\x3C\xE4\x59\x64\xFF\x21\x67\xF6\xEC\xED\xD4\x19\xDB"
         "\x06\xC1";
 
+    int perform_EncryptDecrypt2 = 1;
+
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     TPM2B_AUTH sessionAuth;
@@ -1396,6 +1398,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
         printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+        perform_EncryptDecrypt2 = 0;
+        rc = 0;
     }
     else if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
@@ -1403,41 +1407,46 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Perform decrypt of data */
-    XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
-    cmdIn.encDec.keyHandle = aesKey.handle;
-    cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
-    cmdIn.encDec.inData.size = cmdOut.encDec.outData.size;
-    XMEMCPY(cmdIn.encDec.inData.buffer, cmdOut.encDec.outData.buffer,
-        cmdOut.encDec.outData.size);
-    cmdIn.encDec.decrypt = YES;
-    cmdIn.encDec.mode = TEST_AES_MODE;
-    rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
-    if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
-        printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
-    }
-    else if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
+    if(perform_EncryptDecrypt2) {
+        /* Perform decrypt of data */
+        XMEMSET(&cmdIn.encDec, 0, sizeof(cmdIn.encDec));
+        cmdIn.encDec.keyHandle = aesKey.handle;
+        cmdIn.encDec.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
+        cmdIn.encDec.inData.size = cmdOut.encDec.outData.size;
+        XMEMCPY(cmdIn.encDec.inData.buffer, cmdOut.encDec.outData.buffer,
+                cmdOut.encDec.outData.size);
+        cmdIn.encDec.decrypt = YES;
+        cmdIn.encDec.mode = TEST_AES_MODE;
+        rc = TPM2_EncryptDecrypt2(&cmdIn.encDec, &cmdOut.encDec);
+        if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
+            printf("TPM2_EncryptDecrypt2: Is not a supported feature without enabling due to export controls\n");
+        }
+        else if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
+                   TPM2_GetRCString(rc));
+            goto exit;
+        }
 
-    /* Verify plain and decrypted data are the same */
-    if (rc == TPM_RC_SUCCESS &&
-        cmdOut.encDec.outData.size == MAX_AES_BLOCK_SIZE_BYTES &&
-         XMEMCMP(cmdOut.encDec.outData.buffer, message.buffer,
-            cmdOut.encDec.outData.size) == 0) {
-        printf("Encrypt/Decrypt test success\n");
+        /* Verify plain and decrypted data are the same */
+        if (rc == TPM_RC_SUCCESS &&
+            cmdOut.encDec.outData.size == MAX_AES_BLOCK_SIZE_BYTES &&
+            XMEMCMP(cmdOut.encDec.outData.buffer, message.buffer,
+                    cmdOut.encDec.outData.size) == 0) {
+            printf("Encrypt/Decrypt test success\n");
+        }
+        else if (rc == TPM_RC_COMMAND_CODE
+            #ifdef WOLFTPM_WINAPI
+                 || rc == 0x80280400
+            #endif
+            ) {
+            printf("Encrypt/Decrypt test result allowed as pass since hardware doesn't support.\n");
+            rc = TPM_RC_SUCCESS;
+        }
+        else {
+            printf("Encrypt/Decrypt test failed, result not as expected!\n");
+            goto exit;
+        }
     }
-    else if (rc == TPM_RC_COMMAND_CODE) {
-        printf("Encrypt/Decrypt test result allowed as pass since hardware doesn't support.\n");
-        rc = TPM_RC_SUCCESS;
-    }
-    else {
-        printf("Encrypt/Decrypt test failed, result not as expected!\n");
-        goto exit;
-    }
-
 exit:
 
     /* Close session */
@@ -1478,6 +1487,7 @@ exit:
         TPM2_FlushContext(&cmdIn.flushCtx);
     }
 
+#if 1 //ndef WOLFTPM_WINAPI
     /* Shutdown */
     cmdIn.shutdown.shutdownType = TPM_SU_CLEAR;
     if (TPM2_Shutdown(&cmdIn.shutdown) != TPM_RC_SUCCESS) {
@@ -1485,6 +1495,7 @@ exit:
     }
 
     TPM2_Cleanup(&tpm2Ctx);
+#endif /* WOLFTPM_WINAPI */
 
 #ifdef TPM2_SPI_DEV
     /* close handle */
