@@ -303,10 +303,16 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     printf("Creating new %s key...\n", TPM2_GetAlgName(alg));
-    rc = wolfTPM2_CreateLoadedKey(&dev, &newKeyBlob, &primary->handle,
+
+    rc = wolfTPM2_CreateKey(&dev, &newKeyBlob, &primary->handle,
                             &publicTemplate, auth.buffer, auth.size);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateLoadedKey failed\n");
+        printf("wolfTPM2_CreateKey failed\n");
+        goto exit;
+    }
+    rc = wolfTPM2_LoadKey(&dev, &newKeyBlob, &primary->handle);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_LoadKey failed\n");
         goto exit;
     }
     printf("New key created and loaded (pub %d, priv %d bytes)\n",

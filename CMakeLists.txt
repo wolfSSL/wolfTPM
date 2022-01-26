@@ -80,11 +80,8 @@ target_compile_definitions(wolftpm PUBLIC
     )
 
 if(WIN32)
-    # TODO: fix benchmark to compile with WIN API TBS
     target_compile_definitions(wolftpm PRIVATE
         "_WINDLL"
-        PUBLIC
-        "NO_TPM_BENCH"
         )
 endif(WIN32)
 
@@ -101,13 +98,17 @@ elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
         "WOLFTPM_WINAPI"
         )
     target_link_libraries(wolftpm tbs)
+else()
+    get_property(INTERFACE_OPTS CACHE WOLFTPM_INTERFACE
+        PROPERTY STRINGS)
+    message(FATAL_ERROR "\"${WOLFTPM_INTERFACE}\" is not known WOLFTPM_INTERFACE:"
+        " ${INTERFACE_OPTS}")
 endif("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
 
 target_include_directories(wolftpm
     PUBLIC
-    $<INSTALL_INTERFACE:wolfssl>
+    $<INSTALL_INTERFACE:wolftpm>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     )
 
 add_library(tpm_test_lib STATIC
@@ -152,3 +153,12 @@ add_tpm_example(tls_client tls/tls_client.c)
 add_tpm_example(tls_client_notpm tls/tls_client_notpm.c)
 add_tpm_example(tls_server tls/tls_server.c)
 add_tpm_example(wrap_test wrap/wrap_test.c)
+
+
+install(TARGETS wolftpm
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY)
+# Install the headers
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wolftpm
+        FILES_MATCHING PATTERN "*.h")
