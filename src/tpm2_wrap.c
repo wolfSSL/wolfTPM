@@ -1817,6 +1817,7 @@ int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             rc = wc_RsaKeyToPublicDer(&rsaKey, NULL, 0);
             if (rc > 0) {
                 derSz = rc;
+                rc = 0;
             }
             else if (rc == BAD_FUNC_ARG) {
                 /* for older wolfSSL estimate based on key size */
