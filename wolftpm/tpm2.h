@@ -252,6 +252,7 @@ typedef enum {
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     TPM_CC_SetMode                  = CC_VEND + 0x0307,
     TPM_CC_SetCommandSet            = CC_VEND + 0x0309,
+    TPM_CC_GetRandom2               = CC_VEND + 0x030E,
 #endif
 #ifdef WOLFTPM_ST33
     TPM_CC_RestoreEK                = CC_VEND + 0x030A,
@@ -2791,6 +2792,16 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
         TPM_MODE_SET modeSet;
     } SetMode_In;
     WOLFTPM_API int TPM2_SetMode(SetMode_In* in);
+
+    /* The TPM2_GetRandom2 command does not require any authorization */
+    typedef GetRandom_In GetRandom2_In; /* same input */
+    typedef struct {
+        TPM2B_MAX_BUFFER randomBytes;
+    } GetRandom2_Out;
+    /* If bytesRequested is longer than TPM2B_MAX_BUFFER can accommodate, no 
+     * error is returned, but the TPM returns as much data as a TPM2B_DATA
+     * buffer can contain. */
+    WOLFTPM_API TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out);
 #endif
 
 /* Vendor Specific GPIO */

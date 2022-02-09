@@ -118,6 +118,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     union {
         GetCapability_Out cap;
         GetRandom_Out getRand;
+    #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+        GetRandom2_Out getRand2;
+    #endif
         GetTestResult_Out tr;
         IncrementalSelfTest_Out incSelfTest;
         ReadClock_Out readClock;
@@ -323,15 +326,40 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 
 
     /* Random */
-    XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
-    cmdIn.getRand.bytesRequested = MAX_RNG_REQ_SIZE;
-    rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
+        XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
+        i = (int)sizeof(cmdOut.getRand2.randomBytes);
+        if (i > (MAX_RESPONSE_SIZE-(int)sizeof(UINT16))) {
+            i = (MAX_RESPONSE_SIZE-(int)sizeof(UINT16));
+        }
+        cmdIn.getRand.bytesRequested = (UINT16)i;
+        rc = TPM2_GetRandom2(&cmdIn.getRand, &cmdOut.getRand2);
+        if (rc == TPM_RC_COMMAND_CODE) {
+            printf("TPM2_GetRandom2: Command not supported on this hardware\n");
+        }
+    }
+    else {
+        rc = TPM_RC_COMMAND_CODE;
+    }
+#else
+    rc = TPM_RC_COMMAND_CODE;
+#endif
+    if (rc == TPM_RC_COMMAND_CODE) {
+        XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
+        i = MAX_RNG_REQ_SIZE;
+        cmdIn.getRand.bytesRequested = (UINT16)i;
+        rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    }
+#endif
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.getRand.randomBytes.size != MAX_RNG_REQ_SIZE) {
+    /* the getRand and getRand2 have same return size header in cmdOut union */
+    if (cmdOut.getRand.randomBytes.size != i) {
         printf("TPM2_GetRandom length mismatch %d != %d\n",
             cmdOut.getRand.randomBytes.size, MAX_RNG_REQ_SIZE);
         goto exit;
