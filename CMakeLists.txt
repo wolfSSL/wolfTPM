@@ -23,8 +23,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(wolfTPM VERSION 1.1.1 LANGUAGES C)
 
-set(WOLFSSL_TPM "yes" CACHE STRING "")
-add_subdirectory(lib/wolfssl)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(TPM_SOURCES
     src/tpm2.c
@@ -36,6 +35,35 @@ set(TPM_SOURCES
     src/tpm2_winapi.c
     src/tpm2_wrap.c
     )
+
+add_library(wolftpm SHARED ${TPM_SOURCES})
+target_compile_definitions(wolftpm PRIVATE
+    "BUILDING_WOLFTPM"
+    )
+
+if (WITH_WOLFSSL)
+    target_link_libraries(wolftpm wolfssl)
+    target_include_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/include)
+    target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
+elseif (WITH_WOLFSSL_TREE)
+    set(WOLFSSL_TPM "yes" CACHE STRING "")
+    add_subdirectory(${WITH_WOLFSSL_TREE} wolfssl)
+    target_link_libraries(wolftpm wolfssl)
+else()
+    find_package(PkgConfig)
+    pkg_check_modules(WOLFSSL wolfssl)
+
+    if (WOLFSSL_FOUND)
+        target_link_libraries(wolftpm ${WOLFSSL_LIBRARIES})
+        target_include_directories(wolftpm PUBLIC ${WOLFSSL_INCLUDE_DIRS})
+        target_link_directories(wolftpm PUBLIC ${WOLFSSL_LIBRARY_DIRS})
+        target_compile_options(wolftpm PUBLIC ${WOLFSSL_CFLAGS_OTHER})
+    else()
+        target_compile_definitions(wolftpm PUBLIC
+            "WOLFTPM2_NO_WOLFCRYPT"
+            )
+    endif()
+endif()
 
 # TODO
 # * Debug/logging
@@ -68,16 +96,6 @@ if("${WOLFTPM_INTERFACE}" STREQUAL "auto")
     endif(WIN32 OR MINGW OR MSYS)
 endif("${WOLFTPM_INTERFACE}" STREQUAL "auto")
 
-add_library(wolftpm ${TPM_SOURCES})
-target_link_libraries(wolftpm wolfssl)
-target_compile_definitions(wolftpm PRIVATE
-    "BUILDING_WOLFTPM"
-    )
-
-# TODO: remove when options file generation is added
-target_compile_definitions(wolftpm PUBLIC
-    "WOLFTPM_USER_SETTINGS"
-    )
 
 if(WIN32)
     target_compile_definitions(wolftpm PRIVATE
@@ -107,6 +125,7 @@ endif("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
 
 target_include_directories(wolftpm
     PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR}
     $<INSTALL_INTERFACE:wolftpm>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     )
@@ -125,6 +144,8 @@ function(add_tpm_example name src)
 endfunction()
 
 #TODO generate options file
+configure_file(wolftpm/options.h.in wolftpm/options.h)
+
 
 add_tpm_example(activate_credential attestation/activate_credential.c)
 add_tpm_example(make_credential attestation/make_credential.c)
@@ -154,6 +175,7 @@ add_tpm_example(tls_client_notpm tls/tls_client_notpm.c)
 add_tpm_example(tls_server tls/tls_server.c)
 add_tpm_example(wrap_test wrap/wrap_test.c)
 
+include(GNUInstallDirs)
 
 install(TARGETS wolftpm
         DESTINATION ${CMAKE_INSTALL_LIBDIR}
