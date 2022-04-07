@@ -151,6 +151,8 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     wolfTPM2_SetAuthPassword(&dev, 0, NULL);
 
 exit:
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;

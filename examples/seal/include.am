@@ -14,6 +14,7 @@ examples_seal_seal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_seal_seal_DEPENDENCIES = src/libwolftpm.la
 
 examples_seal_unseal_SOURCES      = examples/seal/unseal.c \
+                                    examples/tpm_test_keys.c \
                                     examples/tpm_io.c
 examples_seal_unseal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_seal_unseal_DEPENDENCIES = src/libwolftpm.la
