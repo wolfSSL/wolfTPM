@@ -28,6 +28,7 @@
 #include <examples/seal/seal.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
 #include <stdlib.h> /* atoi */

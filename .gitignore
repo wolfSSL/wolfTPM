@@ -32,6 +32,9 @@ RemoteSystemsTempFiles
 IDE/IAR-EWARM/settings
 wolftpm/options.h
 
+# common cmake build location
+build/
+
 examples/wrap/wrap_test
 examples/native/native_test
 examples/bench/bench
