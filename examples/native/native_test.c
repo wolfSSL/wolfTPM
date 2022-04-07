@@ -353,9 +353,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         i = MAX_RNG_REQ_SIZE;
         cmdIn.getRand.bytesRequested = (UINT16)i;
         rc = TPM2_GetRandom(&cmdIn.getRand, &cmdOut.getRand);
-#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     }
-#endif
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));

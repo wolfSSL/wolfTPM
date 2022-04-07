@@ -311,6 +311,23 @@ See `docs/SWTPM.md`
 
 See `docs/WindowTBS.md`
 
+## Building using CMake
+
+CMake supports compiling in many environments including Visual Studio
+if CMake support is installed. The commands below can be run in
+`Developer Command Prompt`.
+
+```
+mkdir build
+cd build
+# to use installed wolfSSL location (library and headers)
+cmake .. -DWITH_WOLFSSL=/prefix/to/wolfssl/install/
+# OR to use a wolfSSL source tree
+cmake .. -DWITH_WOLFSSL_TREE=/path/to/wolfssl/
+# build
+cmake --build .
+```
+
 ## Running Examples
 
 These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
