@@ -172,6 +172,10 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     do {
         rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, NULL, 0,
             isDecrypt);
+        if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+            printf("Encrypt/Decrypt unavailble\n");
+            break;
+        }
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
     bench_stats_sym_finish(desc, count, inOutSz, start);
@@ -275,44 +279,44 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     /* AES CBC */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-enc", TPM_ALG_CBC, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-dec", TPM_ALG_CBC, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-enc", TPM_ALG_CBC, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-dec", TPM_ALG_CBC, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* AES CTR */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-enc", TPM_ALG_CTR, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-dec", TPM_ALG_CTR, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-enc", TPM_ALG_CTR, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-dec", TPM_ALG_CTR, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* AES CFB */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-enc", TPM_ALG_CFB, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-dec", TPM_ALG_CFB, 128,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-enc", TPM_ALG_CFB, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-dec", TPM_ALG_CFB, 256,
         message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* Hashing Benchmarks */
     /* SHA1 */

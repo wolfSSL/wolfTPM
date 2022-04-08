@@ -233,7 +233,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_STORAGE_KEY_HANDLE);
-        if (rc != 0) goto exit;
+        if (!WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) && rc != 0) goto exit;
 
         printf("Created new RSA Primary Storage Key at 0x%x\n",
             TPM2_DEMO_STORAGE_KEY_HANDLE);
@@ -270,7 +270,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         printf("Creating a loaded new TPM 2.0 key Test Passed\n");
         wolfTPM2_UnloadHandle(&dev, &testKey.handle);
     }
-    else if (rc == TPM_RC_COMMAND_CODE) {
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
         printf("CreateLoadedKey: Feature is not suppored on this hardware\n");
     }
     else {
@@ -494,7 +494,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
-        if (rc != 0) goto exit;
+        if (!WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) && rc != 0) goto exit;
 
         printf("Created new ECC Primary Storage Key at 0x%x\n",
             TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
@@ -686,6 +686,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /* NV TESTS */
     /*------------------------------------------------------------------------*/
     /* NV with Auth (preferred API's) */
+#ifndef WOLFTPM_WINAPI
     {
         WOLFTPM2_HANDLE parent;
         WOLFTPM2_NV nv;
@@ -756,7 +757,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     printf("NV Test on index 0x%x with %d bytes passed\n",
         TPM2_DEMO_NV_TEST_INDEX, TPM2_DEMO_NV_TEST_SIZE);
-
+#endif
 
     /*------------------------------------------------------------------------*/
     /* RANDOM TESTS */
@@ -851,7 +852,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMCPY(aesIv, TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
@@ -868,7 +869,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
          XMEMCMP(cipher.buffer, TEST_AES_VERIFY, cipher.size) == 0) {
         printf("Encrypt/Decrypt (known key) test success\n");
     }
-    else if (rc == TPM_RC_COMMAND_CODE) {
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
         rc = TPM_RC_SUCCESS; /* clear error code */
     }
@@ -896,7 +897,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     cipher.size = message.size;
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
         message.size, NULL, 0, WOLFTPM2_ENCRYPT);
-    if (rc != 0 && rc != TPM_RC_COMMAND_CODE) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
@@ -910,7 +911,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
          XMEMCMP(message.buffer, plain.buffer, message.size) == 0) {
         printf("Encrypt/Decrypt test success\n");
     }
-    else if (rc == TPM_RC_COMMAND_CODE) {
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
     }
     else {
@@ -932,7 +933,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         hashBuf[i] = i;
     }
     rc = wolfTPM2_ExtendPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, hashSz);
-    if (rc != 0) goto exit;
+    if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* Read PCR Index 0 */
     rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);

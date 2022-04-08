@@ -28,6 +28,7 @@
 #include <examples/seal/seal.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
 #include <stdlib.h> /* atoi */
@@ -40,7 +41,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/seal/unseal [filename]\n");
+    printf("./examples/seal/unseal [filename] [inkey_filename]\n");
     printf("* filename - File contaning a TPM seal key\n");
     printf("Demo usage, without arguments, uses keyblob.bin file input.\n");
 }
@@ -52,12 +53,17 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY key;
     TPM2B_AUTH auth;
     const char *filename = "unseal.bin";
+    const char *inkeyfilename = "keyblob.bin";
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     XFILE fp = NULL;
     size_t len;
 #endif
     Unseal_In cmdIn_unseal;
     Unseal_Out cmdOut_unseal;
+
+    WOLFTPM2_KEYBLOB newKey;
+    WOLFTPM2_KEY storage; /* SRK */
+
 
     XMEMSET(&cmdIn_unseal, 0, sizeof(cmdIn_unseal));
     XMEMSET(&cmdOut_unseal, 0, sizeof(cmdOut_unseal));
@@ -75,6 +81,10 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-') {
             filename = argv[1];
         }
+
+        if (argc >= 3 && argv[2][0] != '-') {
+           inkeyfilename = argv[2];
+        }
     }
 
     printf("Example how to unseal data using TPM2.0\n");
@@ -85,12 +95,27 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
+
+    rc = readKeyBlob(inkeyfilename, &newKey);
+    if (rc != 0) goto exit;
+
+    rc = wolfTPM2_LoadKey(&dev, &newKey, &storage.handle);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_LoadKey failed\n");
+        goto exit;
+    }
+    printf("Loaded key to 0x%x\n",
+        (word32)newKey.handle.hndl);
+
     /* Set authorization for using the seal key */
-    auth.size = (int)sizeof(gKeyAuth)-1;
+    auth.size = (int)sizeof(gKeyAuth) - 1;
     XMEMCPY(auth.buffer, gKeyAuth, auth.size);
     wolfTPM2_SetAuthPassword(&dev, 0, &auth);
 
-    cmdIn_unseal.itemHandle = TPM2_DEMO_PERSISTENT_KEY_HANDLE;
+    cmdIn_unseal.itemHandle = newKey.handle.hndl;
+
     rc = TPM2_Unseal(&cmdIn_unseal, &cmdOut_unseal);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_Unseal failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -124,10 +149,10 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
 
     /* Remove the loaded TPM seal object */
     wolfTPM2_SetAuthPassword(&dev, 0, NULL);
-    key.handle.hndl = TPM2_DEMO_PERSISTENT_KEY_HANDLE;
-    wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &key);
 
 exit:
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
+    wolfTPM2_UnloadHandle(&dev, &newKey.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;

@@ -132,6 +132,7 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
     }
     printf("Created new TPM seal key (pub %d, priv %d bytes)\n",
         newKey.pub.size, newKey.priv.size);
+    printf("0x%x\n", newKey.handle.hndl);
 
     /* Save key as encrypted blob to the disk */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)

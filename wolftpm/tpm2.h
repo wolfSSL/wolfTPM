@@ -1660,10 +1660,14 @@ struct wolfTPM_tcpContext {
 
 #ifdef WOLFTPM_WINAPI
 #include <tbs.h>
+#include <winerror.h>
 
 struct wolfTPM_winContext {
   TBS_HCONTEXT tbs_context;
 };
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == TPM_RC_COMMAND_CODE || (code) == TPM_E_COMMAND_BLOCKED)
+#else
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == TPM_RC_COMMAND_CODE)
 #endif /* WOLFTPM_WINAPI */
 
 /* make sure advanced IO is enabled for I2C */

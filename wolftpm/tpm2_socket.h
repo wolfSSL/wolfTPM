@@ -30,7 +30,7 @@
 
 /* socket includes */
 #if defined(_WIN32)
-    #include <winsock2.h>
+
     #define SOCKET_T SOCKET
 
     /* TODO: HACKY for win32 */

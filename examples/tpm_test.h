@@ -88,16 +88,21 @@ static const char pemFileKey[] = "key.pem";
     #define TEST_WRAP_DIGEST TPM_ALG_SHA256
 #endif
 
-
 #ifndef NO_TPM_BENCH
     #ifndef WOLFSSL_USER_CURRTIME
+#ifdef _WIN32
+        #include <time.h>
+#else
         #include <sys/time.h>
+#endif
     #endif
     static inline double gettime_secs(int reset)
     {
     #ifdef WOLFSSL_USER_CURRTIME
         extern double current_time(int reset);
         return current_time(reset);
+    #elif defined(_WIN32)
+        return ((double)GetTickCount64())/1000.0;
     #else
         struct timeval tv;
         gettimeofday(&tv, 0);

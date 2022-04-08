@@ -39,7 +39,10 @@
 #endif
 
 #ifdef WOLFTPM_WINAPI
-#include <minwindef.h>
+    #ifdef _WIN32
+        #include <winsock2.h>
+    #endif
+    #include <windows.h>
 #endif
 
 /* ---------------------------------------------------------------------------*/
