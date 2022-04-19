@@ -1665,6 +1665,11 @@ struct wolfTPM_tcpContext {
 struct wolfTPM_winContext {
   TBS_HCONTEXT tbs_context;
 };
+/* may be needed with msys */
+#ifndef TPM_E_COMMAND_BLOCKED
+#define TPM_E_COMMAND_BLOCKED (0x80284000)
+#endif
+
 #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == TPM_RC_COMMAND_CODE || (code) == TPM_E_COMMAND_BLOCKED)
 #else
 #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == TPM_RC_COMMAND_CODE)
@@ -2802,7 +2807,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
     typedef struct {
         TPM2B_MAX_BUFFER randomBytes;
     } GetRandom2_Out;
-    /* If bytesRequested is longer than TPM2B_MAX_BUFFER can accommodate, no 
+    /* If bytesRequested is longer than TPM2B_MAX_BUFFER can accommodate, no
      * error is returned, but the TPM returns as much data as a TPM2B_DATA
      * buffer can contain. */
     WOLFTPM_API TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out);
