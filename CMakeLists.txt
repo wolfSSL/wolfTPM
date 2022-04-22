@@ -36,7 +36,9 @@ set(TPM_SOURCES
     src/tpm2_wrap.c
     )
 
-add_library(wolftpm SHARED ${TPM_SOURCES})
+# default to build shared library
+option(BUILD_SHARED_LIBS "Build shared libraries (.dll/.so) instead of static ones (.lib/.a)" ON)
+add_library(wolftpm ${TPM_SOURCES})
 target_compile_definitions(wolftpm PRIVATE
     "BUILDING_WOLFTPM"
     )
@@ -48,6 +50,8 @@ if (WITH_WOLFSSL)
     target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
 elseif (WITH_WOLFSSL_TREE)
     set(WOLFSSL_TPM "yes" CACHE STRING "")
+    set(WOLFSSL_EXAMPLES "no" CACHE STRING "")
+    set(WOLFSSL_CRYPT_TESTS "no" CACHE STRING "")
     add_subdirectory(${WITH_WOLFSSL_TREE} wolfssl)
     target_link_libraries(wolftpm PUBLIC wolfssl)
 else()
@@ -139,7 +143,7 @@ target_include_directories(wolftpm
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     )
 
-if (${WOLFTPM_EXAMPLES})
+if (WOLFTPM_EXAMPLES)
     add_library(tpm_test_lib STATIC
         examples/tpm_io.c
         examples/tpm_test_keys.c
@@ -158,7 +162,7 @@ endfunction()
 configure_file(wolftpm/options.h.in wolftpm/options.h)
 
 
-if (${WOLFTPM_EXAMPLES})
+if (WOLFTPM_EXAMPLES)
     add_tpm_example(activate_credential attestation/activate_credential.c)
     add_tpm_example(make_credential attestation/make_credential.c)
     add_tpm_example(bench bench/bench.c)
