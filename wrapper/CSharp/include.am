@@ -1,0 +1,11 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+wrapper_CSharpdir = $(wrapperdir)/CSharp
+
+dist_wrapper_CSharp_DATA=			\
+	wrapper/CSharp/README.md		\
+	wrapper/CSharp/wolfTPM.cs		\
+	wrapper/CSharp/wolfTPM-tests.cs		\
+	wrapper/CSharp/.runsettings		\
+	wrapper/CSharp/wolfTPM-csharp.csproj

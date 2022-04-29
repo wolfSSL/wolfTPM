@@ -172,6 +172,272 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_HEAP
+WOLFTPM2_DEV *wolfTPM2_New(void)
+{
+    WOLFTPM2_DEV *dev = NULL;
+
+    dev = (WOLFTPM2_DEV *) XMALLOC(sizeof(WOLFTPM2_DEV), NULL,
+                                   DYNAMIC_TYPE_TMP_BUFFER);
+    if (dev == NULL) {
+        return NULL;
+    }
+
+    if (wolfTPM2_Init(dev, NULL, NULL) != TPM_RC_SUCCESS) {
+        return NULL;
+    }
+
+    return dev;
+}
+
+int wolfTPM2_Free(WOLFTPM2_DEV *dev)
+{
+    if (dev != NULL) {
+        wolfTPM2_Cleanup(dev);
+        XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+WOLFTPM2_KEYBLOB* wolfTPM2_GetNewKeyBlob(void)
+{
+    WOLFTPM2_KEYBLOB* blob = NULL;
+
+    blob = (WOLFTPM2_KEYBLOB *) XMALLOC(sizeof(WOLFTPM2_KEYBLOB), NULL,
+                                      DYNAMIC_TYPE_TMP_BUFFER);
+    if (blob == NULL) {
+        return NULL;
+    }
+
+    XMEMSET(blob, 0, sizeof(WOLFTPM2_KEYBLOB));
+    return blob;
+}
+
+int wolfTPM2_CleanupKeyBlob(WOLFTPM2_KEYBLOB* blob)
+{
+    if (blob != NULL) {
+        XFREE(blob, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+WOLFTPM_API TPMT_PUBLIC* wolfTPM2_GetNewPublicTemplate(void)
+{
+    TPMT_PUBLIC* template = NULL;
+
+    template = (TPMT_PUBLIC *) XMALLOC(sizeof(TPMT_PUBLIC), NULL,
+                                       DYNAMIC_TYPE_TMP_BUFFER);
+    if (template == NULL) {
+        return NULL;
+    }
+
+    XMEMSET(template, 0, sizeof(TPMT_PUBLIC));
+    return template;
+}
+
+WOLFTPM_API int wolfTPM2_CleanupPublicTemplate(TPMT_PUBLIC* template)
+{
+    if (template != NULL) {
+        XFREE(template, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_GetNewKey(void)
+{
+    WOLFTPM2_KEY* key = NULL;
+
+    key = (WOLFTPM2_KEY *) XMALLOC(sizeof(WOLFTPM2_KEY), NULL,
+                                    DYNAMIC_TYPE_TMP_BUFFER);
+    if (key == NULL) {
+        return NULL;
+    }
+
+    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
+    return key;
+}
+
+WOLFTPM_API int wolfTPM2_CleanupKey(WOLFTPM2_KEY* key)
+{
+    if (key != NULL) {
+        XFREE(key, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+
+WOLFTPM2_SESSION* wolfTPM2_GetNewSession(void)
+{
+    WOLFTPM2_SESSION* session = NULL;
+
+    session = (WOLFTPM2_SESSION *) XMALLOC(sizeof(WOLFTPM2_SESSION), NULL,
+                                    DYNAMIC_TYPE_TMP_BUFFER);
+    if (session == NULL) {
+        return NULL;
+    }
+
+    XMEMSET(session, 0, sizeof(WOLFTPM2_SESSION));
+    return session;
+}
+
+int wolfTPM2_CleanupSession(WOLFTPM2_SESSION* session)
+{
+    if (session != NULL) {
+        XFREE(session, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM2_NO_HEAP */
+
+WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key)
+{
+    if (key == NULL) {
+        return NULL;
+    }
+    return &(key->handle);
+}
+
+int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
+                                WOLFTPM2_KEYBLOB* key)
+{
+    int rc = 0;
+    int sz = 0;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
+
+    if ((buffer == NULL) || (bufferSz <= 0) || (key == NULL)) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* publicArea is encoded format. Eliminates empty fields, saves space. */
+    rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+        &pubAreaSize, &key->pub);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Sanity check for publicArea size failed\n");
+#endif
+        return BUFFER_E;
+    }
+
+    if (bufferSz < sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size +
+                   sizeof(UINT16) + key->priv.size) {
+        return BUFFER_E;
+    }
+
+    /* Write size marker for the public part */
+    XMEMCPY(buffer + sz, &key->pub.size, sizeof(key->pub.size));
+    sz += sizeof(key->pub.size);
+
+    /* Write the public part with bytes aligned */
+    XMEMCPY(buffer + sz, pubAreaBuffer, sizeof(UINT16) + key->pub.size);
+    sz += sizeof(UINT16) + key->pub.size;
+
+    /* Write the private part, size marker is included */
+    XMEMCPY(buffer + sz, &key->priv, sizeof(UINT16) + key->priv.size);
+    sz += sizeof(UINT16) + key->priv.size;
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    TPM2_PrintBin(buffer, sz);
+    printf("Getting %d bytes\n", (int)sz);
+#endif
+
+    return sz;
+}
+
+int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
+                                  word32 bufferSz)
+{
+    int rc = 0;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
+    byte *runner = buffer;
+    size_t done_reading = 0;
+
+    if ((key == NULL) || (buffer == NULL) || (bufferSz <= 0)) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(key, 0, sizeof(WOLFTPM2_KEYBLOB));
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    TPM2_PrintBin(buffer, bufferSz);
+    printf("Setting %d bytes\n", (int)bufferSz);
+#endif
+
+    if (bufferSz < done_reading + sizeof(key->pub.size)) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Buffer size check failed (%d)\n",  bufferSz);
+#endif
+        return BUFFER_E;
+    }
+
+    XMEMCPY(&key->pub.size, runner, sizeof(key->pub.size));
+    runner += sizeof(key->pub.size);
+    done_reading += sizeof(key->pub.size);
+
+    if (bufferSz < done_reading + sizeof(UINT16) + key->pub.size) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Buffer size check failed (%d)\n",  bufferSz);
+#endif
+        return BUFFER_E;
+    }
+
+    XMEMCPY(pubAreaBuffer, runner, sizeof(UINT16) + key->pub.size);
+    runner += sizeof(UINT16) + key->pub.size;
+    done_reading += sizeof(UINT16) + key->pub.size;
+
+    /* Decode the byte stream into a publicArea structure ready for use */
+    rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
+        (word32)sizeof(pubAreaBuffer), &pubAreaSize);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    if (bufferSz < done_reading + sizeof(key->priv.size)) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Buffer size check failed (%d)\n",  bufferSz);
+#endif
+        return BUFFER_E;
+    }
+
+    XMEMCPY(&key->priv.size, runner, sizeof(key->priv.size));
+    runner += sizeof(key->priv.size);
+    done_reading += sizeof(key->priv.size);
+
+    if (bufferSz < done_reading + key->priv.size) {
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("Buffer size check failed (%d)\n",  bufferSz);
+#endif
+        return BUFFER_E;
+    }
+
+    XMEMCPY(key->priv.buffer, runner, key->priv.size);
+    runner += key->priv.size;
+    done_reading += key->priv.size;
+
+    return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
+                               int authSz)
+{
+    if ((key == NULL) || (authSz < 0)) {
+        return BAD_FUNC_ARG;
+    }
+
+    if ((auth != NULL) && (authSz == 0)) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* specify auth password for storage key */
+    key->handle.auth.size = authSz;
+    XMEMCPY(key->handle.auth.buffer, auth, authSz);
+    return TPM_RC_SUCCESS;
+}
+
 /* Access already started TPM module */
 int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 {

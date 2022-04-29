@@ -173,7 +173,7 @@ int TPM2_KDFa(
           copyLen = keySz - pos;
         }
 
-        memcpy(keyStream, hash, copyLen);
+        XMEMCPY(keyStream, hash, copyLen);
         keyStream += copyLen;
     }
     ret = keySz;
