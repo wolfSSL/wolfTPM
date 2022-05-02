@@ -3,8 +3,8 @@
 This directory contains the CSharp wrapper for the TPM 2.0 API wrapper API.
 
 
-Once you have created the simulator, you can should build wolfssl as described
-in the README.md in the root of this repo. Then you can build wolfTPM:
+Once you have created the simulator, you can build wolfssl as described in the
+README.md in the root of this repo. Then you can build wolfTPM:
 
 ## Windows
 

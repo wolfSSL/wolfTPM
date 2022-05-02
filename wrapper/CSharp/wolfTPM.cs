@@ -76,11 +76,11 @@ namespace wolfTPM
     {
         const string DLLNAME = "wolftpm";
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetNewKeyBlob")]
-        private static extern IntPtr wolfTPM2_GetNewKeyBlob();
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NewKeyBlob")]
+        private static extern IntPtr wolfTPM2_NewKeyBlob();
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CleanupKeyBlob")]
-        private static extern int wolfTPM2_CleanupKeyBlob(IntPtr blob);
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreeKeyBlob")]
+        private static extern int wolfTPM2_FreeKeyBlob(IntPtr blob);
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyBlobAsBuffer")]
         private static extern int wolfTPM2_GetKeyBlobAsBuffer(byte[] buffer,
@@ -93,7 +93,7 @@ namespace wolfTPM
 
         public KeyBlob()
         {
-            keyblob = wolfTPM2_GetNewKeyBlob();
+            keyblob = wolfTPM2_NewKeyBlob();
         }
 
         ~KeyBlob()
@@ -101,7 +101,7 @@ namespace wolfTPM
             if (keyblob != IntPtr.Zero)
             {
                 // TODO: check return value?
-                wolfTPM2_CleanupKeyBlob(keyblob);
+                wolfTPM2_FreeKeyBlob(keyblob);
             }
         }
 
@@ -120,11 +120,11 @@ namespace wolfTPM
     {
         const string DLLNAME = "wolftpm";
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetNewKey")]
-        private static extern IntPtr wolfTPM2_GetNewKey();
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NewKey")]
+        private static extern IntPtr wolfTPM2_NewKey();
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CleanupKey")]
-        private static extern int wolfTPM2_CleanupKey(IntPtr key);
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreeKey")]
+        private static extern int wolfTPM2_FreeKey(IntPtr key);
 
         /* ================================================================== */
         /* Native Getters and Setters                                         */
@@ -144,7 +144,7 @@ namespace wolfTPM
 
         public Key()
         {
-            key = wolfTPM2_GetNewKey();
+            key = wolfTPM2_NewKey();
         }
 
         ~Key()
@@ -152,7 +152,7 @@ namespace wolfTPM
             if (key != IntPtr.Zero)
             {
                 // TODO: check return value
-                wolfTPM2_CleanupKey(key);
+                wolfTPM2_FreeKey(key);
             }
         }
 
@@ -174,21 +174,21 @@ namespace wolfTPM
     {
         const string DLLNAME = "wolftpm";
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetNewPublicTemplate")]
-        private static extern IntPtr wolfTPM2_GetNewPublicTemplate();
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NewPublicTemplate")]
+        private static extern IntPtr wolfTPM2_NewPublicTemplate();
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CleanupPublicTemplate")]
-        private static extern int wolfTPM2_CleanupPublicTemplate(IntPtr template);
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreePublicTemplate")]
+        private static extern int wolfTPM2_FreePublicTemplate(IntPtr template);
 
         internal IntPtr template;
         public Template()
         {
-            template = wolfTPM2_GetNewPublicTemplate();
+            template = wolfTPM2_NewPublicTemplate();
         }
 
         ~Template()
         {
-            wolfTPM2_CleanupPublicTemplate(template);
+            wolfTPM2_FreePublicTemplate(template);
         }
 
         /* non-device functions: template and auth */
@@ -225,18 +225,18 @@ namespace wolfTPM
     {
         const string DLLNAME = "wolftpm";
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetNewSession")]
-        private static extern IntPtr wolfTPM2_GetNewSession();
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NewSession")]
+        private static extern IntPtr wolfTPM2_NewSession();
 
-        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CleanupSession")]
-        private static extern int wolfTPM2_CleanupSession(IntPtr session);
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreeSession")]
+        private static extern int wolfTPM2_FreeSession(IntPtr session);
 
 
         internal IntPtr session;
 
         public Session()
         {
-            session = wolfTPM2_GetNewSession();
+            session = wolfTPM2_NewSession();
         }
 
         ~Session()
@@ -244,7 +244,7 @@ namespace wolfTPM
             if (session != IntPtr.Zero)
             {
                 // TODO: check return value
-                wolfTPM2_CleanupSession(session);
+                wolfTPM2_FreeSession(session);
             }
         }
 
@@ -278,7 +278,7 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_New")]
         private static extern IntPtr wolfTPM2_New();
 
-        /* WOLFTPM_API int wolfTPM2_SimpleCleanup(WOLFTPM2_DEV *dev); */
+        /* WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev); */
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_Free")]
         private static extern int wolfTPM2_Free(IntPtr dev);
 

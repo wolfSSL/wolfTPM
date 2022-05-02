@@ -184,6 +184,7 @@ WOLFTPM2_DEV *wolfTPM2_New(void)
     }
 
     if (wolfTPM2_Init(dev, NULL, NULL) != TPM_RC_SUCCESS) {
+        XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return NULL;
     }
 
@@ -199,7 +200,7 @@ int wolfTPM2_Free(WOLFTPM2_DEV *dev)
     return TPM_RC_SUCCESS;
 }
 
-WOLFTPM2_KEYBLOB* wolfTPM2_GetNewKeyBlob(void)
+WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void)
 {
     WOLFTPM2_KEYBLOB* blob = NULL;
 
@@ -213,7 +214,7 @@ WOLFTPM2_KEYBLOB* wolfTPM2_GetNewKeyBlob(void)
     return blob;
 }
 
-int wolfTPM2_CleanupKeyBlob(WOLFTPM2_KEYBLOB* blob)
+int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob)
 {
     if (blob != NULL) {
         XFREE(blob, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -221,7 +222,7 @@ int wolfTPM2_CleanupKeyBlob(WOLFTPM2_KEYBLOB* blob)
     return TPM_RC_SUCCESS;
 }
 
-WOLFTPM_API TPMT_PUBLIC* wolfTPM2_GetNewPublicTemplate(void)
+TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void)
 {
     TPMT_PUBLIC* template = NULL;
 
@@ -235,7 +236,7 @@ WOLFTPM_API TPMT_PUBLIC* wolfTPM2_GetNewPublicTemplate(void)
     return template;
 }
 
-WOLFTPM_API int wolfTPM2_CleanupPublicTemplate(TPMT_PUBLIC* template)
+int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* template)
 {
     if (template != NULL) {
         XFREE(template, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -243,7 +244,7 @@ WOLFTPM_API int wolfTPM2_CleanupPublicTemplate(TPMT_PUBLIC* template)
     return TPM_RC_SUCCESS;
 }
 
-WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_GetNewKey(void)
+WOLFTPM2_KEY* wolfTPM2_NewKey(void)
 {
     WOLFTPM2_KEY* key = NULL;
 
@@ -257,7 +258,7 @@ WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_GetNewKey(void)
     return key;
 }
 
-WOLFTPM_API int wolfTPM2_CleanupKey(WOLFTPM2_KEY* key)
+int wolfTPM2_FreeKey(WOLFTPM2_KEY* key)
 {
     if (key != NULL) {
         XFREE(key, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -265,7 +266,7 @@ WOLFTPM_API int wolfTPM2_CleanupKey(WOLFTPM2_KEY* key)
     return TPM_RC_SUCCESS;
 }
 
-WOLFTPM2_SESSION* wolfTPM2_GetNewSession(void)
+WOLFTPM2_SESSION* wolfTPM2_NewSession(void)
 {
     WOLFTPM2_SESSION* session = NULL;
 
@@ -279,7 +280,7 @@ WOLFTPM2_SESSION* wolfTPM2_GetNewSession(void)
     return session;
 }
 
-int wolfTPM2_CleanupSession(WOLFTPM2_SESSION* session)
+int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
 {
     if (session != NULL) {
         XFREE(session, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -316,7 +317,7 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     }
 
     if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         printf("Sanity check for publicArea size failed\n");
 #endif
         return BUFFER_E;
@@ -368,7 +369,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 #endif
 
     if (bufferSz < done_reading + sizeof(key->pub.size)) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n",  bufferSz);
 #endif
         return BUFFER_E;
@@ -379,7 +380,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     done_reading += sizeof(key->pub.size);
 
     if (bufferSz < done_reading + sizeof(UINT16) + key->pub.size) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n",  bufferSz);
 #endif
         return BUFFER_E;
@@ -397,7 +398,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     }
 
     if (bufferSz < done_reading + sizeof(key->priv.size)) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n",  bufferSz);
 #endif
         return BUFFER_E;
@@ -408,7 +409,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     done_reading += sizeof(key->priv.size);
 
     if (bufferSz < done_reading + key->priv.size) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n",  bufferSz);
 #endif
         return BUFFER_E;

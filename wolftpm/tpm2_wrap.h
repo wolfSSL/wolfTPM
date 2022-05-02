@@ -2351,14 +2351,14 @@ WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 #ifndef WOLFTPM2_NO_HEAP
 WOLFTPM_API WOLFTPM2_DEV *wolfTPM2_New(void);
 WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
-WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_GetNewKeyBlob(void);
-WOLFTPM_API int wolfTPM2_CleanupKeyBlob(WOLFTPM2_KEYBLOB* blob);
-WOLFTPM_API TPMT_PUBLIC* wolfTPM2_GetNewPublicTemplate(void);
-WOLFTPM_API int wolfTPM2_CleanupPublicTemplate(TPMT_PUBLIC* template);
-WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_GetNewKey(void);
-WOLFTPM_API int wolfTPM2_CleanupKey(WOLFTPM2_KEY* key);
-WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_GetNewSession(void);
-WOLFTPM_API int wolfTPM2_CleanupSession(WOLFTPM2_SESSION* session);
+WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
+WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
+WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
+WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* template);
+WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
+WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
+WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
+WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
 #endif
 
 WOLFTPM_API int wolfTPM2_OpenExistingDev(WOLFTPM2_DEV* dev);
