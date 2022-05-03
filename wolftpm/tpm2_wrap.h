@@ -569,8 +569,8 @@ WOLFTPM_API int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \sa wolfTPM2_CreatePrimaryKey
 */
 WOLFTPM_API int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
-    const byte* auth, int authSz);
+    WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent,
+    TPMT_PUBLIC* publicTemplate, const byte* auth, int authSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2347,6 +2347,28 @@ WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc
 WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 
 #endif /* WOLF_CRYPTO_CB */
+
+#ifndef WOLFTPM2_NO_HEAP
+WOLFTPM_API WOLFTPM2_DEV *wolfTPM2_New(void);
+WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
+WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
+WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
+WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
+WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* template);
+WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
+WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
+WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
+WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
+#endif
+
+WOLFTPM_API int wolfTPM2_OpenExistingDev(WOLFTPM2_DEV* dev);
+WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key);
+WOLFTPM_API int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
+    int authSz);
+WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
+    WOLFTPM2_KEYBLOB* key);
+WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
+    byte *buffer, word32 bufferSz);
 
 #ifdef __cplusplus
     }  /* extern "C" */

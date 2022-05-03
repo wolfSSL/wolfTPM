@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+    <RunConfiguration>
+        <EnvironmentVariables>
+          <!-- update to path to local vcpkg install
+          <PATH>%PATH%;c:\vcpkg\installed\x64-windows\bin</PATH>
+          -->
+          <!--
+          if wolfTPM cmake solution is built using visual studio,
+          we need to back out several(5) directories `wrapper\CSharp\bin\Debug\netcoreapp3.1`
+          -->
+          <PATH>%PATH%;..\..\..\..\..\out\build\x64-Debug\bin</PATH>
+        </EnvironmentVariables>
+    </RunConfiguration>
+</RunSettings>
