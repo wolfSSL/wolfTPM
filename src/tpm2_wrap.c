@@ -416,8 +416,14 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     }
 
     XMEMCPY(key->priv.buffer, runner, key->priv.size);
-    runner += key->priv.size;
     done_reading += key->priv.size;
+
+    if (done_reading != bufferSz) {
+#ifdef DEBUG_WOLFTPM
+        printf("Extra data left in buffer (%d!=%d)\n",  bufferSz, done_reading);
+#endif
+        return BUFFER_E;
+    }
 
     return TPM_RC_SUCCESS;
 }
@@ -429,13 +435,18 @@ int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
         return BAD_FUNC_ARG;
     }
 
-    if ((auth != NULL) && (authSz == 0)) {
+    if ( ((auth != NULL) && (authSz == 0))
+         || ((auth == NULL) && (authSz != 0))
+        ) {
         return BAD_FUNC_ARG;
     }
 
     /* specify auth password for storage key */
     key->handle.auth.size = authSz;
-    XMEMCPY(key->handle.auth.buffer, auth, authSz);
+    if (auth != NULL) {
+        XMEMCPY(key->handle.auth.buffer, auth, authSz);
+    }
+
     return TPM_RC_SUCCESS;
 }
 
@@ -1519,14 +1530,16 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMI_ALG_HASH innerAlg, outerAlg;
     TPM2_Packet packet;
     int pos = 0;
-    int digestSz, innerSz, outerSz, sensSz;
+    int digestSz =0;
+    int innerSz = 0;
+    int outerSz = 0;
+    int sensSz = 0;
 
     if (sens == NULL || priv == NULL)
         return BAD_FUNC_ARG;
 
     digestSz = TPM2_GetHashDigestSize(nameAlg);
 
-    innerSz = outerSz = sensSz = 0;
     if (sym && sym->algorithm != TPM_ALG_NULL) {
         innerWrap = 1;
 
