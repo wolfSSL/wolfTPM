@@ -968,9 +968,8 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         int i;
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->pcrHandle);
@@ -1004,10 +1003,9 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
@@ -1088,10 +1086,9 @@ TPM_RC TPM2_CreateLoaded(CreateLoaded_In* in, CreateLoaded_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
@@ -1133,11 +1130,10 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .outHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->primaryHandle);
@@ -1220,11 +1216,10 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .outHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
@@ -1283,10 +1278,9 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->itemHandle);
@@ -1383,10 +1377,9 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .outHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -1496,10 +1489,9 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->activateHandle);
@@ -1580,10 +1572,9 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->objectHandle);
@@ -1623,10 +1614,9 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->objectHandle);
@@ -1679,10 +1669,9 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->oldParent);
@@ -1734,10 +1723,9 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->parentHandle);
@@ -1784,10 +1772,9 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -1839,10 +1826,9 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -1891,10 +1877,9 @@ TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -1935,10 +1920,9 @@ TPM_RC TPM2_ECDH_ZGen(ECDH_ZGen_In* in, ECDH_ZGen_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -2041,10 +2025,9 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyA);
@@ -2083,10 +2066,9 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -2133,10 +2115,9 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
@@ -2184,9 +2165,8 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2239,10 +2219,9 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2283,11 +2262,10 @@ TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .outHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2327,10 +2305,9 @@ TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .outHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2367,10 +2344,9 @@ TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2400,10 +2376,9 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2452,10 +2427,9 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2504,10 +2478,9 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2554,10 +2527,9 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2615,10 +2587,9 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2667,10 +2638,9 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2720,10 +2690,9 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2771,10 +2740,9 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2821,10 +2789,9 @@ TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2871,9 +2838,8 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         st = TPM2_GetTag(ctx);
@@ -2913,10 +2879,9 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2966,10 +2931,9 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3017,9 +2981,8 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         int i;
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3060,10 +3023,9 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3110,9 +3072,8 @@ TPM_RC TPM2_PCR_Allocate(PCR_Allocate_In* in, PCR_Allocate_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3151,10 +3112,9 @@ TPM_RC TPM2_PCR_SetAuthPolicy(PCR_SetAuthPolicy_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3189,10 +3149,9 @@ TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3222,9 +3181,8 @@ TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3252,10 +3210,9 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3321,10 +3278,9 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3384,10 +3340,9 @@ TPM_RC TPM2_PolicyTicket(PolicyTicket_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3469,10 +3424,9 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3536,10 +3490,9 @@ TPM_RC TPM2_PolicyNV(PolicyNV_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 3,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 3;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3577,10 +3530,9 @@ TPM_RC TPM2_PolicyCounterTimer(PolicyCounterTimer_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3647,10 +3599,9 @@ TPM_RC TPM2_PolicyCpHash(PolicyCpHash_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3684,10 +3635,9 @@ TPM_RC TPM2_PolicyNameHash(PolicyNameHash_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3722,10 +3672,9 @@ TPM_RC TPM2_PolicyDuplicationSelect(PolicyDuplicationSelect_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3766,10 +3715,9 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3859,10 +3807,9 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -3927,10 +3874,9 @@ TPM_RC TPM2_PolicyTemplate(PolicyTemplate_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->policySession);
@@ -3961,9 +3907,8 @@ TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 3,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 3;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -3992,9 +3937,8 @@ TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -4021,10 +3965,9 @@ TPM_RC TPM2_SetPrimaryPolicy(SetPrimaryPolicy_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -4053,9 +3996,8 @@ static TPM_RC TPM2_ChangeSeed(ChangeSeed_In* in, TPM_CC cc)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -4090,9 +4032,8 @@ TPM_RC TPM2_Clear(Clear_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -4117,9 +4058,8 @@ TPM_RC TPM2_ClearControl(ClearControl_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->auth);
@@ -4145,10 +4085,9 @@ TPM_RC TPM2_HierarchyChangeAuth(HierarchyChangeAuth_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->authHandle);
@@ -4176,9 +4115,8 @@ TPM_RC TPM2_DictionaryAttackLockReset(DictionaryAttackLockReset_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->lockHandle);
@@ -4204,9 +4142,8 @@ TPM_RC TPM2_DictionaryAttackParameters(DictionaryAttackParameters_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->lockHandle);
@@ -4236,9 +4173,8 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         int i;
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->auth);
@@ -4273,9 +4209,8 @@ TPM_RC TPM2_SetAlgorithmSet(SetAlgorithmSet_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4304,10 +4239,9 @@ TPM_RC TPM2_FieldUpgradeStart(FieldUpgradeStart_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4343,9 +4277,8 @@ TPM_RC TPM2_FieldUpgradeData(FieldUpgradeData_In* in, FieldUpgradeData_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4395,9 +4328,8 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4503,9 +4435,8 @@ TPM_RC TPM2_EvictControl(EvictControl_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4535,7 +4466,7 @@ TPM_RC TPM2_ReadClock(ReadClock_Out* out)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
-        CmdInfo_t info;
+        CmdInfo_t info = {0,0,0,0,};
         XMEMSET(&info, 0, sizeof(info));
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4578,9 +4509,8 @@ TPM_RC TPM2_ClockSet(ClockSet_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->auth);
@@ -4607,9 +4537,8 @@ TPM_RC TPM2_ClockRateAdjust(ClockRateAdjust_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->auth);
@@ -4637,7 +4566,7 @@ TPM_RC TPM2_TestParms(TestParms_In* in)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
-        CmdInfo_t info;
+        CmdInfo_t info = {0,0,0,0,};
         XMEMSET(&info, 0, sizeof(info));
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4669,10 +4598,9 @@ TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4717,9 +4645,8 @@ TPM_RC TPM2_NV_UndefineSpace(NV_UndefineSpace_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4747,9 +4674,8 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4779,10 +4705,9 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4835,10 +4760,9 @@ TPM_RC TPM2_NV_Write(NV_Write_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4871,9 +4795,8 @@ TPM_RC TPM2_NV_Increment(NV_Increment_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4901,10 +4824,9 @@ TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4935,9 +4857,8 @@ TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4967,9 +4888,8 @@ TPM_RC TPM2_NV_WriteLock(NV_WriteLock_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4997,9 +4917,8 @@ TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5027,10 +4946,9 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-            .flags = (CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
+        info.flags = (CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5069,9 +4987,8 @@ TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 2,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 2;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5099,10 +5016,9 @@ TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-            .flags = (CMD_FLAG_ENC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5132,10 +5048,9 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 3,
-            .flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2),
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 3;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2);
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5194,9 +5109,8 @@ int TPM2_SetCommandSet(SetCommandSet_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5226,9 +5140,8 @@ int TPM2_SetMode(SetMode_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5291,9 +5204,8 @@ int TPM2_GPIO_Config(GpioConfig_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         /* Process the nvIndex used for GPIO configuration */
@@ -5328,9 +5240,8 @@ int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
 
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
-        CmdInfo_t info = {
-            .inHandleCnt = 1,
-        };
+        CmdInfo_t info = {0,0,0,0,};
+        info.inHandleCnt = 1;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
         /* Process the auth handle for GPIO configuration */
