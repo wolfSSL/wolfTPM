@@ -224,22 +224,22 @@ int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob)
 
 TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void)
 {
-    TPMT_PUBLIC* template = NULL;
+    TPMT_PUBLIC* PublicTemplate = NULL;
 
-    template = (TPMT_PUBLIC *) XMALLOC(sizeof(TPMT_PUBLIC), NULL,
+    PublicTemplate = (TPMT_PUBLIC *) XMALLOC(sizeof(TPMT_PUBLIC), NULL,
                                        DYNAMIC_TYPE_TMP_BUFFER);
-    if (template == NULL) {
+    if (PublicTemplate == NULL) {
         return NULL;
     }
 
-    XMEMSET(template, 0, sizeof(TPMT_PUBLIC));
-    return template;
+    XMEMSET(PublicTemplate, 0, sizeof(TPMT_PUBLIC));
+    return PublicTemplate;
 }
 
-int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* template)
+int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate)
 {
-    if (template != NULL) {
-        XFREE(template, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (PublicTemplate != NULL) {
+        XFREE(PublicTemplate, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
 }
