@@ -2354,7 +2354,7 @@ WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
 WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
 WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
 WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
-WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* template);
+WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate);
 WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
 WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
 WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
