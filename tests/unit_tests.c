@@ -274,15 +274,21 @@ static void test_TPM2_KDFa(void)
         .size = 8,
         .buffer = {0xDA, 0x50, 0x40, 0x31, 0xDD, 0xF1, 0x2E, 0x83}
     };
+    byte key[TEST_KDFA_KEYSZ];
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     const byte keyExp[TEST_KDFA_KEYSZ] = {
         0xbb, 0x02, 0x59, 0xe1, 0xc8, 0xba, 0x60, 0x7e, 0x6a, 0x2c,
         0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
-    byte key[TEST_KDFA_KEYSZ];
+#endif
 
     rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key, keyIn.size);
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+    AssertIntEQ(NOT_COMPILED_IN, rc);
+#else
     AssertIntEQ(sizeof(keyExp), rc);
-
     AssertIntEQ(XMEMCMP(key, keyExp, sizeof(keyExp)), 0);
+#endif
 }
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

@@ -10,6 +10,25 @@ Fix for `make install`
 
 * Fix for installing example code on linux builds (PR #196)
 
+## wolfTPM Release 2.4 (05/06/2022)
+
+**Summary**
+
+Add CMake support. Add C# wrappers. Add ST33 GetRandom2. Improve
+`TPM2_SetupPCRSel`. Fixes for C++ compilers, example install and writing PEM.
+
+**Detail**
+
+* Fixes for c++ compiler (PR #206)
+* Adding a C# wrappers (PR #203)
+* CMake support (PR #202, #204, #205)
+* Add support for ST33 vendor specific command `TPM_CC_GetRandom2` (PR #200)
+* Fix writing PEM in `wolfTPM2_RsaKey_TpmToPemPub` (PR #201)
+* Improve `TPM2_SetupPCRSel` (multiple calls) (PR #198)
+* Fix for a few spelling errors and whitespace cleanup (PR #199)
+* v2.3.1 updates (PR #197)
+* Fix make install by renaming pcr example read.c (PR #196)
+
 ## wolfTPM Release 2.3 (11/08/2021)
 
 **Summary**

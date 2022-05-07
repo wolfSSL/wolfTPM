@@ -2349,24 +2349,187 @@ WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 #endif /* WOLF_CRYPTO_CB */
 
 #ifndef WOLFTPM2_NO_HEAP
-WOLFTPM_API WOLFTPM2_DEV *wolfTPM2_New(void);
-WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
-WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
-WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
-WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
-WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate);
-WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
-WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
-WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
-WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
-#endif
 
-WOLFTPM_API int wolfTPM2_OpenExistingDev(WOLFTPM2_DEV* dev);
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Allocate and initiaze a WOLFTPM2_DEV
+
+    \return pointer to new device struct
+    \return NULL: on any error
+
+    \sa wolfTPM2_Free
+*/
+WOLFTPM_API WOLFTPM2_DEV *wolfTPM2_New(void);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Cleanup and Free a WOLFTPM2_DEV that was allocated by wolfTPM2_New
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a TPM2_DEV struct
+
+    \sa wolfTPM2_New
+*/
+WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Allocate and initialize a WOLFTPM2_KEYBLOB
+
+    \return pointer to newly initialized WOLFTPM2_KEYBLOB
+    \return NULL on any error
+
+    \sa wolfTPM2_FreeKeyBlob
+*/
+WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free a WOLFTPM2_KEYBLOB that was allocated with wolfTPM2_NewKeyBlob
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param blob pointer to a WOLFTPM2_KEYBLOB that was allocated by wolfTPM2_NewKeyBlob
+
+    \sa wolfTPM2_NewKeyBlob
+*/
+WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Allocate and initialize a TPMT_PUBLIC
+
+    \return pointer to newly initialized
+    \return NULL on any error
+
+    \sa wolfTPM2_FreePublicTemplate
+*/
+WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free a TPMT_PUBLIC that was allocated with wolfTPM2_NewPublicTemplate
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param PublicTemplate pointer to a TPMT_PUBLIC that was allocated with wolfTPM2_NewPublicTemplate
+
+    \sa wolfTPM2_NewPublicTemplate
+*/
+WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate);
+
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Allocate and initialize a WOLFTPM2_KEY
+
+    \return pointer to newly initialized WOLFTPM2_KEY
+    \return NULL on any error
+
+    \sa wolfTPM2_FreeKey
+*/
+WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free a WOLFTPM2_KEY that was allocated with wolfTPM2_NewKey
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param key pointer to a WOLFTPM2_KEY that was allocated by wolfTPM2_NewKey
+
+    \sa wolfTPM2_NewKey
+*/
+WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
+
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Allocate and initialize a WOLFTPM2_SESSION
+
+    \return pointer to newly initialized WOLFTPM2_SESSION
+    \return NULL on any error
+
+    \sa wolfTPM2_FreeSession
+*/
+WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free a WOLFTPM2_SESSION that was allocated with wolfTPM2_NewSession
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param blob pointer to a WOLFTPM2_KEYBLOB that was allocated by wolfTPM2_NewSession
+
+    \sa wolfTPM2_NewSession
+*/
+WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
+#endif /* !WOLFTPM2_NO_HEAP */
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Retrieve the WOLFTPM2_HANDLE from a WOLFTPM2_KEY
+
+    \return pointer to handle in the key structure
+    \return NULL if key pointer is NULL
+
+    \param key pointer to a WOLFTPM2_KEY struct
+*/
 WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Set the authentication data for a key
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param auth pointer to auth data
+    \param authSz length in bytes of auth data
+*/
 WOLFTPM_API int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
     int authSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Marshal data from a keyblob to a binary buffer. This can be
+    stored to disk for loading in a separate process or after power
+    cycling.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BUFFER_E: insufficient space in provided buffer
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param buffer pointer to buffer in which to store marshaled keyblob
+    \param bufferSz size of the above buffer
+    \param key pointer to keyblob to marshal
+
+    \sa wolfTPM2_SetKeyBlobFromBuffer
+*/
 WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     WOLFTPM2_KEYBLOB* key);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Unmarshal data into a WOLFTPM2_KEYBLOB struct. This can be
+    used to load a keyblob that was previously marshaled by
+    wolfTPM2_GetKeyBlobAsBuffer
+
+    \return TPM_RC_SUCCESS: successful
+    \return BUFFER_E: buffer is too small or there is extra data remaining and not unmarshalled
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param key pointer to keyblob to load and unmarshall data into
+    \param buffer pointer to buffer containing marshalled keyblob to load from
+    \param bufferSz size of the above buffer
+
+    \sa wolfTPM2_GetKeyBlobAsBuffer
+*/
 WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     byte *buffer, word32 bufferSz);
 
