@@ -287,7 +287,7 @@ int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
     }
     return TPM_RC_SUCCESS;
 }
-#endif /* WOLFTPM2_NO_HEAP */
+#endif /* !WOLFTPM2_NO_HEAP */
 
 WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key)
 {

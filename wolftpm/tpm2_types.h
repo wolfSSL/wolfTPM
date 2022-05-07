@@ -119,6 +119,7 @@ typedef int64_t  INT64;
 #else
 
     #include <stdio.h>
+    #include <stdlib.h>
     #include <string.h>
 
     typedef uint8_t  byte;
@@ -137,6 +138,8 @@ typedef int64_t  INT64;
     #define SOCKET_ERROR_E        -308  /* error state on socket    */
 
 #ifndef WOLFTPM_CUSTOM_TYPES
+    #define XMALLOC(s, h, t)     malloc((size_t)(s))
+    #define XFREE(p, h, t)       free(p)
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
