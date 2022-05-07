@@ -442,7 +442,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     wc_FreeRsaKey(&wolfRsaPrivKey);
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
     /* Load raw RSA private key into TPM */
     rc = wolfTPM2_LoadRsaPrivateKey(&dev, &storageKey, &rsaKey,
@@ -455,11 +454,11 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         (word32)rsaKey.handle.hndl);
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
 
     /* Close TPM session based on RSA storage key */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
-
 
     /*------------------------------------------------------------------------*/
     /* ECC TESTS */
@@ -662,7 +661,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     wc_ecc_free(&wolfEccPrivKey);
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
     /* Load raw ECC private key into TPM */
     rc = wolfTPM2_LoadEccPrivateKey(&dev, &storageKey, &eccKey, TPM_ECC_NIST_P256,
@@ -675,6 +673,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         (word32)eccKey.handle.hndl);
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC */
 
 #if 0 /* disabled until ECC Encrypted salt is added */
     /* Close TPM session based on ECC storage key */
@@ -841,6 +840,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /*------------------------------------------------------------------------*/
     /* ENCRYPT/DECRYPT TESTS */
     /*------------------------------------------------------------------------*/
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = wolfTPM2_LoadSymmetricKey(&dev, &aesKey, TEST_AES_MODE,
         TEST_AES_KEY, (word32)sizeof(TEST_AES_KEY));
     if (rc != 0) goto exit;
@@ -878,7 +878,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     if (rc != 0) goto exit;
-
+#else
+    (void)aesIv;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, TEST_AES_MODE,
         YES, YES);
