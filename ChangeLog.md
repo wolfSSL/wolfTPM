@@ -1,15 +1,5 @@
 # Release Notes
 
-## wolfTPM Release 2.3.1 (11/18/2021)
-
-**Summary**
-
-Fix for `make install`
-
-**Detail**
-
-* Fix for installing example code on linux builds (PR #196)
-
 ## wolfTPM Release 2.4 (05/06/2022)
 
 **Summary**
@@ -26,8 +16,16 @@ Add CMake support. Add C# wrappers. Add ST33 GetRandom2. Improve
 * Fix writing PEM in `wolfTPM2_RsaKey_TpmToPemPub` (PR #201)
 * Improve `TPM2_SetupPCRSel` (multiple calls) (PR #198)
 * Fix for a few spelling errors and whitespace cleanup (PR #199)
-* v2.3.1 updates (PR #197)
-* Fix make install by renaming pcr example read.c (PR #196)
+
+## wolfTPM Release 2.3.1 (11/18/2021)
+
+**Summary**
+
+Fix for `make install`
+
+**Detail**
+
+* Fix for installing example code on linux builds (PR #196)
 
 ## wolfTPM Release 2.3 (11/08/2021)
 
