@@ -29,6 +29,8 @@ RemoteSystemsTempFiles
 *.dep
 *.deps
 *.libs
+*.dSYM
+.vs
 IDE/IAR-EWARM/settings
 wolftpm/options.h
 
@@ -96,3 +98,7 @@ ek.pem
 
 # Generated Documentation
 docs/html
+
+# Wrapper
+wrapper/CSharp/obj
+wrapper/CSharp/bin
