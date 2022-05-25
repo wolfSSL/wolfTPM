@@ -1509,7 +1509,7 @@ WOLFTPM_API int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Stores user data to a NV Index, at a given offest
+    \brief Stores user data to a NV Index, at a given offset
     \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
 
     \return TPM_RC_SUCCESS: successful
@@ -2248,7 +2248,7 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKe
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param aikKey pointer to a WOLFTPM2_KEY structure, containign valid TPM handle of a loaded attestation key
+    \param aikKey pointer to a WOLFTPM2_KEY structure, containing valid TPM handle of a loaded attestation key
     \param getTimeOut pointer to an empty structure of GetTime_Out type, to store the output of the command
 
     \sa wolfTPM2_CreateSRK
