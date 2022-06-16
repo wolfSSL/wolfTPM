@@ -370,7 +370,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + sizeof(key->pub.size)) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n",  bufferSz);
+        printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -381,7 +381,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + sizeof(UINT16) + key->pub.size) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n",  bufferSz);
+        printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -399,7 +399,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + sizeof(key->priv.size)) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n",  bufferSz);
+        printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -410,7 +410,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + key->priv.size) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n",  bufferSz);
+        printf("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -420,7 +420,8 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (done_reading != bufferSz) {
 #ifdef DEBUG_WOLFTPM
-        printf("Extra data left in buffer (%d!=%d)\n",  bufferSz, done_reading);
+        printf("Extra data left in buffer (%d!=%d)\n",
+            bufferSz, (word32)done_reading);
 #endif
         return BUFFER_E;
     }
@@ -4922,23 +4923,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     }
 #if !defined(NO_RSA) || defined(HAVE_ECC)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {
-        int isWolfKeyValid = 1;
-
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb Pk: Type %d\n", info->pk.type);
     #endif
 
-        /* optional callback to check key to determine if TPM should be used */
-        if (tlsCtx->checkKeyCb) {
-            /* this is useful to check the provided key for dummy key
-                cases like TLS server */
-            if (tlsCtx->checkKeyCb(info, tlsCtx) != 0) {
-                isWolfKeyValid = 0;
-            #ifdef DEBUG_WOLFTPM
-                printf("CryptoDevCb: Detected dummy key\n");
-            #endif
-            }
-        }
     #ifndef NO_RSA
         /* RSA */
         if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
@@ -4959,24 +4947,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     /* public operations */
                     WOLFTPM2_KEY rsaPub;
 
-                    if (!isWolfKeyValid && tlsCtx->rsaKey) {
-                        /* use already loaded TPM handle for operation */
-                        rc = wolfTPM2_RsaEncrypt(tlsCtx->dev, tlsCtx->rsaKey,
-                            TPM_ALG_NULL, /* no padding */
-                            info->pk.rsa.in, info->pk.rsa.inLen,
-                            info->pk.rsa.out, (int*)info->pk.rsa.outLen);
-                        break;
-                    }
-                    /* otherwise load public key and perform public op */
-
                     /* load public key into TPM */
                     XMEMSET(&rsaPub, 0, sizeof(rsaPub));
                     rc = wolfTPM2_RsaKey_WolfToTpm(tlsCtx->dev,
                         info->pk.rsa.key, &rsaPub);
                     if (rc != 0) {
                         /* A failure of TPM_RC_KEY can happen due to unsupported
-                            RSA exponents. In those cases return NOT_COMPILED_IN
-                            and use software */
+                         * RSA exponent. For those cases fallback to using
+                         * software (or fail if FIPS mode) */
                         rc = exit_rc;
                         break;
                     }
@@ -5117,7 +5095,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         #endif /* !WOLFTPM2_USE_SW_ECDHE */
         }
     #endif /* HAVE_ECC */
-        (void)isWolfKeyValid;
     }
 #endif /* !NO_RSA || HAVE_ECC */
 #ifndef NO_AES

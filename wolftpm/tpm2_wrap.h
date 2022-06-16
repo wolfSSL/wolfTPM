@@ -2285,7 +2285,6 @@ typedef struct TpmCryptoDevCtx {
     WOLFTPM2_KEY* ecdhKey; /* ECDH */
     #endif
 #endif
-    CheckWolfKeyCallbackFunc checkKeyCb;
     WOLFTPM2_KEY* storageKey;
 #ifdef WOLFTPM_USE_SYMMETRIC
     unsigned short useSymmetricOnTPM:1; /* if set indicates desire to use symmetric algorithms on TPM */

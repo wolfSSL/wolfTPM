@@ -179,7 +179,6 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #ifdef HAVE_ECC
     tpmCtx.eccKey = &eccKey;
 #endif
-    tpmCtx.checkKeyCb = myTpmCheckKey; /* detects if using "dummy" key */
     tpmCtx.storageKey = &storageKey;
 #ifdef WOLFTPM_USE_SYMMETRIC
     tpmCtx.useSymmetricOnTPM = 1;
@@ -329,22 +328,30 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #endif /* !NO_FILESYSTEM */
 
     /* Client Key (Mutual Authentication) */
-    /* Note: Client will not send a client certificate unless a private key is
-     *   set, so we use a fake "DUMMY" key tell wolfSSL to send certificate.
-     *   The crypto callback will detect use of the dummy key using myTpmCheckKey
+    /* Note: Client will not send a client certificate unless a key is
+     *   set. Since we do not have the private key wolfSSL allows setting a
+     *   public key instead (if crypto callbacks are enabled).
      */
 #ifndef NO_TLS_MUTUAL_AUTH
     if (!useECC) {
     #ifndef NO_RSA
-        printf("Loading RSA dummy key\n");
-
-        /* Private key is on TPM and crypto dev callbacks are used */
-        /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
-        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_RSA_KEY,
-            sizeof(DUMMY_RSA_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            printf("Failed to set key!\r\n");
+        byte der[1024];
+        word32 derSz = sizeof(der);
+        rc = wc_RsaKeyToPublicDer_ex(&wolfRsaKey, der, derSz, 1);
+        if (rc < 0) {
+            printf("Failed to export RSA public key!\n");
             goto exit;
         }
+        derSz = rc;
+        rc = 0;
+
+        /* Private key is on TPM and crypto dev callbacks are used */
+        /* TLS client (mutual auth) requires a public key loaded */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
+                                    WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Failed to set RSA key!\n");
+            goto exit;
+        }        
     #else
         printf("RSA not supported in this build\n");
         rc = -1;
@@ -353,12 +360,21 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
     else {
     #ifdef HAVE_ECC
-        printf("Loading ECC dummy key\n");
+        byte der[256];
+        word32 derSz = sizeof(der);
+        rc = wc_EccPublicKeyToDer(&wolfEccKey, der, derSz, 1);
+        if (rc < 0) {
+            printf("Failed to export ECC public key!\n");
+            goto exit;
+        }
+        derSz = rc;
+        rc = 0;
+
         /* Private key is on TPM and crypto dev callbacks are used */
-        /* TLS client (mutual auth) requires a dummy key loaded (workaround) */
-        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, DUMMY_ECC_KEY,
-            sizeof(DUMMY_ECC_KEY), WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            printf("Failed to set key!\r\n");
+        /* TLS client (mutual auth) requires a public key loaded */
+        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
+                                    WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("Failed to set ECC key!\n");
             goto exit;
         }
     #else

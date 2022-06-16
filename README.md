@@ -693,7 +693,7 @@ PKCS7 Container Verified (using software)
 
 ### TPM TLS Client Example
 
-The wolfSSL TLS client requires loading a private key for mutual authentication. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
+The wolfSSL TLS client requires loading a public key to indicate mutual authentication is sued. The crypto callback uses the TPM for the private key signing.
 
 ```
 ./examples/tls/tls_client
@@ -717,12 +717,12 @@ Connection: close
 
 ### TPM TLS Server Example
 
-The wolfSSL TLS server requires loading a private key. We load a "fake" private key and use the `myTpmCheckKey` callback to check for fake key to use the TPM instead.
+The wolfSSL TLS server loads the TPM public key and the crypto callback uses the TPM for the private key signing.
 
 ```
 ./examples/tls/tls_server
 TPM2 TLS Server Example
-Loading RSA certificate and dummy key
+Loading RSA certificate and public key
 Read (29): GET /index.html HTTP/1.0
 
 
