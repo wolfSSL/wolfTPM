@@ -87,6 +87,19 @@ namespace wolfTPM
         ECB = 0x0044,
     }
 
+    public enum TPM2_ECC : uint
+    {
+        NONE        = 0x0000,
+        NIST_P192   = 0x0001,
+        NIST_P224   = 0x0002,
+        NIST_P256   = 0x0003,
+        NIST_P384   = 0x0004,
+        NIST_P521   = 0x0005,
+        BN_P256     = 0x0010,
+        BN_P638     = 0x0011,
+        SM2_P256    = 0x0020,
+    }
+
     public enum SE : byte
     {
         HMAC = 0x00,
@@ -102,6 +115,28 @@ namespace wolfTPM
         decrypt         = 0x20,
         encrypt         = 0x40,
         audit           = 0x80,
+    }
+
+    public enum TPM_RH : ulong
+    {
+        FIRST        = 0x40000000,
+        SRK          = FIRST,
+        OWNER        = 0x40000001,
+        REVOKE       = 0x40000002,
+        TRANSPORT    = 0x40000003,
+        OPERATOR     = 0x40000004,
+        ADMIN        = 0x40000005,
+        EK           = 0x40000006,
+        NULL         = 0x40000007,
+        UNASSIGNED   = 0x40000008,
+        PW           = 0x40000009,
+        LOCKOUT      = 0x4000000A,
+        ENDORSEMENT  = 0x4000000B,
+        PLATFORM     = 0x4000000C,
+        PLATFORM_NV  = 0x4000000D,
+        AUTH_00      = 0x40000010,
+        AUTH_FF      = 0x4000010F,
+        LAST         = AUTH_FF,
     }
 
     public class KeyBlob
@@ -248,11 +283,22 @@ namespace wolfTPM
                                                objectAttributes);
         }
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC")]
+        private static extern int wolfTPM2_GetKeyTemplate_ECC(IntPtr publicTemplate,
+                                                              ulong objectAttributes,
+                                                              uint curve,
+                                                              uint sigScheme);
+        public int GetKeyTemplate_ECC(ulong objectAttributes, TPM2_ECC curve,
+            TPM2_Alg sigScheme)
+        {
+            return wolfTPM2_GetKeyTemplate_ECC(template, objectAttributes,
+                (uint)curve, (uint)sigScheme);
+        }
+
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_Symmetric")]
         private static extern int wolfTPM2_GetKeyTemplate_Symmetric(
             IntPtr publicTemplate, int keyBits, uint algMode, int isSign,
             int isDecrypt);
-
         public int GetKeyTemplate_Symmetric(int keyBits,
                                             TPM2_Alg algMode,
                                             bool isSign,
@@ -265,6 +311,47 @@ namespace wolfTPM
                                                      isDecrypt ? 1 : 0);
         }
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_EK")]
+        private static extern int wolfTPM2_GetKeyTemplate_RSA_EK(IntPtr publicTemplate);
+        public int GetKeyTemplate_RSA_EK()
+        {
+            return wolfTPM2_GetKeyTemplate_RSA_EK(template);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_EK")]
+        private static extern int wolfTPM2_GetKeyTemplate_ECC_EK(IntPtr publicTemplate);
+        public int GetKeyTemplate_ECC_EK()
+        {
+            return wolfTPM2_GetKeyTemplate_ECC_EK(template);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_SRK")]
+        private static extern int wolfTPM2_GetKeyTemplate_RSA_SRK(IntPtr publicTemplate);
+        public int GetKeyTemplate_RSA_SRK()
+        {
+            return wolfTPM2_GetKeyTemplate_RSA_SRK(template);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_SRK")]
+        private static extern int wolfTPM2_GetKeyTemplate_ECC_SRK(IntPtr publicTemplate);
+        public int GetKeyTemplate_ECC_SRK()
+        {
+            return wolfTPM2_GetKeyTemplate_ECC_SRK(template);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_AIK")]
+        private static extern int wolfTPM2_GetKeyTemplate_RSA_AIK(IntPtr publicTemplate);
+        public int GetKeyTemplate_RSA_AIK()
+        {
+            return wolfTPM2_GetKeyTemplate_RSA_AIK(template);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_AIK")]
+        private static extern int wolfTPM2_GetKeyTemplate_ECC_AIK(IntPtr publicTemplate);
+        public int GetKeyTemplate_ECC_AIK()
+        {
+            return wolfTPM2_GetKeyTemplate_ECC_AIK(template);
+        }
     }
 
     public class Session
@@ -601,6 +688,29 @@ namespace wolfTPM
                 exponent,
                 rsaPriv,
                 rsaPriv.Length);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreatePrimaryKey")]
+        private static extern int wolfTPM2_CreatePrimaryKey(
+            IntPtr dev,
+            IntPtr key,
+            ulong primaryHandle,
+            IntPtr publicTemplate,
+            string auth,
+            int authSz);
+        public int CreatePrimaryKey(
+            Key key,
+            TPM_RH primaryHandle,
+            Template publicTemplate,
+            string auth)
+        {
+            return wolfTPM2_CreatePrimaryKey(
+                device,
+                key.key,
+                (ulong)primaryHandle,
+                publicTemplate.template,
+                auth,
+                !string.IsNullOrEmpty(auth) ? auth.Length : 0);
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
