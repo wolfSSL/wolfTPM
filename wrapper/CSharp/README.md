@@ -14,6 +14,15 @@ wrappers. In order to run the tests you will need to update the
 placeholder to leverage a vcpkg build, but cmake can also be used to
 build wolfTPM with Visual Studios.
 
+When building wolfTPM with cmake on Windows here is an example of the settings used:
+
+```
+"WOLFTPM_INTERFACE": "WINAPI",
+"WOLFTPM_EXAMPLES": "no",
+"WOLFTPM_DEBUG": "yes",
+"WITH_WOLFSSL": "C:/Users/[username]/wolfssl/out/install/windows-default"
+```
+
 ## Linux
 
 The wrapper has been tested with the swtpm TCP protocol for use with
@@ -41,6 +50,7 @@ some tests:
 ```
 cd wrapper/CSharp
 mcs wolfTPM.cs wolfTPM-tests.cs -r:/usr/lib/cli/nunit.framework-2.6.3/nunit.framework.dll -t:library
+
 # run selftest case
 LD_LIBRARY_PATH=../../src/.libs/ nunit-console wolfTPM.dll -run=tpm_csharp_test.WolfTPMTest.TrySelfTest
 #run all tests
