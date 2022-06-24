@@ -1,3 +1,24 @@
+/* wolfTPM.cs
+ *
+ * Copyright (C) 2006-2022 wolfSSL Inc.
+ *
+ * This file is part of wolfTPM.
+ *
+ * wolfTPM is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTPM is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ */
+
 using System;
 using System.Runtime.InteropServices;
 
@@ -7,6 +28,7 @@ namespace wolfTPM
     public enum Status : int
     {
         TPM_RC_SUCCESS = 0,
+        BAD_FUNC_ARG = -173,
     }
 
     public enum TPM2_Object : ulong
@@ -99,6 +121,11 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyBlobFromBuffer")]
         private static extern int wolfTPM2_SetKeyBlobFromBuffer(IntPtr key,
                                                                 byte[] buffer, int bufferSz);
+
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleRefFromKeyBlob")]
+        private static extern IntPtr wolfTPM2_GetHandleRefFromKeyBlob(IntPtr keyBlob);
+
         internal IntPtr keyblob;
 
         public KeyBlob()
@@ -124,6 +151,11 @@ namespace wolfTPM
         {
             return wolfTPM2_SetKeyBlobFromBuffer(keyblob, buffer, buffer.Length);
         }
+
+        public IntPtr GetHandle()
+        {
+            return wolfTPM2_GetHandleRefFromKeyBlob(keyblob);
+        }
     }
 
     public class Key
@@ -139,7 +171,6 @@ namespace wolfTPM
         /* ================================================================== */
         /* Native Getters and Setters                                         */
         /* ================================================================== */
-
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyAuthPassword")]
         private static extern int wolfTPM2_SetKeyAuthPassword(
@@ -166,6 +197,12 @@ namespace wolfTPM
             }
         }
 
+        public IntPtr GetHandle()
+        {
+            return wolfTPM2_GetHandleRefFromKey(key);
+        }
+
+        /* kept for backwards compatibility, use GetHandle */
         public IntPtr GetHandleRefFromKey()
         {
             return wolfTPM2_GetHandleRefFromKey(key);
@@ -228,7 +265,6 @@ namespace wolfTPM
                                                      isDecrypt ? 1 : 0);
         }
 
-
     }
 
     public class Session
@@ -241,23 +277,75 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreeSession")]
         private static extern int wolfTPM2_FreeSession(IntPtr session);
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleRefFromSession")]
+        private static extern IntPtr wolfTPM2_GetHandleRefFromSession(IntPtr session);
 
         internal IntPtr session;
+        internal int sessionIdx;
 
         public Session()
         {
             session = wolfTPM2_NewSession();
+            sessionIdx = 1; /* for most commands the index is 1 */
+        }
+
+        public Session(int index)
+        {
+            session = wolfTPM2_NewSession();
+            sessionIdx = index;
         }
 
         ~Session()
         {
             if (session != IntPtr.Zero)
             {
-                // TODO: check return value
+                /* ignore return code on free */
                 wolfTPM2_FreeSession(session);
             }
         }
 
+        public IntPtr GetHandle()
+        {
+            return wolfTPM2_GetHandleRefFromSession(session);
+        }
+
+        public int StartAuth(Device device, Key parentKey, TPM2_Alg algMode)
+        {
+            int ret;
+
+            /* algMode must be either CFB or XOR */
+            if (algMode != TPM2_Alg.NULL &&
+                algMode != TPM2_Alg.CFB &&
+                algMode != TPM2_Alg.XOR) {
+                return (int)Status.BAD_FUNC_ARG;
+            }
+
+            /* Start an authenticated session (salted / unbound) with
+             * parameter encryption */
+            ret = device.StartSession(this, parentKey, IntPtr.Zero,
+                (byte)SE.HMAC, (int)algMode);
+            if (ret == (int)Status.TPM_RC_SUCCESS) {
+                /* Set session for authorization of the primary key */
+                ret = device.SetAuthSession(this, this.sessionIdx,
+                    (byte)(SESSION_mask.decrypt | SESSION_mask.encrypt |
+                        SESSION_mask.continueSession));
+            }
+
+            return ret;
+        }
+
+        public int StopAuth(Device device)
+        {
+            int ret;
+
+            /* Clear the auth index, since the auth session is ending */
+            device.ClearAuthSession(this, this.sessionIdx);
+
+            /* Unload session */
+            ret = device.UnloadHandle(this);
+
+            return ret;
+        }
     }
 
     public class Device
@@ -330,24 +418,24 @@ namespace wolfTPM
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_StartSession")]
-        private static extern int wolfTPM2_StartSession(IntPtr dev, 
+        private static extern int wolfTPM2_StartSession(IntPtr dev,
                                                         IntPtr session,
                                                         IntPtr tmpKey,
                                                         IntPtr bind,
                                                         byte sesType,
                                                         int encDecAlg);
-        public int StartSession(IntPtr session,
+        public int StartSession(Session tpmSession,
                                 Key tmpKey,
                                 IntPtr bind,
                                 byte sesType,
                                 int encDecAlg)
         {
             return wolfTPM2_StartSession(device,
-                                          session,
-                                          tmpKey.key,
-                                          bind,
-                                          sesType,
-                                          encDecAlg);
+                                         tpmSession.session,
+                                         tmpKey.key,
+                                         bind,
+                                         sesType,
+                                         encDecAlg);
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetAuthSession")]
@@ -355,14 +443,26 @@ namespace wolfTPM
                                                           int index,
                                                           IntPtr tpmSession,
                                                           byte sessionAttributes);
-        public int SetAuthSession(IntPtr session,
+        public int SetAuthSession(Session tpmSession,
                                   int index,
                                   byte sessionAttributes)
         {
             /* For sessionAttributes suggest using:
              * (byte)(SESSION_mask.decrypt | SESSION_mask.encrypt | SESSION_mask.continueSession)
              */
-            return wolfTPM2_SetAuthSession(device, index, session, sessionAttributes);
+            return wolfTPM2_SetAuthSession(device,
+                                           index,
+                                           tpmSession.session,
+                                           sessionAttributes);
+        }
+
+        public int ClearAuthSession(Session tpmSession,
+                                    int index)
+        {
+            return wolfTPM2_SetAuthSession(device,
+                                           index,
+                                           IntPtr.Zero,
+                                           0);
         }
 
 
@@ -394,7 +494,7 @@ namespace wolfTPM
         {
             return wolfTPM2_CreateKey(device,
                                       keyBlob.keyblob,
-                                      parent.GetHandleRefFromKey(),
+                                      parent.GetHandle(),
                                       publicTemplate.template,
                                       auth,
                                       auth.Length);
@@ -408,7 +508,7 @@ namespace wolfTPM
         public int LoadKey(KeyBlob keyBlob,
                            Key parent)
         {
-            return wolfTPM2_LoadKey(device, keyBlob.keyblob, parent.GetHandleRefFromKey());
+            return wolfTPM2_LoadKey(device, keyBlob.keyblob, parent.GetHandle());
         }
 
 
@@ -417,7 +517,7 @@ namespace wolfTPM
             IntPtr primaryHandle, IntPtr key, IntPtr persistentHandle);
         public int StoreKey(Key key, IntPtr primaryHandle, IntPtr persistentHandle)
         {
-            return wolfTPM2_NVStoreKey(device, primaryHandle, key.GetHandleRefFromKey(),
+            return wolfTPM2_NVStoreKey(device, primaryHandle, key.GetHandle(),
                 persistentHandle);
         }
 
@@ -506,14 +606,18 @@ namespace wolfTPM
         private static extern int wolfTPM2_UnloadHandle(IntPtr dev, IntPtr handle);
         public int UnloadHandle(Key key)
         {
-            return wolfTPM2_UnloadHandle(device, key.key);
+            return wolfTPM2_UnloadHandle(device, key.GetHandle());
         }
 
-        public int UnloadHandle(KeyBlob keyblob)
+        public int UnloadHandle(KeyBlob keyBlob)
         {
-            return wolfTPM2_UnloadHandle(device, keyblob.keyblob);
+            return wolfTPM2_UnloadHandle(device, keyBlob.GetHandle());
         }
 
+        public int UnloadHandle(Session tpmSession)
+        {
+            return wolfTPM2_UnloadHandle(device, tpmSession.GetHandle());
+        }
 
     }
 }

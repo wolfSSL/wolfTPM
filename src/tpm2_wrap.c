@@ -291,11 +291,18 @@ int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
 
 WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key)
 {
-    if (key == NULL) {
-        return NULL;
-    }
-    return &(key->handle);
+    return (key != NULL) ? &key->handle : NULL;
 }
+WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKeyBlob(WOLFTPM2_KEYBLOB* keyBlob)
+{
+    return (keyBlob != NULL) ? &keyBlob->handle : NULL;
+}
+
+WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromSession(WOLFTPM2_SESSION* session)
+{
+    return (session != NULL) ? &session->handle : NULL;
+}
+
 
 int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
                                 WOLFTPM2_KEYBLOB* key)
