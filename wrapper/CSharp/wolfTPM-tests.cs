@@ -341,5 +341,22 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
         }
 
+        [Test]
+        public void TryCreatePrimaryKey()
+        {
+            int ret;
+            Key key = new Key();
+            Template template = new Template();
+
+            /* Test creating the primary RSA endorsement key (EK) */
+            ret = template.GetKeyTemplate_RSA_EK();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.CreatePrimaryKey(key, TPM_RH.ENDORSEMENT, template, null);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.UnloadHandle(key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
     }
 }
