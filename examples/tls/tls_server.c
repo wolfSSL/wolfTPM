@@ -358,8 +358,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         derSz = rc;
         rc = 0;
 
-        /* Private key is on TPM and crypto dev callbacks are used */
-        /* TLS client (mutual auth) requires a public key loaded */
+        /* Private key only exists on the TPM and crypto callbacks are used for
+         * signing. Public key is required to enable TLS client (mutual auth).
+         * This API accepts public keys when crypto callbacks are enabled */
         if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
                                     WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Failed to set RSA key!\r\n");
@@ -393,8 +394,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         derSz = rc;
         rc = 0;
 
-        /* Private key is on TPM and crypto dev callbacks are used */
-        /* TLS client (mutual auth) requires a public key loaded */
+        /* Private key only exists on the TPM and crypto callbacks are used for
+         * signing. Public key is required to enable TLS server auth.
+         * This API accepts public keys when crypto callbacks are enabled */
         if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
                                     WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Failed to set ECC key!\r\n");

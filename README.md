@@ -693,7 +693,7 @@ PKCS7 Container Verified (using software)
 
 ### TPM TLS Client Example
 
-The wolfSSL TLS client requires loading a public key to indicate mutual authentication is sued. The crypto callback uses the TPM for the private key signing.
+The wolfSSL TLS client requires loading a public key to indicate mutual authentication is used. The crypto callback uses the TPM for the private key signing.
 
 ```
 ./examples/tls/tls_client
