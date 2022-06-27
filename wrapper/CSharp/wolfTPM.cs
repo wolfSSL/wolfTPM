@@ -313,7 +313,8 @@ namespace wolfTPM
         {
             int ret;
 
-            /* algMode must be either CFB or XOR */
+            /* Algorithm modes: With parameter encryption use CFB or XOR.
+             * For HMAC only (no parameter encryption) use NULL. */
             if (algMode != TPM2_Alg.NULL &&
                 algMode != TPM2_Alg.CFB &&
                 algMode != TPM2_Alg.XOR) {
