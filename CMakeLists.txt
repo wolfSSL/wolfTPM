@@ -24,6 +24,7 @@ cmake_minimum_required(VERSION 3.16)
 project(wolfTPM VERSION 2.4.0 LANGUAGES C)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(WOLFTPM_DEFINITIONS)
 
 set(TPM_SOURCES
     src/tpm2.c
@@ -69,15 +70,12 @@ else()
         if (wolfssl_FOUND)
             target_link_libraries(wolftpm PUBLIC wolfssl)
         else()
-            target_compile_definitions(wolftpm PUBLIC
-                "WOLFTPM2_NO_WOLFCRYPT"
-                )
+            list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WOLFCRYPT")
         endif()
     endif()
 endif()
 
 # TODO
-# * Debug/logging
 # * wrapper
 # * wolfcrypt
 # * I2C
@@ -86,13 +84,26 @@ endif()
 # * wait state
 # * small stack
 
+
+# Enable Debugging
+set(WOLFTPM_DEBUG "no" CACHE STRING
+    "Enables option for debug (default: disabled)")
+set_property(CACHE WOLFTPM_DEBUG
+    PROPERTY STRINGS "yes;no;verbose")
+if(WOLFTPM_DEBUG)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DDEBUG_WOLFTPM"
+        "-DDEBUG")
+    if("${WOLFTPM_DEBUG}" STREQUAL "verbose")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_DEBUG_VERBOSE")
+    endif("${WOLFTPM_DEBUG}" STREQUAL "verbose")
+endif()
+
+# Device Interface
 set(WOLFTPM_INTERFACE "auto" CACHE STRING
     "Select interface to TPM")
 set_property(CACHE WOLFTPM_INTERFACE
     PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM")
-
-set(WOLFTPM_EXAMPLES "yes" CACHE BOOL
-    "Build examples")
 
 # automatically set
 message("INTERFACE ${WOLFTPM_INTERFACE}")
@@ -117,17 +128,13 @@ if(WIN32)
 endif(WIN32)
 
 if("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
-    target_compile_definitions(wolftpm PUBLIC
-        "WOLFTPM_SWTPM"
-        )
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SWTPM")
+
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "DEVTPM")
-    target_compile_definitions(wolftpm PUBLIC
-        "WOLFTPM_LINUX_DEV"
-        )
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_LINUX_DEV")
+
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
-    target_compile_definitions(wolftpm PUBLIC
-        "WOLFTPM_WINAPI"
-        )
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_WINAPI")
     target_link_libraries(wolftpm PRIVATE tbs)
 else()
     get_property(INTERFACE_OPTS CACHE WOLFTPM_INTERFACE
@@ -135,6 +142,10 @@ else()
     message(FATAL_ERROR "\"${WOLFTPM_INTERFACE}\" is not known WOLFTPM_INTERFACE:"
         " ${INTERFACE_OPTS}")
 endif("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
+
+# Examples
+set(WOLFTPM_EXAMPLES "yes" CACHE BOOL
+    "Build examples")
 
 target_include_directories(wolftpm
     PUBLIC
@@ -158,8 +169,60 @@ function(add_tpm_example name src)
     target_link_libraries(${name} wolftpm tpm_test_lib)
 endfunction()
 
-#TODO generate options file
-configure_file(wolftpm/options.h.in wolftpm/options.h)
+function(add_to_options_file DEFINITIONS OPTION_FILE)
+    list(REMOVE_DUPLICATES DEFINITIONS)
+    foreach(DEF IN LISTS DEFINITIONS)
+        if(DEF MATCHES "^-D")
+            if(DEF MATCHES "^-D(N)?DEBUG(=.+)?")
+                message("not outputting (N)DEBUG to ${OPTION_FILE}")
+            endif()
+
+            string(REGEX REPLACE "^-D" "" DEF_NO_PREFIX ${DEF})
+            string(REGEX REPLACE "=.*$" "" DEF_NO_EQUAL_NO_VAL ${DEF_NO_PREFIX})
+            string(REPLACE "=" " " DEF_NO_EQUAL ${DEF_NO_PREFIX})
+
+            file(APPEND ${OPTION_FILE} "#undef  ${DEF_NO_EQUAL_NO_VAL}\n")
+            file(APPEND ${OPTION_FILE} "#define ${DEF_NO_EQUAL}\n")
+
+            file(APPEND ${OPTION_FILE} "\n")
+        else()
+            message("option w/o begin -D is ${DEF}, not saving to ${OPTION_FILE}")
+        endif()
+    endforeach()
+endfunction()
+
+add_definitions(${WOLFTPM_DEFINITIONS})
+
+# generate options file
+set(OPTION_FILE "wolftpm/options.h")
+
+file(REMOVE ${OPTION_FILE})
+
+file(APPEND ${OPTION_FILE} "/* wolftpm options.h\n")
+file(APPEND ${OPTION_FILE} " * generated from cmake configure options\n")
+file(APPEND ${OPTION_FILE} " *\n")
+file(APPEND ${OPTION_FILE} " * Copyright (C) 2006-2022 wolfSSL Inc.\n")
+file(APPEND ${OPTION_FILE} " *\n")
+file(APPEND ${OPTION_FILE} " * This file is part of wolfSSL.\n")
+file(APPEND ${OPTION_FILE} " *\n")
+file(APPEND ${OPTION_FILE} " */\n\n")
+file(APPEND ${OPTION_FILE} "#ifndef WOLFTPM_OPTIONS_H\n")
+file(APPEND ${OPTION_FILE} "#define WOLFTPM_OPTIONS_H\n\n\n")
+file(APPEND ${OPTION_FILE} "#ifdef __cplusplus\n")
+file(APPEND ${OPTION_FILE} "extern \"C\" {\n")
+file(APPEND ${OPTION_FILE} "#endif\n\n")
+
+add_to_options_file("${WOLFTPM_DEFINITIONS}" "${OPTION_FILE}")
+# CMAKE_C_FLAGS is just a string of space-separated flags to pass to the C
+# compiler. We need to replace those spaces with semicolons in order to treat it
+# as a CMake list.
+string(REPLACE " " ";" CMAKE_C_FLAGS_LIST "${CMAKE_C_FLAGS}")
+add_to_options_file("${CMAKE_C_FLAGS_LIST}" "${OPTION_FILE}")
+
+file(APPEND ${OPTION_FILE} "\n#ifdef __cplusplus\n")
+file(APPEND ${OPTION_FILE} "}\n")
+file(APPEND ${OPTION_FILE} "#endif\n\n\n")
+file(APPEND ${OPTION_FILE} "#endif /* WOLFTPM_OPTIONS_H */\n\n")
 
 
 if (WOLFTPM_EXAMPLES)

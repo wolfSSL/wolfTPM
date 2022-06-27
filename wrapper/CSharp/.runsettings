@@ -9,7 +9,7 @@
           if wolfTPM cmake solution is built using visual studio,
           we need to back out several(5) directories `wrapper\CSharp\bin\Debug\netcoreapp3.1`
           -->
-          <PATH>%PATH%;..\..\..\..\..\out\build\x64-Debug\bin</PATH>
+          <PATH>%PATH%;..\..\..\..\..\out\install\windows-default\bin;..\..\..\..\..\..\wolfssl\out\install\windows-default\bin</PATH>
         </EnvironmentVariables>
     </RunConfiguration>
 </RunSettings>
