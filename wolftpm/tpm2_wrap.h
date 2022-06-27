@@ -2480,6 +2480,28 @@ WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Retrieve the WOLFTPM2_HANDLE from a WOLFTPM2_KEYBLOB
+
+    \return pointer to handle in the key blob structure
+    \return NULL if key pointer is NULL
+
+    \param key pointer to a WOLFTPM2_KEYBLOB struct
+*/
+WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKeyBlob(WOLFTPM2_KEYBLOB* keyBlob);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Retrieve the WOLFTPM2_HANDLE from a WOLFTPM2_SESSION
+
+    \return pointer to handle in the session structure
+    \return NULL if key pointer is NULL
+
+    \param key pointer to a WOLFTPM2_SESSION struct
+*/
+WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromSession(WOLFTPM2_SESSION* session);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Set the authentication data for a key
 
     \return TPM_RC_SUCCESS: successful

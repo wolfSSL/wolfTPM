@@ -1,3 +1,26 @@
+/* wolfTPM-tests.cs
+ *
+ * Copyright (C) 2006-2022 wolfSSL Inc.
+ *
+ * This file is part of wolfTPM.
+ *
+ * wolfTPM is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTPM is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ */
+
+/* Tests for C# wrapper using NUnit */
+
 using NUnit.Framework;
 using System;
 using System.IO;
@@ -82,7 +105,7 @@ namespace tpm_csharp_test
             Console.WriteLine(sb.ToString());
         }
 
-        void getSRK(Key srkKey, string auth)
+        private void GetSRK(Key srkKey, string auth)
         {
             int ret = device.CreateSRK(srkKey,
                                        (int)TPM2_Alg.RSA,
@@ -90,66 +113,7 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
         }
 
-        [SetUp]
-        public void TestInit()
-        {
-            parent_key = new Key();
-            getSRK(parent_key, "ThisIsMyStorageKeyAuth");
-        }
-
-        [TearDown]
-        public void TestCleanup()
-        {
-            int ret = (int)Status.TPM_RC_SUCCESS;
-
-            ret = device.UnloadHandle(parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
-        }
-
-        [Test]
-        public void TrySelfTest()
-        {
-            uint ret = (uint)device.SelfTest();
-            Assert.That(ret, Is.EqualTo((uint)Status.TPM_RC_SUCCESS) | Is.EqualTo(0x80280400));
-        }
-
-        [Test]
-        public void TryFillBufferWithRandom()
-        {
-            const int bufSz = 256;
-            byte[] buf = new byte[bufSz];
-            int ret = device.GetRandom(buf);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
-            PrintByteArray(buf);
-
-            Assert.That(buf, Has.Some.GreaterThan(0));
-        }
-
-        [Test]
-        public void TryGenerateAndLoadRSA()
-        {
-            GenerateRSA();
-            LoadGeneratedRSA();
-        }
-
-        [Test]
-        public void TryGenerateAndLoadAES()
-        {
-            GenerateAES();
-            LoadGeneratedAES();
-        }
-
-        void GenerateRSA()
-        {
-            GenerateKey("RSA");
-        }
-
-        void GenerateAES()
-        {
-            GenerateKey("AES");
-        }
-
-        void GenerateKey(string algorithm)
+        private void GenerateKey(string algorithm)
         {
             int ret = (int)Status.TPM_RC_SUCCESS;
             KeyBlob blob = new KeyBlob();
@@ -185,7 +149,6 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
 
             ret = blob.GetKeyBlobAsBuffer(blob_buffer);
-
             if (ret > 0)
             {
                 Array.Resize(ref blob_buffer, ret);
@@ -199,7 +162,7 @@ namespace tpm_csharp_test
                 }
                 else
                 {
-                    Console.WriteLine("Unexpected algorithm name!!!");
+                    Console.WriteLine("Unexpected algorithm name!");
                     return;
                 }
                 ret = (int)Status.TPM_RC_SUCCESS;
@@ -210,24 +173,11 @@ namespace tpm_csharp_test
                 ret = -1;
             }
 
-
             ret = device.UnloadHandle(blob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
-
         }
 
-
-        void LoadGeneratedRSA()
-        {
-            LoadGeneratedKey("RSA");
-        }
-
-        void LoadGeneratedAES()
-        {
-            LoadGeneratedKey("AES");
-        }
-
-        void LoadGeneratedKey(string algorithm)
+        private void LoadGeneratedKey(string algorithm)
         {
             int ret = (int)Status.TPM_RC_SUCCESS;
             KeyBlob blob = new KeyBlob();
@@ -243,7 +193,7 @@ namespace tpm_csharp_test
             }
             else
             {
-                Console.WriteLine("Unexpected algorithm name!!!");
+                Console.WriteLine("Unexpected algorithm name!");
                 return;
             }
 
@@ -255,13 +205,84 @@ namespace tpm_csharp_test
 
             ret = device.UnloadHandle(blob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
 
+
+        [SetUp]
+        public void TestInit()
+        {
+            parent_key = new Key();
+            GetSRK(parent_key, "ThisIsMyStorageKeyAuth");
+        }
+
+        [TearDown]
+        public void TestCleanup()
+        {
+            int ret = device.UnloadHandle(parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
+
+        [Test]
+        public void TrySelfTest()
+        {
+            uint ret = (uint)device.SelfTest();
+            Assert.That(ret, Is.EqualTo((uint)Status.TPM_RC_SUCCESS) |
+                             Is.EqualTo(0x80280400));
+        }
+
+        [Test]
+        public void TryFillBufferWithRandom()
+        {
+            int ret;
+            const int bufSz = 256;
+            byte[] buf = new byte[bufSz];
+
+            ret = device.GetRandom(buf);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            PrintByteArray(buf);
+
+            Assert.That(buf, Has.Some.GreaterThan(0));
+        }
+
+        [Test]
+        public void TryGenerateAndLoadRSA()
+        {
+            GenerateKey("RSA");
+            LoadGeneratedKey("RSA");
+        }
+
+        [Test]
+        public void TryGenerateAndLoadAES()
+        {
+            GenerateKey("AES");
+            LoadGeneratedKey("AES");
+        }
+
+        [Test]
+        public void TryAuthSession()
+        {
+            int ret;
+            Session tpmSession = new Session();
+            const int bufSz = 256;
+            byte[] buf = new byte[bufSz];
+
+            Console.WriteLine("Testing Parameter Encryption with AES CFB");
+
+            ret = tpmSession.StartAuth(device, parent_key, TPM2_Alg.CFB);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            /* Do sensitive operation */
+            ret = device.GetRandom(buf);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = tpmSession.StopAuth(device);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
         }
 
         [Test]
         public void TryLoadRSAPublicKey()
         {
-            int ret = (int)Status.TPM_RC_SUCCESS;
+            int ret;
             Key pub_key;
             int exp = 0x10001;
 
@@ -279,8 +300,7 @@ namespace tpm_csharp_test
         [Test]
         public void TryLoadRSAPrivateKey()
         {
-            int ret = (int)Status.TPM_RC_SUCCESS;
-
+            int ret;
             Key priv_key;
             int exp = 0x10001;
 
@@ -301,7 +321,7 @@ namespace tpm_csharp_test
         [Test]
         public void TryImportRSAPrivateKey()
         {
-            int ret = (int)Status.TPM_RC_SUCCESS;
+            int ret;
 
             KeyBlob blob;
             int exp = 0x10001;
@@ -319,7 +339,6 @@ namespace tpm_csharp_test
 
             ret = device.UnloadHandle(blob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
-
         }
 
     }
