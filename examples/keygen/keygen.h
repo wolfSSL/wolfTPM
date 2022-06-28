@@ -26,6 +26,7 @@
     extern "C" {
 #endif
 
+int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[]);

@@ -4253,8 +4253,8 @@ static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_ECC;
     publicTemplate->nameAlg = nameAlg;
-    publicTemplate->unique.ecc.x.size = curveSz / 8;
-    publicTemplate->unique.ecc.y.size = curveSz / 8;
+    publicTemplate->unique.ecc.x.size = curveSz;
+    publicTemplate->unique.ecc.y.size = curveSz;
     publicTemplate->objectAttributes = objectAttributes;
     if (objectAttributes & TPMA_OBJECT_fixedTPM) {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
@@ -4435,6 +4435,95 @@ int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate)
         objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_ECDSA, TPM_ALG_SHA256);
     if (ret == 0) {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    }
+    return ret;
+}
+
+/* Returns key size (in bytes) for the public template */
+static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
+{
+    int ret;
+    if (publicTemplate == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    switch (publicTemplate->type) {
+        case TPM_ALG_RSA:
+            ret = publicTemplate->parameters.rsaDetail.keyBits / 8;
+            break;
+        case TPM_ALG_ECC:
+            ret = TPM2_GetCurveSize(publicTemplate->parameters.eccDetail.curveID);
+            break;
+        case TPM_ALG_SYMCIPHER:
+            ret = publicTemplate->parameters.symDetail.sym.keyBits.sym / 8;
+            break;
+        case TPM_ALG_KEYEDHASH:
+        default:
+            ret = BAD_FUNC_ARG;
+    }
+    return ret;
+}
+
+int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
+    const byte* unique, int uniqueSz)
+{
+    int ret = 0;
+    int keySz = GetKeyTemplateSize(publicTemplate);
+
+    if (keySz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    switch (publicTemplate->type) {
+        case TPM_ALG_RSA:
+            if (uniqueSz == 0)
+                uniqueSz = keySz;
+            else if (uniqueSz > keySz)
+                uniqueSz = keySz;
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.rsa.buffer))
+                uniqueSz = (int)sizeof(publicTemplate->unique.rsa.buffer);
+            if (unique == NULL)
+                XMEMSET(publicTemplate->unique.rsa.buffer, 0, uniqueSz);
+            else
+                XMEMCPY(publicTemplate->unique.rsa.buffer, unique, uniqueSz);
+            publicTemplate->unique.rsa.size = uniqueSz;
+            break;
+        case TPM_ALG_ECC:
+            /* ECC uses X and Y */
+            if (uniqueSz == 0)
+                uniqueSz = keySz * 2;
+            else if (uniqueSz > keySz * 2)
+                uniqueSz = keySz * 2;
+            uniqueSz /= 2;
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.ecc.x.buffer))
+                uniqueSz = (int)sizeof(publicTemplate->unique.ecc.x.buffer);
+            if (unique == NULL) {
+                XMEMSET(publicTemplate->unique.ecc.x.buffer, 0, uniqueSz);
+                XMEMSET(publicTemplate->unique.ecc.y.buffer, 0, uniqueSz);
+            }
+            else {
+                XMEMCPY(publicTemplate->unique.ecc.x.buffer, unique, uniqueSz);
+                XMEMCPY(publicTemplate->unique.ecc.y.buffer, unique + uniqueSz, uniqueSz);
+            }
+            publicTemplate->unique.ecc.x.size = uniqueSz;
+            publicTemplate->unique.ecc.y.size = uniqueSz;
+            break;
+        case TPM_ALG_SYMCIPHER:
+            if (uniqueSz == 0)
+                uniqueSz = keySz;
+            else if (uniqueSz > keySz)
+                uniqueSz = keySz;
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.sym.buffer))
+                uniqueSz = (int)sizeof(publicTemplate->unique.sym.buffer);
+            if (unique == NULL)
+                XMEMSET(publicTemplate->unique.sym.buffer, 0, uniqueSz);
+            else
+                XMEMCPY(publicTemplate->unique.sym.buffer, unique, uniqueSz);
+            publicTemplate->unique.sym.size = uniqueSz;
+            break;
+        case TPM_ALG_KEYEDHASH:
+        default:
+            ret = BAD_FUNC_ARG;
+            break;
     }
     return ret;
 }

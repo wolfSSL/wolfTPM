@@ -53,10 +53,13 @@ static void usage(void)
     printf("* -eh: Create keys under the Endorsement Hierarchy (EK)\n");
     printf("* -rsa: Use RSA for asymmetric key generation (DEFAULT)\n");
     printf("* -ecc: Use ECC for asymmetric key generation \n");
-    printf("* -sym: Use Symmetric Cypher for key generation\n");
-    printf("\tDefault Symmetric Cypher is AES CTR with 256 bits\n");
+    printf("* -sym: Use Symmetric Cipher for key generation\n");
+    printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -unique=[value]\n");
+    printf("\t* Used for the KDF of the create\n");
+
     printf("Example usage:\n");
     printf("\t* RSA, default template\n");
     printf("\t\t keygen -t\n");
@@ -120,7 +123,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB primaryBlob; /* Primary key as WOLFTPM2_KEYBLOB */
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
-    TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cypher, see usage */
+    TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
@@ -128,6 +131,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int pemFiles = 0;
     int bAIK = 1;
     int keyBits = 256;
+    const char* uniqueStr = NULL;
     const char *outputFile = "keyblob.bin";
     const char *ekPubFile = "ek.pub";
     const char *srkPubFile = "srk.pub";
@@ -189,6 +193,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+        if (XSTRNCMP(argv[argc-1], "-unique=", 8) == 0) {
+            uniqueStr = argv[argc-1] + 8;
+        }
+
         argc--;
     }
 
@@ -302,6 +310,13 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     }
     if (rc != 0) goto exit;
 
+    /* optionally set a unique field */
+    if (uniqueStr != NULL) {
+        rc = wolfTPM2_SetKeyTemplate_Unique(&publicTemplate, (byte*)uniqueStr,
+            (int)XSTRLEN(uniqueStr));
+        if (rc != 0) goto exit;
+    }
+
     printf("Creating new %s key...\n", TPM2_GetAlgName(alg));
 
     rc = wolfTPM2_CreateKey(&dev, &newKeyBlob, &primary->handle,
@@ -390,7 +405,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
     /* EK policy is destroyed after use, flush parameter encryption session */
-    if(!endorseKey) {
+    if (paramEncAlg != TPM_ALG_NULL && !endorseKey) {
         wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     }
 
