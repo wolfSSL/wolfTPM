@@ -1706,6 +1706,7 @@ typedef struct TPM2_CTX {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef SINGLE_THREADED
     wolfSSL_Mutex hwLock;
+    int lockCount;
 #endif
     #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG rng;
@@ -1716,7 +1717,6 @@ typedef struct TPM2_CTX {
     int locality;
     word32 caps;
     word32 did_vid;
-    byte rid;
 
     /* Pointer to current TPM auth sessions */
     TPM2_AUTH_SESSION* session;
@@ -1724,6 +1724,7 @@ typedef struct TPM2_CTX {
     /* Command / Response Buffer */
     byte cmdBuf[MAX_COMMAND_SIZE];
 
+    byte rid;
     /* Informational Bits - use unsigned int for best compiler compatibility */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifndef SINGLE_THREADED
