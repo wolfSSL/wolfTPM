@@ -24,8 +24,13 @@ Portable TPM 2.0 project designed for embedded use.
     * TLS Client
     * TLS Server
     * Use of the TPM's Non-volatile memory
-    * Attestation (TPM2_Quote and TPM2_GetTime)
+    * Attestation (activate and make credential)
     * Benchmarking TPM algorithms and TLS
+    * Key Generation (primary, RSA/ECC and symmetric), loading and storing to flash (NV memory)
+    * Sealing and Unsealing data with an RSA key
+    * Time signed or set
+    * PCR read/reset
+    * GPIO configure, read and write.
 * Parameter encryption support using AES-CFB or XOR.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
@@ -58,6 +63,8 @@ Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash diges
 
 This project uses the terms append vs. marshall and parse vs. unmarshall.
 
+Acronyms:
+* NV: Non-Volatile memory.
 
 ## Platform
 

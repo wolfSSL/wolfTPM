@@ -55,6 +55,7 @@ pkcs7tpmsignedex.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
 tests/unit.test
+examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
@@ -83,6 +84,16 @@ certs/server-*.pem
 certs/client-*.der
 certs/client-*.pem
 certs/serial.old
+certs/0*.pem
+certs/1*.pem
+certs/2*.pem
+certs/3*.pem
+certs/4*.pem
+certs/5*.pem
+certs/6*.pem
+certs/7*.pem
+certs/8*.pem
+certs/9*.pem
 
 # Test files
 quote.blob

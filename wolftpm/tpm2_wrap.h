@@ -2162,6 +2162,21 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Sets the unique area of a public template used by Create or CreatePrimary.
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
+    \param unique optional pointer to buffer to populate unique area of public template. If NULL, the buffer will be zeroized.
+    \param uniqueSz size to fill the unique field. If zero the key size is used.
+
+    \sa wolfTPM2_CreateKey
+    \sa wolfTPM2_CreatePrimaryKey
+*/
+WOLFTPM_API int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate, const byte* unique, int uniqueSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Prepares a TPM NV Index template
 
     \return TPM_RC_SUCCESS: successful
@@ -2499,6 +2514,16 @@ WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKeyBlob(WOLFTPM2_KEYBLOB* 
     \param key pointer to a WOLFTPM2_SESSION struct
 */
 WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromSession(WOLFTPM2_SESSION* session);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Get the 32-bit handle value from the WOLFTPM2_HANDLE
+
+    \return TPM_HANDLE value from TPM
+
+    \param handle pointer to WOLFTPM2_HANDLE structure
+*/
+WOLFTPM_API TPM_HANDLE wolfTPM2_GetHandleValue(WOLFTPM2_HANDLE* handle);
 
 /*!
     \ingroup wolfTPM2_Wrappers

@@ -352,6 +352,13 @@ namespace wolfTPM
         {
             return wolfTPM2_GetKeyTemplate_ECC_AIK(template);
         }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyTemplate_Unique")]
+        private static extern int wolfTPM2_SetKeyTemplate_Unique(IntPtr publicTemplate, string unique, int uniqueSz);
+        public int SetKeyTemplate_Unique(string unique)
+        {
+            return wolfTPM2_SetKeyTemplate_Unique(template, unique, unique.Length);
+        }
     }
 
     public class Session
@@ -728,6 +735,14 @@ namespace wolfTPM
         public int UnloadHandle(Session tpmSession)
         {
             return wolfTPM2_UnloadHandle(device, tpmSession.GetHandle());
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleValue")]
+        private static extern long wolfTPM2_GetHandleValue(IntPtr handle);
+
+        public long GetHandleValue(IntPtr handle)
+        {
+            return wolfTPM2_GetHandleValue(handle);
         }
 
     }
