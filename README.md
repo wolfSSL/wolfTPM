@@ -393,6 +393,40 @@ ECDSA    256 verify         9 ops took 1.022 sec, avg 113.539 ms,   8.808 ops/se
 ECDHE    256 agree          5 ops took 1.161 sec, avg 232.144 ms,   4.308 ops/sec
 ```
 
+Run on Infineon OPTIGA SLB9672 at 43MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+RNG                 24 KB took 1.070 seconds,   22.429 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+AES-128-CFB-enc     86 KB took 1.001 seconds,   85.890 KB/s
+AES-128-CFB-dec     88 KB took 1.020 seconds,   86.267 KB/s
+AES-256-CFB-enc     86 KB took 1.023 seconds,   84.073 KB/s
+AES-256-CFB-dec     86 KB took 1.019 seconds,   84.370 KB/s
+SHA1                88 KB took 1.021 seconds,   86.155 KB/s
+SHA256              86 KB took 1.015 seconds,   84.717 KB/s
+SHA384              90 KB took 1.007 seconds,   89.405 KB/s
+RSA     2048 key gen       10 ops took 15.677 sec, avg 1567.678 ms, 0.638 ops/sec
+RSA     2048 Public       110 ops took 1.000 sec, avg 9.095 ms, 109.951 ops/sec
+RSA     2048 Private       14 ops took 1.078 sec, avg 76.996 ms, 12.988 ops/sec
+RSA     2048 Pub  OAEP     51 ops took 1.012 sec, avg 19.838 ms, 50.408 ops/sec
+RSA     2048 Priv OAEP     12 ops took 1.053 sec, avg 87.738 ms, 11.398 ops/sec
+ECC      256 key gen        8 ops took 1.088 sec, avg 135.956 ms, 7.355 ops/sec
+ECDSA    256 sign          29 ops took 1.033 sec, avg 35.621 ms, 28.073 ops/sec
+ECDSA    256 verify        42 ops took 1.013 sec, avg 24.114 ms, 41.470 ops/sec
+ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
+```
+
 Run on ST ST33TP SPI at 33MHz:
 
 ```
