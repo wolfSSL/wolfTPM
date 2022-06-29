@@ -2517,6 +2517,16 @@ WOLFTPM_API WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromSession(WOLFTPM2_SESSION* 
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Get the 32-bit handle value from the WOLFTPM2_HANDLE
+
+    \return TPM_HANDLE value from TPM
+
+    \param handle pointer to WOLFTPM2_HANDLE structure
+*/
+WOLFTPM_API TPM_HANDLE wolfTPM2_GetHandleValue(WOLFTPM2_HANDLE* handle);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Set the authentication data for a key
 
     \return TPM_RC_SUCCESS: successful

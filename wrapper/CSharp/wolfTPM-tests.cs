@@ -358,5 +358,32 @@ namespace tpm_csharp_test
             ret = device.UnloadHandle(key);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
         }
+
+        [Test]
+        public void TryCreateCustomPrimaryKey()
+        {
+            int ret;
+            Key key = new Key();
+            Template template = new Template();
+
+            /* Test creating custom SRK (different than one Windows uses) */
+            ret = template.GetKeyTemplate_RSA_SRK();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = template.SetKeyTemplate_Unique("myUniqueValue");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.CreatePrimaryKey(key, TPM_RH.OWNER, template, null);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            /* use temporary handle (in memory), cannot store to NV on Windows */
+            Console.WriteLine("Primary Key Handle 0x{0}",
+                device.GetHandleValue(key.GetHandle()).ToString("X8"));
+
+            ret = device.UnloadHandle(key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
+
+
     }
 }

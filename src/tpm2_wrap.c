@@ -303,6 +303,13 @@ WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromSession(WOLFTPM2_SESSION* session)
     return (session != NULL) ? &session->handle : NULL;
 }
 
+TPM_HANDLE wolfTPM2_GetHandleValue(WOLFTPM2_HANDLE* handle)
+{
+    TPM_HANDLE hndl = 0;
+    if (handle)
+        hndl = handle->hndl;
+    return hndl;
+}
 
 int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
                                 WOLFTPM2_KEYBLOB* key)
