@@ -376,7 +376,8 @@ namespace tpm_csharp_test
             ret = device.CreatePrimaryKey(key, TPM_RH.OWNER, template, null);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
 
-            /* use temporary handle (in memory), cannot store to NV on Windows */
+            /* use temporary handle (in memory), cannot store to
+             * Non-Volatile (NV) Memory on Windows */
             Console.WriteLine("Primary Key Handle 0x{0}",
                 device.GetHandleValue(key.GetHandle()).ToString("X8"));
 

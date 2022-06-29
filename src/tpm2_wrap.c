@@ -4458,7 +4458,8 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
             ret = publicTemplate->parameters.rsaDetail.keyBits / 8;
             break;
         case TPM_ALG_ECC:
-            ret = TPM2_GetCurveSize(publicTemplate->parameters.eccDetail.curveID);
+            ret = TPM2_GetCurveSize(
+                publicTemplate->parameters.eccDetail.curveID);
             break;
         case TPM_ALG_SYMCIPHER:
             ret = publicTemplate->parameters.symDetail.sym.keyBits.sym / 8;
@@ -4474,35 +4475,48 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
     const byte* unique, int uniqueSz)
 {
     int ret = 0;
-    int keySz = GetKeyTemplateSize(publicTemplate);
+    int keySz;
 
+    if (publicTemplate == NULL || (unique != NULL && uniqueSz <= 0)) {
+        return BAD_FUNC_ARG;
+    }
+
+    keySz = GetKeyTemplateSize(publicTemplate);
     if (keySz <= 0) {
         return BAD_FUNC_ARG;
     }
 
     switch (publicTemplate->type) {
         case TPM_ALG_RSA:
-            if (uniqueSz == 0)
+            if (uniqueSz == 0) {
                 uniqueSz = keySz;
-            else if (uniqueSz > keySz)
+            }
+            else if (uniqueSz > keySz) {
                 uniqueSz = keySz;
-            if (uniqueSz > (int)sizeof(publicTemplate->unique.rsa.buffer))
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.rsa.buffer)) {
                 uniqueSz = (int)sizeof(publicTemplate->unique.rsa.buffer);
-            if (unique == NULL)
+            }
+            if (unique == NULL) {
                 XMEMSET(publicTemplate->unique.rsa.buffer, 0, uniqueSz);
-            else
+            }
+            else {
                 XMEMCPY(publicTemplate->unique.rsa.buffer, unique, uniqueSz);
+            }
             publicTemplate->unique.rsa.size = uniqueSz;
             break;
         case TPM_ALG_ECC:
             /* ECC uses X and Y */
-            if (uniqueSz == 0)
+            if (uniqueSz == 0) {
                 uniqueSz = keySz * 2;
-            else if (uniqueSz > keySz * 2)
+            }
+            else if (uniqueSz > keySz * 2) {
                 uniqueSz = keySz * 2;
+            }
             uniqueSz /= 2;
-            if (uniqueSz > (int)sizeof(publicTemplate->unique.ecc.x.buffer))
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.ecc.x.buffer)) {
                 uniqueSz = (int)sizeof(publicTemplate->unique.ecc.x.buffer);
+            }
             if (unique == NULL) {
                 XMEMSET(publicTemplate->unique.ecc.x.buffer, 0, uniqueSz);
                 XMEMSET(publicTemplate->unique.ecc.y.buffer, 0, uniqueSz);
@@ -4515,19 +4529,27 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             publicTemplate->unique.ecc.y.size = uniqueSz;
             break;
         case TPM_ALG_SYMCIPHER:
-            if (uniqueSz == 0)
+            if (uniqueSz == 0) {
                 uniqueSz = keySz;
-            else if (uniqueSz > keySz)
+            }
+            else if (uniqueSz > keySz) {
                 uniqueSz = keySz;
-            if (uniqueSz > (int)sizeof(publicTemplate->unique.sym.buffer))
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.sym.buffer)) {
                 uniqueSz = (int)sizeof(publicTemplate->unique.sym.buffer);
-            if (unique == NULL)
+            }
+            if (unique == NULL) {
                 XMEMSET(publicTemplate->unique.sym.buffer, 0, uniqueSz);
-            else
+            }
+            else {
                 XMEMCPY(publicTemplate->unique.sym.buffer, unique, uniqueSz);
+            }
             publicTemplate->unique.sym.size = uniqueSz;
             break;
         case TPM_ALG_KEYEDHASH:
+            /* not supported */
+            ret = BAD_FUNC_ARG;
+            break;
         default:
             ret = BAD_FUNC_ARG;
             break;

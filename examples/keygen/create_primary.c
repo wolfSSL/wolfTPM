@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* Tool and example for creating, storing and loading keys using TPM2.0 */
+/* Tool and example for creating and storing primary keys using TPM2.0 */
 
 #include <wolftpm/tpm2_wrap.h>
 
@@ -39,7 +39,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/create_primary [-ecc/-rsa] [-oh/eh/ph/] [-unique=] [-auth=] [-aes/xor] [-store=]\n");
+    printf("./examples/keygen/create_primary [-ecc/-rsa] [-oh/-eh/-ph] "
+                                  "[-unique=] [-auth=] [-aes/-xor] [-store=]\n");
     printf("Primary Key Type:\n");
     printf("\t-rsa: Use RSA for asymmetric key generation (DEFAULT)\n");
     printf("\t-ecc: Use ECC for asymmetric key generation \n");
@@ -54,7 +55,8 @@ static void usage(void)
     printf("\t-auth=[value]\n");
     printf("\t\tOptional authentication string for primary\n");
     printf("Parameter Encryption:\n");
-    printf("\t-aes/xor: Use Parameter Encryption\n");
+    printf("\t-aes: Use AES CFB parameter encryption\n");
+    printf("\t-xor: Use XOR parameter obfuscation\n");
     printf("NV Storage:\n");
     printf("\t-store=[handle]\n");
     printf("\t\tPersistent primary key handle range: 0x81000000 - 0x810FFFF\n");
@@ -62,7 +64,8 @@ static void usage(void)
 
     printf("Example usage:\n");
     printf("\t* Create SRK used by wolfTPM:\n");
-    printf("\t\tcreate_primary -rsa -oh -auth=ThisIsMyStorageKeyAuth -store=0x81000200\n");
+    printf("\t\tcreate_primary -rsa -oh -auth=ThisIsMyStorageKeyAuth "
+                                       "-store=0x81000200\n");
 }
 
 int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
@@ -71,7 +74,7 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY primary;
     TPMT_PUBLIC publicTemplate;
-    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     TPM_RH hierarchy = TPM_RH_OWNER;
     WOLFTPM2_SESSION tpmSession;
@@ -205,7 +208,8 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
             persistHandle);
         if (rc != TPM_RC_SUCCESS) goto exit;
     #else
-        printf("Windows TBS does not allow persisting handles to NV\n");
+        printf("Windows TBS does not allow persisting handles to "
+               "Non-Volatile (NV) Memory\n");
     #endif
     }
 

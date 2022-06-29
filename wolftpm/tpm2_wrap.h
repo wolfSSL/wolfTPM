@@ -2167,7 +2167,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate);
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
-    \param unique optional pointer to buffer to populate unique area of public template. If NULL used the buffer will be zeroized.
+    \param unique optional pointer to buffer to populate unique area of public template. If NULL, the buffer will be zeroized.
     \param uniqueSz size to fill the unique field. If zero the key size is used.
 
     \sa wolfTPM2_CreateKey
