@@ -304,15 +304,15 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NUVOTON"
 fi
 
-# Infineon SLB9670
+# Infineon SLB9670/SLB9672
 AC_ARG_ENABLE([infineon],
-    [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670 TPM Support (default: disabled)])],
+    [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)])],
     [ ENABLED_INFINEON=$enableval ],
     [ ENABLED_INFINEON=no ]
     )
 if test "x$ENABLED_INFINEON" = "xyes"
 then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670 -DWOLFTPM_SLB9672"
 fi
 
 
@@ -400,7 +400,7 @@ AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 AM_CONDITIONAL([BUILD_I2C], [test "x$ENABLED_I2C" = "xyes"])
 AM_CONDITIONAL([BUILD_ADVIO], [test "x$ENABLED_ADVIO" = "xyes"])
-AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST33" = "xyes"])
+AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" = "xyes"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
@@ -528,8 +528,8 @@ echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
-echo "   * Infineon SLB9670           $ENABLED_INFINEON"
-echo "   * STM ST33:                  $ENABLED_ST33"
+echo "   * Infineon SLB967X           $ENABLED_INFINEON"
+echo "   * STM ST33:                  $ENABLED_ST"
 echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 

@@ -202,13 +202,13 @@ typedef int64_t  INT64;
 
 /* Infineon SLB9670 TPM 2.0 (default) */
 /* #define WOLFTPM_SLB9670 */
+/* #define WOLFTPM_SLB9672 */
 
 /* Define a default chip */
 #if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_MCHP) && \
     !defined(WOLFTPM_NUVOTON) && !defined(WOLFTPM_SLB9670)
     #define WOLFTPM_SLB9670
 #endif
-
 
 /* Chip Specific Settings */
 #ifdef WOLFTPM_MCHP
@@ -245,7 +245,7 @@ typedef int64_t  INT64;
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
     #endif
 #else
-    /* Infineon OPTIGA SLB9670 */
+    /* Infineon OPTIGA SLB9670/SLB9672 */
     /* Max: 43MHz */
     #define TPM2_SPI_MAX_HZ_INFINEON 43000000
     #ifndef TPM2_SPI_MAX_HZ

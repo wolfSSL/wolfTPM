@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
-* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
+* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate over SPI.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
@@ -81,7 +81,7 @@ There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The adva
 
 Tested with:
 
-* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670.
+* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670 and SLB9672.
     - LetsTrust: [http://letstrust.de] (<https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module).> Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
 * ST ST33TP* TPM 2.0 module (SPI and I2C)
 * Microchip ATTPM20 module
@@ -90,8 +90,12 @@ Tested with:
 #### Device Identification
 
 Infineon SLB9670:
-TIS: TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
+TPM2: Caps 0x30000697, Did 0x001b, Vid 0x15d1, Rid 0x10
 Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
+
+Infineon SLB9672:
+TPM2: Caps 0x30000697, Did 0x001d, Vid 0x15d1, Rid 0x36
+Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), FIPS 140-2 1, CC-EAL4 1
 
 ST ST33TP SPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
@@ -145,7 +149,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
---enable-infineon       Enable Infineon SLB9670 TPM Support (default: disabled)
+--enable-infineon       Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)
 --enable-st             Enable ST ST33TPM Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MCHP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
@@ -160,7 +164,7 @@ TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 ```
 
-### Building Infineon SLB9670
+### Building Infineon SLB9670/SLB9672
 
 Build wolfTPM:
 
@@ -168,7 +172,7 @@ Build wolfTPM:
 git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
 ./autogen.sh
-./configure
+./configure --enable-infineon
 make
 ```
 
@@ -394,6 +398,40 @@ ECC      256 key gen        5 ops took 1.157 sec, avg 231.350 ms,   4.322 ops/se
 ECDSA    256 sign          15 ops took 1.033 sec, avg 68.865 ms,   14.521 ops/sec
 ECDSA    256 verify         9 ops took 1.022 sec, avg 113.539 ms,   8.808 ops/sec
 ECDHE    256 agree          5 ops took 1.161 sec, avg 232.144 ms,   4.308 ops/sec
+```
+
+Run on Infineon OPTIGA SLB9672 at 43MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+RNG                 24 KB took 1.070 seconds,   22.429 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+AES-128-CFB-enc     86 KB took 1.001 seconds,   85.890 KB/s
+AES-128-CFB-dec     88 KB took 1.020 seconds,   86.267 KB/s
+AES-256-CFB-enc     86 KB took 1.023 seconds,   84.073 KB/s
+AES-256-CFB-dec     86 KB took 1.019 seconds,   84.370 KB/s
+SHA1                88 KB took 1.021 seconds,   86.155 KB/s
+SHA256              86 KB took 1.015 seconds,   84.717 KB/s
+SHA384              90 KB took 1.007 seconds,   89.405 KB/s
+RSA     2048 key gen       10 ops took 15.677 sec, avg 1567.678 ms, 0.638 ops/sec
+RSA     2048 Public       110 ops took 1.000 sec, avg 9.095 ms, 109.951 ops/sec
+RSA     2048 Private       14 ops took 1.078 sec, avg 76.996 ms, 12.988 ops/sec
+RSA     2048 Pub  OAEP     51 ops took 1.012 sec, avg 19.838 ms, 50.408 ops/sec
+RSA     2048 Priv OAEP     12 ops took 1.053 sec, avg 87.738 ms, 11.398 ops/sec
+ECC      256 key gen        8 ops took 1.088 sec, avg 135.956 ms, 7.355 ops/sec
+ECDSA    256 sign          29 ops took 1.033 sec, avg 35.621 ms, 28.073 ops/sec
+ECDSA    256 verify        42 ops took 1.013 sec, avg 24.114 ms, 41.470 ops/sec
+ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
 ```
 
 Run on ST ST33TP SPI at 33MHz:
