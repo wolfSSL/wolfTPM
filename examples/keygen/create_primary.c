@@ -134,8 +134,12 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
 
     printf("TPM2.0 Primary Key generation example\n");
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
-    printf("\tUnique: %s\n", uniqueStr);
-    printf("\tAuth: %s\n", authStr);
+    if (uniqueStr != NULL) {
+        printf("\tUnique: %s\n", uniqueStr);
+    }
+    if (authStr != NULL) {
+        printf("\tAuth: %s\n", authStr);
+    }
     printf("\tStore Handle: 0x%08x\n", persistHandle);
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
