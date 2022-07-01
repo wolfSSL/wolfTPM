@@ -72,11 +72,12 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
         ctx->lockCount = 0;
     }
 
-    if (++ctx->lockCount == 1) {
+    if (ctx->lockCount == 0) {
         ret = wc_LockMutex(&ctx->hwLock);
         if (ret != 0)
             return TPM_RC_FAILURE;
     }
+    ctx->lockCount++;
 #endif
     return TPM_RC_SUCCESS;
 }
@@ -86,7 +87,8 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
 #else
-    if (--ctx->lockCount == 0) {
+    ctx->lockCount--;
+    if (ctx->lockCount == 0) {
         wc_UnLockMutex(&ctx->hwLock);
     }
     
