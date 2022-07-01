@@ -69,11 +69,15 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
             return TPM_RC_FAILURE;
         }
         ctx->hwLockInit = 1;
+        ctx->lockCount = 0;
     }
 
-    ret = wc_LockMutex(&ctx->hwLock);
-    if (ret != 0)
-        return TPM_RC_FAILURE;
+    if (ctx->lockCount == 0) {
+        ret = wc_LockMutex(&ctx->hwLock);
+        if (ret != 0)
+            return TPM_RC_FAILURE;
+    }
+    ctx->lockCount++;
 #endif
     return TPM_RC_SUCCESS;
 }
@@ -83,7 +87,11 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
 #else
-    wc_UnLockMutex(&ctx->hwLock);
+    ctx->lockCount--;
+    if (ctx->lockCount == 0) {
+        wc_UnLockMutex(&ctx->hwLock);
+    }
+    
 #endif
 }
 
@@ -108,11 +116,15 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 cmdSz)
 {
     int rc = TPM_RC_SUCCESS;
-    UINT32 authSz, handleValue;
+    UINT32 authSz;
     BYTE *param, *encParam = NULL;
     int paramSz, encParamSz = 0;
-    int i, authPos, handlePos;
+    int i, authPos;
     int tmpSz = 0; /* Used to calculate the new total size of the Auth Area */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    UINT32 handleValue;
+    int handlePos;
+#endif
 
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
@@ -149,6 +161,14 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         info->authCnt, info->inHandleCnt, cmdSz, authSz, paramSz, encParamSz);
 #else
     (void)paramSz;
+#endif
+
+    /* Get Handle */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    handlePos = packet->pos;
+    packet->pos = TPM2_HEADER_SIZE; /* Handles are right after header */
+    TPM2_Packet_ParseU32(packet, &handleValue);
+    packet->pos = handlePos;
 #endif
 
     for (i=0; i<info->authCnt; i++) {
@@ -196,11 +216,6 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #ifndef WOLFTPM2_NO_WOLFCRYPT
-            handlePos = packet->pos;
-            packet->pos = TPM2_HEADER_SIZE; /* Handles are right after header */
-            TPM2_Packet_ParseU32(packet, &handleValue);
-            packet->pos = handlePos;
-
             rc =  TPM2_GetName(ctx, handleValue, info->inHandleCnt, 0, &name1);
             rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 1, &name2);
             rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 2, &name3);
@@ -231,10 +246,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #endif
                 return rc;
             }
-        #else
-            (void)handleValue;
-            (void)handlePos;
-        #endif
+        #endif /* !WOLFTPM2_NO_WOLFCRYPT */
         }
 
         /* Replace auth in session */
@@ -654,7 +666,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    #ifndef WC_NO_RNG
+    #ifdef WOLFTPM2_USE_WOLF_RNG
     if (ctx->rngInit) {
         ctx->rngInit = 0;
         wc_FreeRng(&ctx->rng);
@@ -5331,21 +5343,27 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
-/* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for RNG source */
+/* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for
+ * RNG source */
 int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 {
-    int rc = 0;
+    int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG* rng = NULL;
 #else
-    GetRandom_In in;
-    GetRandom_Out out;
+    TPM2_Packet packet;
+    byte buffer[TPM2_HEADER_SIZE + sizeof(GetRandom_Out)];
     int randSz = 0;
 #endif
 
-    if (ctx == NULL || nonceBuf == NULL)
+    if (ctx == NULL || nonceBuf == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("TPM2_GetNonce (%d bytes)\n", nonceSz);
+#endif
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
     rc = TPM2_GetWolfRng(&rng);
@@ -5354,19 +5372,40 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
         rc = wc_RNG_GenerateBlock(rng, nonceBuf, nonceSz);
     }
 #else
-    /* Use TPM GetRandom */
-    XMEMSET(&in, 0, sizeof(in));
-    while (randSz < nonceSz) {
-        in.bytesRequested = nonceSz - randSz;
-        if (in.bytesRequested > sizeof(out.randomBytes.buffer))
-            in.bytesRequested = sizeof(out.randomBytes.buffer);
+    /* Call GetRandom directly, so a custom packet buffer can be used.
+     * This won't conflict when being called from TPM2_CommandProcess. */
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        while (randSz < nonceSz) {
+            UINT16 inSz = nonceSz - randSz, outSz = 0;
+            if (inSz > MAX_RNG_REQ_SIZE) {
+                inSz = MAX_RNG_REQ_SIZE;
+            }
 
-        rc = TPM2_GetRandom(&in, &out);
-        if (rc != TPM_RC_SUCCESS)
-            break;
+            TPM2_Packet_InitBuf(&packet, buffer, (int)sizeof(buffer));
+            TPM2_Packet_AppendU16(&packet, inSz);
+            TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetRandom);
+            rc = TPM2_SendCommand(ctx, &packet);
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("TPM2_GetNonce (%d bytes at %d): %d (%s)\n",
+                inSz, randSz, rc, TPM2_GetRCString(rc));
+        #endif
+            if (rc != TPM_RC_SUCCESS) {
+                break;
+            }
 
-        XMEMCPY(&nonceBuf[randSz], out.randomBytes.buffer, out.randomBytes.size);
-        randSz += out.randomBytes.size;
+            TPM2_Packet_ParseU16(&packet, &outSz);
+            if (outSz > MAX_RNG_REQ_SIZE) {
+            #ifdef DEBUG_WOLFTPM
+                printf("TPM2_GetNonce out size error\n");
+            #endif
+                rc = BAD_FUNC_ARG;
+                break;
+            }
+            TPM2_Packet_ParseBytes(&packet, &nonceBuf[randSz], outSz);
+            randSz += outSz;
+        }
+        TPM2_ReleaseLock(ctx);
     }
 #endif
 

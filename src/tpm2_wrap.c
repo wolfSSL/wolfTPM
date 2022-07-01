@@ -5046,6 +5046,12 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->rng.out, info->rng.sz);
     #endif /* !WC_NO_RNG */
     }
+    else if (info->algo_type == WC_ALGO_TYPE_SEED) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb RNG Seed: Sz %d\n", info->seed.sz);
+    #endif
+        rc = wolfTPM2_GetRandom(tlsCtx->dev, info->seed.seed, info->seed.sz);
+    }
 #if !defined(NO_RSA) || defined(HAVE_ECC)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {
     #ifdef DEBUG_WOLFTPM

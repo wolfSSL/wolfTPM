@@ -69,22 +69,32 @@ void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b)
         c32toa(val, b);
 }
 
-UINT16 TPM2_Packet_SwapU16(UINT16 data) {
+UINT16 TPM2_Packet_SwapU16(UINT16 data)
+{
     return cpu_to_be16(data);
 }
-UINT32 TPM2_Packet_SwapU32(UINT32 data) {
+UINT32 TPM2_Packet_SwapU32(UINT32 data)
+{
     return cpu_to_be32(data);
 }
-UINT64 TPM2_Packet_SwapU64(UINT64 data) {
+UINT64 TPM2_Packet_SwapU64(UINT64 data)
+{
     return cpu_to_be64(data);
+}
+
+void TPM2_Packet_InitBuf(TPM2_Packet* packet, byte* buf, int size)
+{
+    if (packet) {
+        packet->buf  = buf;
+        packet->pos = TPM2_HEADER_SIZE; /* skip header (fill during finalize) */
+        packet->size = size;
+    }
 }
 
 void TPM2_Packet_Init(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
-    if (ctx && packet) {
-        packet->buf  = ctx->cmdBuf;
-        packet->pos = TPM2_HEADER_SIZE; /* skip header (fill during finalize) */
-        packet->size = sizeof(ctx->cmdBuf);
+    if (ctx) {
+        TPM2_Packet_InitBuf(packet, ctx->cmdBuf, (int)sizeof(ctx->cmdBuf));
     }
 }
 
