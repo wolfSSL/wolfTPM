@@ -246,8 +246,8 @@ typedef int64_t  INT64;
     #endif
 #else
     /* Infineon OPTIGA SLB9670/SLB9672 */
-    /* Max: 43MHz */
-    #define TPM2_SPI_MAX_HZ_INFINEON 43000000
+    /* Max: 43MHz for SLB9670 and 33MHz for SLB9672*/
+    #define TPM2_SPI_MAX_HZ_INFINEON 33000000
     #ifndef TPM2_SPI_MAX_HZ
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_INFINEON
     #endif
