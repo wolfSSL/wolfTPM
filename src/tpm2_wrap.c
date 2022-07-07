@@ -510,6 +510,14 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
     XMEMSET(&selfTest, 0, sizeof(selfTest));
     selfTest.fullTest = YES;
     rc = TPM2_SelfTest(&selfTest);
+#ifdef WOLFTPM_WINAPI
+    if (rc == TPM_E_COMMAND_BLOCKED) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_SelfTest not allowed on Windows TBS (err 0x%x)\n", rc);
+    #endif
+        rc = TPM_RC_SUCCESS; /* report success */
+    }
+#endif
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
@@ -4985,7 +4993,7 @@ int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, int critical
     (void)oid;
     (void)der;
     (void)derSz;
-    /* Requires: 
+    /* Requires:
      * ./configure --enable-wolftpm --enable-certgen --enable-asn=template \
                  CFLAGS="-DWOLFSSL_CUSTOM_OID -DHAVE_OID_ENCODING"
      */

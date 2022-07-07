@@ -25,6 +25,42 @@ using System.Runtime.InteropServices;
 
 namespace wolfTPM
 {
+    [Serializable]
+    public class WolfTpm2Exception : Exception
+    {
+        const string DLLNAME = "wolftpm";
+
+        private string _Message;
+        public int ErrorCode { get; }
+        public override string Message
+        {
+            get { return _Message; }
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "TPM2_GetRCString")]
+        private static extern IntPtr TPM2_GetRCString(int rc);
+        public string GetErrorString(int rc)
+        {
+            IntPtr err = TPM2_GetRCString(rc);
+            return Marshal.PtrToStringAnsi(err);
+        }
+
+        public WolfTpm2Exception() { }
+
+        public WolfTpm2Exception(string message)
+            : base(message) { }
+
+        public WolfTpm2Exception(string message, Exception inner)
+            : base(message, inner) { }
+
+        public WolfTpm2Exception(string message, int errorCode)
+            : this(message)
+        {
+            ErrorCode = errorCode;
+            _Message = message + " failure 0x" + errorCode.ToString("X8") +
+                                 " (" + GetErrorString(errorCode) + ")";
+        }
+    }
 
     public enum Status : int
     {
@@ -180,19 +216,32 @@ namespace wolfTPM
         {
             if (keyblob != IntPtr.Zero)
             {
-                // TODO: check return value?
+                /* ignore return code */
                 wolfTPM2_FreeKeyBlob(keyblob);
             }
         }
 
         public int GetKeyBlobAsBuffer(byte[] buffer)
         {
-            return wolfTPM2_GetKeyBlobAsBuffer(buffer, buffer.Length, keyblob);
+            int rc = wolfTPM2_GetKeyBlobAsBuffer(buffer, buffer.Length,
+                                                 keyblob);
+            /* positive return code is length of buffer filled */
+            if (rc < 0) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyBlobAsBuffer", rc);
+            }
+            return rc;
         }
 
         public int SetKeyBlobFromBuffer(byte[] buffer)
         {
-            return wolfTPM2_SetKeyBlobFromBuffer(keyblob, buffer, buffer.Length);
+            int rc = wolfTPM2_SetKeyBlobFromBuffer(keyblob,
+                                                   buffer, buffer.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SetKeyBlobFromBuffer", rc);
+            }
+            return rc;
         }
 
         public IntPtr GetHandle()
@@ -235,7 +284,7 @@ namespace wolfTPM
         {
             if (key != IntPtr.Zero)
             {
-                // TODO: check return value
+                /* ignore return code */
                 wolfTPM2_FreeKey(key);
             }
         }
@@ -253,9 +302,14 @@ namespace wolfTPM
 
         public int SetKeyAuthPassword(string auth)
         {
-            return wolfTPM2_SetKeyAuthPassword(key,
-                                               auth,
-                                               auth.Length);
+            int rc = wolfTPM2_SetKeyAuthPassword(key,
+                                                 auth,
+                                                 auth.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SetKeyAuthPassword", rc);
+            }
+            return rc;
         }
 
     }
@@ -287,8 +341,13 @@ namespace wolfTPM
                                                               ulong objectAttributes);
         public int GetKeyTemplate_RSA(ulong objectAttributes)
         {
-            return wolfTPM2_GetKeyTemplate_RSA(template,
-                                               objectAttributes);
+            int rc = wolfTPM2_GetKeyTemplate_RSA(template,
+                                                 objectAttributes);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_RSA", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC")]
@@ -299,8 +358,15 @@ namespace wolfTPM
         public int GetKeyTemplate_ECC(ulong objectAttributes, TPM2_ECC curve,
             TPM2_Alg sigScheme)
         {
-            return wolfTPM2_GetKeyTemplate_ECC(template, objectAttributes,
-                (uint)curve, (uint)sigScheme);
+            int rc = wolfTPM2_GetKeyTemplate_ECC(template,
+                                                 objectAttributes,
+                                                 (uint)curve,
+                                                 (uint)sigScheme);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_ECC", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_Symmetric")]
@@ -312,60 +378,101 @@ namespace wolfTPM
                                             bool isSign,
                                             bool isDecrypt)
         {
-            return wolfTPM2_GetKeyTemplate_Symmetric(template,
-                                                     keyBits,
-                                                     (uint)algMode,
-                                                     isSign ? 1 : 0,
-                                                     isDecrypt ? 1 : 0);
+            int rc = wolfTPM2_GetKeyTemplate_Symmetric(template,
+                                                       keyBits,
+                                                       (uint)algMode,
+                                                       isSign ? 1 : 0,
+                                                       isDecrypt ? 1 : 0);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_Symmetric", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_EK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_EK(IntPtr publicTemplate);
         public int GetKeyTemplate_RSA_EK()
         {
-            return wolfTPM2_GetKeyTemplate_RSA_EK(template);
+            int rc = wolfTPM2_GetKeyTemplate_RSA_EK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_RSA_EK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_EK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_EK(IntPtr publicTemplate);
         public int GetKeyTemplate_ECC_EK()
         {
-            return wolfTPM2_GetKeyTemplate_ECC_EK(template);
+            int rc = wolfTPM2_GetKeyTemplate_ECC_EK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_ECC_EK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_SRK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_SRK(IntPtr publicTemplate);
         public int GetKeyTemplate_RSA_SRK()
         {
-            return wolfTPM2_GetKeyTemplate_RSA_SRK(template);
+            int rc = wolfTPM2_GetKeyTemplate_RSA_SRK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_RSA_SRK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_SRK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_SRK(IntPtr publicTemplate);
         public int GetKeyTemplate_ECC_SRK()
         {
-            return wolfTPM2_GetKeyTemplate_ECC_SRK(template);
+            int rc = wolfTPM2_GetKeyTemplate_ECC_SRK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_ECC_SRK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_AIK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_AIK(IntPtr publicTemplate);
         public int GetKeyTemplate_RSA_AIK()
         {
-            return wolfTPM2_GetKeyTemplate_RSA_AIK(template);
+            int rc = wolfTPM2_GetKeyTemplate_RSA_AIK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_RSA_AIK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_AIK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_AIK(IntPtr publicTemplate);
         public int GetKeyTemplate_ECC_AIK()
         {
-            return wolfTPM2_GetKeyTemplate_ECC_AIK(template);
+            int rc = wolfTPM2_GetKeyTemplate_ECC_AIK(template);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_ECC_AIK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyTemplate_Unique")]
         private static extern int wolfTPM2_SetKeyTemplate_Unique(IntPtr publicTemplate, string unique, int uniqueSz);
         public int SetKeyTemplate_Unique(string unique)
         {
-            return wolfTPM2_SetKeyTemplate_Unique(template, unique, unique.Length);
+            int rc = wolfTPM2_SetKeyTemplate_Unique(template,
+                                                    unique, unique.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetKeyTemplate_ECC_AIK", rc);
+            }
+            return rc;
         }
     }
 
@@ -412,7 +519,7 @@ namespace wolfTPM
 
         public int StartAuth(Device device, Key parentKey, TPM2_Alg algMode)
         {
-            int ret;
+            int rc;
 
             /* Algorithm modes: With parameter encryption use CFB or XOR.
              * For HMAC only (no parameter encryption) use NULL. */
@@ -424,29 +531,28 @@ namespace wolfTPM
 
             /* Start an authenticated session (salted / unbound) with
              * parameter encryption */
-            ret = device.StartSession(this, parentKey, IntPtr.Zero,
+            rc = device.StartSession(this, parentKey, IntPtr.Zero,
                 (byte)SE.HMAC, (int)algMode);
-            if (ret == (int)Status.TPM_RC_SUCCESS) {
+            if (rc == (int)Status.TPM_RC_SUCCESS) {
                 /* Set session for authorization of the primary key */
-                ret = device.SetAuthSession(this, this.sessionIdx,
+                rc = device.SetAuthSession(this, this.sessionIdx,
                     (byte)(SESSION_mask.decrypt | SESSION_mask.encrypt |
                         SESSION_mask.continueSession));
             }
 
-            return ret;
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception("StartAuth", rc);
+            }
+            return rc;
         }
 
         public int StopAuth(Device device)
         {
-            int ret;
-
             /* Clear the auth index, since the auth session is ending */
             device.ClearAuthSession(this, this.sessionIdx);
 
             /* Unload session */
-            ret = device.UnloadHandle(this);
-
-            return ret;
+            return device.UnloadHandle(this);
         }
     }
 
@@ -485,8 +591,14 @@ namespace wolfTPM
         public int SetCustomExtension(string oid, string der, int critical)
         {
             byte[] derBuf = Encoding.ASCII.GetBytes(der);
-            return wolfTPM2_CSR_SetCustomExt(IntPtr.Zero, csr, critical,
-                oid, derBuf, (uint)der.Length);
+            int rc = wolfTPM2_CSR_SetCustomExt(IntPtr.Zero, csr, critical,
+                                               oid, derBuf, (uint)der.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
+                rc != (int)Status.NOT_COMPILED_IN) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_SetCustomExt", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetKeyUsage")]
@@ -495,7 +607,12 @@ namespace wolfTPM
                                                             string keyUsage);
         public int SetKeyUsage(string keyUsage)
         {
-            return wolfTPM2_CSR_SetKeyUsage(IntPtr.Zero, csr, keyUsage);
+            int rc = wolfTPM2_CSR_SetKeyUsage(IntPtr.Zero, csr, keyUsage);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_SetKeyUsage", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetSubject")]
@@ -504,7 +621,12 @@ namespace wolfTPM
                                                           string subject);
         public int SetSubject(string subject)
         {
-            return wolfTPM2_CSR_SetSubject(IntPtr.Zero, csr, subject);
+            int rc = wolfTPM2_CSR_SetSubject(IntPtr.Zero, csr, subject);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_SetSubject", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_MakeAndSign")]
@@ -519,8 +641,14 @@ namespace wolfTPM
                                X509_Format outputFormat,
                                byte[] output)
         {
-            return wolfTPM2_CSR_MakeAndSign(device.Ref, csr,
+            int rc = wolfTPM2_CSR_MakeAndSign(device.Ref, csr,
                 keyBlob.keyblob, (int)outputFormat, output, output.Length);
+            /* positive return code is length of resulting output */
+            if (rc < 0) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_MakeAndSign", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_MakeAndSign_ex")]
@@ -540,9 +668,14 @@ namespace wolfTPM
                                int sigType,
                                int selfSign)
         {
-            return wolfTPM2_CSR_MakeAndSign_ex(device.Ref, csr,
+            int rc = wolfTPM2_CSR_MakeAndSign_ex(device.Ref, csr,
                 keyBlob.keyblob, (int)outputFormat, output, output.Length,
                 sigType, selfSign, Device.INVALID_DEVID);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_MakeAndSign_ex", rc);
+            }
+            return rc;
         }
     }
 
@@ -597,7 +730,12 @@ namespace wolfTPM
         private static extern int wolfTPM2_SelfTest(IntPtr dev);
         public int SelfTest()
         {
-            return wolfTPM2_SelfTest(device);
+            int rc = wolfTPM2_SelfTest(device);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SelfTest", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetRandom")]
@@ -606,7 +744,12 @@ namespace wolfTPM
                                                      int len);
         public int GetRandom(byte[] buf)
         {
-            return wolfTPM2_GetRandom(device, buf, buf.Length);
+            int rc = wolfTPM2_GetRandom(device, buf, buf.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_GetRandom", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreateSRK")]
@@ -619,11 +762,16 @@ namespace wolfTPM
                              int alg,
                              string auth)
         {
-            return wolfTPM2_CreateSRK(device,
-                                      srkKey.key,
-                                      alg,
-                                      auth,
-                                      auth.Length);
+            int rc = wolfTPM2_CreateSRK(device,
+                                        srkKey.key,
+                                        alg,
+                                        auth,
+                                        auth.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CreateSRK", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_StartSession")]
@@ -639,12 +787,17 @@ namespace wolfTPM
                                 byte sesType,
                                 int encDecAlg)
         {
-            return wolfTPM2_StartSession(device,
-                                         tpmSession.session,
-                                         tmpKey.key,
-                                         bind,
-                                         sesType,
-                                         encDecAlg);
+            int rc = wolfTPM2_StartSession(device,
+                                           tpmSession.session,
+                                           tmpKey.key,
+                                           bind,
+                                           sesType,
+                                           encDecAlg);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_StartSession", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetAuthSession")]
@@ -659,19 +812,29 @@ namespace wolfTPM
             /* For sessionAttributes suggest using:
              * (byte)(SESSION_mask.decrypt | SESSION_mask.encrypt | SESSION_mask.continueSession)
              */
-            return wolfTPM2_SetAuthSession(device,
-                                           index,
-                                           tpmSession.session,
-                                           sessionAttributes);
+            int rc = wolfTPM2_SetAuthSession(device,
+                                             index,
+                                             tpmSession.session,
+                                             sessionAttributes);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SetAuthSession", rc);
+            }
+            return rc;
         }
 
         public int ClearAuthSession(Session tpmSession,
                                     int index)
         {
-            return wolfTPM2_SetAuthSession(device,
-                                           index,
-                                           IntPtr.Zero,
-                                           0);
+            int rc = wolfTPM2_SetAuthSession(device,
+                                             index,
+                                             IntPtr.Zero,
+                                             0);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SetAuthSession clear", rc);
+            }
+            return rc;
         }
 
 
@@ -682,9 +845,14 @@ namespace wolfTPM
         public int ReadPublicKey(Key key,
                                  ulong handle)
         {
-            return wolfTPM2_ReadPublicKey(device,
-                                           key.key,
-                                           handle);
+            int rc = wolfTPM2_ReadPublicKey(device,
+                                            key.key,
+                                            handle);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_ReadPublicKey", rc);
+            }
+            return rc;
         }
 
 
@@ -701,12 +869,17 @@ namespace wolfTPM
                              Template publicTemplate,
                              string auth)
         {
-            return wolfTPM2_CreateKey(device,
-                                      keyBlob.keyblob,
-                                      parent.GetHandle(),
-                                      publicTemplate.template,
-                                      auth,
-                                      auth.Length);
+            int rc = wolfTPM2_CreateKey(device,
+                                        keyBlob.keyblob,
+                                        parent.GetHandle(),
+                                        publicTemplate.template,
+                                        auth,
+                                        auth.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CreateKey", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_LoadKey")]
@@ -717,7 +890,13 @@ namespace wolfTPM
         public int LoadKey(KeyBlob keyBlob,
                            Key parent)
         {
-            return wolfTPM2_LoadKey(device, keyBlob.keyblob, parent.GetHandle());
+            int rc = wolfTPM2_LoadKey(device, keyBlob.keyblob,
+                                      parent.GetHandle());
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_LoadKey", rc);
+            }
+            return rc;
         }
 
 
@@ -726,8 +905,13 @@ namespace wolfTPM
             IntPtr primaryHandle, IntPtr key, IntPtr persistentHandle);
         public int StoreKey(Key key, IntPtr primaryHandle, IntPtr persistentHandle)
         {
-            return wolfTPM2_NVStoreKey(device, primaryHandle, key.GetHandle(),
-                persistentHandle);
+            int rc = wolfTPM2_NVStoreKey(device, primaryHandle, key.GetHandle(),
+                                         persistentHandle);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_NVStoreKey", rc);
+            }
+            return rc;
         }
 
 
@@ -753,16 +937,21 @@ namespace wolfTPM
             uint scheme,
             uint hashAlg)
         {
-            return wolfTPM2_ImportRsaPrivateKey(device,
-                                                parentKey.key,
-                                                keyBlob.keyblob,
-                                                rsaPub,
-                                                rsaPub.Length,
-                                                exponent,
-                                                rsaPriv,
-                                                rsaPriv.Length,
-                                                scheme,
-                                                hashAlg);
+            int rc = wolfTPM2_ImportRsaPrivateKey(device,
+                                                  parentKey.key,
+                                                  keyBlob.keyblob,
+                                                  rsaPub,
+                                                  rsaPub.Length,
+                                                  exponent,
+                                                  rsaPriv,
+                                                  rsaPriv.Length,
+                                                  scheme,
+                                                  hashAlg);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_ImportRsaPrivateKey", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_LoadRsaPublicKey")]
@@ -776,11 +965,16 @@ namespace wolfTPM
                                     byte[] rsaPub,
                                     int exponent)
         {
-            return wolfTPM2_LoadRsaPublicKey(device,
-                                             key.key,
-                                             rsaPub,
-                                             rsaPub.Length,
-                                             exponent);
+            int rc = wolfTPM2_LoadRsaPublicKey(device,
+                                               key.key,
+                                               rsaPub,
+                                               rsaPub.Length,
+                                               exponent);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_LoadRsaPublicKey", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_LoadRsaPrivateKey")]
@@ -800,7 +994,7 @@ namespace wolfTPM
             int exponent,
             byte[] rsaPriv)
         {
-            return wolfTPM2_LoadRsaPrivateKey(
+            int rc = wolfTPM2_LoadRsaPrivateKey(
                 device,
                 parentKey.key,
                 key.key,
@@ -809,6 +1003,11 @@ namespace wolfTPM
                 exponent,
                 rsaPriv,
                 rsaPriv.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_LoadRsaPrivateKey", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreatePrimaryKey")]
@@ -825,13 +1024,57 @@ namespace wolfTPM
             Template publicTemplate,
             string auth)
         {
-            return wolfTPM2_CreatePrimaryKey(
+            int rc = wolfTPM2_CreatePrimaryKey(
                 device,
                 key.key,
                 (ulong)primaryHandle,
                 publicTemplate.template,
                 auth,
                 !string.IsNullOrEmpty(auth) ? auth.Length : 0);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CreatePrimaryKey", rc);
+            }
+            return rc;
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_Generate_ex")]
+        private static extern int wolfTPM2_CSR_Generate_ex(
+            IntPtr dev,
+            IntPtr key,
+            string subject,
+            string keyUsage,
+            int outFormat,
+            byte[] output,
+            int outputSz,
+            int sigType,
+            int selfSignCert,
+            int devId);
+        public int GenerateCSR(
+            KeyBlob keyBlob,
+            string subject,
+            string keyUsage,
+            X509_Format outputFormat,
+            byte[] output,
+            int sigType,
+            int selfSignCert)
+        {
+            int rc = wolfTPM2_CSR_Generate_ex(
+                device,
+                keyBlob.keyblob,
+                subject,
+                keyUsage,
+                (int)outputFormat,
+                output, output.Length,
+                sigType,
+                selfSignCert,
+                Device.INVALID_DEVID);
+            /* positive return code is length of resulting output */
+            if (rc < 0) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_Generate_ex", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_Generate")]
@@ -842,28 +1085,27 @@ namespace wolfTPM
             string keyUsage,
             int outFormat,
             byte[] output,
-            int outputSz,
-            int sigType,
-            int devId,
-            int selfSign);
+            int outputSz);
         public int GenerateCSR(
             KeyBlob keyBlob,
             string subject,
             string keyUsage,
             X509_Format outputFormat,
-            byte[] output,
-            int sigType)
+            byte[] output)
         {
-            return wolfTPM2_CSR_Generate(
+            int rc = wolfTPM2_CSR_Generate(
                 device,
                 keyBlob.keyblob,
                 subject,
                 keyUsage,
                 (int)outputFormat,
-                output, output.Length,
-                sigType,
-                Device.INVALID_DEVID,
-                0);
+                output, output.Length);
+            /* positive return code is length of resulting output */
+            if (rc < 0) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_CSR_Generate", rc);
+            }
+            return rc;
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
@@ -886,6 +1128,19 @@ namespace wolfTPM
         public long GetHandleValue(IntPtr handle)
         {
             return wolfTPM2_GetHandleValue(handle);
+        }
+
+
+        [DllImport(DLLNAME, EntryPoint = "TPM2_GetRCString")]
+        private static extern IntPtr TPM2_GetRCString(int rc);
+        public string GetErrorString(int rc)
+        {
+            IntPtr err = TPM2_GetRCString(rc);
+            return Marshal.PtrToStringAnsi(err);
+        }
+        public string GetErrorString(Status rc)
+        {
+            return GetErrorString((int)rc);
         }
 
     }
