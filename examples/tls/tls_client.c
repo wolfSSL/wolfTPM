@@ -23,9 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(NO_WOLFSSL_CLIENT)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -572,16 +571,15 @@ exit:
 /* --- END TPM TLS Client Example -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLF_CRYPTO_DEV */
+#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_CRYPTOCB && !NO_WOLFSSL_CLIENT */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char* argv[])
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(NO_WOLFSSL_CLIENT)
     rc = TPM2_TLS_ClientArgs(NULL, argc, argv);
 #else
     (void)argc;
