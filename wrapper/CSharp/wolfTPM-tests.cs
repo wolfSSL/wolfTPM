@@ -385,6 +385,98 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
         }
 
+        [Test]
+        public void TryGenerateCSR()
+        {
+            int ret;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            byte[] output = new byte[Device.MAX_TPM_BUFFER];
+
+            string subject = "/C=US/ST=Oregon/L=Portland/SN=Development" +
+                             "/O=wolfSSL/OU=RSA/CN=www.wolfssl.com" +
+                             "/emailAddress=info@wolfssl.com";
+            string keyUsage = "serverAuth,clientAuth,codeSigning";
+
+            ret = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyStorageKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.GenerateCSR(keyBlob, subject, keyUsage,
+                X509_Format.PEM, output, 0);
+            Assert.That(ret, Is.GreaterThan(0));
+
+            Console.WriteLine("CSR PEM {0} bytes", ret.ToString());
+
+            ret = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
+
+        [Test]
+        public void TryGenerateCSRCustomOID()
+        {
+            int ret;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            Csr csr = new Csr();
+            byte[] output = new byte[Device.MAX_TPM_BUFFER];
+
+            string subject = "/C=US/ST=Oregon/L=Portland/SN=Development" +
+                             "/O=wolfSSL/OU=RSA/CN=www.wolfssl.com" +
+                             "/emailAddress=info@wolfssl.com";
+            string keyUsage = "serverAuth,clientAuth,codeSigning";
+
+            string custOid =    "1.2.3.4.5";
+            string custOidVal = "This is NOT a critical extension";
+
+            ret = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyStorageKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = csr.SetSubject(subject);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = csr.SetKeyUsage(keyUsage);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = csr.SetCustomExtension(custOid, custOidVal, 0);
+            /* if custom OID support is not compiled in then test is
+             * inconclusive */
+            if (ret == (int)Status.NOT_COMPILED_IN)
+                Assert.Inconclusive();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+
+            ret = csr.MakeAndSign(device, keyBlob, X509_Format.PEM, output);
+            Assert.That(ret, Is.GreaterThan(0));
+
+            Console.WriteLine("CSR PEM {0} bytes", ret.ToString());
+
+            ret = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+        }
+
 
     }
 }

@@ -20,6 +20,7 @@
  */
 
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 
 namespace wolfTPM
@@ -29,6 +30,7 @@ namespace wolfTPM
     {
         TPM_RC_SUCCESS = 0,
         BAD_FUNC_ARG = -173,
+        NOT_COMPILED_IN = -174,
     }
 
     public enum TPM2_Object : ulong
@@ -137,6 +139,12 @@ namespace wolfTPM
         AUTH_00      = 0x40000010,
         AUTH_FF      = 0x4000010F,
         LAST         = AUTH_FF,
+    }
+
+    public enum X509_Format : int
+    {
+        PEM = 1,
+        DER = 2,
     }
 
     public class KeyBlob
@@ -391,8 +399,7 @@ namespace wolfTPM
 
         ~Session()
         {
-            if (session != IntPtr.Zero)
-            {
+            if (session != IntPtr.Zero) {
                 /* ignore return code on free */
                 wolfTPM2_FreeSession(session);
             }
@@ -443,6 +450,102 @@ namespace wolfTPM
         }
     }
 
+    public class Csr
+    {
+        const string DLLNAME = "wolftpm";
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NewCSR")]
+        private static extern IntPtr wolfTPM2_NewCSR();
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_FreeCSR")]
+        private static extern int wolfTPM2_FreeCSR(IntPtr csr);
+
+        internal IntPtr csr;
+
+        public Csr()
+        {
+            csr = wolfTPM2_NewCSR();
+        }
+
+        ~Csr()
+        {
+            if (csr != IntPtr.Zero) {
+                /* ignore return code on free */
+                wolfTPM2_FreeCSR(csr);
+            }
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetCustomExt")]
+        private static extern int wolfTPM2_CSR_SetCustomExt(IntPtr dev,
+                                                            IntPtr csr,
+                                                            int critical,
+                                                            string oid,
+                                                            byte[] der,
+                                                            uint derSz);
+        public int SetCustomExtension(string oid, string der, int critical)
+        {
+            byte[] derBuf = Encoding.ASCII.GetBytes(der);
+            return wolfTPM2_CSR_SetCustomExt(IntPtr.Zero, csr, critical,
+                oid, derBuf, (uint)der.Length);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetKeyUsage")]
+        private static extern int wolfTPM2_CSR_SetKeyUsage(IntPtr dev,
+                                                            IntPtr csr,
+                                                            string keyUsage);
+        public int SetKeyUsage(string keyUsage)
+        {
+            return wolfTPM2_CSR_SetKeyUsage(IntPtr.Zero, csr, keyUsage);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetSubject")]
+        private static extern int wolfTPM2_CSR_SetSubject(IntPtr dev,
+                                                          IntPtr csr,
+                                                          string subject);
+        public int SetSubject(string subject)
+        {
+            return wolfTPM2_CSR_SetSubject(IntPtr.Zero, csr, subject);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_MakeAndSign")]
+        private static extern int wolfTPM2_CSR_MakeAndSign(IntPtr dev,
+                                                           IntPtr csr,
+                                                           IntPtr key,
+                                                           int outFormat,
+                                                           byte[] output,
+                                                           int outputSz);
+        public int MakeAndSign(Device device,
+                               KeyBlob keyBlob,
+                               X509_Format outputFormat,
+                               byte[] output)
+        {
+            return wolfTPM2_CSR_MakeAndSign(device.Ref, csr,
+                keyBlob.keyblob, (int)outputFormat, output, output.Length);
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_MakeAndSign_ex")]
+        private static extern int wolfTPM2_CSR_MakeAndSign_ex(IntPtr dev,
+                                                              IntPtr csr,
+                                                              IntPtr key,
+                                                              int outFormat,
+                                                              byte[] output,
+                                                              int outputSz,
+                                                              int sigType,
+                                                              int selfSign,
+                                                              int devId);
+        public int MakeAndSign(Device device,
+                               KeyBlob keyBlob,
+                               X509_Format outputFormat,
+                               byte[] output,
+                               int sigType,
+                               int selfSign)
+        {
+            return wolfTPM2_CSR_MakeAndSign_ex(device.Ref, csr,
+                keyBlob.keyblob, (int)outputFormat, output, output.Length,
+                sigType, selfSign, Device.INVALID_DEVID);
+        }
+    }
+
     public class Device
     {
         /* ================================================================== */
@@ -452,6 +555,8 @@ namespace wolfTPM
         const string DLLNAME = "wolftpm";
 
         public const int MAX_KEYBLOB_BYTES = 1024;
+        public const int MAX_TPM_BUFFER = 2048;
+        public const int INVALID_DEVID = -2;
         private IntPtr device = IntPtr.Zero;
 
         public Device()
@@ -466,6 +571,15 @@ namespace wolfTPM
                 wolfTPM2_Free(device);
             }
         }
+
+        public IntPtr Ref
+        {
+            get {
+                return device;
+            }
+        }
+
+
         /* Note that this one is not an empty; it actually calls wolfTPM2_Init()
          * as a convenience for the user. */
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_New")]
@@ -720,18 +834,48 @@ namespace wolfTPM
                 !string.IsNullOrEmpty(auth) ? auth.Length : 0);
         }
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_Generate")]
+        private static extern int wolfTPM2_CSR_Generate(
+            IntPtr dev,
+            IntPtr key,
+            string subject,
+            string keyUsage,
+            int outFormat,
+            byte[] output,
+            int outputSz,
+            int sigType,
+            int devId,
+            int selfSign);
+        public int GenerateCSR(
+            KeyBlob keyBlob,
+            string subject,
+            string keyUsage,
+            X509_Format outputFormat,
+            byte[] output,
+            int sigType)
+        {
+            return wolfTPM2_CSR_Generate(
+                device,
+                keyBlob.keyblob,
+                subject,
+                keyUsage,
+                (int)outputFormat,
+                output, output.Length,
+                sigType,
+                Device.INVALID_DEVID,
+                0);
+        }
+
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
         private static extern int wolfTPM2_UnloadHandle(IntPtr dev, IntPtr handle);
         public int UnloadHandle(Key key)
         {
             return wolfTPM2_UnloadHandle(device, key.GetHandle());
         }
-
         public int UnloadHandle(KeyBlob keyBlob)
         {
             return wolfTPM2_UnloadHandle(device, keyBlob.GetHandle());
         }
-
         public int UnloadHandle(Session tpmSession)
         {
             return wolfTPM2_UnloadHandle(device, tpmSession.GetHandle());
@@ -739,7 +883,6 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleValue")]
         private static extern long wolfTPM2_GetHandleValue(IntPtr handle);
-
         public long GetHandleValue(IntPtr handle)
         {
             return wolfTPM2_GetHandleValue(handle);

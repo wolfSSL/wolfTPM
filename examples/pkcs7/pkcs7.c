@@ -23,9 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-	defined(HAVE_PKCS7) && \
-	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    defined(HAVE_PKCS7)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -396,16 +395,15 @@ exit:
 /* --- END TPM2 PKCS7 Example -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && HAVE_PKCS7 && WOLF_CRYPTO_DEV */
+#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_CRYPTOCB && HAVE_PKCS7 */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    defined(HAVE_PKCS7) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    defined(HAVE_PKCS7)
     rc = TPM2_PKCS7_ExampleArgs(NULL, argc, argv);
 #else
     (void)argc;

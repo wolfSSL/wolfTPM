@@ -138,18 +138,29 @@ typedef int64_t  INT64;
     #define SOCKET_ERROR_E        -308  /* error state on socket    */
 
 #ifndef WOLFTPM_CUSTOM_TYPES
-    #define XMALLOC(s, h, t)     malloc((size_t)(s))
-    #define XFREE(p, h, t)       free(p)
+    #ifndef WOLFTPM2_NO_HEAP
+    #define XMALLOC(s, h, t)  malloc((size_t)(s))
+    #define XFREE(p, h, t)    free(p)
+    #endif
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
     #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
+    #define XSTRSTR(s1,s2)    strstr((s1),(s2))
 #endif /* !WOLFTPM_CUSTOM_TYPES */
 
     /* Endianess */
     #ifndef BIG_ENDIAN_ORDER
         #define LITTLE_ENDIAN_ORDER
+    #endif
+
+    #ifndef OFFSETOF
+        #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ >= 4))
+            #define OFFSETOF(type, field) __builtin_offsetof(type, field)
+        #else
+            #define OFFSETOF(type, field) ((size_t)&(((type *)0)->field))
+        #endif
     #endif
 
     /* GCC Version */
@@ -554,6 +565,18 @@ typedef int64_t  INT64;
 #endif
 #ifndef WOLFTPM2_WRAP_ECC_KEY_BITS
     #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_KEY_BITS*8)
+#endif
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+    /* Enable the crypto callback support */
+    #define WOLFTPM_CRYPTOCB
+#endif
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_CERT_GEN) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    /* Enable the certificate generation support */
+    #define WOLFTPM2_CERT_GEN
 #endif
 
 

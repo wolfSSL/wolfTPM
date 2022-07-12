@@ -173,24 +173,18 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
 }
 
 #ifndef WOLFTPM2_NO_HEAP
-WOLFTPM2_DEV *wolfTPM2_New(void)
+WOLFTPM2_DEV* wolfTPM2_New(void)
 {
-    WOLFTPM2_DEV *dev = NULL;
-
-    dev = (WOLFTPM2_DEV *) XMALLOC(sizeof(WOLFTPM2_DEV), NULL,
-                                   DYNAMIC_TYPE_TMP_BUFFER);
-    if (dev == NULL) {
-        return NULL;
+    WOLFTPM2_DEV *dev = (WOLFTPM2_DEV*)XMALLOC(
+        sizeof(WOLFTPM2_DEV), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (dev != NULL) {
+        if (wolfTPM2_Init(dev, NULL, NULL) != TPM_RC_SUCCESS) {
+            XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            dev = NULL;
+        }
     }
-
-    if (wolfTPM2_Init(dev, NULL, NULL) != TPM_RC_SUCCESS) {
-        XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        return NULL;
-    }
-
     return dev;
 }
-
 int wolfTPM2_Free(WOLFTPM2_DEV *dev)
 {
     if (dev != NULL) {
@@ -202,18 +196,13 @@ int wolfTPM2_Free(WOLFTPM2_DEV *dev)
 
 WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void)
 {
-    WOLFTPM2_KEYBLOB* blob = NULL;
-
-    blob = (WOLFTPM2_KEYBLOB *) XMALLOC(sizeof(WOLFTPM2_KEYBLOB), NULL,
-                                      DYNAMIC_TYPE_TMP_BUFFER);
-    if (blob == NULL) {
-        return NULL;
+    WOLFTPM2_KEYBLOB* blob = (WOLFTPM2_KEYBLOB*)XMALLOC(
+        sizeof(WOLFTPM2_KEYBLOB), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (blob != NULL) {
+        XMEMSET(blob, 0, sizeof(WOLFTPM2_KEYBLOB));
     }
-
-    XMEMSET(blob, 0, sizeof(WOLFTPM2_KEYBLOB));
     return blob;
 }
-
 int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob)
 {
     if (blob != NULL) {
@@ -224,18 +213,13 @@ int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob)
 
 TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void)
 {
-    TPMT_PUBLIC* PublicTemplate = NULL;
-
-    PublicTemplate = (TPMT_PUBLIC *) XMALLOC(sizeof(TPMT_PUBLIC), NULL,
-                                       DYNAMIC_TYPE_TMP_BUFFER);
-    if (PublicTemplate == NULL) {
-        return NULL;
+    TPMT_PUBLIC* PublicTemplate = (TPMT_PUBLIC*)XMALLOC(
+        sizeof(TPMT_PUBLIC), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (PublicTemplate != NULL) {
+        XMEMSET(PublicTemplate, 0, sizeof(TPMT_PUBLIC));
     }
-
-    XMEMSET(PublicTemplate, 0, sizeof(TPMT_PUBLIC));
     return PublicTemplate;
 }
-
 int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate)
 {
     if (PublicTemplate != NULL) {
@@ -246,18 +230,13 @@ int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate)
 
 WOLFTPM2_KEY* wolfTPM2_NewKey(void)
 {
-    WOLFTPM2_KEY* key = NULL;
-
-    key = (WOLFTPM2_KEY *) XMALLOC(sizeof(WOLFTPM2_KEY), NULL,
-                                    DYNAMIC_TYPE_TMP_BUFFER);
-    if (key == NULL) {
-        return NULL;
+    WOLFTPM2_KEY* key = (WOLFTPM2_KEY*)XMALLOC(
+        sizeof(WOLFTPM2_KEY), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (key != NULL) {
+        XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
     }
-
-    XMEMSET(key, 0, sizeof(WOLFTPM2_KEY));
     return key;
 }
-
 int wolfTPM2_FreeKey(WOLFTPM2_KEY* key)
 {
     if (key != NULL) {
@@ -268,18 +247,13 @@ int wolfTPM2_FreeKey(WOLFTPM2_KEY* key)
 
 WOLFTPM2_SESSION* wolfTPM2_NewSession(void)
 {
-    WOLFTPM2_SESSION* session = NULL;
-
-    session = (WOLFTPM2_SESSION *) XMALLOC(sizeof(WOLFTPM2_SESSION), NULL,
-                                    DYNAMIC_TYPE_TMP_BUFFER);
-    if (session == NULL) {
-        return NULL;
+    WOLFTPM2_SESSION* session = (WOLFTPM2_SESSION*)XMALLOC(
+        sizeof(WOLFTPM2_SESSION), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (session != NULL) {
+        XMEMSET(session, 0, sizeof(WOLFTPM2_SESSION));
     }
-
-    XMEMSET(session, 0, sizeof(WOLFTPM2_SESSION));
     return session;
 }
-
 int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
 {
     if (session != NULL) {
@@ -287,6 +261,29 @@ int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
     }
     return TPM_RC_SUCCESS;
 }
+
+#ifdef WOLFTPM2_CERT_GEN
+WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
+{
+    WOLFTPM2_CSR* csr = (WOLFTPM2_CSR*)XMALLOC(
+        sizeof(WOLFTPM2_CSR), NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (csr != NULL) {
+        if (wc_InitCert(&csr->req) != 0) {
+            XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            csr = NULL;
+        }
+    }
+    return csr;
+}
+int wolfTPM2_FreeCSR(WOLFTPM2_CSR* csr)
+{
+    if (csr != NULL) {
+        XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM2_CERT_GEN */
+
 #endif /* !WOLFTPM2_NO_HEAP */
 
 WOLFTPM2_HANDLE* wolfTPM2_GetHandleRefFromKey(WOLFTPM2_KEY* key)
@@ -831,8 +828,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         return BAD_FUNC_ARG;
     }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+#ifdef WOLFTPM_CRYPTOCB
     /* make sure crypto dev callback is unregistered */
     rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
     if (rc != 0)
@@ -4749,6 +4745,365 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
     return rc;
 }
 
+#ifdef WOLFTPM2_CERT_GEN
+
+/* Distinguished Name Strings */
+typedef struct DNTags {
+    const char* tag;
+    size_t certNameOff;
+} DNTags;
+
+static int CSR_Parse_DN(CertName* name, const char* subject)
+{
+    int rc = 0, i;
+    const DNTags tags[] = {
+        {"/CN=",     OFFSETOF(CertName, commonName)}, /* Common Name */
+        {"/C=",      OFFSETOF(CertName, country)},    /* Country */
+        {"/ST=",     OFFSETOF(CertName, state)},      /* State */
+        {"/street=", OFFSETOF(CertName, street)},     /* Street */
+        {"/L=",      OFFSETOF(CertName, locality)},   /* Locality */
+        {"/SN=",     OFFSETOF(CertName, sur)},        /* Surname */
+        {"/O=",      OFFSETOF(CertName, org)},        /* Organization */
+        {"/OU=",     OFFSETOF(CertName, unit)},       /* Organization Unit */
+        {"/postalCode=",   OFFSETOF(CertName, postalCode)}, /* PostalCode */
+        {"/userid=",       OFFSETOF(CertName, userId)},     /* UserID */
+        {"/serialNumber=", OFFSETOF(CertName, serialDev)},  /* Serial Number */
+        {"/emailAddress=", OFFSETOF(CertName, email)},      /* Email Address */
+    #ifdef WOLFSSL_CERT_EXT
+        {"/businessCategory=", OFFSETOF(CertName, busCat)}, /* Business Category */
+    #endif
+    };
+
+    for (i = 0; i < (int)(sizeof(tags) / sizeof(DNTags)); i++) {
+        const char *begin, *end;
+        word32 len = 0;
+        /* find start tag */
+        begin = XSTRSTR(subject, tags[i].tag);
+        if (begin != NULL) {
+            /* find end of string or / */
+            begin += XSTRLEN(tags[i].tag);
+            end = XSTRSTR(begin, "/");
+            if (end == NULL) {
+                end = begin + XSTRLEN(begin); /* remainder of string */
+            }
+            if (end > begin) {
+                len = (word32)(size_t)(end - begin);
+            }
+            if (len > CTC_NAME_SIZE-1) {
+                len = CTC_NAME_SIZE-1; /* leave room for null term */
+            }
+            XMEMCPY((byte*)name + tags[i].certNameOff, begin, len);
+        }
+    }
+    return rc;
+}
+
+typedef struct CSRKey {
+    int keyType;
+    int tpmDevId;
+    WOLFTPM2_KEY* tpmKey;
+    union {
+    #ifndef NO_RSA
+        RsaKey rsa;
+    #endif
+    #ifdef HAVE_ECC
+        ecc_key ecc;
+    #endif
+    } key;
+    TpmCryptoDevCtx tpmCtx;
+} CSRKey;
+
+static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
+    int outFormat, byte* out, int outSz, int selfSignCert)
+{
+    int rc = 0;
+
+    if (dev == NULL || csr == NULL || key == NULL || out == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (rc == 0 && selfSignCert) {
+    #ifdef WOLFSSL_CERT_GEN
+        rc = wc_MakeCert_ex(&csr->req, out, outSz, key->keyType, &key->key,
+            wolfTPM2_GetRng(dev));
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    if (rc == 0 && !selfSignCert) {
+        rc = wc_MakeCertReq_ex(&csr->req, out, outSz, key->keyType, &key->key);
+    }
+
+    if (rc >= 0) {
+        rc = wc_SignCert_ex(csr->req.bodySz, csr->req.sigType, out,
+            (word32)outSz, key->keyType, &key->key, wolfTPM2_GetRng(dev));
+    }
+
+    /* Optionally convert to PEM */
+    if (rc >= 0 && outFormat == WOLFSSL_FILETYPE_PEM) {
+    #ifdef WOLFSSL_DER_TO_PEM
+        WOLFTPM2_BUFFER tmp;
+        tmp.size = rc;
+        XMEMCPY(tmp.buffer, out, rc);
+        XMEMSET(out, 0, outSz);
+        rc = wc_DerToPem(tmp.buffer, tmp.size, out, outSz,
+            selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+    #else
+        #ifdef DEBUG_WOLFTPM
+        printf("CSR_MakeAndSign PEM not supported\n")
+        #endif
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+
+    return rc;
+}
+
+static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
+    CSRKey* csrKey, int sigType, int devId)
+{
+    int rc;
+
+    if (dev == NULL || key == NULL || csrKey == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(csrKey, 0, sizeof(CSRKey));
+    csrKey->tpmDevId = INVALID_DEVID;
+    csrKey->tpmKey = key;
+
+    /* confirm crypto callback is setup */
+    if (devId == INVALID_DEVID) {
+        /* Setup the wolf crypto device callback */
+    #ifndef NO_RSA
+        csrKey->tpmCtx.rsaKey = key;
+    #endif
+    #ifdef HAVE_ECC
+        csrKey->tpmCtx.eccKey = key;
+    #endif
+        rc = wolfTPM2_SetCryptoDevCb(dev, wolfTPM2_CryptoDevCb,
+            &csrKey->tpmCtx, &csrKey->tpmDevId);
+        if (rc == 0) {
+            devId = csrKey->tpmDevId;
+        }
+    }
+
+    /* determine the type of key in WOLFTPM2_KEY */
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        csrKey->keyType = ECC_TYPE;
+
+    #ifdef HAVE_ECC
+        /* setup wolf ECC key with TPM deviceID, so crypto callbacks are used */
+        rc = wc_ecc_init_ex(&csrKey->key.ecc, NULL, devId);
+        if (rc == 0) {
+            /* load public portion of key into wolf ECC Key */
+            rc = wolfTPM2_EccKey_TpmToWolf(dev, key, &csrKey->key.ecc);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        csrKey->keyType = RSA_TYPE;
+
+    #ifndef NO_RSA
+        /* setup wolf RSA key with TPM deviceID, so crypto callbacks are used */
+        rc = wc_InitRsaKey_ex(&csrKey->key.rsa, NULL, devId);
+        if (rc == 0) {
+            /* load public portion of key into wolf RSA Key */
+            rc = wolfTPM2_RsaKey_TpmToWolf(dev, key, &csrKey->key.rsa);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("CSR_KeySetup invalid input key\n");
+    #endif
+        rc = BAD_FUNC_ARG;
+    }
+
+    /* Set the signature type */
+    if (rc == 0) {
+        if (sigType == 0 && csrKey != NULL) {
+            /* Choose defaults if sigType is zero */
+            if (csrKey->keyType == RSA_TYPE) {
+                csr->req.sigType = CTC_SHA256wRSA;
+            }
+            else if (csrKey->keyType == ECC_TYPE) {
+                csr->req.sigType = CTC_SHA256wECDSA;
+            }
+        }
+        else if (csr->req.sigType == 0) {
+            csr->req.sigType = sigType;
+        }
+    }
+
+#ifdef WOLFSSL_CERT_EXT
+    /* add SKID from the Public Key */
+    if (rc == 0 && csrKey != NULL) {
+        rc = wc_SetSubjectKeyIdFromPublicKey_ex(&csr->req, csrKey->keyType,
+            &csrKey->key);
+    }
+#endif
+
+    return rc;
+}
+
+static void CSR_KeyCleanup(WOLFTPM2_DEV* dev, CSRKey* csrKey)
+{
+    if (dev != NULL && csrKey != NULL) {
+    #ifdef HAVE_ECC
+        if (csrKey->keyType == ECC_TYPE) {
+            wc_ecc_free(&csrKey->key.ecc);
+        }
+    #endif
+    #ifndef NO_RSA
+        if (csrKey->keyType == RSA_TYPE) {
+            wc_FreeRsaKey(&csrKey->key.rsa);
+        }
+    #endif
+        if (csrKey->tpmDevId != INVALID_DEVID) {
+            wolfTPM2_ClearCryptoDevCb(dev, csrKey->tpmDevId);
+        }
+    }
+}
+
+int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, int critical,
+    const char *oid, const byte *der, word32 derSz)
+{
+    int rc;
+    if (csr == NULL) {
+        return BAD_FUNC_ARG;
+    }
+#if defined(WOLFSSL_ASN_TEMPLATE) && defined(WOLFSSL_CUSTOM_OID) && \
+    defined(HAVE_OID_ENCODING)
+    rc = wc_SetCustomExtension(&csr->req, critical, oid, der, derSz);
+#else
+    (void)critical;
+    (void)oid;
+    (void)der;
+    (void)derSz;
+    /* Requires: 
+     * ./configure --enable-wolftpm --enable-certgen --enable-asn=template \
+                 CFLAGS="-DWOLFSSL_CUSTOM_OID -DHAVE_OID_ENCODING"
+     */
+    rc = NOT_COMPILED_IN;
+#endif
+    (void)dev; /* not used */
+    return rc;
+}
+
+int wolfTPM2_CSR_SetSubject(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    const char* subject)
+{
+    int rc = BAD_FUNC_ARG;
+    if (csr != NULL && subject != NULL) {
+        rc = CSR_Parse_DN(&csr->req.subject, subject);
+    }
+    (void)dev; /* not used */
+    return rc;
+}
+
+int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    const char* keyUsage)
+{
+    int rc;
+
+    if (csr == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef WOLFSSL_CERT_EXT
+    if (keyUsage == NULL) {
+        /* use a default key usage value */
+        keyUsage = "serverAuth,clientAuth,codeSigning";
+    }
+
+    /* add Extended Key Usage */
+    rc = wc_SetExtKeyUsage(&csr->req, keyUsage);
+#else
+    if (keyUsage != NULL) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CSR_Generate key usage supplied, but not available\n");
+    #endif
+        rc = NOT_COMPILED_IN;
+    }
+#endif
+    (void)dev; /* not used */
+    return rc;
+}
+
+int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    WOLFTPM2_KEY* key, int outFormat, byte* out, int outSz,
+    int sigType, int selfSignCert, int devId)
+{
+    int rc;
+    CSRKey csrKey;
+
+    if (dev == NULL || key == NULL || csr == NULL || out == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = CSR_KeySetup(dev, csr, key, &csrKey, sigType, devId);
+    if (rc == 0) {
+        rc = CSR_MakeAndSign(dev, csr, &csrKey, outFormat, out, outSz,
+            selfSignCert);
+    }
+    CSR_KeyCleanup(dev, &csrKey);
+
+    return rc;
+}
+int wolfTPM2_CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    WOLFTPM2_KEY* key, int outFormat, byte* out, int outSz)
+{
+    return wolfTPM2_CSR_MakeAndSign_ex(dev, csr, key, outFormat, out, outSz,
+        0, 0, INVALID_DEVID);
+}
+
+int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const char* subject, const char* keyUsage, int outFormat,
+    byte* out, int outSz, int sigType, int selfSignCert, int devId)
+{
+    int rc;
+    WOLFTPM2_CSR csr;
+    CSRKey csrKey;
+
+    if (dev == NULL || key == NULL || subject == NULL || out == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = wc_InitCert(&csr.req);
+    if (rc == 0) {
+        rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
+    }
+    if (rc == 0) {
+        rc = wolfTPM2_CSR_SetSubject(dev, &csr, subject);
+    }
+    if (rc == 0) {
+        rc = wolfTPM2_CSR_SetKeyUsage(dev, &csr, keyUsage);
+    }
+    if (rc == 0) {
+        rc = CSR_MakeAndSign(dev, &csr, &csrKey, outFormat, out, outSz,
+            selfSignCert);
+    }
+    CSR_KeyCleanup(dev, &csrKey);
+
+    return rc;
+}
+
+int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const char* subject, const char* keyUsage, int outFormat,
+    byte* out, int outSz)
+{
+    return wolfTPM2_CSR_Generate_ex(dev, key, subject, keyUsage, outFormat,
+        out, outSz, 0, 0, INVALID_DEVID);
+}
+
+#endif /* WOLFTPM2_CERT_GEN */
+
+
 static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in)
 {
     if (out == NULL || in == NULL)
@@ -4963,8 +5318,7 @@ static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
 /******************************************************************************/
 
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && (defined(WOLF_CRYPTO_DEV) || \
-    defined(WOLF_CRYPTO_CB))
+#ifdef WOLFTPM_CRYPTOCB
 /******************************************************************************/
 /* --- BEGIN wolf Crypto Device Support -- */
 /******************************************************************************/
@@ -5515,7 +5869,7 @@ int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc cb,
         devId = rc;
         tpmCtx->dev = dev;
 
-        rc = wc_CryptoDev_RegisterDevice(devId, cb, tpmCtx);
+        rc = wc_CryptoCb_RegisterDevice(devId, cb, tpmCtx);
     }
 
     if (pDevId) {
@@ -5552,7 +5906,7 @@ int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
 /* --- END wolf Crypto Device Support -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && (WOLF_CRYPTO_DEV || WOLF_CRYPTO_CB) */
+#endif /* WOLFTPM_CRYPTOCB */
 
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

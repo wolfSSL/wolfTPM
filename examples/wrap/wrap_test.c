@@ -80,7 +80,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
     word32 nvAttributes = 0;
-#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
+#ifdef WOLFTPM_CRYPTOCB
     TpmCryptoDevCtx tpmCtx;
 #endif
     WOLFTPM2_HASH hash;
@@ -165,7 +165,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) return rc;
 
-#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
+#ifdef WOLFTPM_CRYPTOCB
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
