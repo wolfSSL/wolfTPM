@@ -183,7 +183,7 @@ namespace wolfTPM
         DER = 2,
     }
 
-    public class KeyBlob
+    public class KeyBlob : IDisposable
     {
         const string DLLNAME = "wolftpm";
 
@@ -211,15 +211,23 @@ namespace wolfTPM
         {
             keyblob = wolfTPM2_NewKeyBlob();
         }
+        ~KeyBlob() => Dispose(false);
 
-        ~KeyBlob()
+        public void Dispose()
         {
-            if (keyblob != IntPtr.Zero)
-            {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
+            if (keyblob != IntPtr.Zero) {
                 /* ignore return code */
                 wolfTPM2_FreeKeyBlob(keyblob);
+                keyblob = IntPtr.Zero;
             }
         }
+
 
         public int GetKeyBlobAsBuffer(byte[] buffer)
         {
@@ -250,7 +258,7 @@ namespace wolfTPM
         }
     }
 
-    public class Key
+    public class Key : IDisposable
     {
         const string DLLNAME = "wolftpm";
 
@@ -279,15 +287,23 @@ namespace wolfTPM
         {
             key = wolfTPM2_NewKey();
         }
+        ~Key() => Dispose(false);
 
-        ~Key()
+        public void Dispose()
         {
-            if (key != IntPtr.Zero)
-            {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
+            if (key != IntPtr.Zero) {
                 /* ignore return code */
                 wolfTPM2_FreeKey(key);
+                key = IntPtr.Zero;
             }
         }
+
 
         public IntPtr GetHandle()
         {
@@ -311,10 +327,9 @@ namespace wolfTPM
             }
             return rc;
         }
-
     }
 
-    public class Template
+    public class Template : IDisposable
     {
         const string DLLNAME = "wolftpm";
 
@@ -329,11 +344,23 @@ namespace wolfTPM
         {
             template = wolfTPM2_NewPublicTemplate();
         }
+        ~Template() => Dispose(false);
 
-        ~Template()
+        public void Dispose()
         {
-            wolfTPM2_FreePublicTemplate(template);
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
+            if (template != IntPtr.Zero) {
+                /* ignore return code */
+                wolfTPM2_FreePublicTemplate(template);
+                template = IntPtr.Zero;
+            }
+        }
+
 
         /* non-device functions: template and auth */
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA")]
@@ -476,7 +503,7 @@ namespace wolfTPM
         }
     }
 
-    public class Session
+    public class Session : IDisposable
     {
         const string DLLNAME = "wolftpm";
 
@@ -497,18 +524,25 @@ namespace wolfTPM
             session = wolfTPM2_NewSession();
             sessionIdx = 1; /* for most commands the index is 1 */
         }
-
         public Session(int index)
         {
             session = wolfTPM2_NewSession();
             sessionIdx = index;
         }
+        ~Session() => Dispose(false);
 
-        ~Session()
+        public void Dispose()
         {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
             if (session != IntPtr.Zero) {
-                /* ignore return code on free */
+                /* ignore return code */
                 wolfTPM2_FreeSession(session);
+                session = IntPtr.Zero;
             }
         }
 
@@ -556,7 +590,7 @@ namespace wolfTPM
         }
     }
 
-    public class Csr
+    public class Csr : IDisposable
     {
         const string DLLNAME = "wolftpm";
 
@@ -572,14 +606,23 @@ namespace wolfTPM
         {
             csr = wolfTPM2_NewCSR();
         }
+        ~Csr() => Dispose(false);
 
-        ~Csr()
+        public void Dispose()
         {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
             if (csr != IntPtr.Zero) {
-                /* ignore return code on free */
+                /* ignore return code */
                 wolfTPM2_FreeCSR(csr);
+                csr = IntPtr.Zero;
             }
         }
+
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetCustomExt")]
         private static extern int wolfTPM2_CSR_SetCustomExt(IntPtr dev,
@@ -679,7 +722,7 @@ namespace wolfTPM
         }
     }
 
-    public class Device
+    public class Device : IDisposable
     {
         /* ================================================================== */
         /* Constants                                                          */
@@ -696,12 +739,20 @@ namespace wolfTPM
         {
             device = wolfTPM2_New();
         }
+        ~Device() => Dispose(false);
 
-        ~Device()
+        public void Dispose()
         {
-            if (device != IntPtr.Zero)
-            {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        protected virtual void Dispose(bool disposing)
+        {
+            /* free un-managed objects */
+            if (device != IntPtr.Zero) {
+                /* ignore return code */
                 wolfTPM2_Free(device);
+                device = IntPtr.Zero;
             }
         }
 
