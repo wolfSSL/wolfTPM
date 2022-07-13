@@ -107,33 +107,33 @@ namespace tpm_csharp_test
 
         private void GetSRK(Key srkKey, string auth)
         {
-            int ret = device.CreateSRK(srkKey,
+            int rc = device.CreateSRK(srkKey,
                                        (int)TPM2_Alg.RSA,
                                        auth);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         private void GenerateKey(string algorithm)
         {
-            int ret = (int)Status.TPM_RC_SUCCESS;
+            int rc = (int)Status.TPM_RC_SUCCESS;
             KeyBlob blob = new KeyBlob();
             Template template = new Template();
             byte[] blob_buffer = new byte[Device.MAX_KEYBLOB_BYTES];
 
             if (algorithm == "RSA")
             {
-                ret = template.GetKeyTemplate_RSA((ulong)(
+                rc = template.GetKeyTemplate_RSA((ulong)(
                                                     TPM2_Object.sensitiveDataOrigin |
                                                     TPM2_Object.userWithAuth |
                                                     TPM2_Object.decrypt |
                                                     TPM2_Object.sign |
                                                     TPM2_Object.noDA));
-                Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+                Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
             }
             else if (algorithm == "AES")
             {
-                ret = template.GetKeyTemplate_Symmetric(256, TPM2_Alg.CTR, true, true);
-                Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+                rc = template.GetKeyTemplate_Symmetric(256, TPM2_Alg.CTR, true, true);
+                Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
             }
             else
             {
@@ -141,17 +141,17 @@ namespace tpm_csharp_test
                 Assert.Fail();
             }
 
-            ret = device.CreateKey(blob, parent_key, template,
+            rc = device.CreateKey(blob, parent_key, template,
                                    "ThisIsMyStorageKeyAuth");
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.LoadKey(blob, parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.LoadKey(blob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = blob.GetKeyBlobAsBuffer(blob_buffer);
-            if (ret > 0)
+            rc = blob.GetKeyBlobAsBuffer(blob_buffer);
+            if (rc > 0)
             {
-                Array.Resize(ref blob_buffer, ret);
+                Array.Resize(ref blob_buffer, rc);
                 if (algorithm == "RSA")
                 {
                     generatedRSA = blob_buffer;
@@ -165,21 +165,21 @@ namespace tpm_csharp_test
                     Console.WriteLine("Unexpected algorithm name!");
                     return;
                 }
-                ret = (int)Status.TPM_RC_SUCCESS;
+                rc = (int)Status.TPM_RC_SUCCESS;
             }
             else
             {
                 Console.WriteLine("wolfTPM2_GetKeyBlobAsBuffer() failed.");
-                ret = -1;
+                rc = -1;
             }
 
-            ret = device.UnloadHandle(blob);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(blob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         private void LoadGeneratedKey(string algorithm)
         {
-            int ret = (int)Status.TPM_RC_SUCCESS;
+            int rc = (int)Status.TPM_RC_SUCCESS;
             KeyBlob blob = new KeyBlob();
             byte[] blob_buffer;
 
@@ -197,14 +197,14 @@ namespace tpm_csharp_test
                 return;
             }
 
-            ret = blob.SetKeyBlobFromBuffer(blob_buffer);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = blob.SetKeyBlobFromBuffer(blob_buffer);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.LoadKey(blob, parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.LoadKey(blob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.UnloadHandle(blob);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(blob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
 
@@ -218,27 +218,26 @@ namespace tpm_csharp_test
         [TearDown]
         public void TestCleanup()
         {
-            int ret = device.UnloadHandle(parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            int rc = device.UnloadHandle(parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TrySelfTest()
         {
-            uint ret = (uint)device.SelfTest();
-            Assert.That(ret, Is.EqualTo((uint)Status.TPM_RC_SUCCESS) |
-                             Is.EqualTo(0x80280400));
+            int rc = device.SelfTest();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryFillBufferWithRandom()
         {
-            int ret;
+            int rc;
             const int bufSz = 256;
             byte[] buf = new byte[bufSz];
 
-            ret = device.GetRandom(buf);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.GetRandom(buf);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
             PrintByteArray(buf);
 
             Assert.That(buf, Has.Some.GreaterThan(0));
@@ -261,28 +260,28 @@ namespace tpm_csharp_test
         [Test]
         public void TryAuthSession()
         {
-            int ret;
+            int rc;
             Session tpmSession = new Session();
             const int bufSz = 256;
             byte[] buf = new byte[bufSz];
 
             Console.WriteLine("Testing Parameter Encryption with AES CFB");
 
-            ret = tpmSession.StartAuth(device, parent_key, TPM2_Alg.CFB);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = tpmSession.StartAuth(device, parent_key, TPM2_Alg.CFB);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             /* Do sensitive operation */
-            ret = device.GetRandom(buf);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.GetRandom(buf);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = tpmSession.StopAuth(device);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = tpmSession.StopAuth(device);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryLoadRSAPublicKey()
         {
-            int ret;
+            int rc;
             Key pub_key;
             int exp = 0x10001;
 
@@ -290,17 +289,17 @@ namespace tpm_csharp_test
 
             pub_key = new Key();
 
-            ret = device.LoadRsaPublicKey(pub_key, pub_buffer, exp);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.LoadRsaPublicKey(pub_key, pub_buffer, exp);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.UnloadHandle(pub_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(pub_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryLoadRSAPrivateKey()
         {
-            int ret;
+            int rc;
             Key priv_key;
             int exp = 0x10001;
 
@@ -309,19 +308,19 @@ namespace tpm_csharp_test
 
             priv_key = new Key();
 
-            ret = device.LoadRsaPrivateKey(parent_key, priv_key,
+            rc = device.LoadRsaPrivateKey(parent_key, priv_key,
                                            pub_buffer, exp,
                                            priv_buffer);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.UnloadHandle(priv_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(priv_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryImportRSAPrivateKey()
         {
-            int ret;
+            int rc;
 
             KeyBlob blob;
             int exp = 0x10001;
@@ -331,64 +330,72 @@ namespace tpm_csharp_test
 
             blob = new KeyBlob();
 
-            ret = device.ImportRsaPrivateKey(parent_key, blob,
+            rc = device.ImportRsaPrivateKey(parent_key, blob,
                                              pub_buffer,
                                              exp, priv_buffer,
                                              (uint)TPM2_Alg.NULL, (uint)TPM2_Alg.NULL);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.UnloadHandle(blob);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(blob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryCreatePrimaryKey()
         {
-            int ret;
+            int rc;
             Key key = new Key();
             Template template = new Template();
 
             /* Test creating the primary RSA endorsement key (EK) */
-            ret = template.GetKeyTemplate_RSA_EK();
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = template.GetKeyTemplate_RSA_EK();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.CreatePrimaryKey(key, TPM_RH.ENDORSEMENT, template, null);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.CreatePrimaryKey(key, TPM_RH.ENDORSEMENT, template, null);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.UnloadHandle(key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryCreateCustomPrimaryKey()
         {
-            int ret;
+            int rc;
             Key key = new Key();
             Template template = new Template();
 
             /* Test creating custom SRK (different than one Windows uses) */
-            ret = template.GetKeyTemplate_RSA_SRK();
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = template.GetKeyTemplate_RSA_SRK();
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = template.SetKeyTemplate_Unique("myUniqueValue");
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = template.SetKeyTemplate_Unique("myUniqueValue");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.CreatePrimaryKey(key, TPM_RH.OWNER, template, null);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.CreatePrimaryKey(key, TPM_RH.OWNER, template, null);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             /* use temporary handle (in memory), cannot store to
              * Non-Volatile (NV) Memory on Windows */
             Console.WriteLine("Primary Key Handle 0x{0}",
                 device.GetHandleValue(key.GetHandle()).ToString("X8"));
 
-            ret = device.UnloadHandle(key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+        }
+
+        [Test]
+        public void TryGetErrorString()
+        {
+            string err = device.GetErrorString(Status.BAD_FUNC_ARG);
+            if (!string.IsNullOrEmpty(err))
+                Assert.AreEqual(err, "Bad function argument");
         }
 
         [Test]
         public void TryGenerateCSR()
         {
-            int ret;
+            int rc;
             KeyBlob keyBlob = new KeyBlob();
             Template template = new Template();
             byte[] output = new byte[Device.MAX_TPM_BUFFER];
@@ -398,35 +405,75 @@ namespace tpm_csharp_test
                              "/emailAddress=info@wolfssl.com";
             string keyUsage = "serverAuth,clientAuth,codeSigning";
 
-            ret = template.GetKeyTemplate_RSA((ulong)(
+            rc = template.GetKeyTemplate_RSA((ulong)(
                                             TPM2_Object.sensitiveDataOrigin |
                                             TPM2_Object.userWithAuth |
                                             TPM2_Object.decrypt |
                                             TPM2_Object.sign |
                                             TPM2_Object.noDA));
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.CreateKey(keyBlob, parent_key, template,
+            rc = device.CreateKey(keyBlob, parent_key, template,
                 "ThisIsMyStorageKeyAuth");
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.LoadKey(keyBlob, parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.GenerateCSR(keyBlob, subject, keyUsage,
-                X509_Format.PEM, output, 0);
-            Assert.That(ret, Is.GreaterThan(0));
+            /* Generate a CSR (Certificate Signing Request) */
+            rc = device.GenerateCSR(keyBlob, subject, keyUsage,
+                X509_Format.PEM, output);
+            Assert.That(rc, Is.GreaterThan(0));
 
-            Console.WriteLine("CSR PEM {0} bytes", ret.ToString());
+            Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
 
-            ret = device.UnloadHandle(keyBlob);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+        }
+
+        [Test]
+        public void TryGenerateCert()
+        {
+            int rc;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            byte[] output = new byte[Device.MAX_TPM_BUFFER];
+
+            string subject = "/C=US/ST=Oregon/L=Portland/SN=Development" +
+                             "/O=wolfSSL/OU=RSA/CN=www.wolfssl.com" +
+                             "/emailAddress=info@wolfssl.com";
+            string keyUsage = "serverAuth,clientAuth,codeSigning";
+
+            rc = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyStorageKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Generate a self signed certificate */
+            rc = device.GenerateCSR(keyBlob, subject, keyUsage,
+                X509_Format.PEM, output, 0, 1);
+            Assert.That(rc, Is.GreaterThan(0));
+
+            Console.WriteLine("Cert PEM {0} bytes", rc.ToString());
+
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
         [Test]
         public void TryGenerateCSRCustomOID()
         {
-            int ret;
+            int rc;
             KeyBlob keyBlob = new KeyBlob();
             Template template = new Template();
             Csr csr = new Csr();
@@ -440,43 +487,42 @@ namespace tpm_csharp_test
             string custOid =    "1.2.3.4.5";
             string custOidVal = "This is NOT a critical extension";
 
-            ret = template.GetKeyTemplate_RSA((ulong)(
+            rc = template.GetKeyTemplate_RSA((ulong)(
                                             TPM2_Object.sensitiveDataOrigin |
                                             TPM2_Object.userWithAuth |
                                             TPM2_Object.decrypt |
                                             TPM2_Object.sign |
                                             TPM2_Object.noDA));
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.CreateKey(keyBlob, parent_key, template,
+            rc = device.CreateKey(keyBlob, parent_key, template,
                 "ThisIsMyStorageKeyAuth");
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = device.LoadKey(keyBlob, parent_key);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = csr.SetSubject(subject);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = csr.SetSubject(subject);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = csr.SetKeyUsage(keyUsage);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = csr.SetKeyUsage(keyUsage);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = csr.SetCustomExtension(custOid, custOidVal, 0);
+            rc = csr.SetCustomExtension(custOid, custOidVal, 0);
             /* if custom OID support is not compiled in then test is
              * inconclusive */
-            if (ret == (int)Status.NOT_COMPILED_IN)
+            if (rc == (int)Status.NOT_COMPILED_IN)
                 Assert.Inconclusive();
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            ret = csr.MakeAndSign(device, keyBlob, X509_Format.PEM, output);
-            Assert.That(ret, Is.GreaterThan(0));
+            rc = csr.MakeAndSign(device, keyBlob, X509_Format.PEM, output);
+            Assert.That(rc, Is.GreaterThan(0));
 
-            Console.WriteLine("CSR PEM {0} bytes", ret.ToString());
+            Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
 
-            ret = device.UnloadHandle(keyBlob);
-            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, ret);
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
-
 
     }
 }

@@ -5485,10 +5485,11 @@ const char* TPM2_GetRCString(int rc)
         #endif
     #else
         switch (rc) {
-            TPM_RC_STR(BAD_FUNC_ARG, "Bad function argument provided");
-            TPM_RC_STR(BUFFER_E, "Output buffer too small or input too large");
+            /* copy of the error code strings from wolfCrypt */
+            TPM_RC_STR(BAD_FUNC_ARG, "Bad function argument");
+            TPM_RC_STR(BUFFER_E, "Buffer error, output too small or input too big");
             TPM_RC_STR(NOT_COMPILED_IN, "Feature not compiled in");
-            TPM_RC_STR(BAD_MUTEX_E, "Bad mutex operation");
+            TPM_RC_STR(BAD_MUTEX_E, "Bad mutex, operation failed");
             TPM_RC_STR(WC_TIMEOUT_E, "Timeout error");
             default:
                 break;
