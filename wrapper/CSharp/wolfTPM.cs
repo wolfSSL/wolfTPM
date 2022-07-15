@@ -282,6 +282,7 @@ namespace wolfTPM
         private static extern IntPtr wolfTPM2_GetHandleRefFromKey(IntPtr key);
 
         internal IntPtr key;
+        public bool isPrimary { get; set; } = false; 
 
         public Key()
         {
@@ -298,9 +299,15 @@ namespace wolfTPM
         {
             /* free un-managed objects */
             if (key != IntPtr.Zero) {
-                /* ignore return code */
-                wolfTPM2_FreeKey(key);
-                key = IntPtr.Zero;
+                if (isPrimary) {
+                    /* A primaryKey must be manually free'd using
+                     * device.UnloadHandle(Key key) */
+                }
+                else {
+                    /* ignore return code */
+                    wolfTPM2_FreeKey(key);
+                    key = IntPtr.Zero;
+                }
             }
         }
 
@@ -1085,6 +1092,9 @@ namespace wolfTPM
             if (rc != (int)Status.TPM_RC_SUCCESS) {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_CreatePrimaryKey", rc);
+            }
+            else {
+                key.isPrimary = true;
             }
             return rc;
         }
