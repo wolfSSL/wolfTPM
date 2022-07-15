@@ -61,7 +61,8 @@
 #define AssertInt(x, y, op, er) do {                                           \
     int _x = (int)x;                                                           \
     int _y = (int)y;                                                           \
-    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d(0x%x) " #er " %d(0x%x)", _x, _x, _y, _y)); \
+    Assert(_x op _y, ("%s " #op " %s", #x, #y), ("%d(0x%x) " #er " %d(0x%x)",  \
+    _x, _x, _y, _y)); \
 } while(0)
 #define AssertIntEQ(x, y) AssertInt(x, y, ==, !=)
 #define AssertIntNE(x, y) AssertInt(x, y, !=, ==)
@@ -289,6 +290,41 @@ static void test_TPM2_KDFa(void)
     AssertIntEQ(sizeof(keyExp), rc);
     AssertIntEQ(XMEMCMP(key, keyExp, sizeof(keyExp)), 0);
 #endif
+
+    printf("Test TPM Wrapper:\tKDFa:\t%s\n",
+        rc >= 0 ? "Passed" : "Failed");
+}
+
+static void test_wolfTPM2_CSR(void)
+{
+#if defined(WOLFTPM2_CERT_GEN) && !defined(WOLFTPM2_NO_HEAP)
+    int rc;
+    WOLFTPM2_CSR* csr = wolfTPM2_NewCSR();
+    AssertNotNull(csr);
+
+    /* invalid cases */
+    rc = wolfTPM2_CSR_SetSubject(NULL, NULL, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_CSR_SetSubject(NULL, csr, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* valid, but empty DH strings */
+    rc = wolfTPM2_CSR_SetSubject(NULL, csr, ""); /* test no slash */
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CSR_SetSubject(NULL, csr, "/C=/CN="); /* test blank value */
+    AssertIntEQ(rc, 0);
+
+    /* valid string */
+    rc = wolfTPM2_CSR_SetSubject(NULL, csr,
+        "/C=US/ST=Oregon/L=Portland/SN=Test/O=wolfSSL"
+        "/OU=RSA/CN=www.wolfssl.com/emailAddress=info@wolfssl.com");
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_FreeCSR(csr);
+
+    printf("Test TPM Wrapper:\tCSR Subject:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+#endif
 }
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
@@ -309,6 +345,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetRandom();
     test_TPM2_KDFa();
     test_wolfTPM2_ReadPublicKey();
+    test_wolfTPM2_CSR();
     test_wolfTPM2_Cleanup();
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
