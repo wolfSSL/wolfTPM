@@ -66,6 +66,7 @@ namespace wolfTPM
     {
         TPM_RC_SUCCESS = 0,
         TPM_RC_HANDLE = 0x8B,
+        TPM_RC_NV_UNAVAILABLE = 0x923,
         BAD_FUNC_ARG = -173,
         NOT_COMPILED_IN = -174,
     }
@@ -969,7 +970,7 @@ namespace wolfTPM
             int rc = wolfTPM2_NVStoreKey(device, primaryHandle, key.key,
                                          persistentHandle);
             if (rc != (int)Status.TPM_RC_SUCCESS &&
-                (uint)rc != 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
+                rc != (int)Status.TPM_RC_NV_UNAVAILABLE) {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_NVStoreKey", rc);
             }
@@ -980,7 +981,7 @@ namespace wolfTPM
             int rc = wolfTPM2_NVStoreKey(device, primaryHandle, keyBlob.keyblob,
                                          persistentHandle);
             if (rc != (int)Status.TPM_RC_SUCCESS &&
-                (uint)rc != 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
+                rc != (int)Status.TPM_RC_NV_UNAVAILABLE) {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_NVStoreKey", rc);
             }
@@ -1218,8 +1219,8 @@ namespace wolfTPM
         }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleValue")]
-        private static extern long wolfTPM2_GetHandleValue(IntPtr handle);
-        public long GetHandleValue(IntPtr handle)
+        private static extern uint wolfTPM2_GetHandleValue(IntPtr handle);
+        public uint GetHandleValue(IntPtr handle)
         {
             return wolfTPM2_GetHandleValue(handle);
         }

@@ -2414,6 +2414,16 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef WOLFTPM_WINAPI
+        if (rc == TPM_E_COMMAND_BLOCKED) { /* 0x80280400 */
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_EvictControl (storing key to NV) not allowed on "
+                   "Windows TBS (err 0x%x)\n", rc);
+        #endif
+            rc = TPM_RC_NV_UNAVAILABLE;
+        }
+    #endif
+
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));

@@ -526,8 +526,10 @@ namespace tpm_csharp_test
             rc = csr.SetCustomExtension(custOid, custOidVal, 0);
             /* if custom OID support is not compiled in then test is
              * inconclusive */
-            if (rc == (int)Status.NOT_COMPILED_IN)
+            if (rc == (int)Status.NOT_COMPILED_IN) {
+                device.UnloadHandle(keyBlob);
                 Assert.Inconclusive();
+            }
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = csr.MakeAndSign(device, keyBlob, X509_Format.PEM, output);
@@ -566,18 +568,22 @@ namespace tpm_csharp_test
             rc = device.LoadKey(keyBlob, parent_key);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            /* Store key */
-            rc = device.StoreKey(keyBlob, (ulong)TPM_RH.OWNER, testPersistentHandle);
-            if ((uint)rc == 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
-                /* Windows TBS does not allow storing keys to NV */
+            /* Read public key */
+            rc = device.ReadPublicKey(keyBlob,
+                device.GetHandleValue(keyBlob.GetHandle()));
+            if (rc == (int)Status.TPM_RC_HANDLE) {
+                /* valid error if the handle is not found */
                 rc = 0; /* ignore error */
             }
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
-            /* Read public key */
-            rc = device.ReadPublicKey(keyBlob, testPersistentHandle);
-            if (rc == (int)Status.TPM_RC_HANDLE) {
-                /* valid error if the handle is not found */
+            /* Store key */
+            rc = device.StoreKey(keyBlob, (ulong)TPM_RH.OWNER, testPersistentHandle);
+            if (rc == (int)Status.TPM_RC_NV_UNAVAILABLE) {
+                device.UnloadHandle(keyBlob);
+
+                Assert.Inconclusive();
+                /* Windows TBS does not allow storing keys to NV */
                 rc = 0; /* ignore error */
             }
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
