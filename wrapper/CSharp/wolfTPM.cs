@@ -65,6 +65,7 @@ namespace wolfTPM
     public enum Status : int
     {
         TPM_RC_SUCCESS = 0,
+        TPM_RC_HANDLE = 0x8B,
         BAD_FUNC_ARG = -173,
         NOT_COMPILED_IN = -174,
     }
@@ -893,13 +894,23 @@ namespace wolfTPM
         private static extern int wolfTPM2_ReadPublicKey(IntPtr dev,
                                                          IntPtr key,
                                                          ulong handle);
-        public int ReadPublicKey(Key key,
-                                 ulong handle)
+        public int ReadPublicKey(Key key, ulong handle)
         {
-            int rc = wolfTPM2_ReadPublicKey(device,
-                                            key.key,
-                                            handle);
-            if (rc != (int)Status.TPM_RC_SUCCESS) {
+            int rc = wolfTPM2_ReadPublicKey(device, key.key, handle);
+            if (rc != (int)Status.TPM_RC_SUCCESS && 
+                rc != (int)Status.TPM_RC_HANDLE)
+            {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_ReadPublicKey", rc);
+            }
+            return rc;
+        }
+        public int ReadPublicKey(KeyBlob keyBlob, ulong handle)
+        {
+            int rc = wolfTPM2_ReadPublicKey(device, keyBlob.keyblob, handle);
+            if (rc != (int)Status.TPM_RC_SUCCESS && 
+                rc != (int)Status.TPM_RC_HANDLE)
+            {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_ReadPublicKey", rc);
             }
@@ -950,21 +961,53 @@ namespace wolfTPM
             return rc;
         }
 
-
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NVStoreKey")]
         private static extern int wolfTPM2_NVStoreKey(IntPtr dev,
-            IntPtr primaryHandle, IntPtr key, IntPtr persistentHandle);
-        public int StoreKey(Key key, IntPtr primaryHandle, IntPtr persistentHandle)
+            ulong primaryHandle, IntPtr key, ulong persistentHandle);
+        public int StoreKey(Key key, ulong primaryHandle, ulong persistentHandle)
         {
-            int rc = wolfTPM2_NVStoreKey(device, primaryHandle, key.GetHandle(),
+            int rc = wolfTPM2_NVStoreKey(device, primaryHandle, key.key,
                                          persistentHandle);
-            if (rc != (int)Status.TPM_RC_SUCCESS) {
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
+                (uint)rc != 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_NVStoreKey", rc);
+            }
+            return rc;
+        }
+        public int StoreKey(KeyBlob keyBlob, ulong primaryHandle, ulong persistentHandle)
+        {
+            int rc = wolfTPM2_NVStoreKey(device, primaryHandle, keyBlob.keyblob,
+                                         persistentHandle);
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
+                (uint)rc != 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
                 throw new WolfTpm2Exception(
                     "wolfTPM2_NVStoreKey", rc);
             }
             return rc;
         }
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NVDeleteKey")]
+        private static extern int wolfTPM2_NVDeleteKey(IntPtr dev,
+            ulong primaryHandle, IntPtr key);
+        public int DeleteKey(Key key, ulong primaryHandle)
+        {
+            int rc = wolfTPM2_NVDeleteKey(device, primaryHandle, key.key);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_NVDeleteKey", rc);
+            }
+            return rc;
+        }
+        public int DeleteKey(KeyBlob keyBlob, ulong primaryHandle)
+        {
+            int rc = wolfTPM2_NVDeleteKey(device, primaryHandle, keyBlob.keyblob);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_NVDeleteKey", rc);
+            }
+            return rc;
+        }
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_ImportRsaPrivateKey")]
         private static extern int wolfTPM2_ImportRsaPrivateKey(

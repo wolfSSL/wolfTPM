@@ -169,7 +169,7 @@ namespace tpm_csharp_test
             }
             else
             {
-                Console.WriteLine("wolfTPM2_GetKeyBlobAsBuffer() failed.");
+                Console.WriteLine("wolfTPM2_GetKeyBlobAsBuffer() failed");
                 rc = -1;
             }
 
@@ -285,6 +285,7 @@ namespace tpm_csharp_test
             Key pub_key;
             int exp = 0x10001;
 
+            Console.WriteLine("Testing load RSA Public key");
             PrintByteArray(pub_buffer);
 
             pub_key = new Key();
@@ -302,6 +303,8 @@ namespace tpm_csharp_test
             int rc;
             Key priv_key;
             int exp = 0x10001;
+
+            Console.WriteLine("Testing load RSA Private key");
 
             PrintByteArray(pub_buffer);
             PrintByteArray(priv_buffer);
@@ -325,6 +328,8 @@ namespace tpm_csharp_test
             KeyBlob blob;
             int exp = 0x10001;
 
+            Console.WriteLine("Testing import RSA Private key");
+
             PrintByteArray(pub_buffer);
             PrintByteArray(priv_buffer);
 
@@ -347,6 +352,8 @@ namespace tpm_csharp_test
             Key key = new Key();
             Template template = new Template();
 
+            Console.WriteLine("Testing create primary");
+
             /* Test creating the primary RSA endorsement key (EK) */
             rc = template.GetKeyTemplate_RSA_EK();
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
@@ -364,6 +371,8 @@ namespace tpm_csharp_test
             int rc;
             Key key = new Key();
             Template template = new Template();
+
+            Console.WriteLine("Testing create primary custom");
 
             /* Test creating custom SRK (different than one Windows uses) */
             rc = template.GetKeyTemplate_RSA_SRK();
@@ -405,6 +414,8 @@ namespace tpm_csharp_test
                              "/emailAddress=info@wolfssl.com";
             string keyUsage = "serverAuth,clientAuth,codeSigning";
 
+            Console.WriteLine("Testing generate CSR");
+
             rc = template.GetKeyTemplate_RSA((ulong)(
                                             TPM2_Object.sensitiveDataOrigin |
                                             TPM2_Object.userWithAuth |
@@ -443,6 +454,8 @@ namespace tpm_csharp_test
                              "/O=wolfSSL/OU=RSA/CN=www.wolfssl.com" +
                              "/emailAddress=info@wolfssl.com";
             string keyUsage = "serverAuth,clientAuth,codeSigning";
+
+            Console.WriteLine("Testing generate Certificate");
 
             rc = template.GetKeyTemplate_RSA((ulong)(
                                             TPM2_Object.sensitiveDataOrigin |
@@ -487,6 +500,8 @@ namespace tpm_csharp_test
             string custOid =    "1.2.3.4.5";
             string custOidVal = "This is NOT a critical extension";
 
+            Console.WriteLine("Testing generate CSR custom");
+
             rc = template.GetKeyTemplate_RSA((ulong)(
                                             TPM2_Object.sensitiveDataOrigin |
                                             TPM2_Object.userWithAuth |
@@ -519,6 +534,57 @@ namespace tpm_csharp_test
             Assert.That(rc, Is.GreaterThan(0));
 
             Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
+
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+        }
+
+        [Test]
+        public void TryKeyNV()
+        {
+            int rc;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            ulong testPersistentHandle = 0x81000202;
+
+            Console.WriteLine("Testing key with NV");
+
+            rc = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Generate new key */
+            rc = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyStorageKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Load key */
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Store key */
+            rc = device.StoreKey(keyBlob, (ulong)TPM_RH.OWNER, testPersistentHandle);
+            if ((uint)rc == 0x80280400) { /* TPM_E_COMMAND_BLOCKED */
+                /* Windows TBS does not allow storing keys to NV */
+                rc = 0; /* ignore error */
+            }
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Read public key */
+            rc = device.ReadPublicKey(keyBlob, testPersistentHandle);
+            if (rc == (int)Status.TPM_RC_HANDLE) {
+                /* valid error if the handle is not found */
+                rc = 0; /* ignore error */
+            }
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Delete Key */
+            rc = device.DeleteKey(keyBlob, (ulong)TPM_RH.OWNER);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.UnloadHandle(keyBlob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
