@@ -116,7 +116,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #else
     rc = TPM_RC_SUCCESS;
 #endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
-#endif /* !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI) */
+#endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
     return rc;
 }
@@ -511,7 +511,7 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
     selfTest.fullTest = YES;
     rc = TPM2_SelfTest(&selfTest);
 #ifdef WOLFTPM_WINAPI
-    if (rc == TPM_E_COMMAND_BLOCKED) {
+    if (rc == TPM_E_COMMAND_BLOCKED) { /* 0x80280400 */
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_SelfTest not allowed on Windows TBS (err 0x%x)\n", rc);
     #endif
@@ -2414,6 +2414,16 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef WOLFTPM_WINAPI
+        if (rc == TPM_E_COMMAND_BLOCKED) { /* 0x80280400 */
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_EvictControl (storing key to NV) not allowed on "
+                   "Windows TBS (err 0x%x)\n", rc);
+        #endif
+            rc = TPM_RC_NV_UNAVAILABLE;
+        }
+    #endif
+
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
