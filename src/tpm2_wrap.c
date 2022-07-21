@@ -2496,6 +2496,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     Sign_In  signIn;
     Sign_Out signOut;
     int curveSize = 0;
+    int sigOutSz = 0;
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL ||
                                                             sigSz == NULL) {
@@ -2506,12 +2507,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         /* get curve size */
         curveSize = wolfTPM2_GetCurveSize(
             key->pub.publicArea.parameters.eccDetail.curveID);
-        if (curveSize <= 0 || *sigSz < (curveSize * 2)) {
-            return BAD_FUNC_ARG;
-        }
-    }
-    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
-        if (*sigSz < (int)sizeof(signOut.signature.signature.rsassa.sig.buffer)) {
+        if (curveSize <= 0) {
             return BAD_FUNC_ARG;
         }
     }
@@ -2539,20 +2535,35 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         /* Assemble R and S into signature (R then S) */
-        *sigSz = signOut.signature.signature.ecdsa.signatureR.size +
-                signOut.signature.signature.ecdsa.signatureS.size;
-        XMEMCPY(sig, signOut.signature.signature.ecdsa.signatureR.buffer,
-            signOut.signature.signature.ecdsa.signatureR.size);
-        XMEMCPY(sig + signOut.signature.signature.ecdsa.signatureR.size,
-            signOut.signature.signature.ecdsa.signatureS.buffer,
-            signOut.signature.signature.ecdsa.signatureS.size);
+        sigOutSz = signOut.signature.signature.ecdsa.signatureR.size +
+                   signOut.signature.signature.ecdsa.signatureS.size;
+        if (sigOutSz > *sigSz) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Sign: ECC result truncated %d -> %d\n",
+                sigOutSz, *sigSz);
+        #endif
+            sigOutSz = *sigSz;
+        }
+        XMEMCPY(sig,
+                signOut.signature.signature.ecdsa.signatureR.buffer,
+                sigOutSz/2);
+        XMEMCPY(sig + sigOutSz/2,
+                signOut.signature.signature.ecdsa.signatureS.buffer,
+                sigOutSz/2);
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
-        *sigSz = signOut.signature.signature.rsassa.sig.size;
-        XMEMCPY(sig, signOut.signature.signature.rsassa.sig.buffer,
-            signOut.signature.signature.rsassa.sig.size);
+        sigOutSz = signOut.signature.signature.rsassa.sig.size;
+        if (sigOutSz > *sigSz) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Sign: RSA result truncated %d -> %d\n",
+                sigOutSz, *sigSz);
+        #endif
+            sigOutSz = *sigSz;
+        }
+        XMEMCPY(sig, signOut.signature.signature.rsassa.sig.buffer, sigOutSz);
     }
+    *sigSz = sigOutSz;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_Sign: %s %d\n",
@@ -2604,7 +2615,7 @@ int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         if (curveSize <= 0 || sigSz < (curveSize * 2)) {
             return BAD_FUNC_ARG;
         }
-        /* verify curvesize cannot exceed buffer */
+        /* verify curve size cannot exceed buffer */
         if (curveSize > (int)sizeof(verifySigIn.signature.signature.ecdsa.signatureR.buffer))
             return BAD_FUNC_ARG;
 

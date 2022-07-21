@@ -62,15 +62,18 @@ namespace wolfTPM
         }
     }
 
+    /* from TPM_RC_T and wolfCrypt error-crypt.h */
     public enum Status : int
     {
         TPM_RC_SUCCESS = 0,
         TPM_RC_HANDLE = 0x8B,
         TPM_RC_NV_UNAVAILABLE = 0x923,
+        TPM_RC_SIGNATURE = 0x9B,
         BAD_FUNC_ARG = -173,
         NOT_COMPILED_IN = -174,
     }
 
+    /* from TPMA_OBJECT_mask */
     public enum TPM2_Object : ulong
     {
         fixedTPM = 0x00000002,
@@ -87,6 +90,7 @@ namespace wolfTPM
         sign = 0x00040000,
     }
 
+    /* from TPM_ALG_ID */
     public enum TPM2_Alg : uint
     {
         ERROR = 0x0000,
@@ -127,6 +131,7 @@ namespace wolfTPM
         ECB = 0x0044,
     }
 
+    /* from TPM_ECC_CURVE_T */
     public enum TPM2_ECC : uint
     {
         NONE        = 0x0000,
@@ -140,6 +145,7 @@ namespace wolfTPM
         SM2_P256    = 0x0020,
     }
 
+    /* from TPM_SE_T */
     public enum SE : byte
     {
         HMAC = 0x00,
@@ -147,6 +153,7 @@ namespace wolfTPM
         TRIAL = 0x03,
     }
 
+    /* from TPMA_SESSION_mask */
     public enum SESSION_mask : byte
     {
         continueSession = 0x01,
@@ -157,6 +164,7 @@ namespace wolfTPM
         audit           = 0x80,
     }
 
+    /* from TPM_RH_T */
     public enum TPM_RH : ulong
     {
         FIRST        = 0x40000000,
@@ -179,6 +187,7 @@ namespace wolfTPM
         LAST         = AUTH_FF,
     }
 
+    /* from wolfSSL WOLFSSL_FILETYPE_ASN1 and WOLFSSL_FILETYPE_PEM */
     public enum X509_Format : int
     {
         PEM = 1,
@@ -808,16 +817,16 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreateSRK")]
         private static extern int wolfTPM2_CreateSRK(IntPtr dev,
                                                      IntPtr srkKey,
-                                                     int alg,
+                                                     uint alg,
                                                      string auth,
                                                      int authSz);
         public int CreateSRK(Key srkKey,
-                             int alg,
+                             TPM2_Alg alg,
                              string auth)
         {
             int rc = wolfTPM2_CreateSRK(device,
                                         srkKey.key,
-                                        alg,
+                                        (uint)alg,
                                         auth,
                                         auth.Length);
             if (rc != (int)Status.TPM_RC_SUCCESS) {
@@ -898,7 +907,7 @@ namespace wolfTPM
         public int ReadPublicKey(Key key, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, key.key, handle);
-            if (rc != (int)Status.TPM_RC_SUCCESS && 
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
                 rc != (int)Status.TPM_RC_HANDLE)
             {
                 throw new WolfTpm2Exception(
@@ -909,7 +918,7 @@ namespace wolfTPM
         public int ReadPublicKey(KeyBlob keyBlob, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, keyBlob.keyblob, handle);
-            if (rc != (int)Status.TPM_RC_SUCCESS && 
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
                 rc != (int)Status.TPM_RC_HANDLE)
             {
                 throw new WolfTpm2Exception(
@@ -1029,8 +1038,8 @@ namespace wolfTPM
             byte[] rsaPub,
             int exponent,
             byte[] rsaPriv,
-            uint scheme,
-            uint hashAlg)
+            TPM2_Alg scheme,
+            TPM2_Alg hashAlg)
         {
             int rc = wolfTPM2_ImportRsaPrivateKey(device,
                                                   parentKey.key,
@@ -1040,8 +1049,8 @@ namespace wolfTPM
                                                   exponent,
                                                   rsaPriv,
                                                   rsaPriv.Length,
-                                                  scheme,
-                                                  hashAlg);
+                                                  (uint)scheme,
+                                                  (uint)hashAlg);
             if (rc != (int)Status.TPM_RC_SUCCESS) {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_ImportRsaPrivateKey", rc);
@@ -1202,6 +1211,85 @@ namespace wolfTPM
             }
             return rc;
         }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_RsaEncrypt")]
+        private static extern int wolfTPM2_RsaEncrypt(
+            IntPtr dev, IntPtr key, uint padScheme, byte[] plain, int plainSz,
+            byte[] enc, ref int encSz);
+        public int RsaEncrypt(KeyBlob keyBlob, byte[] plain, byte[] enc,
+            TPM2_Alg padScheme)
+        {
+            int encSz = enc.Length;
+            int rc = wolfTPM2_RsaEncrypt(device, keyBlob.keyblob, (uint)padScheme,
+                plain, plain.Length, enc, ref encSz);
+            if (rc == 0) {
+                rc = encSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_RsaEncrypt", rc);
+            }
+
+            return rc;
+        }
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_RsaDecrypt")]
+        private static extern int wolfTPM2_RsaDecrypt(
+            IntPtr dev, IntPtr key, uint padScheme, byte[] enc, int encSz,
+            byte[] plain, ref int plainSz);
+        public int RsaDecrypt(KeyBlob keyBlob, byte[] enc, byte[] plain,
+            TPM2_Alg padScheme)
+        {
+            int plainSz = enc.Length;
+            int rc = wolfTPM2_RsaDecrypt(device, keyBlob.keyblob, (uint)padScheme,
+                enc, enc.Length, plain, ref plainSz);
+            if (rc == 0) {
+                rc = plainSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_RsaDecrypt", rc);
+            }
+            return rc;
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SignHashScheme")]
+        private static extern int wolfTPM2_SignHashScheme(
+            IntPtr dev, IntPtr key, byte[] digest, int digestSz,
+            byte[] sig, ref int sigSz, uint sigAlg, uint hashAlg);
+        public int SignHashScheme(KeyBlob keyBlob, byte[] digest, byte[] sig,
+            TPM2_Alg sigAlg, TPM2_Alg hashAlg)
+        {
+            int sigSz = sig.Length;
+            int rc = wolfTPM2_SignHashScheme(device, keyBlob.keyblob,
+                digest, digest.Length, sig, ref sigSz,
+                (uint)sigAlg, (uint)hashAlg);
+            if (rc == 0) {
+                rc = sigSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SignHashScheme", rc);
+            }
+            return rc;
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_VerifyHashScheme")]
+        private static extern int wolfTPM2_VerifyHashScheme(
+            IntPtr dev, IntPtr key, byte[] sig, int sigSz,
+            byte[] digest, int digestSz, uint sigAlg, uint hashAlg);
+        public int VerifyHashScheme(KeyBlob keyBlob, byte[] sig, byte[] digest,
+            TPM2_Alg sigAlg, TPM2_Alg hashAlg)
+        {
+            int rc = wolfTPM2_VerifyHashScheme(device, keyBlob.keyblob,
+                sig, sig.Length, digest, digest.Length,
+                (uint)sigAlg, (uint)hashAlg);
+            if (rc != 0 && rc != (int)Status.TPM_RC_SIGNATURE) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_VerifyHashScheme", rc);
+            }
+            return rc;
+        }
+
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
         private static extern int wolfTPM2_UnloadHandle(IntPtr dev, IntPtr handle);
