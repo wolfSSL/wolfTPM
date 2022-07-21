@@ -642,6 +642,17 @@ namespace wolfTPM
                                                             string oid,
                                                             byte[] der,
                                                             uint derSz);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// custom request extension oid and value usage for a Csr class.
+        /// </summary>
+        /// <param name="oid">Dot separated oid as a string.
+        ///     For example "1.2.840.10045.3.1.7"</param>
+        /// <param name="der">The der encoding of the content of the extension.</param>
+        /// <param name="critical">If 0, the extension will not be marked critical,
+        ///     otherwise it will be marked critical.</param>
+        /// <returns>Success: 0</returns>
         public int SetCustomExtension(string oid, string der, int critical)
         {
             byte[] derBuf = Encoding.ASCII.GetBytes(der);
@@ -659,6 +670,15 @@ namespace wolfTPM
         private static extern int wolfTPM2_CSR_SetKeyUsage(IntPtr dev,
                                                             IntPtr csr,
                                                             string keyUsage);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// key usage for a Csr class.
+        /// </summary>
+        /// <param name="keyUsage">keyUsage string list of comma separated key usage attributes.
+        ///     Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        ///     Default: "serverAuth,clientAuth,codeSigning"</param>
+        /// <returns>Success: 0</returns>
         public int SetKeyUsage(string keyUsage)
         {
             int rc = wolfTPM2_CSR_SetKeyUsage(IntPtr.Zero, csr, keyUsage);
@@ -673,6 +693,13 @@ namespace wolfTPM
         private static extern int wolfTPM2_CSR_SetSubject(IntPtr dev,
                                                           IntPtr csr,
                                                           string subject);
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// subject for a Csr class.
+        /// </summary>
+        /// <param name="subject">distinguished name string using /CN= syntax.
+        ///     Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"</param>
+        /// <returns>Success: 0</returns>
         public int SetSubject(string subject)
         {
             int rc = wolfTPM2_CSR_SetSubject(IntPtr.Zero, csr, subject);
@@ -715,6 +742,20 @@ namespace wolfTPM
                                                               int sigType,
                                                               int selfSign,
                                                               int devId);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation using a TPM based key.
+        /// Uses a provided Csr class with subject and key usage already set.
+        /// </summary>
+        /// <param name="device">Reference to Device class reference</param>
+        /// <param name="keyBlob">Reference to KeyBlob class</param>
+        /// <param name="outputFormat">X509_Format.PEM or X509_Format.DER</param>
+        /// <param name="output">byte array for output</param>
+        /// <param name="sigType">Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
+        ///     See wolfCrypt "enum Ctc_SigType" for list of possible values.</param>
+        /// <param name="selfSignCert">If set to 1 (non-zero) then result will be a self signed certificate.
+        ///     Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int MakeAndSign(Device device,
                                KeyBlob keyBlob,
                                X509_Format outputFormat,
@@ -1154,6 +1195,24 @@ namespace wolfTPM
             int sigType,
             int selfSignCert,
             int devId);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation using a TPM based key.
+        /// Single shot API for outputting a CSR or self-signed cert based on TPM key.
+        /// </summary>
+        /// <param name="keyBlob">Reference to KeyBlob class</param>
+        /// <param name="subject">distinguished name string using /CN= syntax.
+        ///     Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"</param>
+        /// <param name="keyUsage">keyUsage string list of comma separated key usage attributes.
+        ///     Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        ///     Default: "serverAuth,clientAuth,codeSigning"</param>
+        /// <param name="outputFormat">X509_Format.PEM or X509_Format.DER</param>
+        /// <param name="output">byte array for output</param>
+        /// <param name="sigType">Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
+        ///     See wolfCrypt "enum Ctc_SigType" for list of possible values.</param>
+        /// <param name="selfSignCert">If set to 1 (non-zero) then result will be a self signed certificate.
+        ///     Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int GenerateCSR(
             KeyBlob keyBlob,
             string subject,
