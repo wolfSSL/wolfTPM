@@ -636,7 +636,9 @@ static inline word16 ByteReverseWord16(word16 value)
 
 static inline word32 ByteReverseWord32(word32 value)
 {
-#ifdef PPC_INTRINSICS
+#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+    return (word32)__builtin_bswap32(value);
+#elif defined(PPC_INTRINSICS)
     /* PPC: load reverse indexed instruction */
     return (word32)__lwbrx(&value,0);
 #elif defined(__ICCARM__)
@@ -645,9 +647,6 @@ static inline word32 ByteReverseWord32(word32 value)
     return (word32)__rev(value);
 #elif defined(__CCRX__)
     return (word32)_builtin_revl(value);
-#elif defined(WOLF_ALLOW_BUILTIN) && \
-        defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
-    return (word32)__builtin_bswap32(value);
 #elif defined(WOLFSSL_BYTESWAP32_ASM) && defined(__GNUC__) && \
       defined(__aarch64__)
     __asm__ volatile (
@@ -677,8 +676,12 @@ static inline word32 ByteReverseWord32(word32 value)
 
 static inline word64 ByteReverseWord64(word64 value)
 {
+#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+    return (word64)__builtin_bswap64(value);
+#else
     return (word64)((word64)ByteReverseWord32((word32)value)) << 32 |
                     (word64)ByteReverseWord32((word32)(value  >> 32));
+#endif
 }
 
 
