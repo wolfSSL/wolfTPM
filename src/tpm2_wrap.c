@@ -1,6 +1,6 @@
 /* tpm2_wrap.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2022 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -5103,9 +5103,10 @@ int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
+    XMEMSET(&csrKey, 0, sizeof(csrKey));
+    rc = wc_InitCert(&csr.req);
     if (rc == 0) {
-        rc = wc_InitCert(&csr.req);
+        rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
     }
     if (rc == 0) {
         rc = wolfTPM2_CSR_SetSubject(dev, &csr, subject);

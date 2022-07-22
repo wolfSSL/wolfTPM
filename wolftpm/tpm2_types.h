@@ -1,6 +1,6 @@
 /* tpm2_types.h
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2022 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -369,8 +369,9 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 /* Optional delay between polling */
-#if defined(WOLFTPM_SLB9670) && !defined(XTPM_WAIT)
-    /* For Infineon SLB9670 adding 10us delay improves performance */
+#if (defined(WOLFTPM_SLB9670) || defined(WOLFTPM_SLB9672)) && !defined(XTPM_WAIT)
+    /* For Infineon SLB9670 and SLB9672 adding 10us delay improves performance
+     * and prevents issue with rapid use at higher speeds */
     #ifdef __linux__
         #ifndef XTPM_WAIT_POLLING_US
             #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */

@@ -1,5 +1,40 @@
 # Release Notes
 
+## wolfTPM Release 2.5 (07/22/2022)
+
+**Summary**
+
+Major expansion of the C# wrapper for key handling, CSR/Cert generation, RSA enc/dec and sign/verify.
+Added Infineon SLB9672 support.
+Enhancements to the CMake support.
+Added new keygen example for creating a primary key.
+
+**Detail**
+
+* Fixed issue with sign signature buffer size checking (PR #232)
+* Fixed support for using nonce from TPM (when using no wolfCrypt RNG `WOLFTPM2_USE_HW_RNG`) (PR #216)
+* Fixed workaround for Windows TBS self test (PR #224)
+* Fixed issue with CSharp handle unloading (PR #212)
+* Fixed TPM support for using the public key with TLS (PR #210)
+* Added crypto callback support for seeding RNG with TPM (PR #216)
+* Added Infineon SLB9672 support (PR #214)
+* Added support for using a unique template with create and create primary (PR #215)
+* Added CSharp wrapper support for RSA encrypt/decrypt and Sign/Verify. (PR #232)
+* Added CSharp wrapper documentation for CSR functions (PR #232)
+* Added CSharp support for handling TPM errors with exception (PR #224)
+* Added CSR wrappers and tests to assist with TPM based CSR/Self-Signed-Cert generation (including CSharp wrappers) (PR #219)
+  - Support for subject, key usage, custom request extensions and output as PEM or DER
+  - New structure `WOLFTPM2_CSR`, new API's `wolfTPM2_CSR_*` and new CSharp class `Csr`
+* Added CSharp create primary key example (PR #215)
+* Added CSharp wrapper and tests for `wolfTPM2_CreatePrimaryKey()` (PR #213)
+* Added CSharp tests for authenticated sessions (PR #212)
+* Added CSharp wrappers `wolfTPM2_SetAuthSession` and `wolfTPM2_NVStoreKey` (PR #209)
+* Added CSharp `IDisposable` in classes for cleanup of unmanaged resources (PR #225)
+* Added support for wolfTPM CMake to output the options.h (PR #211)
+* Added CMake `WOLFTPM_DEBUG` option (PR #211)
+* Improved the byte swapping logic for GCC (PR #231)
+
+
 ## wolfTPM Release 2.4 (05/06/2022)
 
 **Summary**

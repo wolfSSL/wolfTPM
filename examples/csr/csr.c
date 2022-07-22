@@ -1,6 +1,6 @@
 /* csr.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2022 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -16,14 +16,14 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
-#ifdef WOLFTPM2_CERT_GEN
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -53,10 +53,10 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     const char* subject = NULL;
     const char* keyUsage = "serverAuth,clientAuth,codeSigning,"
                            "emailProtection,timeStamping,OCSPSigning";
-    const char* custOid =    "1.2.3.4.5";
-    const char* custOidVal = "This is NOT a critical extension";
     WOLFTPM2_BUFFER output;
 #ifndef WOLFTPM2_NO_HEAP
+    const char* custOid =    "1.2.3.4.5";
+    const char* custOidVal = "This is NOT a critical extension";
     WOLFTPM2_CSR* csr = wolfTPM2_NewCSR();
     if (csr == NULL) {
         return MEMORY_E;
@@ -234,14 +234,14 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 /* --- END TPM2 CSR Example -- */
 /******************************************************************************/
 
-#endif /* WOLFTPM2_CERT_GEN */
+#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM2_CERT_GEN */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#ifdef WOLFTPM2_CERT_GEN
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
     rc = TPM2_CSR_ExampleArgs(NULL, argc, argv);
 #else
     (void)argc;
