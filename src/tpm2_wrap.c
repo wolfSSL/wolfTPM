@@ -2546,10 +2546,10 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         }
         XMEMCPY(sig,
                 signOut.signature.signature.ecdsa.signatureR.buffer,
-                sigOutSz/2);
-        XMEMCPY(sig + sigOutSz/2,
+                signOut.signature.signature.ecdsa.signatureR.size);
+        XMEMCPY(sig + signOut.signature.signature.ecdsa.signatureR.size,
                 signOut.signature.signature.ecdsa.signatureS.buffer,
-                sigOutSz/2);
+                signOut.signature.signature.ecdsa.signatureS.size);
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
@@ -5103,9 +5103,9 @@ int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    rc = wc_InitCert(&csr.req);
+    rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
     if (rc == 0) {
-        rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
+        rc = wc_InitCert(&csr.req);
     }
     if (rc == 0) {
         rc = wolfTPM2_CSR_SetSubject(dev, &csr, subject);
