@@ -62,15 +62,18 @@ namespace wolfTPM
         }
     }
 
+    /* from TPM_RC_T and wolfCrypt error-crypt.h */
     public enum Status : int
     {
         TPM_RC_SUCCESS = 0,
         TPM_RC_HANDLE = 0x8B,
         TPM_RC_NV_UNAVAILABLE = 0x923,
+        TPM_RC_SIGNATURE = 0x9B,
         BAD_FUNC_ARG = -173,
         NOT_COMPILED_IN = -174,
     }
 
+    /* from TPMA_OBJECT_mask */
     public enum TPM2_Object : ulong
     {
         fixedTPM = 0x00000002,
@@ -87,6 +90,7 @@ namespace wolfTPM
         sign = 0x00040000,
     }
 
+    /* from TPM_ALG_ID */
     public enum TPM2_Alg : uint
     {
         ERROR = 0x0000,
@@ -127,6 +131,7 @@ namespace wolfTPM
         ECB = 0x0044,
     }
 
+    /* from TPM_ECC_CURVE_T */
     public enum TPM2_ECC : uint
     {
         NONE        = 0x0000,
@@ -140,6 +145,7 @@ namespace wolfTPM
         SM2_P256    = 0x0020,
     }
 
+    /* from TPM_SE_T */
     public enum SE : byte
     {
         HMAC = 0x00,
@@ -147,6 +153,7 @@ namespace wolfTPM
         TRIAL = 0x03,
     }
 
+    /* from TPMA_SESSION_mask */
     public enum SESSION_mask : byte
     {
         continueSession = 0x01,
@@ -157,6 +164,7 @@ namespace wolfTPM
         audit           = 0x80,
     }
 
+    /* from TPM_RH_T */
     public enum TPM_RH : ulong
     {
         FIRST        = 0x40000000,
@@ -179,6 +187,7 @@ namespace wolfTPM
         LAST         = AUTH_FF,
     }
 
+    /* from wolfSSL WOLFSSL_FILETYPE_ASN1 and WOLFSSL_FILETYPE_PEM */
     public enum X509_Format : int
     {
         PEM = 1,
@@ -633,6 +642,17 @@ namespace wolfTPM
                                                             string oid,
                                                             byte[] der,
                                                             uint derSz);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// custom request extension oid and value usage for a Csr class.
+        /// </summary>
+        /// <param name="oid">Dot separated oid as a string.
+        ///     For example "1.2.840.10045.3.1.7"</param>
+        /// <param name="der">The der encoding of the content of the extension.</param>
+        /// <param name="critical">If 0, the extension will not be marked critical,
+        ///     otherwise it will be marked critical.</param>
+        /// <returns>Success: 0</returns>
         public int SetCustomExtension(string oid, string der, int critical)
         {
             byte[] derBuf = Encoding.ASCII.GetBytes(der);
@@ -650,6 +670,15 @@ namespace wolfTPM
         private static extern int wolfTPM2_CSR_SetKeyUsage(IntPtr dev,
                                                             IntPtr csr,
                                                             string keyUsage);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// key usage for a Csr class.
+        /// </summary>
+        /// <param name="keyUsage">keyUsage string list of comma separated key usage attributes.
+        ///     Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        ///     Default: "serverAuth,clientAuth,codeSigning"</param>
+        /// <returns>Success: 0</returns>
         public int SetKeyUsage(string keyUsage)
         {
             int rc = wolfTPM2_CSR_SetKeyUsage(IntPtr.Zero, csr, keyUsage);
@@ -664,6 +693,13 @@ namespace wolfTPM
         private static extern int wolfTPM2_CSR_SetSubject(IntPtr dev,
                                                           IntPtr csr,
                                                           string subject);
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation to set a
+        /// subject for a Csr class.
+        /// </summary>
+        /// <param name="subject">distinguished name string using /CN= syntax.
+        ///     Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"</param>
+        /// <returns>Success: 0</returns>
         public int SetSubject(string subject)
         {
             int rc = wolfTPM2_CSR_SetSubject(IntPtr.Zero, csr, subject);
@@ -706,6 +742,20 @@ namespace wolfTPM
                                                               int sigType,
                                                               int selfSign,
                                                               int devId);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation using a TPM based key.
+        /// Uses a provided Csr class with subject and key usage already set.
+        /// </summary>
+        /// <param name="device">Reference to Device class reference</param>
+        /// <param name="keyBlob">Reference to KeyBlob class</param>
+        /// <param name="outputFormat">X509_Format.PEM or X509_Format.DER</param>
+        /// <param name="output">byte array for output</param>
+        /// <param name="sigType">Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
+        ///     See wolfCrypt "enum Ctc_SigType" for list of possible values.</param>
+        /// <param name="selfSignCert">If set to 1 (non-zero) then result will be a self signed certificate.
+        ///     Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int MakeAndSign(Device device,
                                KeyBlob keyBlob,
                                X509_Format outputFormat,
@@ -808,16 +858,16 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreateSRK")]
         private static extern int wolfTPM2_CreateSRK(IntPtr dev,
                                                      IntPtr srkKey,
-                                                     int alg,
+                                                     uint alg,
                                                      string auth,
                                                      int authSz);
         public int CreateSRK(Key srkKey,
-                             int alg,
+                             TPM2_Alg alg,
                              string auth)
         {
             int rc = wolfTPM2_CreateSRK(device,
                                         srkKey.key,
-                                        alg,
+                                        (uint)alg,
                                         auth,
                                         auth.Length);
             if (rc != (int)Status.TPM_RC_SUCCESS) {
@@ -898,7 +948,7 @@ namespace wolfTPM
         public int ReadPublicKey(Key key, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, key.key, handle);
-            if (rc != (int)Status.TPM_RC_SUCCESS && 
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
                 rc != (int)Status.TPM_RC_HANDLE)
             {
                 throw new WolfTpm2Exception(
@@ -909,7 +959,7 @@ namespace wolfTPM
         public int ReadPublicKey(KeyBlob keyBlob, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, keyBlob.keyblob, handle);
-            if (rc != (int)Status.TPM_RC_SUCCESS && 
+            if (rc != (int)Status.TPM_RC_SUCCESS &&
                 rc != (int)Status.TPM_RC_HANDLE)
             {
                 throw new WolfTpm2Exception(
@@ -1029,8 +1079,8 @@ namespace wolfTPM
             byte[] rsaPub,
             int exponent,
             byte[] rsaPriv,
-            uint scheme,
-            uint hashAlg)
+            TPM2_Alg scheme,
+            TPM2_Alg hashAlg)
         {
             int rc = wolfTPM2_ImportRsaPrivateKey(device,
                                                   parentKey.key,
@@ -1040,8 +1090,8 @@ namespace wolfTPM
                                                   exponent,
                                                   rsaPriv,
                                                   rsaPriv.Length,
-                                                  scheme,
-                                                  hashAlg);
+                                                  (uint)scheme,
+                                                  (uint)hashAlg);
             if (rc != (int)Status.TPM_RC_SUCCESS) {
                 throw new WolfTpm2Exception(
                     "wolfTPM2_ImportRsaPrivateKey", rc);
@@ -1145,6 +1195,24 @@ namespace wolfTPM
             int sigType,
             int selfSignCert,
             int devId);
+
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation using a TPM based key.
+        /// Single shot API for outputting a CSR or self-signed cert based on TPM key.
+        /// </summary>
+        /// <param name="keyBlob">Reference to KeyBlob class</param>
+        /// <param name="subject">distinguished name string using /CN= syntax.
+        ///     Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"</param>
+        /// <param name="keyUsage">keyUsage string list of comma separated key usage attributes.
+        ///     Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        ///     Default: "serverAuth,clientAuth,codeSigning"</param>
+        /// <param name="outputFormat">X509_Format.PEM or X509_Format.DER</param>
+        /// <param name="output">byte array for output</param>
+        /// <param name="sigType">Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
+        ///     See wolfCrypt "enum Ctc_SigType" for list of possible values.</param>
+        /// <param name="selfSignCert">If set to 1 (non-zero) then result will be a self signed certificate.
+        ///     Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int GenerateCSR(
             KeyBlob keyBlob,
             string subject,
@@ -1202,6 +1270,85 @@ namespace wolfTPM
             }
             return rc;
         }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_RsaEncrypt")]
+        private static extern int wolfTPM2_RsaEncrypt(
+            IntPtr dev, IntPtr key, uint padScheme, byte[] plain, int plainSz,
+            byte[] enc, ref int encSz);
+        public int RsaEncrypt(KeyBlob keyBlob, byte[] plain, byte[] enc,
+            TPM2_Alg padScheme)
+        {
+            int encSz = enc.Length;
+            int rc = wolfTPM2_RsaEncrypt(device, keyBlob.keyblob, (uint)padScheme,
+                plain, plain.Length, enc, ref encSz);
+            if (rc == 0) {
+                rc = encSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_RsaEncrypt", rc);
+            }
+
+            return rc;
+        }
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_RsaDecrypt")]
+        private static extern int wolfTPM2_RsaDecrypt(
+            IntPtr dev, IntPtr key, uint padScheme, byte[] enc, int encSz,
+            byte[] plain, ref int plainSz);
+        public int RsaDecrypt(KeyBlob keyBlob, byte[] enc, byte[] plain,
+            TPM2_Alg padScheme)
+        {
+            int plainSz = enc.Length;
+            int rc = wolfTPM2_RsaDecrypt(device, keyBlob.keyblob, (uint)padScheme,
+                enc, enc.Length, plain, ref plainSz);
+            if (rc == 0) {
+                rc = plainSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_RsaDecrypt", rc);
+            }
+            return rc;
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SignHashScheme")]
+        private static extern int wolfTPM2_SignHashScheme(
+            IntPtr dev, IntPtr key, byte[] digest, int digestSz,
+            byte[] sig, ref int sigSz, uint sigAlg, uint hashAlg);
+        public int SignHashScheme(KeyBlob keyBlob, byte[] digest, byte[] sig,
+            TPM2_Alg sigAlg, TPM2_Alg hashAlg)
+        {
+            int sigSz = sig.Length;
+            int rc = wolfTPM2_SignHashScheme(device, keyBlob.keyblob,
+                digest, digest.Length, sig, ref sigSz,
+                (uint)sigAlg, (uint)hashAlg);
+            if (rc == 0) {
+                rc = sigSz;
+            }
+            else {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SignHashScheme", rc);
+            }
+            return rc;
+        }
+
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_VerifyHashScheme")]
+        private static extern int wolfTPM2_VerifyHashScheme(
+            IntPtr dev, IntPtr key, byte[] sig, int sigSz,
+            byte[] digest, int digestSz, uint sigAlg, uint hashAlg);
+        public int VerifyHashScheme(KeyBlob keyBlob, byte[] sig, byte[] digest,
+            TPM2_Alg sigAlg, TPM2_Alg hashAlg)
+        {
+            int rc = wolfTPM2_VerifyHashScheme(device, keyBlob.keyblob,
+                sig, sig.Length, digest, digest.Length,
+                (uint)sigAlg, (uint)hashAlg);
+            if (rc != 0 && rc != (int)Status.TPM_RC_SIGNATURE) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_VerifyHashScheme", rc);
+            }
+            return rc;
+        }
+
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
         private static extern int wolfTPM2_UnloadHandle(IntPtr dev, IntPtr handle);

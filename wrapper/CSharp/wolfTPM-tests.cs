@@ -108,8 +108,8 @@ namespace tpm_csharp_test
         private void GetSRK(Key srkKey, string auth)
         {
             int rc = device.CreateSRK(srkKey,
-                                       (int)TPM2_Alg.RSA,
-                                       auth);
+                                      TPM2_Alg.RSA,
+                                      auth);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }
 
@@ -142,7 +142,7 @@ namespace tpm_csharp_test
             }
 
             rc = device.CreateKey(blob, parent_key, template,
-                                   "ThisIsMyStorageKeyAuth");
+                                   "ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.LoadKey(blob, parent_key);
@@ -338,7 +338,8 @@ namespace tpm_csharp_test
             rc = device.ImportRsaPrivateKey(parent_key, blob,
                                              pub_buffer,
                                              exp, priv_buffer,
-                                             (uint)TPM2_Alg.NULL, (uint)TPM2_Alg.NULL);
+                                             TPM2_Alg.NULL,
+                                             TPM2_Alg.NULL);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.UnloadHandle(blob);
@@ -425,7 +426,7 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.CreateKey(keyBlob, parent_key, template,
-                "ThisIsMyStorageKeyAuth");
+                "ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.LoadKey(keyBlob, parent_key);
@@ -466,7 +467,7 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.CreateKey(keyBlob, parent_key, template,
-                "ThisIsMyStorageKeyAuth");
+                "ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.LoadKey(keyBlob, parent_key);
@@ -511,7 +512,7 @@ namespace tpm_csharp_test
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.CreateKey(keyBlob, parent_key, template,
-                "ThisIsMyStorageKeyAuth");
+                "ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.LoadKey(keyBlob, parent_key);
@@ -561,7 +562,7 @@ namespace tpm_csharp_test
 
             /* Generate new key */
             rc = device.CreateKey(keyBlob, parent_key, template,
-                "ThisIsMyStorageKeyAuth");
+                "ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             /* Load key */
@@ -590,6 +591,99 @@ namespace tpm_csharp_test
 
             /* Delete Key */
             rc = device.DeleteKey(keyBlob, (ulong)TPM_RH.OWNER);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+        }
+
+        [Test]
+        public void TryRsaEncryptDecrypt()
+        {
+            int rc;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            const int RsaKeySz = 256;
+            byte[] message = new byte[RsaKeySz];
+            byte[] cipher = new byte[RsaKeySz];
+            byte[] plain = new byte[RsaKeySz];
+
+            Console.WriteLine("Testing RSA Encrypt/Decrypt");
+
+            rc = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Perform RSA encrypt / decrypt (no pad) */
+            for (int i=0; i<message.Length; i++)  {
+                message[i] = 0x11;
+            }
+            rc = device.RsaEncrypt(keyBlob, message, cipher, TPM2_Alg.NULL);
+            Assert.AreEqual(RsaKeySz, rc);
+
+            rc = device.RsaDecrypt(keyBlob, cipher, plain, TPM2_Alg.NULL);
+            Assert.AreEqual(RsaKeySz, rc);
+
+            /* Validate encrypt / decrypt */
+            for (int i=0; i<RsaKeySz; i++)  {
+                if (message[i] != plain[i]) {
+                    Assert.True(false);
+                }
+            }
+
+            rc = device.UnloadHandle(keyBlob);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+        }
+
+        [Test]
+        public void TrySignVerify()
+        {
+            int rc;
+            KeyBlob keyBlob = new KeyBlob();
+            Template template = new Template();
+            const int RsaKeySz = 256;
+            const int HashDigestSz = 32;
+            byte[] sig = new byte[RsaKeySz];
+            byte[] digest = new byte[HashDigestSz];
+
+            Console.WriteLine("Testing RSA Sign/Verify");
+
+            rc = template.GetKeyTemplate_RSA((ulong)(
+                                            TPM2_Object.sensitiveDataOrigin |
+                                            TPM2_Object.userWithAuth |
+                                            TPM2_Object.decrypt |
+                                            TPM2_Object.sign |
+                                            TPM2_Object.noDA));
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.CreateKey(keyBlob, parent_key, template,
+                "ThisIsMyKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            rc = device.LoadKey(keyBlob, parent_key);
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Perform RSA sign / verify - PKCSv1.5 (SSA) padding */
+            for (int i=0; i<digest.Length; i++)  {
+                digest[i] = 0x11;
+            }
+            rc = device.SignHashScheme(keyBlob, digest, sig,
+                TPM2_Alg.RSASSA, TPM2_Alg.SHA256);
+            Assert.AreEqual(RsaKeySz, rc);
+
+            rc = device.VerifyHashScheme(keyBlob, sig, digest,
+                TPM2_Alg.RSASSA, TPM2_Alg.SHA256);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
             rc = device.UnloadHandle(keyBlob);
