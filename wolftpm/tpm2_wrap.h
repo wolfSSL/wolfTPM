@@ -2765,7 +2765,7 @@ WOLFTPM_API int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
     stored to disk for loading in a separate process or after power
     cycling.
 
-    \return TPM_RC_SUCCESS: successful
+    \return Positive integer (size of the output)
     \return BUFFER_E: insufficient space in provided buffer
     \return BAD_FUNC_ARG: check the provided arguments
 
