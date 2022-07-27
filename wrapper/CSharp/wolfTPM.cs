@@ -717,6 +717,15 @@ namespace wolfTPM
                                                            int outFormat,
                                                            byte[] output,
                                                            int outputSz);
+        /// <summary>
+        /// Helper for Certificate Signing Request (CSR) generation using a TPM based key.
+        /// Uses a provided WOLFTPM2_CSR structure with subject and key usage already set.
+        /// </summary>
+        /// <param name="device">Reference to Device class reference</param>
+        /// <param name="keyBlob">Reference to KeyBlob class</param>
+        /// <param name="outputFormat">X509_Format.PEM or X509_Format.DER</param>
+        /// <param name="output">byte array for output</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int MakeAndSign(Device device,
                                KeyBlob keyBlob,
                                X509_Format outputFormat,
@@ -831,6 +840,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SelfTest")]
         private static extern int wolfTPM2_SelfTest(IntPtr dev);
+        /// <summary>
+        /// Asks the TPM to perform its self test.
+        /// </summary>
+        /// <returns>0: Success; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int SelfTest()
         {
             int rc = wolfTPM2_SelfTest(device);
@@ -845,6 +858,12 @@ namespace wolfTPM
         private static extern int wolfTPM2_GetRandom(IntPtr dev,
                                                      byte[] buf,
                                                      int len);
+        /// <summary>
+        /// Get a set of random number, generated with the TPM RNG or wolfcrypt RNG.
+        /// Define WOLFTPM2_USE_HW_RNG to use the TPM RNG source
+        /// </summary>
+        /// <param name="buf">Buffer used to store the generated random numbers.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int GetRandom(byte[] buf)
         {
             int rc = wolfTPM2_GetRandom(device, buf, buf.Length);
@@ -861,6 +880,13 @@ namespace wolfTPM
                                                      uint alg,
                                                      string auth,
                                                      int authSz);
+        /// <summary>
+        /// Generates a new TPM Primary Key that will be used as a Storage Key for other TPM keys.
+        /// </summary>
+        /// <param name="srkKey">Empty key, to store information about the new EK.</param>
+        /// <param name="alg">TPM_ALG_RSA or TPM_ALG_ECC.</param>
+        /// <param name="auth">String constant specifying the password authorization for the TPM 2.0 Key.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int CreateSRK(Key srkKey,
                              TPM2_Alg alg,
                              string auth)
@@ -884,6 +910,16 @@ namespace wolfTPM
                                                         IntPtr bind,
                                                         byte sesType,
                                                         int encDecAlg);
+        /// <summary>
+        /// Create a TPM session, Policy, HMAC or Trial. This wrapper can also be used to start TPM
+        /// session for parameter encryption; see wolfTPM nvram or keygen example.
+        /// </summary>
+        /// <param name="tpmSession">An empty session object.</param>
+        /// <param name="tmpKey">A key that will be used as a salt for the session.</param>
+        /// <param name="bind">A handle that will be used to make the session bounded.</param>
+        /// <param name="sesType">The session type (HMAC, Policy or Trial).</param>
+        /// <param name="encDecAlg">Integer specifying the algorithm in case of parameter encryption.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments.</returns>
         public int StartSession(Session tpmSession,
                                 Key tmpKey,
                                 IntPtr bind,
@@ -908,6 +944,15 @@ namespace wolfTPM
                                                           int index,
                                                           IntPtr tpmSession,
                                                           byte sessionAttributes);
+        /// <summary>
+        /// Sets a TPM Authorization slot using the provided TPM session handle, index and session
+        /// attributes. This wrapper is useful for configuring TPM sessions, e.g. session for
+        /// parameter encryption.
+        /// </summary>
+        /// <param name="tpmSession">A session object.</param>
+        /// <param name="index">Integer value, specifying the TPM Authorization slot (0, 1, 2, or 3).</param>
+        /// <param name="sessionAttributes">Integer value from TPMA_SESSION selecting one or more attributes for the Session.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments.</returns>
         public int SetAuthSession(Session tpmSession,
                                   int index,
                                   byte sessionAttributes)
@@ -926,6 +971,12 @@ namespace wolfTPM
             return rc;
         }
 
+        /// <summary>
+        /// Clears a TPM Authorization slot using the provided TPM session handle and index.
+        /// </summary>
+        /// <param name="tpmSession">A session object.</param>
+        /// <param name="index">Integer value, specifying the TPM Authorization slot (0, 1, 2, or 3).</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments.</returns>
         public int ClearAuthSession(Session tpmSession,
                                     int index)
         {
@@ -940,11 +991,18 @@ namespace wolfTPM
             return rc;
         }
 
-
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_ReadPublicKey")]
         private static extern int wolfTPM2_ReadPublicKey(IntPtr dev,
                                                          IntPtr key,
                                                          ulong handle);
+
+        /// <summary>
+        /// Helper function to receive the public part of a loaded TPM object using its handle. The
+        /// public part of a TPM symmetric keys contains just TPM meta data.
+        /// </summary>
+        /// <param name="key">An empty key object.</param>
+        /// <param name="handle">Integer value specifying handle of a loaded TPM object.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int ReadPublicKey(Key key, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, key.key, handle);
@@ -956,6 +1014,14 @@ namespace wolfTPM
             }
             return rc;
         }
+
+        /// <summary>
+        /// Helper function to receive the public part of a loaded TPM object using its handle. The
+        /// public part of a TPM symmetric keys contains just TPM meta data.
+        /// </summary>
+        /// <param name="keyBlob">An empty KeyBlob object.</param>
+        /// <param name="handle">Integer value specifying handle of a loaded TPM object.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int ReadPublicKey(KeyBlob keyBlob, ulong handle)
         {
             int rc = wolfTPM2_ReadPublicKey(device, keyBlob.keyblob, handle);
@@ -968,7 +1034,6 @@ namespace wolfTPM
             return rc;
         }
 
-
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CreateKey")]
         private static extern int wolfTPM2_CreateKey(
             IntPtr dev,
@@ -977,6 +1042,15 @@ namespace wolfTPM
             IntPtr publicTemplate,
             string auth,
             int authSz);
+        /// <summary>
+        /// Single function to prepare and create a TPM 2.0 Key. This function only creates the key
+        /// material and stores it into the keyblob argument. To load the key use wolfTPM2_LoadKey.
+        /// </summary>
+        /// <param name="keyBlob">An empty KeyBlob object.</param>
+        /// <param name="parent">A handle specifying the a 2.0 Primary Key to be used as the parent(Storage Key).</param>
+        /// <param name="publicTemplate">A template populated manually or using one of the GetKeyTemplate_...() wrappers.</param>
+        /// <param name="auth">A string specifying the password authorization for the TPM 2.0 Key.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int CreateKey(KeyBlob keyBlob,
                              Key parent,
                              Template publicTemplate,
@@ -1000,6 +1074,14 @@ namespace wolfTPM
             IntPtr dev,
             IntPtr keyBlob,
             IntPtr parent);
+        /// <summary>
+        /// Single function to load a TPM 2.0 key. To load a TPM 2.0 key its parent(Primary Key)
+        /// should also be loaded prior to this operation. Primary Keys are loaded when they are
+        /// created.
+        /// </summary>
+        /// <param name="keyBlob">An empty KeyBlob object.</param>
+        /// <param name="parent">A handle specifying the a 2.0 Primary Key to be used as the parent(Storage Key)</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int LoadKey(KeyBlob keyBlob,
                            Key parent)
         {
@@ -1015,6 +1097,14 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NVStoreKey")]
         private static extern int wolfTPM2_NVStoreKey(IntPtr dev,
             ulong primaryHandle, IntPtr key, ulong persistentHandle);
+
+        /// <summary>
+        /// Helper function to store a TPM 2.0 Key into the TPM's NVRAM.
+        /// </summary>
+        /// <param name="key">The TPM 2.0 key to be stored.</param>
+        /// <param name="primaryHandle">Integer value, specifying a TPM 2.0 Hierarchy. Typically TPM_RH_OWNER.</param>
+        /// <param name="persistentHandle">Integer value, specifying an existing nvIndex.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int StoreKey(Key key, ulong primaryHandle, ulong persistentHandle)
         {
             int rc = wolfTPM2_NVStoreKey(device, primaryHandle, key.key,
@@ -1026,6 +1116,14 @@ namespace wolfTPM
             }
             return rc;
         }
+
+        /// <summary>
+        /// Helper function to store a TPM 2.0 Key into the TPM's NVRAM.
+        /// </summary>
+        /// <param name="keyBlob">The TPM 2.0 keyBlob to be stored.</param>
+        /// <param name="primaryHandle">Integer value, specifying a TPM 2.0 Hierarchy. Typically TPM_RH_OWNER.</param>
+        /// <param name="persistentHandle">Integer value, specifying an existing nvIndex.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int StoreKey(KeyBlob keyBlob, ulong primaryHandle, ulong persistentHandle)
         {
             int rc = wolfTPM2_NVStoreKey(device, primaryHandle, keyBlob.keyblob,
@@ -1041,6 +1139,13 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_NVDeleteKey")]
         private static extern int wolfTPM2_NVDeleteKey(IntPtr dev,
             ulong primaryHandle, IntPtr key);
+
+        /// <summary>
+        /// Helper function to delete a TPM 2.0 Key from the TPM's NVRAM.
+        /// </summary>
+        /// <param name="key">The TPM 2.0 key to be stored.</param>
+        /// <param name="primaryHandle">Integer value, specifying a TPM 2.0 Hierarchy. Typically TPM_RH_OWNER.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int DeleteKey(Key key, ulong primaryHandle)
         {
             int rc = wolfTPM2_NVDeleteKey(device, primaryHandle, key.key);
@@ -1050,6 +1155,13 @@ namespace wolfTPM
             }
             return rc;
         }
+
+        /// <summary>
+        /// Helper function to delete a TPM 2.0 Key from the TPM's NVRAM.
+        /// </summary>
+        /// <param name="keyBlob">The TPM 2.0 keyBlob to be stored.</param>
+        /// <param name="primaryHandle">Integer value, specifying a TPM 2.0 Hierarchy. Typically TPM_RH_OWNER.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int DeleteKey(KeyBlob keyBlob, ulong primaryHandle)
         {
             int rc = wolfTPM2_NVDeleteKey(device, primaryHandle, keyBlob.keyblob);
@@ -1073,6 +1185,17 @@ namespace wolfTPM
             uint scheme,
             uint hashAlg);
 
+        /// <summary>
+        /// Import an external RSA private key.
+        /// </summary>
+        /// <param name="parentKey">The parent key. Can be NULL for external keys and the key will be imported under the OWNER hierarchy.</param>
+        /// <param name="keyBlob">An empty keyBlob.</param>
+        /// <param name="rsaPub">Buffer containing the public part of the RSA key.</param>
+        /// <param name="exponent">Integer value specifying the RSA exponent.</param>
+        /// <param name="rsaPriv">Buffer containing the private material of the RSA key.</param>
+        /// <param name="scheme">Value from TPM2_Alg specifying the RSA scheme.</param>
+        /// <param name="hashAlg">Value from TPM2_Alg specifying a supported TPM 2.0 hash algorithm.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code; BUFFER_E: arguments size is larger than what the TPM buffers allow.</returns>
         public int ImportRsaPrivateKey(
             Key parentKey,
             KeyBlob keyBlob,
@@ -1106,6 +1229,15 @@ namespace wolfTPM
             byte[] rsaPub,
             int rsaPubSz,
             int exponent);
+
+        /// <summary>
+        /// Helper function to import the public part of an external RSA key. Recommended for use,
+        /// because it does not require TPM format of the public part.
+        /// </summary>
+        /// <param name="key">An empty key.</param>
+        /// <param name="rsaPub">Buffer containing the public part of the RSA key.</param>
+        /// <param name="exponent">Integer value specifying the RSA exponent.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int LoadRsaPublicKey(Key key,
                                     byte[] rsaPub,
                                     int exponent)
@@ -1132,6 +1264,16 @@ namespace wolfTPM
             int exponent,
             byte[] rsaPriv,
             int rsaPrivSz);
+
+        /// <summary>
+        /// Helper function to import and load an external RSA private key in one step.
+        /// </summary>
+        /// <param name="parentKey">The parent key. Can be NULL for external keys and the key will be imported under the OWNER hierarchy.</param>
+        /// <param name="key">An empty key.</param>
+        /// <param name="rsaPub">Buffer containing the public part of the RSA key.</param>
+        /// <param name="exponent">Integer value specifying the RSA exponent.</param>
+        /// <param name="rsaPriv">Buffer containing the private material of the RSA key.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int LoadRsaPrivateKey(
             Key parentKey,
             Key key,
@@ -1163,6 +1305,19 @@ namespace wolfTPM
             IntPtr publicTemplate,
             string auth,
             int authSz);
+
+        /// <summary>
+        /// Single function to prepare and create a TPM 2.0 Primary Key. TPM 2.0 allows only
+        /// asymmetric RSA or ECC primary keys. Afterwards, both symmetric and asymmetric keys can
+        ///  be created under a TPM 2.0 Primary Key. Typically, Primary Keys are used to create
+        /// Hierarchies of TPM 2.0 Keys. The TPM uses a Primary Key to wrap the other keys, signing
+        /// or decrypting.
+        /// </summary>
+        /// <param name="key">An empty key.</param>
+        /// <param name="primaryHandle">Integer value specifying one of four TPM 2.0 Primary Seeds: TPM_RH_OWNER, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM or TPM_RH_NULL.</param>
+        /// <param name="publicTemplate">A template populated manually or using one of the GetKeyTemplate_...() wrappers.</param>
+        /// <param name="auth">A string specifying the password authorization for the Primary Key.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int CreatePrimaryKey(
             Key key,
             TPM_RH primaryHandle,
@@ -1275,6 +1430,15 @@ namespace wolfTPM
         private static extern int wolfTPM2_RsaEncrypt(
             IntPtr dev, IntPtr key, uint padScheme, byte[] plain, int plainSz,
             byte[] enc, ref int encSz);
+
+        /// <summary>
+        /// Perform RSA encryption using a TPM 2.0 key
+        /// </summary>
+        /// <param name="keyBlob">A key blob holding TPM key material.</param>
+        /// <param name="plain">Buffer containing the arbitrary data for encryption.</param>
+        /// <param name="enc">Buffer where the encrypted data will be stored.</param>
+        /// <param name="padScheme">Integer from TPM_ALG_ID, specifying the padding scheme.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int RsaEncrypt(KeyBlob keyBlob, byte[] plain, byte[] enc,
             TPM2_Alg padScheme)
         {
@@ -1295,6 +1459,15 @@ namespace wolfTPM
         private static extern int wolfTPM2_RsaDecrypt(
             IntPtr dev, IntPtr key, uint padScheme, byte[] enc, int encSz,
             byte[] plain, ref int plainSz);
+
+        /// <summary>
+        /// Perform RSA decryption using a TPM 2.0 key
+        /// </summary>
+        /// <param name="keyBlob">A key blob holding TPM key material.</param>
+        /// <param name="enc">Buffer containing the encrypted data.</param>
+        /// <param name="plain">Buffer containing the decrypted data.</param>
+        /// <param name="padScheme">Integer from TPM_ALG_ID, specifying the padding scheme.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int RsaDecrypt(KeyBlob keyBlob, byte[] enc, byte[] plain,
             TPM2_Alg padScheme)
         {
@@ -1315,6 +1488,16 @@ namespace wolfTPM
         private static extern int wolfTPM2_SignHashScheme(
             IntPtr dev, IntPtr key, byte[] digest, int digestSz,
             byte[] sig, ref int sigSz, uint sigAlg, uint hashAlg);
+
+        /// <summary>
+        /// Advanced helper function to sign arbitrary data using a TPM key, and specify the signature scheme and hashing algorithm
+        /// </summary>
+        /// <param name="keyBlob">A key blob holding TPM key material.</param>
+        /// <param name="digest">Buffer containing arbitrary data.</param>
+        /// <param name="sig">Buffer containing the generated signature.</param>
+        /// <param name="sigAlg">Integer from TPMI_ALG_SIG_SCHEME, specifying a supported TPM 2.0 signature scheme.</param>
+        /// <param name="hashAlg">Integer from TPMI_ALG_HASH, specifying a supported TPM 2.0 hash algorithm.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int SignHashScheme(KeyBlob keyBlob, byte[] digest, byte[] sig,
             TPM2_Alg sigAlg, TPM2_Alg hashAlg)
         {
@@ -1336,6 +1519,16 @@ namespace wolfTPM
         private static extern int wolfTPM2_VerifyHashScheme(
             IntPtr dev, IntPtr key, byte[] sig, int sigSz,
             byte[] digest, int digestSz, uint sigAlg, uint hashAlg);
+
+        /// <summary>
+        /// Advanced helper function to verify a TPM generated signature
+        /// </summary>
+        /// <param name="keyBlob">A key blob holding a TPM 2.0 key material.</param>
+        /// <param name="sig">Buffer containing the generated signature.</param>
+        /// <param name="digest">Buffer containing the signed data.</param>
+        /// <param name="sigAlg">Integer from TPMI_ALG_SIG_SCHEME, specifying a supported TPM 2.0 signature scheme.</param>
+        /// <param name="hashAlg">Integer from TPMI_ALG_HASH, specifying a supported TPM 2.0 hash algorithm.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int VerifyHashScheme(KeyBlob keyBlob, byte[] sig, byte[] digest,
             TPM2_Alg sigAlg, TPM2_Alg hashAlg)
         {
@@ -1352,14 +1545,32 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_UnloadHandle")]
         private static extern int wolfTPM2_UnloadHandle(IntPtr dev, IntPtr handle);
+
+        /// <summary>
+        /// Use to discard any TPM loaded object
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int UnloadHandle(Key key)
         {
             return wolfTPM2_UnloadHandle(device, key.GetHandle());
         }
+
+        /// <summary>
+        /// Use to discard any TPM loaded object
+        /// </summary>
+        /// <param name="keyBlob">The keyBlob.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int UnloadHandle(KeyBlob keyBlob)
         {
             return wolfTPM2_UnloadHandle(device, keyBlob.GetHandle());
         }
+
+        /// <summary>
+        /// Use to discard any TPM loaded object
+        /// </summary>
+        /// <param name="tpmSession">The TPM session.</param>
+        /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int UnloadHandle(Session tpmSession)
         {
             return wolfTPM2_UnloadHandle(device, tpmSession.GetHandle());
@@ -1367,11 +1578,17 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleValue")]
         private static extern uint wolfTPM2_GetHandleValue(IntPtr handle);
+
+        /// <summary>
+        /// Get the 32-bit handle value from the WOLFTPM2_HANDLE
+        /// </summary>
+        /// <param name="handle">pointer to WOLFTPM2_HANDLE structure</param>
+        /// <param name=""></param>
+        /// <returns>TPM_HANDLE value from TPM</returns>
         public uint GetHandleValue(IntPtr handle)
         {
             return wolfTPM2_GetHandleValue(handle);
         }
-
 
         [DllImport(DLLNAME, EntryPoint = "TPM2_GetRCString")]
         private static extern IntPtr TPM2_GetRCString(int rc);
@@ -1380,6 +1597,12 @@ namespace wolfTPM
             IntPtr err = TPM2_GetRCString(rc);
             return Marshal.PtrToStringAnsi(err);
         }
+
+        /// <summary>
+        /// Get a human readable string for any TPM 2.0 return code.
+        /// </summary>
+        /// <param name="rc">Integer value representing a TPM return code.</param>
+        /// <returns>Pointer to a string constant.</returns>
         public string GetErrorString(Status rc)
         {
             return GetErrorString((int)rc);
