@@ -239,7 +239,13 @@ namespace wolfTPM
             }
         }
 
-
+        /// <summary>
+        /// Marshal data from this KeyBlob class to a binary buffer. This can be
+        /// stored to disk for loading in a separate process or after power
+        /// cycling.
+        /// </summary>
+        /// <param name="buffer">buffer in which to store marshaled keyblob</param>
+        /// <returns>Success: Positive integer (size of the output)</returns>
         public int GetKeyBlobAsBuffer(byte[] buffer)
         {
             int rc = wolfTPM2_GetKeyBlobAsBuffer(buffer, buffer.Length,
@@ -252,6 +258,12 @@ namespace wolfTPM
             return rc;
         }
 
+        /// <summary>
+        /// Unmarshal data into a this KeyBlob class. Used to load a keyblob
+        /// buffer that was previously marshaled by GetKeyBlobAsBuffer
+        /// </summary>
+        /// <param name="buffer">buffer containing marshalled keyblob to load from</param>
+        /// <returns>0: Success</returns>
         public int SetKeyBlobFromBuffer(byte[] buffer)
         {
             int rc = wolfTPM2_SetKeyBlobFromBuffer(keyblob,
@@ -263,6 +275,9 @@ namespace wolfTPM
             return rc;
         }
 
+        /// <summary>
+        /// Retrieve the WOLFTPM2_HANDLE pointer from a this KeyBlob.
+        /// </summary>
         public IntPtr GetHandle()
         {
             return wolfTPM2_GetHandleRefFromKeyBlob(keyblob);
@@ -316,17 +331,28 @@ namespace wolfTPM
         }
 
 
+        /// <summary>
+        /// Retrieve the WOLFTPM2_HANDLE pointer from a this Key.
+        /// </summary>
         public IntPtr GetHandle()
         {
             return wolfTPM2_GetHandleRefFromKey(key);
         }
 
-        /* kept for backwards compatibility, use GetHandle */
+        /// <summary>
+        /// kept for backwards compatibility, use GetHandle
+        /// </summary>
+        [Obsolete("kept for backwards compatibility, use GetHandle")]
         public IntPtr GetHandleRefFromKey()
         {
             return wolfTPM2_GetHandleRefFromKey(key);
         }
 
+        /// <summary>
+        /// Set the authentication data for a key
+        /// </summary>
+        /// <param name="auth">pointer to auth data</param>
+        /// <returns>Success: 0</returns>
         public int SetKeyAuthPassword(string auth)
         {
             int rc = wolfTPM2_SetKeyAuthPassword(key,
@@ -377,6 +403,12 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA(IntPtr publicTemplate,
                                                               ulong objectAttributes);
+        /// <summary>
+        /// Prepares a TPM public template for new RSA key based on user
+        /// selected object attributes
+        /// </summary>
+        /// <param name="objectAttributes">Bit mask of TPM2_Object values to define the Key object attributes.</param>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_RSA(ulong objectAttributes)
         {
             int rc = wolfTPM2_GetKeyTemplate_RSA(template,
@@ -393,6 +425,12 @@ namespace wolfTPM
                                                               ulong objectAttributes,
                                                               uint curve,
                                                               uint sigScheme);
+        /// <summary>
+        /// Prepares a TPM public template for new ECC key based on user
+        /// selected object attributes
+        /// </summary>
+        /// <param name="objectAttributes">Bit mask of TPM2_Object values to define the Key object attributes.</param>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_ECC(ulong objectAttributes, TPM2_ECC curve,
             TPM2_Alg sigScheme)
         {
@@ -411,6 +449,12 @@ namespace wolfTPM
         private static extern int wolfTPM2_GetKeyTemplate_Symmetric(
             IntPtr publicTemplate, int keyBits, uint algMode, int isSign,
             int isDecrypt);
+        /// <summary>
+        /// Prepares a TPM public template for new symmetric key based on user
+        /// selected object attributes
+        /// </summary>
+        /// <param name="objectAttributes">Bit mask of TPM2_Object values to define the Key object attributes.</param>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_Symmetric(int keyBits,
                                             TPM2_Alg algMode,
                                             bool isSign,
@@ -430,6 +474,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_EK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_EK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating the TPM Endorsement Key of RSA type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_RSA_EK()
         {
             int rc = wolfTPM2_GetKeyTemplate_RSA_EK(template);
@@ -442,6 +490,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_EK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_EK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating the TPM Endorsement Key of ECC type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_ECC_EK()
         {
             int rc = wolfTPM2_GetKeyTemplate_ECC_EK(template);
@@ -454,6 +506,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_SRK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_SRK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating a new TPM Storage Key of RSA type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_RSA_SRK()
         {
             int rc = wolfTPM2_GetKeyTemplate_RSA_SRK(template);
@@ -466,6 +522,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_SRK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_SRK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating a new TPM Storage Key of ECC type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_ECC_SRK()
         {
             int rc = wolfTPM2_GetKeyTemplate_ECC_SRK(template);
@@ -478,6 +538,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_RSA_AIK")]
         private static extern int wolfTPM2_GetKeyTemplate_RSA_AIK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating a new TPM Attestation Key of RSA type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_RSA_AIK()
         {
             int rc = wolfTPM2_GetKeyTemplate_RSA_AIK(template);
@@ -490,6 +554,10 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetKeyTemplate_ECC_AIK")]
         private static extern int wolfTPM2_GetKeyTemplate_ECC_AIK(IntPtr publicTemplate);
+        /// <summary>
+        /// Prepares a TPM public template for generating a new TPM Attestation Key of ECC type
+        /// </summary>
+        /// <returns>Success: 0</returns>
         public int GetKeyTemplate_ECC_AIK()
         {
             int rc = wolfTPM2_GetKeyTemplate_ECC_AIK(template);
@@ -502,6 +570,12 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyTemplate_Unique")]
         private static extern int wolfTPM2_SetKeyTemplate_Unique(IntPtr publicTemplate, string unique, int uniqueSz);
+
+        /// <summary>
+        /// Sets the unique area of a public template used by Create or CreatePrimary.
+        /// </summary>
+        /// <param name="unique">optional pointer to buffer to populate unique area of public template. If NULL, the buffer will be zeroized.</param>
+        /// <returns>Success: 0</returns>
         public int SetKeyTemplate_Unique(string unique)
         {
             int rc = wolfTPM2_SetKeyTemplate_Unique(template,
@@ -557,27 +631,38 @@ namespace wolfTPM
             }
         }
 
+        /// <summary>
+        /// Retrieve the WOLFTPM2_HANDLE pointer from a this Session.
+        /// </summary>
         public IntPtr GetHandle()
         {
             return wolfTPM2_GetHandleRefFromSession(session);
         }
 
-        public int StartAuth(Device device, Key parentKey, TPM2_Alg algMode)
+        /// <summary>
+        /// Start an authenticated session (salted / unbound) with parameter
+        /// encryption and set session for authorization of the primary key.
+        /// </summary>
+        /// <param name="device">Reference to Device class reference</param>
+        /// <param name="parentKey"></param>
+        /// <param name="algMode">The algorithm for parameter encryption (TPM2_Alg.NULL or TPM2_Alg.CFB or TPM2_Alg.XOR)</param>
+        /// <returns>Success: 0</returns>
+        public int StartAuth(Device device, Key parentKey, TPM2_Alg encDecAlg)
         {
             int rc;
 
             /* Algorithm modes: With parameter encryption use CFB or XOR.
              * For HMAC only (no parameter encryption) use NULL. */
-            if (algMode != TPM2_Alg.NULL &&
-                algMode != TPM2_Alg.CFB &&
-                algMode != TPM2_Alg.XOR) {
+            if (encDecAlg != TPM2_Alg.NULL &&
+                encDecAlg != TPM2_Alg.CFB &&
+                encDecAlg != TPM2_Alg.XOR) {
                 return (int)Status.BAD_FUNC_ARG;
             }
 
             /* Start an authenticated session (salted / unbound) with
              * parameter encryption */
             rc = device.StartSession(this, parentKey, IntPtr.Zero,
-                (byte)SE.HMAC, (int)algMode);
+                (byte)SE.HMAC, (int)encDecAlg);
             if (rc == (int)Status.TPM_RC_SUCCESS) {
                 /* Set session for authorization of the primary key */
                 rc = device.SetAuthSession(this, this.sessionIdx,
@@ -591,6 +676,11 @@ namespace wolfTPM
             return rc;
         }
 
+        /// <summary>
+        /// Stop an authenticated session
+        /// </summary>
+        /// <param name="device">Reference to Device class reference</param>
+        /// <returns>Success: 0</returns>
         public int StopAuth(Device device)
         {
             /* Clear the auth index, since the auth session is ending */
@@ -633,7 +723,6 @@ namespace wolfTPM
                 csr = IntPtr.Zero;
             }
         }
-
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_CSR_SetCustomExt")]
         private static extern int wolfTPM2_CSR_SetCustomExt(IntPtr dev,
@@ -884,7 +973,7 @@ namespace wolfTPM
         /// Generates a new TPM Primary Key that will be used as a Storage Key for other TPM keys.
         /// </summary>
         /// <param name="srkKey">Empty key, to store information about the new EK.</param>
-        /// <param name="alg">TPM_ALG_RSA or TPM_ALG_ECC.</param>
+        /// <param name="alg">TPM2_Alg.RSA or TPM2_Alg.ECC</param>
         /// <param name="auth">String constant specifying the password authorization for the TPM 2.0 Key.</param>
         /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments; TPM_RC_FAILURE: check TPM IO and TPM return code.</returns>
         public int CreateSRK(Key srkKey,
@@ -918,7 +1007,7 @@ namespace wolfTPM
         /// <param name="tmpKey">A key that will be used as a salt for the session.</param>
         /// <param name="bind">A handle that will be used to make the session bounded.</param>
         /// <param name="sesType">The session type (HMAC, Policy or Trial).</param>
-        /// <param name="encDecAlg">Integer specifying the algorithm in case of parameter encryption.</param>
+        /// <param name="encDecAlg">The algorithm for parameter encryption (TPM2_Alg.NULL or TPM2_Alg.CFB or TPM2_Alg.XOR)</param>
         /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments.</returns>
         public int StartSession(Session tpmSession,
                                 Key tmpKey,
