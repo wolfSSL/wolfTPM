@@ -479,7 +479,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const W
     \param tpmKey pointer to a WOLFTPM2_KEY that will be used as a salt for the session
     \param bind pointer to a WOLFTPM2_HANDLE that will be used to make the session bounded
     \param sesType byte value, the session type (HMAC, Policy or Trial)
-    \param encDecAlg integer value, specifying the algorithm in case of parameter encryption
+    \param encDecAlg integer value, specifying the algorithm in case of parameter encryption (TPM_ALG_CFB or TPM_ALG_XOR). Any value not CFB or XOR is considered NULL and parameter encryption is disabled.
 
     \sa wolfTPM2_SetAuthSession
 */
@@ -500,7 +500,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     \param session pointer to an empty WOLFTPM2_SESSION struct
 
     \sa wolfTPM2_SetAuthSession
-    \sa wolfTPM2_StartAuthSession
+    \sa wolfTPM2_StartSession
 */
 WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
                                                     WOLFTPM2_SESSION* tpmSession);

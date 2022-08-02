@@ -645,7 +645,7 @@ namespace wolfTPM
         /// </summary>
         /// <param name="device">Reference to Device class reference</param>
         /// <param name="parentKey"></param>
-        /// <param name="algMode">The algorithm for parameter encryption (TPM2_Alg.NULL or TPM2_Alg.CFB or TPM2_Alg.XOR)</param>
+        /// <param name="encDecAlg">The algorithm for parameter encryption (TPM2_Alg.NULL, TPM2_Alg.CFB or TPM2_Alg.XOR). Using NULL disables parameter encryption</param>
         /// <returns>Success: 0</returns>
         public int StartAuth(Device device, Key parentKey, TPM2_Alg encDecAlg)
         {
@@ -1007,7 +1007,7 @@ namespace wolfTPM
         /// <param name="tmpKey">A key that will be used as a salt for the session.</param>
         /// <param name="bind">A handle that will be used to make the session bounded.</param>
         /// <param name="sesType">The session type (HMAC, Policy or Trial).</param>
-        /// <param name="encDecAlg">The algorithm for parameter encryption (TPM2_Alg.NULL or TPM2_Alg.CFB or TPM2_Alg.XOR)</param>
+        /// <param name="encDecAlg">The algorithm for parameter encryption (TPM2_Alg.NULL, TPM2_Alg.CFB or TPM2_Alg.XOR). Using NULL disables parameter encryption</param>
         /// <returns>0: Success; BAD_FUNC_ARG: check provided arguments.</returns>
         public int StartSession(Session tpmSession,
                                 Key tmpKey,
