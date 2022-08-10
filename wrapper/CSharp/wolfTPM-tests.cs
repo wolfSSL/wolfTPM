@@ -203,6 +203,9 @@ namespace tpm_csharp_test
             rc = device.LoadKey(blob, parent_key);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
 
+            rc = blob.SetKeyAuthPassword("ThisIsMyKeyAuth");
+            Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
             rc = device.UnloadHandle(blob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
         }

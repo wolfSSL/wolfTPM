@@ -216,6 +216,10 @@ namespace wolfTPM
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleRefFromKeyBlob")]
         private static extern IntPtr wolfTPM2_GetHandleRefFromKeyBlob(IntPtr keyBlob);
 
+        [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyAuthPassword")]
+        private static extern int wolfTPM2_SetKeyAuthPassword(
+            IntPtr keyBlob, string auth, int authSz);
+
         internal IntPtr keyblob;
 
         public KeyBlob()
@@ -282,6 +286,23 @@ namespace wolfTPM
         {
             return wolfTPM2_GetHandleRefFromKeyBlob(keyblob);
         }
+
+        /// <summary>
+        /// Set the authentication data for a key
+        /// </summary>
+        /// <param name="auth">pointer to auth data</param>
+        /// <returns>Success: 0</returns>
+        public int SetKeyAuthPassword(string auth)
+        {
+            int rc = wolfTPM2_SetKeyAuthPassword(keyblob,
+                                                 auth,
+                                                 auth.Length);
+            if (rc != (int)Status.TPM_RC_SUCCESS) {
+                throw new WolfTpm2Exception(
+                    "wolfTPM2_SetKeyAuthPassword", rc);
+            }
+            return rc;
+        }
     }
 
     public class Key : IDisposable
@@ -300,9 +321,7 @@ namespace wolfTPM
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_SetKeyAuthPassword")]
         private static extern int wolfTPM2_SetKeyAuthPassword(
-            IntPtr key,
-            string auth,
-            int authSz);
+            IntPtr key, string auth, int authSz);
 
         [DllImport(DLLNAME, EntryPoint = "wolfTPM2_GetHandleRefFromKey")]
         private static extern IntPtr wolfTPM2_GetHandleRefFromKey(IntPtr key);
