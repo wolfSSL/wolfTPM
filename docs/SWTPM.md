@@ -35,7 +35,7 @@ make
 
 Running:
 ```
-./tpm_server --rm
+./tpm_server -rm
 ```
 
 The rm switch is optional and remove the cache file
