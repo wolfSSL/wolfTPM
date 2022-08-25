@@ -268,6 +268,7 @@ WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
     WOLFTPM2_CSR* csr = (WOLFTPM2_CSR*)XMALLOC(
         sizeof(WOLFTPM2_CSR), NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (csr != NULL) {
+        XMEMSET(csr, 0, sizeof(WOLFTPM2_CSR));
         if (wc_InitCert(&csr->req) != 0) {
             XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             csr = NULL;
@@ -4999,8 +5000,8 @@ static void CSR_KeyCleanup(WOLFTPM2_DEV* dev, CSRKey* csrKey)
     }
 }
 
-int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, int critical,
-    const char *oid, const byte *der, word32 derSz)
+int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    int critical, const char *oid, const byte *der, word32 derSz)
 {
     int rc;
     if (csr == NULL) {
@@ -5008,7 +5009,24 @@ int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, int critical
     }
 #if defined(WOLFSSL_ASN_TEMPLATE) && defined(WOLFSSL_CUSTOM_OID) && \
     defined(HAVE_OID_ENCODING)
-    rc = wc_SetCustomExtension(&csr->req, critical, oid, der, derSz);
+
+    if (XSTRLEN(oid) >= WOLFTPM2_MAX_OID_STRING_SZ) {
+        return BUFFER_E;
+    }
+
+    XSTRNCPY(csr->exts_oids[csr->customCertExtCount], oid,
+             WOLFTPM2_MAX_OID_STRING_SZ);
+    rc = wc_SetCustomExtension(&csr->req, critical,
+                               csr->exts_oids[csr->customCertExtCount], der,
+                               derSz);
+
+    if (rc == 0) {
+        csr->customCertExtCount++;
+    } else {
+        XMEMSET(csr->exts_oids[csr->customCertExtCount], 0,
+                WOLFTPM2_MAX_OID_STRING_SZ);
+    }
+
 #else
     (void)critical;
     (void)oid;

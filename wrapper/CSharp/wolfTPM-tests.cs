@@ -540,6 +540,8 @@ namespace tpm_csharp_test
             Assert.That(rc, Is.GreaterThan(0));
 
             Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
+            var writer = new BinaryWriter(File.OpenWrite("csr.pem"));
+            writer.Write(output);
 
             rc = device.UnloadHandle(keyBlob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
