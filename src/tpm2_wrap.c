@@ -5009,24 +5009,7 @@ int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     }
 #if defined(WOLFSSL_ASN_TEMPLATE) && defined(WOLFSSL_CUSTOM_OID) && \
     defined(HAVE_OID_ENCODING)
-
-    if (XSTRLEN(oid) >= WOLFTPM2_MAX_OID_STRING_SZ) {
-        return BUFFER_E;
-    }
-
-    XSTRNCPY(csr->exts_oids[csr->customCertExtCount], oid,
-             WOLFTPM2_MAX_OID_STRING_SZ);
-    rc = wc_SetCustomExtension(&csr->req, critical,
-                               csr->exts_oids[csr->customCertExtCount], der,
-                               derSz);
-
-    if (rc == 0) {
-        csr->customCertExtCount++;
-    } else {
-        XMEMSET(csr->exts_oids[csr->customCertExtCount], 0,
-                WOLFTPM2_MAX_OID_STRING_SZ);
-    }
-
+    rc = wc_SetCustomExtension(&csr->req, critical, oid, der, derSz);
 #else
     (void)critical;
     (void)oid;

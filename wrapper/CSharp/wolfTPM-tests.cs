@@ -105,7 +105,8 @@ namespace tpm_csharp_test
             Console.WriteLine(sb.ToString());
         }
 
-        private static void DumpByteArray(string filename, byte[] bytes) {
+        private static void DumpByteArray(string filename, byte[] bytes)
+        {
             var writer = new BinaryWriter(File.OpenWrite(filename));
             writer.Write(bytes);
         }

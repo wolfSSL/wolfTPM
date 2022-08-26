@@ -747,7 +747,7 @@ namespace wolfTPM
         private static extern int wolfTPM2_CSR_SetCustomExt(IntPtr dev,
                                                             IntPtr csr,
                                                             int critical,
-                                                            string oid,
+                                                            byte[] oid,
                                                             byte[] der,
                                                             uint derSz);
 
@@ -763,9 +763,13 @@ namespace wolfTPM
         /// <returns>Success: 0</returns>
         public int SetCustomExtension(string oid, string der, int critical)
         {
+            /* Allocate a buffer here for OID and DER, since the underlying
+             * library wants to have the pointer available later. The garbage
+             * collection at end of caller frees memory */
+            byte[] oidBuf = Encoding.ASCII.GetBytes(oid);
             byte[] derBuf = Encoding.ASCII.GetBytes(der);
             int rc = wolfTPM2_CSR_SetCustomExt(IntPtr.Zero, csr, critical,
-                                               oid, derBuf, (uint)der.Length);
+                                              oidBuf, derBuf, (uint)der.Length);
             if (rc != (int)Status.TPM_RC_SUCCESS &&
                 rc != (int)Status.NOT_COMPILED_IN) {
                 throw new WolfTpm2Exception(
