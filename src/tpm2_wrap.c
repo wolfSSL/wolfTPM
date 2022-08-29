@@ -268,6 +268,7 @@ WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
     WOLFTPM2_CSR* csr = (WOLFTPM2_CSR*)XMALLOC(
         sizeof(WOLFTPM2_CSR), NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (csr != NULL) {
+        XMEMSET(csr, 0, sizeof(WOLFTPM2_CSR));
         if (wc_InitCert(&csr->req) != 0) {
             XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             csr = NULL;
@@ -4999,8 +5000,8 @@ static void CSR_KeyCleanup(WOLFTPM2_DEV* dev, CSRKey* csrKey)
     }
 }
 
-int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, int critical,
-    const char *oid, const byte *der, word32 derSz)
+int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    int critical, const char *oid, const byte *der, word32 derSz)
 {
     int rc;
     if (csr == NULL) {

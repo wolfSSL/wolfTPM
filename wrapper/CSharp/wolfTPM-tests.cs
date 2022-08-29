@@ -105,6 +105,12 @@ namespace tpm_csharp_test
             Console.WriteLine(sb.ToString());
         }
 
+        private static void DumpByteArray(string filename, byte[] bytes)
+        {
+            var writer = new BinaryWriter(File.OpenWrite(filename));
+            writer.Write(bytes);
+        }
+
         private void GetSRK(Key srkKey, string auth)
         {
             int rc = device.CreateSRK(srkKey,
@@ -441,6 +447,7 @@ namespace tpm_csharp_test
             Assert.That(rc, Is.GreaterThan(0));
 
             Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
+            DumpByteArray("csr.pem", output);
 
             rc = device.UnloadHandle(keyBlob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
@@ -482,6 +489,7 @@ namespace tpm_csharp_test
             Assert.That(rc, Is.GreaterThan(0));
 
             Console.WriteLine("Cert PEM {0} bytes", rc.ToString());
+            DumpByteArray("cert.pem", output);
 
             rc = device.UnloadHandle(keyBlob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
@@ -540,6 +548,7 @@ namespace tpm_csharp_test
             Assert.That(rc, Is.GreaterThan(0));
 
             Console.WriteLine("CSR PEM {0} bytes", rc.ToString());
+            DumpByteArray("csr_customExt.pem", output);
 
             rc = device.UnloadHandle(keyBlob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
