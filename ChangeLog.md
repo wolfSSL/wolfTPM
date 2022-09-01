@@ -1,5 +1,23 @@
 # Release Notes
 
+## wolfTPM Release 2.6 (09/01/2022)
+
+**Summary**
+
+Fix for CSharp wrapper when setting a custom OID for a CSR. Added CSharp wrapper documentation and improved a few others. Added CSharp function to set key password for blob.
+
+**Detail**
+
+* Fix for CSharp `SetCustomExtension` to use allocated byte buffer instead of passing string (PR #239)
+* Fixed for CMake `wolftpm/options.h` generation to support disabled source tree changes (`CMAKE_DISABLE_SOURCE_CHANGES`) (PR #235)
+* Fixed CMake / vcpkg issue with options.h output location (PR #235)
+* Added CSharp `KeyBlob.SetKeyAuthPassword` and test case (PR #237)
+* Added API documentation for the CSharp wrappers (PR #234)
+* Fixed documentation error on `wolfTPM2_GetKeyBlobAsBuffer` (PR #234)
+* Fixed documentation for encDecAlg with authenticated session (PR #236)
+* Fixed software TPM (docs/SWTPM.md) example argument for `-rm` (PR #238)
+
+
 ## wolfTPM Release 2.5 (07/22/2022)
 
 **Summary**

@@ -91,7 +91,7 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
     if (ctx->lockCount == 0) {
         wc_UnLockMutex(&ctx->hwLock);
     }
-    
+
 #endif
 }
 

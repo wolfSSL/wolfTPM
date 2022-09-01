@@ -21,7 +21,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(wolfTPM VERSION 2.5.0 LANGUAGES C)
+project(wolfTPM VERSION 2.6.0 LANGUAGES C)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(WOLFTPM_DEFINITIONS)
@@ -44,36 +44,6 @@ target_compile_definitions(wolftpm PRIVATE
     "BUILDING_WOLFTPM"
     )
 
-
-if (WITH_WOLFSSL)
-    target_link_libraries(wolftpm PUBLIC wolfssl)
-    target_include_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/include)
-    target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
-elseif (WITH_WOLFSSL_TREE)
-    set(WOLFSSL_TPM "yes" CACHE STRING "")
-    set(WOLFSSL_EXAMPLES "no" CACHE STRING "")
-    set(WOLFSSL_CRYPT_TESTS "no" CACHE STRING "")
-    add_subdirectory(${WITH_WOLFSSL_TREE} wolfssl)
-    target_link_libraries(wolftpm PUBLIC wolfssl)
-else()
-    find_package(PkgConfig)
-    pkg_check_modules(WOLFSSL wolfssl)
-
-    if (WOLFSSL_FOUND)
-        target_link_libraries(wolftpm PUBLIC ${WOLFSSL_LIBRARIES})
-        target_include_directories(wolftpm PUBLIC ${WOLFSSL_INCLUDE_DIRS})
-        target_link_directories(wolftpm PUBLIC ${WOLFSSL_LIBRARY_DIRS})
-        target_compile_options(wolftpm PUBLIC ${WOLFSSL_CFLAGS_OTHER})
-    else()
-        # For support with vcpkg
-        find_package(wolfssl CONFIG)
-        if (wolfssl_FOUND)
-            target_link_libraries(wolftpm PUBLIC wolfssl)
-        else()
-            list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WOLFCRYPT")
-        endif()
-    endif()
-endif()
 
 # TODO
 # * wrapper
@@ -153,6 +123,37 @@ target_include_directories(wolftpm
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     )
+
+
+if (WITH_WOLFSSL)
+    target_link_libraries(wolftpm PUBLIC wolfssl)
+    target_include_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/include)
+    target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
+    elseif (WITH_WOLFSSL_TREE)
+    set(WOLFSSL_TPM "yes" CACHE STRING "")
+    set(WOLFSSL_EXAMPLES "no" CACHE STRING "")
+    set(WOLFSSL_CRYPT_TESTS "no" CACHE STRING "")
+    add_subdirectory(${WITH_WOLFSSL_TREE} wolfssl)
+    target_link_libraries(wolftpm PUBLIC wolfssl)
+else()
+    find_package(PkgConfig)
+    pkg_check_modules(WOLFSSL wolfssl)
+
+    if (WOLFSSL_FOUND)
+        target_link_libraries(wolftpm PUBLIC ${WOLFSSL_LIBRARIES})
+        target_include_directories(wolftpm PUBLIC ${WOLFSSL_INCLUDE_DIRS})
+        target_link_directories(wolftpm PUBLIC ${WOLFSSL_LIBRARY_DIRS})
+        target_compile_options(wolftpm PUBLIC ${WOLFSSL_CFLAGS_OTHER})
+    else()
+        # For support with vcpkg
+        find_package(wolfssl CONFIG)
+        if (wolfssl_FOUND)
+            target_link_libraries(wolftpm PUBLIC wolfssl)
+        else()
+            list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WOLFCRYPT")
+        endif()
+    endif()
+endif()
 
 if (WOLFTPM_EXAMPLES)
     add_library(tpm_test_lib STATIC
