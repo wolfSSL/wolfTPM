@@ -83,10 +83,25 @@ typedef struct WOLFTPM2_HMAC {
 } WOLFTPM2_HMAC;
 
 #ifdef WOLFTPM2_CERT_GEN
+
+#ifndef WOLFTPM2_NUM_CUSTOM_EXT
+#define WOLFTPM2_NUM_CUSTOM_EXT NUM_CUSTOM_EXT
+#endif
+
+#ifndef WOLFTPM2_MAX_OID_STRING_SZ
+#define WOLFTPM2_MAX_OID_STRING_SZ MAX_OID_STRING_SZ
+#endif
+
 typedef struct WOLFTPM2_CSR {
+#if defined(WOLFSSL_ASN_TEMPLATE) && defined(WOLFSSL_CUSTOM_OID) && \
+    defined(HAVE_OID_ENCODING) && !defined(WOLFTPM2_NO_HEAP)
+    int customCertExtCount;
+    char exts_oids[WOLFTPM2_NUM_CUSTOM_EXT][WOLFTPM2_MAX_OID_STRING_SZ];
+#endif /* WOLFSSL_ASN_TEMPLATE && WOLFSSL_CUSTOM_OID && HAVE_OID_ENCODING &&
+        * !WOLFTPM2_NO_HEAP */
     Cert req;
 } WOLFTPM2_CSR;
-#endif
+#endif /* WOLFTPM2_CERT_GEN */
 
 #ifndef WOLFTPM2_MAX_BUFFER
     #define WOLFTPM2_MAX_BUFFER 2048
