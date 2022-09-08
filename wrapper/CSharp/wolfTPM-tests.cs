@@ -109,6 +109,7 @@ namespace tpm_csharp_test
         {
             var writer = new BinaryWriter(File.OpenWrite(filename));
             writer.Write(bytes);
+            writer.Close();
         }
 
         private void GetSRK(Key srkKey, string auth)
