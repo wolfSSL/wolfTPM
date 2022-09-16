@@ -35,6 +35,7 @@ typedef struct WOLFTPM2_HANDLE {
     TPMT_SYM_DEF    symmetric;
     TPM2B_NAME      name;
     int             policyAuth; /* Handle requires Policy, not password Auth */
+    int             nameLoaded; /* flag to indicate if "name" was loaded and computed */
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
@@ -1559,6 +1560,13 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 */
 WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
+
+
+WOLFTPM_API int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
+
+WOLFTPM_API int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, const byte* auth, word32 authSz);
+
 
 /*!
     \ingroup wolfTPM2_Wrappers

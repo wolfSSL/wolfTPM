@@ -751,8 +751,13 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     name = &handle->name;
     session = &dev->session[index];
 
+    if (session->auth.size == 0 && handle->auth.size > 0) {
+        session->auth.size = handle->auth.size;
+        XMEMCPY(session->auth.buffer, handle->auth.buffer, handle->auth.size);
+    }
     session->name.size = name->size;
     XMEMCPY(session->name.name, name->name, session->name.size);
+
     return TPM_RC_SUCCESS;
 }
 
@@ -3130,7 +3135,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz)
 {
-    int rc, alreadyExists = 0;
+    int rc, rctmp, alreadyExists = 0;
     NV_DefineSpace_In in;
 
     if (dev == NULL || nv == NULL)
@@ -3168,22 +3173,14 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     #endif
         return rc;
     }
+    if (rc == TPM_RC_SUCCESS && alreadyExists)
+        rc = TPM_RC_NV_DEFINED;
 
+    /* compute NV object with name */
     XMEMSET(nv, 0, sizeof(*nv));
-    /* Compute NV Index name in case of parameter encryption */
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    rc = TPM2_HashNvPublic(&in.publicInfo.nvPublic,
-                            (byte*)&nv->handle.name.name,
-                            &nv->handle.name.size);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-#endif
-
-    /* return new NV handle */
-    nv->handle.hndl = (TPM_HANDLE)nvIndex;
-    wolfTPM2_CopyAuth(&nv->handle.auth, &in.auth);
-    /* nv->handle.name already populated by TPM2_HashNvPublic above */
+    rctmp = wolfTPM2_NVOpen(dev, nv, nvIndex, auth, authSz);
+    if (rctmp != TPM_RC_SUCCESS)
+        rc = rctmp;
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
@@ -3218,40 +3215,21 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
     NV_Write_In in;
-    TPMS_NV_PUBLIC nvPublic;
 
     if (dev == NULL || nv == NULL)
         return BAD_FUNC_ARG;
 
-    /* set session auth for key */
-    if (dev->ctx.session) {
-        wolfTPM2_SetAuthHandle(dev, 0, &nv->handle);
+    /* make sure the name is computed for the handle */
+    if (!nv->handle.nameLoaded) {
+        wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
     }
-
-    /* Read the NV Index publicArea to have up to date NV Index Name */
-    rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NV Public\n");
-    #endif
-        return TPM_RC_FAILURE;
-    }
-
-    /* Compute NV Index name in case of parameter encryption */
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
-                            &nv->handle.name.size);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-#endif
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Storing NV Index Name failed\n");
+        printf("Setting NV index name failed\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -3309,40 +3287,21 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 pos = 0, toread, dataSz;
     NV_Read_In in;
     NV_Read_Out out;
-    TPMS_NV_PUBLIC nvPublic;
 
     if (dev == NULL || nv == NULL || pDataSz == NULL)
         return BAD_FUNC_ARG;
 
-    /* set session auth for key */
-    if (dev->ctx.session) {
-        wolfTPM2_SetAuthHandle(dev, 0, &nv->handle);
+    /* make sure the name is computed for the handle */
+    if (!nv->handle.nameLoaded) {
+        wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
     }
 
-    /* Read the NV Index publicArea to have up to date NV Index Name */
-    rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Failed to read fresh NV Public\n");
-    #endif
-        return TPM_RC_FAILURE;
-    }
-
-    /* Compute NV Index name in case of parameter encryption */
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
-                            &nv->handle.name.size);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-#endif
-
-    /* Necessary, because NVWrite has two handles, second is NV Index */
+    /* Necessary, because NVRead has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Storing NV Index Name failed\n");
+        printf("Setting NV index name failed\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -3401,6 +3360,47 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return wolfTPM2_NVReadAuth(dev, &nv, nvIndex, dataBuf, pDataSz, offset);
 }
 
+int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
+    const byte* auth, word32 authSz)
+{
+    int rc = TPM_RC_SUCCESS;
+    TPMS_NV_PUBLIC nvPublic;
+
+    if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer))
+        return BAD_FUNC_ARG;
+
+    /* build the "handle" */
+    nv->handle.hndl = nvIndex;
+    /* auth can also be set already via nv->handle */
+    if (auth != NULL && authSz > 0) {
+        nv->handle.auth.size = authSz;
+        XMEMCPY(nv->handle.auth.buffer, auth, authSz);
+    }
+
+    /* Read the NV Index publicArea to have up to date NV Index Name */
+    rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to open (read) NV\n");
+    #endif
+        return TPM_RC_FAILURE;
+    }
+
+    /* Compute NV Index name in case of parameter encryption */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
+                           &nv->handle.name.size);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+#endif
+
+    /* flag that the NV was "opened" and name was loaded */
+    nv->handle.nameLoaded = 1;
+
+    return rc;
+}
+
 int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     TPMS_NV_PUBLIC* nvPublic)
 {
@@ -3437,7 +3437,51 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     if (nvPublic) {
         wolfTPM2_CopyNvPublic(nvPublic, &out.nvPublic.nvPublic);
     }
-    /* TODO: For HMAC calc out.nvName will need captured */
+
+    return rc;
+}
+
+int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
+{
+    int rc = TPM_RC_SUCCESS;
+    NV_Increment_In in;
+
+    if (dev == NULL || nv == NULL)
+        return BAD_FUNC_ARG;
+
+    /* make sure the name is computed for the handle */
+    if (!nv->handle.nameLoaded) {
+        wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
+    }
+
+    /* make sure auth not set */
+    wolfTPM2_UnsetAuth(dev, 1);
+
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Setting NV index name failed\n");
+    #endif
+        return TPM_RC_FAILURE;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = nv->handle.hndl;
+    in.nvIndex = nv->handle.hndl;
+
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2_NV_Increment: Auth 0x%x, Idx 0x%x\n",
+        (word32)in.authHandle, (word32)in.nvIndex);
+#endif
+
+    rc = TPM2_NV_Increment(&in);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_NV_Increment failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
 
     return rc;
 }
@@ -3454,6 +3498,7 @@ int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     /* set session auth for key */
     if (dev->ctx.session) {
         wolfTPM2_SetAuthHandle(dev, 0, parent);
+
         /* Make sure no other auth sessions exist */
         wolfTPM2_UnsetAuth(dev, 1);
         wolfTPM2_UnsetAuth(dev, 2);
