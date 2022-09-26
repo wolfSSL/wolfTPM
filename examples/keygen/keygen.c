@@ -55,6 +55,7 @@ static void usage(void)
     printf("* -ecc: Use ECC for asymmetric key generation \n");
     printf("* -sym: Use Symmetric Cipher for key generation\n");
     printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
+    printf("* -keyedhash: Use Keyed Hash for key generation\n");
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -unique=[value]\n");
@@ -178,6 +179,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_SYMCIPHER;
             bAIK = 0;
         }
+        if (XSTRNCMP(argv[argc-1], "-keyedhash", 10) == 0) {
+            alg = TPM_ALG_KEYEDHASH;
+            bAIK = 0;
+        }
         if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
             bAIK = 0;
         }
@@ -268,8 +273,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("ECC AIK template\n");
             rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
         }
-        else if (alg == TPM_ALG_SYMCIPHER) {
-            printf("AIK are expected to be RSA or ECC, not symmetric keys.\n");
+        else if (alg == TPM_ALG_SYMCIPHER || alg == TPM_ALG_KEYEDHASH) {
+            printf("AIK are expected to be RSA or ECC only, "
+                "not symmetric or keyedhash keys.\n");
             rc = BAD_FUNC_ARG;
         }
         else {
@@ -299,6 +305,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("Symmetric template\n");
             rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits,
                     algSym, YES, YES);
+        }
+        else if (alg == TPM_ALG_KEYEDHASH) {
+            printf("Keyed Hash template\n");
+                rc = wolfTPM2_GetKeyTemplate_KeyedHash(&publicTemplate,
+                    TPM_ALG_SHA256, YES, NO);
         }
         else {
             rc = BAD_FUNC_ARG;

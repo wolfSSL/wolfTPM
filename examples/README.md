@@ -270,6 +270,22 @@ Reading 198 bytes from keyblob.bin
 Reading the private part of the key
 Loaded key to 0x80000001
 
+$ ./examples/keygen/keygen -keyedhash
+TPM2.0 Key generation example
+	Key Blob: keyblob.bin
+	Algorithm: KEYEDHASH
+	Template: Default
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+Keyed Hash template
+Creating new KEYEDHASH key...
+TPM2_Create key: pub 48, priv 158
+Public Area (size 48):
+  Type: KEYEDHASH (0x8), name: SHA256 (0xB), objAttr: 0x40460, authPolicy sz: 0
+  Keyed Hash: scheme: HMAC (0x5), scheme hash: SHA256 (0xB), unique size 32
+TPM2_Load Key Handle 0x80000001
+New key created and loaded (pub 48, priv 158 bytes)
+Wrote 212 bytes to keyblob.bin
 ```
 
 When filename is not supplied, a default filename "keyblob.bin" is used, therefore `keyload` and `keygen` can be used without additional parameters for quick TPM 2.0 key generation demonstration.
