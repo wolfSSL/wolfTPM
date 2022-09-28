@@ -50,7 +50,7 @@ static void usage(void)
            TPM2_TEST_PCR);
 }
 
-int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
+int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 {
     int pcrIndex = TPM2_TEST_PCR, rc = -1;
     const char *outputFile = "quote.blob";
@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Quote_Test(NULL, argc, argv);
+    rc = TPM2_PCR_Quote_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
     (void)argc;

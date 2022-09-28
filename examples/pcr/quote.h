@@ -26,7 +26,7 @@
     extern "C" {
 #endif
 
-int TPM2_Quote_Test(void* userCtx, int argc, char *argv[]);
+int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

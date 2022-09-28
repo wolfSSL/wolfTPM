@@ -47,6 +47,7 @@ examples/timestamp/signed_timestamp
 examples/pcr/quote
 examples/pcr/read_pcr
 examples/pcr/extend
+examples/pcr/policy
 examples/pcr/reset
 examples/timestamp/clock_set
 examples/management/flush

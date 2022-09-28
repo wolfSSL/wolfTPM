@@ -187,8 +187,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Note: Copy between TPM2_AUTH_SESSION and TPMS_AUTH_COMMAND is allowed */
         XMEMCPY(&authCmd, session, sizeof(TPMS_AUTH_COMMAND));
 
-        /* Skip Policy session, because Enhanced Authorization is not yet implemented */
-        if (TPM2_IS_HMAC_SESSION(session->sessionHandle)) {
+        if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+            TPM2_IS_POLICY_SESSION(session->sessionHandle))
+        {
         #ifndef WOLFTPM2_NO_WOLFCRYPT
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
