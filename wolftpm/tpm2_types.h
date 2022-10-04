@@ -146,7 +146,7 @@ typedef int64_t  INT64;
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
-    #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
+    #define XSTRCMP(s1,s2)    strcmp((s1),(s2))
     #define XSTRSTR(s1,s2)    strstr((s1),(s2))
 #endif /* !WOLFTPM_CUSTOM_TYPES */
 

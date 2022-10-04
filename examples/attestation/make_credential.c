@@ -83,13 +83,13 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         printf("Using public key from SRK to create the challenge\n");
     }
     else if (argc == 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
-        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+        if (XSTRCMP(argv[1], "-eh") == 0) {
             printf("Using keys under the Endorsement Hierarchy\n");
             endorseKey = 1;
         }

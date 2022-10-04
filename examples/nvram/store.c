@@ -72,9 +72,9 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     int pubAreaSize;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -83,16 +83,16 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRNCMP(argv[argc-1], "-priv", 5) == 0) {
+        if (XSTRCMP(argv[argc-1], "-priv") == 0) {
             partialStore = PRIVATE_PART_ONLY;
         }
-        if (XSTRNCMP(argv[argc-1], "-pub", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-pub") == 0) {
             partialStore = PUBLIC_PART_ONLY;
         }
         argc--;

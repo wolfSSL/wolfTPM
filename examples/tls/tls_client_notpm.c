@@ -93,7 +93,7 @@ int TLS_ClientArgs(int argc, char *argv[])
     printf("TLS Client Example\n");
 
     if (argc > 1) {
-        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
+        if (XSTRCMP(argv[1], "ECC") == 0) {
             useECC = 1;
         }
     }

@@ -91,9 +91,9 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 #endif
 
    if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }

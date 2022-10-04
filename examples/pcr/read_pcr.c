@@ -65,9 +65,9 @@ int TPM2_Read_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -94,7 +94,7 @@ int TPM2_Read_Test(void* userCtx, int argc, char *argv[])
 
 
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
-    /* Note: TPM2_SetupPCRSel can be called with multiple PCR indexes to 
+    /* Note: TPM2_SetupPCRSel can be called with multiple PCR indexes to
      * read more than one at a time */
     TPM2_SetupPCRSel(&cmdIn.pcrRead.pcrSelectionIn, TEST_WRAP_DIGEST, pcrIndex);
     rc = TPM2_PCR_Read(&cmdIn.pcrRead, &cmdOut.pcrRead);
