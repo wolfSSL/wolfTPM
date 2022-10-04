@@ -28,6 +28,7 @@
 
 int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

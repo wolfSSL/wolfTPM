@@ -34,7 +34,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -42,7 +41,7 @@
 #define PUBLIC_PART_ONLY    0x02
 
 /******************************************************************************/
-/* --- BEGIN TPM Keygen Example -- */
+/* --- BEGIN TPM NVRAM Read Example -- */
 /******************************************************************************/
 static void usage(void)
 {
@@ -83,14 +82,17 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRCMP(argv[argc-1], "-priv") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-priv") == 0) {
             partialRead = PRIVATE_PART_ONLY;
         }
-        if (XSTRCMP(argv[argc-1], "-pub") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-pub") == 0) {
             partialRead = PUBLIC_PART_ONLY;
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
     }
@@ -228,7 +230,7 @@ exit:
 }
 
 /******************************************************************************/
-/* --- END TPM NVRAM Store Example -- */
+/* --- END TPM NVRAM Read Example -- */
 /******************************************************************************/
 #endif /* !WOLFTPM2_NO_WRAPPER */
 

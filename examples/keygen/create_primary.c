@@ -29,7 +29,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -94,36 +93,40 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
             alg = TPM_ALG_RSA;
         }
-        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-eh") == 0) {
             hierarchy = TPM_RH_ENDORSEMENT;
         }
-        if (XSTRCMP(argv[argc-1], "-ph") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-ph") == 0) {
             hierarchy = TPM_RH_PLATFORM;
         }
-        if (XSTRCMP(argv[argc-1], "-oh") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-oh") == 0) {
             hierarchy = TPM_RH_OWNER;
         }
-        if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
             uniqueStr = argv[argc-1] + 8;
         }
-        if (XSTRCMP(argv[argc-1], "-auth=") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-auth=") == 0) {
             authStr = argv[argc-1] + 6;
         }
-        if (XSTRCMP(argv[argc-1], "-store=") == 0) {
-            persistHandle = (word32)strtol(argv[argc-1] + 7, NULL, 0);
+        else if (XSTRCMP(argv[argc-1], "-store=") == 0) {
+            persistHandle = (word32)XSTRTOL(argv[argc-1] + XSTRLEN("-store="),
+                NULL, 0);
             if (persistHandle < 0x81000000 && persistHandle > 0x810FFFF) {
                 printf("Invalid storage handle %s\n", argv[argc-1] + 7);
                 persistHandle = 0;
             }
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 
         argc--;

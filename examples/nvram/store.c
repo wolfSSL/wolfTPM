@@ -41,7 +41,7 @@
 #define PUBLIC_PART_ONLY    0x02
 
 /******************************************************************************/
-/* --- BEGIN TPM Keygen Example -- */
+/* --- BEGIN TPM NVRAM Store Example -- */
 /******************************************************************************/
 static void usage(void)
 {
@@ -86,14 +86,17 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRCMP(argv[argc-1], "-priv") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-priv") == 0) {
             partialStore = PRIVATE_PART_ONLY;
         }
-        if (XSTRCMP(argv[argc-1], "-pub") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-pub") == 0) {
             partialStore = PUBLIC_PART_ONLY;
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
     };

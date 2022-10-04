@@ -18,12 +18,21 @@ examples_nvram_read_SOURCES      = examples/nvram/read.c \
 examples_nvram_read_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_nvram_read_DEPENDENCIES = src/libwolftpm.la
 
+noinst_PROGRAMS += examples/nvram/counter
+examples_nvram_counter_SOURCES      = examples/nvram/counter.c \
+                                   examples/tpm_test_keys.c \
+                                   examples/tpm_io.c
+examples_nvram_counter_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_nvram_counter_DEPENDENCIES = src/libwolftpm.la
+
 endif
 
 example_nvramdir = $(exampledir)/nvram
 dist_example_nvram_DATA = \
   examples/nvram/store.c \
-  examples/nvram/read.c
+  examples/nvram/read.c \
+  examples/nvram/counter.c
 
 DISTCLEANFILES+= examples/nvram/.libs/store
 DISTCLEANFILES+= examples/nvram/.libs/read
+DISTCLEANFILES+= examples/nvram/.libs/counter

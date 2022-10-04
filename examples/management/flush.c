@@ -28,7 +28,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 #ifndef WOLFTPM2_NO_WRAPPER
 /******************************************************************************/

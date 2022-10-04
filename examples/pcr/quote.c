@@ -32,7 +32,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Quote Test -- */
@@ -95,7 +94,7 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            pcrIndex = atoi(argv[1]);
+            pcrIndex = XATOI(argv[1]);
         }
         if (argc >= 3 && argv[2][0] != '-')
             outputFile = argv[2];
@@ -104,10 +103,10 @@ int TPM2_Quote_Test(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
         argc--;

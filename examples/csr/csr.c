@@ -160,6 +160,9 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-cert") == 0) {
             makeSelfSignedCert = 1;
         }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
+        }
         argc--;
     }
 
