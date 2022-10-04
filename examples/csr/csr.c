@@ -149,15 +149,15 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     printf("TPM2 CSR Example\n");
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-cert", 5) == 0) {
+        if (XSTRCMP(argv[argc-1], "-cert") == 0) {
             makeSelfSignedCert = 1;
         }
         argc--;

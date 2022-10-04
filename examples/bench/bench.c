@@ -219,18 +219,18 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
         argc--;

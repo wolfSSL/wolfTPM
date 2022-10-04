@@ -57,9 +57,9 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     const char* outputFile = "keyblob.bin";
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -68,13 +68,13 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
             outputFile = argv[1];
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
         argc--;

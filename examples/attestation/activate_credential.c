@@ -77,16 +77,16 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         printf("Using default values\n");
     }
     else if (argc == 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
         if (argv[1][0] != '-') {
             input = argv[1];
         }
-        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+        if (XSTRCMP(argv[1], "-eh") == 0) {
             printf("Use Endorsement Key\n");
             endorseKey = 1;
         }

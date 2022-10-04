@@ -83,42 +83,42 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
     word32 persistHandle = 0;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-rsa", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
             alg = TPM_ALG_RSA;
         }
-        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRNCMP(argv[argc-1], "-eh", 3) == 0) {
+        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
             hierarchy = TPM_RH_ENDORSEMENT;
         }
-        if (XSTRNCMP(argv[argc-1], "-ph", 3) == 0) {
+        if (XSTRCMP(argv[argc-1], "-ph") == 0) {
             hierarchy = TPM_RH_PLATFORM;
         }
-        if (XSTRNCMP(argv[argc-1], "-oh", 3) == 0) {
+        if (XSTRCMP(argv[argc-1], "-oh") == 0) {
             hierarchy = TPM_RH_OWNER;
         }
-        if (XSTRNCMP(argv[argc-1], "-unique=", 8) == 0) {
+        if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
             uniqueStr = argv[argc-1] + 8;
         }
-        if (XSTRNCMP(argv[argc-1], "-auth=", 6) == 0) {
+        if (XSTRCMP(argv[argc-1], "-auth=") == 0) {
             authStr = argv[argc-1] + 6;
         }
-        if (XSTRNCMP(argv[argc-1], "-store=", 7) == 0) {
+        if (XSTRCMP(argv[argc-1], "-store=") == 0) {
             persistHandle = (word32)strtol(argv[argc-1] + 7, NULL, 0);
             if (persistHandle < 0x81000000 && persistHandle > 0x810FFFF) {
                 printf("Invalid storage handle %s\n", argv[argc-1] + 7);

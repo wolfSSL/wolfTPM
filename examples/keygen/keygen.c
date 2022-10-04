@@ -55,6 +55,7 @@ static void usage(void)
     printf("* -ecc: Use ECC for asymmetric key generation \n");
     printf("* -sym: Use Symmetric Cipher for key generation\n");
     printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
+    printf("* -keyedhash: Use Keyed Hash for key generation\n");
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -unique=[value]\n");
@@ -83,20 +84,20 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
     if (len != SYM_EXTRA_OPTS_LEN) {
         return TPM_RC_FAILURE;
     }
-    if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_POS+1], "aes", 3)) {
+    if (XSTRCMP(&arg[SYM_EXTRA_OPTS_POS+1], "aes")) {
         return TPM_RC_FAILURE;
     }
 
     /* Copy string for user information later */
     XMEMCPY(symMode, &arg[SYM_EXTRA_OPTS_POS+1], 6);
 
-    if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cfb", 3) == 0) {
+    if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cfb") == 0) {
         *algSym = TPM_ALG_CFB;
     }
-    else if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "ctr", 3) == 0) {
+    else if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "ctr") == 0) {
         *algSym = TPM_ALG_CTR;
     }
-    else if (XSTRNCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cbc", 3) == 0) {
+    else if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cbc") == 0) {
         *algSym = TPM_ALG_CBC;
     }
     else {
@@ -145,9 +146,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     char symMode[] = "aesctr";
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -155,13 +156,13 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             outputFile = argv[1];
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-rsa", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
             alg = TPM_ALG_RSA;
         }
-        if (XSTRNCMP(argv[argc-1], "-ecc", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRNCMP(argv[argc-1], "-sym", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-sym") == 0) {
             len = XSTRLEN(argv[argc-1]);
             if (len >= SYM_EXTRA_OPTS_LEN) {
                 /* Did the user provide specific options? */
@@ -178,22 +179,26 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_SYMCIPHER;
             bAIK = 0;
         }
-        if (XSTRNCMP(argv[argc-1], "-t", 2) == 0) {
+        if (XSTRCMP(argv[argc-1], "-keyedhash") == 0) {
+            alg = TPM_ALG_KEYEDHASH;
             bAIK = 0;
         }
-        if (XSTRNCMP(argv[argc-1], "-eh", 3) == 0) {
+        if (XSTRCMP(argv[argc-1], "-t") == 0) {
+            bAIK = 0;
+        }
+        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
             endorseKey = 1;
         }
-        if (XSTRNCMP(argv[argc-1], "-pem", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-pem") == 0) {
             pemFiles = 1;
         }
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRNCMP(argv[argc-1], "-unique=", 8) == 0) {
+        if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
             uniqueStr = argv[argc-1] + 8;
         }
 
@@ -268,8 +273,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("ECC AIK template\n");
             rc = wolfTPM2_GetKeyTemplate_ECC_AIK(&publicTemplate);
         }
-        else if (alg == TPM_ALG_SYMCIPHER) {
-            printf("AIK are expected to be RSA or ECC, not symmetric keys.\n");
+        else if (alg == TPM_ALG_SYMCIPHER || alg == TPM_ALG_KEYEDHASH) {
+            printf("AIK are expected to be RSA or ECC only, "
+                "not symmetric or keyedhash keys.\n");
             rc = BAD_FUNC_ARG;
         }
         else {
@@ -299,6 +305,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("Symmetric template\n");
             rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits,
                     algSym, YES, YES);
+        }
+        else if (alg == TPM_ALG_KEYEDHASH) {
+            printf("Keyed Hash template\n");
+            rc = wolfTPM2_GetKeyTemplate_KeyedHash(&publicTemplate,
+                TPM_ALG_SHA256, YES, NO);
         }
         else {
             rc = BAD_FUNC_ARG;

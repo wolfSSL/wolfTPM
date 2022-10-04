@@ -69,9 +69,9 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     int endorseKey = 0;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -79,18 +79,18 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-') {
             inputFile = argv[1];
         }
-        if (XSTRNCMP(argv[1], "-eh", 3) == 0) {
+        if (XSTRCMP(argv[1], "-eh") == 0) {
             endorseKey = 1;
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRNCMP(argv[argc-1], "-persistent", 11) == 0) {
+        if (XSTRCMP(argv[argc-1], "-persistent") == 0) {
             persistent = 1;
         }
         argc--;

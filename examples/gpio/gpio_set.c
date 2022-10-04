@@ -59,9 +59,9 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
     BYTE pinState = 0x01;
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
@@ -72,10 +72,10 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
         }
     }
     while (argc > 1) {
-        if (XSTRNCMP(argv[argc-1], "-high", 5) == 0) {
+        if (XSTRCMP(argv[argc-1], "-high") == 0) {
             pinState = 0x01;
         }
-        if (XSTRNCMP(argv[argc-1], "-low", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-low") == 0) {
             pinState = 0x00;
         }
         argc--;
