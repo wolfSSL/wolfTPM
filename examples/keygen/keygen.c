@@ -312,6 +312,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             printf("Keyed Hash template\n");
             rc = wolfTPM2_GetKeyTemplate_KeyedHash(&publicTemplate,
                 TPM_ALG_SHA256, YES, NO);
+            publicTemplate.objectAttributes |= TPMA_OBJECT_sensitiveDataOrigin;
         }
         else {
             rc = BAD_FUNC_ARG;
