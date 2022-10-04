@@ -34,7 +34,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/
@@ -96,7 +95,7 @@ int TPM2_Extend_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            pcrIndex = atoi(argv[1]);
+            pcrIndex = XATOI(argv[1]);
         }
 
         if (argc >= 3 && argv[2][0] != '-')

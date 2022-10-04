@@ -32,7 +32,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON))
@@ -65,7 +64,7 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        pin = atoi(argv[1]);
+        pin = XATOI(argv[1]);
         if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
             usage();
             return 0;
@@ -75,8 +74,11 @@ int TPM2_GPIO_Set_Example(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-high") == 0) {
             pinState = 0x01;
         }
-        if (XSTRCMP(argv[argc-1], "-low") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-low") == 0) {
             pinState = 0x00;
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
     };

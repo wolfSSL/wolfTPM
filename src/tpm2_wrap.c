@@ -3138,12 +3138,14 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     int rc, rctmp, alreadyExists = 0;
     NV_DefineSpace_In in;
 
-    if (dev == NULL || nv == NULL)
+    if (dev == NULL || nv == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* set session auth for key */
     if (dev->ctx.session) {
-        wolfTPM2_SetAuthHandle(dev, 0, parent);
+        rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
+        if (rc != TPM_RC_SUCCESS) { return rc; }
     }
 
     XMEMSET(&in, 0, sizeof(in));
@@ -3216,12 +3218,16 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 pos = 0, towrite;
     NV_Write_In in;
 
-    if (dev == NULL || nv == NULL)
+    if (dev == NULL || nv == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* make sure the name is computed for the handle */
     if (!nv->handle.nameLoaded) {
-        wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        if (rc != 0) {
+            return rc;
+        }
     }
 
     /* Necessary, because NVWrite has two handles, second is NV Index */
@@ -3288,12 +3294,14 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     NV_Read_In in;
     NV_Read_Out out;
 
-    if (dev == NULL || nv == NULL || pDataSz == NULL)
+    if (dev == NULL || nv == NULL || pDataSz == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* make sure the name is computed for the handle */
     if (!nv->handle.nameLoaded) {
-        wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        if (rc != TPM_RC_SUCCESS) { return rc; }
     }
 
     /* Necessary, because NVRead has two handles, second is NV Index */
@@ -3366,8 +3374,9 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     int rc = TPM_RC_SUCCESS;
     TPMS_NV_PUBLIC nvPublic;
 
-    if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer))
+    if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer)) {
         return BAD_FUNC_ARG;
+    }
 
     /* build the "handle" */
     nv->handle.hndl = nvIndex;
@@ -3383,7 +3392,7 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open (read) NV\n");
     #endif
-        return TPM_RC_FAILURE;
+        return rc;
     }
 
     /* Compute NV Index name in case of parameter encryption */
@@ -3408,8 +3417,9 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     NV_ReadPublic_In  in;
     NV_ReadPublic_Out out;
 
-    if (dev == NULL)
+    if (dev == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     XMEMSET(&in, 0, sizeof(in));
     in.nvIndex = nvIndex;
@@ -3446,12 +3456,14 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     int rc = TPM_RC_SUCCESS;
     NV_Increment_In in;
 
-    if (dev == NULL || nv == NULL)
+    if (dev == NULL || nv == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* make sure the name is computed for the handle */
     if (!nv->handle.nameLoaded) {
-        wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
+        rc = wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
+        if (rc != TPM_RC_SUCCESS) { return rc; }
     }
 
     /* make sure auth not set */
@@ -3462,7 +3474,7 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     #ifdef DEBUG_WOLFTPM
         printf("Setting NV index name failed\n");
     #endif
-        return TPM_RC_FAILURE;
+        return rc;
     }
 
     XMEMSET(&in, 0, sizeof(in));
@@ -3492,16 +3504,18 @@ int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     int rc;
     NV_UndefineSpace_In in;
 
-    if (dev == NULL || parent == NULL)
+    if (dev == NULL || parent == NULL) {
         return BAD_FUNC_ARG;
+    }
 
     /* set session auth for key */
     if (dev->ctx.session) {
-        wolfTPM2_SetAuthHandle(dev, 0, parent);
+        rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
+        if (rc != TPM_RC_SUCCESS) { return rc; }
 
         /* Make sure no other auth sessions exist */
-        wolfTPM2_UnsetAuth(dev, 1);
-        wolfTPM2_UnsetAuth(dev, 2);
+        (void)wolfTPM2_UnsetAuth(dev, 1);
+        (void)wolfTPM2_UnsetAuth(dev, 2);
     }
 
     XMEMSET(&in, 0, sizeof(in));

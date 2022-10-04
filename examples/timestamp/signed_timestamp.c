@@ -89,11 +89,14 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
     }

@@ -30,7 +30,6 @@
 #include "clock_set.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 
 /******************************************************************************/
 /* --- BEGIN TPM Clock Set Example -- */
@@ -71,7 +70,7 @@ int TPM2_ClockSet_Test(void* userCtx, int argc, char *argv[])
             goto exit_badargs;
         }
         /* Otherwise we have the [time] optional argument */
-        newClock = atoi(argv[1]);
+        newClock = XATOI(argv[1]);
     }
     else if (argc == 1) {
         newClock = 0;

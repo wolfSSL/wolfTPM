@@ -191,6 +191,12 @@ typedef int64_t  INT64;
 
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+#ifndef WOLFTPM_CUSTOM_TYPES
+    #include <stdlib.h>
+    #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
+    #define XATOI(s)          atoi((s))
+#endif
+
 /* enable way for customer to override printf */
 #ifdef XPRINTF
     #undef  printf

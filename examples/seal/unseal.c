@@ -31,7 +31,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/

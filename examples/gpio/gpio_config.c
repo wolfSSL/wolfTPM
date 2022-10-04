@@ -32,7 +32,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 GPIO Configuration example  -- */
@@ -98,7 +97,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
         if (argc == 3) {
-            gpioMode = atoi(argv[2]);
+            gpioMode = XATOI(argv[2]);
             if (gpioMode > TPM_GPIO_MODE_MAX) {
                 printf("GPIO mode is out of range (0-%d)\n", TPM_GPIO_MODE_MAX);
                 usage();
@@ -114,7 +113,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
             argc--;
         }
         if (argc == 2) {
-            gpioNum = atoi(argv[1]);
+            gpioNum = XATOI(argv[1]);
             if (gpioNum < TPM_GPIO_NUM_MIN || gpioNum > TPM_GPIO_NUM_MAX) {
                 printf("GPIO is out of range (%d-%d)\n", TPM_GPIO_NUM_MIN, TPM_GPIO_NUM_MAX);
                 usage();

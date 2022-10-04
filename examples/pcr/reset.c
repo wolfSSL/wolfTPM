@@ -30,7 +30,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/
@@ -61,7 +60,7 @@ int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
 
     if (argc == 2) {
-        pcrIndex = atoi(argv[1]);
+        pcrIndex = XATOI(argv[1]);
         if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
             printf("PCR index is out of range (0-23)\n");
             usage();

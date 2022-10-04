@@ -34,7 +34,6 @@
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 
 /******************************************************************************/
@@ -73,7 +72,7 @@ int TPM2_Read_Test(void* userCtx, int argc, char *argv[])
         }
 
         if (argv[1][0] != '-') {
-            pcrIndex = atoi(argv[1]);
+            pcrIndex = XATOI(argv[1]);
             if (pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();

@@ -31,9 +31,7 @@
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
-
 #include <stdio.h>
-#include <stdlib.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && \
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON))
@@ -66,7 +64,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        pin = atoi(argv[1]);
+        pin = XATOI(argv[1]);
         if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
             usage();
             return 0;

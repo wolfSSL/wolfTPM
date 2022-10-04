@@ -35,7 +35,7 @@ typedef struct WOLFTPM2_HANDLE {
     TPMT_SYM_DEF    symmetric;
     TPM2B_NAME      name;
     int             policyAuth; /* Handle requires Policy, not password Auth */
-    int             nameLoaded; /* flag to indicate if "name" was loaded and computed */
+    unsigned int    nameLoaded : 1; /* flag to indicate if "name" was loaded and computed */
 } WOLFTPM2_HANDLE;
 
 #define TPM_SES_PWD 0xFF /* Session type for Password that fits in one byte */
@@ -1510,6 +1510,7 @@ WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     \sa wolfTPM2_NVWriteAuth
     \sa wolfTPM2_NVReadAuth
     \sa wolfTPM2_NVDeleteAuth
+    \sa wolfTPM2_NVOpen
 */
 WOLFTPM_API int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
@@ -1561,12 +1562,41 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Increments an NV one-way counter
 
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param nv pointer to a populated structure of WOLFTPM2_NV type
+
+    \sa wolfTPM2_NVOpen
+    \sa wolfTPM2_NVCreateAuth
+*/
 WOLFTPM_API int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Open an NV and populate the required authentication and name hash.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param nv pointer to an empty structure of WOLFTPM2_NV type, to hold the new NV Index
+    \param nvIndex integer value, holding the NV Index Handle given by the TPM upon success
+    \param auth pointer to a string constant, specifying the password authorization for this NV Index
+    \param authSz integer value, specifying the size of the password authorization, in bytes
+
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_UnloadHandle
+*/
 WOLFTPM_API int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, const byte* auth, word32 authSz);
-
 
 /*!
     \ingroup wolfTPM2_Wrappers

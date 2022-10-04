@@ -29,7 +29,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h> /* atoi */
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -104,7 +103,7 @@ static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
         return TPM_RC_FAILURE;
     }
 
-    *keyBits = atoi(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
+    *keyBits = XATOI(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
     if (*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
         return TPM_RC_FAILURE;
     }
@@ -159,10 +158,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
             alg = TPM_ALG_RSA;
         }
-        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        if (XSTRCMP(argv[argc-1], "-sym") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-sym") == 0) {
             len = XSTRLEN(argv[argc-1]);
             if (len >= SYM_EXTRA_OPTS_LEN) {
                 /* Did the user provide specific options? */
@@ -179,27 +178,30 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_SYMCIPHER;
             bAIK = 0;
         }
-        if (XSTRCMP(argv[argc-1], "-keyedhash") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-keyedhash") == 0) {
             alg = TPM_ALG_KEYEDHASH;
             bAIK = 0;
         }
-        if (XSTRCMP(argv[argc-1], "-t") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-t") == 0) {
             bAIK = 0;
         }
-        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-eh") == 0) {
             endorseKey = 1;
         }
-        if (XSTRCMP(argv[argc-1], "-pem") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-pem") == 0) {
             pemFiles = 1;
         }
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
             uniqueStr = argv[argc-1] + 8;
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 
         argc--;

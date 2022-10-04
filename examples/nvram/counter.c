@@ -34,7 +34,6 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <stdlib.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -67,29 +66,31 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&storage, 0, sizeof(storage));
 
     if (argc >= 2) {
-        if (XSTRNCMP(argv[1], "-?", 2) == 0 ||
-            XSTRNCMP(argv[1], "-h", 2) == 0 ||
-            XSTRNCMP(argv[1], "--help", 6) == 0) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
             usage();
             return 0;
         }
     }
     while (argc) {
-        if (XSTRNCMP(argv[argc-1], "-aes", 4) == 0) {
+        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRNCMP(argv[argc-1], "-xor", 4) == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-
-        if (XSTRNCMP(argv[argc-1], "-nvindex=", 8) == 0) {
-            nvIndex = (word32)strtol(argv[argc-1] + 8, NULL, 0);
+        else if (XSTRCMP(argv[argc-1], "-nvindex=") == 0) {
+            nvIndex = (word32)XSTRTOL(argv[argc-1] + XSTRLEN("-nvindex="),
+                NULL, 0);
             if (nvIndex > TPM_20_OWNER_NV_SPACE &&
-                nvIndex < TPM_20_OWNER_NV_SPACE + 0x003FFFFF)
-            {
+                                                nvIndex < TPM_20_TCG_NV_SPACE) {
                 printf("Invalid NV Index %s\n", argv[argc-1] + 8);
                 nvIndex = 0;
             }
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 
         argc--;
@@ -122,7 +123,8 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
         /* Set TPM session attributes for parameter encryption */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
-            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
 
