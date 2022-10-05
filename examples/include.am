@@ -23,6 +23,7 @@ dist_example_DATA+= examples/README.md \
                     examples/tpm_io_linux.c \
                     examples/tpm_io_st.c \
                     examples/tpm_io_qnx.c \
+                    examples/tpm_io_uboot.c \
                     examples/tpm_io_xilinx.c \
                     examples/tpm_io.h \
                     examples/tpm_test_keys.c \
