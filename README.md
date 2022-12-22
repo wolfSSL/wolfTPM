@@ -7,10 +7,10 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/Hmac and AES.
-* Testing done using the STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20 TPM 2.0 modules and Nuvoton NPCT650.
+* Testing done using the following TPM 2.0 modules: STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate over SPI.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
-* Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF and Barebox.
+* Platform support for Raspberry Pi, STM32 with CubeMX, Atmel ASF, Xilinx, Infineon TriCore and Barebox.
 * The design allows for easy portability to different platforms:
     * Native C code designed for embedded use.
     * Single IO callback for hardware SPI interface.
@@ -74,8 +74,9 @@ The examples in this library are written for use on a Raspberry Pi and use the `
 
 For interfacing to your hardware platform see the example `examples/tpm_io.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
 
-There are examples here for Linux, STM32 CubeMX, Atmel ASF and BareBox. The advanced IO option is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
+There are examples here for Linux, STM32 CubeMX, Atmel ASF, Xilinx, Infineon TriCore and BareBox.
 
+The advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`) is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
 
 ### Hardware
 
