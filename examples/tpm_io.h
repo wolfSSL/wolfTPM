@@ -94,6 +94,9 @@ int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
 #elif defined(__XILINX__)
 int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(WOLFTPM_INFINEON_TRICORE)
+int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
 #endif /* WOLFSSL_ATMEL */
 #endif /* WOLFTPM_I2C */
 

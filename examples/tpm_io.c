@@ -58,6 +58,8 @@
 #include "examples/tpm_io_qnx.c"
 #elif defined(__XILINX__)
 #include "examples/tpm_io_xilinx.c"
+#elif defined(WOLFTPM_INFINEON_TRICORE)
+#include "examples/tpm_io_infineon.c"
 #endif
 
 #if !defined(WOLFTPM_I2C)
@@ -78,6 +80,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_QNX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__XILINX__)
     ret = TPM2_IoCb_Xilinx_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(WOLFTPM_INFINEON_TRICORE)
+    ret = TPM2_IoCb_Infineon_TriCore_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
 
     /* TODO: Add your platform here for HW SPI interface */
