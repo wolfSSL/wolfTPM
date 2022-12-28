@@ -1,5 +1,21 @@
 # Release Notes
 
+## wolfTPM Release 2.7.0 (Dec 27, 2022)
+
+**Summary**
+
+Added Infineon TriCore HAL support and examples for Keyed Hash / NV counter increment. Minor fixes for NV auth and Keyed Hash.
+
+**Detail**
+* Support for Infineon TriCore (TC2XX/TC3XX) using macro `WOLFTPM_INFINEON_TRICORE` (PR #229)
+* Added NV counter increment example (PR #243)
+* Added Key Generation example for Keyed Hash. (PR #245)
+* Fixed for Keyed Hash with HMAC (PR #243)
+* Fixed for NV auth handling (PR #243)
+* Fixed missing call to `Close()`, since Windows won't flush unless its called (PR #242)
+* Fixed `tpm2.c` issue with variable declarations not being at top of function (PR #246)
+
+
 ## wolfTPM Release 2.6 (09/01/2022)
 
 **Summary**

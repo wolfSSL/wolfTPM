@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2021 wolfSSL Inc.])
-AC_INIT([wolftpm],[2.6.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[2.7.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -141,7 +141,7 @@ AC_ARG_WITH(wolfcrypt,
   [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
   [
     if test "x$withval" != "xno" ; then
-      if test -d "${withval}/lib" && test -d "${withval}/include"; then 
+      if test -d "${withval}/lib" && test -d "${withval}/include"; then
         wcpath=${withval}
       else
         AC_MSG_ERROR([wolfCrypt path error (${withval}): missing lib and include])
