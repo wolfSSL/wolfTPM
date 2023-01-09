@@ -38,17 +38,18 @@
  * This allows the TPM 2.0 stack to be highly portable.
  * These IO Callbacks are working examples for various embedded platforms and operating systems.
  *
- * Here is a non exhaustive list of the existing TPM 2.0 IO Callbacks
- * * ST Micro STM32, through STM32 CubeMX HAL
- * * Native Linux (/dev/tpm0)
- * * Linux through spidev without kernel driver thanks to wolfTPM own TIS layer
- * * Linux through i2c without kernel driver thanks to wolfTPM own TIS layer
- * * Native Windows
- * * Atmel MCUs
- * * Xilinx Zynq
- * * Barebox
- * * QNX
- *
+ * Here is a list of the existing TPM 2.0 IO Callbacks:
+ * - ST Micro STM32, through STM32 CubeMX HAL
+ * - Native Linux (/dev/tpm0)
+ * - Linux through spidev without kernel driver thanks to wolfTPM own TIS layer
+ * - Linux through i2c without kernel driver thanks to wolfTPM own TIS layer
+ * - Native Windows
+ * - Atmel MCUs
+ * - Xilinx Zynq
+ * - Barebox
+ * - QNX
+ * - Infineon Tri-Core
+ * - Microchip MPLAB X Harmony (WOLFTPM_MICROCHIP)
  * Using custom IO Callback is always possible.
  *
  */
@@ -97,6 +98,9 @@ int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
 #elif defined(WOLFTPM_INFINEON_TRICORE)
 int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(WOLFTPM_MICROCHIP)
+int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+    word16 xferSz, void* userCtx);
 #endif /* WOLFSSL_ATMEL */
 #endif /* WOLFTPM_I2C */
 
