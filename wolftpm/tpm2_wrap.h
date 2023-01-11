@@ -1021,6 +1021,48 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
 #ifndef NO_RSA
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import Der rsa key directly
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param keyBlob pointer to a struct of WOLFTPM2_KEY type, to import the rsa key to
+    \param input buffer holding the rsa der
+    \param inSz length of the input der buffer
+    \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
+    \param hashAlg value of TPMI_ALG_HASH type, specifying the TPM hashing algorithm
+*/
+WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* input,
+    word32 inSz, TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import Der rsa key directly
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param keyBlob pointer to a struct of WOLFTPM2_KEY type, to import the rsa key to
+    \param input buffer holding the rsa pem
+    \param inSz length of the input pem buffer
+    \param pass optional password of the key
+    \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
+    \param hashAlg value of TPMI_ALG_HASH type, specifying the TPM hashing algorithm
+*/
+WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
+    const char* input, word32 inSz, char* pass,
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Extract a RSA TPM key and convert it to a wolfcrypt key
 
     \return TPM_RC_SUCCESS: successful

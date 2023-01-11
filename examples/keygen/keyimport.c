@@ -33,6 +33,36 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
+static const char* kRsaKeyPrivPem =
+"-----BEGIN PRIVATE KEY-----"
+"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCePbYR1SIZAL/2"
+"8FYbgpxynENgvHACM9LczZnsgVkZYxx3O9DTba2VTxhMN21i/aocJCzZB35qvz+R"
+"ickyvWBqPDXauJEn9icPXgSknqxzw0ZATzL0wbq/Tk5T+oITFFCGJ8/baFoktOKu"
+"iP5H50Dx6X2W1qNHiLkbGq7NbXHA8YG2wzK9kwikowSXQVB7pZ5bgjW2q73vIGSs"
+"eW802f7I/30wbf4oR1vfk4OQursT9sl2CFLNt5bJSw6lFTm4BOgC7Q3bpHPzC/YK"
+"uFYWKGeQL9GCsEZVWHCM6vzek6SNwQ0eoQ0i9IuF0os/0nJDwdXEZX9OoBhFT717"
+"svlxDXpFAgMBAAECggEABYIV6Jx/5ZloVTbr9GSxP+8PDFq61mTJ6fwxJ7Gf8ZmI"
+"1+Cp5fYrJOeeK6cBRIEabwTWV86iOKKEGrOOYJkFdmU2pbCngtnXZbpK1JUeYSAy"
+"vZHULv9gWgDmipdNeE8Md4MCwfspqh3uxw8HNOcIlHMhd0Ls55RLhzVAUO/GliXz"
+"5HIDhohyQAUvPvkwz1yrPNn5BQwMlJBARc2OKSKf+pJrlFw1KJWR9TKzGvRzMbI4"
+"gwrq9BZ5LCX5y6C7BpuzXdySHXofwihPNmi1KU/88cWhas2E0Xz+p+N/ifmkquTN"
+"3EqzqKBW+xobryM6X9JfQ6has211eUaZKNuU2/idKQKBgQC5rymu0UKHuAkr4uPS"
+"NLGmaWb4p+kDNxbVyzS2ENjtoJ6JyEo/pZQrTG4S/kCWFgGsuztCbx+1Kgk0Pgwi"
+"znaGvcfrjiP9XE1oVfMifA2JmH+drjASyjPqNfsf0BKQtlk0nZXwUO/C1FQ5vUU4"
+"lpmpx4EhTnucQ9E7r0+uXnQHTQKBgQDaKh4bBV7dLBF4ZxwCdydMMSZkBgckBiH7"
+"83BvyLW6I0GKXcFTa7KKLgTj41pXeWh6bmM9365+Cr8fxTZop28EfGRYFBMp08/g"
+"wHpmS3NZ4moSgirJ+PhZsH+nBq89W75INR7BqV4SAc3n4lcwv9eBL9q0Q/YJZ1ph"
+"NCKvz79y2QKBgFyDFPVwdQFBg/BFntRARLJwmUkR/1oGvG3QTHbZdfsOp25mR/fl"
+"+yiHb+AupOciF7uDnUbALsAILYXF1C4TR6JiM5T8wJmev0JYcEaiH+yJ+isJehIi"
+"hDMQqglzlYxcDZ3VVbrh2FLtjvklf7Nt9SlNqNx7ScLVVw2xjrWFgbGRAoGBAMjo"
+"Wnsl0fu6Noh74/Z9RmpLJQCd8HuDTk6ZHCVFX91/1D6ZIo0xM+U+hfBbkfnWa5m8"
+"CJaVZDrcqK+YTQfJkVo/N6VJL3Coh9qBRvbnat4OvQI4bzE6n3LxME1fwYeu8ifL"
+"C3zq/R92G+n8rbDOKqbkq/KwV2bHkBrOCVeA6NzZAoGACztyZbS5jCuSlPqk/xoN"
+"EzX9Cev/GipF5tZMeOcQlty+anPg3TC70O06yZ1SIJKLzOOyoPCUDNrM2M5TCaau"
+"vT0vW1GeNAryc+q9aOmFT3AlZ93Tfst+90Q+NJecEEhkO43tU5S1ZK2iVf9XAOV6"
+"ovHegJU35IUeaoyg23HjFWU="
+"-----END PRIVATE KEY-----";
+
 /******************************************************************************/
 /* --- BEGIN TPM Key Import / Blob Example -- */
 /******************************************************************************/
@@ -40,9 +70,10 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-aes/xor]\n");
+    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-pem/-der] [-aes/xor]\n");
     printf("* -ecc: Use RSA or ECC for keys\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -pem/der: Key encoding type, none for binary\n");
 }
 
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
@@ -55,6 +86,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* outputFile = "keyblob.bin";
+    uint8_t derEncode = 0;
+    uint8_t pemEncode = 0;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -76,6 +109,15 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRCMP(argv[argc-1], "-pem") == 0) {
+            paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRCMP(argv[argc-1], "-der") == 0) {
+            derEncode = 1;
+        }
+        else if (XSTRCMP(argv[argc-1], "-pem") == 0) {
+            pemEncode = 1;
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -121,12 +163,24 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     XMEMCPY(impKey.handle.auth.buffer, gKeyAuth, impKey.handle.auth.size);
 
     if (alg == TPM_ALG_RSA) {
-        /* Import raw RSA private key into TPM */
-        rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
-            kRsaKeyPubModulus, (word32)sizeof(kRsaKeyPubModulus),
-            kRsaKeyPubExponent,
-            kRsaKeyPrivQ,      (word32)sizeof(kRsaKeyPrivQ),
-            TPM_ALG_NULL, TPM_ALG_NULL);
+        if (derEncode == 1) {
+            rc = wolfTPM2_RsaPrivateKeyImportDer(&dev, &storage, &impKey,
+                kRsaKeyPrivDer, sizeof(kRsaKeyPrivDer), TPM_ALG_NULL,
+                TPM_ALG_NULL);
+        }
+        else if (pemEncode == 1) {
+            rc = wolfTPM2_RsaPrivateKeyImportPem(&dev, &storage, &impKey,
+                kRsaKeyPrivPem, strlen(kRsaKeyPrivPem), NULL,
+                TPM_ALG_NULL, TPM_ALG_NULL);
+        }
+        else {
+            /* Import raw RSA private key into TPM */
+            rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
+                kRsaKeyPubModulus, (word32)sizeof(kRsaKeyPubModulus),
+                kRsaKeyPubExponent,
+                kRsaKeyPrivQ,      (word32)sizeof(kRsaKeyPrivQ),
+                TPM_ALG_NULL, TPM_ALG_NULL);
+        }
     }
     else if (alg == TPM_ALG_ECC) {
         /* Import raw ECC private key into TPM */
