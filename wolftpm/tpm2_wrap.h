@@ -2399,7 +2399,7 @@ WOLFTPM_API int wolfTPM2_CSR_SetSubject(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \param dev pointer to a TPM2_DEV struct
     \param csr pointer to a WOLFTPM2_CSR structure
     \param key WOLFTPM2_KEY structure
-    \param outFormat WOLFSSL_FILETYPE_ASN1 or WOLFSSL_FILETYPE_PEM
+    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
     \param out destination buffer for CSR as ASN.1/DER or PEM
     \param outSz destination buffer maximum size
     \param sigType Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
@@ -2430,7 +2430,7 @@ WOLFTPM_API int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr
     \param dev pointer to a TPM2_DEV struct
     \param csr pointer to a WOLFTPM2_CSR structure
     \param key WOLFTPM2_KEY structure
-    \param outFormat WOLFSSL_FILETYPE_ASN1 or WOLFSSL_FILETYPE_PEM
+    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
     \param out destination buffer for CSR as ASN.1/DER or PEM
     \param outSz destination buffer maximum size
 
@@ -2458,7 +2458,7 @@ WOLFTPM_API int wolfTPM2_CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \param keyUsage string list of comma separated key usage attributes.
         Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
         Default: "serverAuth,clientAuth,codeSigning"
-    \param outFormat WOLFSSL_FILETYPE_ASN1 or WOLFSSL_FILETYPE_PEM
+    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
     \param out destination buffer for CSR as ASN.1/DER or PEM
     \param outSz destination buffer maximum size
     \param sigType Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
@@ -2491,7 +2491,7 @@ WOLFTPM_API int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param keyUsage string list of comma separated key usage attributes.
         Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
         Default: "serverAuth,clientAuth,codeSigning"
-    \param outFormat WOLFSSL_FILETYPE_ASN1 or WOLFSSL_FILETYPE_PEM
+    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
     \param out destination buffer for CSR as ASN.1/DER or PEM
     \param outSz destination buffer maximum size
 

@@ -187,7 +187,7 @@ namespace wolfTPM
         LAST         = AUTH_FF,
     }
 
-    /* from wolfSSL WOLFSSL_FILETYPE_ASN1 and WOLFSSL_FILETYPE_PEM */
+    /* from wolfSSL CTC_FILETYPE_ASN1 and CTC_FILETYPE_PEM */
     public enum X509_Format : int
     {
         PEM = 1,

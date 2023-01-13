@@ -4929,7 +4929,7 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     }
 
     /* Optionally convert to PEM */
-    if (rc >= 0 && outFormat == WOLFSSL_FILETYPE_PEM) {
+    if (rc >= 0 && outFormat == CTC_FILETYPE_PEM) {
     #ifdef WOLFSSL_DER_TO_PEM
         WOLFTPM2_BUFFER tmp;
         tmp.size = rc;
