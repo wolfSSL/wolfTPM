@@ -32,7 +32,7 @@
 /* --- Local Variables -- */
 /******************************************************************************/
 
-static TPM2_CTX* gActiveTPM;
+static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
 #endif
