@@ -2064,7 +2064,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* input,
     word32 inSz, TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
-    int rc = BAD_FUNC_ARG;
+    int rc = 0;
     RsaKey key[1];
     word32 idx = 0;
     word32  e;
@@ -2072,14 +2072,16 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     byte d[RSA_MAX_SIZE / 8];
     byte p[RSA_MAX_SIZE / 8];
     byte q[RSA_MAX_SIZE / 8];
-    word32  eSz = sizeof(e);
-    word32  nSz = sizeof(n);
-    word32  dSz = sizeof(d);
-    word32  pSz = sizeof(p);
-    word32  qSz = sizeof(q);
+    word32  eSz = (word32)sizeof(e);
+    word32  nSz = (word32)sizeof(n);
+    word32  dSz = (word32)sizeof(d);
+    word32  pSz = (word32)sizeof(p);
+    word32  qSz = (word32)sizeof(q);
 
-    if (dev && parentKey && keyBlob && input && inSz != 0)
-        rc = 0;
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
+        inSz == 0) {
+        rc = BAD_FUNC_ARG;
+    }
 
     if (rc == 0)
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
@@ -2095,6 +2097,8 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_HEAP
+
 int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
     const char* input, word32 inSz, char* pass,
@@ -2106,13 +2110,13 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
 
     if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
             inSz == 0) {
-        rc = 0;
+        return BAD_FUNC_ARG;
     }
 
     /* der size is base 64 decode length */
     derSz = inSz * 3 / 4 + 1;
 
-    derBuf = XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
     if (derBuf == NULL)
         return MEMORY_E;
@@ -2120,15 +2124,18 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     if (rc == 0)
         rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derSz, pass);
 
-    /* returns the number of bytes*/
-    if (rc > 0)
+    /* returns the number of bytes */
+    if (rc > 0) {
         rc = wolfTPM2_RsaPrivateKeyImportDer(dev, parentKey, keyBlob, derBuf,
             (word32)rc, scheme, hashAlg);
+    }
 
     XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
     return rc;
 }
+
+#endif /* WOLFTPM2_NO_HEAP */
 
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     RsaKey* wolfKey)
