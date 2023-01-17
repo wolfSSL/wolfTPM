@@ -56,6 +56,10 @@
     static DRV_SPI_TRANSFER_HANDLE transferHandle;
     static OSAL_SEM_HANDLE_TYPE spiEventCompleteSem;
 
+    #ifndef TPM_SPI_PIN
+    #define SYS_PORT_PIN_PC5
+    #endif
+
     static void TPM2_SPITransferEventHandler(DRV_SPI_TRANSFER_EVENT event,
         DRV_SPI_TRANSFER_HANDLE handle, uintptr_t context)
     {
@@ -90,10 +94,10 @@
 
             memset(&setup, 0, sizeof(setup));
             setup.baudRateInHz = TPM2_SPI_HZ;
-            setup.clockPhase = DRV_SPI_CLOCK_PHASE_TRAILING_EDGE;
+            setup.clockPhase = DRV_SPI_CLOCK_PHASE_VALID_TRAILING_EDGE;
             setup.clockPolarity = DRV_SPI_CLOCK_POLARITY_IDLE_LOW;
             setup.dataBits = DRV_SPI_DATA_BITS_8;
-            setup.chipSelect = SYS_PORT_PIN_PC5;
+            setup.chipSelect = TPM_SPI_PIN;
             setup.csPolarity = DRV_SPI_CS_POLARITY_ACTIVE_LOW;
             DRV_SPI_TransferSetup(handle, &setup);
 
@@ -103,7 +107,7 @@
         }
 
         /* Send Entire Message - no wait states */
-        DRV_SPI_WriteReadTransferAdd(handle, txBuf, xferSz, rxBuf, xferSz,
+        DRV_SPI_WriteReadTransferAdd(handle, (byte*)txBuf, xferSz, rxBuf, xferSz,
             &transferHandle);
         if (transferHandle == DRV_SPI_TRANSFER_HANDLE_INVALID) {
             return TPM_RC_FAILURE;
@@ -126,6 +130,7 @@ int TPM2_HAL_Close(void)
 
     DRV_SPI_Close(handle);
     handle = DRV_HANDLE_INVALID;
+    return 0;
 }
 
 #endif /* WOLFTPM_MICROCHIP */
