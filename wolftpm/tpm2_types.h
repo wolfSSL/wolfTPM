@@ -189,6 +189,21 @@ typedef int64_t  INT64;
     #define XFEOF      feof
 #endif
 
+    /* set up thread local storage if available */
+    #ifdef HAVE_THREAD_LS
+        #if defined(_MSC_VER)
+            #define THREAD_LS_T __declspec(thread)
+        /* Thread local storage only in FreeRTOS v8.2.1 and higher */
+        #elif defined(FREERTOS) || defined(FREERTOS_TCP) || \
+                                                         defined(WOLFSSL_ZEPHYR)
+            #define THREAD_LS_T
+        #else
+            #define THREAD_LS_T __thread
+        #endif
+    #else
+        #define THREAD_LS_T
+    #endif
+
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #ifndef WOLFTPM_CUSTOM_TYPES

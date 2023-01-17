@@ -327,6 +327,56 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
+#if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
+#include <pthread.h>
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+int secondRunner = 0;
+
+static void test_wolfTPM2_thread_local_storage_work_thread(void* args)
+{
+    TPM2_CTX tpm2Ctx;
+
+    TPM2_Init(&tpm2Ctx, NULL, NULL);
+
+    /* lock so that the other thread must wait while we set the ctx */
+    pthread_mutex_lock(&mutex);
+
+    /* ctx should be what was set in init, not set by other thread */
+    if (secondRunner == 1) {
+        if (TPM2_GetActiveCtx() != &tpm2Ctx)
+            printf("Test TPM Wrapper:\tThread Local Storage\tFailed\n");
+        else
+            printf("Test TPM Wrapper:\tThread Local Storage\tPassed\n");
+    }
+
+    /* set the active ctx, should not impact the other thread */
+    TPM2_SetActiveCtx(&tpm2Ctx);
+
+    secondRunner = 1;
+
+    /* let the other thread run */
+    pthread_mutex_unlock(&mutex);
+
+    (void)args;
+}
+#endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
+
+static void test_wolfTPM2_thread_local_storage(void)
+{
+#if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
+    pthread_t thread_1;
+    pthread_t thread_2;
+
+    pthread_create(&thread_1, NULL,
+        (void*)&test_wolfTPM2_thread_local_storage_work_thread, NULL);
+    pthread_create(&thread_2, NULL,
+        (void*)&test_wolfTPM2_thread_local_storage_work_thread, NULL);
+
+    pthread_join(thread_1, NULL);
+    pthread_join(thread_2, NULL);
+#endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -347,6 +397,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     test_wolfTPM2_Cleanup();
+    test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

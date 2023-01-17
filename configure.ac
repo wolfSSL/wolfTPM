@@ -64,6 +64,10 @@ AC_CHECK_SIZEOF([long], 4)
 AC_CHECK_FUNCS([gethostbyname getaddrinfo gettimeofday inet_ntoa memset socket])
 AC_CHECK_LIB([network],[socket])
 
+# Thread local storage
+AX_TLS([thread_ls_on=yes],[thread_ls_on=no])
+AS_IF([test "x$thread_ls_on" = "xyes"],[AM_CFLAGS="$AM_CFLAGS -DHAVE_THREAD_LS"])
+
 # DEBUG
 DEBUG_CFLAGS="-g -O0 -DDEBUG_WOLFTPM"
 
@@ -81,7 +85,7 @@ AX_PTHREAD([
     # -Xcompiler libtool will use it. Newer versions of clang don't need
     # the -Q flag when using pthreads.
     AS_CASE([$PTHREAD_CFLAGS],[-Qunused-arguments*],[PTHREAD_CFLAGS="-Xcompiler $PTHREAD_CFLAGS"])
-    AM_CFLAGS="$AM_CFLAGS $PTHREAD_CFLAGS"])
+    AM_CFLAGS="$AM_CFLAGS $PTHREAD_CFLAGS -DHAVE_PTHREAD"])
 
 
 # Checks for typedefs, structures, and compiler characteristics.
