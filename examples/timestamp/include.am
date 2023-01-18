@@ -5,16 +5,14 @@ if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/timestamp/signed_timestamp
 noinst_HEADERS  += examples/timestamp/signed_timestamp.h
 examples_timestamp_signed_timestamp_SOURCES      = examples/timestamp/signed_timestamp.c \
-                                                   examples/tpm_test_keys.c \
-                                                   examples/tpm_io.c
+                                                   examples/tpm_test_keys.c
 examples_timestamp_signed_timestamp_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_timestamp_signed_timestamp_DEPENDENCIES = src/libwolftpm.la
 
 
 noinst_PROGRAMS += examples/timestamp/clock_set
 noinst_HEADERS  += examples/timestamp/clock_set.h
-examples_timestamp_clock_set_SOURCES      = examples/timestamp/clock_set.c \
-                                            examples/tpm_io.c
+examples_timestamp_clock_set_SOURCES      = examples/timestamp/clock_set.c
 examples_timestamp_clock_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_timestamp_clock_set_DEPENDENCIES = src/libwolftpm.la
 endif

@@ -387,6 +387,18 @@ then
 fi
 
 
+# Example HAL implementations
+AC_ARG_ENABLE([hal],
+    [AS_HELP_STRING([--enable-hal],[Enable example HAL interfaces (default: enabled)])],
+    [ ENABLED_EXAMPLE_HAL=$enableval ],
+    [ ENABLED_EXAMPLE_HAL=yes ]
+    )
+if test "x$ENABLED_EXAMPLE_HAL" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_EXAMPLE_HAL"
+fi
+
+
 # TIS / SPI Check Wait State support
 # Required for all but Infineon only
 if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno"
@@ -418,7 +430,7 @@ AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
-
+AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes"])
 
 
 CREATE_HEX_VERSION

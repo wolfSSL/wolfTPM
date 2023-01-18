@@ -66,7 +66,7 @@ For detailed build instructions see [/README.md](/README.md#building).
 
 The wolfTPM library has TPM 2.0 wrapper tests, native tests, and a sample benchmark application that come ready-to-use after a successful installation of wolfTPM. Below are some instructions on how to run the sample applications yourself.
 
-To interface with the hardware platform that is running these applications, please see the function "TPM2_IoCb" inside of examples/tpm_io.c.
+To interface with the hardware platform that is running these applications, please see the function `TPM2_IoCb` inside of `hal/tpm_io.c`.
 
 ### Examples
 
@@ -91,7 +91,7 @@ The general header files that should be included from wolfTPM is shown below:
 
 ### Example Design
 
-Every example application that is included with wolfTPM includes the `tpm_io.h` header file, located in `/examples`.
+Every example application that is included with wolfTPM includes the `tpm_io.h` header file, located in `/hal`.
 
 The `tpm_io.c` file sets up the example HAL IO callback necessary for testing and running the example applications with a Linux Kernel, STM32 CubeMX HAL or Atmel/Microchip ASF. The reference is easily modified, such that custom IO callbacks or different callbacks may be added or removed as desired.
 

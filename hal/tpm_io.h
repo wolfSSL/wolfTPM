@@ -54,55 +54,67 @@
  *
  */
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
+
+/* HAL not required, so use NULL */
 #define TPM2_IoCb NULL
+
 #else
 
+#ifdef WOLFTPM_EXAMPLE_HAL
+
 #ifdef WOLFTPM_ADV_IO
-int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
+WOLFTPM_API int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx);
 #else
-int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #endif
-#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 /* Platform support, in alphabetical order */
 #ifdef WOLFTPM_I2C
+
 #if defined(__linux__)
-int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
+WOLFTPM_LOCAL int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
     word16 size, void* userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
-int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
 #endif /* __linux__ */
+
 #else /* SPI */
+
 #if defined(WOLFSSL_ATMEL)
-int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #elif defined(__BAREBOX__)
-int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(__linux__)
-int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
-int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #elif defined(__QNX__) || defined(__QNXTO__)
-int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(__XILINX__)
-int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(WOLFTPM_INFINEON_TRICORE)
-int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(WOLFTPM_MICROCHIP)
-int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+WOLFTPM_LOCAL int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
-#endif /* WOLFSSL_ATMEL */
+#endif
+
 #endif /* WOLFTPM_I2C */
+
+#endif /* WOLFTPM_EXAMPLE_HAL */
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 #ifdef __cplusplus
     }  /* extern "C" */

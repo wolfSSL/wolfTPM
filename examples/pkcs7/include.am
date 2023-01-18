@@ -5,8 +5,7 @@ if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/pkcs7/pkcs7
 noinst_HEADERS  += examples/pkcs7/pkcs7.h
 examples_pkcs7_pkcs7_SOURCES      = examples/pkcs7/pkcs7.c \
-                                    examples/tpm_test_keys.c \
-                                    examples/tpm_io.c
+                                    examples/tpm_test_keys.c
 examples_pkcs7_pkcs7_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pkcs7_pkcs7_DEPENDENCIES = src/libwolftpm.la
 endif

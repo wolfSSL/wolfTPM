@@ -32,6 +32,8 @@
  * See docs/SWTPM.md
  */
 
+#include <wolftpm/tpm2_types.h>
+
 #ifdef WOLFTPM_SWTPM
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_swtpm.h>

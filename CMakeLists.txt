@@ -35,7 +35,9 @@ set(TPM_SOURCES
     src/tpm2_tis.c
     src/tpm2_winapi.c
     src/tpm2_wrap.c
+    hal/tpm_io.c
     )
+
 
 # default to build shared library
 option(BUILD_SHARED_LIBS "Build shared libraries (.dll/.so) instead of static ones (.lib/.a)" ON)
@@ -157,7 +159,6 @@ endif()
 
 if (WOLFTPM_EXAMPLES)
     add_library(tpm_test_lib STATIC
-        examples/tpm_io.c
         examples/tpm_test_keys.c
         )
     target_link_libraries(tpm_test_lib wolftpm)

@@ -6,8 +6,7 @@ noinst_PROGRAMS += examples/management/flush
 
 noinst_HEADERS  += examples/management/flush.h
 
-examples_management_flush_SOURCES      = examples/management/flush.c \
-                                         examples/tpm_io.c
+examples_management_flush_SOURCES      = examples/management/flush.c
 examples_management_flush_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_management_flush_DEPENDENCIES = src/libwolftpm.la
 endif
