@@ -45,92 +45,53 @@
 
 #if defined(WOLFTPM_MICROCHIP)
 
-    #ifdef WOLFTPM_CHECK_WAIT_STATE
-        #error This driver does not support check wait state yet
-    #endif
+#ifdef WOLFTPM_CHECK_WAIT_STATE
+    #error This driver does not support check wait state yet
+#endif
 
-    #include "configuration.h"
-    #include "definitions.h"
+#include "configuration.h"
+#include "definitions.h"
 
-    static DRV_HANDLE handle = DRV_HANDLE_INVALID;
-    static DRV_SPI_TRANSFER_HANDLE transferHandle;
-    static OSAL_SEM_HANDLE_TYPE spiEventCompleteSem;
+/* TPM Chip Select Pin (default PC5) */
+#ifndef TPM_SPI_PIN
+#define SYS_PORT_PIN_PC5
+#endif
 
-    #ifndef TPM_SPI_PIN
-    #define SYS_PORT_PIN_PC5
-    #endif
-
-    static void TPM2_SPITransferEventHandler(DRV_SPI_TRANSFER_EVENT event,
-        DRV_SPI_TRANSFER_HANDLE handle, uintptr_t context)
-    {
-        switch (event) {
-            case DRV_SPI_TRANSFER_EVENT_COMPLETE:
-                OSAL_SEM_PostISR(&spiEventCompleteSem);
-                break;
-
-            case DRV_SPI_TRANSFER_EVENT_ERROR:
-                /* Error handling here */
-                break;
-
-            default:
-                break;
-        }
-        (void)context;
-    }
-
-    int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-        word16 xferSz, void* userCtx)
-    {
-        int ret;
-
-        /* Setup SPI */
-        if (handle == DRV_HANDLE_INVALID) {
-            DRV_SPI_TRANSFER_SETUP setup;
-
-            handle = DRV_SPI_Open(DRV_SPI_INDEX_0, DRV_IO_INTENT_EXCLUSIVE);
-            if (handle == DRV_HANDLE_INVALID) {
-                return TPM_RC_FAILURE;
-            }
-
-            memset(&setup, 0, sizeof(setup));
-            setup.baudRateInHz = TPM2_SPI_HZ;
-            setup.clockPhase = DRV_SPI_CLOCK_PHASE_VALID_TRAILING_EDGE;
-            setup.clockPolarity = DRV_SPI_CLOCK_POLARITY_IDLE_LOW;
-            setup.dataBits = DRV_SPI_DATA_BITS_8;
-            setup.chipSelect = TPM_SPI_PIN;
-            setup.csPolarity = DRV_SPI_CS_POLARITY_ACTIVE_LOW;
-            DRV_SPI_TransferSetup(handle, &setup);
-
-            OSAL_SEM_Create(&spiEventCompleteSem, OSAL_SEM_TYPE_COUNTING, 10, 0);
-            DRV_SPI_TransferEventHandlerSet(handle,
-                TPM2_SPITransferEventHandler, 0);
-        }
-
-        /* Send Entire Message - no wait states */
-        DRV_SPI_WriteReadTransferAdd(handle, (byte*)txBuf, xferSz, rxBuf, xferSz,
-            &transferHandle);
-        if (transferHandle == DRV_SPI_TRANSFER_HANDLE_INVALID) {
-            return TPM_RC_FAILURE;
-        }
-
-        /* Wait for transfer complete */
-        while (OSAL_SEM_Pend(&spiEventCompleteSem,
-            OSAL_WAIT_FOREVER) == OSAL_RESULT_FALSE);
-
-        (void)ctx;
-        (void)userCtx;
-
-        return ret;
-    }
-
-int TPM2_HAL_Close(void)
+int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+    word16 xferSz, void* userCtx)
 {
-    OSAL_SEM_Post(&spiEventCompleteSem);
-    OSAL_SEM_Delete(&spiEventCompleteSem);
+    int ret = TPM_RC_FAILURE;
+    DRV_HANDLE handle = DRV_HANDLE_INVALID;
+    DRV_SPI_TRANSFER_SETUP setup;
+
+    /* Setup SPI */
+    handle = DRV_SPI_Open(DRV_SPI_INDEX_0, DRV_IO_INTENT_EXCLUSIVE);
+    if (handle == DRV_HANDLE_INVALID) {
+        return TPM_RC_FAILURE;
+    }
+
+    memset(&setup, 0, sizeof(setup));
+    setup.baudRateInHz = TPM2_SPI_HZ;
+    setup.clockPhase = DRV_SPI_CLOCK_PHASE_VALID_TRAILING_EDGE;
+    setup.clockPolarity = DRV_SPI_CLOCK_POLARITY_IDLE_LOW;
+    setup.dataBits = DRV_SPI_DATA_BITS_8;
+    setup.chipSelect = TPM_SPI_PIN;
+    setup.csPolarity = DRV_SPI_CS_POLARITY_ACTIVE_LOW;
+    DRV_SPI_TransferSetup(handle, &setup);
+
+    /* Send Entire Message blocking - no wait states */
+    if (DRV_SPI_WriteReadTransfer(handle, (byte*)txBuf, xferSz, rxBuf,
+                                                              xferSz) == true) {
+        ret = TPM_RC_SUCCESS
+    }
+
+    (void)ctx;
+    (void)userCtx;
 
     DRV_SPI_Close(handle);
     handle = DRV_HANDLE_INVALID;
-    return 0;
+
+    return ret;
 }
 
 #endif /* WOLFTPM_MICROCHIP */
