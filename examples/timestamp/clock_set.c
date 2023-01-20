@@ -25,7 +25,7 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include "clock_set.h"
 

@@ -70,13 +70,15 @@ Acronyms:
 
 The examples in this library are written for use on a Raspberry Pi and use the `spi_dev` interface.
 
-### IO Callback
+### IO Callback (HAL)
 
-For interfacing to your hardware platform see the example `examples/tpm_io.c` callback function `TPM2_IoCb`. Here you can modify or insert your own IO callback code for the TPM demo.
+See the HAL manual in [`hal/README.md] (hal/README.md).
 
-There are examples here for Linux, STM32 CubeMX, Atmel ASF, Xilinx, Infineon TriCore and BareBox.
+For interfacing to your hardware interface (SPI/I2C) a single HAL callback is used and configuration on initialization when calling `TPM2_Init` or `wolfTPM2_Init`.
 
-The advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`) is required for I2C support because it adds the register and read/write flag as parameter to the IO callback.
+There are HAL examples in `hal` directory for Linux, STM32 CubeMX, Atmel ASF, Xilinx, Infineon TriCore and BareBox.
+
+We also support an advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`), which adds the register and read/write flag as parameter to the IO callback. This is required for I2C support.
 
 ### Hardware
 
@@ -342,7 +344,7 @@ cmake --build .
 
 ## Running Examples
 
-These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./examples/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
+These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./hal/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
 
 ### TPM2 Wrapper Tests
 

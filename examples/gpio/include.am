@@ -8,18 +8,15 @@ noinst_PROGRAMS += examples/gpio/gpio_config \
 
 noinst_HEADERS  += examples/gpio/gpio.h
 
-examples_gpio_gpio_config_SOURCES      = examples/gpio/gpio_config.c \
-                                         examples/tpm_io.c
+examples_gpio_gpio_config_SOURCES      = examples/gpio/gpio_config.c
 examples_gpio_gpio_config_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_gpio_gpio_config_DEPENDENCIES = src/libwolftpm.la
 
-examples_gpio_gpio_read_SOURCES      = examples/gpio/gpio_read.c \
-                                       examples/tpm_io.c
+examples_gpio_gpio_read_SOURCES      = examples/gpio/gpio_read.c
 examples_gpio_gpio_read_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_gpio_gpio_read_DEPENDENCIES = src/libwolftpm.la
 
-examples_gpio_gpio_set_SOURCES      = examples/gpio/gpio_set.c \
-                                      examples/tpm_io.c
+examples_gpio_gpio_set_SOURCES      = examples/gpio/gpio_set.c
 examples_gpio_gpio_set_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_gpio_gpio_set_DEPENDENCIES = src/libwolftpm.la
 endif

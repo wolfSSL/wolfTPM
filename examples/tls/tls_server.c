@@ -26,7 +26,7 @@
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
     !defined(NO_WOLFSSL_SERVER)
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/tls/tls_common.h>
@@ -260,8 +260,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #endif /* HAVE_ECC */
 
 
-    /* Setup the WOLFSSL context (factory) */
-    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method())) == NULL) {
+    /* Setup the WOLFSSL context (factory)
+     * Use highest version, allow downgrade */
+    if ((ctx = wolfSSL_CTX_new(wolfSSLv23_server_method())) == NULL) {
         rc = MEMORY_E; goto exit;
     }
 

@@ -26,7 +26,7 @@
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
     defined(HAVE_PKCS7)
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/pkcs7/pkcs7.h>

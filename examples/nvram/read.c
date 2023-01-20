@@ -29,7 +29,7 @@
 #include <wolftpm/tpm2_wrap.h>
 
 #include <examples/nvram/nvram.h>
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 

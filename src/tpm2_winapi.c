@@ -20,6 +20,8 @@
  */
 
 
+#include <wolftpm/tpm2_types.h>
+
 #ifdef WOLFTPM_WINAPI
 #include <wolftpm/tpm2_winapi.h>
 

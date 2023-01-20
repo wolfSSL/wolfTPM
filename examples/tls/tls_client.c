@@ -26,7 +26,7 @@
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
     !defined(NO_WOLFSSL_CLIENT)
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/tls/tls_common.h>
@@ -245,8 +245,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     #endif
 #endif /* HAVE_ECC */
 
-    /* Setup the WOLFSSL context (factory) */
-    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
+    /* Setup the WOLFSSL context (factory)
+     * Use highest version, allow downgrade */
+    if ((ctx = wolfSSL_CTX_new(wolfSSLv23_client_method())) == NULL) {
         rc = MEMORY_E; goto exit;
     }
 
@@ -390,6 +391,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     #ifndef NO_RSA
         printf("Loading RSA certificate\n");
         #ifdef NO_FILESYSTEM
+        /* Load "cert" buffer with ASN.1/DER certificate */
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
         #else
@@ -410,6 +412,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     #ifdef HAVE_ECC
         printf("Loading ECC certificate\n");
         #ifdef NO_FILESYSTEM
+        /* Load "cert" buffer with ASN.1/DER certificate */
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
         #else

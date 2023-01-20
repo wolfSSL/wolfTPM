@@ -40,6 +40,7 @@ include certs/include.am
 include tests/include.am
 include docs/include.am
 include wrapper/include.am
+include hal/include.am
 
 EXTRA_DIST+= README.md
 EXTRA_DIST+= ChangeLog.md

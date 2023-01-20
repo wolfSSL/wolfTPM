@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#include <wolftpm/tpm2_types.h>
 
 #ifdef WOLFTPM_LINUX_DEV
 #include <wolftpm/tpm2_linux.h>
