@@ -151,7 +151,7 @@ typedef struct WOLFTPM2_CAPS {
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see hal/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
     \param caps to a structure of WOLFTPM2_CAPS type for returning the TPM capabilities (can be NULL)
 
@@ -169,7 +169,7 @@ WOLFTPM_API int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* ca
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to an empty structure of WOLFTPM2_DEV type
-    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see hal/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
 
     _Example_
@@ -199,7 +199,7 @@ WOLFTPM_API int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to an empty structure of WOLFTPM2_DEV type
-    \param ioCb function pointer to a IO callback (see examples/tpm_io.h)
+    \param ioCb function pointer to a IO callback (see hal/tpm_io.h)
     \param userCtx pointer to a user context (can be NULL)
 
     \sa wolfTPM2_Init

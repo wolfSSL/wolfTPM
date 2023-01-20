@@ -47,21 +47,21 @@
 /* Set WOLFTPM_INCLUDE_IO_FILE so each .c is built here and not compiled directly */
 #define WOLFTPM_INCLUDE_IO_FILE
 #if defined(__linux__)
-#include "examples/tpm_io_linux.c"
+#include "hal/tpm_io_linux.c"
 #elif defined(WOLFSSL_STM32_CUBEMX)
-#include "examples/tpm_io_st.c"
+#include "hal/tpm_io_st.c"
 #elif defined(WOLFSSL_ATMEL)
-#include "examples/tpm_io_atmel.c"
+#include "hal/tpm_io_atmel.c"
 #elif defined(__BAREBOX__)
-#include "examples/tpm_io_barebox.c"
+#include "hal/tpm_io_barebox.c"
 #elif defined(__QNX__) || defined(__QNXNTO__)
-#include "examples/tpm_io_qnx.c"
+#include "hal/tpm_io_qnx.c"
 #elif defined(__XILINX__)
-#include "examples/tpm_io_xilinx.c"
+#include "hal/tpm_io_xilinx.c"
 #elif defined(WOLFTPM_INFINEON_TRICORE)
-#include "examples/tpm_io_infineon.c"
+#include "hal/tpm_io_infineon.c"
 #elif defined(WOLFTPM_MICROCHIP)
-#include "examples/tpm_io_microchip.c"
+#include "hal/tpm_io_microchip.c"
 #endif
 
 #if !defined(WOLFTPM_I2C)

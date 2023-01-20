@@ -30,7 +30,7 @@
 #endif
 
 #include <examples/pcr/pcr.h>
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 
 #include <stdio.h>

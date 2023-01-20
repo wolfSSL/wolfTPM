@@ -26,7 +26,7 @@
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && !defined(WOLFCRYPT_ONLY)
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tls/tls_common.h>
 #include <examples/tls/tls_client.h>
@@ -105,8 +105,9 @@ int TLS_ClientArgs(int argc, char *argv[])
 
     wolfSSL_Init();
 
-    /* Setup the WOLFSSL context (factory) */
-    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
+    /* Setup the WOLFSSL context (factory)
+     * Use highest version, allow downgrade */
+    if ((ctx = wolfSSL_CTX_new(wolfSSLv23_client_method())) == NULL) {
         rc = MEMORY_E; goto exit;
     }
 

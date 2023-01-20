@@ -25,7 +25,7 @@
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
 
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/csr/csr.h>

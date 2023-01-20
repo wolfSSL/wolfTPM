@@ -2971,7 +2971,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
     When using wolfTPM with --enable-devtpm or --enable-swtpm configuration, the ioCb and userCtx are not used.
     \note TPM2_Init_minimal() calls TPM2_Init_ex() with both ioCb and userCtx set to NULL.
     In other modes, the ioCb shall be set in order to use TIS.
-    Example ioCB for baremetal and RTOS applications are provided in examples/tpm_io.c
+    Example ioCB for baremetal and RTOS applications are provided in hal/tpm_io.c
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: general error (possibly IO)

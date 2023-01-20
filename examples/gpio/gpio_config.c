@@ -28,7 +28,7 @@
     (defined(WOLFTPM_ST33) || defined(WOLFTPM_NUVOTON))
 
 #include <examples/gpio/gpio.h>
-#include <examples/tpm_io.h>
+#include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
