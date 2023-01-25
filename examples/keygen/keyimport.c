@@ -44,11 +44,13 @@ static void usage(void)
     printf("* -ecc: Use RSA or ECC for keys\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -pem/der: Key encoding type, none for binary\n");
+    printf("* -pem-file: Pem file to use, defaults to ./certs/example-rsa-key.pem\n");
 }
 
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
+    int i;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB impKey;
@@ -57,9 +59,14 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     const char* outputFile = "keyblob.bin";
     byte derEncode = 0;
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     byte pemEncode = 0;
     FILE* pemFile = NULL;
-    char pemBuf[2048];
+    char pemBuf[WOLFTPM2_MAX_BUFFER];
+    char pemName[WOLFTPM2_MAX_BUFFER];
+    XMEMCPY(pemName, "./certs/example-rsa-key.pem", XSTRLEN("./certs/example-rsa-key.pem") + 1);
+#endif
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -72,26 +79,38 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-')
             outputFile = argv[1];
     }
-    while (argc > 1) {
-        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+    /* i = 1 to skip binary */
+    for (i = 1; i < argc; i++) {
+        if (XSTRCMP(argv[i], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
-        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[i], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[i], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else if (XSTRCMP(argv[argc-1], "-der") == 0) {
+        else if (XSTRCMP(argv[i], "-der") == 0) {
             derEncode = 1;
         }
-        else if (XSTRCMP(argv[argc-1], "-pem") == 0) {
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+        else if (XSTRCMP(argv[i], "-pem") == 0) {
             pemEncode = 1;
         }
-        else {
-            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
+        else if (XSTRCMP(argv[i], "-pem-file") == 0) {
+            if (i + 1 >= argc) {
+                printf("Warning: No pem file specified, using default: %s\n", pemName);
+            }
+            else {
+                XMEMCPY(pemName, argv[i + 1], XSTRLEN(argv[i + 1]) + 1);
+                /* skip over the file name */
+                i++;
+            }
         }
-        argc--;
+#endif
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[i]);
+        }
     }
 
     XMEMSET(&storage, 0, sizeof(storage));
@@ -137,18 +156,24 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
                 kRsaKeyPrivDer, sizeof(kRsaKeyPrivDer), TPM_ALG_NULL,
                 TPM_ALG_NULL);
         }
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         else if (pemEncode == 1) {
-            pemFile = fopen("./certs/example-rsa-key.pem", "r");
+            pemFile = XFOPEN(pemName, "r");
 
-            rc = fread(pemBuf, 1, 2048, pemFile);
+            if (pemFile == NULL)
+                printf("Failed to read pem file %s\n", pemName);
+
+            if (rc == 0)
+                rc = XFREAD(pemBuf, 1, sizeof(pemBuf), pemFile);
 
             if (rc > 0) {
                 rc = wolfTPM2_RsaPrivateKeyImportPem(&dev, &storage, &impKey,
                     pemBuf, rc, NULL, TPM_ALG_NULL, TPM_ALG_NULL);
             }
 
-            fclose(pemFile);
+            XFCLOSE(pemFile);
         }
+#endif
         else {
             /* Import raw RSA private key into TPM */
             rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,

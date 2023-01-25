@@ -2121,8 +2121,7 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     if (derBuf == NULL)
         return MEMORY_E;
 
-    if (rc == 0)
-        rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derSz, pass);
+    rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derSz, pass);
 
     /* returns the number of bytes */
     if (rc > 0) {
