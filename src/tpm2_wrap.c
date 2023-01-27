@@ -2078,6 +2078,8 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     word32  pSz = (word32)sizeof(p);
     word32  qSz = (word32)sizeof(q);
 
+    wc_InitRsaKey(key, NULL);
+
     if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
         inSz == 0) {
         rc = BAD_FUNC_ARG;
