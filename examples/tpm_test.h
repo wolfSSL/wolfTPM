@@ -103,7 +103,8 @@ static const char pemFileKey[] = "key.pem";
         extern double current_time(int reset);
         return current_time(reset);
     #elif defined(_WIN32)
-        return ((double)GetTickCount64())/1000.0;
+        (void)reset;
+        return (0.0 + GetTickCount64())/1000.0;
     #else
         struct timeval tv;
         gettimeofday(&tv, 0);

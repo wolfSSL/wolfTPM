@@ -79,7 +79,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
+#ifndef WOLFTPM_WINAPI
     word32 nvAttributes = 0;
+#endif
 #ifdef WOLFTPM_CRYPTOCB
     TpmCryptoDevCtx tpmCtx;
 #endif
