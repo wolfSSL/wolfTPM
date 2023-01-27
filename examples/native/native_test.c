@@ -157,7 +157,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE handle = TPM_RH_NULL;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
+#ifndef WOLFTPM_WINAPI
     TPMI_RH_NV_INDEX nvIndex;
+#endif
     TPM2B_PUBLIC_KEY_RSA message;
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT

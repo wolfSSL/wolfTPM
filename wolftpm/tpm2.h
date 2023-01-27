@@ -1670,9 +1670,9 @@ struct wolfTPM_winContext {
 #define TPM_E_COMMAND_BLOCKED (0x80284000)
 #endif
 
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == TPM_RC_COMMAND_CODE || (code) == TPM_E_COMMAND_BLOCKED)
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == (int)TPM_RC_COMMAND_CODE || (code) == (int)TPM_E_COMMAND_BLOCKED)
 #else
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == TPM_RC_COMMAND_CODE)
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == (int)TPM_RC_COMMAND_CODE)
 #endif /* WOLFTPM_WINAPI */
 
 /* make sure advanced IO is enabled for I2C */
