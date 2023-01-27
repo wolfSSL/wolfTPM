@@ -2086,13 +2086,17 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     if (rc == 0)
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
 
-    if (rc == 0)
+    if (rc == 0) {
         rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz, p, &pSz, q,
             &qSz);
+    }
 
-    if (rc == 0)
+    if (rc == 0) {
         rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, keyBlob, n, nSz, e, q,
             qSz, scheme, hashAlg);
+    }
+
+    wc_FreeRsaKey(key);
 
     return rc;
 }
@@ -2117,7 +2121,6 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     derSz = inSz * 3 / 4 + 1;
 
     derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-
     if (derBuf == NULL)
         return MEMORY_E;
 
