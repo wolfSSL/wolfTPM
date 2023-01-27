@@ -2065,6 +2065,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     word32 inSz, TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
 {
     int rc = 0;
+    int initRc = -1;
     RsaKey key[1];
     word32 idx = 0;
     word32  e;
@@ -2078,12 +2079,13 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     word32  pSz = (word32)sizeof(p);
     word32  qSz = (word32)sizeof(q);
 
-    wc_InitRsaKey(key, NULL);
-
     if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
         inSz == 0) {
         rc = BAD_FUNC_ARG;
     }
+
+    if (rc == 0)
+        rc = initRc = wc_InitRsaKey(key, NULL);
 
     if (rc == 0)
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
@@ -2098,7 +2100,8 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
             qSz, scheme, hashAlg);
     }
 
-    wc_FreeRsaKey(key);
+    if (initRc == 0)
+        wc_FreeRsaKey(key);
 
     return rc;
 }
@@ -2132,6 +2135,10 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     if (rc > 0) {
         rc = wolfTPM2_RsaPrivateKeyImportDer(dev, parentKey, keyBlob, derBuf,
             (word32)rc, scheme, hashAlg);
+    }
+    /* shouldn't be possible to have a 0 length der, check anyways */
+    else if (rc == 0) {
+        rc = BAD_FUNC_ARG;
     }
 
     XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
