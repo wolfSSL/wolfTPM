@@ -93,10 +93,13 @@ static const char pemFileKey[] = "key.pem";
     #ifndef WOLFSSL_USER_CURRTIME
 #ifdef _WIN32
         #include <time.h>
+#elif defined(WOLFTPM_MICROCHIP)
+        #include "system/time/sys_time.h"
 #else
         #include <sys/time.h>
 #endif
     #endif
+
     static inline double gettime_secs(int reset)
     {
     #ifdef WOLFSSL_USER_CURRTIME
@@ -106,6 +109,11 @@ static const char pemFileKey[] = "key.pem";
         unsigned long long ticks = GetTickCount64();
         (void)reset;
         return ((double)ticks)/1000.0;
+    #elif defined(WOLFTPM_MICROCHIP)
+        if (reset)
+            SYS_TIME_CounterSet(0);
+        return (double)(SYS_TIME_Counter64Get()) /
+               (double)SYS_TIME_FrequencyGet();
     #else
         struct timeval tv;
         gettimeofday(&tv, 0);
