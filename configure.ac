@@ -294,7 +294,7 @@ AC_ARG_ENABLE([microchip],
 if test "x$ENABLED_MCHP" = "xyes" || test "x$ENABLED_MICROCHIP" = "xyes"
 then
     ENABLED_MICROCHIP=yes
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MCHP"
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MICROCHIP"
 fi
 
 # Nuvoton NPCT65x/NPCT75x

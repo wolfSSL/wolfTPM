@@ -154,7 +154,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
 --enable-infineon       Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)
 --enable-st             Enable ST ST33TPM Support (default: disabled) - WOLFTPM_ST33
---enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MCHP
+--enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 
 --enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
