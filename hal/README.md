@@ -23,7 +23,7 @@ If using a HAL IO callback it is registered on library initialization using:
 | Barebox | `tpm_io_barebox.c` | `__BAREBOX__` |
 | Infineon | `tpm_io_infineon.c` | `WOLFTPM_INFINEON_TRICORE` |
 | Linux | `tpm_io_linux.c` | `__linux__` |
-| Microchip | `tpm_io_microchip.c` | `WOLFTPM_MICROCHIP` |
+| Microchip | `tpm_io_microchip.c` | `WOLFTPM_MICROCHIP_HARMONY` |
 | QNX | `tpm_io_qnx.c` | `__QNX__` |
 | ST Cube HAL | `tpm_io_st.c` | `WOLFSSL_STM32_CUBEMX` |
 | Xilinx | `tpm_io_xilinx.c` | `__XILINX__` |

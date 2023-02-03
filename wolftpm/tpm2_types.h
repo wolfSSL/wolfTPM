@@ -224,7 +224,11 @@ typedef int64_t  INT64;
 /* TPM HARDWARE TYPE */
 /* ---------------------------------------------------------------------------*/
 /* Microchip ATTPM20 */
-/* #define WOLFTPM_MCHP */
+/* #define WOLFTPM_MICROCHIP */
+/* #define WOLFTPM_MCHP (old) - for backwards compatibility */
+#if defined(WOLFTPM_MCHP) && !defined(WOLFTPM_MICROCHIP)
+    #define WOLFTPM_MICROCHIP
+#endif
 
 /* ST ST33TP TPM 2.0 */
 /* #define WOLFTPM_ST33 */
@@ -238,7 +242,7 @@ typedef int64_t  INT64;
 
 
 /* Chip Specific Settings */
-#ifdef WOLFTPM_MCHP
+#ifdef WOLFTPM_MICROCHIP
     /* Microchip ATTPM20 */
     /* Requires SPI wait states */
     #ifndef WOLFTPM_CHECK_WAIT_STATE

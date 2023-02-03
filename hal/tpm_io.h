@@ -49,7 +49,7 @@
  * - Barebox
  * - QNX
  * - Infineon Tri-Core
- * - Microchip MPLAB X Harmony (WOLFTPM_MICROCHIP)
+ * - Microchip MPLAB X Harmony (WOLFTPM_MICROCHIP_HARMONY)
  * Using custom IO Callback is always possible.
  *
  */
@@ -106,7 +106,7 @@ WOLFTPM_LOCAL int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
 #elif defined(WOLFTPM_INFINEON_TRICORE)
 WOLFTPM_LOCAL int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
-#elif defined(WOLFTPM_MICROCHIP)
+#elif defined(WOLFTPM_MICROCHIP_HARMONY)
 WOLFTPM_LOCAL int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
 #endif

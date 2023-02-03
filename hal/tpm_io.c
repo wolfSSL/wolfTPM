@@ -60,7 +60,7 @@
 #include "hal/tpm_io_xilinx.c"
 #elif defined(WOLFTPM_INFINEON_TRICORE)
 #include "hal/tpm_io_infineon.c"
-#elif defined(WOLFTPM_MICROCHIP)
+#elif defined(WOLFTPM_MICROCHIP_HARMONY)
 #include "hal/tpm_io_microchip.c"
 #endif
 
@@ -84,7 +84,7 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_Xilinx_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFTPM_INFINEON_TRICORE)
     ret = TPM2_IoCb_Infineon_TriCore_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
-#elif defined(WOLFTPM_MICROCHIP)
+#elif defined(WOLFTPM_MICROCHIP_HARMONY)
     ret = TPM2_IoCb_Microchip_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
 

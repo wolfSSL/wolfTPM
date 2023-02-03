@@ -68,7 +68,7 @@
         #define TPM2_I2C_HZ   400000 /* 400kHz */
     #else
         /* SPI */
-        #ifdef WOLFTPM_MCHP
+        #ifdef WOLFTPM_MICROCHIP
             /* Microchip ATTPM20 uses CE0 */
             #define TPM2_SPI_DEV_CS "0"
         #elif defined(WOLFTPM_ST33)

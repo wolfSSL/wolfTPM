@@ -43,7 +43,7 @@
     #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
 #endif
 
-#if defined(WOLFTPM_MICROCHIP)
+#if defined(WOLFTPM_MICROCHIP_HARMONY)
 
 #ifdef WOLFTPM_CHECK_WAIT_STATE
     #error This driver does not support check wait state yet
@@ -94,7 +94,7 @@ int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     return ret;
 }
 
-#endif /* WOLFTPM_MICROCHIP */
+#endif /* WOLFTPM_MICROCHIP_HARMONY */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 
