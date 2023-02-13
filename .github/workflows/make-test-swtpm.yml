@@ -1,4 +1,4 @@
-name: Ubuntu Build Test
+name: Swtpm Build Test
 
 on:
   push:
@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+#pull wolfTPM
+    - uses: actions/checkout@master
+#setup wolfssl
     - uses: actions/checkout@master
       with:
         repository: wolfssl/wolfssl
@@ -22,17 +25,23 @@ jobs:
     - name: wolfssl configure
       working-directory: ./wolfssl
       run: ./configure --enable-wolftpm
-    - name: wolfssl make
-      working-directory: ./wolfssl
-      run: make
     - name: wolfssl make install
       working-directory: ./wolfssl
       run: sudo make install
-
+#setup ibmswtpm2
     - uses: actions/checkout@master
+      with:
+        repository: kgoldman/ibmswtpm2
+        path: ibmswtpm2
+    - name: ibmswtpm2 make
+      working-directory: ./ibmswtpm2/src
+      run: make
+#setup wolfTPM
     - name: autogen
       run: ./autogen.sh
     - name: configure
       run: ./configure --enable-swtpm
-    - name: make
-      run: make
+    - name: make test
+      run: |
+          ./ibmswtpm2/src/tpm_server &
+          sleep 10 && make test
