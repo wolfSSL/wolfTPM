@@ -1667,7 +1667,7 @@ struct wolfTPM_winContext {
 };
 /* may be needed with msys */
 #ifndef TPM_E_COMMAND_BLOCKED
-#define TPM_E_COMMAND_BLOCKED (0x80284000)
+#define TPM_E_COMMAND_BLOCKED (0x80280400)
 #endif
 
 #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == (int)TPM_RC_COMMAND_CODE || (code) == (int)TPM_E_COMMAND_BLOCKED)

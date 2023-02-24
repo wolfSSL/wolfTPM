@@ -51,7 +51,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
 #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
     Startup_In startupIn;
-#if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
+#if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
     SelfTest_In selfTest;
 #endif
 #endif /* ! WOLFTPM_LINUX_DEV */
@@ -99,7 +99,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     printf("TPM2_Startup pass\n");
 #endif
 
-#if defined(WOLFTPM_MCHP) || defined(WOLFTPM_PERFORM_SELFTEST)
+#if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
     /* Do full self-test (Chips such as ATTPM20 require this before some operations) */
     XMEMSET(&selfTest, 0, sizeof(selfTest));
     selfTest.fullTest = YES;
@@ -115,7 +115,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 #else
     rc = TPM_RC_SUCCESS;
-#endif /* WOLFTPM_MCHP || WOLFTPM_PERFORM_SELFTEST */
+#endif /* WOLFTPM_MICROCHIP || WOLFTPM_PERFORM_SELFTEST */
 #endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
     return rc;
@@ -4475,7 +4475,7 @@ int wolfTPM2_GetKeyTemplate_Symmetric(TPMT_PUBLIC* publicTemplate, int keyBits,
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
 
-#ifdef WOLFTPM_MCHP
+#ifdef WOLFTPM_MICROCHIP
     isSign = 0; /* Microchip TPM does not like "sign" set for symmetric keys */
 #endif
 
