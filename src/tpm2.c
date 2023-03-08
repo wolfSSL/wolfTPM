@@ -5541,10 +5541,20 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 {
     if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
-        pcr->count = 1;
-        pcr->pcrSelections[0].hash = alg;
-        pcr->pcrSelections[0].sizeofSelect = PCR_SELECT_MIN;
-        pcr->pcrSelections[0].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+        pcr->pcrSelections[pcr->count].hash = alg;
+        pcr->pcrSelections[pcr->count].sizeofSelect = PCR_SELECT_MIN;
+        pcr->pcrSelections[pcr->count].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+        pcr->count++;
+    }
+}
+
+void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
+    int* pcrArray, int pcrArrayLen)
+{
+    int i;
+
+    for (i = 0; i < pcrArrayLen; i++) {
+        TPM2_SetupPCRSel(pcr, alg, pcrArray[i]);
     }
 }
 

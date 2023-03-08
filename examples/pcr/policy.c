@@ -29,8 +29,8 @@
 #include <wolfssl/wolfcrypt/hash.h>
 #endif
 
+#include "hal/tpm_io.h"
 #include <examples/pcr/pcr.h>
-#include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 
 #include <stdio.h>
@@ -117,9 +117,9 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else if (XSTRCMP(argv[argc-1], "-digest=") == 0) {
+        else if (XMEMCMP(argv[argc-1], "-digest=", XSTRLEN("-digest=")) == 0) {
             const char *digestStr, *end;
-            digestStr = argv[argc-1] + 8;
+            digestStr = argv[argc-1] + XSTRLEN("-digest=");
             end = XSTRSTR(digestStr, " ");
             if (end != NULL) {
                 digestLen = (word32)(size_t)(end - digestStr);
@@ -132,11 +132,11 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            digestLen = HexToByte(digestStr, digest, digestLen);
+            digestLen = HexToByte(digestStr, digest, digestLen / 2);
         }
-        else if (argv[1][0] != '-') {
+        else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */
-            pcrIndex = XATOI(argv[1]);
+            pcrIndex = XATOI(argv[argc-1]);
             if (pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
@@ -182,6 +182,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
         XMEMCPY(cmdIn.pcrPolicy.pcrDigest.buffer, digest, digestLen);
     }
     TPM2_SetupPCRSel(&cmdIn.pcrPolicy.pcrs, TPM_ALG_SHA256, pcrIndex);
+    //TPM2_SetupPCRSel(&cmdIn.pcrPolicy.pcrs, TPM_ALG_SHA384, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.pcrPolicy);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,

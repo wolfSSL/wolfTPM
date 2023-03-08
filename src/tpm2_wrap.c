@@ -2690,9 +2690,10 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
-int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+int wolfTPM2_VerifyHashScheme_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
-    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg)
+    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
+    TPMT_TK_VERIFIED* sigTicket)
 {
     int rc;
     VerifySignature_In  verifySigIn;
@@ -2758,6 +2759,9 @@ int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #endif
         return rc;
     }
+
+    XMEMCPY(sigTicket, &verifySigOut.validation, sizeof(TPMT_TK_VERIFIED));
+
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_VerifySignature: Tag %d\n", verifySigOut.validation.tag);
 #endif
@@ -2765,9 +2769,20 @@ int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
-int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
-    int hashAlg)
+    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg)
+{
+    /* ignore the result */
+    TPMT_TK_VERIFIED sigTicket[1];
+
+    return wolfTPM2_VerifyHashScheme_ex(dev, key, sig, sigSz, digest, digestSz,
+        sigAlg, hashAlg, sigTicket);
+}
+
+int wolfTPM2_VerifyHash_ex2(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz,
+    int hashAlg, TPMT_TK_VERIFIED* sigTicket)
 {
     TPM_ALG_ID sigAlg = TPM_ALG_NULL;
 
@@ -2781,8 +2796,20 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
     }
-    return wolfTPM2_VerifyHashScheme(dev, key, sig, sigSz, digest, digestSz,
-        sigAlg, hashAlg);
+
+    return wolfTPM2_VerifyHashScheme_ex(dev, key, sig, sigSz, digest, digestSz,
+        sigAlg, hashAlg, sigTicket);
+}
+
+int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* sig, int sigSz, const byte* digest, int digestSz,
+    int hashAlg)
+{
+    /* ignore the result */
+    TPMT_TK_VERIFIED sigTicket[1];
+
+    return wolfTPM2_VerifyHash_ex2(dev, key, sig, sigSz, digest, digestSz,
+        hashAlg, sigTicket);
 }
 
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
@@ -4834,6 +4861,15 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz, const byte* sealData, int sealSize)
 {
+    return wolfTPM2_CreateKeySeal_ex(dev, keyBlob, parent, publicTemplate, auth,
+        authSz, TPM_ALG_NULL, NULL, 0, sealData, sealSize);
+}
+
+int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
+    WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz, TPM_ALG_ID pcrAlg, int* pcrArray,
+    int pcrArrayLen, const byte* sealData, int sealSize)
+{
     int rc;
     Create_In  createIn;
     Create_Out createOut;
@@ -4870,6 +4906,12 @@ int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     createIn.inSensitive.sensitive.data.size = sealSize;
     XMEMCPY(createIn.inSensitive.sensitive.data.buffer, sealData,
             createIn.inSensitive.sensitive.data.size);
+
+    /* set the pcr selection if passed in */
+    if (pcrArray != NULL) {
+        TPM2_SetupPCRSelArray(&createIn.creationPCR, pcrAlg, pcrArray,
+            pcrArrayLen);
+    }
 
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -6087,5 +6129,132 @@ int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
 
 #endif /* WOLFTPM_CRYPTOCB */
 
+int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, TPM2B_AUTH* devAuth,
+    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* template,
+    WOLFTPM2_KEYBLOB* sealBlob, TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
+    int* pcrArray, int pcrArrayLen, const byte* sealData, int sealSz,
+    byte* policyDigest, int* policyDigestSz)
+{
+    int rc = 0;
+    PolicyAuthorize_In policyAuthIn[1];
+    PolicyPCR_In policyPcr[1];
+    PolicyGetDigest_In policyGetDigestIn[1];
+    PolicyGetDigest_Out policyGetDigestOut[1];
+
+    XMEMSET(&policyAuthIn, 0, sizeof(PolicyAuthorize_In));
+    XMEMSET(&policyPcr, 0, sizeof(PolicyPCR_In));
+    XMEMSET(&policyGetDigestIn, 0, sizeof(PolicyGetDigest_In));
+    XMEMSET(&policyGetDigestOut, 0, sizeof(PolicyGetDigest_Out));
+
+    /* authorize the signing key by name to sign policies */
+    policyAuthIn->policySession = sessionHandle;
+    policyAuthIn->approvedPolicy.size = 0;
+    policyAuthIn->policyRef.size = 0;
+    XMEMCPY(&policyAuthIn->keySign, &authKey->handle.name, sizeof(TPM2B_NAME));
+
+    policyAuthIn->checkTicket.tag = TPM_ST_VERIFIED;
+    policyAuthIn->checkTicket.hierarchy = TPM_RH_OWNER;
+
+    rc = TPM2_PolicyAuthorize(policyAuthIn);
+
+    /* create the pcr policy */
+    if (rc == 0) {
+        policyPcr->policySession = sessionHandle;
+        policyPcr->pcrDigest.size = 0;
+        TPM2_SetupPCRSelArray(&policyPcr->pcrs, pcrAlg, pcrArray,
+            pcrArrayLen);
+
+        rc = TPM2_PolicyPCR(policyPcr);
+    }
+
+    /* read the policy digest */
+    if (rc == 0) {
+        policyGetDigestIn->policySession = sessionHandle;
+
+        rc = TPM2_PolicyGetDigest(policyGetDigestIn, policyGetDigestOut);
+    }
+
+    /* copy the digest out */
+    if (rc == 0) {
+        if (policyGetDigestOut->policyDigest.size > *policyDigestSz)
+            rc = INPUT_SIZE_E;
+        else {
+            XMEMCPY(policyDigest, policyGetDigestOut->policyDigest.buffer,
+                policyGetDigestOut->policyDigest.size);
+        }
+
+        *policyDigestSz = policyGetDigestOut->policyDigest.size;
+    }
+
+    /* seal the object */
+    if (rc == 0) {
+        rc = wolfTPM2_CreateKeySeal_ex(dev, sealBlob, parent, template,
+            devAuth->buffer, devAuth->size, pcrAlg, pcrArray, pcrArrayLen,
+            sealData, sealSz);
+    }
+
+    return rc;
+}
+
+int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, TPM2B_AUTH* devAuth,
+    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle, TPM_HANDLE keyHandle,
+    TPM_ALG_ID pcrAlg, int* pcrArray, int pcrArrayLen, byte* policyDigest,
+    int policyDigestSz, byte* policyDigestSig, int policyDigestSigSz,
+    byte* out, int* outSz)
+{
+    int rc;
+    PolicyPCR_In policyPcr[1];
+    PolicyAuthorize_In policyAuthIn[1];
+    Unseal_In unsealIn[1];
+    Unseal_Out unsealOut[1];
+
+    /* verify the signature, get the auth ticket */
+    rc = wolfTPM2_VerifyHash_ex2(dev, (WOLFTPM2_KEY*)authKey, policyDigestSig,
+        policyDigestSigSz, policyDigest, policyDigestSz, WOLFTPM2_WRAP_DIGEST,
+        &policyAuthIn->checkTicket);
+
+    /* trigger the policy pcr */
+    if (rc == 0) {
+        policyPcr->policySession = sessionHandle;
+        policyPcr->pcrDigest.size = 0;
+        TPM2_SetupPCRSelArray(&policyPcr->pcrs, pcrAlg, pcrArray,
+            pcrArrayLen);
+
+        rc = TPM2_PolicyPCR(policyPcr);
+    }
+
+    /* authorize the policy with the auth ticket */
+    if (rc == 0) {
+        policyAuthIn->policySession = sessionHandle;
+
+        rc = TPM2_PolicyAuthorize(policyAuthIn);
+    }
+
+    /* unseal the buffer */
+    if (rc == 0) {
+        wolfTPM2_SetAuthPassword(dev, 0, devAuth);
+
+        unsealIn->itemHandle = keyHandle;
+
+        rc = TPM2_Unseal(unsealIn, unsealOut);
+    }
+
+    if (rc == 0) {
+        if (out == NULL) {
+            rc = LENGTH_ONLY_E;
+        }
+        else if (unsealOut->outData.size > *outSz) {
+            rc = INPUT_SIZE_E;
+        }
+        else
+        {
+            XMEMCPY(out, unsealOut->outData.buffer, unsealOut->outData.size);
+        }
+
+        *outSz = unsealOut->outData.size;
+    }
+
+    return rc;
+}
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

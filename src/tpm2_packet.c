@@ -847,7 +847,7 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
     return rc;
 }
 
-    int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
+int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
 {
     word32 cmdSz = packet->pos; /* get total packet size */
     packet->pos = 0; /* reset position to front */
