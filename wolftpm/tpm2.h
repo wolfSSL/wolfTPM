@@ -3302,6 +3302,33 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
 
 /*!
     \ingroup TPM2_Proprietary
+    \brief Helper function to prepare a correct PCR selection with multiple indices
+            For example, when preparing to create a TPM2_Quote
+
+    \param pcr pointer to a structure of type TPML_PCR_SELECTION
+    \param alg value of type TPM_ALG_ID specifying the type of hash algorithm used
+    \param pcrArray array of values between 0 and 23 specifying the PCR register for use
+    \param pcrArrayLen length of the pcrArray
+
+    _Example_
+    \code
+    int pcrIndex = 16; // This is a PCR register for DEBUG & testing purposes
+    PCR_Read_In pcrRead;
+
+    TPM2_SetupPCRSel(&pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
+    \endcode
+
+    \sa TPM2_PCR_Read
+    \sa TPM2_PCR_Extend
+    \sa TPM2_PCR_Reset
+    \sa TPM2_Quote
+*/
+
+WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
+    int* pcrArray, int pcrArrayLen);
+
+/*!
+    \ingroup TPM2_Proprietary
     \brief Get a human readable string for any TPM 2.0 return code
 
     \return pointer to a string constant

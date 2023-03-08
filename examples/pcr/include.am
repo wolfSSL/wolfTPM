@@ -28,8 +28,7 @@ examples_pcr_reset_SOURCES      = examples/pcr/reset.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
 
-examples_pcr_policy_SOURCES      = examples/pcr/policy.c \
-                                   examples/tpm_io.c
+examples_pcr_policy_SOURCES      = examples/pcr/policy.c
 examples_pcr_policy_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_policy_DEPENDENCIES = src/libwolftpm.la
 endif
