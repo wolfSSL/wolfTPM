@@ -5549,12 +5549,12 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 }
 
 void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    int* pcrArray, int pcrArrayLen)
+    word32* pcrArray, word32 pcrArraySz)
 {
     int i;
 
-    for (i = 0; i < pcrArrayLen; i++) {
-        TPM2_SetupPCRSel(pcr, alg, pcrArray[i]);
+    for (i = 0; i < (int)pcrArraySz; i++) {
+        TPM2_SetupPCRSel(pcr, alg, (int)pcrArray[i]);
     }
 }
 

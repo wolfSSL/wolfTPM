@@ -1008,8 +1008,8 @@ WOLFTPM_API int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent,
     TPMT_PUBLIC* publicTemplate, const byte* auth, int authSz,
-    TPM_ALG_ID pcrAlg, int* pcrArray, int pcrArrayLen, const byte* sealData,
-    int sealSize);
+    TPM_ALG_ID pcrAlg, word32* pcrArray, word32 pcrArraySz,
+    const byte* sealData, int sealSize);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2919,13 +2919,214 @@ WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     byte *buffer, word32 bufferSz);
 
-WOLFTPM_API int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, TPM2B_AUTH* devAuth,
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Get the policy digest of the session that was passed in
+    wolfTPM2_GetPolicyDigest
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param policyDigest output digest of the policy
+    \param policyDigestSz pointer to the size of the policyDigest
+
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_GetPolicyDigest(TPM_HANDLE sessionHandle,
+    byte* policyDigest, word32* policyDigestSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Get the policy digest of the session that was passed in
+    wolfTPM2_GetPolicyDigest
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param pcrAlg the hash algorithm to use with pcr policy
+    \param pcrArray array of pcr indicies to use when creating the policy
+    \param pcrArrayLen the number of indicies in the pcrArray
+
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_PolicyPCR(TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
+    word32* pcrArray, word32 pcrArraySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Seal a secret to the TPM with an externally signed policy digest and nonce. This
+    function will call policy authorize with the provided auth key and policy PCR with the PCR
+    indicies that should apply to the secret. This seals the secret and ties it to the policy digest
+    value and nonce passed in. Can be unsealed using wolfTPM2_UnsealWithAuthSig
+    wolfTPM2_SealWithAuthSig
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param authKey pointer to a private key that will be used to sign and seal the secret
+    \param parent pointer to a struct of WOLFTPM2_HANDLE type, specifying a TPM 2.0 Primary Key to be used as the parent(Storage Key)
+    \param template to use for the seal key, can be generated using wolfTPM2_GetKeyTemplate_KeySeal
+    \param sealBlob the wolfTPM keyblob to keep the handle and public portion of the secret in
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param pcrAlg the hash algorithm to use with pcr policy
+    \param pcrArray array of pcr indicies to use when creating the policy
+    \param pcrArrayLen the number of indicies in the pcrArray
+    \param sealData the data to seal into the tpm
+    \param sealSz the size of the seal data
+    \param policyDigest input digest of the policy, used to retreive the secret later
+    \param policyDigestSz size of the policyDigest to be updated by this function
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
+
+    \sa wolfTPM2_SealWithAuthSig
+*/
+WOLFTPM_API int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* template,
     WOLFTPM2_KEYBLOB* sealBlob, TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
-    int* pcrArray, int pcrArrayLen, const byte* sealData, int sealSz,
-    byte* policyDigest, int* policyDigestSz);
+    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    byte* policyDigest, word32 policyDigestSz, const byte* nonce,
+    word32 nonceSz, const byte* policyDigestSig, word32 policyDigestSigSz);
 
-WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, TPM2B_AUTH* devAuth, WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle, TPM_HANDLE keyHandle, TPM_ALG_ID pcrAlg, int* pcrArray, int pcrArrayLen, byte* policyDigest, int policyDigestSz, byte* policyDigestSig, int policyDigestSigSz, byte* out, int* outSz);
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Seal a secret to the TPM after calling policy authorize with the provided auth key
+    and policy PCR with the PCR indicies that should apply to the secret. This seals the secret
+    and ties it to the policy digest value returned which can the be signed by the authKey passed
+    in to unseal the secret
+    wolfTPM2_SealWithAuthKey
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param authKey pointer to a private key that will be used to sign and seal the secret
+    \param parent pointer to a struct of WOLFTPM2_HANDLE type, specifying a TPM 2.0 Primary Key to be used as the parent(Storage Key)
+    \param template to use for the seal key, can be generated using wolfTPM2_GetKeyTemplate_KeySeal
+    \param sealBlob the wolfTPM keyblob to keep the handle and public portion of the secret in
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param pcrAlg the hash algorithm to use with pcr policy
+    \param pcrArray array of pcr indicies to use when creating the policy
+    \param pcrArrayLen the number of indicies in the pcrArray
+    \param sealData the data to seal into the tpm
+    \param sealSz the size of the seal data
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
+    \param policyDigest output digest of the policy, used to retreive the secret later
+    \param policyDigestSz pointer to the size of the policyDigest to be updated by this function
+
+    \sa wolfTPM2_SealWithAuthKey
+*/
+WOLFTPM_API int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* template,
+    WOLFTPM2_KEYBLOB* sealBlob, TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
+    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    const byte* nonce, word32 nonceSz, byte* policyDigest,
+    word32* policyDigestSz, byte* policyDigestSig, word32* policyDigestSigSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Unseal a secret from the TPM after verifying the digest signature was signed by the auth private key
+    and checking the policy using policy authorize and and policy pcr
+
+    wolfTPM2_UnsealWithAuthSig
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param authKey pointer to a public key used to verify the policy digest signature
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param sealHandle the handle of the secret to be unsealed
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArrayLen length of pcrArray
+    \param policyDigest the digest of the policy that will be used to authorize the secret retrieval
+    \param policyDigestSz size of the policyDigest
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
+    \param policyDigestSig a signature of the policyDigest, signed by the authKey's private section
+    \param policyDigestSigSz size of policyDigestSig
+    \param out the buffer that the retrieved secret will be written to
+    \param outSz pointer to the size of out
+
+    \sa wolfTPM2_UnsealWithAuthSig
+*/
+WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle, TPM_HANDLE sealHandle,
+    TPM_ALG_ID pcrAlg, word32* pcrArray, word32 pcrArraySz, byte* policyDigest,
+    word32 policyDigestSz, const byte* nonce, word32 nonceSz,
+    const byte* policyDigestSig, word32 policyDigestSigSz, byte* out,
+    word32* outSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Seal a secret to the TPM's NVM after calling PolicyPCR and authorizing the current
+    policyDigest to later unseal the secret from NVM
+
+    wolfTPM2_SealWithAuthPolicyNV
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param policyHashAlg the hashing algorithm used to generate the policyDigest
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArraySz length of pcrArray
+    \param sealData the secret to save to NVM
+    \param sealSz size of the secret buffer
+    \param sealNvIndex nvIndex to write the secret to
+    \param policyDigestNvIndex nvIndex to write the policyDigest to
+
+    \sa wolfTPM2_SealWithAuthPolicyNV
+*/
+WOLFTPM_API int wolfTPM2_SealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sessionHandle, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
+    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    word32 sealNvIndex, word32 policyDigestNvIndex);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Seal a secret to the TPM's NVM after calling PolicyPCR and authorizing the current
+    policyDigest to later unseal the secret from NVM
+
+    wolfTPM2_UnsealWithAuthPolicyNV
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArraySz length of pcrArray
+    \param sealNvIndex nvIndex to read the secret from
+    \param policyDigestNvIndex nvIndex to read the policyDigest from
+    \param out output buffer to read the unsealed secret
+    \param outSz pointer to the size of the output buffer
+
+    \sa wolfTPM2_UnsealWithAuthPolicyNV
+*/
+WOLFTPM_API int wolfTPM2_UnsealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg, word32* pcrArray,
+    word32 pcrArraySz, word32 sealNvIndex, word32 policyDigestNvIndex,
+    byte* out, word32* outSz);
 
 #ifdef __cplusplus
     }  /* extern "C" */

@@ -29,7 +29,7 @@
 #include <wolfssl/wolfcrypt/hash.h>
 #endif
 
-#include <examples/seal/seal.h>
+#include <examples/nvram/nvram.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
@@ -48,45 +48,27 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
-int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
+static const word32 sealNvIndex = TPM2_DEMO_NV_TEST_INDEX;
+static const word32 policyDigestNvIndex = TPM2_DEMO_NV_TEST_INDEX + 1;
+
+int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[])
 {
     int i;
     int rc = -1;
+    WOLFTPM2_NV nv;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY storage;
     WOLFTPM2_SESSION tpmSession;
-    WOLFTPM2_KEYBLOB authKey;
-    WOLFTPM2_KEYBLOB sealBlob;
-    TPMT_PUBLIC authTemplate;
-    TPMT_PUBLIC sealTemplate;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
-    TPM_ALG_ID alg = TPM_ALG_RSA;
     word32 pcrIndex = 16;
-    byte policyDigest[TPM_MAX_DIGEST_SIZE];
-    word32 policyDigestSz = sizeof(policyDigest);
-    byte policyDigestSig[TPM_MAX_DIGEST_SIZE];
-    word32 policyDigestSigSz = sizeof(policyDigestSig);
-    byte badDigest[256] = {0};
-    byte badSig[256] = {0};
-    word32 badSigSz = 256;
     word32 pcrArray[256];
     word32 pcrArraySz = 0;
-    byte nonce[] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
     byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     byte secretOut[16];
     word32 secretOutSz = sizeof(secretOut);
-    Unseal_In unsealIn[1];
-    Unseal_Out unsealOut[1];
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
-    XMEMSET(&storage, 0, sizeof(WOLFTPM2_KEY));
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
-    XMEMSET(&authKey, 0, sizeof(WOLFTPM2_KEYBLOB));
-    XMEMSET(&sealBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
-    XMEMSET(&authTemplate, 0, sizeof(TPMT_PUBLIC));
-    XMEMSET(&sealTemplate, 0, sizeof(TPMT_PUBLIC));
-    XMEMSET(unsealIn, 0, sizeof(Unseal_In));
-    XMEMSET(unsealOut, 0, sizeof(Unseal_Out));
+    XMEMSET(&nv, 0, sizeof(nv));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -102,12 +84,6 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
-        }
-        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
-            alg = TPM_ALG_RSA;
-        }
-        else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
-            alg = TPM_ALG_ECC;
         }
         else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */
@@ -131,7 +107,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         pcrArraySz++;
     }
 
-    printf("Example for sealing data to the TPM with policy authorization\n");
+    printf("Example for sealing data to NV memory with policy authorization\n");
     printf("\tPCR Indicies:");
 
     for (i = 0; i < (int)pcrArraySz; i++) {
@@ -139,6 +115,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     }
 
     printf("\n");
+
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -161,66 +138,29 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
-    /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
-    if (rc != 0) goto exit;
-
-    /* create the auth key template */
-    if (alg == TPM_ALG_RSA) {
-        printf("RSA template\n");
-        rc = wolfTPM2_GetKeyTemplate_RSA(&authTemplate,
-                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-                 TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-    }
-    else if (alg == TPM_ALG_ECC) {
-        printf("ECC template\n");
-        rc = wolfTPM2_GetKeyTemplate_ECC(&authTemplate,
-                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-                 TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                 TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
-    }
-
-    /* generate the authorized key, this auth key can also generated and */
-    /* loaded externally */
-    rc = wolfTPM2_CreateKey(&dev, &authKey, &storage.handle,
-                            &authTemplate, NULL, 0);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateKey failed\n");
-        goto exit;
-    }
-
-    rc = wolfTPM2_LoadKey(&dev, &authKey, &storage.handle);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_LoadKey failed\n");
-        goto exit;
-    }
-
-    /* create the template */
-    wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, TPM_ALG_SHA256);
-
     /* seal the secret */
-    rc = wolfTPM2_SealWithAuthKey(&dev, &authKey, &storage.handle,
-        &sealTemplate, &sealBlob, tpmSession.handle.hndl,
-        TPM_ALG_SHA256, pcrArray, pcrArraySz,
-        secret, sizeof(secret), nonce, sizeof(nonce), policyDigest,
-        &policyDigestSz, policyDigestSig, &policyDigestSigSz);
+    rc = wolfTPM2_SealWithAuthPolicyNV(&dev,
+        tpmSession.handle.hndl, TPM_ALG_SHA256, TPM_ALG_SHA256, pcrArray,
+        pcrArraySz, secret, sizeof(secret),
+        sealNvIndex, policyDigestNvIndex);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_SealWithAuthKey failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_SealWithAuthPolicyNV failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
 
-    /* load the seal blob */
-    rc = wolfTPM2_LoadKey(&dev, &sealBlob, &storage.handle);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_LoadKey failed\n");
-        goto exit;
-    }
-    printf("Loaded sealBlob to 0x%x\n",
-        (word32)sealBlob.handle.hndl);
-
     /* reset our session */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_Cleanup(&dev);
+    XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
+    XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+    printf("wolfTPM2_Init: success\n");
 
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
         TPM_SE_POLICY, paramEncAlg);
@@ -233,29 +173,24 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
+    nv.handle.hndl = sealNvIndex;
+
     /* try to unseal with the regular command, should fail */
-    unsealIn->itemHandle = sealBlob.handle.hndl;
-
-    rc = TPM2_Unseal(unsealIn, unsealOut);
-
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, sealNvIndex,
+        secretOut, &secretOutSz, 0);
     if (rc == TPM_RC_SUCCESS) {
-        printf("TPM2_Unseal failed, should not have allowed unauthorized unseal 0x%x: %s\n", rc,
+        printf("wolfTPM2_NVReadAuth failed, it should not have allowed a read without PolicyAuthorizeNV 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
-    else
-    {
-        rc = 0;
-    }
 
     /* unseal the secret */
-    rc = wolfTPM2_UnsealWithAuthSig(&dev, &authKey,
-        tpmSession.handle.hndl, sealBlob.handle.hndl, TPM_ALG_SHA256,
-        pcrArray, pcrArraySz, policyDigest,
-        policyDigestSz, nonce, sizeof(nonce), policyDigestSig,
-        policyDigestSigSz, secretOut, &secretOutSz);
+    rc = wolfTPM2_UnsealWithAuthPolicyNV(&dev,
+        tpmSession.handle.hndl, TPM_ALG_SHA256, pcrArray,
+        pcrArraySz, sealNvIndex,
+        policyDigestNvIndex, secretOut, &secretOutSz);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_UnsealWithAuthSig failed 0x%x: %s\n", rc,
+        printf("wolfTPM2_UnsealWithAuthPolicyNV failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
@@ -268,57 +203,11 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         printf("Usealed secret matches!\n");
     }
 
-    /* try to unseal with a bad signature, should fail */
-    rc = wolfTPM2_UnsealWithAuthSig(&dev, &authKey,
-        tpmSession.handle.hndl, sealBlob.handle.hndl, TPM_ALG_SHA256,
-        pcrArray, pcrArraySz, policyDigest,
-        policyDigestSz, nonce, sizeof(nonce), badSig, policyDigestSigSz,
-        secretOut, &secretOutSz);
-    if (rc == TPM_RC_SUCCESS) {
-        printf("wolfTPM2_UnsealWithAuthorizedKey failed, should not have allowed bad signature 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    else
-    {
-        rc = 0;
-    }
-
-    /* sign the bad digest, this is done for testing */
-    rc = wolfTPM2_SignHash(&dev, (WOLFTPM2_KEY*)&authKey, badDigest, policyDigestSz,
-        badSig, (int*)&badSigSz);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_SignHash failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-
-    /* try to unseal with a bad digest, but good signature, should fail */
-    rc = wolfTPM2_UnsealWithAuthSig(&dev, &authKey,
-        tpmSession.handle.hndl, sealBlob.handle.hndl, TPM_ALG_SHA256,
-        pcrArray, pcrArraySz, badDigest,
-        policyDigestSz, nonce, sizeof(nonce), badSig, badSigSz, secretOut,
-        &secretOutSz);
-    if (rc == TPM_RC_SUCCESS) {
-        printf("wolfTPM2_UnsealWithAuthorizedKey failed, should not have allowed bad digest 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    else
-    {
-        rc = 0;
-    }
-
 exit:
     if (rc != 0) {
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
-
-    wolfTPM2_UnloadHandle(&dev, &authKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &sealBlob.handle);
-    wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
@@ -338,7 +227,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_PCR_Seal_With_Policy_Auth_Test(NULL, argc, argv);
+    rc = TPM2_PCR_Seal_With_Policy_Auth_NV_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
     (void)argc;
