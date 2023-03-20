@@ -5540,11 +5540,28 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 {
+    int i = 0;
+
     if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
-        pcr->pcrSelections[pcr->count].hash = alg;
-        pcr->pcrSelections[pcr->count].sizeofSelect = PCR_SELECT_MIN;
-        pcr->pcrSelections[pcr->count].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
-        pcr->count++;
+        /* if we have no banks in use, use the 0th one */
+        if (pcr->count == 0) {
+            pcr->count = 1;
+        }
+        else {
+            /* iterate over all banks until the alg matches */
+            for (i = 0; (word32)i < pcr->count; i++) {
+                if (pcr->pcrSelections[0].hash == alg)
+                    break;
+            }
+
+            /* if no match increase the number of banks */
+            if ((word32)i >= pcr->count)
+                pcr->count++;
+        }
+
+        pcr->pcrSelections[i].hash = alg;
+        pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MAX;
+        pcr->pcrSelections[i].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
     }
 }
 
