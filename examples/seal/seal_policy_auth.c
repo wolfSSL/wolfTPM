@@ -59,22 +59,23 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB sealBlob;
     TPMT_PUBLIC authTemplate;
     TPMT_PUBLIC sealTemplate;
-    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    /* default to aes since parm encryption is required */
+    TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
     TPM_ALG_ID alg = TPM_ALG_RSA;
     word32 pcrIndex = 16;
     byte policyDigest[TPM_MAX_DIGEST_SIZE];
     word32 policyDigestSz = sizeof(policyDigest);
-    byte policyDigestSig[TPM_MAX_DIGEST_SIZE];
+    byte policyDigestSig[256];
     word32 policyDigestSigSz = sizeof(policyDigestSig);
-    byte badDigest[256] = {0};
-    byte badSig[256] = {0};
-    word32 badSigSz = 256;
+    byte badDigest[TPM_MAX_DIGEST_SIZE] = {0};
+    byte badSig[TPM_MAX_DIGEST_SIZE] = {0};
+    word32 badSigSz = TPM_MAX_DIGEST_SIZE;
     word32 pcrArray[256];
     word32 pcrArraySz = 0;
-    byte nonce[] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
-    byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    const byte nonce[] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+    const byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     byte secretOut[16];
-    word32 secretOutSz = sizeof(secretOut);
+    word32 secretOutSz = (word32)sizeof(secretOut);
     Unseal_In unsealIn[1];
     Unseal_Out unsealOut[1];
 
@@ -260,7 +261,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    if (memcmp(secret, secretOut, sizeof(secret)) != 0) {
+    if (XMEMCMP(secret, secretOut, sizeof(secret)) != 0) {
         printf("Usealed secret does not match\n");
         goto exit;
     }

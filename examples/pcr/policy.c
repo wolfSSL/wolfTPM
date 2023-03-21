@@ -206,10 +206,6 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
     for (i=0; i < cmdOut.policyGetDigest.policyDigest.size; i++)
         printf("%02X", cmdOut.policyGetDigest.policyDigest.buffer[i]);
     printf("\n");
-
-
-    //TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
-
 exit:
 
     if (rc != 0) {

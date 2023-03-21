@@ -1,4 +1,4 @@
-/* seal_policy_auth.c
+/* seal_policy_auth_nv.c
  *
  * Copyright (C) 2006-2023 wolfSSL Inc.
  *
@@ -58,7 +58,8 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     WOLFTPM2_NV nv;
     WOLFTPM2_DEV dev;
     WOLFTPM2_SESSION tpmSession;
-    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+    /* default to aes since parm encryption is required */
+    TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
     word32 pcrIndex = 16;
     word32 pcrArray[256];
     word32 pcrArraySz = 0;
@@ -195,7 +196,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
         goto exit;
     }
 
-    if (memcmp(secret, secretOut, sizeof(secret)) != 0) {
+    if (XMEMCMP(secret, secretOut, sizeof(secret)) != 0) {
         printf("Usealed secret does not match\n");
         goto exit;
     }

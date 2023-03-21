@@ -6149,8 +6149,7 @@ int wolfTPM2_GetPolicyDigest(TPM_HANDLE sessionHandle, byte* policyDigest,
         else if (policyGetDigestOut->policyDigest.size > *policyDigestSz) {
             rc = INPUT_SIZE_E;
         }
-        else
-        {
+        else {
             XMEMCPY(policyDigest, policyGetDigestOut->policyDigest.buffer,
                 policyGetDigestOut->policyDigest.size);
         }
@@ -6195,6 +6194,7 @@ int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     word32 checkDigestSz = TPM_MAX_DIGEST_SIZE;
     PolicyAuthorize_In policyAuthIn[1];
     WOLFTPM2_HASH hash[1];
+    TPM_ALG_ID sigAlg = TPM_ALG_NULL;
 
     if (dev == NULL || authKey == NULL || parent == NULL || template == NULL ||
         sealBlob == NULL || pcrArray == NULL ||
@@ -6223,10 +6223,23 @@ int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* verify the signature, get the auth ticket, save it to policyAuthIn */
     if (rc == 0) {
-        rc = wolfTPM2_VerifyHash_ex2(dev, (WOLFTPM2_KEY*)authKey,
-            policyDigestSig, policyDigestSigSz, checkDigest,
-            checkDigestSz, WOLFTPM2_WRAP_DIGEST,
-            &policyAuthIn->checkTicket);
+
+        if (authKey->pub.publicArea.type == TPM_ALG_ECC) {
+            sigAlg = authKey->pub.publicArea.parameters.eccDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_ECDSA;
+        }
+        else if (authKey->pub.publicArea.type == TPM_ALG_RSA) {
+            sigAlg = authKey->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_RSASSA;
+        }
+
+        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
+            policyDigestSig, policyDigestSigSz, checkDigest, checkDigestSz,
+            sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }
 
     /* authorize the signing key by name to sign this policy */
@@ -6273,6 +6286,7 @@ int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     PolicyAuthorize_In policyAuthIn[1];
     PolicyPCR_In policyPcr[1];
     WOLFTPM2_HASH hash[1];
+    TPM_ALG_ID sigAlg = TPM_ALG_NULL;
 
     if (dev == NULL || authKey == NULL || parent == NULL || template == NULL ||
         sealBlob == NULL || pcrArray == NULL || sealData == NULL ||
@@ -6315,15 +6329,29 @@ int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* sign the hashed policyDigest so we can authorize it */
     if (rc == 0) {
-        rc = wolfTPM2_SignHash(dev, (WOLFTPM2_KEY*)authKey, checkDigest,
-            checkDigestSz, policyDigestSig, (int*)policyDigestSigSz);
+        if (authKey->pub.publicArea.type == TPM_ALG_ECC) {
+            sigAlg = authKey->pub.publicArea.parameters.eccDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_ECDSA;
+        }
+        else if (authKey->pub.publicArea.type == TPM_ALG_RSA) {
+            sigAlg = authKey->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_RSASSA;
+        }
+
+        rc = wolfTPM2_SignHashScheme(dev, (WOLFTPM2_KEY*)authKey, checkDigest,
+            checkDigestSz, policyDigestSig, (int*)policyDigestSigSz, sigAlg,
+            WOLFTPM2_WRAP_DIGEST);
     }
 
     /* verify the signature, get the auth ticket */
     if (rc == 0) {
-        rc = wolfTPM2_VerifyHash_ex2(dev, (WOLFTPM2_KEY*)authKey,
+        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
             policyDigestSig, *policyDigestSigSz, checkDigest, checkDigestSz,
-            WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
+            sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }
 
     /* authorize the signing key by name to sign this policy */
@@ -6372,6 +6400,7 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     byte checkDigest[TPM_MAX_DIGEST_SIZE];
     word32 checkDigestSz = TPM_MAX_DIGEST_SIZE;
     WOLFTPM2_HASH hash[1];
+    TPM_ALG_ID sigAlg = TPM_ALG_NULL;
 
     if (dev == NULL || authKey == NULL || pcrArray == NULL ||
         policyDigest == NULL || policyDigestSig == NULL) {
@@ -6401,9 +6430,22 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* verify the signature, get the auth ticket */
     if (rc == 0) {
-        rc = wolfTPM2_VerifyHash_ex2(dev, (WOLFTPM2_KEY*)authKey,
+        if (authKey->pub.publicArea.type == TPM_ALG_ECC) {
+            sigAlg = authKey->pub.publicArea.parameters.eccDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_ECDSA;
+        }
+        else if (authKey->pub.publicArea.type == TPM_ALG_RSA) {
+            sigAlg = authKey->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+
+            if (sigAlg == TPM_ALG_NULL)
+                sigAlg = TPM_ALG_RSASSA;
+        }
+
+        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
             policyDigestSig, policyDigestSigSz, checkDigest, checkDigestSz,
-            WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
+            sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }
 
     /* add PolicyPCR to the policy */
@@ -6451,8 +6493,7 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
         else if (unsealOut->outData.size > *outSz) {
             rc = INPUT_SIZE_E;
         }
-        else
-        {
+        else {
             XMEMCPY(out, unsealOut->outData.buffer, unsealOut->outData.size);
         }
 
