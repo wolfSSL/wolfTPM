@@ -121,6 +121,7 @@ typedef int64_t  INT64;
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
+    #include <arpa/inet.h>
 
     typedef uint8_t  byte;
     typedef uint16_t word16;
@@ -133,6 +134,8 @@ typedef int64_t  INT64;
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
     #define BAD_MUTEX_E           -106  /* Bad mutex operation */
     #define WC_TIMEOUT_E          -107  /* timeout error */
+    #define LENGTH_ONLY_E         -202
+    #define INPUT_SIZE_E          -412
 
     /* Errors from wolfssl/error-ssl.h */
     #define SOCKET_ERROR_E        -308  /* error state on socket    */
@@ -147,6 +150,7 @@ typedef int64_t  INT64;
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
     #define XSTRCMP(s1,s2)    strcmp((s1),(s2))
+    #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
     #define XSTRSTR(s1,s2)    strstr((s1),(s2))
 #endif /* !WOLFTPM_CUSTOM_TYPES */
 
@@ -208,6 +212,11 @@ typedef int64_t  INT64;
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
+
+    #ifdef WOLFTPM2_NO_WOLFCRYPT
+        #define XHTONS(s)         htons((s))
+    #endif
+
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
     #define XATOI(s)          atoi((s))
 #endif

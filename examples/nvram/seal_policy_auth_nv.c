@@ -43,7 +43,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/policy [-aes/xor] [-digest=HEXSTR] [pcr]\n");
+    printf("./examples/pcr/policy [-aes/xor] [pcr]\n");
     printf("* pcr: PCR index between 0-23 (default %d)\n", 16);
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
@@ -65,7 +65,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     word32 pcrArraySz = 0;
     byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     byte secretOut[16];
-    word32 secretOutSz = sizeof(secretOut);
+    word32 secretOutSz = (word32)sizeof(secretOut);
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
@@ -180,8 +180,8 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     rc = wolfTPM2_NVReadAuth(&dev, &nv, sealNvIndex,
         secretOut, &secretOutSz, 0);
     if (rc == TPM_RC_SUCCESS) {
-        printf("wolfTPM2_NVReadAuth failed, it should not have allowed a read without PolicyAuthorizeNV 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("wolfTPM2_NVReadAuth failed, it should not have allowed a read"
+            " without PolicyAuthorizeNV 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
 

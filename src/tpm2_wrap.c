@@ -6223,7 +6223,6 @@ int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* verify the signature, get the auth ticket, save it to policyAuthIn */
     if (rc == 0) {
-
         if (authKey->pub.publicArea.type == TPM_ALG_ECC) {
             sigAlg = authKey->pub.publicArea.parameters.eccDetail.scheme.scheme;
 

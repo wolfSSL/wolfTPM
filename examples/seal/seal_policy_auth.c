@@ -43,10 +43,12 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/policy [-aes/xor] [-digest=HEXSTR] [pcr]\n");
+    printf("./examples/pcr/policy [-aes/xor] [pcr]\n");
     printf("* pcr: PCR index between 0-23 (default %d)\n", 16);
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
+
+#define SIG_SZ 256
 
 int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
 {
@@ -64,12 +66,12 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID alg = TPM_ALG_RSA;
     word32 pcrIndex = 16;
     byte policyDigest[TPM_MAX_DIGEST_SIZE];
-    word32 policyDigestSz = sizeof(policyDigest);
-    byte policyDigestSig[256];
-    word32 policyDigestSigSz = sizeof(policyDigestSig);
+    word32 policyDigestSz = (word32)sizeof(policyDigest);
+    byte policyDigestSig[SIG_SZ];
+    word32 policyDigestSigSz = (word32)sizeof(policyDigestSig);
     byte badDigest[TPM_MAX_DIGEST_SIZE] = {0};
     byte badSig[TPM_MAX_DIGEST_SIZE] = {0};
-    word32 badSigSz = TPM_MAX_DIGEST_SIZE;
+    word32 badSigSz = (word32)TPM_MAX_DIGEST_SIZE;
     word32 pcrArray[256];
     word32 pcrArraySz = 0;
     const byte nonce[] = {15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
@@ -128,7 +130,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     }
 
     if (pcrArraySz == 0) {
-        pcrArray[pcrArraySz] = 16;
+        pcrArray[pcrArraySz] = pcrIndex;
         pcrArraySz++;
     }
 
@@ -244,8 +246,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-    else
-    {
+    else {
         rc = 0;
     }
 
@@ -280,8 +281,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-    else
-    {
+    else {
         rc = 0;
     }
 
@@ -305,8 +305,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-    else
-    {
+    else {
         rc = 0;
     }
 
