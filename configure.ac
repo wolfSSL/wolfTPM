@@ -257,6 +257,27 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WINAPI"
 fi
 
+# libusb support for USB 2 SPI bridge such as found in LetsTrust TPM2Go USB-Stick
+AC_ARG_ENABLE([usb],
+    [AS_HELP_STRING([--enable-usb],[Enable use of TPM through a USB2SPI bridge (default: disabled)])],
+    [ ENABLED_USB=$enableval ],
+    [ ENABLED_USB=no ]
+    )
+
+if test "x$ENABLED_USB" = "xyes"
+then
+    if test "x$ENABLED_DEVTPM" = "xyes"
+    then
+        AC_MSG_ERROR([Cannot enable both usb and devtpm])
+    fi
+
+    PKG_CHECK_MODULES([LIBUSB_1_0], libusb-1.0 >= 0.9.1)
+    AC_SUBST(LIBUSB_1_0_CFLAGS)
+    AC_SUBST(LIBUSB_1_0_LIBS)
+
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_USB $LIBUSB_1_0_CFLAGS"
+    AM_LDFLAGS="$AM_LDFLAGS $LIBUSB_1_0_LIBS"
+fi
 
 # STM ST33 Support
 AC_ARG_ENABLE([st33],,
@@ -422,6 +443,7 @@ AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" != "xno"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
+AM_CONDITIONAL([BUILD_USB], [test "x$ENABLED_USB" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
@@ -542,6 +564,7 @@ echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
 echo "   * WINAPI:                    $ENABLED_WINAPI"
+echo "   * LetsTrust TPM2Go USB:      $ENABLED_USB"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
 echo "   * Infineon SLB967X           $ENABLED_INFINEON"

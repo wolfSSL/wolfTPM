@@ -23,9 +23,6 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
-#include <wolftpm/tpm2_linux.h>
-#include <wolftpm/tpm2_swtpm.h>
-#include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
 
 #include <hal/tpm_io.h>
@@ -40,16 +37,19 @@ static volatile int gWolfCryptRefCount = 0;
 #endif
 
 #ifdef WOLFTPM_LINUX_DEV
-#define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
+#define TPM2_INTERNAL_SENDCMD      TPM2_LINUX_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_SWTPM)
-#define INTERNAL_SEND_COMMAND      TPM2_SWTPM_SendCommand
+#define TPM2_INTERNAL_SENDCMD      TPM2_SWTPM_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_WINAPI)
-#define INTERNAL_SEND_COMMAND      TPM2_WinApi_SendCommand
+#define TPM2_INTERNAL_SENDCMD      TPM2_WinApi_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx) TPM2_WinApi_Cleanup(ctx)
+#elif defined(WOLFTPM_USB)
+#define TPM2_INTERNAL_SENDCMD      TPM2_USB_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx) TPM2_USB_Cleanup
 #else
-#define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
+#define TPM2_INTERNAL_SENDCMD      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #endif
 
@@ -420,7 +420,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     packet->pos = cmdSz;
 
     /* submit command and wait for response */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+    rc = (TPM_RC)TPM2_INTERNAL_SENDCMD(ctx, packet);
     if (rc != 0)
         return rc;
 
@@ -451,7 +451,7 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
 
     /* submit command and wait for response */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+    rc = (TPM_RC)TPM2_INTERNAL_SENDCMD(ctx, packet);
     if (rc != 0)
         return rc;
 
@@ -625,7 +625,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_USB)
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
     }

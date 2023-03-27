@@ -55,7 +55,7 @@ WOLFTPM_LOCAL UINT32 TPM2_Packet_SwapU32(UINT32 data);
 WOLFTPM_LOCAL UINT64 TPM2_Packet_SwapU64(UINT64 data);
 
 WOLFTPM_LOCAL void TPM2_Packet_InitBuf(TPM2_Packet* packet, byte* buf, int size);
-WOLFTPM_LOCAL void TPM2_Packet_Init(TPM2_CTX* ctx, TPM2_Packet* packet);
+WOLFTPM_LOCAL void TPM2_Packet_Init(struct TPM2_CTX* ctx, TPM2_Packet* packet);
 WOLFTPM_LOCAL void TPM2_Packet_AppendU8(TPM2_Packet* packet, UINT8 data);
 WOLFTPM_LOCAL void TPM2_Packet_ParseU8(TPM2_Packet* packet, UINT8* data);
 WOLFTPM_LOCAL void TPM2_Packet_AppendU16(TPM2_Packet* packet, UINT16 data);
@@ -71,7 +71,7 @@ WOLFTPM_LOCAL void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL int  TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz);
-WOLFTPM_LOCAL int  TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx);
+WOLFTPM_LOCAL int  TPM2_Packet_AppendAuth(TPM2_Packet* packet, struct TPM2_CTX* ctx);
 WOLFTPM_LOCAL void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd);
 WOLFTPM_LOCAL void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth);
 WOLFTPM_LOCAL void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr);

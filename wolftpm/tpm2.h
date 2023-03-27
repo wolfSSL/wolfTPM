@@ -1651,25 +1651,14 @@ static const BYTE TPM_20_EK_AUTH_POLICY[] = {
 
 /* HAL IO Callbacks */
 struct TPM2_CTX;
+struct TPM2_Packet;
 
-#ifdef WOLFTPM_SWTPM
-struct wolfTPM_tcpContext {
-    int fd;
-};
-#endif /* WOLFTPM_SWTPM */
+#include <wolftpm/tpm2_linux.h>
+#include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_winapi.h>
+#include <wolftpm/tpm2_usb.h>
 
 #ifdef WOLFTPM_WINAPI
-#include <tbs.h>
-#include <winerror.h>
-
-struct wolfTPM_winContext {
-  TBS_HCONTEXT tbs_context;
-};
-/* may be needed with msys */
-#ifndef TPM_E_COMMAND_BLOCKED
-#define TPM_E_COMMAND_BLOCKED (0x80280400)
-#endif
-
 #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == (int)TPM_RC_COMMAND_CODE || (code) == (int)TPM_E_COMMAND_BLOCKED)
 #else
 #define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == (int)TPM_RC_COMMAND_CODE)
@@ -1702,6 +1691,9 @@ typedef struct TPM2_CTX {
 #endif
 #ifdef WOLFTPM_WINAPI
     struct wolfTPM_winContext winCtx;
+#endif
+#ifdef WOLFTPM_USB
+    struct tpmUsbCtx usbCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef SINGLE_THREADED

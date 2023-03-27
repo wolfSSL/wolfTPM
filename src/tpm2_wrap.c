@@ -60,7 +60,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return BAD_FUNC_ARG;
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_USB)
     rc = TPM2_Init_minimal(ctx);
     /* Using standard file I/O for the Linux TPM device */
     (void)ioCb;

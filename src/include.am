@@ -21,10 +21,13 @@ if BUILD_WINAPI
 src_libwolftpm_la_SOURCES      += src/tpm2_winapi.c
 src_libwolftpm_la_LIBADD       = -ltbs
 endif
+if BUILD_USB
+src_libwolftpm_la_SOURCES      += src/tpm2_usb.c
+endif
 
 src_libwolftpm_la_CFLAGS       = $(src_libwolftpm_la_EXTRAS) -DBUILDING_WOLFTPM $(AM_CFLAGS)
 src_libwolftpm_la_CPPFLAGS     = -DBUILDING_WOLFTPM $(AM_CPPFLAGS)
-src_libwolftpm_la_LDFLAGS      = ${AM_LDFLAGS} -no-undefined -version-info ${WOLFTPM_LIBRARY_VERSION} 
+src_libwolftpm_la_LDFLAGS      = ${AM_LDFLAGS} -no-undefined -version-info ${WOLFTPM_LIBRARY_VERSION}
 
 #src_libwolftpm_la_DEPENDENCIES =
 #EXTRA_DIST +=

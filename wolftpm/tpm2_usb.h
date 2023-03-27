@@ -1,6 +1,6 @@
-/* tpm2_winapi.h
+/* tpm2_usb.h
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -16,11 +16,11 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef _TPM2_WINAPI_H_
-#define _TPM2_WINAPI_H_
+#ifndef _TPM2_USB_H_
+#define _TPM2_USB_H_
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
@@ -29,32 +29,26 @@
     extern "C" {
 #endif
 
-#ifdef WOLFTPM_WINAPI
+#ifdef WOLFTPM_USB
 
-#include <tbs.h>
-#include <winerror.h>
+#include <libusb-1.0/libusb.h>
 
-struct wolfTPM_winContext {
-    TBS_HCONTEXT tbs_context;
-};
+typedef struct tpmUsbCtx {
+    libusb_device_handle *dev_handle;
+    libusb_context *dev_ctx;
+    uint8_t *spi_dma_buffer;
+} tpmUsbCtx_t;
 
-/* may be needed with msys */
-#ifndef TPM_E_COMMAND_BLOCKED
-#define TPM_E_COMMAND_BLOCKED (0x80280400)
-#endif
-
-
-/* TPM2 IO for using TPM through the Winapi kernel driver */
-WOLFTPM_LOCAL int TPM2_WinApi_SendCommand(struct TPM2_CTX* ctx,
+/* TPM2 IO for using TPM through a libusb USB2SPI converter */
+WOLFTPM_LOCAL int TPM2_USB_SendCommand(struct TPM2_CTX* ctx,
     struct TPM2_Packet* packet);
 
-/* Cleanup winpi context */
-WOLFTPM_LOCAL int TPM2_WinApi_Cleanup(struct TPM2_CTX* ctx);
+WOLFTPM_LOCAL int TPM2_USB_Cleanup(struct TPM2_CTX* ctx);
 
-#endif /* WOLFTPM_WINAPI */
+#endif /* WOLFTPM_USB */
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _TPM2_WINAPI_H_ */
+#endif /* _TPM2_USB_H_ */
