@@ -1288,6 +1288,9 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
 WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz);
 
+WOLFTPM_API int wolfTPM2_SignHashScheme_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, byte* sig, int* sigSz,
+    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg, TPMT_SIGNATURE* sigOut);
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Advanced helper function to sign arbitrary data using a TPM key, and specify the signature scheme and hashing algorithm
@@ -3095,10 +3098,13 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
 
     \sa wolfTPM2_SealWithAuthPolicyNV
 */
-WOLFTPM_API int wolfTPM2_SealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
-    TPM_HANDLE sessionHandle, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
-    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
-    word32 sealNvIndex, word32 policyDigestNvIndex);
+WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle,
+    TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, word32* pcrArray,
+    word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    const byte* nonce, word32 nonceSz, word32 sealNvIndex,
+    word32 policyDigestNvIndex, byte* policySignedSig,
+    word32* policySignedSigSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -3106,7 +3112,7 @@ WOLFTPM_API int wolfTPM2_SealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
     \brief Seal a secret to the TPM's NVM after calling PolicyPCR and authorizing the current
     policyDigest to later unseal the secret from NVM
 
-    wolfTPM2_UnsealWithAuthPolicyNV
+    wolfTPM2_UnsealWithAuthSigNV
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
@@ -3121,12 +3127,13 @@ WOLFTPM_API int wolfTPM2_SealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
     \param out output buffer to read the unsealed secret
     \param outSz pointer to the size of the output buffer
 
-    \sa wolfTPM2_UnsealWithAuthPolicyNV
+    \sa wolfTPM2_UnsealWithAuthSigNV
 */
-WOLFTPM_API int wolfTPM2_UnsealWithAuthPolicyNV(WOLFTPM2_DEV* dev,
-    TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg, word32* pcrArray,
-    word32 pcrArraySz, word32 sealNvIndex, word32 policyDigestNvIndex,
-    byte* out, word32* outSz);
+WOLFTPM_API int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
+    word32* pcrArray, word32 pcrArraySz, const byte* nonce, word32 nonceSz,
+    const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
+    word32 policyDigestNvIndex, byte* out, word32* outSz);
 
 #ifdef __cplusplus
     }  /* extern "C" */

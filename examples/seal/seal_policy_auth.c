@@ -48,8 +48,6 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
 
-#define SIG_SZ 256
-
 int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
 {
     int i;
@@ -67,7 +65,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     word32 pcrIndex = 16;
     byte policyDigest[TPM_MAX_DIGEST_SIZE];
     word32 policyDigestSz = (word32)sizeof(policyDigest);
-    byte policyDigestSig[SIG_SZ];
+    byte policyDigestSig[RSA_SIG_SZ];
     word32 policyDigestSigSz = (word32)sizeof(policyDigestSig);
     byte badDigest[TPM_MAX_DIGEST_SIZE] = {0};
     byte badSig[TPM_MAX_DIGEST_SIZE] = {0};

@@ -219,7 +219,10 @@ typedef int64_t  INT64;
 
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
     #define XATOI(s)          atoi((s))
+
 #endif
+
+#define RSA_SIG_SZ 256
 
 /* enable way for customer to override printf */
 #ifdef XPRINTF

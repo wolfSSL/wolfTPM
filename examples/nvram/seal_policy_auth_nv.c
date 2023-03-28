@@ -57,7 +57,10 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     int rc = -1;
     WOLFTPM2_NV nv;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storage;
     WOLFTPM2_SESSION tpmSession;
+    WOLFTPM2_KEYBLOB authKey;
+    TPMT_PUBLIC authTemplate;
     /* default to aes since parm encryption is required */
     TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
     word32 pcrIndex = 16;
@@ -66,10 +69,15 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     byte secretOut[16];
     word32 secretOutSz = (word32)sizeof(secretOut);
+    byte policySignedSig[RSA_SIG_SZ];
+    word32 policySignedSigSz = RSA_SIG_SZ;
+    TPM_ALG_ID alg = TPM_ALG_RSA;
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
+    XMEMSET(&storage, 0, sizeof(WOLFTPM2_KEY));
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
     XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&authTemplate, 0, sizeof(TPMT_PUBLIC));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -85,6 +93,12 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
+            alg = TPM_ALG_RSA;
+        }
+        else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+            alg = TPM_ALG_ECC;
         }
         else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */
@@ -139,11 +153,46 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
         (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
+    /* get SRK */
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    if (rc != 0) goto exit;
+
+    /* create the auth key template */
+    if (alg == TPM_ALG_RSA) {
+        printf("RSA template\n");
+        rc = wolfTPM2_GetKeyTemplate_RSA(&authTemplate,
+                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                 TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    }
+    else if (alg == TPM_ALG_ECC) {
+        printf("ECC template\n");
+        rc = wolfTPM2_GetKeyTemplate_ECC(&authTemplate,
+                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                 TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                 TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    }
+
+    /* generate the authorized key, this auth key can also generated and */
+    /* loaded externally */
+    rc = wolfTPM2_CreateKey(&dev, &authKey, &storage.handle,
+                            &authTemplate, NULL, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_CreateKey failed\n");
+        goto exit;
+    }
+
+    rc = wolfTPM2_LoadKey(&dev, &authKey, &storage.handle);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_LoadKey failed\n");
+        goto exit;
+    }
+
     /* seal the secret */
-    rc = wolfTPM2_SealWithAuthPolicyNV(&dev,
+    rc = wolfTPM2_SealWithAuthKeyNV(&dev, &authKey,
         tpmSession.handle.hndl, TPM_ALG_SHA256, TPM_ALG_SHA256, pcrArray,
         pcrArraySz, secret, sizeof(secret),
-        sealNvIndex, policyDigestNvIndex);
+        NULL, 0, sealNvIndex, policyDigestNvIndex, policySignedSig,
+        &policySignedSigSz);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_SealWithAuthPolicyNV failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -152,16 +201,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
 
     /* reset our session */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-    wolfTPM2_Cleanup(&dev);
-    XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
-
-    rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("wolfTPM2_Init: success\n");
 
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
         TPM_SE_POLICY, paramEncAlg);
@@ -186,9 +226,9 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     }
 
     /* unseal the secret */
-    rc = wolfTPM2_UnsealWithAuthPolicyNV(&dev,
+    rc = wolfTPM2_UnsealWithAuthSigNV(&dev, &authKey,
         tpmSession.handle.hndl, TPM_ALG_SHA256, pcrArray,
-        pcrArraySz, sealNvIndex,
+        pcrArraySz, NULL, 0, policySignedSig, policySignedSigSz, sealNvIndex,
         policyDigestNvIndex, secretOut, &secretOutSz);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_UnsealWithAuthPolicyNV failed 0x%x: %s\n", rc,
@@ -209,6 +249,10 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+
+    wolfTPM2_UnloadHandle(&dev, &authKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
