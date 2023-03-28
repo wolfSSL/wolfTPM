@@ -47,6 +47,7 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
     TPM2B_DIGEST    salt;         /* User defined */
     TPMI_ALG_HASH   authHash;
+    TPMA_SESSION    sessionAttributes;
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_DEV {
@@ -446,7 +447,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFT
     \sa wolfTPM2_SetAuthHandle
 */
 WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
-    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
+    WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -3086,7 +3087,8 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a populated structure of WOLFTPM2_DEV type
-    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param authKey authentication key
+    \param session the pointer to current session, a session is required to use policy pcr
     \param policyHashAlg the hashing algorithm used to generate the policyDigest
     \param pcrAlg the hashing algorithm to use for pcr values
     \param pcrArray array of PCR indices to use with this policy
@@ -3099,7 +3101,7 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_SealWithAuthPolicyNV
 */
 WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle,
+    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_SESSION* session,
     TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, word32* pcrArray,
     word32 pcrArraySz, const byte* sealData, word32 sealSz,
     const byte* nonce, word32 nonceSz, word32 sealNvIndex,
@@ -3118,7 +3120,8 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a populated structure of WOLFTPM2_DEV type
-    \param sessionHandle the handle of the current session, a session is required to use policy pcr
+    \param authKey authentication key
+    \param session the pointer to current session, a session is required to use policy pcr
     \param pcrAlg the hashing algorithm to use for pcr values
     \param pcrArray array of PCR indices to use with this policy
     \param pcrArraySz length of pcrArray
@@ -3130,7 +3133,7 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_UnsealWithAuthSigNV
 */
 WOLFTPM_API int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* authKey, TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
+    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_SESSION* session, TPM_ALG_ID pcrAlg,
     word32* pcrArray, word32 pcrArraySz, const byte* nonce, word32 nonceSz,
     const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
     word32 policyDigestNvIndex, byte* out, word32* outSz);

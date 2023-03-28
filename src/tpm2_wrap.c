@@ -762,7 +762,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
 }
 
 int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
-    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes)
+    WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes)
 {
     int rc;
 
@@ -780,6 +780,9 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         &tpmSession->handle.auth, sessionAttributes, NULL);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_AUTH_SESSION* session = &dev->session[index];
+
+        /* save off session attributes */
+        tpmSession->sessionAttributes = sessionAttributes;
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
@@ -6501,7 +6504,7 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 }
 
 int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
-    TPM_HANDLE sessionHandle, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
+    WOLFTPM2_SESSION* session, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
     word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
     const byte* nonce, word32 nonceSz, word32 sealNvIndex,
     word32 policyDigestNvIndex, byte* policySignedSig,
@@ -6536,7 +6539,7 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     XMEMSET(zeroExpiry, 0, sizeof(zeroExpiry));
 
     /* add PolicyPCR to the policy */
-    rc = wolfTPM2_PolicyPCR(sessionHandle, pcrAlg, pcrArray, pcrArraySz);
+    rc = wolfTPM2_PolicyPCR(session->handle.hndl, pcrAlg, pcrArray, pcrArraySz);
 
     /* start hash */
     if (rc == 0)
@@ -6571,16 +6574,17 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
         rc = wolfTPM2_SignHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey, aHash,
             aHashSz, policySignedSig, (int*)policySignedSigSz, sigAlg,
-            WOLFTPM2_WRAP_DIGEST, &policySignedIn->auth);
+            policyHashAlg, &policySignedIn->auth);
     }
 
     /* add PolicySigned to the policy */
     if (rc == 0) {
-        /* set the key handle */
         policySignedIn->authObject = authKey->handle.hndl;
+        wolfTPM2_SetAuthHandle(dev, 0, &authKey->handle);
 
         /* set the session */
-        policySignedIn->policySession = sessionHandle;
+        policySignedIn->policySession = session->handle.hndl;
+        wolfTPM2_SetAuthSession(dev, 1, session, session->sessionAttributes);
 
         /* set nonce if it's non null */
         if (nonceSz > 0) {
@@ -6593,7 +6597,7 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* get the policyDigest */
     if (rc == 0) {
-        rc = wolfTPM2_GetPolicyDigest(sessionHandle, policyDigest,
+        rc = wolfTPM2_GetPolicyDigest(session->handle.hndl, policyDigest,
             &policyDigestSz);
     }
 
@@ -6606,6 +6610,9 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* create the policy digest nv space */
     if (rc == 0) {
+        wolfTPM2_UnsetAuth(dev, 0);
+        wolfTPM2_UnsetAuth(dev, 1);
+
         rc = wolfTPM2_NVCreateAuth(dev, parent, nv, policyDigestNvIndex, nvAttributes,
             sizeof(TPM_ALG_ID) + policyDigestSz, NULL, 0);
 
@@ -6630,13 +6637,15 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     /* authorize the policy */
     if (rc == 0) {
         /* set session */
-        policyAuthNVIn->policySession = sessionHandle;
+        policyAuthNVIn->policySession = session->handle.hndl;
+        wolfTPM2_SetAuthSession(dev, 0, session, session->sessionAttributes);
 
         /* set nvIndex */
         policyAuthNVIn->nvIndex = policyDigestNvIndex;
 
         /* set authHandle */
         policyAuthNVIn->authHandle = parent->hndl;
+        wolfTPM2_SetAuthHandle(dev, 2, parent);
 
         rc = TPM2_PolicyAuthorizeNV(policyAuthNVIn);
     }
@@ -6666,7 +6675,7 @@ int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 }
 
 int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
-    TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg, word32* pcrArray,
+    WOLFTPM2_SESSION* session, TPM_ALG_ID pcrAlg, word32* pcrArray,
     word32 pcrArraySz, const byte* nonce, word32 nonceSz,
     const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
     word32 policyDigestNvIndex, byte* out, word32* outSz)
@@ -6694,15 +6703,17 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     XMEMSET(policyAuthNVIn, 0, sizeof(PolicyAuthorizeNV_In));
 
     /* add PolicyPCR to the policy */
-    rc = wolfTPM2_PolicyPCR(sessionHandle, pcrAlg, pcrArray, pcrArraySz);
+    rc = wolfTPM2_PolicyPCR(session->handle.hndl, pcrAlg, pcrArray, pcrArraySz);
 
     /* add PolicySigned to the policy */
     if (rc == 0) {
         /* set the key handle */
         policySignedIn->authObject = authKey->handle.hndl;
+        wolfTPM2_SetAuthHandle(dev, 0, &authKey->handle);
 
         /* set the session */
-        policySignedIn->policySession = sessionHandle;
+        policySignedIn->policySession = session->handle.hndl;
+        wolfTPM2_SetAuthSession(dev, 1, session, session->sessionAttributes);
 
         /* set nonce if it's non null */
         if (nonceSz > 0) {
@@ -6727,10 +6738,10 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
         }
 
         /* set hash alg */
-        policySignedIn->auth.signature.any.hashAlg = WOLFTPM2_WRAP_DIGEST;
+        policySignedIn->auth.signature.any.hashAlg = pcrAlg;
 
         /* set auth signature */
-        switch(authKey->pub.publicArea.type) {
+        switch (authKey->pub.publicArea.type) {
             case TPM_ALG_ECC:
                 policySignedIn->auth.signature.ecdsa.signatureR.size =
                     policySignedSigSz / 2;
@@ -6755,8 +6766,9 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
                 break;
         }
 
-        if (rc == 0)
+        if (rc == 0) {
             rc = TPM2_PolicySigned(policySignedIn, policySignedOut);
+        }
     }
 
     /* get the nvAttributes */
@@ -6768,8 +6780,10 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* create the policy digest nv space */
     if (rc == 0) {
-        rc = wolfTPM2_NVCreateAuth(dev, parent, nv, policyDigestNvIndex, nvAttributes,
-            sizeof(TPM_ALG_ID), NULL, 0);
+        wolfTPM2_UnsetAuth(dev, 0);
+        wolfTPM2_UnsetAuth(dev, 1);
+        rc = wolfTPM2_NVCreateAuth(dev, parent, nv, policyDigestNvIndex,
+            nvAttributes, sizeof(TPM_ALG_ID), NULL, 0);
 
         if (rc == TPM_RC_NV_DEFINED)
             rc = 0;
@@ -6778,13 +6792,15 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
     /* authorize the policy using the nv contents */
     if (rc == 0) {
         /* set session */
-        policyAuthNVIn->policySession = sessionHandle;
+        policyAuthNVIn->policySession = session->handle.hndl;
+        wolfTPM2_SetAuthSession(dev, 0, session, session->sessionAttributes);
 
         /* set nvIndex */
         policyAuthNVIn->nvIndex = policyDigestNvIndex;
 
         /* set authHandle */
         policyAuthNVIn->authHandle = parent->hndl;
+        wolfTPM2_SetAuthHandle(dev, 2, parent);
 
         rc = TPM2_PolicyAuthorizeNV(policyAuthNVIn);
     }
