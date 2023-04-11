@@ -188,7 +188,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     }
 
     /* seal the secret */
-    rc = wolfTPM2_SealWithAuthKeyNV(&dev, &authKey,
+    rc = wolfTPM2_SealWithAuthKeyNV(&dev, (WOLFTPM2_KEY*)&authKey,
         &tpmSession, TPM_ALG_SHA256, TPM_ALG_SHA256, pcrArray,
         pcrArraySz, secret, sizeof(secret),
         NULL, 0, sealNvIndex, policyDigestNvIndex, policySignedSig,
@@ -226,7 +226,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     }
 
     /* unseal the secret */
-    rc = wolfTPM2_UnsealWithAuthSigNV(&dev, &authKey,
+    rc = wolfTPM2_UnsealWithAuthSigNV(&dev, (WOLFTPM2_KEY*)&authKey,
         &tpmSession, TPM_ALG_SHA256, pcrArray,
         pcrArraySz, NULL, 0, policySignedSig, policySignedSigSz, sealNvIndex,
         policyDigestNvIndex, secretOut, &secretOutSz);

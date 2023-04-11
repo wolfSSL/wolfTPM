@@ -2923,6 +2923,8 @@ WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     byte *buffer, word32 bufferSz);
 
+WOLFTPM_API int wolfTPM2_PolicyRestart(TPM_HANDLE sessionHandle);
+
 /*!
     \ingroup wolfTPM2_Wrappers
 
@@ -3075,6 +3077,14 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     const byte* policyDigestSig, word32 policyDigestSigSz, byte* out,
     word32* outSz);
 
+
+WOLFTPM_API int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session,
+    TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, const byte* sealData,
+    word32 sealSz, const byte* nonce, word32 nonceSz,
+    const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
+    word32 policyDigestNvIndex);
+
 /*!
     \ingroup wolfTPM2_Wrappers
 
@@ -3101,7 +3111,7 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_SealWithAuthPolicyNV
 */
 WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_SESSION* session,
+    WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session,
     TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, word32* pcrArray,
     word32 pcrArraySz, const byte* sealData, word32 sealSz,
     const byte* nonce, word32 nonceSz, word32 sealNvIndex,
@@ -3133,7 +3143,7 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_UnsealWithAuthSigNV
 */
 WOLFTPM_API int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEYBLOB* authKey, WOLFTPM2_SESSION* session, TPM_ALG_ID pcrAlg,
+    WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session, TPM_ALG_ID pcrAlg,
     word32* pcrArray, word32 pcrArraySz, const byte* nonce, word32 nonceSz,
     const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
     word32 policyDigestNvIndex, byte* out, word32* outSz);

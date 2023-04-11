@@ -213,8 +213,14 @@ typedef int64_t  INT64;
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
 
-    #ifdef WOLFTPM2_NO_WOLFCRYPT
-        #define XHTONS(s)         htons((s))
+    #ifndef XHTONS
+        /* WOLFCRYPT_ONLY means no wolfio and no arpa/inet.h */
+        #ifdef WOLFCRYPT_ONLY
+            #define XHTONS(s) ((((s) & 0xff) << 8) | (((s) & 0xff00) >> 8))
+        #else
+            #include <arpa/inet.h>
+            #define XHTONS(s)         htons((s))
+        #endif
     #endif
 
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
