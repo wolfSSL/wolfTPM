@@ -216,7 +216,11 @@ typedef int64_t  INT64;
     #ifndef XHTONS
         /* WOLFCRYPT_ONLY means no wolfio and no arpa/inet.h */
         #ifdef WOLFCRYPT_ONLY
-            #define XHTONS(s) ((((s) & 0xff) << 8) | (((s) & 0xff00) >> 8))
+            #ifdef BIG_ENDIAN_ORDER
+                #define XHTONS(s) (s)
+            #else
+                #define XHTONS(s) ((((s) & 0xff) << 8) | (((s) & 0xff00) >> 8))
+            #endif
         #else
             #include <arpa/inet.h>
             #define XHTONS(s)         htons((s))

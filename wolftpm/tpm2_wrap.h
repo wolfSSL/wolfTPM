@@ -3043,8 +3043,9 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
 
-    \brief Unseal a secret from the TPM after verifying the digest signature was signed by the auth private key
-    and checking the policy using policy authorize and and policy pcr
+    \brief Unseal a secret from the TPM after verifying the digest signature
+    was signed by the auth private key and checking the policy using policy
+    authorize and and policy pcr
 
     wolfTPM2_UnsealWithAuthSig
 
@@ -3077,7 +3078,36 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     const byte* policyDigestSig, word32 policyDigestSigSz, byte* out,
     word32* outSz);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
 
+    \brief Seal a secret to the TPM NVM after verifying the PolicySigned
+    signature was signed by the auth private key along with the policyDigest
+    of the session. Other policy functions such as PolicyPCR should be called
+    before calling this function
+
+    wolfTPM2_SealWithAuthSigNV
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param authKey pointer to a public key used to verify the policy digest signature
+    \param session the current session, a session is required to use policy pcr
+    \param policyHashAlg the hashing algorithm used to calculate policyDigest
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param sealData the data to seal into the tpm
+    \param sealSz the size of the seal data
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
+    \param policySignedSig a signature of aHash as defined in the tpm2 documentation for PolicySigned
+    \param policySignedSigSz size of policySignedSig
+    \param sealNvIndex the NV index of the TPM to seal the secret to
+    \param policyDigestNvIndex the NV index of the TPM to seal the policyDigest to
+
+    \sa wolfTPM2_SealWithAuthSigNV
+*/
 WOLFTPM_API int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session,
     TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, const byte* sealData,
@@ -3105,8 +3135,12 @@ WOLFTPM_API int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev,
     \param pcrArraySz length of pcrArray
     \param sealData the secret to save to NVM
     \param sealSz size of the secret buffer
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
     \param sealNvIndex nvIndex to write the secret to
     \param policyDigestNvIndex nvIndex to write the policyDigest to
+    \param policySignedSig output signature of aHash as defined in the tpm2 documentation for PolicySigned
+    \param policySignedSigSz size of policySignedSig
 
     \sa wolfTPM2_SealWithAuthPolicyNV
 */
@@ -3121,8 +3155,9 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
 
-    \brief Seal a secret to the TPM's NVM after calling PolicyPCR and authorizing the current
-    policyDigest to later unseal the secret from NVM
+    \brief Unseal a secret from the TPM's NVM after calling PolicyPCR and
+    authorizing the current policyDigest with PolicyAuthorizeNV and checking
+    the policySignedSig with PolicySigned
 
     wolfTPM2_UnsealWithAuthSigNV
 
@@ -3135,6 +3170,10 @@ WOLFTPM_API int wolfTPM2_SealWithAuthKeyNV(WOLFTPM2_DEV* dev,
     \param pcrAlg the hashing algorithm to use for pcr values
     \param pcrArray array of PCR indices to use with this policy
     \param pcrArraySz length of pcrArray
+    \param nonce a one time number to include in our policy
+    \param nonceSz size of nonce
+    \param policySignedSig a signature of aHash as defined in the tpm2 documentation for PolicySigned
+    \param policySignedSigSz size of policySignedSig
     \param sealNvIndex nvIndex to read the secret from
     \param policyDigestNvIndex nvIndex to read the policyDigest from
     \param out output buffer to read the unsealed secret

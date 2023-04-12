@@ -64,13 +64,13 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     /* default to aes since parm encryption is required */
     TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
     word32 pcrIndex = 16;
-    word32 pcrArray[256];
+    word32 pcrArray[48];
     word32 pcrArraySz = 0;
     byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     byte secretOut[16];
     word32 secretOutSz = (word32)sizeof(secretOut);
-    byte policySignedSig[RSA_SIG_SZ];
-    word32 policySignedSigSz = RSA_SIG_SZ;
+    byte policySignedSig[MAX_RSA_KEY_BYTES];
+    word32 policySignedSigSz = MAX_RSA_KEY_BYTES;
     TPM_ALG_ID alg = TPM_ALG_RSA;
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
@@ -118,7 +118,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     }
 
     if (pcrArraySz == 0) {
-        pcrArray[pcrArraySz] = 16;
+        pcrArray[pcrArraySz] = pcrIndex;
         pcrArraySz++;
     }
 
@@ -170,6 +170,10 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
                  TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                  TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                  TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("create template failed failed\n");
+        goto exit;
     }
 
     /* generate the authorized key, this auth key can also generated and */

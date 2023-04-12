@@ -65,7 +65,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     word32 pcrIndex = 16;
     byte policyDigest[TPM_MAX_DIGEST_SIZE];
     word32 policyDigestSz = (word32)sizeof(policyDigest);
-    byte policyDigestSig[RSA_SIG_SZ];
+    byte policyDigestSig[MAX_RSA_KEY_BYTES];
     word32 policyDigestSigSz = (word32)sizeof(policyDigestSig);
     byte badDigest[TPM_MAX_DIGEST_SIZE] = {0};
     byte badSig[TPM_MAX_DIGEST_SIZE] = {0};
@@ -244,9 +244,6 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-    else {
-        rc = 0;
-    }
 
     /* unseal the secret */
     rc = wolfTPM2_UnsealWithAuthSig(&dev, &authKey,
@@ -278,9 +275,6 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_UnsealWithAuthorizedKey failed, should not have allowed bad signature 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
-    }
-    else {
-        rc = 0;
     }
 
     /* sign the bad digest, this is done for testing */
