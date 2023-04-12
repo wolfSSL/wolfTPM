@@ -61,9 +61,11 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     byte pemEncode = 0;
-    FILE* pemFile = NULL;
     const char* pemName = "./certs/example-rsa-key.pem";
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    FILE* pemFile = NULL;
     char pemBuf[WOLFTPM2_MAX_BUFFER];
+    #endif
 #endif
 
     if (argc >= 2) {
@@ -158,28 +160,35 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     if (alg == TPM_ALG_RSA) {
         if (derEncode == 1) {
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
             rc = wolfTPM2_RsaPrivateKeyImportDer(&dev, &storage, &impKey,
                 kRsaKeyPrivDer, sizeof(kRsaKeyPrivDer), TPM_ALG_NULL,
                 TPM_ALG_NULL);
+        #else
+            rc = NOT_COMPILED_IN;
+        #endif
         }
-#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         else if (pemEncode == 1) {
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
             pemFile = XFOPEN(pemName, "r");
-
-            if (pemFile == NULL)
-                printf("Failed to read pem file %s\n", pemName);
-
-            if (rc == 0)
+            if (pemFile != XBADFILE) {
                 rc = (int)XFREAD(pemBuf, 1, sizeof(pemBuf), pemFile);
-
-            if (rc > 0) {
-                rc = wolfTPM2_RsaPrivateKeyImportPem(&dev, &storage, &impKey,
-                    pemBuf, rc, NULL, TPM_ALG_NULL, TPM_ALG_NULL);
+                if (rc > 0) {
+                    rc = wolfTPM2_RsaPrivateKeyImportPem(&dev, &storage, &impKey,
+                        pemBuf, rc, NULL, TPM_ALG_NULL, TPM_ALG_NULL);
+                }
+                XFCLOSE(pemFile);
             }
-
-            XFCLOSE(pemFile);
+            else {
+                printf("Failed to read pem file %s\n", pemName);
+                rc = BUFFER_E;
+            }
+        #else
+            rc = NOT_COMPILED_IN;
+        #endif
         }
-#endif
+    #endif
         else {
             /* Import raw RSA private key into TPM */
             rc = wolfTPM2_ImportRsaPrivateKey(&dev, &storage, &impKey,
