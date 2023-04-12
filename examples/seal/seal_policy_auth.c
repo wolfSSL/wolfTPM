@@ -181,6 +181,11 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
                  TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
     }
 
+    if (rc != TPM_RC_SUCCESS) {
+        printf("key template generation failed\n");
+        goto exit;
+    }
+
     /* generate the authorized key, this auth key can also generated and */
     /* loaded externally */
     rc = wolfTPM2_CreateKey(&dev, &authKey, &storage.handle,

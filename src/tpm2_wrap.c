@@ -3765,7 +3765,8 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     HashSequenceStart_In in;
     HashSequenceStart_Out out;
 
-    if (dev == NULL || hash == NULL || hashAlg == TPM_ALG_NULL) {
+    if (dev == NULL || hash == NULL || hashAlg == TPM_ALG_NULL ||
+        (usageAuthSz > 0 && usageAuth == NULL)) {
         return BAD_FUNC_ARG;
     }
 
@@ -3774,7 +3775,8 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         usageAuthSz = sizeof(hash->handle.auth.buffer);
     XMEMSET(hash, 0, sizeof(WOLFTPM2_HASH));
     hash->handle.auth.size = usageAuthSz;
-    XMEMCPY(hash->handle.auth.buffer, usageAuth, usageAuthSz);
+    if (usageAuth != NULL)
+        XMEMCPY(hash->handle.auth.buffer, usageAuth, usageAuthSz);
 
     XMEMSET(&in, 0, sizeof(in));
     wolfTPM2_CopyAuth(&in.auth, &hash->handle.auth);
@@ -6285,7 +6287,8 @@ int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
         /* set the nonce */
         policyAuthIn->policyRef.size = nonceSz;
-        XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
+        if (nonce != NULL)
+            XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
 
         rc = TPM2_PolicyAuthorize(policyAuthIn);
     }
@@ -6391,7 +6394,8 @@ int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
         /* set the nonce */
         policyAuthIn->policyRef.size = nonceSz;
-        XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
+        if (nonce != NULL)
+            XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
 
         rc = TPM2_PolicyAuthorize(policyAuthIn);
     }
@@ -6488,7 +6492,8 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
         /* set the nonce */
         policyAuthIn->policyRef.size = nonceSz;
-        XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
+        if (nonce != NULL)
+            XMEMCPY(policyAuthIn->policyRef.buffer, nonce, nonceSz);
 
         rc = TPM2_PolicyAuthorize(policyAuthIn);
     }
