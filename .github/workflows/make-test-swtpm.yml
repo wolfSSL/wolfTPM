@@ -44,4 +44,4 @@ jobs:
     - name: make test
       run: |
           ./ibmswtpm2/src/tpm_server &
-          sleep 10 && ./autogen.sh && ./configure --enable-swtpm && make test && ./examples/native/native_test && ./examples/wrap/wrap_test
+          sleep 10 && make test && ./examples/native/native_test && ./examples/wrap/wrap_test

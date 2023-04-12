@@ -115,6 +115,9 @@ typedef int64_t  INT64;
     #ifndef XFEOF
         #define XFEOF      feof
     #endif
+    #ifndef XREWIND
+        #define XREWIND    rewind
+    #endif
 
 #else
 
