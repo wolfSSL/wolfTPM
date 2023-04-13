@@ -47,6 +47,7 @@ examples/timestamp/signed_timestamp
 examples/pcr/quote
 examples/pcr/read_pcr
 examples/pcr/extend
+examples/pcr/policy
 examples/pcr/reset
 examples/timestamp/clock_set
 examples/management/flush
@@ -68,6 +69,8 @@ examples/gpio/gpio_read
 examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
+examples/seal/seal_policy_auth
+examples/seal/seal_policy_auth_nv
 examples/attestation/make_credential
 examples/attestation/activate_credential
 

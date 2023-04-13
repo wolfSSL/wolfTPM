@@ -31,7 +31,7 @@
 #include <stdio.h>
 
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 /******************************************************************************/
 /* --- BEGIN TPM Key Import / Blob Example -- */
@@ -239,7 +239,7 @@ exit:
 /******************************************************************************/
 /* --- END TPM Key Import / Blob Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT */
 
 
 #ifndef NO_MAIN_DRIVER
@@ -247,7 +247,7 @@ int main(int argc, char *argv[])
 {
     int rc = NOT_COMPILED_IN;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_Keyimport_Example(NULL, argc, argv);
 #else
     printf("KeyImport code not compiled in\n");

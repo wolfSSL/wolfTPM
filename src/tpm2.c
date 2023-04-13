@@ -189,8 +189,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* Note: Copy between TPM2_AUTH_SESSION and TPMS_AUTH_COMMAND is allowed */
         XMEMCPY(&authCmd, session, sizeof(TPMS_AUTH_COMMAND));
 
-        /* Skip Policy session, because Enhanced Authorization is not yet implemented */
-        if (TPM2_IS_HMAC_SESSION(session->sessionHandle)) {
+        if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+            TPM2_IS_POLICY_SESSION(session->sessionHandle))
+        {
         #ifndef WOLFTPM2_NO_WOLFCRYPT
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
@@ -5541,11 +5542,38 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 {
+    int i = 0;
+
     if (pcr && pcrIndex >= (int)PCR_FIRST && pcrIndex <= (int)PCR_LAST) {
-        pcr->count = 1;
-        pcr->pcrSelections[0].hash = alg;
-        pcr->pcrSelections[0].sizeofSelect = PCR_SELECT_MIN;
-        pcr->pcrSelections[0].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+        /* if we have no banks in use, use the 0th one */
+        if (pcr->count == 0) {
+            pcr->count = 1;
+        }
+        else {
+            /* iterate over all banks until the alg matches */
+            for (i = 0; (word32)i < pcr->count; i++) {
+                if (pcr->pcrSelections[0].hash == alg)
+                    break;
+            }
+
+            /* if no match increase the number of banks */
+            if ((word32)i >= pcr->count)
+                pcr->count++;
+        }
+
+        pcr->pcrSelections[i].hash = alg;
+        pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MAX;
+        pcr->pcrSelections[i].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+    }
+}
+
+void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
+    word32* pcrArray, word32 pcrArraySz)
+{
+    int i;
+
+    for (i = 0; i < (int)pcrArraySz; i++) {
+        TPM2_SetupPCRSel(pcr, alg, (int)pcrArray[i]);
     }
 }
 

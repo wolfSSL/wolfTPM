@@ -44,7 +44,7 @@ static void usage(void)
     printf("Demo usage without parameters, resets PCR%d.\n", TPM2_TEST_PCR);
 }
 
-int TPM2_Reset_Test(void* userCtx, int argc, char *argv[])
+int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
 {
     int i, j, pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
@@ -130,7 +130,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_Reset_Test(NULL, argc, argv);
+    rc = TPM2_PCR_Reset_Test(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
     (void)argc;
