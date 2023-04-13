@@ -235,8 +235,6 @@ typedef int64_t  INT64;
 
 #endif
 
-#define RSA_SIG_SZ 256
-
 /* enable way for customer to override printf */
 #ifdef XPRINTF
     #undef  printf
