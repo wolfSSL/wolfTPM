@@ -410,8 +410,11 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     *privBufferSz += sizeof(UINT16) + key->priv.size;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    TPM2_PrintBin(buffer, sz);
-    printf("Getting %d bytes\n", (int)sz);
+    TPM2_PrintBin(pubBuffer, *pubBufferSz);
+    printf("Getting %d bytes for public buffer\n", (int)*pubBufferSz);
+
+    TPM2_PrintBin(privBuffer, *privBufferSz);
+    printf("Getting %d bytes for private buffer\n", (int)*privBufferSz);
 #endif
 
     return sz;
