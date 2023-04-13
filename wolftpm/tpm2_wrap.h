@@ -47,6 +47,7 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_NONCE     nonceCaller;  /* Fresh nonce at each command */
     TPM2B_DIGEST    salt;         /* User defined */
     TPMI_ALG_HASH   authHash;
+    TPMA_SESSION    sessionAttributes;
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_DEV {
@@ -446,7 +447,7 @@ WOLFTPM_API int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index, const WOLFT
     \sa wolfTPM2_SetAuthHandle
 */
 WOLFTPM_API int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
-    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
+    WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes);
 
 /*!
     \ingroup wolfTPM2_Wrappers

@@ -119,6 +119,10 @@ typedef int64_t  INT64;
         #define XREWIND    rewind
     #endif
 
+    #ifndef XREWIND
+        #define XREWIND    rewind
+    #endif
+
 #else
 
     #include <stdio.h>

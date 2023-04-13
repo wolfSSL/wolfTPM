@@ -122,7 +122,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int i, authPos;
     int tmpSz = 0; /* Used to calculate the new total size of the Auth Area */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    UINT32 handleValue;
+    UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
 #endif
 
@@ -167,7 +167,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     handlePos = packet->pos;
     packet->pos = TPM2_HEADER_SIZE; /* Handles are right after header */
-    TPM2_Packet_ParseU32(packet, &handleValue);
+    TPM2_Packet_ParseU32(packet, &handleValue1);
+    TPM2_Packet_ParseU32(packet, &handleValue2);
+    TPM2_Packet_ParseU32(packet, &handleValue3);
     packet->pos = handlePos;
 #endif
 
@@ -216,9 +218,9 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #ifndef WOLFTPM2_NO_WOLFCRYPT
-            rc =  TPM2_GetName(ctx, handleValue, info->inHandleCnt, 0, &name1);
-            rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 1, &name2);
-            rc |= TPM2_GetName(ctx, handleValue, info->inHandleCnt, 2, &name3);
+            rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
+            rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
+            rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
