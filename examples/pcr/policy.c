@@ -35,9 +35,9 @@
 
 #include <stdio.h>
 
-static char HexCharToByte(char ch)
+static signed char HexCharToByte(signed char ch)
 {
-    char ret = (char)ch;
+    signed char ret = (signed char)ch;
     if (ret >= '0' && ret <= '9')
         ret -= '0';
     else if (ret >= 'A' && ret <= 'F')
@@ -52,7 +52,7 @@ static int HexToByte(const char *hex, unsigned char *output, unsigned long sz)
 {
     word32 i;
     for (i = 0; i < sz; i++) {
-        char ch1, ch2;
+        signed char ch1, ch2;
         ch1 = HexCharToByte(hex[i * 2]);
         ch2 = HexCharToByte(hex[i * 2 + 1]);
         if ((ch1 < 0) || (ch2 < 0)) {
