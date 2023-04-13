@@ -360,6 +360,63 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     return sz;
 }
 
+int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
+    byte* privBuffer, word32* privBufferSz, WOLFTPM2_KEYBLOB* key)
+{
+    int rc = 0;
+    int sz = 0;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    int pubAreaSize;
+
+    if (pubBuffer == NULL || pubBufferSz == NULL || (*pubBufferSz <= 0) ||
+        privBuffer == NULL || privBufferSz == NULL || (*privBufferSz <= 0) ||
+        (key == NULL)) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* publicArea is encoded format. Eliminates empty fields, saves space. */
+    rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+        &pubAreaSize, &key->pub);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
+#ifdef DEBUG_WOLFTPM
+        printf("Sanity check for publicArea size failed\n");
+#endif
+        return BUFFER_E;
+    }
+
+    if (*pubBufferSz < sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size ||
+        *privBufferSz < sizeof(UINT16) + key->priv.size) {
+        return BUFFER_E;
+    }
+
+    *pubBufferSz = 0;
+    *privBufferSz = 0;
+
+    /* Write size marker for the public part */
+    XMEMCPY(pubBuffer, &key->pub.size, sizeof(key->pub.size));
+    *pubBufferSz += sizeof(key->pub.size);
+
+    /* Write the public part with bytes aligned */
+    XMEMCPY(pubBuffer + *pubBufferSz, pubAreaBuffer, sizeof(UINT16) +
+        key->pub.size);
+    *pubBufferSz += sizeof(UINT16) + key->pub.size;
+
+    /* Write the private part, size marker is included */
+    XMEMCPY(privBuffer, &key->priv, sizeof(UINT16) + key->priv.size);
+    *privBufferSz += sizeof(UINT16) + key->priv.size;
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    TPM2_PrintBin(buffer, sz);
+    printf("Getting %d bytes\n", (int)sz);
+#endif
+
+    return sz;
+}
+
 int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
                                   word32 bufferSz)
 {

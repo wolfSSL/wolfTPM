@@ -2861,6 +2861,29 @@ WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 /*!
     \ingroup wolfTPM2_Wrappers
 
+    \brief Marshal data from a keyblob to a binary buffer. This can be
+    stored to disk for loading in a separate process or after power
+    cycling.
+
+    \return Positive integer (size of the output)
+    \return BUFFER_E: insufficient space in provided buffer
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param pubBuffer pointer to buffer in which to store the public part of the marshaled keyblob
+    \param pubBufferSz pointer to the size of the above buffer
+    \param privBuffer pointer to buffer in which to store the private part of the marshaled keyblob
+    \param privBufferSz pointer to the size of the above buffer
+    \param key pointer to keyblob to marshal
+
+    \sa wolfTPM2_GetKeyBlobAsSeparateBuffers
+*/
+WOLFTPM_API int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer,
+    word32* pubBufferSz, byte* privBuffer, word32* privBufferSz,
+    WOLFTPM2_KEYBLOB* key);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
     \brief Unmarshal data into a WOLFTPM2_KEYBLOB struct. This can be
     used to load a keyblob that was previously marshaled by
     wolfTPM2_GetKeyBlobAsBuffer
