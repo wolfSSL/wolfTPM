@@ -44,4 +44,11 @@ jobs:
     - name: make test
       run: |
           ./ibmswtpm2/src/tpm_server &
-          sleep 10 && make test && ./examples/native/native_test && ./examples/wrap/wrap_test
+          sleep 2 && make check && ./examples/native/native_test && ./examples/wrap/wrap_test
+
+#test wolfTPM without wolfCrypt
+    - name: configure no wolfCrypt
+      run: ./configure --enable-swtpm --disable-wolfcrypt
+    - name: make test no wolfCrypt
+      run: |
+          make check && ./examples/native/native_test && ./examples/wrap/wrap_test

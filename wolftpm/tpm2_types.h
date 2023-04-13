@@ -118,7 +118,6 @@ typedef int64_t  INT64;
     #ifndef XREWIND
         #define XREWIND    rewind
     #endif
-
 #else
 
     #include <stdio.h>
@@ -151,6 +150,7 @@ typedef int64_t  INT64;
     #define XSTRLEN(s1)       strlen((s1))
     #define XSTRCMP(s1,s2)    strcmp((s1),(s2))
     #define XSTRSTR(s1,s2)    strstr((s1),(s2))
+    #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
 #endif /* !WOLFTPM_CUSTOM_TYPES */
 
     /* Endianess */

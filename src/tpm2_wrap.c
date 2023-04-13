@@ -822,7 +822,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
 }
 
 int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
-    const WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes)
+    WOLFTPM2_SESSION* tpmSession, TPMA_SESSION sessionAttributes)
 {
     int rc;
 
@@ -840,6 +840,9 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         &tpmSession->handle.auth, sessionAttributes, NULL);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_AUTH_SESSION* session = &dev->session[index];
+
+        /* save off session attributes */
+        tpmSession->sessionAttributes = sessionAttributes;
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
