@@ -116,6 +116,10 @@ typedef int64_t  INT64;
         #define XFEOF      feof
     #endif
 
+    #ifndef XREWIND
+        #define XREWIND    rewind
+    #endif
+
 #else
 
     #include <stdio.h>
