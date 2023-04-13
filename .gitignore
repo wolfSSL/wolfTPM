@@ -70,6 +70,7 @@ examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
 examples/seal/seal_policy_auth
+examples/seal/seal_policy_auth_nv
 examples/attestation/make_credential
 examples/attestation/activate_credential
 

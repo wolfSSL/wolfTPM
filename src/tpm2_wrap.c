@@ -2704,7 +2704,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
-int wolfTPM2_VerifyHashScheme_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+int wolfTPM2_VerifyHashSchemeGetTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
     TPMT_TK_VERIFIED* sigTicket)
@@ -2789,11 +2789,11 @@ int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg)
 {
-    return wolfTPM2_VerifyHashScheme_ex(dev, key, sig, sigSz, digest, digestSz,
-        sigAlg, hashAlg, NULL);
+    return wolfTPM2_VerifyHashSchemeGetTicket(dev, key, sig, sigSz, digest,
+        digestSz, sigAlg, hashAlg, NULL);
 }
 
-int wolfTPM2_VerifyHash_ex2(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+int wolfTPM2_VerifyHashGetTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     int hashAlg, TPMT_TK_VERIFIED* sigTicket)
 {
@@ -2810,15 +2810,15 @@ int wolfTPM2_VerifyHash_ex2(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
     }
 
-    return wolfTPM2_VerifyHashScheme_ex(dev, key, sig, sigSz, digest, digestSz,
-        sigAlg, hashAlg, sigTicket);
+    return wolfTPM2_VerifyHashSchemeGetTicket(dev, key, sig, sigSz, digest,
+        digestSz, sigAlg, hashAlg, sigTicket);
 }
 
 int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     int hashAlg)
 {
-    return wolfTPM2_VerifyHash_ex2(dev, key, sig, sigSz, digest, digestSz,
+    return wolfTPM2_VerifyHashGetTicket(dev, key, sig, sigSz, digest, digestSz,
         hashAlg, NULL);
 }
 
@@ -6266,7 +6266,7 @@ int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
                 sigAlg = TPM_ALG_RSASSA;
         }
 
-        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
+        rc = wolfTPM2_VerifyHashSchemeGetTicket(dev, (WOLFTPM2_KEY*)authKey,
             policyDigestSig, policyDigestSigSz, checkDigest, checkDigestSz,
             sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }
@@ -6373,7 +6373,7 @@ int wolfTPM2_SealWithAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
     /* verify the signature, get the auth ticket */
     if (rc == 0) {
-        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
+        rc = wolfTPM2_VerifyHashSchemeGetTicket(dev, (WOLFTPM2_KEY*)authKey,
             policyDigestSig, *policyDigestSigSz, checkDigest, checkDigestSz,
             sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }
@@ -6466,7 +6466,7 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
                 sigAlg = TPM_ALG_RSASSA;
         }
 
-        rc = wolfTPM2_VerifyHashScheme_ex(dev, (WOLFTPM2_KEY*)authKey,
+        rc = wolfTPM2_VerifyHashSchemeGetTicket(dev, (WOLFTPM2_KEY*)authKey,
             policyDigestSig, policyDigestSigSz, checkDigest, checkDigestSz,
             sigAlg, WOLFTPM2_WRAP_DIGEST, &policyAuthIn->checkTicket);
     }

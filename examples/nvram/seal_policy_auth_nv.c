@@ -66,7 +66,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     word32 pcrIndex = 16;
     word32 pcrArray[48];
     word32 pcrArraySz = 0;
-    byte secret[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    byte secret[16];
     byte secretOut[16];
     word32 secretOutSz = (word32)sizeof(secretOut);
     byte policySignedSig[MAX_RSA_KEY_BYTES];
@@ -78,6 +78,10 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
     XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&authTemplate, 0, sizeof(TPMT_PUBLIC));
+
+    for (i = 0; i < (int)sizeof(secret); i++) {
+        secret[i] = i;
+    }
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -150,7 +154,8 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
 
     /* set session for authorization of the storage key */
     rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
-        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
     /* get SRK */
@@ -215,7 +220,8 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
 
     /* set session for authorization of the storage key */
     rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
-        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
     nv.handle.hndl = sealNvIndex;

@@ -989,7 +989,7 @@ WOLFTPM_API int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev,
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param dev pointer to a TPM2_DEV struct
+    \param dev pointer to a WOLFTPM2_DEV struct
     \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
     \param parent pointer to a struct of WOLFTPM2_HANDLE type, specifying the a 2.0 Primary Key to be used as the parent(Storage Key)
     \param publicTemplate pointer to a TPMT_PUBLIC structure populated using one of the wolfTPM2_GetKeyTemplate_KeySeal
@@ -1005,7 +1005,6 @@ WOLFTPM_API int wolfTPM2_CreateKeySeal(WOLFTPM2_DEV* dev,
     \sa TPM2_Unseal
     \sa wolfTPM2_CreatePrimary
 */
-
 WOLFTPM_API int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEYBLOB* keyBlob, WOLFTPM2_HANDLE* parent,
     TPMT_PUBLIC* publicTemplate, const byte* auth, int authSz,
@@ -1292,6 +1291,7 @@ WOLFTPM_API int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 WOLFTPM_API int wolfTPM2_SignHashScheme_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz,
     TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg, TPMT_SIGNATURE* sigOut);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Advanced helper function to sign arbitrary data using a TPM key, and specify the signature scheme and hashing algorithm
@@ -1343,9 +1343,9 @@ WOLFTPM_API int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     int hashAlg);
 
-WOLFTPM_API int wolfTPM2_VerifyHash_ex2(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* sig, int sigSz, const byte* digest, int digestSz,
-    int hashAlg, TPMT_TK_VERIFIED* sigTicket);
+WOLFTPM_API int wolfTPM2_VerifyHashGetTicket(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, const byte* sig, int sigSz, const byte* digest,
+    int digestSz, int hashAlg, TPMT_TK_VERIFIED* sigTicket);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1373,9 +1373,9 @@ WOLFTPM_API int wolfTPM2_VerifyHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz,
     TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg);
 
-WOLFTPM_API int wolfTPM2_VerifyHashScheme_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const byte* sig, int sigSz, const byte* digest, int digestSz,
-    TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
+WOLFTPM_API int wolfTPM2_VerifyHashSchemeGetTicket(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, const byte* sig, int sigSz, const byte* digest,
+    int digestSz, TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
     TPMT_TK_VERIFIED* sigTicket);
 
 /*!
@@ -2988,7 +2988,7 @@ WOLFTPM_API int wolfTPM2_PolicyPCR(TPM_HANDLE sessionHandle, TPM_ALG_ID pcrAlg,
     \param pcrArrayLen the number of indicies in the pcrArray
     \param sealData the data to seal into the tpm
     \param sealSz the size of the seal data
-    \param policyDigest input digest of the policy, used to retreive the secret later
+    \param policyDigest input digest of the policy, used to retrieve the secret later
     \param policyDigestSz size of the policyDigest to be updated by this function
     \param nonce a one time number to include in our policy
     \param nonceSz size of nonce
@@ -3028,7 +3028,7 @@ WOLFTPM_API int wolfTPM2_SealWithAuthSig(WOLFTPM2_DEV* dev,
     \param sealSz the size of the seal data
     \param nonce a one time number to include in our policy
     \param nonceSz size of nonce
-    \param policyDigest output digest of the policy, used to retreive the secret later
+    \param policyDigest output digest of the policy, used to retrieve the secret later
     \param policyDigestSz pointer to the size of the policyDigest to be updated by this function
 
     \sa wolfTPM2_SealWithAuthKey
