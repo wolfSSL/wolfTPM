@@ -80,7 +80,7 @@
                 #define TPM2_SPI_DEV_CS "0"
             #else
                 /* OPTIGA SLB9670/SLB9762 and LetsTrust TPM use CE1 */
-                #define TPM2_SPI_DEV_CS "0"
+                #define TPM2_SPI_DEV_CS "1"
             #endif
         #endif
 
@@ -91,7 +91,7 @@
         #ifdef WOLFTPM_AUTODETECT
             #undef TPM2_SPI_DEV
             /* this will try incrementing spidev chip selects */
-            static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS;
+            static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH "0";
             #define MAX_SPI_DEV_CS '4'
             static int foundSpiDev = 0;
         #else

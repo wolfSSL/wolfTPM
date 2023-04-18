@@ -63,7 +63,9 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 ## Additional Compiler macros
 
 * `TPM2_SPI_DEV_PATH`: Set to the device string to be opened by the Linux IOCb.  Default: "/dev/spidev0."
-* `TPM2_SPI_DEV_CS`: Set to the number string of the CS to use or the lowest CS to try during autodetect. Default: "0"
+* `TPM2_SPI_DEV_CS`: Set to the number string of the CS to use. Default: "0"
 
 These can be set during configure as:
 ./configure CPPFLAGS="-DTPM2_SPI_DEV_PATH=\"/dev/spidev0.\" -DTPM2_SPI_DEV_CS=\"0\" " 
+
+Note that autodetect will use TPM2_SPI_DEV_PATH[0..4] for the searched device paths.
