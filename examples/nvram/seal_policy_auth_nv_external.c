@@ -1,4 +1,4 @@
-/* seal_policy_auth_nv.c
+/* seal_policy_auth_nv_external.c
  *
  * Copyright (C) 2006-2023 wolfSSL Inc.
  *
@@ -23,7 +23,8 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PUBLIC_MP)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    defined(WOLFSSL_PUBLIC_MP)
 
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/wolfcrypt/sha256.h>
@@ -36,9 +37,8 @@
 #include <examples/tpm_test_keys.h>
 
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
+
+#define ECC_KEY_SIZE 32
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 PCR Policy example tool  -- */
@@ -47,14 +47,15 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/policy [-aes/xor] [pcr]\n");
-    printf("* pcr: PCR index between 0-23 (default %d)\n", 16);
+    printf("./examples/nvram/seal_policy_auth_nv_external [-aes/xor] [pcr]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_DEMO_PCR_INDEX);
 }
 
 static const word32 sealNvIndex = TPM2_DEMO_NV_TEST_INDEX;
 static const word32 policyDigestNvIndex = TPM2_DEMO_NV_TEST_INDEX + 1;
 
+/* currently only supports ecc256 */
 int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, char *argv[])
 {
     int i;
@@ -67,7 +68,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
     TPMT_PUBLIC authTemplate;
     /* default to aes since parm encryption is required */
     TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
-    word32 pcrIndex = 16;
+    word32 pcrIndex = TPM2_DEMO_PCR_INDEX;
     word32 pcrArray[48];
     word32 pcrArraySz = 0;
     byte secret[16];
@@ -78,12 +79,12 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
     byte hash[WC_SHA256_DIGEST_SIZE];
     ecc_key external_key;
     WC_RNG rng;
-    byte sig[256];
-    word32 sigSz = 256;
-    byte qx[32];
-    word32 qxSz = 32;
-    byte qy[32];
-    word32 qySz = 32;
+    byte sig[ECC_KEY_SIZE * 2];
+    word32 sigSz = ECC_KEY_SIZE * 2;
+    byte qx[ECC_KEY_SIZE];
+    word32 qxSz = ECC_KEY_SIZE;
+    byte qy[ECC_KEY_SIZE];
+    word32 qySz = ECC_KEY_SIZE;
     mp_int r, s;
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
@@ -94,6 +95,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
     XMEMSET(&authTemplate, 0, sizeof(TPMT_PUBLIC));
     XMEMSET(zeroExpiry, 0, sizeof(zeroExpiry));
 
+    /* set secret */
     for (i = 0; i < (int)sizeof(secret); i++) {
         secret[i] = i;
     }
@@ -131,7 +133,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
     }
 
     if (pcrArraySz == 0) {
-        pcrArray[pcrArraySz] = 16;
+        pcrArray[pcrArraySz] = TPM2_DEMO_PCR_INDEX;
         pcrArraySz++;
     }
 
@@ -205,7 +207,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
     }
 
     /* make the key */
-    rc = wc_ecc_make_key(&rng, 32, &external_key);
+    rc = wc_ecc_make_key(&rng, ECC_KEY_SIZE, &external_key);
     if (rc != 0) {
         printf("wc_ecc_make_key failed\n");
         goto exit;
@@ -218,7 +220,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
         &r, &s);
 
     mp_to_unsigned_bin(&r, sig);
-    mp_to_unsigned_bin(&s, sig + 32);
+    mp_to_unsigned_bin(&s, sig + ECC_KEY_SIZE);
 
     mp_clear(&r);
     mp_clear(&s);
@@ -228,7 +230,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(void* userCtx, int argc, cha
         goto exit;
     }
 
-    sigSz = 64;
+    sigSz = ECC_KEY_SIZE * 2;
 
     /* load the public part of the key into the tpm */
     rc = wc_ecc_export_public_raw(&external_key, qx, &qxSz, qy, &qySz);
@@ -327,10 +329,11 @@ int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PUBLIC_MP)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    defined(WOLFSSL_PUBLIC_MP)
     rc = TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(NULL, argc, argv);
 #else
-    printf("Wrapper or wolfcrypt code not compiled in\n");
+    printf("Wrapper or wolfcrypt or WOLFSSL_PUBLIC_MP code not compiled in\n");
     (void)argc;
     (void)argv;
 #endif /* !WOLFTPM2_NO_WRAPPER */
