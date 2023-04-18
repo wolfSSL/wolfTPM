@@ -43,9 +43,10 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/policy [-aes/xor] [pcr]\n");
-    printf("* pcr: PCR index between 0-23 (default %d)\n", 16);
+    printf("./examples/nvram/seal_policy_auth_nv [-aes/xor] [-rsa/ecc] [pcr]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -rsa/ecc: Pick sealing key type, (default rsa)\n");
+    printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_DEMO_PCR_INDEX);
 }
 
 static const word32 sealNvIndex = TPM2_DEMO_NV_TEST_INDEX;
@@ -63,7 +64,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     TPMT_PUBLIC authTemplate;
     /* default to aes since parm encryption is required */
     TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
-    word32 pcrIndex = 16;
+    word32 pcrIndex = TPM2_DEMO_PCR_INDEX;
     word32 pcrArray[48];
     word32 pcrArraySz = 0;
     byte secret[16];
@@ -79,6 +80,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_NV_Test(void* userCtx, int argc, char *argv[]
     XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&authTemplate, 0, sizeof(TPMT_PUBLIC));
 
+    /* set the secret */
     for (i = 0; i < (int)sizeof(secret); i++) {
         secret[i] = i;
     }

@@ -63,6 +63,8 @@ examples/keygen/keyimport
 examples/nvram/store
 examples/nvram/read
 examples/nvram/counter
+examples/nvram/seal_policy_auth_nv
+examples/nvram/seal_policy_auth_nv_external
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read
@@ -70,7 +72,6 @@ examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
 examples/seal/seal_policy_auth
-examples/seal/seal_policy_auth_nv
 examples/attestation/make_credential
 examples/attestation/activate_credential
 

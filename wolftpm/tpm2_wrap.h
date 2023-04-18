@@ -3104,10 +3104,9 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
 
-    \brief Seal a secret to the TPM NVM after verifying the PolicySigned
-    signature was signed by the auth private key along with the policyDigest
-    of the session. Other policy functions such as PolicyPCR should be called
-    before calling this function
+    \brief Seal a secret to the TPM NVM after calling PolicyPCR with the passed
+    in pcrArray indicies and verifying the PolicySigned signature was signed by
+    the auth private key along with the policyDigest of the session.
 
     wolfTPM2_SealWithAuthSigNV
 
@@ -3120,6 +3119,8 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     \param session the current session, a session is required to use policy pcr
     \param policyHashAlg the hashing algorithm used to calculate policyDigest
     \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArraySz length of pcrArray
     \param sealData the data to seal into the tpm
     \param sealSz the size of the seal data
     \param nonce a one time number to include in our policy
@@ -3132,9 +3133,9 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_SealWithAuthSigNV
 */
 WOLFTPM_API int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev,
-    WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session,
-    TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg, const byte* sealData,
-    word32 sealSz, const byte* nonce, word32 nonceSz,
+    WOLFTPM2_KEY* authKey, WOLFTPM2_SESSION* session, TPM_ALG_ID policyHashAlg,
+    TPM_ALG_ID pcrAlg, word32* pcrArray, word32 pcrArraySz,
+    const byte* sealData, word32 sealSz, const byte* nonce, word32 nonceSz,
     const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
     word32 policyDigestNvIndex);
 

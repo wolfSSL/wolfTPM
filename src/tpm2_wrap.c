@@ -6584,9 +6584,9 @@ int wolfTPM2_UnsealWithAuthSig(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* authKey,
 
 int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     WOLFTPM2_SESSION* session, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
-    const byte* sealData, word32 sealSz, const byte* nonce, word32 nonceSz,
-    const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
-    word32 policyDigestNvIndex)
+    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    const byte* nonce, word32 nonceSz, const byte* policySignedSig,
+    word32 policySignedSigSz, word32 sealNvIndex, word32 policyDigestNvIndex)
 {
     int rc = 0;
     PolicySigned_In policySignedIn[1];
@@ -6613,7 +6613,12 @@ int wolfTPM2_SealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
 
     if (rc == 0) {
-        /* PolicyPCR should already have been added to the policy */
+        /* add PCR to the policy digest */
+        rc = wolfTPM2_PolicyPCR(session->handle.hndl, pcrAlg, pcrArray,
+            pcrArraySz);
+    }
+
+    if (rc == 0) {
         /* add PolicySigned to the policy */
         /* set the key handle */
         policySignedIn->authObject = authKey->handle.hndl;
