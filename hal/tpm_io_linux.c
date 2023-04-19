@@ -261,7 +261,7 @@
                     size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
                 } while (
                     (size == 1) &&
-                    ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK)==0) &&
+                    ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0) &&
                     (--timeout > 0));
             #ifdef WOLFTPM_DEBUG_TIMEOUT
                 printf("SPI Ready Timeout %d\n", TPM_SPI_WAIT_RETRY - timeout);
@@ -310,7 +310,7 @@
     #ifdef WOLFTPM_AUTODETECT
         /* if response is not 0xFF then we "found" something */
         if (!foundSpiDev) {
-            if ((ret == TPM_RC_SUCCESS) && (rxBuf[TPM_TIS_HEADER_SZ-1] != 0xFF)) {
+            if (ret == TPM_RC_SUCCESS && rxBuf[TPM_TIS_HEADER_SZ-1] != 0xFF) {
         #ifdef DEBUG_WOLFTPM
                 printf("Found TPM @ %s\n", TPM2_SPI_DEV);
         #endif
