@@ -59,3 +59,13 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 * `WOLFTPM_CHECK_WAIT_STATE`: Enables check of the wait state during a SPI transaction. Most TPM 2.0 chips require this and typically only require 0-2 wait cycles depending on the command. Only the Infineon TPM's guarantee no wait states.
 * `WOLFTPM_ADV_IO`: Enables advanced IO callback mode that includes TIS register and read/write flag. This is requires for I2C, but can be used with SPI also.
 * `WOLFTPM_DEBUG_IO`: Enable logging of the IO (if using the example HAL).
+
+## Additional Compiler macros
+
+* `TPM2_SPI_DEV_PATH`: Set to the device string to be opened by the Linux IOCb.  Default: "/dev/spidev0."
+* `TPM2_SPI_DEV_CS`: Set to the number string of the CS to use. Default: "0"
+
+These can be set during configure as:
+./configure CPPFLAGS="-DTPM2_SPI_DEV_PATH=\"/dev/spidev0.\" -DTPM2_SPI_DEV_CS=\"0\" " 
+
+Note that autodetect will use TPM2_SPI_DEV_PATH[0..4] for the searched device paths.

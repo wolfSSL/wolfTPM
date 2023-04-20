@@ -68,28 +68,34 @@
         #define TPM2_I2C_HZ   400000 /* 400kHz */
     #else
         /* SPI */
-        #ifdef WOLFTPM_MICROCHIP
-            /* Microchip ATTPM20 uses CE0 */
-            #define TPM2_SPI_DEV_CS "0"
-        #elif defined(WOLFTPM_ST33)
-            /* STM ST33HTPH SPI uses CE0 */
-            #define TPM2_SPI_DEV_CS "0"
-        #elif defined(WOLFTPM_NUVOTON)
-            /* Nuvoton NPCT75x uses CE0 */
-            #define TPM2_SPI_DEV_CS "0"
-        #else
-            /* OPTIGA SLB9670/SLB9762 and LetsTrust TPM use CE1 */
-            #define TPM2_SPI_DEV_CS "1"
+        #ifndef TPM2_SPI_DEV_CS
+            #ifdef WOLFTPM_MICROCHIP
+                /* Microchip ATTPM20 uses CE0 */
+                #define TPM2_SPI_DEV_CS "0"
+            #elif defined(WOLFTPM_ST33)
+                /* STM ST33HTPH SPI uses CE0 */
+                #define TPM2_SPI_DEV_CS "0"
+            #elif defined(WOLFTPM_NUVOTON)
+                /* Nuvoton NPCT75x uses CE0 */
+                #define TPM2_SPI_DEV_CS "0"
+            #else
+                /* OPTIGA SLB9670/SLB9762 and LetsTrust TPM use CE1 */
+                #define TPM2_SPI_DEV_CS "1"
+            #endif
+        #endif
+
+        #ifndef TPM2_SPI_DEV_PATH
+            #define TPM2_SPI_DEV_PATH "/dev/spidev0."
         #endif
 
         #ifdef WOLFTPM_AUTODETECT
             #undef TPM2_SPI_DEV
             /* this will try incrementing spidev chip selects */
-            static char TPM2_SPI_DEV[] = "/dev/spidev0.0";
+            static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH "0";
             #define MAX_SPI_DEV_CS '4'
             static int foundSpiDev = 0;
         #else
-            #define TPM2_SPI_DEV "/dev/spidev0."TPM2_SPI_DEV_CS
+            #define TPM2_SPI_DEV TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS
         #endif
     #endif
 #endif
@@ -193,10 +199,13 @@
     int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         word16 xferSz, void* userCtx)
     {
-        int ret = TPM_RC_FAILURE;
+        int ret;
         int spiDev;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         int timeout;
+    #endif
+    #ifdef WOLFTPM_AUTODETECT
+        int devLen;
     #endif
 
         /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
@@ -212,10 +221,11 @@
         }
         #endif
     #endif
+
+        ret = TPM_RC_SUCCESS;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         timeout = TPM_SPI_WAIT_RETRY;
     #endif
-
         spiDev = open(TPM2_SPI_DEV, O_RDWR);
         if (spiDev >= 0) {
             struct spi_ioc_transfer spi;
@@ -226,48 +236,59 @@
             ioctl(spiDev, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word);
 
             XMEMSET(&spi, 0, sizeof(spi));
-            spi.cs_change = 1; /* strobe CS between transfers */
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
+            /* Keep CS asserted for header and flow control transfers */
+            spi.cs_change = 1;
+
             /* Send Header */
             spi.tx_buf   = (unsigned long)txBuf;
             spi.rx_buf   = (unsigned long)rxBuf;
             spi.len      = TPM_TIS_HEADER_SZ;
             size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
             if (size != TPM_TIS_HEADER_SZ) {
-                close(spiDev);
-                return TPM_RC_FAILURE;
+                ret =  TPM_RC_FAILURE;
             }
 
             /* Handle SPI wait states (ST33 typical wait is 2 bytes) */
-            if ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0) {
+            if ((ret == TPM_RC_SUCCESS) &&
+                ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0)) {
+                /* Place flow control byte in last header response byte*/
+                spi.rx_buf = (unsigned long)&rxBuf[TPM_TIS_HEADER_SZ-1];
+                spi.len = 1;
                 do {
                     /* Check for SPI ready */
-                    spi.len = 1;
                     size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
-                    if (rxBuf[0] & TPM_TIS_READY_MASK)
-                        break;
-                } while (size == 1 && --timeout > 0);
+                } while (
+                    (size == 1) &&
+                    ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0) &&
+                    (--timeout > 0));
             #ifdef WOLFTPM_DEBUG_TIMEOUT
                 printf("SPI Ready Timeout %d\n", TPM_SPI_WAIT_RETRY - timeout);
             #endif
-                if (size == 1 && timeout > 0) {
-                    ret = TPM_RC_SUCCESS;
-                }
-            }
-            else {
-                ret = TPM_RC_SUCCESS;
+                if (size != 1 )
+                    ret = TPM_RC_FAILURE;
+                else if (timeout <= 0)
+                    ret = TPM_RC_FAILURE;  /* Timeout */
             }
 
+            /* Remainder of message */
             if (ret == TPM_RC_SUCCESS) {
-                /* Remainder of message */
+                spi.cs_change = 0;    /* Deassert cs after transfer */
                 spi.tx_buf   = (unsigned long)&txBuf[TPM_TIS_HEADER_SZ];
                 spi.rx_buf   = (unsigned long)&rxBuf[TPM_TIS_HEADER_SZ];
                 spi.len      = xferSz - TPM_TIS_HEADER_SZ;
                 size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+                if (size != (size_t)xferSz - TPM_TIS_HEADER_SZ)
+                    ret = TPM_RC_FAILURE;
+            }
 
-                if (size == (size_t)xferSz - TPM_TIS_HEADER_SZ)
-                    ret = TPM_RC_SUCCESS;
+            /* Send 1 byte dummy message to deassert cs if needed */
+            if (spi.cs_change == 1) {
+                spi.cs_change = 0;
+                spi.len = 1;
+                size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+                (void)size;  /* Ignore result */
             }
     #else
             /* Send Entire Message - no wait states */
@@ -275,24 +296,28 @@
             spi.rx_buf   = (unsigned long)rxBuf;
             spi.len      = xferSz;
             size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
-            if (size == (size_t)xferSz)
-                ret = TPM_RC_SUCCESS;
+            if (size != (size_t)xferSz)
+                ret = TPM_RC_FAILURE;
     #endif /* WOLFTPM_CHECK_WAIT_STATE */
 
             close(spiDev);
+        }
+        else {
+            /* Failed to open device */
+            ret = TPM_RC_FAILURE;
         }
 
     #ifdef WOLFTPM_AUTODETECT
         /* if response is not 0xFF then we "found" something */
         if (!foundSpiDev) {
-            if (ret == TPM_RC_SUCCESS && rxBuf[0] != 0xFF) {
+            if (ret == TPM_RC_SUCCESS && rxBuf[TPM_TIS_HEADER_SZ-1] != 0xFF) {
         #ifdef DEBUG_WOLFTPM
                 printf("Found TPM @ %s\n", TPM2_SPI_DEV);
         #endif
                 foundSpiDev = 1;
             }
             else {
-                int devLen = (int)XSTRLEN(TPM2_SPI_DEV);
+                devLen = (int)XSTRLEN(TPM2_SPI_DEV);
                 /* tries spidev0.[0-4] */
                 if (TPM2_SPI_DEV[devLen-1] <= MAX_SPI_DEV_CS) {
                     TPM2_SPI_DEV[devLen-1]++;
