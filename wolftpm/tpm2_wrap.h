@@ -1061,7 +1061,7 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
 
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
-    \param keyBlob pointer to a struct of WOLFTPM2_KEY type, to import the rsa key to
+    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
     \param input buffer holding the rsa der
     \param inSz length of the input der buffer
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
@@ -1073,7 +1073,7 @@ WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Helper function to import Der rsa key directly
+    \brief Helper function to import Pem rsa key directly
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1081,7 +1081,7 @@ WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 
     \param dev pointer to a TPM2_DEV struct
     \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
-    \param keyBlob pointer to a struct of WOLFTPM2_KEY type, to import the rsa key to
+    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
     \param input buffer holding the rsa pem
     \param inSz length of the input pem buffer
     \param pass optional password of the key
