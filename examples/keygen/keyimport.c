@@ -23,15 +23,14 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+
 #include <examples/keygen/keygen.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
-
-#include <stdio.h>
-
-
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 /******************************************************************************/
 /* --- BEGIN TPM Key Import / Blob Example -- */

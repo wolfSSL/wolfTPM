@@ -556,7 +556,7 @@ int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
         return BAD_FUNC_ARG;
     }
 
-    return dev->ctx.did_vid; /* return something besides INVALID_DEVID */
+    return (int)dev->ctx.did_vid; /* return something besides INVALID_DEVID */
 }
 
 int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
@@ -940,7 +940,7 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #endif
 }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(WC_NO_RNG)
 /* returns both the plaintext and encrypted salt, based on the salt key bPublic. */
 int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt,
@@ -952,6 +952,7 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     const char* label = "SECRET";
     int mgf;
     RsaKey rsaKey;
+    int devId;
 
     if (dev == NULL || salt == NULL || encSalt == NULL || publicArea == NULL) {
         return BAD_FUNC_ARG;
@@ -969,11 +970,12 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
         return NOT_COMPILED_IN;
     }
 
-    rc = wc_InitRng(&rng);
+    devId = wolfTPM2_GetTpmDevId(dev);
+    rc = wc_InitRng_ex(&rng, NULL, devId);
     if (rc != 0)
         return rc;
 
-    rc = wc_InitRsaKey_ex(&rsaKey, NULL, INVALID_DEVID);
+    rc = wc_InitRsaKey_ex(&rsaKey, NULL, devId);
     if (rc != 0) {
         wc_FreeRng(&rng);
         return rc;
@@ -1013,7 +1015,7 @@ int wolfTPM2_RSA_Salt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     return rc;
 }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
 
 int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt)
@@ -1048,7 +1050,7 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             rc = NOT_COMPILED_IN;
             break;
     #endif
-    #ifndef NO_RSA
+    #if !defined(NO_RSA) && !defined(WC_NO_RNG)
         case TPM_ALG_RSA:
             rc = wolfTPM2_RSA_Salt(dev, tpmKey, salt, &in->encryptedSalt,
                 &tpmKey->pub.publicArea);
@@ -2169,7 +2171,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-#ifndef WOLFTPM2_NO_HEAP
+#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
 
 int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
@@ -2209,7 +2211,7 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-#endif /* WOLFTPM2_NO_HEAP */
+#endif /* !WOLFTPM2_NO_HEAP && WOLFSSL_PEM_TO_DER */
 
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     RsaKey* wolfKey)
@@ -5694,10 +5696,12 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* !WC_NO_RNG */
     }
     else if (info->algo_type == WC_ALGO_TYPE_SEED) {
+    #ifndef WC_NO_RNG
     #ifdef DEBUG_WOLFTPM
         printf("CryptoDevCb RNG Seed: Sz %d\n", info->seed.sz);
     #endif
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->seed.seed, info->seed.sz);
+    #endif /* !WC_NO_RNG */
     }
 #if !defined(NO_RSA) || defined(HAVE_ECC)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {

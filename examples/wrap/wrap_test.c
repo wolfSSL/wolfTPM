@@ -24,13 +24,13 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/wrap/wrap_test.h>
-
-#include <stdio.h>
 
 /* Configuration */
 #if 0
@@ -110,8 +110,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         "\x88\x1d\xc2\x00\xc9\x83\x3d\xa7\x26\xe9\x37\x6c\x2e\x32\xcf\xf7";
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-#if defined(HAVE_ECC) || !defined(NO_RSA)
     int tpmDevId = INVALID_DEVID;
+#if defined(HAVE_ECC) || !defined(NO_RSA)
     word32 idx;
 #endif
 #ifndef NO_RSA

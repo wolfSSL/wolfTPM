@@ -23,12 +23,15 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #include <examples/seal/seal.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 
-#ifndef WOLFTPM2_NO_WRAPPER
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Seal Example -- */

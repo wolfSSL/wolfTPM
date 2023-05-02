@@ -25,14 +25,14 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_TPM_BENCH)
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 #include <examples/bench/bench.h>
-
-#include <stdio.h>
 
 /* Configuration */
 #define TPM2_BENCH_DURATION_SEC         1

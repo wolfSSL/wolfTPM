@@ -23,13 +23,13 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include "clock_set.h"
-
-#include <stdio.h>
 
 /******************************************************************************/
 /* --- BEGIN TPM Clock Set Example -- */

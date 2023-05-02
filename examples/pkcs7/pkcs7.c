@@ -23,6 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
     defined(HAVE_PKCS7)
 
@@ -31,8 +33,6 @@
 #include <examples/tpm_test_keys.h>
 #include <examples/pkcs7/pkcs7.h>
 #include <wolfssl/wolfcrypt/pkcs7.h>
-
-#include <stdio.h>
 
 /* Sign PKCS7 using TPM based key:
  * Must Run:

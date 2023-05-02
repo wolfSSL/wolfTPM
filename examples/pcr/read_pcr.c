@@ -23,6 +23,8 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -32,8 +34,6 @@
 #include <examples/pcr/pcr.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
-
-#include <stdio.h>
 
 
 /******************************************************************************/

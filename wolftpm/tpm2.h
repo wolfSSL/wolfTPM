@@ -3609,7 +3609,6 @@ typedef enum {
     \endcode
 
     \sa TPM2_GetCapabilities
-    \sa TPM2_GetTpmDevId
     \sa TPM2_Init
 */
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);

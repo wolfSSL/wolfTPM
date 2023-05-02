@@ -23,14 +23,14 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
+#ifndef WOLFTPM2_NO_WRAPPER
+
 #include <examples/keygen/keygen.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
-
-#include <stdio.h>
-
-#ifndef WOLFTPM2_NO_WRAPPER
 
 #define SYM_EXTRA_OPTS_LEN 14 /* 5 chars for "-sym=" and 9 for extra options */
 #define SYM_EXTRA_OPTS_POS 4  /* Array pos of the equal sign for extra opts */
