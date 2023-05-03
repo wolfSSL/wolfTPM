@@ -432,7 +432,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(NO_ASN)
     /* Load RSA private key into TPM */
     rc = wc_InitRsaKey(&wolfRsaPrivKey, NULL);
     if (rc != 0) goto exit;

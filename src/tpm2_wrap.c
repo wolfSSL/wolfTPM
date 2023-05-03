@@ -2125,6 +2125,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifndef NO_RSA
+#ifndef NO_ASN
 int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* input,
     word32 inSz, TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
@@ -2170,6 +2171,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 
     return rc;
 }
+#endif /* !NO_ASN */
 
 #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
 
