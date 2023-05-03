@@ -23,8 +23,10 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
-    !defined(NO_WOLFSSL_SERVER)
+    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -33,8 +35,6 @@
 #include <examples/tls/tls_server.h>
 
 #include <wolfssl/ssl.h>
-
-#include <stdio.h>
 
 #ifdef TLS_BENCH_MODE
     double benchStart;
@@ -552,7 +552,8 @@ exit:
 /* --- END TLS Server Example -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_CRYPTOCB && !NO_WOLFSSL_SERVER */
+#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_CRYPTOCB && !NO_WOLFSSL_SERVER && \
+        * !WOLFCRYPT_ONLY */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char* argv[])
@@ -560,13 +561,13 @@ int main(int argc, char* argv[])
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
-    !defined(NO_WOLFSSL_SERVER)
+    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
     rc = TPM2_TLS_ServerArgs(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;
 
-    printf("Wrapper/Crypto callback code not compiled in\n");
+    printf("Wrapper/Crypto callback code or TLS support not compiled in\n");
     printf("Build wolfssl with ./configure --enable-cryptocb\n");
 #endif
 

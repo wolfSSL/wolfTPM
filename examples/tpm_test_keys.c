@@ -30,6 +30,8 @@
 #include "tpm_test_keys.h"
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #define RSA_FILENAME  "rsa_test_blob.raw"
 #define ECC_FILENAME  "ecc_test_blob.raw"
 

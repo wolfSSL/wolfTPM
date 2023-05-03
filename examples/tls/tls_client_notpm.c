@@ -23,6 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_CLIENT) && !defined(WOLFCRYPT_ONLY)
 
@@ -39,8 +41,6 @@
 #undef  USE_CERT_BUFFERS_256
 #define USE_CERT_BUFFERS_256
 #include <wolfssl/certs_test.h>
-
-#include <stdio.h>
 
 #ifdef TLS_BENCH_MODE
     double benchStart;

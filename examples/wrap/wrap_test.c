@@ -24,13 +24,13 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/wrap/wrap_test.h>
-
-#include <stdio.h>
 
 /* Configuration */
 #if 0
@@ -110,8 +110,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         "\x88\x1d\xc2\x00\xc9\x83\x3d\xa7\x26\xe9\x37\x6c\x2e\x32\xcf\xf7";
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-#if defined(HAVE_ECC) || !defined(NO_RSA)
     int tpmDevId = INVALID_DEVID;
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && !defined(NO_ASN))
     word32 idx;
 #endif
 #ifndef NO_RSA
@@ -259,7 +259,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
@@ -386,7 +386,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /*------------------------------------------------------------------------*/
     /* RSA KEY LOADING TESTS */
     /*------------------------------------------------------------------------*/
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(NO_ASN)
     /* Extract an RSA public key from TPM */
     /* Setup wolf RSA key with TPM deviceID */
     /* crypto dev callbacks are used for private portion */
@@ -432,7 +432,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &publicKey.handle);
     if (rc != 0) goto exit;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(NO_ASN)
     /* Load RSA private key into TPM */
     rc = wc_InitRsaKey(&wolfRsaPrivKey, NULL);
     if (rc != 0) goto exit;

@@ -23,8 +23,10 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    defined(WOLFSSL_PUBLIC_MP)
+    defined(WOLFSSL_PUBLIC_MP) && defined(HAVE_ECC)
 
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/wolfcrypt/sha256.h>
@@ -35,8 +37,6 @@
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
-
-#include <stdio.h>
 
 #define ECC_KEY_SIZE 32
 
@@ -330,7 +330,7 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    defined(WOLFSSL_PUBLIC_MP)
+    defined(WOLFSSL_PUBLIC_MP) && defined(HAVE_ECC)
     rc = TPM2_PCR_Seal_With_Policy_Auth_NV_External_Test(NULL, argc, argv);
 #else
     printf("Wrapper or wolfcrypt or WOLFSSL_PUBLIC_MP code not compiled in\n");

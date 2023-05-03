@@ -23,6 +23,8 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
 
 #include <hal/tpm_io.h>
@@ -30,8 +32,6 @@
 #include <examples/tpm_test_keys.h>
 #include <examples/csr/csr.h>
 #include <wolfssl/wolfcrypt/asn_public.h>
-
-#include <stdio.h>
 
 #ifndef NO_RSA
 static const char* gClientCsrRsaFile = "./certs/tpm-rsa-cert.csr";

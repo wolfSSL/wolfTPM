@@ -23,15 +23,14 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+#include <stdio.h>
+
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+
 #include <examples/keygen/keygen.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
-
-#include <stdio.h>
-
-
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 /******************************************************************************/
 /* --- BEGIN TPM Key Import / Blob Example -- */
@@ -160,7 +159,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     if (alg == TPM_ALG_RSA) {
         if (derEncode == 1) {
-        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && \
+            !defined(NO_ASN)
             rc = wolfTPM2_RsaPrivateKeyImportDer(&dev, &storage, &impKey,
                 kRsaKeyPrivDer, sizeof(kRsaKeyPrivDer), TPM_ALG_NULL,
                 TPM_ALG_NULL);

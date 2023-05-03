@@ -5894,10 +5894,12 @@ int TPM2_GetWolfRng(WC_RNG** rng)
         return BAD_FUNC_ARG;
 
     if (!ctx->rngInit) {
-        rc = wc_InitRng(&ctx->rng);
+        /* Use did_vid for devId (conforms with wolfTPM2_GetTpmDevId) */
+        rc = wc_InitRng_ex(&ctx->rng, NULL, ctx->did_vid);
         if (rc < 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("wc_InitRng failed %d: %s\n", (int)rc, wc_GetErrorString(rc));
+            printf("wc_InitRng_ex failed %d: %s\n",
+                (int)rc, wc_GetErrorString(rc));
         #endif
             return rc;
         }
