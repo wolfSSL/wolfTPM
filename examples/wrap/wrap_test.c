@@ -111,7 +111,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int tpmDevId = INVALID_DEVID;
-#if defined(HAVE_ECC) || !defined(NO_RSA)
+#if defined(HAVE_ECC) || (!defined(NO_RSA) && !defined(NO_ASN))
     word32 idx;
 #endif
 #ifndef NO_RSA
@@ -386,7 +386,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /*------------------------------------------------------------------------*/
     /* RSA KEY LOADING TESTS */
     /*------------------------------------------------------------------------*/
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(NO_ASN)
     /* Extract an RSA public key from TPM */
     /* Setup wolf RSA key with TPM deviceID */
     /* crypto dev callbacks are used for private portion */

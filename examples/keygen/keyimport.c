@@ -159,7 +159,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     if (alg == TPM_ALG_RSA) {
         if (derEncode == 1) {
-        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && \
+            !defined(NO_ASN)
             rc = wolfTPM2_RsaPrivateKeyImportDer(&dev, &storage, &impKey,
                 kRsaKeyPrivDer, sizeof(kRsaKeyPrivDer), TPM_ALG_NULL,
                 TPM_ALG_NULL);

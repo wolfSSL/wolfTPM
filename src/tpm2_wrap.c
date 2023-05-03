@@ -2390,7 +2390,8 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
         return BAD_FUNC_ARG;
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
-    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER))
+    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
+    !defined(NO_ASN)
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
     if (rc == 0) {
