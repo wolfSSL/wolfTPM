@@ -167,16 +167,29 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     }
 
     /* init wolfssl, required for fips */
+#ifdef WOLFCRYPT_ONLY
+    rc = wolfCrypt_Init();
+    if (rc != 0) {
+        printf("wolfCrypt_Init failed %d\n", rc);
+        return rc;
+    }
+#else
     rc = wolfSSL_Init();
-    if (rc != SSL_SUCCESS) {
+    if (rc != WOLFSSL_SUCCESS) {
         printf("wolfSSL_Init failed %d\n", rc);
         return rc;
     }
+#endif
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) {
+#ifdef WOLFCRYPT_ONLY
+        wolfCrypt_Cleanup();
+#else
         wolfSSL_Cleanup();
+#endif
+
         return rc;
     }
 
@@ -235,7 +248,11 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+#ifdef WOLFCRYPT_ONLY
+    wolfCrypt_Cleanup();
+#else
     wolfSSL_Cleanup();
+#endif
 
     wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
     wolfTPM2_Cleanup(&dev);
