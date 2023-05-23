@@ -176,6 +176,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) {
+        wolfSSL_Cleanup();
         return rc;
     }
 
@@ -233,6 +234,8 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) {
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
+
+    wolfSSL_Cleanup();
 
     wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
     wolfTPM2_Cleanup(&dev);
