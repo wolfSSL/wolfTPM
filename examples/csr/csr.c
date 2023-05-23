@@ -166,6 +166,13 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    /* init wolfssl, required for fips */
+    rc = wolfSSL_Init();
+    if (rc != SSL_SUCCESS) {
+        printf("wolfSSL_Init failed %d\n", rc);
+        return rc;
+    }
+
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) {
