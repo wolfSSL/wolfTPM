@@ -469,17 +469,25 @@ static TPM_ST TPM2_GetTag(TPM2_CTX* ctx)
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-static inline void TPM2_WolfCrypt_Init(void)
+static inline int TPM2_WolfCrypt_Init(void)
 {
+    int rc = 0;
+
     /* track reference count for wolfCrypt initialization */
     if (gWolfCryptRefCount == 0) {
     #ifdef DEBUG_WOLFSSL
         wolfSSL_Debugging_ON();
     #endif
 
-        wolfCrypt_Init();
+        rc = wolfCrypt_Init();
+    #ifdef WC_RNG_SEED_CB
+        if (rc == 0)
+            rc = wc_SetSeed_Cb(wc_GenerateSeed);
+    #endif
     }
     gWolfCryptRefCount++;
+
+    return rc;
 }
 #endif
 
@@ -605,7 +613,9 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    TPM2_WolfCrypt_Init();
+    rc = TPM2_WolfCrypt_Init();
+    if (rc != 0)
+        return rc;
 #endif
 
 #if defined(WOLFTPM_SWTPM)
