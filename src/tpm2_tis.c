@@ -57,8 +57,13 @@ enum tpm_tis_int_flags {
     TPM_INTF_DATA_AVAIL_INT     = 0x001,
 };
 
-
+#ifndef TPM_BASE_ADDRESS
+#ifdef WOLFTPM_MMIO_BUILTIN_CB
+#define TPM_BASE_ADDRESS (0xFED40000u)
+#else
 #define TPM_BASE_ADDRESS (0xD40000u)
+#endif
+#endif
 
 #ifdef WOLFTPM_I2C
 /* For I2C only the lower 8-bits of the address are used */
@@ -569,6 +574,87 @@ exit:
 
     return rc;
 }
+
+#ifdef WOLFTPM_MMIO_BUILTIN_CB
+
+#ifndef WOLFTPM_ADV_IO
+#error "WOLFTPM_MMIO_BUILTIN_CB requires WOLFTPM_ADV_IO"
+#endif
+
+#ifdef __GNUC__
+/* this will prevent the compiler to re-order memory accesses across
+ * sw_barrier() invocation.
+ */
+#define sw_barrier() __asm__ __volatile__ ("":::"memory")
+#endif /* __GNUC__ */
+
+static void TPM2_Mmio_Read32(word32 addr, byte *buf)
+{
+    volatile word32 *_addr = (volatile word32*)(wordptr)addr;
+    word32 v;
+
+    v = *_addr;
+    sw_barrier();
+    memcpy(buf, (byte*)&v, sizeof(word32));
+}
+
+static void TPM2_Mmio_Write32(word32 addr, byte *buf)
+{
+    volatile word32 *_addr = (volatile word32*)(wordptr)addr;
+    word32 v;
+
+    memcpy((uint8_t*)&v, buf, sizeof(word32));
+    *_addr = v;
+    sw_barrier();
+}
+
+static void TPM2_Mmio_Read8(word32 addr, byte *buf)
+{
+    volatile byte *_addr = (volatile byte*)(wordptr)addr;
+
+    *buf = *_addr;
+    sw_barrier();
+}
+
+static void TPM2_Mmio_Write8(word32 addr, byte *buf)
+{
+    volatile byte *_addr = (volatile byte*)(wordptr)addr;
+
+    *_addr = *buf;
+    sw_barrier();
+}
+
+int TPM2_Mmio_Cb(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 size,
+    void* userCtx)
+{
+    unsigned int i;
+
+    (void)ctx;
+    (void)userCtx;
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("mmio %s @ 0x%x size: %d\r\n", (isRead) ? "read" : "write",
+        addr, (word32)size);
+#endif
+    for (i = 0; (size - i) >= sizeof(word32); i += sizeof(word32)) {
+        if (isRead)
+            TPM2_Mmio_Read32(addr, buf + i);
+        else
+            TPM2_Mmio_Write32(addr, buf + i);
+    }
+
+    for (; i < size; i++) {
+        if (isRead)
+            TPM2_Mmio_Read8(addr, buf + i);
+        else
+            TPM2_Mmio_Write8(addr, buf + i);
+    }
+
+    return 0;
+}
+
+#endif /* WOLFTPM_MMIO_BUILTIN_CB */
+
+
 /******************************************************************************/
 /* --- END TPM Interface Layer -- */
 /******************************************************************************/

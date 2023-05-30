@@ -203,6 +203,17 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
 fi
 
+# WOLFTPM_MMIO_BUILTIN_CB
+AC_ARG_ENABLE([mmio],
+    [AS_HELP_STRING([--enable-mmio],[Enable built-in MMIO callbacks (default: disabled)])],
+    [ ENABLED_MMIO=$enableval ],
+    [ ENABLED_MMIO=no ]
+    )
+
+if test "x$ENABLED_MMIO" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MMIO_BUILTIN_CB"
+fi
 
 # Advanced IO
 AC_ARG_ENABLE([advio],
@@ -211,7 +222,7 @@ AC_ARG_ENABLE([advio],
     [ ENABLED_ADVIO=no ]
     )
 
-if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes"
+if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes" || test "x$ENABLED_MMIO" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ADV_IO"
 fi
