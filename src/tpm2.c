@@ -6078,7 +6078,6 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
 void TPM2_PrintBin(const byte* buffer, word32 length)
 {
     word32 i, sz;
-    char line[(LINE_LEN * 4) + 4], *tmp;
 
     if (!buffer) {
         printf("\tNULL");
@@ -6090,22 +6089,21 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
         if (sz > LINE_LEN)
             sz = LINE_LEN;
 
-        tmp = line;
-        tmp += sprintf(tmp, "\t");
+        printf("\t");
         for (i = 0; i < LINE_LEN; i++) {
             if (i < length)
-                tmp += sprintf(tmp, "%02x ", buffer[i]);
+                printf("%02x ", buffer[i]);
             else
-                tmp += sprintf(tmp, "   ");
+                printf("   ");
         }
-        tmp += sprintf(tmp, "| ");
+        printf("| ");
         for (i = 0; i < sz; i++) {
             if (buffer[i] > 31 && buffer[i] < 127)
-                tmp += sprintf(tmp, "%c", buffer[i]);
+                printf("%c", buffer[i]);
             else
-                tmp += sprintf(tmp, ".");
+                printf(".");
         }
-        printf("%s\n", line);
+        printf("\r\n");
 
         buffer += sz;
         length -= sz;
