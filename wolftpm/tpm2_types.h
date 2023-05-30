@@ -733,6 +733,11 @@ static inline word64 ByteReverseWord64(word64 value)
 #endif
 }
 
+/* ---------------------------------------------------------------------------*/
+/* INTEGER TYPE TO STORE POINTER */
+/* ---------------------------------------------------------------------------*/
+
+typedef uintptr_t wordptr;
 
 #ifdef __cplusplus
     }  /* extern "C" */
