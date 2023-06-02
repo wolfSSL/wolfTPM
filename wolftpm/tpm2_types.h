@@ -81,6 +81,10 @@ typedef int64_t  INT64;
     #ifndef WOLFSSL_USER_SETTINGS
         #include <wolfssl/options.h>
     #endif
+    /* enforce NO_THREAD_LS within wolfTPM */
+    #ifdef NO_THREAD_LS
+        #undef HAVE_THREAD_LS
+    #endif
     #include <wolfssl/wolfcrypt/settings.h>
     #include <wolfssl/wolfcrypt/types.h>
     #include <wolfssl/wolfcrypt/logging.h>
