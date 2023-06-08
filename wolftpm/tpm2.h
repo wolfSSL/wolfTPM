@@ -1682,11 +1682,11 @@ struct wolfTPM_winContext {
 #endif
 
 #ifdef WOLFTPM_ADV_IO
-typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr,
-    BYTE* xferBuf, UINT16 xferSz, void* userCtx);
+typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, int isRead, word32 addr,
+    BYTE* xferBuf, word16 xferSz, void* userCtx);
 #else
 typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
-    UINT16 xferSz, void* userCtx);
+    word16 xferSz, void* userCtx);
 #endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WC_NO_RNG) && \
