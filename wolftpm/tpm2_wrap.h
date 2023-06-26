@@ -3211,6 +3211,62 @@ WOLFTPM_API int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev,
     const byte* policySignedSig, word32 policySignedSigSz, word32 sealNvIndex,
     word32 policyDigestNvIndex, byte* out, word32* outSz);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Seal a secret to the TPM's NVM after calling PolicyPCR
+
+    wolfTPM2_SealWithPCR_NV
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param session the pointer to current session, a session is required to use policy pcr
+    \param policyHashAlg the hashing algorithm used to generate the policyDigest
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArraySz length of pcrArray
+    \param sealData the secret to save to NVM
+    \param sealSz size of the secret buffer
+    \param sealNvIndex nvIndex to write the secret to
+    \param policyDigestNvIndex nvIndex to write the policyDigest to
+
+    \sa wolfTPM2_SealWithPCR_NV
+*/
+WOLFTPM_API int wolfTPM2_SealWithPCR_NV(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* session, TPM_ALG_ID policyHashAlg, TPM_ALG_ID pcrAlg,
+    word32* pcrArray, word32 pcrArraySz, const byte* sealData, word32 sealSz,
+    word32 sealNvIndex, word32 policyDigestNvIndex);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Unseal a secret from the TPM's NVM after calling PolicyPCR
+
+    wolfTPM2_UnsealWithPCR_NV
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a populated structure of WOLFTPM2_DEV type
+    \param session the pointer to current session, a session is required to use policy pcr
+    \param pcrAlg the hashing algorithm to use for pcr values
+    \param pcrArray array of PCR indices to use with this policy
+    \param pcrArraySz length of pcrArray
+    \param sealData the secret to save to NVM
+    \param sealSz size of the secret buffer
+    \param sealNvIndex nvIndex to write the secret to
+    \param policyDigestNvIndex nvIndex to write the policyDigest to
+    \param out output buffer to read the unsealed secret
+    \param outSz pointer to the size of the output buffer
+
+    \sa wolfTPM2_UnsealWithPCR_NV
+*/
+WOLFTPM_API int wolfTPM2_UnsealWithPCR_NV(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* session, TPM_ALG_ID pcrAlg, word32* pcrArray,
+    word32 pcrArraySz, word32 sealNvIndex, word32 policyDigestNvIndex,
+    byte* out, word32* outSz);
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
