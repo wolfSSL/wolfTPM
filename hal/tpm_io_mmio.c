@@ -39,7 +39,7 @@
 #endif
 
 #ifndef WOLFTPM_ADV_IO
-#error "WOLFTPM_MMIO_BUILTIN_CB requires WOLFTPM_ADV_IO"
+#error "WOLFTPM_MMIO requires WOLFTPM_ADV_IO"
 #endif
 
 #ifdef __GNUC__

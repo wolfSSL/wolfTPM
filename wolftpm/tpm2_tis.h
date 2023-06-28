@@ -54,11 +54,6 @@ WOLFTPM_LOCAL int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout);
 WOLFTPM_LOCAL int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value, word32 len);
 WOLFTPM_LOCAL int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result, word32 len);
 
-#ifdef WOLFTPM_MMIO_BUILTIN_CB
-WOLFTPM_LOCAL int TPM2_Mmio_Cb(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 size,
-    void* userCtx);
-#endif /* WOLFTPM_MMIO_BUILTIN_CB */
-
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
