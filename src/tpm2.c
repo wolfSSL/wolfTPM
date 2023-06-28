@@ -28,6 +28,8 @@
 #include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
 
+#include <hal/tpm_io.h>
+
 /******************************************************************************/
 /* --- Local Variables -- */
 /******************************************************************************/
@@ -622,16 +624,21 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     ctx->tcpCtx.fd = -1;
 #endif
 
-    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
     }
-    #else
+#else
+    #ifdef WOLFTPM_MMIO
+    if (ioCb == NULL)
+        ioCb = TPM2_IoCb_Mmio;
+    #endif
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
       return rc;
-    #endif
+#endif
 
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
@@ -6071,7 +6078,6 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
 void TPM2_PrintBin(const byte* buffer, word32 length)
 {
     word32 i, sz;
-    char line[(LINE_LEN * 4) + 4], *tmp;
 
     if (!buffer) {
         printf("\tNULL");
@@ -6083,22 +6089,21 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
         if (sz > LINE_LEN)
             sz = LINE_LEN;
 
-        tmp = line;
-        tmp += sprintf(tmp, "\t");
+        printf("\t");
         for (i = 0; i < LINE_LEN; i++) {
             if (i < length)
-                tmp += sprintf(tmp, "%02x ", buffer[i]);
+                printf("%02x ", buffer[i]);
             else
-                tmp += sprintf(tmp, "   ");
+                printf("   ");
         }
-        tmp += sprintf(tmp, "| ");
+        printf("| ");
         for (i = 0; i < sz; i++) {
             if (buffer[i] > 31 && buffer[i] < 127)
-                tmp += sprintf(tmp, "%c", buffer[i]);
+                printf("%c", buffer[i]);
             else
-                tmp += sprintf(tmp, ".");
+                printf(".");
         }
-        printf("%s\n", line);
+        printf("\r\n");
 
         buffer += sz;
         length -= sz;

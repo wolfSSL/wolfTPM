@@ -43,6 +43,7 @@
  * - Native Linux (/dev/tpm0)
  * - Linux through spidev without kernel driver thanks to wolfTPM own TIS layer
  * - Linux through i2c without kernel driver thanks to wolfTPM own TIS layer
+ * - Intel MMIO interface
  * - Native Windows
  * - Atmel MCUs
  * - Xilinx Zynq
@@ -112,6 +113,12 @@ WOLFTPM_LOCAL int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte
 #endif
 
 #endif /* WOLFTPM_I2C */
+
+#if defined(WOLFTPM_MMIO)
+/* requires WOLFTPM_ADV_IO */
+WOLFTPM_LOCAL int TPM2_IoCb_Mmio(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
+    word16 size, void* userCtx);
+#endif
 
 #endif /* WOLFTPM_EXAMPLE_HAL */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */

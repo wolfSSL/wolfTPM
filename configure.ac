@@ -203,6 +203,17 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_I2C"
 fi
 
+# Memory-mapped I/O
+AC_ARG_ENABLE([mmio],
+    [AS_HELP_STRING([--enable-mmio],[Enable built-in MMIO callbacks (default: disabled)])],
+    [ ENABLED_MMIO=$enableval ],
+    [ ENABLED_MMIO=no ]
+    )
+
+if test "x$ENABLED_MMIO" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_MMIO"
+fi
 
 # Advanced IO
 AC_ARG_ENABLE([advio],
@@ -211,7 +222,7 @@ AC_ARG_ENABLE([advio],
     [ ENABLED_ADVIO=no ]
     )
 
-if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes"
+if test "x$ENABLED_ADVIO" = "xyes" || test "x$ENABLED_I2C" = "xyes" || test "x$ENABLED_MMIO" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ADV_IO"
 fi
@@ -430,7 +441,7 @@ AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
-AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes"])
+AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
 
 
 CREATE_HEX_VERSION

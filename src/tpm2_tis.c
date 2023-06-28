@@ -57,8 +57,9 @@ enum tpm_tis_int_flags {
     TPM_INTF_DATA_AVAIL_INT     = 0x001,
 };
 
-
+#ifndef TPM_BASE_ADDRESS
 #define TPM_BASE_ADDRESS (0xD40000u)
+#endif
 
 #ifdef WOLFTPM_I2C
 /* For I2C only the lower 8-bits of the address are used */
@@ -569,6 +570,7 @@ exit:
 
     return rc;
 }
+
 /******************************************************************************/
 /* --- END TPM Interface Layer -- */
 /******************************************************************************/
