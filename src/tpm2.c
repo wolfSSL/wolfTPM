@@ -622,23 +622,21 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     ctx->tcpCtx.fd = -1;
 #endif
 
-    #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI) \
-        || defined(WOLFTPM_MMIO_BUILTIN_CB)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI) || defined(WOLFTPM_MMIO)
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
     }
-    #else
+#else
+    #ifdef WOLFTPM_MMIO
+    if (ioCb == NULL)
+        ioCb = TPM2_Mmio_Cb;
+    #endif
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
       return rc;
-    #endif
-
-#ifdef WOLFTPM_MMIO_BUILTIN_CB
-    rc = TPM2_SetHalIoCb(ctx, TPM2_Mmio_Cb, NULL);
-    if (rc != TPM_RC_SUCCESS)
-      return rc;
-#endif /* WOLFTPM_MMIO_BUILTIN_CB */
+#endif
 
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);

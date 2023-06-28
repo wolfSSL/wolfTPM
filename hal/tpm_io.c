@@ -46,7 +46,10 @@
 
 /* Set WOLFTPM_INCLUDE_IO_FILE so each .c is built here and not compiled directly */
 #define WOLFTPM_INCLUDE_IO_FILE
-#if defined(__linux__)
+
+#if defined(WOLFTPM_MMIO)
+#include "tpm_io_mmio.c"
+#elif defined(__linux__)
 #include "hal/tpm_io_linux.c"
 #elif defined(WOLFSSL_STM32_CUBEMX)
 #include "hal/tpm_io_st.c"
@@ -64,7 +67,7 @@
 #include "hal/tpm_io_microchip.c"
 #endif
 
-#if !defined(WOLFTPM_I2C)
+#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
 static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
@@ -108,7 +111,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
     word16 size, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-#if !defined(WOLFTPM_I2C)
+#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
     byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
     byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
 #endif
@@ -122,7 +125,11 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
     }
 #endif
 
-#if defined(WOLFTPM_I2C)
+#ifdef WOLFTPM_MMIO
+
+    ret = TPM2_IoCb_Mmio(ctx, isRead, addr, buf, size, userCtx);
+
+#elif defined(WOLFTPM_I2C)
     #if defined(__linux__)
         /* Use Linux I2C */
         ret = TPM2_IoCb_Linux_I2C(ctx, isRead, addr, buf, size, userCtx);
