@@ -457,7 +457,7 @@ Data can also be sealed to the TPM, either to NVM or regular, with policy author
 ```
 $ ./examples/seal/seal_policy_auth -ecc -aes 16
 Example for sealing data to the TPM with policy authorization
-	PCR Indicies:16 
+	PCR Indices:16
 	Use Parameter Encryption: CFB
 wolfTPM2_Init: success
 TPM2_StartAuthSession: sessionHandle 0x3000000
@@ -465,29 +465,29 @@ Loading SRK: Storage 0x81000200 (282 bytes)
 ECC template
 Loaded sealBlob to 0x80000002
 TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
+Unsealed secret matches!
 
 $ ./examples/nvram/seal_policy_auth_nv -ecc -aes 16
 Example for sealing data to NV memory with policy authorization
-	PCR Indicies:16 
+	PCR Indices:16
 	Use Parameter Encryption: CFB
 wolfTPM2_Init: success
 TPM2_StartAuthSession: sessionHandle 0x3000000
 Loading SRK: Storage 0x81000200 (282 bytes)
 ECC template
 TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
+Unsealed secret matches!
 
 $ ./examples/nvram/seal_policy_auth_nv_external -ecc -aes 16
 Warning: Unrecognized option: -ecc
 Example for sealing data to NV memory with policy authorization
-	PCR Indicies:16 
+	PCR Indices:16
 	Use Parameter Encryption: CFB
 wolfTPM2_Init: success
 Loading SRK: Storage 0x81000200 (282 bytes)
 TPM2_StartAuthSession: sessionHandle 0x3000000
 TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
+Unsealed secret matches!
 ```
 
 ## GPIO Control

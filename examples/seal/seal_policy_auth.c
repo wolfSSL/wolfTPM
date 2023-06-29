@@ -140,7 +140,7 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     }
 
     printf("Example for sealing data to the TPM with policy authorization\n");
-    printf("\tPCR Indicies:");
+    printf("\tPCR Indices:");
 
     for (i = 0; i < (int)pcrArraySz; i++) {
         printf("%d ", pcrArray[i]);
@@ -273,11 +273,11 @@ int TPM2_PCR_Seal_With_Policy_Auth_Test(void* userCtx, int argc, char *argv[])
     }
 
     if (XMEMCMP(secret, secretOut, sizeof(secret)) != 0) {
-        printf("Usealed secret does not match\n");
+        printf("Unsealed secret does not match\n");
         goto exit;
     }
     else {
-        printf("Usealed secret matches!\n");
+        printf("Unsealed secret matches!\n");
     }
 
     /* try to unseal with a bad signature, should fail */

@@ -6208,6 +6208,10 @@ int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
 
 #endif /* WOLFTPM_CRYPTOCB */
 
+/******************************************************************************/
+/* --- BEGIN Policy and Sealing wrapper API's -- */
+/******************************************************************************/
+
 int wolfTPM2_PolicyRestart(TPM_HANDLE sessionHandle)
 {
     int rc;
@@ -7276,4 +7280,9 @@ int wolfTPM2_UnsealWithPCR_NV(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
 
     return rc;
 }
+
+/******************************************************************************/
+/* --- END Policy and Sealing wrapper API's -- */
+/******************************************************************************/
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
