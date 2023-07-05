@@ -4514,8 +4514,10 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->parameters.rsaDetail.exponent = exponent;
     publicTemplate->parameters.rsaDetail.scheme.scheme = sigScheme;
     publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = sigHash;
-    if (objectAttributes & (TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt |
-                            TPMA_OBJECT_fixedParent)) {
+    /* For fixedParent or (decrypt and restricted) enable symmetric */
+    if ((objectAttributes & TPMA_OBJECT_fixedParent) ||
+           ((objectAttributes & TPMA_OBJECT_decrypt) &&
+            (objectAttributes & TPMA_OBJECT_restricted))) {
         publicTemplate->parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
         publicTemplate->parameters.rsaDetail.symmetric.keyBits.aes = 128;
         publicTemplate->parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
@@ -4542,8 +4544,10 @@ static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     publicTemplate->unique.ecc.x.size = curveSz;
     publicTemplate->unique.ecc.y.size = curveSz;
     publicTemplate->objectAttributes = objectAttributes;
-    if (objectAttributes & (TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt |
-                            TPMA_OBJECT_fixedParent)) {
+    /* For fixedParent or (decrypt and restricted) enable symmetric */
+    if ((objectAttributes & TPMA_OBJECT_fixedParent) ||
+           ((objectAttributes & TPMA_OBJECT_decrypt) &&
+            (objectAttributes & TPMA_OBJECT_restricted))) {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_AES;
         publicTemplate->parameters.eccDetail.symmetric.keyBits.aes = 128;
         publicTemplate->parameters.eccDetail.symmetric.mode.aes = TPM_ALG_CFB;
