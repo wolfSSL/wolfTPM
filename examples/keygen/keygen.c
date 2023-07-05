@@ -199,8 +199,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
-            uniqueStr = argv[argc-1] + 8;
+        else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
+            uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);

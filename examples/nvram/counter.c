@@ -80,7 +80,7 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else if (XSTRCMP(argv[argc-1], "-nvindex=") == 0) {
+        else if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
             nvIndex = (word32)XSTRTOL(argv[argc-1] + XSTRLEN("-nvindex="),
                 NULL, 0);
             if (nvIndex > TPM_20_OWNER_NV_SPACE &&

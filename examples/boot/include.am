@@ -1,0 +1,15 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+noinst_PROGRAMS += examples/boot/secure_rot
+noinst_HEADERS  += examples/boot/boot.h
+examples_boot_secure_rot_SOURCES      = examples/boot/secure_rot.c
+examples_boot_secure_rot_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_boot_secure_rot_DEPENDENCIES = src/libwolftpm.la
+endif
+
+example_bootdir = $(exampledir)/boot
+dist_example_boot_DATA = examples/boot/secure_rot.c
+
+DISTCLEANFILES+= examples/boot/.libs/secure_rot

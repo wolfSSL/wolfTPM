@@ -4,6 +4,7 @@
 include examples/native/include.am
 include examples/wrap/include.am
 include examples/bench/include.am
+include examples/boot/include.am
 include examples/tls/include.am
 include examples/csr/include.am
 include examples/pkcs7/include.am

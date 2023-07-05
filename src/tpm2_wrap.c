@@ -5177,16 +5177,22 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
         return BAD_FUNC_ARG;
 
     *nvAttributes = (
-        TPMA_NV_AUTHWRITE  |    /* password or HMAC can authorize writing */
-        TPMA_NV_AUTHREAD   |    /* password or HMAC can authorize reading */
-        TPMA_NV_OWNERWRITE |    /* Owner Hierarchy auth can be used also */
-        TPMA_NV_OWNERREAD  |    /* Owner Hierarchy auth for read */
-        TPMA_NV_NO_DA           /* Don't increment dictionary attack counter */
+        TPMA_NV_AUTHWRITE  |     /* password or HMAC can authorize writing */
+        TPMA_NV_AUTHREAD   |     /* password or HMAC can authorize reading */
+        TPMA_NV_NO_DA            /* Don't increment dictionary attack counter */
     );
 
     if (auth == TPM_RH_PLATFORM) {
         *nvAttributes |= (
-            TPMA_NV_PPWRITE | TPMA_NV_PPREAD
+            TPMA_NV_PLATFORMCREATE | /* Platform created NV */
+            TPMA_NV_PPWRITE |        /* Write may be authorized by platform */
+            TPMA_NV_PPREAD           /* Read may be authorized by platform */
+        );
+    }
+    else if (auth == TPM_RH_OWNER) {
+        *nvAttributes |= (
+            TPMA_NV_OWNERWRITE | /* Owner Hierarchy auth can be used also */
+            TPMA_NV_OWNERREAD    /* Owner Hierarchy auth for read */
         );
     }
 
