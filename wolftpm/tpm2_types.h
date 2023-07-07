@@ -116,12 +116,6 @@ typedef int64_t  INT64;
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
     #endif
-    #ifndef XFEOF
-        #define XFEOF      feof
-    #endif
-    #ifndef XREWIND
-        #define XREWIND    rewind
-    #endif
 #else
 
     #include <stdio.h>
@@ -237,6 +231,14 @@ typedef int64_t  INT64;
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
     #define XATOI(s)          atoi((s))
 
+#endif
+
+/* make sure file IO macros are available for examples */
+#ifndef XFEOF /* used in pcr/extend example */
+    #define XFEOF      feof
+#endif
+#ifndef XREWIND /* used in tpm_test_keys.c */
+    #define XREWIND    rewind
 #endif
 
 /* enable way for customer to override printf */
