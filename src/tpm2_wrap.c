@@ -4019,6 +4019,40 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     return rc;
 }
 
+int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
+{
+    int rc;
+    NV_WriteLock_In in;
+
+    if (dev == NULL || nv == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* make sure the name is computed for the handle */
+    if (!nv->handle.nameLoaded) {
+        rc = wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
+        if (rc != 0) {
+            return rc;
+        }
+    }
+
+    /* make sure auth not set */
+    wolfTPM2_UnsetAuth(dev, 1);
+
+    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Setting NV index name failed\n");
+    #endif
+        return TPM_RC_FAILURE;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = nv->handle.hndl;
+    in.nvIndex = nv->handle.hndl;
+    return TPM2_NV_WriteLock(&in);
+}
+
 int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     word32 nvIndex)
 {
@@ -5179,6 +5213,7 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
     *nvAttributes = (
         TPMA_NV_AUTHWRITE  |     /* password or HMAC can authorize writing */
         TPMA_NV_AUTHREAD   |     /* password or HMAC can authorize reading */
+        TPMA_NV_OWNERREAD  |     /* Allow owner to read */
         TPMA_NV_NO_DA            /* Don't increment dictionary attack counter */
     );
 
@@ -5191,8 +5226,7 @@ int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttributes)
     }
     else if (auth == TPM_RH_OWNER) {
         *nvAttributes |= (
-            TPMA_NV_OWNERWRITE | /* Owner Hierarchy auth can be used also */
-            TPMA_NV_OWNERREAD    /* Owner Hierarchy auth for read */
+            TPMA_NV_OWNERWRITE   /* Owner Hierarchy auth can be used to write */
         );
     }
 

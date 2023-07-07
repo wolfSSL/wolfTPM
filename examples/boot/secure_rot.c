@@ -22,15 +22,17 @@
 /* Example for using TPM for secure boot root of trust
  */
 
+
+#include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
-#include <examples/boot/boot.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/boot/boot.h>
 
 #include <wolfssl/wolfcrypt/hash.h>
 
@@ -93,6 +95,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_NV nv;
     word32 nvAttributes;
     int paramEncAlg = TPM_ALG_CFB; /* always use AES CFB parameter encryption */
+    TPMI_RH_NV_AUTH authHandle = TPM_RH_PLATFORM; /* use platform handle to prevent TPM2_Clear from removing */
     const char* filename = TPM2_SECURE_ROT_EXAMPLE_PUB_KEY;
     word32 nvIndex = TPM2_DEMO_NV_SECURE_ROT_INDEX;
     int doWrite = 0, doLock = 0;
@@ -121,8 +124,13 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
             nvIndex = (word32)XSTRTOL(argv[argc-1] +
                 XSTRLEN("-nvindex="), NULL, 0);
-            if (nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
-                                              nvIndex < TPM_20_OWNER_NV_SPACE) {
+            if ((authHandle == TPM_RH_PLATFORM && (
+                    nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
+                    nvIndex < TPM_20_OWNER_NV_SPACE)) ||
+                (authHandle == TPM_RH_OWNER && (
+                    nvIndex > TPM_20_OWNER_NV_SPACE &&
+                    nvIndex < TPM_20_TCG_NV_SPACE)))
+            {
                 printf("Invalid NV Index %s\n", argv[argc-1] + 8);
                 nvIndex = 0;
             }
@@ -153,6 +161,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* Derive a unique value from hardware to authenticate the NV */
     rc = GetSystemUniqueAuth(hashType, authBuf);
     if (rc != 0) {
         printf("Error getting system unique NV auth! %d\n", rc);
@@ -170,7 +179,8 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         (word32)tpmSession.handle.hndl);
     /* Set TPM session attributes for parameter encryption */
     rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
-        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
     /* Open file */
@@ -189,16 +199,14 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         }
         if (rc == 0) {
             /* Get NV attributes */
-            parent.hndl = TPM_RH_PLATFORM;
+            parent.hndl = authHandle;
             rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
         }
         if (rc == 0) {
-            if (doLock) {
-                nvAttributes |= TPMA_NV_WRITELOCKED;
-            }
-            printf("nvAttributes=0x%x\n", nvAttributes);
+            /* allow this NV to be locked */
+            nvAttributes |= TPMA_NV_WRITEDEFINE;
 
-            /* Try and create NV */
+            /* Create NV */
             rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
                 nvAttributes, digestSz, authBuf, sizeof(authBuf));
             if (rc == TPM_RC_NV_DEFINED) {
@@ -207,19 +215,20 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             }
         }
         if (rc == 0) {
-            rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex,
-                digest, digestSz, 0);
+            /* Write digest to NV */
+            rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, digest, digestSz, 0);
         }
         if (rc != 0) goto exit;
         printf("Wrote %d bytes to NV 0x%x\n", digestSz, nvIndex);
     }
 
-    /* Do NV Auth Read */
+    /* Setup the NV access */
     XMEMSET(&nv, 0, sizeof(nv));
     nv.handle.hndl = nvIndex;
     nv.handle.auth.size = sizeof(authBuf);
     XMEMCPY(nv.handle.auth.buffer, authBuf, sizeof(authBuf));
 
+    /* Read access */
     printf("Reading NV 0x%x public key hash\n", nvIndex);
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, digest, &digestSz, 0);
     if (rc == 0) {
@@ -228,6 +237,14 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     }
     else if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
         printf("NV index does not exist\n");
+    }
+
+    /* Locking */
+    if (doLock) {
+        printf("Locking NV index 0x%x\n", nvIndex);
+        rc = wolfTPM2_NVWriteLock(&dev, &nv);
+        if (rc != 0) goto exit;
+        printf("NV 0x%x locked\n", nvIndex);
     }
 
 exit:

@@ -1779,6 +1779,25 @@ WOLFTPM_API int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
 WOLFTPM_API int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, const byte* auth, word32 authSz);
 
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Lock writes on the specified NV Index
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param nv pointer to an structure of WOLFTPM2_NV type loaded using wolfTPM2_NVOpen
+
+    \sa wolfTPM2_NVOpen
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_NVWriteAuth
+    \sa wolfTPM2_NVReadAuth
+*/
+WOLFTPM_API int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Destroys an existing NV Index
