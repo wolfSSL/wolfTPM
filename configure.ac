@@ -15,12 +15,17 @@ AC_CONFIG_AUX_DIR([build-aux])
 xxx_ar_flags=$((ar --help) 2>&1)
 AS_CASE([$xxx_ar_flags],[*'use actual timestamps and uids/gids'*],[: ${AR_FLAGS="Ucru"}])
 
+# Checks for programs.
+AC_PROG_CC
+AM_PROG_CC_C_O
 AC_CANONICAL_HOST
+AC_CANONICAL_TARGET
+AC_CONFIG_MACRO_DIR([m4])
 
 AM_INIT_AUTOMAKE([1.11 -Wall -Werror -Wno-portability foreign tar-ustar subdir-objects no-define color-tests])
 
 AC_ARG_PROGRAM
-AC_CONFIG_MACRO_DIR([m4])
+
 AC_CONFIG_HEADERS([src/config.h])
 
 WOLFTPM_LIBRARY_VERSION=15:0:0
@@ -50,13 +55,7 @@ AS_IF([test -n "$CFLAG_VISIBILITY"],
 # silent
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 
-# Checks for programs.
-AC_PROG_CC
-AM_PROG_CC_C_O
-AC_PROG_INSTALL
-
 # Checks for header files.
-AC_HEADER_STDC
 AC_CHECK_SIZEOF([long long], 8)
 AC_CHECK_SIZEOF([long], 4)
 
@@ -142,7 +141,7 @@ fi
 AC_MSG_NOTICE([prefix ${prefix}])
 WOLFSSL_URL="http://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
-  [AC_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
+  [AS_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
   [
     if test "x$withval" != "xno" ; then
       if test -d "${withval}/lib" && test -d "${withval}/include"; then
@@ -166,25 +165,9 @@ then
     LDFLAGS="$LDFLAGS -L${wcpath}/lib"
     CPPFLAGS="$CPPFLAGS -I${wcpath}/include"
 
-    AC_LIB_HAVE_LINKFLAGS(wolfssl,,
-    [
-        #include <wolfssl/wolfcrypt/wc_port.h>
-    ],[
-        wolfCrypt_Init();
-    ])
-    AM_CONDITIONAL(HAVE_LIBWOLFSSL, [test "x${ac_cv_libwolfssl}" = "xyes"])
-
-    AS_IF([test "x${ac_cv_libwolfssl}" = "xyes"],[
-        save_LIBS="${LIBS}"
-        LIBS="${LIBS} ${LTLIBWOLFSSL}"
-        AC_CHECK_FUNCS(wolfCrypt_Cleanup)
-        LIBS="$save_LIBS"
-    ])
-
-    if test "x$ac_cv_libwolfssl" = "xno" && test "x$ENABLED_WOLFCRYPT" != "xno"; then
-      AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
-        If it's already installed, specify its path using --with-wolfcrypt=/dir or --prefix=/dir])
-    fi
+    AC_CHECK_LIB([wolfssl],[wolfCrypt_Init],,
+        [AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
+        If its already installed, specify its path using --with-wolfcrypt=/dir or --prefix=/dir])])
 else
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
 fi
@@ -427,6 +410,7 @@ OPTION_FLAGS="$CFLAGS $CPPFLAGS $AM_CFLAGS"
 
 
 # The following AM_CONDITIONAL statements set flags for use in the Makefiles.
+AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
 AM_CONDITIONAL([BUILD_EXAMPLES], [test "x$ENABLED_EXAMPLES" = "xyes"])
 AM_CONDITIONAL([BUILD_WRAPPER], [test "x$ENABLED_WRAPPER" = "xyes"])
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
