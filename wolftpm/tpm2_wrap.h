@@ -792,6 +792,13 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
 
+WOLFTPM_API int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
+    const byte* rsaPriv, word32 rsaPrivSz,
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg,
+    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Helper function to import and load an external RSA private key in one step
@@ -899,10 +906,17 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \sa wolfTPM2_LoadPrivateKey
 */
 WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
-    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
-    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, int curveId,
+    const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz,
     const byte* eccPriv, word32 eccPrivSz);
+
+WOLFTPM_API int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, int curveId,
+    const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    const byte* eccPriv, word32 eccPrivSz,
+    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1092,6 +1106,13 @@ WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
     const char* input, word32 inSz, char* pass,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
+
+
+WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
+    int encodingType, const char* buf, word32 bufSz, char* pass,
+    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue);
+
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2598,11 +2619,10 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
-/* for salted auth sessions */
-WOLFTPM_LOCAL int wolfTPM2_RSA_Salt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea);
-WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt);
+/* for encrypting salt used in auth sessions and external key import */
+WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
+    const char* label);
 
 
 #ifdef WOLFTPM_CRYPTOCB
