@@ -2394,8 +2394,8 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 
 int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
-    int encodingType, const char* buf, word32 bufSz, char* pass,
-    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue)
+    int encodingType, const char* input, word32 inSz, char* pass,
+    TPMA_OBJECT objectAttributes, TPM2B_DIGEST* seedValue)
 {
     int rc = 0;
     byte* derBuf;
@@ -2403,8 +2403,8 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
 
-    if (dev == NULL || parentKey == NULL || keyBlob == NULL || buf == NULL ||
-            bufSz == 0) {
+    if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
+            inSz == 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -2414,11 +2414,11 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     if (encodingType == ENCODING_TYPE_PEM) {
     #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
         /* der size is base 64 decode length */
-        derSz = bufSz * 3 / 4 + 1;
+        derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         if (derBuf == NULL)
             return MEMORY_E;
-        rc = wc_KeyPemToDer((byte*)buf, bufSz, derBuf, derSz, pass);
+        rc = wc_KeyPemToDer((byte*)input, inSz, derBuf, derSz, pass);
         if (rc >= 0) {
             derSz = rc;
             rc = 0;
@@ -2427,22 +2427,22 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         return NOT_COMPILED_IN;
     #endif
     }
-    else {
-        derBuf = (byte*)buf;
-        derSz = bufSz;
+    else { /* ASN.1 (DER) */
+        derBuf = (byte*)input;
+        derSz = inSz;
     }
 
     /* Handle DER Import */
     if (keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
-        rc = DecodeRsaPrivateDer(&pub, &sens, derBuf, derSz, attributes);
+        rc = DecodeRsaPrivateDer(&pub, &sens, derBuf, derSz, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
     }
     else if (keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
-        rc = DecodeEccPrivateDer(&pub, &sens, derBuf, derSz, attributes);
+        rc = DecodeEccPrivateDer(&pub, &sens, derBuf, derSz, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
@@ -2452,8 +2452,8 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         /* Set up private key */
         if (keyBlob->handle.auth.size > 0) {
             sens.sensitiveArea.authValue.size = keyBlob->handle.auth.size;
-            XMEMCPY(sens.sensitiveArea.authValue.buffer, keyBlob->handle.auth.buffer,
-                keyBlob->handle.auth.size);
+            XMEMCPY(sens.sensitiveArea.authValue.buffer,
+                keyBlob->handle.auth.buffer, keyBlob->handle.auth.size);
         }
 
         /* Use Seed */
@@ -2476,7 +2476,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     }
 
 #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
-    if (derBuf != (byte*)buf) {
+    if (derBuf != (byte*)input) {
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
 #endif
