@@ -3676,7 +3676,7 @@ WOLFTPM_API void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd);
 WOLFTPM_API void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub);
 #else
 #define TPM2_PrintBin(b, l)
-#define TPM2_PrintAuth(b, l)
+#define TPM2_PrintAuth(b)
 #define TPM2_PrintPublicArea(b)
 #endif
 

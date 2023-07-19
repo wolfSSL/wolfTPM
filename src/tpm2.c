@@ -5808,15 +5808,15 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
         case TPM_ALG_SYMCIPHER:
             return "SYMCIPHER";
         case TPM_ALG_CTR:
-            return "CTR";
+            return "AES-CTR";
         case TPM_ALG_OFB:
-            return "OFB";
+            return "AES-OFB";
         case TPM_ALG_CBC:
-            return "CBC";
+            return "AES-CBC";
         case TPM_ALG_CFB:
-            return "CFB";
+            return "AES-CFB";
         case TPM_ALG_ECB:
-            return "ECB";
+            return "AES-ECB";
         default:
             break;
     }

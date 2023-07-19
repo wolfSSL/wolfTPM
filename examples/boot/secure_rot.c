@@ -94,8 +94,10 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
     word32 nvAttributes;
-    int paramEncAlg = TPM_ALG_CFB; /* always use AES CFB parameter encryption */
-    TPMI_RH_NV_AUTH authHandle = TPM_RH_PLATFORM; /* use platform handle to prevent TPM2_Clear from removing */
+    /* always use AES CFB parameter encryption */
+    int paramEncAlg = TPM_ALG_CFB;
+    /* use platform handle to prevent TPM2_Clear from removing */
+    TPMI_RH_NV_AUTH authHandle = TPM_RH_PLATFORM;
     const char* filename = TPM2_SECURE_ROT_EXAMPLE_PUB_KEY;
     word32 nvIndex = TPM2_DEMO_NV_SECURE_ROT_INDEX;
     int doWrite = 0, doLock = 0;
@@ -171,7 +173,8 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     TPM2_PrintBin(authBuf, sizeof(authBuf));
 
     /* Start TPM session for parameter encryption */
-    printf("Parameter Encryption: Enabled. (AES CFB)\n\n");
+    printf("Parameter Encryption: Enabled %s and HMAC\n\n",
+        TPM2_GetAlgName(paramEncAlg));
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
             TPM_SE_HMAC, paramEncAlg);
     if (rc != 0) goto exit;
