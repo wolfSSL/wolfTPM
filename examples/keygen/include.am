@@ -27,6 +27,12 @@ examples_keygen_keyimport_SOURCES      = examples/keygen/keyimport.c \
                                          examples/tpm_test_keys.c
 examples_keygen_keyimport_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_keygen_keyimport_DEPENDENCIES = src/libwolftpm.la
+
+noinst_PROGRAMS += examples/keygen/external_import
+examples_keygen_external_import_SOURCES      = examples/keygen/external_import.c \
+                                         examples/tpm_test_keys.c
+examples_keygen_external_import_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_keygen_external_import_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_keygendir = $(exampledir)/keygen
@@ -34,9 +40,11 @@ dist_example_keygen_DATA = \
   examples/keygen/create_primary.c \
   examples/keygen/keyload.c \
   examples/keygen/keygen.c \
-  examples/keygen/keyimport.c
+  examples/keygen/keyimport.c \
+  examples/keygen/external_import.c
 
 DISTCLEANFILES+= examples/keygen/.libs/create_primary
 DISTCLEANFILES+= examples/keygen/.libs/keyload
 DISTCLEANFILES+= examples/keygen/.libs/keygen
 DISTCLEANFILES+= examples/keygen/.libs/keyimport
+DISTCLEANFILES+= examples/keygen/.libs/external_import

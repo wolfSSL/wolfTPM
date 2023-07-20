@@ -60,6 +60,7 @@ examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
+examples/keygen/external_import
 examples/nvram/store
 examples/nvram/read
 examples/nvram/counter

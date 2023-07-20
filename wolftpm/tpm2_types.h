@@ -116,6 +116,10 @@ typedef int64_t  INT64;
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
     #endif
+
+    #define ENCODING_TYPE_PEM  1 /* CTC_FILETYPE_PEM */
+    #define ENCODING_TYPE_ASN1 2 /* CTC_FILETYPE_ASN1 */
+
 #else
 
     #include <stdio.h>
@@ -139,6 +143,9 @@ typedef int64_t  INT64;
 
     /* Errors from wolfssl/error-ssl.h */
     #define SOCKET_ERROR_E        -308  /* error state on socket    */
+
+    #define ENCODING_TYPE_PEM  CTC_FILETYPE_PEM
+    #define ENCODING_TYPE_ASN1 CTC_FILETYPE_ASN1
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #ifndef WOLFTPM2_NO_HEAP

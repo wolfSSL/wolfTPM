@@ -782,6 +782,7 @@ WOLFTPM_API int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ke
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
     \param hashAlg integer value of TPMI_ALG_HASH type, specifying a supported TPM 2.0 hash algorithm
 
+    \sa wolfTPM2_ImportRsaPrivateKeySeed
     \sa wolfTPM2_LoadRsaPrivateKey
     \sa wolfTPM2_LoadRsaPrivateKey_ex
     \sa wolfTPM2_LoadPrivateKey
@@ -791,6 +792,40 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent,
     const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Import an external RSA private key with custom seed
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: arguments size is larger than what the TPM buffers allow
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
+    \param rsaPub pointer to a byte buffer, containing the public part of the RSA key
+    \param rsaPubSz integer value of word32 type, specifying the public part buffer size
+    \param exponent integer value of word32 type, specifying the RSA exponent
+    \param rsaPriv pointer to a byte buffer, containing the private material of the RSA key
+    \param rsaPrivSz integer value of word32 type, specifying the private material buffer size
+    \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
+    \param hashAlg integer value of TPMI_ALG_HASH type, specifying a supported TPM 2.0 hash algorithm
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
+
+    \sa wolfTPM2_ImportRsaPrivateKey
+    \sa wolfTPM2_LoadRsaPrivateKey
+    \sa wolfTPM2_LoadRsaPrivateKey_ex
+    \sa wolfTPM2_LoadPrivateKey
+*/
+WOLFTPM_API int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
+    const byte* rsaPub, word32 rsaPubSz, word32 exponent,
+    const byte* rsaPriv, word32 rsaPrivSz,
+    TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg,
+    TPMA_OBJECT attributes, byte* seed, word32 seedSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -894,15 +929,49 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param eccPriv pointer to a byte buffer containing the private material
     \param eccPrivSz integer value of word32 type, specifying the private material size
 
+    \sa wolfTPM2_ImportEccPrivateKeySeed
     \sa wolfTPM2_LoadEccPrivateKey
     \sa wolfTPM2_LoadEccPrivateKey_ex
     \sa wolfTPM2_LoadPrivateKey
 */
 WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
-    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
-    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, int curveId,
+    const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz,
     const byte* eccPriv, word32 eccPrivSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import the private material of an external ECC key
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a struct of WOLFTPM2_HANDLE type (can be NULL for external keys and the key will be imported under the OWNER hierarchy)
+    \param keyBlob pointer to an empty struct of WOLFTPM2_KEYBLOB type
+    \param curveId integer value, one of the accepted TPM_ECC_CURVE values
+    \param eccPubX pointer to a byte buffer containing the public material of point X
+    \param eccPubXSz integer value of word32 type, specifying the point X buffer size
+    \param eccPubY pointer to a byte buffer containing the public material of point Y
+    \param eccPubYSz integer value of word32 type, specifying the point Y buffer size
+    \param eccPriv pointer to a byte buffer containing the private material
+    \param eccPrivSz integer value of word32 type, specifying the private material size
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
+
+    \sa wolfTPM2_ImportEccPrivateKey
+    \sa wolfTPM2_LoadEccPrivateKey
+    \sa wolfTPM2_LoadEccPrivateKey_ex
+    \sa wolfTPM2_LoadPrivateKey
+*/
+WOLFTPM_API int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, int curveId,
+    const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    const byte* eccPriv, word32 eccPrivSz,
+    TPMA_OBJECT attributes, byte* seed, word32 seedSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1050,6 +1119,30 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
     TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import PEM/DER or RSA/ECC private key
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
+    \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
+    \param input buffer holding the rsa pem
+    \param inSz length of the input pem buffer
+    \param pass optional password of the key
+    \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
+*/
+WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
+    int encodingType, const char* input, word32 inSz, char* pass,
+    TPMA_OBJECT objectAttributes, byte* seed, word32 seedSz);
+
 #ifndef NO_RSA
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1188,7 +1281,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* tpmKey, const byte* pem, word32 pemSz);
-#endif
+#endif /* !NO_RSA */
+
 #ifdef HAVE_ECC
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1263,8 +1357,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* pa
 */
 WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     TPM2B_ECC_POINT* pubPoint);
-#endif
-#endif
+#endif /* HAVE_ECC */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2598,11 +2692,10 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
-/* for salted auth sessions */
-WOLFTPM_LOCAL int wolfTPM2_RSA_Salt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt, TPMT_PUBLIC *publicArea);
-WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(struct WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt);
+/* for encrypting salt used in auth sessions and external key import */
+WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
+    const char* label);
 
 
 #ifdef WOLFTPM_CRYPTOCB

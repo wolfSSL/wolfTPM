@@ -486,6 +486,7 @@ void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 {
     int tmpSz = 0;
+    TPMU_SENSITIVE_COMPOSITE* sens = &sensitive->sensitiveArea.sensitive;
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
 
@@ -499,9 +500,24 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
     TPM2_Packet_AppendBytes(packet, sensitive->sensitiveArea.seedValue.buffer,
         sensitive->sensitiveArea.seedValue.size);
 
-    TPM2_Packet_AppendU16(packet, sensitive->sensitiveArea.sensitive.any.size);
-    TPM2_Packet_AppendBytes(packet, sensitive->sensitiveArea.sensitive.any.buffer,
-        sensitive->sensitiveArea.sensitive.any.size);
+    switch (sensitive->sensitiveArea.sensitiveType) {
+    case TPM_ALG_RSA:
+        TPM2_Packet_AppendU16(packet, sens->rsa.size);
+        TPM2_Packet_AppendBytes(packet, sens->rsa.buffer, sens->rsa.size);
+        break;
+    case TPM_ALG_ECC:
+        TPM2_Packet_AppendU16(packet, sens->ecc.size);
+        TPM2_Packet_AppendBytes(packet, sens->ecc.buffer, sens->ecc.size);
+        break;
+    case TPM_ALG_KEYEDHASH:
+        TPM2_Packet_AppendU16(packet, sens->bits.size);
+        TPM2_Packet_AppendBytes(packet, sens->bits.buffer, sens->bits.size);
+        break;
+    case TPM_ALG_SYMCIPHER:
+        TPM2_Packet_AppendU16(packet, sens->sym.size);
+        TPM2_Packet_AppendBytes(packet, sens->sym.buffer, sens->sym.size);
+        break;
+    }
 
     TPM2_Packet_PlaceU16(packet, tmpSz);
 }
@@ -583,46 +599,48 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
     }
 }
 
-void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
+void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
 {
-    int tmpSz = 0;
+    TPM2_Packet_AppendU16(packet, publicArea->type);
+    TPM2_Packet_AppendU16(packet, publicArea->nameAlg);
+    TPM2_Packet_AppendU32(packet, publicArea->objectAttributes);
+    TPM2_Packet_AppendU16(packet, publicArea->authPolicy.size);
+    TPM2_Packet_AppendBytes(packet, publicArea->authPolicy.buffer,
+        publicArea->authPolicy.size);
 
-    TPM2_Packet_MarkU16(packet, &tmpSz);
+    TPM2_Packet_AppendPublicParms(packet, publicArea->type,
+        &publicArea->parameters);
 
-    TPM2_Packet_AppendU16(packet, pub->publicArea.type);
-    TPM2_Packet_AppendU16(packet, pub->publicArea.nameAlg);
-    TPM2_Packet_AppendU32(packet, pub->publicArea.objectAttributes);
-    TPM2_Packet_AppendU16(packet, pub->publicArea.authPolicy.size);
-    TPM2_Packet_AppendBytes(packet, pub->publicArea.authPolicy.buffer,
-        pub->publicArea.authPolicy.size);
-
-    TPM2_Packet_AppendPublicParms(packet, pub->publicArea.type,
-        &pub->publicArea.parameters);
-
-    switch (pub->publicArea.type) {
+    switch (publicArea->type) {
     case TPM_ALG_KEYEDHASH:
-        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.keyedHash.size);
-        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.keyedHash.buffer,
-            pub->publicArea.unique.keyedHash.size);
+        TPM2_Packet_AppendU16(packet, publicArea->unique.keyedHash.size);
+        TPM2_Packet_AppendBytes(packet, publicArea->unique.keyedHash.buffer,
+            publicArea->unique.keyedHash.size);
         break;
     case TPM_ALG_SYMCIPHER:
-        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.sym.size);
-        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.sym.buffer,
-            pub->publicArea.unique.sym.size);
+        TPM2_Packet_AppendU16(packet, publicArea->unique.sym.size);
+        TPM2_Packet_AppendBytes(packet, publicArea->unique.sym.buffer,
+            publicArea->unique.sym.size);
         break;
     case TPM_ALG_RSA:
-        TPM2_Packet_AppendU16(packet, pub->publicArea.unique.rsa.size);
-        TPM2_Packet_AppendBytes(packet, pub->publicArea.unique.rsa.buffer,
-            pub->publicArea.unique.rsa.size);
+        TPM2_Packet_AppendU16(packet, publicArea->unique.rsa.size);
+        TPM2_Packet_AppendBytes(packet, publicArea->unique.rsa.buffer,
+            publicArea->unique.rsa.size);
         break;
     case TPM_ALG_ECC:
-        TPM2_Packet_AppendEccPoint(packet, &pub->publicArea.unique.ecc);
+        TPM2_Packet_AppendEccPoint(packet, &publicArea->unique.ecc);
         break;
     default:
         /* TPMS_DERIVE derive; ? */
         break;
     }
+}
+void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
+{
+    int tmpSz = 0;
 
+    TPM2_Packet_MarkU16(packet, &tmpSz);
+    TPM2_Packet_AppendPublicArea(packet, &pub->publicArea);
     pub->size = TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
