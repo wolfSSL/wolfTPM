@@ -138,7 +138,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     const char *pubFilename = NULL;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
     const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
+    #if !defined(NO_RSA)
     const char *pemFilename = NULL;
+    #endif
     FILE *fp;
 #endif
     size_t len = 0;
@@ -374,7 +376,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Save EK public key as PEM format file to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
+    !defined(NO_RSA)
     if (pemFiles) {
         byte pem[MAX_RSA_KEY_BYTES];
         word32 pemSz;

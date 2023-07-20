@@ -1051,14 +1051,13 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
             rc = NOT_COMPILED_IN;
             break;
     }
-#else
-    (void)salt;
-    (void)encSalt;
-    (void)label;
     rc = NOT_COMPILED_IN;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     (void)dev;
+    (void)salt;
+    (void)encSalt;
+    (void)label;
 
     return rc;
 }

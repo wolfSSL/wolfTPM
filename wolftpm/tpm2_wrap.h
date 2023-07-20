@@ -1117,6 +1117,29 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
     TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import PEM/DER or RSA/ECC private key
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
+    \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
+    \param input buffer holding the rsa pem
+    \param inSz length of the input pem buffer
+    \param pass optional password of the key
+    \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
+    \param seedValue Optional (use NULL) or supply a custom seed for KDF (use 32 bytes for SHA2-256)
+*/
+WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
+    const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
+    int encodingType, const char* input, word32 inSz, char* pass,
+    TPMA_OBJECT objectAttributes, TPM2B_DIGEST* seedValue);
+
 #ifndef NO_RSA
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1159,29 +1182,6 @@ WOLFTPM_API int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
     const char* input, word32 inSz, char* pass,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper function to import PEM/DER or RSA/ECC private key
-
-    \return TPM_RC_SUCCESS: successful
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
-    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
-    \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
-    \param input buffer holding the rsa pem
-    \param inSz length of the input pem buffer
-    \param pass optional password of the key
-    \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
-    \param seedValue Optional (use NULL) or supply a custom seed for KDF (use 32 bytes for SHA2-256)
-*/
-WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
-    const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
-    int encodingType, const char* input, word32 inSz, char* pass,
-    TPMA_OBJECT objectAttributes, TPM2B_DIGEST* seedValue);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1278,7 +1278,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* tpmKey, const byte* pem, word32 pemSz);
-#endif
+#endif /* !NO_RSA */
+
 #ifdef HAVE_ECC
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1353,8 +1354,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* pa
 */
 WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     TPM2B_ECC_POINT* pubPoint);
-#endif
-#endif
+#endif /* HAVE_ECC */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!
     \ingroup wolfTPM2_Wrappers
