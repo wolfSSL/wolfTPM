@@ -1022,7 +1022,7 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
     const char* label)
 {
-    int rc;
+    int rc = NOT_COMPILED_IN;
 
     /* if a tpmKey is not present then we are using an unsalted session */
     if (tpmKey == NULL) {
@@ -1051,7 +1051,6 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
             rc = NOT_COMPILED_IN;
             break;
     }
-    rc = NOT_COMPILED_IN;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     (void)dev;
@@ -1961,7 +1960,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* rsaPub,
     word32 rsaPubSz, word32 exponent, const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg, TPMA_OBJECT attributes,
-    TPM2B_DIGEST* seedValue)
+    byte* seed, word32 seedSz)
 {
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
@@ -2009,18 +2008,17 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     XMEMCPY(sens.sensitiveArea.sensitive.rsa.buffer, rsaPriv, rsaPrivSz);
 
     /* Use Seed */
-    if (seedValue != NULL) {
+    if (seed != NULL) {
         word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
-        if (seedValue->size != digestSz) {
+        if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
             printf("Import RSA seed size invalid! %d != %d\n",
-                seedValue->size, digestSz);
+                seedSz, digestSz);
         #endif
             return BAD_FUNC_ARG;
         }
-        sens.sensitiveArea.seedValue.size = seedValue->size;
-        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seedValue->buffer,
-            seedValue->size);
+        sens.sensitiveArea.seedValue.size = seedSz;
+        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
     }
 
     return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
@@ -2034,7 +2032,7 @@ int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
         TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
     return wolfTPM2_ImportRsaPrivateKeySeed(dev, parentKey, keyBlob,
         rsaPub, rsaPubSz, exponent, rsaPriv, rsaPrivSz, scheme, hashAlg,
-        attributes, NULL);
+        attributes, NULL, 0);
 }
 
 int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
@@ -2105,7 +2103,7 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz,
     const byte* eccPriv, word32 eccPrivSz,
-    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue)
+    TPMA_OBJECT attributes, byte* seed, word32 seedSz)
 {
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
@@ -2149,18 +2147,17 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     XMEMCPY(sens.sensitiveArea.sensitive.ecc.buffer, eccPriv, eccPrivSz);
 
     /* Use Seed */
-    if (seedValue != NULL) {
+    if (seed != NULL) {
         word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
-        if (seedValue->size != digestSz) {
+        if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
             printf("Import ECC seed size invalid! %d != %d\n",
-                seedValue->size, digestSz);
+                seedSz, digestSz);
         #endif
             return BAD_FUNC_ARG;
         }
-        sens.sensitiveArea.seedValue.size = seedValue->size;
-        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seedValue->buffer,
-            seedValue->size);
+        sens.sensitiveArea.seedValue.size = seedSz;
+        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
     }
 
     return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
@@ -2176,7 +2173,7 @@ int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKe
         TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
     return wolfTPM2_ImportEccPrivateKeySeed(dev, parentKey, keyBlob, curveId,
         eccPubX, eccPubXSz, eccPubY, eccPubYSz, eccPriv, eccPrivSz, attributes,
-        NULL);
+        NULL, 0);
 }
 
 int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
@@ -2394,7 +2391,7 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
     int encodingType, const char* input, word32 inSz, char* pass,
-    TPMA_OBJECT objectAttributes, TPM2B_DIGEST* seedValue)
+    TPMA_OBJECT objectAttributes, byte* seed, word32 seedSz)
 {
     int rc = 0;
     byte* derBuf;
@@ -2456,18 +2453,17 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         }
 
         /* Use Seed */
-        if (seedValue != NULL) {
+        if (seed != NULL) {
             word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
-            if (seedValue->size != digestSz) {
+            if (seedSz != digestSz) {
             #ifdef DEBUG_WOLFTPM
                 printf("Import RSA seed size invalid! %d != %d\n",
-                    seedValue->size, digestSz);
+                    seedSz, digestSz);
             #endif
                 return BAD_FUNC_ARG;
             }
-            sens.sensitiveArea.seedValue.size = seedValue->size;
-            XMEMCPY(sens.sensitiveArea.seedValue.buffer, seedValue->buffer,
-                seedValue->size);
+            sens.sensitiveArea.seedValue.size = seedSz;
+            XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
         }
 
         /* Import Private Key */
@@ -2543,7 +2539,7 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     (void)scheme;
     (void)hashAlg;
     return wolfTPM2_ImportPrivateKeyBuffer(dev, parentKey, TPM_ALG_RSA, keyBlob,
-        ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL);
+        ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL, 0);
 }
 
 #endif /* !WOLFTPM2_NO_HEAP && WOLFSSL_PEM_TO_DER */

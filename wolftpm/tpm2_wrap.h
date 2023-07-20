@@ -812,7 +812,8 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     \param rsaPrivSz integer value of word32 type, specifying the private material buffer size
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
     \param hashAlg integer value of TPMI_ALG_HASH type, specifying a supported TPM 2.0 hash algorithm
-    \param seedValue Optional (use NULL) or supply a custom seed for KDF (use 32 bytes for SHA2-256)
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
 
     \sa wolfTPM2_ImportRsaPrivateKey
     \sa wolfTPM2_LoadRsaPrivateKey
@@ -824,7 +825,7 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     const byte* rsaPub, word32 rsaPubSz, word32 exponent,
     const byte* rsaPriv, word32 rsaPrivSz,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg,
-    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue);
+    TPMA_OBJECT attributes, byte* seed, word32 seedSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -957,7 +958,8 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
     \param eccPubYSz integer value of word32 type, specifying the point Y buffer size
     \param eccPriv pointer to a byte buffer containing the private material
     \param eccPrivSz integer value of word32 type, specifying the private material size
-    \param seedValue Optional (use NULL) or supply a custom seed for KDF (use 32 bytes for SHA2-256)
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
 
     \sa wolfTPM2_ImportEccPrivateKey
     \sa wolfTPM2_LoadEccPrivateKey
@@ -969,7 +971,7 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev,
     const byte* eccPubX, word32 eccPubXSz,
     const byte* eccPubY, word32 eccPubYSz,
     const byte* eccPriv, word32 eccPrivSz,
-    TPMA_OBJECT attributes, TPM2B_DIGEST* seedValue);
+    TPMA_OBJECT attributes, byte* seed, word32 seedSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1133,12 +1135,13 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
     \param inSz length of the input pem buffer
     \param pass optional password of the key
     \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
-    \param seedValue Optional (use NULL) or supply a custom seed for KDF (use 32 bytes for SHA2-256)
+    \param seedSz Optional (use NULL) or supply a custom seed for KDF
+    \param seed Size of the seed (use 32 bytes for SHA2-256)
 */
 WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
     int encodingType, const char* input, word32 inSz, char* pass,
-    TPMA_OBJECT objectAttributes, TPM2B_DIGEST* seedValue);
+    TPMA_OBJECT objectAttributes, byte* seed, word32 seedSz);
 
 #ifndef NO_RSA
 /*!

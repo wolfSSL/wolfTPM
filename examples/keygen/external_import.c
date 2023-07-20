@@ -141,7 +141,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
 
     rc = wolfTPM2_ImportPrivateKeyBuffer(&dev, &storage, TPM_ALG_RSA, key2,
         ENCODING_TYPE_PEM, extRSAPrivatePem, (word32)strlen(extRSAPrivatePem),
-        NULL, attributes, &seedValue);
+        NULL, attributes, seedValue.buffer, seedValue.size);
     if (rc != 0) {
         printf("Failed to wolfTPM2_RsaPrivateKeyImportPem\n");
         goto exit;
