@@ -150,7 +150,7 @@ else()
         # For support with vcpkg
         find_package(wolfssl CONFIG REQUIRED)
         if (wolfssl_FOUND)
-            target_link_libraries(wolftpm PRIVATE wolfssl::wolfssl)
+            target_link_libraries(wolftpm PUBLIC wolfssl::wolfssl)
         else()
             list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WOLFCRYPT")
         endif()
