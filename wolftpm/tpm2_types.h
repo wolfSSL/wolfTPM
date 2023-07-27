@@ -127,6 +127,10 @@ typedef int64_t  INT64;
     #include <string.h>
     #include <arpa/inet.h>
 
+    #ifdef WOLFTPM_USER_SETTINGS
+        #include "user_settings.h"
+    #endif
+
     typedef uint8_t  byte;
     typedef uint16_t word16;
     typedef uint32_t word32;
