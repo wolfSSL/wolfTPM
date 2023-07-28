@@ -51,6 +51,17 @@ Running:
 
 The rm switch is optional and remove the cache file NVChip. Alternately you can `rm NVChip`
 
+### ms-tpm-20-ref
+
+```sh
+git clone https://github.com/microsoft/ms-tpm-20-ref
+cd ms-tpm-20-ref
+./bootstrap
+./configure
+make
+./Simulator/src/tpm2-simulator
+```
+
 ### swtpm
 
 Build libtpms
