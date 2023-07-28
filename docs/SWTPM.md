@@ -4,6 +4,8 @@ wolfTPM is to be able to interface with software TPM (SW TPM) interfaces defined
 
 The SWTPM interface is not compatible with TIS or devtpm (/dev/tpm0). Transport is a socket connection by default, but can also be a UART.
 
+This implementation only uses the TPM command interface typically on port 2321. It does not support the Platform interface typically on port 2322.
+
 Software TPM implementations tested:
 * https://github.com/kgoldman/ibmswtpm2 or https://sourceforge.net/projects/ibmswtpm2/files/
 * https://github.com/microsoft/ms-tpm-20-ref
@@ -31,7 +33,7 @@ make
 * `TPM2_SWTPM_HOST`: The host TPM address (default=localhost)
 * `TPM2_SWTPM_PORT`: The socket port (default=2321)
 * `WOLFTPM_SWTPM_UART`: Use UART transport (no TIS layer)
-* `WOLFTPM_SWTPM_UARTFLUSH`: Force a read flush on connect.
+
 
 ## SWTPM simulator setup
 
