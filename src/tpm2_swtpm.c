@@ -35,23 +35,49 @@
 #include <wolftpm/tpm2_types.h>
 
 #ifdef WOLFTPM_SWTPM
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_packet.h>
 
 #include <unistd.h>
 #include <errno.h>
-#include <string.h>
-#include <stdio.h>
+#include <string.h>                 /* necessary for memset */
+#include <stdio.h>                  /* standard in/out procedures */
+#include <stdlib.h>                 /* defines system calls */
 
-#include <wolftpm/tpm2_socket.h>
+#ifdef WOLFTPM_SWTPM_UART
+    #define _XOPEN_SOURCE 600
+    #include <netdb.h>
+    #include <sys/socket.h>         /* used for all socket calls */
+    #include <netinet/in.h>         /* used for sockaddr_in6 */
+    #include <arpa/inet.h>
+    #include <fcntl.h>
+    #include <sys/stat.h>
+    #include <termios.h>
+    #include <signal.h>
+    #include <errno.h>
 
-#ifndef TPM2_SWTPM_HOST
-#define TPM2_SWTPM_HOST         "localhost"
-#endif
-#ifndef TPM2_SWTPM_PORT
-#define TPM2_SWTPM_PORT         "2321"
-#endif
+    #ifndef TPM2_SWTPM_HOST
+        #ifdef __MACH__
+            #define TPM2_SWTPM_HOST "/dev/cu.usbserial-0001"
+        #else
+            #define TPM2_SWTPM_HOST "/dev/ttyUSB0"
+        #endif
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+    #define TPM2_SWTPM_PORT         115200
+    #endif
+#else
+    #include <wolftpm/tpm2_socket.h>
+
+    #ifndef TPM2_SWTPM_HOST
+    #define TPM2_SWTPM_HOST         "localhost"
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+    #define TPM2_SWTPM_PORT         "2321"
+    #endif
+#endif /* WOLFTPM_SWTPM_UART */
 
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 {
@@ -91,7 +117,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     while (bytes_remaining > 0) {
         wrc = read(ctx->tcpCtx.fd, ptr, bytes_remaining);
         if (wrc <= 0) {
-            #ifdef DEBUG_WOLFTPM
+        #ifdef DEBUG_WOLFTPM
             if (wrc == 0) {
                 printf("Failed to read from TPM socket: EOF\n");
             }
@@ -99,24 +125,72 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
                 printf("Failed to read from TPM socket %d, got errno %d"
                        " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
             }
-            #endif
-            rc = TPM_RC_FAILURE;
+        #endif
+            rc = SOCKET_ERROR_E;
             break;
         }
 
         bytes_remaining -= wrc;
         ptr += wrc;
 
-        #ifdef WOLFTPM_DEBUG_VERBOSE
+    #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("TPM socket received %zd waiting for %zu more\n",
                wrc, bytes_remaining);
-        #endif
+    #endif
     }
 
     return rc;
 }
 
-static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
+#ifdef WOLFTPM_SWTPM_UART
+static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
+{
+    struct termios tty;
+#ifdef WOLFTPM_SWTPM_UARTFLUSH
+    byte readBuf[100];
+#endif
+    int fd;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Open UART file descriptor */
+    fd = open(uartDev, O_RDWR | O_NOCTTY);
+    if (fd < 0) {
+#ifdef DEBUG_WOLFTPM
+        printf("Error opening %s: Error %i (%s)\n",
+            uartDev, errno, strerror(errno));
+#endif
+        return SOCKET_ERROR_E;
+    }
+    tcgetattr(fd, &tty);
+    cfsetospeed(&tty, baud);
+    cfsetispeed(&tty, baud);
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | (CS8);
+    tty.c_iflag &= ~(IGNBRK | IXON | IXOFF | IXANY| INLCR | ICRNL);
+    tty.c_oflag &= ~OPOST;
+    tty.c_oflag &= ~(ONLCR|OCRNL);
+    tty.c_cflag &= ~(PARENB | PARODD | CSTOPB);
+    tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    tty.c_iflag &= ~ISTRIP;
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 5;
+    tcsetattr(fd, TCSANOW, &tty);
+
+#ifdef WOLFTPM_SWTPM_UARTFLUSH
+    /* Flush any data in the RX buffer */
+    (void)read(fd, readBuf, sizeof(readBuf));
+    /* Ignore RX error on flush */
+#endif
+
+    /* save file descriptor to context */
+    ctx->tcpCtx.fd = fd;
+
+    return TPM_RC_SUCCESS;
+}
+#else
+static int SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = TPM_RC_FAILURE;
     struct addrinfo hints;
@@ -163,6 +237,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
     return rc;
 }
+#endif /* WOLFTPM_SWTPM_UART */
 
 static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 {
@@ -173,22 +248,22 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
         return BAD_FUNC_ARG;
     }
 
-    /* end swtpm session */
+    /* end software TPM session */
     tss_cmd = TPM2_Packet_SwapU32(TPM_SESSION_END);
     rc = SwTpmTransmit(ctx, &tss_cmd, sizeof(uint32_t));
-    #ifdef WOLFTPM_DEBUG_VERBOSE
+#ifdef WOLFTPM_DEBUG_VERBOSE
     if (rc != TPM_RC_SUCCESS) {
         printf("Failed to transmit SESSION_END\n");
     }
-    #endif
+#endif
 
     if (0 != close(ctx->tcpCtx.fd)) {
         rc = TPM_RC_FAILURE;
 
-        #ifdef WOLFTPM_DEBUG_VERBOSE
+    #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Failed to close fd %d, got errno %d ="
                "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
-        #endif
+    #endif
     }
 
     ctx->tcpCtx.fd = -1;
@@ -246,11 +321,11 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = TPM2_Packet_SwapU32(tss_word);
         if (rspSz > packet->size) {
-            #ifdef WOLFTPM_DEBUG_VERBOSE
+        #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Response size(%d) larger than command buffer(%d)\n",
                    rspSz, packet->pos);
-            #endif
-            rc = TPM_RC_FAILURE;
+        #endif
+            rc = SOCKET_ERROR_E;
         }
     }
 
@@ -265,13 +340,12 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         tss_word = TPM2_Packet_SwapU32(tss_word);
-        #ifdef WOLFTPM_DEBUG
+    #ifdef WOLFTPM_DEBUG
         if (tss_word != 0) {
             printf("SWTPM ack %d\n", tss_word);
         }
-        #endif
+    #endif
     }
-
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
