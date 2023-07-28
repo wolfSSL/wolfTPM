@@ -68,6 +68,9 @@
     #ifndef TPM2_SWTPM_PORT
     #define TPM2_SWTPM_PORT         115200
     #endif
+    #ifndef TPM2_TIMEOUT_SECONDS
+    #define TPM2_TIMEOUT_SECONDS    60
+    #endif
 #else
     #include <wolftpm/tpm2_socket.h>
 
@@ -77,7 +80,11 @@
     #ifndef TPM2_SWTPM_PORT
     #define TPM2_SWTPM_PORT         "2321"
     #endif
+    #ifndef TPM2_TIMEOUT_SECONDS
+    #define TPM2_TIMEOUT_SECONDS    10
+    #endif
 #endif /* WOLFTPM_SWTPM_UART */
+
 
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 {
@@ -87,6 +94,11 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef DEBUG_SWTPM_IO
+    printf("Write %zd\n", bufSz);
+    TPM2_PrintBin(buffer, (word32)bufSz);
+#endif
 
     wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
     if (bufSz != wrc) {
@@ -103,23 +115,41 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     return rc;
 }
 
-static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
+static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 {
-    TPM_RC rc = TPM_RC_SUCCESS;
-    ssize_t wrc = 0;
-    size_t bytes_remaining = rxSz;
+    int rc;
+    size_t remain;
     char* ptr = (char*)buffer;
+    fd_set rfds;
+    struct timeval tv = { TPM2_TIMEOUT_SECONDS, 0};
 
     if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    while (bytes_remaining > 0) {
-        wrc = read(ctx->tcpCtx.fd, ptr, bytes_remaining);
-        if (wrc <= 0) {
+    FD_ZERO(&rfds);
+    FD_SET(ctx->tcpCtx.fd, &rfds);
+
+    remain = rxSz;
+    while (remain > 0) {
+        /* use select to wait for data */
+        rc = select(ctx->tcpCtx.fd + 1, &rfds, NULL, NULL, &tv);
+        if (rc == 0) {
+            rc = SOCKET_ERROR_E; /* timeout */
+            break;
+        }
+        rc = (int)read(ctx->tcpCtx.fd, ptr, remain);
+#ifdef DEBUG_SWTPM_IO
+        printf("Read asked %zd, got %d\n", remain, rc);
+#endif
+        if (rc <= 0) {
         #ifdef DEBUG_WOLFTPM
-            if (wrc == 0) {
+            if (rc == 0) {
+            #ifdef WOLFTPM_SWTPM_UART
+                continue; /* keep trying */
+            #else
                 printf("Failed to read from TPM socket: EOF\n");
+            #endif
             }
             else {
                 printf("Failed to read from TPM socket %d, got errno %d"
@@ -130,13 +160,19 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
             break;
         }
 
-        bytes_remaining -= wrc;
-        ptr += wrc;
+#ifdef DEBUG_SWTPM_IO
+        TPM2_PrintBin((const byte*)ptr, rc);
+#endif
+        remain -= rc;
+        ptr += rc;
 
     #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("TPM socket received %zd waiting for %zu more\n",
-               wrc, bytes_remaining);
+        printf("TPM socket received %d waiting for %zu more\n",
+               rc, remain);
     #endif
+    }
+    if (remain == 0) {
+        rc = TPM_RC_SUCCESS;
     }
 
     return rc;
@@ -146,9 +182,6 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
 {
     struct termios tty;
-#ifdef WOLFTPM_SWTPM_UARTFLUSH
-    byte readBuf[100];
-#endif
     int fd;
 
     if (ctx == NULL) {
@@ -178,11 +211,8 @@ static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
     tty.c_cc[VTIME] = 5;
     tcsetattr(fd, TCSANOW, &tty);
 
-#ifdef WOLFTPM_SWTPM_UARTFLUSH
     /* Flush any data in the RX buffer */
-    (void)read(fd, readBuf, sizeof(readBuf));
-    /* Ignore RX error on flush */
-#endif
+    tcflush(fd, TCIOFLUSH);
 
     /* save file descriptor to context */
     ctx->tcpCtx.fd = fd;
