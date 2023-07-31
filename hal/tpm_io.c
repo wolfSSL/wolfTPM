@@ -152,11 +152,14 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
     txBuf[3] = (addr)     & 0xFF;
     if (isRead) {
         txBuf[0] = TPM_TIS_READ | ((size & 0xFF) - 1);
-        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, size);
+        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0,
+            sizeof(txBuf) - TPM_TIS_HEADER_SZ);
     }
     else {
         txBuf[0] = TPM_TIS_WRITE | ((size & 0xFF) - 1);
         XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], buf, size);
+        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + size], 0,
+            sizeof(txBuf) - TPM_TIS_HEADER_SZ - size);
     }
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
@@ -166,7 +169,6 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
         XMEMCPY(buf, &rxBuf[TPM_TIS_HEADER_SZ], size);
     }
 #endif
-
 
 #ifdef WOLFTPM_DEBUG_IO
     if (isRead) {
