@@ -29,7 +29,11 @@
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/keygen/keygen.h>
+#include <examples/tpm_test_keys.h>
 #include <hal/tpm_io.h>
+
+/* For testing */
+#define USE_TEST_SEED /* use fixed seed, not random */
 
 /* from certs/example-rsa-key.pem */
 const char* extRSAPrivatePem =
@@ -69,6 +73,8 @@ static void usage(void)
     printf("Primary Key Type:\n");
     printf("\t-rsa: Use RSA SRK (DEFAULT)\n");
     printf("\t-ecc: Use ECC SRK\n");
+    printf("\t-load: Load the keyblob.bin to 3rd level key "
+        "(otherwise create and save)\n");
 }
 
 int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
@@ -83,6 +89,10 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate3;
     TPMA_OBJECT attributes;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    const char* keyblobFile = "keyblob.bin";
+#endif
+    int loadKeyBlob = 0;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -98,6 +108,9 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
+        }
+        else if (XSTRCMP(argv[argc-1], "-load") == 0) {
+            loadKeyBlob = 1;
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -133,11 +146,21 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     /* Generate random seed */
     XMEMSET(&seedValue, 0, sizeof(seedValue));
     seedValue.size = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+#ifndef USE_TEST_SEED
     TPM2_GetNonce(seedValue.buffer, seedValue.size);
-#ifdef DEBUG_WOLFTPM
+#else
+    {
+        const byte custSeed[] = {
+            0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
+            0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
+        };
+        XMEMCPY(seedValue.buffer, custSeed, seedValue.size);
+    }
+#endif
     printf("Import RSA Seed %d\n", seedValue.size);
     TPM2_PrintBin(seedValue.buffer, seedValue.size);
-#endif
 
     rc = wolfTPM2_ImportPrivateKeyBuffer(&dev, &storage, TPM_ALG_RSA, key2,
         ENCODING_TYPE_PEM, extRSAPrivatePem, (word32)strlen(extRSAPrivatePem),
@@ -154,25 +177,45 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     }
 
     /* The 3rd level RSA key */
-    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate3,
-        TPMA_OBJECT_sensitiveDataOrigin |
-        TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_sign |
-        TPMA_OBJECT_noDA);
-    if (rc != 0) {
-        printf("Failed to wolfTPM2_GetKeyTemplate_RSA\n");
-        goto exit;
+    if (loadKeyBlob) {
+        rc = readKeyBlob(keyblobFile, rsaKey3);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Error reading keyblob.bin: %d\n", rc);
+        }
     }
-    rc = wolfTPM2_CreateKey(&dev, rsaKey3, &key2->handle,
-        &publicTemplate3, NULL, 0);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_CreateKey failed for the 3rd level key: %d\n", rc);
-        goto exit;
+    else { /* create key and save as keyblob.bin */
+        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate3,
+            TPMA_OBJECT_sensitiveDataOrigin |
+            TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_sign |
+            TPMA_OBJECT_noDA);
+        if (rc != 0) {
+            printf("Failed to wolfTPM2_GetKeyTemplate_RSA\n");
+            goto exit;
+        }
+        rc = wolfTPM2_CreateKey(&dev, rsaKey3, &key2->handle,
+            &publicTemplate3, NULL, 0);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_CreateKey failed for the 3rd level key: %d\n", rc);
+            goto exit;
+        }
+
+        printf("Key Public Blob %d\n", rsaKey3->pub.size);
+        TPM2_PrintBin((const byte*)&rsaKey3->pub.publicArea, rsaKey3->pub.size);
+        printf("Key Private Blob %d\n", rsaKey3->priv.size);
+        TPM2_PrintBin(rsaKey3->priv.buffer, rsaKey3->priv.size);
+
+        /* Save key as encrypted blob to the disk */
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+        rc = writeKeyBlob(keyblobFile, rsaKey3);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Error saving keyblob.bin: %d\n", rc);
+        }
+    #endif
     }
 
     /* load the rsa key */
     rc = wolfTPM2_LoadKey(&dev, rsaKey3, &key2->handle);
-
     if (rc != 0) {
         printf("Failed to wolfTPM2_LoadKey %d\n", rc);
         goto exit;
