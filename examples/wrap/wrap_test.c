@@ -947,6 +947,15 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     printf("PCR Test pass\n");
 
+    /*------------------------------------------------------------------------*/
+    /* OTHER TESTS */
+    /*------------------------------------------------------------------------*/
+    /* Test not enabled by default */
+#if defined(WOLFTPM_SWTPM) && defined(WOLFTPM_TEST_CHANGE_PLATFORM_AUTH)
+    rc = wolfTPM2_ChangePlatformAuth(&dev, &tpmSession);
+    if (rc != 0) goto exit;
+#endif
+
 
 exit:
 

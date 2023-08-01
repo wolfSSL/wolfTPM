@@ -2705,6 +2705,26 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif /* WOLFTPM2_CERT_GEN */
 
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper to set the platform heirarchy authentication value to random.
+        Setting the platform auth to random value is used to prevent application
+        from being able to use platform hierarchy. This is defined in section 10
+        of the TCG PC Client Platform specification.
+
+    \return Success: Positive integer (size of the output)
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session the current session, a session is required to protect the new platform auth
+
+    \sa TPM2_HierarchyChangeAuth
+*/
+WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session);
+
+
+
 /* moved to tpm.h native code. macros here for backwards compatibility */
 #define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel
 #define wolfTPM2_GetAlgName   TPM2_GetAlgName

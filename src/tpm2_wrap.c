@@ -5778,6 +5778,55 @@ int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif /* WOLFTPM2_CERT_GEN */
 
 
+int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
+{
+    int rc;
+    HierarchyChangeAuth_In in;
+
+    if (dev == NULL || session == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = TPM_RH_PLATFORM;
+
+    /* force parameter encryption for the new auth value */
+    rc = wolfTPM2_SetAuthSession(dev, 1, session, (TPMA_SESSION_decrypt |
+        TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+    if (rc == 0) {
+        /* TPM 2.0 PCR's are typically SHA-1 and SHA2-256 */
+        in.newAuth.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+        if (in.newAuth.size <= 0) {
+            rc = BAD_FUNC_ARG;
+        }
+    }
+    if (rc == 0) {
+        rc = TPM2_GetNonce(in.newAuth.buffer, in.newAuth.size);
+    }
+    if (rc == 0) {
+        rc = TPM2_HierarchyChangeAuth(&in);
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc == 0) {
+        printf("Platform auth set to %d bytes of random\n", in.newAuth.size);
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("\tAuth Sz %d\n", in.newAuth.size);
+            TPM2_PrintBin(in.newAuth.buffer, in.newAuth.size);
+        #endif
+    }
+    else {
+        printf("Error %d setting platform auth! %s\n",
+            rc, wolfTPM2_GetRCString(rc));
+    }
+#endif
+    /* ensure the random secret is not left in stack */
+    TPM2_ForceZero(in.newAuth.buffer, in.newAuth.size);
+    return rc;
+}
+
+
+
+
 static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in)
 {
     if (out == NULL || in == NULL)
@@ -5985,7 +6034,6 @@ static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
         out->nvIndex = in->nvIndex;
     }
 }
-
 
 /******************************************************************************/
 /* --- END Utility Functions -- */
@@ -6583,6 +6631,11 @@ int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId)
 /******************************************************************************/
 
 #endif /* WOLFTPM_CRYPTOCB */
+
+
+/******************************************************************************/
+/* --- BEGIN Policy Support -- */
+/******************************************************************************/
 
 int wolfTPM2_PolicyRestart(TPM_HANDLE sessionHandle)
 {
@@ -7464,5 +7517,9 @@ int wolfTPM2_UnsealWithAuthSigNV(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
 
     return rc;
 }
+
+/******************************************************************************/
+/* --- END Policy Support -- */
+/******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

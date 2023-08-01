@@ -6073,6 +6073,14 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
     return TPM_RC_SUCCESS;
 }
 
+/* This routine fills the first len bytes of the memory area pointed by mem
+   with zeros. It ensures compiler optimizations doesn't skip it  */
+void TPM2_ForceZero(void* mem, word32 len)
+{
+    volatile byte* z = (volatile byte*)mem;
+    while (len--) *z++ = 0;
+}
+
 #ifdef DEBUG_WOLFTPM
 #define LINE_LEN 16
 void TPM2_PrintBin(const byte* buffer, word32 length)

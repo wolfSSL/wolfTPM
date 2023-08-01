@@ -3613,6 +3613,11 @@ typedef enum {
 */
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 
+
+/* Internal helper API for ensuring memory is forcefully zero'd */
+WOLFTPM_LOCAL void TPM2_ForceZero(void* mem, word32 len);
+
+
 #ifdef DEBUG_WOLFTPM
 /*!
     \ingroup TPM2_Proprietary
