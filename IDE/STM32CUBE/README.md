@@ -12,9 +12,11 @@ The wolfTPM Cube Pack can be found [here](https://www.wolfssl.com/files/ide/I-CU
 
 5. In the `Connectivity` category, find and enable SPI for you project.
 
-6. Save your changes and select yes to the prompt asking about generating code.
+6. In the `Software Packs` configuration category, open the wolfTPM pack and set `Enable wolfCrypt` parameter to True.
 
-7. Build the project and run the unit tests.
+7. Save your changes and select yes to the prompt asking about generating code.
+
+8. Build the project and run the unit tests.
 
 ## Notes
 - Make sure to make [these changes](https://github.com/wolfSSL/wolfssl/tree/master/IDE/STM32Cube#stm32-printf) to redirect the printf's to the UART.
