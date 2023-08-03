@@ -1,4 +1,4 @@
-/* wolfssh_test.h
+/* wolftpm_test.h
  *
  * Copyright (C) 2014-2023 wolfSSL Inc.
  *
@@ -24,8 +24,6 @@
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
-
-int TPM2_Wrapper_Test(void* userCtx);
 
 #ifndef SINGLE_THREADED
 #include <cmsis_os.h>

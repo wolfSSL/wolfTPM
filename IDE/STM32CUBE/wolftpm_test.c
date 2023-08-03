@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <string.h>
 
+extern int TPM2_Wrapper_Test(void* userCtx);
 
 #ifdef CMSIS_OS2_H_
 void wolfTPMTest(void* argument)
@@ -40,9 +41,6 @@ void wolfTPMTest(const void* argument)
 #endif
 {
     int ret = 0;
-#if 0
-    wolfSSL_Debugging_ON();
-#endif
 
     printf("Running wolfTPM Wrap Test...\n");
 
