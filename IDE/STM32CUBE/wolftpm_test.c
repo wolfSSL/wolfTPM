@@ -44,12 +44,11 @@ void wolfTPMTest(const void* argument)
     wolfSSL_Debugging_ON();
 #endif
 
-    printf("Running wolfTPM Tests...\n");
+    printf("Running wolfTPM Wrap Test...\n");
 
-    /* Run wolfTPM unit tests */
-    if (unit_tests(0, NULL))
-        ret = -1;
+    /* Run wolfTPM wrap test */
+    ret = TPM2_Wrapper_Test(NULL);
 
-    printf("wolfTPM unit test: Return code %d\n", ret);
+    printf("wolfTPM wrap test: Return code %d\n", ret);
 
 }

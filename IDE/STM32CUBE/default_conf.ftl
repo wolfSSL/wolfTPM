@@ -73,12 +73,12 @@ extern ${variable.value} ${variable.name};
 /* ------------------------------------------------------------------------- */
 #undef WOLFTPM2_NO_WOLFCRYPT
 #if defined(WOLFTPM_CONF_WOLFCRYPT) && WOLFTPM_CONF_WOLFCRYPT == 0
-	#define WOLFTPM2_NO_WOLFCRYPT
+    #define WOLFTPM2_NO_WOLFCRYPT
 #endif
 
 #undef USE_HW_SPI_CS
 #if defined(WOLFTPM_CONF_HW_SPI) && WOLFTPM_CONF_HW_SPI == 1
-	#define USE_HW_SPI_CS
+    #define USE_HW_SPI_CS
 #endif
 
 /* ------------------------------------------------------------------------- */

@@ -25,7 +25,7 @@
     #include <config.h>
 #endif
 
-int unit_tests(int argc, char *argv[]);
+int TPM2_Wrapper_Test(void* userCtx);
 
 #ifndef SINGLE_THREADED
 #include <cmsis_os.h>
