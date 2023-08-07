@@ -220,7 +220,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 }
             }
 
-        #ifndef WOLFTPM2_NO_WOLFCRYPT
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
             rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
             rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
@@ -251,7 +251,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #endif
                 return rc;
             }
-        #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+        #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
         }
 
         /* Replace auth in session */
@@ -322,7 +322,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     authRsp.nonce.size);
             }
 
-        #ifndef WOLFTPM2_NO_WOLFCRYPT
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             if (authRsp.hmac.size > 0) {
                 TPM2B_DIGEST hash;
                 TPM2B_AUTH hmac;
@@ -359,7 +359,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
         #else
             (void)cmdCode;
-        #endif
+        #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
 
             /* Handle session request for decryption */
             /* If the response supports decryption */
