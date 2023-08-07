@@ -1110,13 +1110,13 @@ WOLFTPM_API int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out);
     \param name pointer to a TPM2B_NAME structure
     \param parentKey pointer to a WOLFTPM2_KEY structure, specifying a parentKey, if it exists
     \param sym pointer to a structure of TPMT_SYM_DEF_OBJECT type
-    \param symSeed pointer to a structure of TPM2B_ENCRYPTED_SECRET type
+    \param symSeed pointer to a structure of derived secret (RSA=random, ECC=ECDHE)
 
     \sa wolfTPM2_ImportPrivateKey
 */
 WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
-    TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed);
+    TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
@@ -2731,10 +2731,9 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
-/* for encrypting salt used in auth sessions and external key import */
-WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
-    const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
-    const char* label);
+/* for encrypting secrets (like salt) used in auth sessions and external key import */
+WOLFTPM_LOCAL int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA *secret, TPM2B_ENCRYPTED_SECRET *encSecret, const char* label);
 
 
 #ifdef WOLFTPM_CRYPTOCB

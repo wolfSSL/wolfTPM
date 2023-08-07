@@ -159,7 +159,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         XMEMCPY(seedValue.buffer, custSeed, seedValue.size);
     }
 #endif
-    printf("Import RSA Seed %d\n", seedValue.size);
+    printf("Import Seed %d\n", seedValue.size);
     TPM2_PrintBin(seedValue.buffer, seedValue.size);
 
     rc = wolfTPM2_ImportPrivateKeyBuffer(&dev, &storage, TPM_ALG_RSA, key2,

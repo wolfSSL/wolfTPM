@@ -940,23 +940,229 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 #endif
 }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(WC_NO_RNG)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+/* The KDF for producing a symmetric key.
+ * See TPM 2.0 Part 1 specification (11.4.9.3)
+ */
+static int TPM2_KDFe(
+    TPM_ALG_ID        hashAlg,    /* IN: hash algorithm used */
+    const TPM2B_DATA *Z,          /* IN: x coordinate of shared secret */
+    const char       *label,      /* IN: a 0-byte terminated label used in KDF */
+    const TPM2B_DATA *partyUInfo, /* IN: x coordinate of our public key */
+    const TPM2B_DATA *partyVInfo, /* IN: x coordinate of peer's public key */
+    BYTE             *key,        /* OUT: key buffer */
+    UINT32           keySz        /* IN: size of generated key in bytes */
+)
+{
+    int ret, hashType;
+    wc_HashAlg hash_ctx;
+    word32 counter = 0;
+    int hLen, copyLen, lLen = 0;
+    byte uint32Buf[sizeof(UINT32)];
+    UINT32 pos;
+    BYTE* keyStream = key;
+    byte hash[WC_MAX_DIGEST_SIZE];
+
+    if (key == NULL || Z == NULL)
+        return BAD_FUNC_ARG;
+
+    hashType = TPM2_GetHashType(hashAlg);
+    if (hashType == WC_HASH_TYPE_NONE)
+        return NOT_COMPILED_IN;
+
+    hLen = TPM2_GetHashDigestSize(hashAlg);
+    if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
+        return NOT_COMPILED_IN;
+
+    /* get label length if provided, including null termination */
+    if (label != NULL) {
+        lLen = (int)XSTRLEN(label) + 1;
+    }
+
+    ret = wc_HashInit(&hash_ctx, hashType);
+    if (ret != 0)
+        return ret;
+
+    /* generate required bytes - blocks sized digest */
+    for (pos = 0; pos < keySz; pos += hLen) {
+        /* KDFe counter starts at 1 */
+        counter++;
+        copyLen = hLen;
+
+        /* add counter */
+        TPM2_Packet_U32ToByteArray(counter, uint32Buf);
+        ret = wc_HashUpdate(&hash_ctx, hashType, uint32Buf,
+            (word32)sizeof(uint32Buf));
+        if (ret != 0)
+            goto exit;
+
+        /* add Z */
+        ret = wc_HashUpdate(&hash_ctx, hashType, Z->buffer, Z->size);
+
+        /* add label */
+        if (label != NULL) {
+            ret = wc_HashUpdate(&hash_ctx, hashType, (byte*)label, lLen);
+            if (ret != 0)
+                goto exit;
+        }
+
+        /* add partyUInfo */
+        if (partyUInfo != NULL && partyUInfo->size > 0) {
+            ret = wc_HashUpdate(&hash_ctx, hashType, partyUInfo->buffer,
+                partyUInfo->size);
+            if (ret != 0)
+                goto exit;
+        }
+
+        /* add partyVInfo */
+        if (partyVInfo != NULL && partyVInfo->size > 0) {
+            ret = wc_HashUpdate(&hash_ctx, hashType, partyVInfo->buffer,
+                partyVInfo->size);
+            if (ret != 0)
+                goto exit;
+        }
+
+        /* get result */
+        ret = wc_HashFinal(&hash_ctx, hashType, hash);
+        if (ret != 0)
+            goto exit;
+
+        if ((UINT32)hLen > keySz - pos) {
+          copyLen = keySz - pos;
+        }
+
+        XMEMCPY(keyStream, hash, copyLen);
+        keyStream += copyLen;
+    }
+    ret = keySz;
+
+exit:
+    wc_HashFree(&hash_ctx, hashType);
+
+    /* return length rounded up to nearest 8 multiple */
+    return ret;
+}
+
 /* returns both the plaintext and encrypted salt, based on the salt public key */
-static int wolfTPM2_EncryptSalt_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
-    const TPM2B_DIGEST *salt, TPM2B_ENCRYPTED_SECRET *encSalt,
+static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
 {
     int rc;
     WC_RNG rng;
-    enum wc_HashType hashType;
-    int mgf;
-    RsaKey rsaKey;
-    int devId;
+    ecc_key eccKeyPriv, eccKeyPub;
     const TPMT_PUBLIC *publicArea;
+    TPM2B_ECC_POINT pubPoint, secretPoint;
+    ecc_point* r = NULL;
+    mp_int prime, a;
 
-    if (dev == NULL || salt == NULL || encSalt == NULL) {
-        return BAD_FUNC_ARG;
+    publicArea = &tpmKey->pub.publicArea;
+    XMEMSET(&rng, 0, sizeof(rng));
+    XMEMSET(&eccKeyPub, 0, sizeof(eccKeyPub));
+    XMEMSET(&eccKeyPriv, 0, sizeof(eccKeyPriv));
+    XMEMSET(&pubPoint, 0, sizeof(pubPoint));
+    XMEMSET(&secretPoint, 0, sizeof(secretPoint));
+
+    rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_ecc_init_ex(&eccKeyPub, NULL, INVALID_DEVID);
     }
+    if (rc == 0) {
+        rc = wc_ecc_init_ex(&eccKeyPriv, NULL, INVALID_DEVID);
+    }
+#ifdef ECC_TIMING_RESISTANT
+    if (rc == 0) {
+        wc_ecc_set_rng(&eccKeyPriv, &rng);
+        wc_ecc_set_rng(&eccKeyPub, &rng);
+    }
+#endif
+    if (rc == 0) {
+        /* import peer public key */
+        rc = wolfTPM2_EccKey_TpmToWolf(dev, (WOLFTPM2_KEY*)tpmKey, &eccKeyPub);
+    }
+    if (rc == 0) {
+        /* create local private key */
+        rc = wc_ecc_make_key_ex(&rng, 0, &eccKeyPriv,
+            TPM2_GetWolfCurve(publicArea->parameters.eccDetail.curveID));
+    }
+    if (rc == 0) {
+        /* export private's public point as data */
+        rc = wolfTPM2_EccKey_WolfToPubPoint(dev, &eccKeyPriv, &pubPoint);
+    }
+    if (rc == 0) {
+        /* Export public point x/y into secret buffer for peer */
+        TPM2_Packet packet;
+        XMEMSET(&packet, 0, sizeof(packet));
+        packet.buf = secret->secret;
+        packet.size = sizeof(secret->secret);
+        TPM2_Packet_AppendEccPoint(&packet, &pubPoint.point);
+        secret->size = packet.pos;
+    }
+    if (rc == 0) {
+        r = wc_ecc_new_point();
+        if (r == NULL)
+            rc = MEMORY_E;
+    }
+    if (rc == 0) {
+        mp_init(&prime);
+        mp_init(&a);
+        mp_read_radix(&prime, eccKeyPriv.dp->prime, MP_RADIX_HEX);
+        mp_read_radix(&a, eccKeyPriv.dp->Af, MP_RADIX_HEX);
+
+        /* perform point multiply */
+        rc = wc_ecc_mulmod(wc_ecc_key_get_priv(&eccKeyPriv), &eccKeyPub.pubkey,
+            r, &a, &prime, 1);
+    }
+    if (rc == 0) {
+        /* export shared secret x */
+        secretPoint.point.x.size = mp_unsigned_bin_size(r->x);
+        mp_to_unsigned_bin(r->x, secretPoint.point.x.buffer);
+
+        /* set size encryption key */
+        data->size = TPM2_GetHashDigestSize(publicArea->nameAlg);
+
+        rc = TPM2_KDFe(
+            publicArea->nameAlg,
+            (const TPM2B_DATA*)&secretPoint.point.x,
+            label,
+            (const TPM2B_DATA*)&pubPoint.point.x,
+            (const TPM2B_DATA*)&publicArea->unique.ecc.x,
+            data->buffer,
+            data->size
+        );
+    }
+
+    if (r != NULL) {
+        mp_free(&a);
+        mp_free(&prime);
+        wc_ecc_del_point(r);
+    }
+    wc_ecc_free(&eccKeyPub);
+    wc_ecc_free(&eccKeyPriv);
+    wc_FreeRng(&rng);
+
+    if (rc == data->size) {
+        rc = 0; /* success */
+    }
+    else {
+        rc = BUFFER_E;
+    }
+
+    return rc;
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !WC_NO_RNG */
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(WC_NO_RNG)
+/* returns both the plaintext and encrypted salt, based on the salt public key */
+static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret, const char* label)
+{
+    int rc, mgf;
+    enum wc_HashType hashType;
+    WC_RNG rng;
+    RsaKey rsaKey;
+    const TPMT_PUBLIC *publicArea;
 
     publicArea = &tpmKey->pub.publicArea;
     if (publicArea->nameAlg == TPM_ALG_SHA1) {
@@ -971,29 +1177,33 @@ static int wolfTPM2_EncryptSalt_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKe
         return NOT_COMPILED_IN;
     }
 
-    devId = wolfTPM2_GetTpmDevId(dev);
-    rc = wc_InitRng_ex(&rng, NULL, devId);
-    if (rc != 0)
-        return rc;
+    XMEMSET(&rng, 0, sizeof(rng));
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
 
-    rc = wc_InitRsaKey_ex(&rsaKey, NULL, devId);
-    if (rc != 0) {
-        wc_FreeRng(&rng);
-        return rc;
-    }
-
-#ifdef WC_RSA_BLINDING
-    wc_RsaSetRNG(&rsaKey, &rng);
-#endif
-
-    rc = wolfTPM2_RsaKey_TpmToWolf(dev, (WOLFTPM2_KEY*)tpmKey, &rsaKey);
+    rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
     if (rc == 0) {
-        encSalt->size = publicArea->unique.rsa.size;
+        rc = wc_InitRsaKey_ex(&rsaKey, NULL, INVALID_DEVID);
+    }
+#ifdef WC_RSA_BLINDING
+    if (rc == 0) {
+        wc_RsaSetRNG(&rsaKey, &rng);
+    }
+#endif
+    if (rc == 0 && data->size == 0) {
+        /* Generate random value to exchange for encryption */
+        data->size = TPM2_GetHashDigestSize(publicArea->nameAlg);
+        rc = wc_RNG_GenerateBlock(&rng, data->buffer, data->size);
+    }
+    if (rc == 0) {
+        rc = wolfTPM2_RsaKey_TpmToWolf(dev, (WOLFTPM2_KEY*)tpmKey, &rsaKey);
+    }
+    if (rc == 0) {
+        secret->size = publicArea->unique.rsa.size;
         rc = wc_RsaPublicEncrypt_ex(
-            salt->buffer,    /* in pointer to the buffer for encryption */
-            salt->size,      /* inLen length of in parameter */
-            encSalt->secret, /* out encrypted msg created */
-            encSalt->size,   /* outLen length of buffer available to hold encrypted msg */
+            data->buffer,    /* in pointer to the buffer for encryption */
+            data->size,      /* inLen length of in parameter */
+            secret->secret, /* out encrypted msg created */
+            secret->size,   /* outLen length of buffer available to hold encrypted msg */
             &rsaKey,         /* key initialized RSA key struct */
             &rng,            /* rng initialized WC_RNG struct */
             WC_RSA_OAEP_PAD, /* type type of padding to use (WC_RSA_OAEP_PAD or WC_RSA_PKCSV15_PAD) */
@@ -1007,10 +1217,10 @@ static int wolfTPM2_EncryptSalt_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKe
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
 
-    if (rc == encSalt->size) {
+    if (rc == secret->size) {
         rc = 0; /* success */
     }
-    else {
+    else if (rc >= 0) {
         rc = BUFFER_E;
     }
 
@@ -1018,44 +1228,40 @@ static int wolfTPM2_EncryptSalt_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKe
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
 
-int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
-    const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
+int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
 {
     int rc = NOT_COMPILED_IN;
 
     /* if a tpmKey is not present then we are using an unsalted session */
-    if (tpmKey == NULL) {
+    if (dev == NULL || tpmKey == NULL || data == NULL || secret == NULL) {
         return TPM_RC_SUCCESS;
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Session Salt %d\n", salt->size);
-    TPM2_PrintBin(salt->buffer, salt->size);
-#endif
-
     switch (tpmKey->pub.publicArea.type) {
-    #ifdef HAVE_ECC
+    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
         case TPM_ALG_ECC:
-            /* TODO: Add ECC encrypted salt */
-            rc = NOT_COMPILED_IN;
+            rc = wolfTPM2_EncryptSecret_ECC(dev, tpmKey, data, secret, label);
             break;
     #endif
     #if !defined(NO_RSA) && !defined(WC_NO_RNG)
         case TPM_ALG_RSA:
-            rc = wolfTPM2_EncryptSalt_RSA(dev, tpmKey, salt, encSalt, label);
+            rc = wolfTPM2_EncryptSecret_RSA(dev, tpmKey, data, secret, label);
             break;
     #endif
         default:
             rc = NOT_COMPILED_IN;
             break;
     }
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Secret %d\n", data->size);
+    TPM2_PrintBin(data->buffer, data->size);
+#endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
-    (void)dev;
-    (void)salt;
-    (void)encSalt;
     (void)label;
 
     return rc;
@@ -1133,7 +1339,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
     /* Encrypt salt using "SECRET" */
-    rc = wolfTPM2_EncryptSalt(dev, tpmKey, &session->salt,
+    rc = wolfTPM2_EncryptSecret(dev, tpmKey, (TPM2B_DATA*)&session->salt,
         &authSesIn.encryptedSalt, "SECRET");
     if (rc != 0) {
     #ifdef DEBUG_WOLFTPM
@@ -1616,7 +1822,7 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
  */
 static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
-    TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed, int useIv)
+    TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed, int useIv)
 {
     int rc = 0;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
@@ -1656,9 +1862,6 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     }
 
     /* Use outer wrap (Integrity then Encrypt) */
-    if (symSeed == NULL) {
-        symSeed = (TPM2B_ENCRYPTED_SECRET*)&sens->sensitiveArea.seedValue;
-    }
     if (symSeed && symSeed->size > 0) {
         outerWrap = 1;
         integritySz = sizeof(word16) + digestSz;
@@ -1699,7 +1902,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     if (outerWrap) {
         /* Generate symmetric key for encryption of inner values */
         symKey.size = (symKey.size + 7) / 8; /* convert to byte and round up */
-        rc = TPM2_KDFa(nameAlg, (TPM2B_DATA*)symSeed, "STORAGE", (TPM2B_NONCE*)name,
+        rc = TPM2_KDFa(nameAlg, symSeed, "STORAGE", (TPM2B_NONCE*)name,
             NULL, symKey.buffer, symKey.size);
         if (rc != symKey.size) {
         #ifdef DEBUG_WOLFTPM
@@ -1728,8 +1931,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
 
         /* Generate HMAC key for generation of the integrity value */
         hmacKey.size = digestSz;
-        rc = TPM2_KDFa(nameAlg, (TPM2B_DATA*)&sens->sensitiveArea.seedValue,
-                    "INTEGRITY", NULL, NULL,
+        rc = TPM2_KDFa(nameAlg, symSeed, "INTEGRITY", NULL, NULL,
                     hmacKey.buffer, hmacKey.size);
         if (rc != hmacKey.size) {
         #ifdef DEBUG_WOLFTPM
@@ -1786,7 +1988,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
 
 int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
-    TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed)
+    TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed)
 {
     return SensitiveToPrivate(sens, priv, nameAlg, name, parentKey, sym,
         symSeed, 0);
@@ -1801,6 +2003,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     Import_Out importOut;
     TPM2B_NAME name;
     TPM_HANDLE parentHandle;
+    TPM2B_DATA symSeed;
 
     if (dev == NULL || keyBlob == NULL || pub == NULL ||
             sens == NULL) {
@@ -1831,22 +2034,22 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    /* Encrypt seed if provided */
-    if (sens->sensitiveArea.seedValue.size > 0) {
-        rc = wolfTPM2_EncryptSalt(dev, parentKey,
-            &sens->sensitiveArea.seedValue, &importIn.inSymSeed, "DUPLICATE");
-        if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("wolfTPM2_EncryptSalt: failed %d: %s\n", rc,
-                wolfTPM2_GetRCString(rc));
-        #endif
-            return rc;
-        }
+    /* Get symmetric seed for KDFa */
+    XMEMSET(&symSeed, 0, sizeof(symSeed));
+    rc = wolfTPM2_EncryptSecret(dev, parentKey, &symSeed, &importIn.inSymSeed,
+        "DUPLICATE");
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_EncryptSecret: failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
     }
 
+    /* Encrypt sensitive */
     rc = wolfTPM2_SensitiveToPrivate(sens, &importIn.duplicate,
         pub->publicArea.nameAlg, &name, parentKey, &importIn.symmetricAlg,
-        NULL);
+        &symSeed);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("wolfTPM2_SensitiveToPrivate: failed %d: %s\n", rc,
@@ -1964,6 +2167,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
 {
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
+    word32 digestSz;
 
     if (dev == NULL || keyBlob == NULL || rsaPub == NULL || rsaPriv == NULL)
         return BAD_FUNC_ARG;
@@ -2008,8 +2212,9 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     XMEMCPY(sens.sensitiveArea.sensitive.rsa.buffer, rsaPriv, rsaPrivSz);
 
     /* Use Seed */
+    digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
     if (seed != NULL) {
-        word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
+        /* use custom seed */
         if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
             printf("Import RSA seed size invalid! %d != %d\n",
@@ -2019,6 +2224,12 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
         }
         sens.sensitiveArea.seedValue.size = seedSz;
         XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+    }
+    else {
+        /* assign random seed */
+        sens.sensitiveArea.seedValue.size = digestSz;
+        TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+            sens.sensitiveArea.seedValue.size);
     }
 
     return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
@@ -2107,6 +2318,7 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
 {
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
+    word32 digestSz;
 
     if (dev == NULL || keyBlob == NULL || eccPubX == NULL || eccPubY == NULL ||
         eccPriv == NULL) {
@@ -2147,8 +2359,9 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     XMEMCPY(sens.sensitiveArea.sensitive.ecc.buffer, eccPriv, eccPrivSz);
 
     /* Use Seed */
+    digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
     if (seed != NULL) {
-        word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
+        /* use custom seed */
         if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
             printf("Import ECC seed size invalid! %d != %d\n",
@@ -2158,6 +2371,12 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
         }
         sens.sensitiveArea.seedValue.size = seedSz;
         XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+    }
+    else {
+        /* assign random seed */
+        sens.sensitiveArea.seedValue.size = digestSz;
+        TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+            sens.sensitiveArea.seedValue.size);
     }
 
     return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
@@ -2398,6 +2617,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     word32 derSz;
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
+    word32 digestSz;
 
     if (dev == NULL || parentKey == NULL || keyBlob == NULL || input == NULL ||
             inSz == 0) {
@@ -2454,18 +2674,26 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         }
 
         /* Use Seed */
+        digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
         if (seed != NULL) {
-            word32 digestSz = TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
+            /* use custom seed */
             if (seedSz != digestSz) {
             #ifdef DEBUG_WOLFTPM
-                printf("Import RSA seed size invalid! %d != %d\n",
-                    seedSz, digestSz);
+                printf("Import %s seed size invalid! %d != %d\n",
+                    TPM2_GetAlgName(keyType), seedSz, digestSz);
             #endif
                 return BAD_FUNC_ARG;
             }
             sens.sensitiveArea.seedValue.size = seedSz;
             XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
         }
+        else {
+            /* assign random seed */
+            sens.sensitiveArea.seedValue.size = digestSz;
+            TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+                sens.sensitiveArea.seedValue.size);
+        }
+
 
         /* Import Private Key */
         rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
