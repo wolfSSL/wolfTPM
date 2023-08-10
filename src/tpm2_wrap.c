@@ -1331,22 +1331,24 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         return rc;
     }
 
-    /* Generate random salt */
-    session->salt.size = hashDigestSz;
-    rc = TPM2_GetNonce(session->salt.buffer, session->salt.size);
-    if (rc != 0) {
-        return rc;
-    }
+    if (authSesIn.tpmKey != TPM_RH_NULL) {
+        /* Generate random salt */
+        session->salt.size = hashDigestSz;
+        rc = TPM2_GetNonce(session->salt.buffer, session->salt.size);
+        if (rc != 0) {
+            return rc;
+        }
 
-    /* Encrypt salt using "SECRET" */
-    rc = wolfTPM2_EncryptSecret(dev, tpmKey, (TPM2B_DATA*)&session->salt,
-        &authSesIn.encryptedSalt, "SECRET");
-    if (rc != 0) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Building encrypted salt failed %d: %s!\n", rc,
-            wolfTPM2_GetRCString(rc));
-    #endif
-        return rc;
+        /* Encrypt salt using "SECRET" */
+        rc = wolfTPM2_EncryptSecret(dev, tpmKey, (TPM2B_DATA*)&session->salt,
+            &authSesIn.encryptedSalt, "SECRET");
+        if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Building encrypted salt failed %d: %s!\n", rc,
+                wolfTPM2_GetRCString(rc));
+        #endif
+            return rc;
+        }
     }
 
     /* TODO: BindAuth */
