@@ -1044,7 +1044,9 @@ exit:
     return ret;
 }
 
-/* returns both the plaintext and encrypted salt, based on the salt public key */
+/* returns both the plaintext and encrypted value */
+/* ECC: data = derived symmetric key
+ *      secret = exported public point */
 static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
@@ -1142,11 +1144,8 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
 
-    if (rc == data->size) {
-        rc = 0; /* success */
-    }
-    else {
-        rc = BUFFER_E;
+    if (rc >= 0) {
+        rc = (rc == data->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
 
     return rc;
@@ -1154,7 +1153,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !WC_NO_RNG */
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(WC_NO_RNG)
-/* returns both the plaintext and encrypted salt, based on the salt public key */
+/* returns both the plaintext and encrypted value */
+/* RSA: data = input to encrypt or generated random value
+ *      secret = RSA encrypted random */
 static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret, const char* label)
 {
@@ -1217,11 +1218,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
 
-    if (rc == secret->size) {
-        rc = 0; /* success */
-    }
-    else if (rc >= 0) {
-        rc = BUFFER_E;
+    if (rc > 0) {
+        rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
 
     return rc;
