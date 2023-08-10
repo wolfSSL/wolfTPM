@@ -510,7 +510,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             storageKey.handle.auth.size);
     }
 
-#if 0 /* disabled until ECC Encrypted salt is added */
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
@@ -520,11 +519,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the storage key */
-        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
-#endif
 
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
@@ -661,7 +659,11 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     rc = wolfTPM2_EccKey_WolfToTpm_ex(&dev, &storageKey, &wolfEccPrivKey,
         &eccKey);
-    if (rc != 0) goto exit;
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+        /* a NOT_COMPILED_IN here likely means the WOLFSSL_PUBLIC_MP is enabled
+         * exposing the mp_ math API's needed for encrypting secrets */
+        goto exit;
+    }
     /* Use TPM Handle... */
     wc_ecc_free(&wolfEccPrivKey);
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
@@ -672,7 +674,11 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         kEccKeyPubXRaw, (word32)sizeof(kEccKeyPubXRaw),
         kEccKeyPubYRaw, (word32)sizeof(kEccKeyPubYRaw),
         kEccKeyPrivD,   (word32)sizeof(kEccKeyPrivD));
-    if (rc != 0) goto exit;
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+        /* a NOT_COMPILED_IN here likely means the WOLFSSL_PUBLIC_MP is enabled
+         * exposing the mp_ math API's needed for encrypting secrets */
+        goto exit;
+    }
     /* Use TPM Handle... */
     printf("ECC Private Key Loaded into TPM: Handle 0x%x\n",
         (word32)eccKey.handle.hndl);
@@ -946,6 +952,15 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);
     if (rc != 0) goto exit;
     printf("PCR Test pass\n");
+
+    /*------------------------------------------------------------------------*/
+    /* OTHER TESTS */
+    /*------------------------------------------------------------------------*/
+    /* Test not enabled by default */
+#if defined(WOLFTPM_SWTPM) && defined(WOLFTPM_TEST_CHANGE_PLATFORM_AUTH)
+    rc = wolfTPM2_ChangePlatformAuth(&dev, &tpmSession);
+    if (rc != 0) goto exit;
+#endif
 
 
 exit:

@@ -85,7 +85,7 @@ int TPM2_KDFa(
     UINT32       keySz      /* IN: size of generated key in bytes */
 )
 {
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
     int ret, hashType;
     Hmac hmac_ctx;
     word32 counter = 0;
@@ -362,7 +362,7 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
 /* --- Public Functions -- */
 /******************************************************************************/
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
 /* Compute the command parameter hash */
 /* TCG TPM 2.0 Part 1 - 18.7 Command Parameter Hash cpHash */
 int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
@@ -488,10 +488,10 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     /* start HMAC - sessionKey || authValue */
     /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
     if (auth) {
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("HMAC Key: %d\n", auth->size);
-    TPM2_PrintBin(auth->buffer, auth->size);
-#endif
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("HMAC Key: %d\n", auth->size);
+        TPM2_PrintBin(auth->buffer, auth->size);
+    #endif
         rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
     }
     else {
@@ -529,7 +529,7 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
 
     return rc;
 }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
 
 TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz)

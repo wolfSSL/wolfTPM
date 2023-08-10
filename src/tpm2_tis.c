@@ -195,7 +195,7 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     txBuf[1] = (addr>>16) & 0xFF;
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
-    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, len);
+    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, sizeof(txBuf) - TPM_TIS_HEADER_SZ);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
@@ -203,7 +203,10 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     XMEMCPY(result, &rxBuf[TPM_TIS_HEADER_SZ], len);
 #endif
     TPM2_TIS_UNLOCK();
-
+#ifdef WOLFTPM_DEBUG_IO
+    printf("TIS Read addr %x, len %d\n", addr, len);
+    TPM2_PrintBin(result, len);
+#endif
     return rc;
 }
 
@@ -231,12 +234,17 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
     XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], value, len);
+    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + len], 0,
+        sizeof(txBuf) - TPM_TIS_HEADER_SZ - len);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 #endif
     TPM2_TIS_UNLOCK();
-
+#ifdef WOLFTPM_DEBUG_IO
+    printf("TIS write addr %x, len %d\n", addr, len);
+    TPM2_PrintBin(value, len);
+#endif
     return rc;
 }
 

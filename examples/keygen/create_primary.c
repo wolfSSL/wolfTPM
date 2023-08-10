@@ -111,11 +111,11 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-oh") == 0) {
             hierarchy = TPM_RH_OWNER;
         }
-        else if (XSTRCMP(argv[argc-1], "-unique=") == 0) {
-            uniqueStr = argv[argc-1] + 8;
+        else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
+            uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
         }
-        else if (XSTRCMP(argv[argc-1], "-auth=") == 0) {
-            authStr = argv[argc-1] + 6;
+        else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
+            authStr = argv[argc-1] + XSTRLEN("-auth=");
         }
         else if (XSTRNCMP(argv[argc-1], "-store=", XSTRLEN("-store=")) == 0) {
             persistHandle = (word32)XSTRTOL(argv[argc-1] + XSTRLEN("-store="),

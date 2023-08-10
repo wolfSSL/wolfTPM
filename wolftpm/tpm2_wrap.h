@@ -1110,13 +1110,13 @@ WOLFTPM_API int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out);
     \param name pointer to a TPM2B_NAME structure
     \param parentKey pointer to a WOLFTPM2_KEY structure, specifying a parentKey, if it exists
     \param sym pointer to a structure of TPMT_SYM_DEF_OBJECT type
-    \param symSeed pointer to a structure of TPM2B_ENCRYPTED_SECRET type
+    \param symSeed pointer to a structure of derived secret (RSA=random, ECC=ECDHE)
 
     \sa wolfTPM2_ImportPrivateKey
 */
 WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
-    TPMT_SYM_DEF_OBJECT* sym, TPM2B_ENCRYPTED_SECRET* symSeed);
+    TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
@@ -1778,6 +1778,25 @@ WOLFTPM_API int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
 */
 WOLFTPM_API int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, const byte* auth, word32 authSz);
+
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Lock writes on the specified NV Index
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param nv pointer to an structure of WOLFTPM2_NV type loaded using wolfTPM2_NVOpen
+
+    \sa wolfTPM2_NVOpen
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_NVWriteAuth
+    \sa wolfTPM2_NVReadAuth
+*/
+WOLFTPM_API int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2686,16 +2705,35 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif /* WOLFTPM2_CERT_GEN */
 
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper to set the platform heirarchy authentication value to random.
+        Setting the platform auth to random value is used to prevent application
+        from being able to use platform hierarchy. This is defined in section 10
+        of the TCG PC Client Platform specification.
+
+    \return Success: Positive integer (size of the output)
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session the current session, a session is required to protect the new platform auth
+
+    \sa TPM2_HierarchyChangeAuth
+*/
+WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session);
+
+
+
 /* moved to tpm.h native code. macros here for backwards compatibility */
 #define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel
 #define wolfTPM2_GetAlgName   TPM2_GetAlgName
 #define wolfTPM2_GetRCString  TPM2_GetRCString
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
-/* for encrypting salt used in auth sessions and external key import */
-WOLFTPM_LOCAL int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
-    const TPM2B_DIGEST* salt, TPM2B_ENCRYPTED_SECRET *encSalt,
-    const char* label);
+/* for encrypting secrets (like salt) used in auth sessions and external key import */
+WOLFTPM_LOCAL int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA *secret, TPM2B_ENCRYPTED_SECRET *encSecret, const char* label);
 
 
 #ifdef WOLFTPM_CRYPTOCB

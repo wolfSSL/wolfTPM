@@ -34,13 +34,17 @@
 #define WOLFTPM_LOCALITY_DEFAULT 0
 #endif
 
-#define TPM_TIS_READ        0x80
-#define TPM_TIS_WRITE       0x00
+#define TPM_TIS_READ       0x80
+#define TPM_TIS_WRITE      0x00
 
-#define TPM_TIS_HEADER_SZ 4
+#define TPM_TIS_HEADER_SZ  4
 
 #define TPM_TIS_READY_MASK 0x01
 
+/* Typically only 0-2 wait states are required */
+#ifndef TPM_TIS_MAX_WAIT
+#define TPM_TIS_MAX_WAIT   3
+#endif
 
 WOLFTPM_LOCAL int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount);
 WOLFTPM_LOCAL int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);

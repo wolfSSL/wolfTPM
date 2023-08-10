@@ -3613,6 +3613,11 @@ typedef enum {
 */
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 
+
+/* Internal helper API for ensuring memory is forcefully zero'd */
+WOLFTPM_LOCAL void TPM2_ForceZero(void* mem, word32 len);
+
+
 #ifdef DEBUG_WOLFTPM
 /*!
     \ingroup TPM2_Proprietary
@@ -3676,7 +3681,7 @@ WOLFTPM_API void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd);
 WOLFTPM_API void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub);
 #else
 #define TPM2_PrintBin(b, l)
-#define TPM2_PrintAuth(b, l)
+#define TPM2_PrintAuth(b)
 #define TPM2_PrintPublicArea(b)
 #endif
 

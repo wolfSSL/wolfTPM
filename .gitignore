@@ -75,6 +75,7 @@ examples/seal/unseal
 examples/seal/seal_policy_auth
 examples/attestation/make_credential
 examples/attestation/activate_credential
+examples/boot/secure_rot
 
 # Generated Cert Files
 certs/ca-*.pem

@@ -8,4 +8,7 @@ EXTRA_DIST += \
 	     certs/ca-ecc.cnf \
 	     certs/wolf-ca-ecc-cert.pem \
 	     certs/wolf-ca-rsa-cert.pem \
-	     certs/example-rsa-key.pem
+	     certs/example-rsa-key.pem \
+		 certs/example-rsa-key.der \
+		 certs/example-rsa-key-pub.pem \
+		 certs/example-rsa-key-pub.der

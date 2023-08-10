@@ -220,7 +220,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 }
             }
 
-        #ifndef WOLFTPM2_NO_WOLFCRYPT
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
             rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
             rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
@@ -251,7 +251,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #endif
                 return rc;
             }
-        #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+        #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
         }
 
         /* Replace auth in session */
@@ -322,7 +322,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     authRsp.nonce.size);
             }
 
-        #ifndef WOLFTPM2_NO_WOLFCRYPT
+        #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             if (authRsp.hmac.size > 0) {
                 TPM2B_DIGEST hash;
                 TPM2B_AUTH hmac;
@@ -359,7 +359,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
         #else
             (void)cmdCode;
-        #endif
+        #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
 
             /* Handle session request for decryption */
             /* If the response supports decryption */
@@ -5808,15 +5808,15 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
         case TPM_ALG_SYMCIPHER:
             return "SYMCIPHER";
         case TPM_ALG_CTR:
-            return "CTR";
+            return "AES-CTR";
         case TPM_ALG_OFB:
-            return "OFB";
+            return "AES-OFB";
         case TPM_ALG_CBC:
-            return "CBC";
+            return "AES-CBC";
         case TPM_ALG_CFB:
-            return "CFB";
+            return "AES-CFB";
         case TPM_ALG_ECB:
-            return "ECB";
+            return "AES-ECB";
         default:
             break;
     }
@@ -6071,6 +6071,14 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
     *sizeUsed = packet.pos;
 
     return TPM_RC_SUCCESS;
+}
+
+/* This routine fills the first len bytes of the memory area pointed by mem
+   with zeros. It ensures compiler optimizations doesn't skip it  */
+void TPM2_ForceZero(void* mem, word32 len)
+{
+    volatile byte* z = (volatile byte*)mem;
+    while (len--) *z++ = 0;
 }
 
 #ifdef DEBUG_WOLFTPM
