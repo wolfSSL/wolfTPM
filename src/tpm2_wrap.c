@@ -1044,7 +1044,12 @@ exit:
     return ret;
 }
 
-/* returns both the plaintext and encrypted salt, based on the salt public key */
+#ifdef ALT_ECC_SIZE
+#error use of ecc_point below does not support ALT_ECC_SIZE
+#endif
+/* returns both the plaintext and encrypted value */
+/* ECC: data = derived symmetric key
+ *      secret = exported public point */
 static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
@@ -1054,7 +1059,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     ecc_key eccKeyPriv, eccKeyPub;
     const TPMT_PUBLIC *publicArea;
     TPM2B_ECC_POINT pubPoint, secretPoint;
-    ecc_point* r = NULL;
+    ecc_point r[1];
     mp_int prime, a;
 
     publicArea = &tpmKey->pub.publicArea;
@@ -1063,6 +1068,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     XMEMSET(&eccKeyPriv, 0, sizeof(eccKeyPriv));
     XMEMSET(&pubPoint, 0, sizeof(pubPoint));
     XMEMSET(&secretPoint, 0, sizeof(secretPoint));
+    XMEMSET(r, 0, sizeof(r));
+    XMEMSET(&prime, 0, sizeof(prime));
+    XMEMSET(&a, 0, sizeof(a));
 
     rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
     if (rc == 0) {
@@ -1100,16 +1108,15 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         secret->size = packet.pos;
     }
     if (rc == 0) {
-        r = wc_ecc_new_point();
-        if (r == NULL)
-            rc = MEMORY_E;
+        rc = mp_init_multi(&prime, &a, r->x, r->y, r->z, NULL);
     }
     if (rc == 0) {
-        mp_init(&prime);
-        mp_init(&a);
-        mp_read_radix(&prime, eccKeyPriv.dp->prime, MP_RADIX_HEX);
-        mp_read_radix(&a, eccKeyPriv.dp->Af, MP_RADIX_HEX);
-
+        rc = mp_read_radix(&prime, eccKeyPriv.dp->prime, MP_RADIX_HEX);
+    }
+    if (rc == 0) {
+        rc = mp_read_radix(&a, eccKeyPriv.dp->Af, MP_RADIX_HEX);
+    }
+    if (rc == 0) {
         /* perform point multiply */
         rc = wc_ecc_mulmod(wc_ecc_key_get_priv(&eccKeyPriv), &eccKeyPub.pubkey,
             r, &a, &prime, 1);
@@ -1117,8 +1124,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     if (rc == 0) {
         /* export shared secret x */
         secretPoint.point.x.size = mp_unsigned_bin_size(r->x);
-        mp_to_unsigned_bin(r->x, secretPoint.point.x.buffer);
-
+        rc = mp_to_unsigned_bin(r->x, secretPoint.point.x.buffer);
+    }
+    if (rc == 0) {
         /* set size encryption key */
         data->size = TPM2_GetHashDigestSize(publicArea->nameAlg);
 
@@ -1133,20 +1141,17 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         );
     }
 
-    if (r != NULL) {
-        mp_free(&a);
-        mp_free(&prime);
-        wc_ecc_del_point(r);
-    }
+    mp_clear(r->x);
+    mp_clear(r->y);
+    mp_clear(r->z);
+    mp_clear(&a);
+    mp_clear(&prime);
     wc_ecc_free(&eccKeyPub);
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
 
-    if (rc == data->size) {
-        rc = 0; /* success */
-    }
-    else {
-        rc = BUFFER_E;
+    if (rc >= 0) {
+        rc = (rc == data->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
 
     return rc;
@@ -1154,7 +1159,9 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !WC_NO_RNG */
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && !defined(WC_NO_RNG)
-/* returns both the plaintext and encrypted salt, based on the salt public key */
+/* returns both the plaintext and encrypted value */
+/* RSA: data = input to encrypt or generated random value
+ *      secret = RSA encrypted random */
 static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret, const char* label)
 {
@@ -1217,11 +1224,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
 
-    if (rc == secret->size) {
-        rc = 0; /* success */
-    }
-    else if (rc >= 0) {
-        rc = BUFFER_E;
+    if (rc > 0) {
+        rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
     }
 
     return rc;
