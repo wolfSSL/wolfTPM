@@ -165,6 +165,9 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             }
             rc = 0; /* success */
         }
+        if (key->priv.size == 0) {
+            printf("No private key loaded\n");
+        }
 
         /* sanity check the sizes */
         if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size)) ||
@@ -389,6 +392,59 @@ int getECCkey(WOLFTPM2_DEV* pDev,
 #endif /* !WOLFTPM2_NO_WRAPPER && HAVE_ECC */
 
     return rc;
+}
+
+int loadFile(const char* fname, byte** buf, size_t* bufLen)
+{
+    int ret;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
+    !defined(WOLFTPM2_NO_HEAP)
+    long int fileSz;
+    XFILE lFile;
+
+    if (fname == NULL || buf == NULL || bufLen == NULL)
+        return BAD_FUNC_ARG;
+
+    /* set defaults */
+    *buf = NULL;
+    *bufLen = 0;
+
+    /* open file (read-only binary) */
+    lFile = XFOPEN(fname, "rb");
+    if (!lFile) {
+        fprintf(stderr, "Error loading %s\n", fname);
+        return BUFFER_E;
+    }
+
+    XFSEEK(lFile, 0, XSEEK_END);
+    fileSz = (int)ftell(lFile);
+    XFSEEK(lFile, 0, XSEEK_SET);
+    if (fileSz  > 0) {
+        *bufLen = (size_t)fileSz;
+        *buf = (byte*)XMALLOC(*bufLen, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        if (*buf == NULL) {
+            ret = MEMORY_E;
+            fprintf(stderr,
+                    "Error allocating %lu bytes\n", (unsigned long)*bufLen);
+        }
+        else {
+            size_t readLen = fread(*buf, *bufLen, 1, lFile);
+
+            /* check response code */
+            ret = (readLen > 0) ? 0 : -1;
+        }
+    }
+    else {
+        ret = BUFFER_E;
+    }
+    fclose(lFile);
+#else
+    (void)fname;
+    (void)buf;
+    (void)bufLen;
+    ret = NOT_COMPILED_IN;
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM && !WOLFTPM2_NO_HEAP */
+    return ret;
 }
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

@@ -79,12 +79,12 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-') {
             inputFile = argv[1];
         }
-        if (XSTRCMP(argv[1], "-eh") == 0) {
-            endorseKey = 1;
-        }
     }
     while (argc > 1) {
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
+            endorseKey = 1;
+        }
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
@@ -160,9 +160,14 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     goto exit;
 #endif
 
-    rc = wolfTPM2_LoadKey(&dev, &newKey, &primary->handle);
+    if (newKey.priv.size == 0) {
+        rc = wolfTPM2_LoadPublicKey(&dev, (WOLFTPM2_KEY*)&newKey, &newKey.pub);
+    }
+    else {
+        rc = wolfTPM2_LoadKey(&dev, &newKey, &primary->handle);
+    }
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_LoadKey failed\n");
+        printf("Load Key failed!\n");
         goto exit;
     }
     printf("Loaded key to 0x%x\n",

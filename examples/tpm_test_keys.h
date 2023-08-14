@@ -66,6 +66,8 @@ WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             const byte* auth, int authSz,
                             TPMT_PUBLIC* publicTemplate);
 
+WOLFTPM_LOCAL int loadFile(const char* fname, byte** buf, size_t* bufLen);
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #endif /* _TPM_TEST_KEYS_H_ */
