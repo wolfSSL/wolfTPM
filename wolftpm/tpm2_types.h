@@ -144,13 +144,14 @@ typedef int64_t  INT64;
     typedef uint64_t word64;
 
     /* Errors from wolfssl/wolfcrypt/error-crypt.h */
-    #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
-    #define BUFFER_E              -132  /* output buffer too small or input too large */
-    #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
     #define BAD_MUTEX_E           -106  /* Bad mutex operation */
     #define WC_TIMEOUT_E          -107  /* timeout error */
-    #define LENGTH_ONLY_E         -202
-    #define INPUT_SIZE_E          -412
+    #define MEMORY_E              -125  /* out of memory error */
+    #define BUFFER_E              -132  /* output buffer too small or input too large */
+    #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
+    #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
+    #define LENGTH_ONLY_E         -202  /* Returning output length only */
+    #define INPUT_SIZE_E          -412  /* input size too big error */
 
     /* Errors from wolfssl/error-ssl.h */
     #define SOCKET_ERROR_E        -308  /* error state on socket    */

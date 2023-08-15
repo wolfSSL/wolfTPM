@@ -102,10 +102,10 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
         output.size = rc;
         printf("Generated/Signed Cert (PEM %d)\n", output.size);
     #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-        FILE* pemFile = fopen(outputPemFile, "wb");
-        if (pemFile) {
-            rc = (int)fwrite(output.buffer, 1, output.size, pemFile);
-            fclose(pemFile);
+        XFILE pemFile = XFOPEN(outputPemFile, "wb");
+        if (pemFile != XBADFILE) {
+            rc = (int)XFWRITE(output.buffer, 1, output.size, pemFile);
+            XFCLOSE(pemFile);
             rc = (rc == output.size) ? 0 : -1;
             if (rc == 0) {
                 printf("Saved to %s\n", outputPemFile);
