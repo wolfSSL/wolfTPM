@@ -1,6 +1,6 @@
 /* keyload.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -47,7 +47,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent] [-eh]\n");
+    printf("./examples/keygen/keyload [keyblob.bin] [-aes/xor] [-persistent]"
+           " [-eh]\n");
     printf("* -eh: Key is from the Endorsement Hierarchy, requires EK\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -persistent: Load the TPM key as persistent\n");
@@ -79,12 +80,12 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (argv[1][0] != '-') {
             inputFile = argv[1];
         }
-        if (XSTRCMP(argv[1], "-eh") == 0) {
-            endorseKey = 1;
-        }
     }
     while (argc > 1) {
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        if (XSTRCMP(argv[argc-1], "-eh") == 0) {
+            endorseKey = 1;
+        }
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
@@ -137,7 +138,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     }
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        /* Start an authenticated session (salted / unbound) with parameter
+         * encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
@@ -146,7 +148,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 
         /* set session for authorization of the storage key */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
-            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
 
@@ -160,9 +163,14 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     goto exit;
 #endif
 
-    rc = wolfTPM2_LoadKey(&dev, &newKey, &primary->handle);
+    if (newKey.priv.size == 0) {
+        rc = wolfTPM2_LoadPublicKey(&dev, (WOLFTPM2_KEY*)&newKey, &newKey.pub);
+    }
+    else {
+        rc = wolfTPM2_LoadKey(&dev, &newKey, &primary->handle);
+    }
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_LoadKey failed\n");
+        printf("Load Key failed!\n");
         goto exit;
     }
     printf("Loaded key to 0x%x\n",
@@ -172,7 +180,8 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     if (persistent) {
         /* Prepare key in the format expected by the wolfTPM wrapper */
         persistKey.handle.hndl = newKey.handle.hndl;
-        XMEMCPY((BYTE*)&persistKey.pub, (BYTE*)&newKey.pub, sizeof(persistKey.pub));
+        XMEMCPY((BYTE*)&persistKey.pub, (BYTE*)&newKey.pub,
+            sizeof(persistKey.pub));
         /* Make key persistent */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &persistKey,
                                     TPM2_DEMO_PERSISTENT_KEY_HANDLE);

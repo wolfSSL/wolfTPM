@@ -1,6 +1,6 @@
 /* tpm2_wrap.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -1243,6 +1243,11 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
         return TPM_RC_SUCCESS;
     }
 
+#ifdef DEBUG_WOLFTPM
+    printf("Encrypt secret: Alg %s, Label %s\n",
+        TPM2_GetAlgName(tpmKey->pub.publicArea.type), label);
+#endif
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     switch (tpmKey->pub.publicArea.type) {
     #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
@@ -1261,7 +1266,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Secret %d\n", data->size);
+    printf("Encrypt Secret %d: %d bytes\n", data->size);
     TPM2_PrintBin(data->buffer, data->size);
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
@@ -2470,7 +2475,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifndef NO_ASN
 #ifndef NO_RSA
-static int DecodeRsaPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
+static int DecodeRsaDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
     const byte* input, word32 inSz, TPMA_OBJECT attributes)
 {
     int rc = 0;
@@ -2486,6 +2491,7 @@ static int DecodeRsaPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
     word32  dSz = (word32)sizeof(d);
     word32  pSz = (word32)sizeof(p);
     word32  qSz = (word32)sizeof(q);
+    int isPrivateKey = 0;
 
     XMEMSET(n, 0, sizeof(n));
     XMEMSET(d, 0, sizeof(d));
@@ -2494,15 +2500,26 @@ static int DecodeRsaPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 
     rc = wc_InitRsaKey(key, NULL);
     if (rc == 0) {
+        idx = 0;
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
-
         if (rc == 0) {
-            rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz,
-                p, &pSz, q, &qSz);
+            isPrivateKey = 1;
+        }
+        else {
+            idx = 0;
+            rc = wc_RsaPublicKeyDecode(input, &idx, key, inSz);
+        }
+        if (rc == 0) {
+            if (isPrivateKey)
+                rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz,
+                    p, &pSz, q, &qSz);
+            else
+                rc = wc_RsaFlattenPublicKey(key, (byte*)&e, &eSz, n, &nSz);
         }
         if (rc == 0 && nSz > sizeof(pub->publicArea.unique.rsa.buffer))
             rc = BUFFER_E;
-        if (rc == 0 && qSz > sizeof(sens->sensitiveArea.sensitive.rsa.buffer))
+        if (rc == 0 && sens != NULL && isPrivateKey &&
+                qSz > sizeof(sens->sensitiveArea.sensitive.rsa.buffer))
             rc = BUFFER_E;
         if (rc == 0) {
             /* Set up public key */
@@ -2529,9 +2546,11 @@ static int DecodeRsaPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
             }
 
             /* Set up private key */
-            sens->sensitiveArea.sensitiveType = TPM_ALG_RSA;
-            sens->sensitiveArea.sensitive.rsa.size = qSz;
-            XMEMCPY(sens->sensitiveArea.sensitive.rsa.buffer, q, qSz);
+            if (sens != NULL && isPrivateKey) {
+                sens->sensitiveArea.sensitiveType = TPM_ALG_RSA;
+                sens->sensitiveArea.sensitive.rsa.size = qSz;
+                XMEMCPY(sens->sensitiveArea.sensitive.rsa.buffer, q, qSz);
+            }
         }
         wc_FreeRsaKey(key);
     }
@@ -2540,12 +2559,12 @@ static int DecodeRsaPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 }
 #endif
 #ifdef HAVE_ECC
-static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
+static int DecodeEccDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
     const byte* input, word32 inSz, TPMA_OBJECT attributes)
 {
     int rc;
     int curveId = 0;
-    word32 idx = 0;
+    word32 idx;
     ecc_key key[1];
     byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
     byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
@@ -2553,6 +2572,7 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
     word32  dSz = sizeof(d);
     word32  qxSz = sizeof(qx);
     word32  qySz = sizeof(qy);
+    int isPrivateKey = 0;
 
     XMEMSET(d, 0, sizeof(d));
     XMEMSET(qx, 0, sizeof(qx));
@@ -2560,17 +2580,29 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 
     rc = wc_ecc_init(key);
     if (rc == 0) {
+        idx = 0;
         rc = wc_EccPrivateKeyDecode(input, &idx, key, inSz);
+        if (rc == 0) {
+            isPrivateKey = 1;
+        }
+        else {
+            idx = 0;
+            rc = wc_EccPublicKeyDecode(input, &idx, key, inSz);
+        }
         if (rc == 0) {
             curveId = TPM2_GetTpmCurve(key->dp->id);
 
-            rc = wc_ecc_export_private_raw(key, qx, &qxSz, qy, &qySz, d, &dSz);
+            if (isPrivateKey)
+                rc = wc_ecc_export_private_raw(key, qx, &qxSz, qy, &qySz, d, &dSz);
+            else
+                rc = wc_ecc_export_public_raw(key, qx, &qxSz, qy, &qySz);
         }
         if (rc == 0 && qxSz > sizeof(pub->publicArea.unique.ecc.x.buffer))
             rc = BUFFER_E;
         if (rc == 0 && qySz > sizeof(pub->publicArea.unique.ecc.y.buffer))
             rc = BUFFER_E;
-        if (rc == 0 && dSz > sizeof(sens->sensitiveArea.sensitive.ecc.buffer))
+        if (rc == 0 && sens != NULL && isPrivateKey &&
+                dSz > sizeof(sens->sensitiveArea.sensitive.ecc.buffer))
             rc = BUFFER_E;
         if (rc == 0) {
             /* Set up public key */
@@ -2601,9 +2633,11 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
             }
 
             /* Set up private key */
-            sens->sensitiveArea.sensitiveType = TPM_ALG_ECC;
-            sens->sensitiveArea.sensitive.ecc.size = dSz;
-            XMEMCPY(sens->sensitiveArea.sensitive.ecc.buffer, d, dSz);
+            if (sens != NULL && isPrivateKey) {
+                sens->sensitiveArea.sensitiveType = TPM_ALG_ECC;
+                sens->sensitiveArea.sensitive.ecc.size = dSz;
+                XMEMCPY(sens->sensitiveArea.sensitive.ecc.buffer, d, dSz);
+            }
         }
 
         wc_ecc_free(key);
@@ -2613,9 +2647,68 @@ static int DecodeEccPrivateDer(TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens,
 }
 #endif /* HAVE_ECC */
 
+int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
+    WOLFTPM2_KEY* key, int encodingType, const char* input, word32 inSz,
+    TPMA_OBJECT objectAttributes)
+{
+    int rc = 0;
+    byte* derBuf;
+    word32 derSz;
+
+    if (dev == NULL || key == NULL || input == NULL || inSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (encodingType == ENCODING_TYPE_PEM) {
+    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+        /* der size is base 64 decode length */
+        derSz = inSz * 3 / 4 + 1;
+        derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        if (derBuf == NULL)
+            return MEMORY_E;
+        rc = wc_PubKeyPemToDer((byte*)input, inSz, derBuf, derSz);
+        if (rc >= 0) {
+            derSz = rc;
+            rc = 0;
+        }
+    #else
+        (void)pass;
+        return NOT_COMPILED_IN;
+    #endif
+    }
+    else { /* ASN.1 (DER) */
+        derBuf = (byte*)input;
+        derSz = inSz;
+    }
+
+    /* Handle DER Import */
+    if (keyType == TPM_ALG_RSA) {
+    #ifndef NO_RSA
+        rc = DecodeRsaDer(&key->pub, NULL, derBuf, derSz, objectAttributes);
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (keyType == TPM_ALG_ECC) {
+    #ifdef HAVE_ECC
+        rc = DecodeEccDer(&key->pub, NULL, derBuf, derSz, objectAttributes);
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+
+#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+    if (derBuf != (byte*)input) {
+        XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+#endif
+
+    return rc;
+}
+
 int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
-    int encodingType, const char* input, word32 inSz, char* pass,
+    int encodingType, const char* input, word32 inSz, const char* pass,
     TPMA_OBJECT objectAttributes, byte* seed, word32 seedSz)
 {
     int rc = 0;
@@ -2658,14 +2751,14 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     /* Handle DER Import */
     if (keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
-        rc = DecodeRsaPrivateDer(&pub, &sens, derBuf, derSz, objectAttributes);
+        rc = DecodeRsaDer(&pub, &sens, derBuf, derSz, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
     }
     else if (keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
-        rc = DecodeEccPrivateDer(&pub, &sens, derBuf, derSz, objectAttributes);
+        rc = DecodeEccDer(&pub, &sens, derBuf, derSz, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
@@ -3120,10 +3213,17 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     int rc;
     EvictControl_In in;
 
-    if (dev == NULL || key == NULL ||
-        (primaryHandle != TPM_RH_OWNER && primaryHandle != TPM_RH_PLATFORM) ||
-        persistentHandle < PERSISTENT_FIRST ||
-        persistentHandle > PERSISTENT_LAST) {
+    if (dev == NULL || key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (primaryHandle == TPM_RH_OWNER &&
+        (persistentHandle < PERSISTENT_FIRST ||
+         persistentHandle > PERSISTENT_LAST)) {
+        return BAD_FUNC_ARG;
+    }
+    if (primaryHandle == TPM_RH_PLATFORM &&
+        (persistentHandle < PLATFORM_PERSISTENT ||
+         persistentHandle > PERSISTENT_LAST)) {
         return BAD_FUNC_ARG;
     }
 

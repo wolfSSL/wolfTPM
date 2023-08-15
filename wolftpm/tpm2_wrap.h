@@ -1128,8 +1128,9 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
+    \param keyType The type of key (TPM_ALG_RSA or TPM_ALG_ECC)
     \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
-    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the rsa key to
+    \param keyBlob pointer to a struct of WOLFTPM2_KEYBLOB type, to import the private key to
     \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
     \param input buffer holding the rsa pem
     \param inSz length of the input pem buffer
@@ -1140,8 +1141,28 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
 */
 WOLFTPM_API int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, int keyType, WOLFTPM2_KEYBLOB* keyBlob,
-    int encodingType, const char* input, word32 inSz, char* pass,
+    int encodingType, const char* input, word32 inSz, const char* pass,
     TPMA_OBJECT objectAttributes, byte* seed, word32 seedSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to import PEM/DER formatted RSA/ECC public key
+
+    \return TPM_RC_SUCCESS: successful - populates key->pub
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param keyType The type of key (TPM_ALG_RSA or TPM_ALG_ECC)
+    \param key pointer to a struct of WOLFTPM2_KEY type, to import the public key to
+    \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
+    \param input buffer holding the rsa pem
+    \param inSz length of the input pem buffer
+    \param objectAttributes integer value of OR'd TPMA_OBJECT_* types
+*/
+WOLFTPM_API int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
+    WOLFTPM2_KEY* key, int encodingType, const char* input, word32 inSz,
+    TPMA_OBJECT objectAttributes);
 
 #ifndef NO_RSA
 /*!
