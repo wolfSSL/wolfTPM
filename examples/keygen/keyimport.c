@@ -1,6 +1,6 @@
 /* keyimport.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -39,7 +39,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-pem/-der] [-aes/xor] [-password] [-public]\n");
+    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-pem/-der] "
+           "[-aes/xor] [-password] [-public]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -rsa/-ecc: Use RSA or ECC key\n");
     printf("* -public: Input file is public key only\n");
@@ -65,7 +66,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB impKey;
-    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA, srkAlg; /* TPM_ALG_ECC */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* outputFile = "keyblob.bin";
@@ -102,7 +103,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-public") == 0) {
             isPublicKey = 1;
         }
-        else if (XSTRNCMP(argv[argc-1], "-password=", XSTRLEN("-password=")) == 0) {
+        else if (XSTRNCMP(argv[argc-1], "-password=",
+                XSTRLEN("-password=")) == 0) {
             password = (const char*)(argv[argc-1] + XSTRLEN("-password="));
         }
         else if (XSTRCMP(argv[argc-1], "-der") == 0) {
@@ -150,12 +152,23 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    srkAlg = alg;
+#if defined(HAVE_ECC) && !defined(WOLFSSL_PUBLIC_MP)
+    if (srkAlg == TPM_ALG_ECC && paramEncAlg != TPM_ALG_NULL) {
+        /* ECC encrypt requires mp_ API's */
+        printf("Parameter encryption with ECC SRK support not available, "
+               "using RSA SRK\n");
+        srkAlg = TPM_ALG_RSA;
+    }
+#endif
+
     /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storage, alg);
+    rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        /* Start an authenticated session (salted / unbound) with parameter encryption */
+        /* Start an authenticated session (salted / unbound) with parameter
+         * encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
@@ -164,7 +177,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
         /* set session for authorization of the storage key */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
-            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
 
@@ -237,7 +251,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         TPM2_GetAlgName(alg), impKey.pub.size, impKey.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
+    !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(outputFile, &impKey);
 #else
     printf("Key Public Blob %d\n", impKey.pub.size);

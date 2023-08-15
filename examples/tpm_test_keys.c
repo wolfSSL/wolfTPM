@@ -1,6 +1,6 @@
 /* tpm_test_keys.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -80,7 +80,8 @@ int writeKeyBlob(const char* filename,
 
     fp = XFOPEN(filename, "wb");
     if (fp != XBADFILE) {
-        /* Make publicArea in encoded format to eliminate empty fields, save space */
+        /* Make publicArea in encoded format to eliminate empty fields,
+         * save space */
         rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
             &pubAreaSize, &key->pub);
         if (rc != TPM_RC_SUCCESS)
@@ -139,7 +140,8 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         }
         fileSz -= bytes_read;
 
-        bytes_read = XFREAD(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
+        bytes_read = XFREAD(pubAreaBuffer, 1,
+            sizeof(UINT16) + key->pub.size, fp);
         if (bytes_read != sizeof(UINT16) + key->pub.size) {
             printf("Read %zu, expected public blob %zu bytes\n",
                 bytes_read, sizeof(UINT16) + key->pub.size);
@@ -195,13 +197,9 @@ exit:
     return rc;
 }
 
-int createAndLoadKey(WOLFTPM2_DEV* pDev,
-                WOLFTPM2_KEY* key,
-                WOLFTPM2_HANDLE* parent,
-                const char* filename,
-                const byte* auth,
-                int authSz,
-                TPMT_PUBLIC* publicTemplate)
+int createAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, const char* filename, const byte* auth, int authSz,
+    TPMT_PUBLIC* publicTemplate)
 {
     int rc;
     WOLFTPM2_KEYBLOB keyblob;
@@ -253,12 +251,8 @@ int createAndLoadKey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-int readAndLoadKey(WOLFTPM2_DEV* pDev,
-                          WOLFTPM2_KEY* key,
-                          WOLFTPM2_HANDLE* parent,
-                          const char* filename,
-                          const byte* auth,
-                          int authSz)
+int readAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
+    WOLFTPM2_HANDLE* parent, const char* filename, const byte* auth, int authSz)
 {
     int rc;
     WOLFTPM2_KEYBLOB keyblob;
@@ -289,14 +283,23 @@ int readAndLoadKey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
-                                       WOLFTPM2_KEY* pStorageKey,
-                                       TPM_ALG_ID alg)
+int getPrimaryStoragekey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey,
+    TPM_ALG_ID alg)
 {
     int rc;
+    TPM_HANDLE handle;
+
+    if (alg == TPM_ALG_RSA)
+        handle = TPM2_DEMO_STORAGE_KEY_HANDLE;
+    else if (alg == TPM_ALG_ECC)
+        handle = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
+    else {
+        printf("Invalid SRK alg %x\n", alg);
+        return BAD_FUNC_ARG;
+    }
 
     /* See if SRK already exists */
-    rc = wolfTPM2_ReadPublicKey(pDev, pStorageKey, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    rc = wolfTPM2_ReadPublicKey(pDev, pStorageKey, handle);
     if (rc != 0) {
         /* Create primary storage key */
         rc = wolfTPM2_CreateSRK(pDev, pStorageKey, alg,
@@ -304,8 +307,7 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
     #ifndef WOLFTPM_WINAPI
         if (rc == TPM_RC_SUCCESS) {
             /* Move storage key into persistent NV */
-            rc = wolfTPM2_NVStoreKey(pDev, TPM_RH_OWNER, pStorageKey,
-                TPM2_DEMO_STORAGE_KEY_HANDLE);
+            rc = wolfTPM2_NVStoreKey(pDev, TPM_RH_OWNER, pStorageKey, handle);
         }
     #endif
     }
@@ -325,13 +327,9 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-int getRSAkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            void* pWolfRsaKey,
-                            int tpmDevId,
-                            const byte* auth, int authSz,
-                            TPMT_PUBLIC* publicTemplate)
+int getRSAkey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey, WOLFTPM2_KEY* key,
+    void* pWolfRsaKey, int tpmDevId, const byte* auth, int authSz,
+    TPMT_PUBLIC* publicTemplate)
 {
     int rc = 0;
 
@@ -360,13 +358,9 @@ int getRSAkey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-int getECCkey(WOLFTPM2_DEV* pDev,
-                            WOLFTPM2_KEY* pStorageKey,
-                            WOLFTPM2_KEY* key,
-                            void* pWolfEccKey,
-                            int tpmDevId,
-                            const byte* auth, int authSz,
-                            TPMT_PUBLIC* publicTemplate)
+int getECCkey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey, WOLFTPM2_KEY* key,
+    void* pWolfEccKey, int tpmDevId, const byte* auth, int authSz,
+    TPMT_PUBLIC* publicTemplate)
 {
     int rc = 0;
 

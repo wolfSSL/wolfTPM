@@ -1,6 +1,6 @@
 /* tpm2_wrap.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2023 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -1243,6 +1243,11 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
         return TPM_RC_SUCCESS;
     }
 
+#ifdef DEBUG_WOLFTPM
+    printf("Encrypt secret: Alg %s, Label %s\n",
+        TPM2_GetAlgName(tpmKey->pub.publicArea.type), label);
+#endif
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     switch (tpmKey->pub.publicArea.type) {
     #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
@@ -1261,7 +1266,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Secret %d\n", data->size);
+    printf("Encrypt Secret %d: %d bytes\n", data->size);
     TPM2_PrintBin(data->buffer, data->size);
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
