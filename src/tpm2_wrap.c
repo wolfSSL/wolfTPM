@@ -2674,7 +2674,6 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
             rc = 0;
         }
     #else
-        (void)pass;
         return NOT_COMPILED_IN;
     #endif
     }
