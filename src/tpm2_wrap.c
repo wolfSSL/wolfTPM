@@ -2660,7 +2660,9 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     }
 
     if (encodingType == ENCODING_TYPE_PEM) {
-    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER) && \
+        (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
+        !defined(NO_ASN)
         /* der size is base 64 decode length */
         derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2672,7 +2674,6 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
             rc = 0;
         }
     #else
-        (void)pass;
         return NOT_COMPILED_IN;
     #endif
     }
