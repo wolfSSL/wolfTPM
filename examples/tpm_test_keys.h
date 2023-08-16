@@ -66,6 +66,8 @@ WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
                             const byte* auth, int authSz,
                             TPMT_PUBLIC* publicTemplate);
 
+
+/* if *buf != NULL, it will use existing buffer and provided bufLen */
 WOLFTPM_LOCAL int loadFile(const char* fname, byte** buf, size_t* bufLen);
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

@@ -390,54 +390,51 @@ int getECCkey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey, WOLFTPM2_KEY* key,
 
 int loadFile(const char* fname, byte** buf, size_t* bufLen)
 {
-    int ret;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
-    !defined(WOLFTPM2_NO_HEAP)
-    long int fileSz;
-    XFILE lFile;
+    int ret = 0;
+#if !defined(NO_FILESYSTEM)
+    ssize_t fileSz, readLen;
+    XFILE fp;
 
     if (fname == NULL || buf == NULL || bufLen == NULL)
         return BAD_FUNC_ARG;
 
-    /* set defaults */
-    *buf = NULL;
-    *bufLen = 0;
-
     /* open file (read-only binary) */
-    lFile = XFOPEN(fname, "rb");
-    if (!lFile) {
+    fp = XFOPEN(fname, "rb");
+    if (fp == XBADFILE) {
         fprintf(stderr, "Error loading %s\n", fname);
         return BUFFER_E;
     }
 
-    XFSEEK(lFile, 0, XSEEK_END);
-    fileSz = (int)ftell(lFile);
-    XFSEEK(lFile, 0, XSEEK_SET);
-    if (fileSz  > 0) {
-        *bufLen = (size_t)fileSz;
-        *buf = (byte*)XMALLOC(*bufLen, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    XFSEEK(fp, 0, XSEEK_END);
+    fileSz = XFTELL(fp);
+    XREWIND(fp);
+    if (fileSz > 0) {
         if (*buf == NULL) {
-            ret = MEMORY_E;
-            fprintf(stderr,
-                    "Error allocating %lu bytes\n", (unsigned long)*bufLen);
+        #if !defined(WOLFTPM2_NO_HEAP)
+            *buf = (byte*)XMALLOC(fileSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            if (*buf == NULL)
+                ret = MEMORY_E;
+        #endif
         }
-        else {
-            size_t readLen = fread(*buf, *bufLen, 1, lFile);
-
-            /* check response code */
-            ret = (readLen > 0) ? 0 : -1;
+        else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {
+            ret = INPUT_SIZE_E;
+        }
+        *bufLen = (size_t)fileSz;
+        if (ret == 0) {
+            readLen = XFREAD(*buf, 1, *bufLen, fp);
+            ret = (readLen == (ssize_t)*bufLen) ? 0 : -1;
         }
     }
     else {
         ret = BUFFER_E;
     }
-    fclose(lFile);
+    XFCLOSE(fp);
 #else
     (void)fname;
     (void)buf;
     (void)bufLen;
     ret = NOT_COMPILED_IN;
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM && !WOLFTPM2_NO_HEAP */
+#endif /* !NO_FILESYSTEM */
     return ret;
 }
 

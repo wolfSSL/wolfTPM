@@ -124,7 +124,7 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     if (filename) {
         fp = XFOPEN(filename, "rb");
     }
-    if (filename && fp) {
+    if (filename && fp != XBADFILE) {
 #if !defined(NO_SHA256)
         wc_InitSha256(&sha256);
         while (!XFEOF(fp)) {

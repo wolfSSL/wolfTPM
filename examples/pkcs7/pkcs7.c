@@ -97,7 +97,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     byte dataChunk[MY_DATA_CHUNKS];
     word32 dataChunkSz, offset = 0;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    FILE* pemFile;
+    XFILE pemFile;
 #endif
 
     XMEMSET(&pkcs7, 0, sizeof(pkcs7));
@@ -152,13 +152,13 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     TPM2_PrintBin(outputFoot.buffer, outputFoot.size);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    pemFile = fopen("./examples/pkcs7/pkcs7tpmsignedex.p7s", "wb");
-    if (pemFile) {
+    pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsignedex.p7s", "wb");
+    if (pemFile != XBADFILE) {
 
         /* Header */
-        rc = (int)fwrite(outputHead.buffer, 1, outputHead.size, pemFile);
+        rc = (int)XFWRITE(outputHead.buffer, 1, outputHead.size, pemFile);
         if (rc != outputHead.size) {
-            fclose(pemFile);
+            XFCLOSE(pemFile);
             rc = -1; goto exit;
         }
 
@@ -168,9 +168,9 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
             if (dataChunkSz == 0)
                 break;
 
-            rc = (int)fwrite(dataChunk, 1, dataChunkSz, pemFile);
+            rc = (int)XFWRITE(dataChunk, 1, dataChunkSz, pemFile);
             if (rc != (int)dataChunkSz) {
-                fclose(pemFile);
+                XFCLOSE(pemFile);
                 rc = -1; goto exit;
             }
 
@@ -179,13 +179,13 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
         dataChunkSz = GetMyData(NULL, 0, 0); /* get total size */
 
         /* Footer */
-        rc = (int)fwrite(outputFoot.buffer, 1, outputFoot.size, pemFile);
+        rc = (int)XFWRITE(outputFoot.buffer, 1, outputFoot.size, pemFile);
         if (rc != outputFoot.size) {
-            fclose(pemFile);
+            XFCLOSE(pemFile);
             rc = -1; goto exit;
         }
 
-        fclose(pemFile);
+        XFCLOSE(pemFile);
     }
 #endif
 
@@ -229,7 +229,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     byte  data[] = "My encoded DER cert.";
     WOLFTPM2_BUFFER output;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    FILE* pemFile;
+    XFILE pemFile;
 #endif
 
     XMEMSET(&pkcs7, 0, sizeof(pkcs7));
@@ -255,10 +255,10 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     TPM2_PrintBin(output.buffer, output.size);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    pemFile = fopen("./examples/pkcs7/pkcs7tpmsigned.p7s", "wb");
-    if (pemFile) {
-        rc = (int)fwrite(output.buffer, 1, output.size, pemFile);
-        fclose(pemFile);
+    pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsigned.p7s", "wb");
+    if (pemFile != XBADFILE) {
+        rc = (int)XFWRITE(output.buffer, 1, output.size, pemFile);
+        XFCLOSE(pemFile);
         if (rc != output.size) {
             rc = -1; goto exit;
         }
@@ -306,7 +306,7 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     int tpmDevId;
     WOLFTPM2_BUFFER der;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    FILE* derFile;
+    XFILE derFile;
 #endif
 
     (void)argc;
@@ -354,13 +354,13 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     /* load DER certificate for TPM key (obtained by running
         `./examples/csr/csr` and `./certs/certreq.sh`) */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    derFile = fopen("./certs/client-rsa-cert.der", "rb");
-    if (derFile) {
-        fseek(derFile, 0, SEEK_END);
-        der.size = (int)ftell(derFile);
-        rewind(derFile);
-        rc = (int)fread(der.buffer, 1, der.size, derFile);
-        fclose(derFile);
+    derFile = XFOPEN("./certs/client-rsa-cert.der", "rb");
+    if (derFile != XBADFILE) {
+        XFSEEK(derFile, 0, XSEEK_END);
+        der.size = (int)XFTELL(derFile);
+        XREWIND(derFile);
+        rc = (int)XFREAD(der.buffer, 1, der.size, derFile);
+        XFCLOSE(derFile);
         if (rc != der.size) {
             rc = -1; goto exit;
         }

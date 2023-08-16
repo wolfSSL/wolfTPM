@@ -32,14 +32,10 @@
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/boot/boot.h>
 
 #include <wolfssl/wolfcrypt/hash.h>
-
-/* WC_HASH_TYPE_SHA256 or WC_HASH_TYPE_SHA384 */
-#define TPM2_SECURE_ROT_HASH_ALGO  WC_HASH_TYPE_SHA256
-
-#define TPM2_SECURE_ROT_EXAMPLE_PUB_KEY "certs/example-rsa-key-pub.der"
 
 /******************************************************************************/
 /* --- BEGIN TPM NVRAM Secure Boot Root of Trust Example -- */
@@ -47,43 +43,50 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/boot/secure_rot [-nvindex] [-write] [-lock]\n");
+    printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-auth] [-sha384] [-lock]\n");
     printf("* -nvindex=[handle] (default 0x%x)\n",
         TPM2_DEMO_NV_SECURE_ROT_INDEX);
+    printf("* -hash=hash: Hex string digest to write\n");
     printf("* -write=filename: DER formatted public key to write\n");
-    printf("\tDefault public key: " TPM2_SECURE_ROT_EXAMPLE_PUB_KEY "\n");
+    printf("* -auth=password: Optional password for NV\n");
+    printf("* -sha384: Use SHA2-384 (default is SHA2-256)\n");
     printf("* -lock: Lock the write\n");
+    printf("\nExamples:\n");
+    printf("\t./examples/boot/secure_rot -write=./certs/example-ecc256-key-pub.der\n");
+    printf("\t./examples/boot/secure_rot -sha384 -hash="
+        "e77dd3112a27948a3f2d87f32dc69ebe"
+        "ed0b3344c5d7726f5742f4f0c0f451aa"
+        "be4213f8b3b986639e69ed0ea8b49d94\n"
+    );
 }
 
-/* forward declaration */
-static int load_file(const char* fname, byte** buf, size_t* bufLen);
-
-/* Example for reading unique system registers for derived authentication
- * used to access TPM NV */
-static int GetSystemUniqueAuth(enum wc_HashType hashType, byte* authBuf)
+static signed char HexCharToByte(signed char ch)
 {
-    int rc;
-    wc_HashAlg hash;
-    uint32_t reg1 = 0x01234567;
-    uint32_t reg2 = 0x89ABCDEF;
-    uint32_t reg3 = 0x01234567;
-    uint32_t reg4 = 0x89ABCDEF;
-
-    rc = wc_HashInit(&hash, hashType);
-    if (rc == 0) {
-        rc = wc_HashUpdate(&hash, hashType, (byte*)&reg1, sizeof(reg1));
-        if (rc == 0)
-            rc = wc_HashUpdate(&hash, hashType, (byte*)&reg2, sizeof(reg2));
-        if (rc == 0)
-            rc = wc_HashUpdate(&hash, hashType, (byte*)&reg3, sizeof(reg3));
-        if (rc == 0)
-            rc = wc_HashUpdate(&hash, hashType, (byte*)&reg4, sizeof(reg4));
-        if (rc == 0) {
-            rc = wc_HashFinal(&hash, hashType, authBuf);
+    signed char ret = (signed char)ch;
+    if (ret >= '0' && ret <= '9')
+        ret -= '0';
+    else if (ret >= 'A' && ret <= 'F')
+        ret -= 'A' - 10;
+    else if (ret >= 'a' && ret <= 'f')
+        ret -= 'a' - 10;
+    else
+        ret = -1; /* error case - return code must be signed */
+    return ret;
+}
+static int HexToByte(const char *hex, unsigned char *output, unsigned long sz)
+{
+    int outSz = 0;
+    word32 i;
+    for (i = 0; i < sz; i+=2) {
+        signed char ch1, ch2;
+        ch1 = HexCharToByte(hex[i]);
+        ch2 = HexCharToByte(hex[i+1]);
+        if ((ch1 < 0) || (ch2 < 0)) {
+            return -1;
         }
-        wc_HashFree(&hash, hashType);
+        output[outSz++] = (unsigned char)((ch1 << 4) + ch2);
     }
-    return rc;
+    return outSz;
 }
 
 int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
@@ -93,26 +96,27 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
+    TPMS_NV_PUBLIC nvPublic;
     word32 nvAttributes;
     /* always use AES CFB parameter encryption */
     int paramEncAlg = TPM_ALG_CFB;
     /* use platform handle to prevent TPM2_Clear from removing */
     TPMI_RH_NV_AUTH authHandle = TPM_RH_PLATFORM;
-    const char* filename = TPM2_SECURE_ROT_EXAMPLE_PUB_KEY;
+    const char* filename = NULL;
     word32 nvIndex = TPM2_DEMO_NV_SECURE_ROT_INDEX;
     int doWrite = 0, doLock = 0;
     byte* buf = NULL;
     size_t bufSz = 0;
-    enum wc_HashType hashType = TPM2_SECURE_ROT_HASH_ALGO;
+    enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
     byte digest[WC_MAX_DIGEST_SIZE];
-    word32 digestSz = wc_HashGetDigestSize(hashType);
+    int digestSz = 0;
     byte authBuf[WC_SHA256_DIGEST_SIZE];
+    int authBufSz = 0;
 
-    if (digestSz <= 0) {
-        printf("Unsupported hash type %d!\n", hashType);
-        usage();
-        return -1;
-    }
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(authBuf, 0, sizeof(authBuf));
+    XMEMSET(digest, 0, sizeof(digest));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -124,25 +128,57 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     }
     while (argc > 1) {
         if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
-            nvIndex = (word32)XSTRTOL(argv[argc-1] +
-                XSTRLEN("-nvindex="), NULL, 0);
-            if ((authHandle == TPM_RH_PLATFORM && (
+            const char* nvIndexStr = argv[argc-1] + XSTRLEN("-nvindex=");
+            nvIndex = (word32)XSTRTOL(nvIndexStr, NULL, 0);
+            if (!(authHandle == TPM_RH_PLATFORM && (
                     nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
-                    nvIndex < TPM_20_OWNER_NV_SPACE)) ||
-                (authHandle == TPM_RH_OWNER && (
+                    nvIndex < TPM_20_OWNER_NV_SPACE)) &&
+                !(authHandle == TPM_RH_OWNER && (
                     nvIndex > TPM_20_OWNER_NV_SPACE &&
                     nvIndex < TPM_20_TCG_NV_SPACE)))
             {
-                printf("Invalid NV Index %s\n", argv[argc-1] + 8);
-                nvIndex = 0;
+                fprintf(stderr, "Invalid NV Index %s\n", nvIndexStr);
+                fprintf(stderr, "\tPlatform Range: 0x%x -> 0x%x\n",
+                    TPM_20_PLATFORM_MFG_NV_SPACE, TPM_20_OWNER_NV_SPACE);
+                fprintf(stderr, "\tOwner Range: 0x%x -> 0x%x\n",
+                    TPM_20_OWNER_NV_SPACE, TPM_20_TCG_NV_SPACE);
+                usage();
+                return -1;
             }
         }
         else if (XSTRNCMP(argv[argc-1], "-write=", XSTRLEN("-write=")) == 0) {
             doWrite = 1;
             filename = argv[argc-1] + XSTRLEN("-write=");
         }
-        else if (XSTRCMP(argv[argc-1], "-write") == 0) {
+        else if (XSTRNCMP(argv[argc-1], "-hash=", XSTRLEN("-hash=")) == 0) {
+            const char* hashHexStr = argv[argc-1] + XSTRLEN("-hash=");
+            int hashHexStrLen = (int)XSTRLEN(hashHexStr);
+            if (hashHexStrLen > (int)sizeof(digest)*2+1)
+                hashHexStrLen = -1;
+            else
+                digestSz = HexToByte(hashHexStr, digest, hashHexStrLen);
+            if (digestSz < 0) {
+                fprintf(stderr, "Invalid hash length\n");
+                usage();
+                return -1;
+            }
             doWrite = 1;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
+            const char* authHexStr = argv[argc-1] + XSTRLEN("-auth=");
+            int authHexStrLen = (int)XSTRLEN(authHexStr);
+            if (authHexStrLen > (int)sizeof(authBuf)*2+1)
+                authBufSz = -1;
+            else
+                authBufSz = HexToByte(authHexStr, authBuf, authHexStrLen);
+            if (authBufSz < 0) {
+                fprintf(stderr, "Invalid auth length\n");
+                usage();
+                return -1;
+            }
+        }
+        else if (XSTRCMP(argv[argc-1], "-sha384") == 0) {
+            hashType = WC_HASH_TYPE_SHA384;
         }
         else if (XSTRCMP(argv[argc-1], "-lock") == 0) {
             doLock = 1;
@@ -153,24 +189,14 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         argc--;
     };
 
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-    XMEMSET(&parent, 0, sizeof(parent));
-    XMEMSET(digest, 0, sizeof(digest));
+    /* setup the parent handle OWNER/PLATFORM */
+    parent.hndl = authHandle;
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("\nwolfTPM2_Init failed\n");
         goto exit;
     }
-
-    /* Derive a unique value from hardware to authenticate the NV */
-    rc = GetSystemUniqueAuth(hashType, authBuf);
-    if (rc != 0) {
-        printf("Error getting system unique NV auth! %d\n", rc);
-        goto exit;
-    }
-    printf("NV Auth (%d)\n", (int)sizeof(authBuf));
-    TPM2_PrintBin(authBuf, sizeof(authBuf));
 
     /* Start TPM session for parameter encryption */
     printf("Parameter Encryption: Enabled %s and HMAC\n\n",
@@ -186,23 +212,32 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
          TPMA_SESSION_continueSession));
     if (rc != 0) goto exit;
 
+    printf("NV Auth (%d)\n", authBufSz);
+    TPM2_PrintBin(authBuf, authBufSz);
+
     /* Open file */
     if (doWrite) {
-        printf("Storing hash of public key file %s to "
-            "NV index 0x%x with password protection\n\n",
-            filename, nvIndex);
+        if (filename == NULL) {
+            printf("Storing hash to NV index 0x%x\n\n", nvIndex);
+        }
+        else {
+            printf("Storing hash of public key file %s to NV index 0x%x\n\n",
+                filename, nvIndex);
 
-        rc = load_file(filename, &buf, &bufSz);
+            rc = loadFile(filename, &buf, &bufSz);
+            if (rc == 0) {
+                /* hash public key */
+                digestSz = wc_HashGetDigestSize(hashType);
+                rc = wc_Hash(hashType, buf, (word32)bufSz, digest, digestSz);
+            }
+        }
+
         if (rc == 0) {
-            /* hash public key */
-            rc = wc_Hash(hashType, buf, (word32)bufSz, digest, digestSz);
-
             printf("Public Key Hash (%d)\n", digestSz);
             TPM2_PrintBin(digest, digestSz);
         }
         if (rc == 0) {
             /* Get NV attributes */
-            parent.hndl = authHandle;
             rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
         }
         if (rc == 0) {
@@ -211,7 +246,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
 
             /* Create NV */
             rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
-                nvAttributes, digestSz, authBuf, sizeof(authBuf));
+                nvAttributes, digestSz, authBuf, authBufSz);
             if (rc == TPM_RC_NV_DEFINED) {
                 printf("Warning: NV Index 0x%x already exists!\n", nvIndex);
                 rc = 0;
@@ -228,12 +263,18 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     /* Setup the NV access */
     XMEMSET(&nv, 0, sizeof(nv));
     nv.handle.hndl = nvIndex;
-    nv.handle.auth.size = sizeof(authBuf);
-    XMEMCPY(nv.handle.auth.buffer, authBuf, sizeof(authBuf));
+    nv.handle.auth.size = authBufSz;
+    XMEMCPY(nv.handle.auth.buffer, authBuf, nv.handle.auth.size);
+
+    /* Read the NV Index publicArea to have up to date NV Index Name */
+    rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
+    if (rc == 0) {
+        digestSz = nvPublic.dataSize;
+    }
 
     /* Read access */
     printf("Reading NV 0x%x public key hash\n", nvIndex);
-    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, digest, &digestSz, 0);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, digest, (word32*)&digestSz, 0);
     if (rc == 0) {
         printf("Read Public Key Hash (%d)\n", digestSz);
         TPM2_PrintBin(digest, digestSz);
@@ -262,59 +303,6 @@ exit:
 
     return rc;
 }
-
-static int load_file(const char* fname, byte** buf, size_t* bufLen)
-{
-    int ret;
-#if !defined(NO_FILESYSTEM)
-    long int fileSz;
-    XFILE lFile;
-
-    if (fname == NULL || buf == NULL || bufLen == NULL)
-        return BAD_FUNC_ARG;
-
-    /* set defaults */
-    *buf = NULL;
-    *bufLen = 0;
-
-    /* open file (read-only binary) */
-    lFile = XFOPEN(fname, "rb");
-    if (!lFile) {
-        fprintf(stderr, "Error loading %s\n", fname);
-        return BUFFER_E;
-    }
-
-    XFSEEK(lFile, 0, XSEEK_END);
-    fileSz = (int)ftell(lFile);
-    XFSEEK(lFile, 0, XSEEK_SET);
-    if (fileSz  > 0) {
-        *bufLen = (size_t)fileSz;
-        *buf = (byte*)XMALLOC(*bufLen, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        if (*buf == NULL) {
-            ret = MEMORY_E;
-            fprintf(stderr,
-                    "Error allocating %lu bytes\n", (unsigned long)*bufLen);
-        }
-        else {
-            size_t readLen = fread(*buf, *bufLen, 1, lFile);
-
-            /* check response code */
-            ret = (readLen > 0) ? 0 : -1;
-        }
-    }
-    else {
-        ret = BUFFER_E;
-    }
-    fclose(lFile);
-#else
-    (void)fname;
-    (void)buf;
-    (void)bufLen;
-    ret = NOT_COMPILED_IN;
-#endif
-    return ret;
-}
-/* !NO_FILESYSTEM */
 
 /******************************************************************************/
 /* --- END TPM NVRAM Secure Boot Root of Trust Example -- */
