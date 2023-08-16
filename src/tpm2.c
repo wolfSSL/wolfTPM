@@ -6088,7 +6088,7 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
     word32 i, sz;
 
     if (!buffer) {
-        printf("\tNULL");
+        printf("\tNULL\n");
         return;
     }
 
