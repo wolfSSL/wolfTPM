@@ -1266,7 +1266,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Encrypt Secret %d: %d bytes\n", data->size);
+    printf("Encrypt Secret %d: %d bytes\n", rc, data->size);
     TPM2_PrintBin(data->buffer, data->size);
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */

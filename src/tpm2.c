@@ -891,7 +891,6 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     printf("Unknown capability type 0x%x\n",
                         (unsigned int)out->capabilityData.capability);
             #endif
-                    rc = -1;
                     break;
             }
         }
