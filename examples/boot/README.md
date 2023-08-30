@@ -68,7 +68,8 @@ Example for creating a sealed secret using that signed policy based on public ke
 
 ```sh
 # Create a keyed hash sealed object using the policy authorization for the public key
-./examples/boot/secret_seal -policy=policyauth.bin -out=sealblob.bin
+./examples/boot/secret_seal -rsa -policy=policyauth.bin -out=sealblob.bin
+./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin
 # OR
 # Provide the public key for policy authorization (instead of -policy=)
 ./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin

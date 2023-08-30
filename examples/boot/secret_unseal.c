@@ -127,6 +127,8 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
     Unseal_Out unsealOut;
     byte* policyRef = NULL; /* optional nonce */
     word32 policyRefSz = 0;
+    byte secret[MAX_SYM_DATA+1]; /* room for NULL term */
+    word32 secretSz = 0;
 
     XMEMSET(&dev, 0, sizeof(WOLFTPM2_DEV));
     XMEMSET(&storage, 0, sizeof(WOLFTPM2_KEY));
@@ -331,8 +333,11 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    printf("Secret (%d bytes):\n", unsealOut.outData.size);
-    printHexString(unsealOut.outData.buffer, unsealOut.outData.size, 32);
+    secretSz = unsealOut.outData.size;
+    XMEMSET(secret, 0, sizeof(secret));
+    XMEMCPY(secret, unsealOut.outData.buffer, secretSz);
+    printf("Secret (%d bytes): %s\n", secretSz, secret);
+    printHexString(secret, secretSz, 32);
 
 exit:
     if (rc != 0) {

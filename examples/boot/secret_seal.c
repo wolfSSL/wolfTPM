@@ -49,7 +49,7 @@ static void usage(void)
     printf("Expected usage:\n");
     printf("./examples/boot/secret_seal [-secretstr=/-secrethex] [-policy=] [-out=]\n");
     printf("./examples/boot/secret_seal [-secretstr=/-secrethex] [-ecc/-rsa] [-publickey=] [-out=]\n");
-    printf("* -secret=value: Secret to seal (default=random)\n");
+    printf("* -secretstr=string/-secrethex=hex: Secret to seal (default=random)\n");
     printf("* -policy=file: Policy authorization digest for the public key used to sign the policy (default policyauth.bin)\n");
     printf("* -ecc/-rsa: Public key is RSA or ECC (default is RSA)\n");
     printf("* -publickey=file: Public key file (PEM or DER) for the policy signing key used\n");
@@ -138,6 +138,8 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-secretstr=", XSTRLEN("-secretstr=")) == 0) {
             const char* secretStr = argv[argc-1] + XSTRLEN("-secretstr=");
             secretSz = (int)XSTRLEN(secretStr);
+            if (secretSz > (word32)sizeof(secret))
+                secretSz = (word32)sizeof(secret);
             XMEMCPY(secret, secretStr, secretSz);
         }
         else if (XSTRNCMP(argv[argc-1], "-secrethex=", XSTRLEN("-secrethex=")) == 0) {

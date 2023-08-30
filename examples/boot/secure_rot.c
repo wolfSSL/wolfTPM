@@ -43,12 +43,12 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-auth] [-sha384] [-lock]\n");
+    printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-authhex=/-authstr=] [-sha384] [-lock]\n");
     printf("* -nvindex=[handle] (default 0x%x)\n",
         TPM2_DEMO_NV_SECURE_ROT_INDEX);
     printf("* -hash=hash: Hex string digest to write\n");
     printf("* -write=filename: DER formatted public key to write\n");
-    printf("* -auth=password: Optional password for NV\n");
+    printf("* -authstr=password/-authhex=hexstring: Optional password for NV\n");
     printf("* -sha384: Use SHA2-384 (default is SHA2-256)\n");
     printf("* -lock: Lock the write\n");
     printf("\nExamples:\n");
@@ -135,8 +135,15 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             }
             doWrite = 1;
         }
-        else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
-            const char* authHexStr = argv[argc-1] + XSTRLEN("-auth=");
+        else if (XSTRNCMP(argv[argc-1], "-authstr=", XSTRLEN("-authstr=")) == 0) {
+            const char* authHexStr = argv[argc-1] + XSTRLEN("-authstr=");
+            authBufSz = (int)XSTRLEN(authHexStr);
+            if (authBufSz > (int)sizeof(authBuf))
+                authBufSz = (word32)sizeof(authBuf);
+            XMEMCPY(authBuf, authHexStr, authBufSz);
+        }
+        else if (XSTRNCMP(argv[argc-1], "-authhex=", XSTRLEN("-authhex=")) == 0) {
+            const char* authHexStr = argv[argc-1] + XSTRLEN("-authhex=");
             int authHexStrLen = (int)XSTRLEN(authHexStr);
             if (authHexStrLen > (int)sizeof(authBuf)*2+1)
                 authBufSz = -1;
