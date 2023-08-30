@@ -1,8 +1,8 @@
-name: Swtpm Build Test
+name: WolfTPM Build Tests
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ 'master', 'main', 'release/**' ]
   pull_request:
     branches: [ '*' ]
 
@@ -46,26 +46,34 @@ jobs:
       run: ./autogen.sh
     - name: configure
       run: ./configure --enable-swtpm
-    - name: make test
-      run: make check
+    - name: make
+      run: make
+    - name: make check
+      run: WOLFSSL_PATH=./wolfssl make check -j1
 
 #test no wolfcrypt
     - name: configure no wolfCrypt
       run: ./configure --enable-swtpm --disable-wolfcrypt
-    - name: make test no wolfCrypt
-      run: make check
+    - name: make no wolfCrypt
+      run: make
+    - name: make check no wolfCrypt
+      run: WOLFSSL_PATH=./wolfssl make check -j1
 
 #test no wrapper
     - name: configure no wrapper
       run: ./configure --enable-swtpm --disable-wrapper
-    - name: make test no wolfCrypt
-      run: make check
+    - name: make no wrapper
+      run: make
+    - name: make check no wrapper
+      run: WOLFSSL_PATH=./wolfssl make check -j1
 
 # test small stack
     - name: configure smallstack
       run: ./configure --enable-swtpm --enable-smallstack
-    - name: make test smallstack
-      run: make check
+    - name: make smallstack
+      run: make
+    - name: make check smallstack
+      run: WOLFSSL_PATH=./wolfssl make check -j1
 
 # test tislock
     - name: configure tislock
@@ -96,3 +104,14 @@ jobs:
       run: ./configure --enable-advio
     - name: make debug io
       run: make
+
+# capture logs on failure
+    - name: Upload failure logs
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: wolftpm-test-logs
+        path: |
+          run.out
+          test-suite.log
+        retention-days: 5

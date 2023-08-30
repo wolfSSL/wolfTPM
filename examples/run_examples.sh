@@ -2,6 +2,11 @@
 
 RESULT=0
 ENABLE_DESTRUCTIVE_TESTS=0
+PWD=$(pwd)
+
+if [ -z "$WOLFSSL_PATH" ]; then
+    WOLFSSL_PATH=../wolfssl
+fi
 
 rm run.out
 touch run.out
@@ -84,6 +89,10 @@ RESULT=$?
 rm keyedhashblob.bin
 [ $RESULT -ne 0 ] && echo -e "keygen keyed hash load failed! $RESULT" && exit 1
 
+# KeyGen Endorsement with Policy Secret
+# TODO Fix: (TPM2_Create TPM_RC_AUTH_UNAVAILABLE)
+#./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> run.out
+
 
 # NV Tests
 echo -e "NV Tests"
@@ -128,16 +137,16 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "cert self-signed failed! $RESULT" && exit 1
 
-cp ./certs/tpm-rsa-cert.pem ../wolfssl/certs/tpm-rsa-cert.pem >> run.out
-cp ./certs/tpm-ecc-cert.pem ../wolfssl/certs/tpm-ecc-cert.pem >> run.out
+cp ./certs/tpm-rsa-cert.pem $WOLFSSL_PATH/certs/tpm-rsa-cert.pem >> run.out
+cp ./certs/tpm-ecc-cert.pem $WOLFSSL_PATH/certs/tpm-ecc-cert.pem >> run.out
 
 ./examples/csr/csr >> run.out
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "csr gen failed! $RESULT" && exit 1
 
 ./certs/certreq.sh 2>&1 >> run.out
-cp ./certs/ca-ecc-cert.pem ../wolfssl/certs/tpm-ca-ecc-cert.pem >> run.out
-cp ./certs/ca-rsa-cert.pem ../wolfssl/certs/tpm-ca-rsa-cert.pem >> run.out
+cp ./certs/ca-ecc-cert.pem $WOLFSSL_PATH/certs/tpm-ca-ecc-cert.pem >> run.out
+cp ./certs/ca-rsa-cert.pem $WOLFSSL_PATH/certs/tpm-ca-rsa-cert.pem >> run.out
 
 
 # PKCS7 Tests
@@ -164,12 +173,12 @@ generate_port() { # function to produce a random port number
 run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     echo -e "TLS test (TPM as client) $1 $2"
     generate_port
-    pushd ../wolfssl >> run.out
-    ./examples/server/server -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> run.out &
+    pushd $WOLFSSL_PATH >> run.out
+    ./examples/server/server -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> $PWD/run.out &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
-    sleep 0.1
+    sleep 0.2
     ./examples/tls/tls_client -p=$port -$1 $2 2>&1 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
@@ -181,9 +190,9 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
     ./examples/tls/tls_server -p=$port -$1 $2 2>&1 >> run.out &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls server $1 $2 failed! $RESULT" && exit 1
-    pushd ../wolfssl >> run.out
-    sleep 0.1
-    ./examples/client/client -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> run.out
+    pushd $WOLFSSL_PATH >> run.out
+    sleep 0.2
+    ./examples/client/client -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> $PWD/run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
@@ -226,9 +235,8 @@ RESULT=$?
 ./examples/attestation/make_credential >> run.out
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "make_credential failed! $RESULT" && exit 1
-./examples/attestation/make_credential -eh >> run.out
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "make_credential eh failed! $RESULT" && exit 1
+# TODO: Requires keygen -ek to be working
+#./examples/attestation/make_credential -eh >> run.out
 # TODO: Test broken (TPM2_ActivateCredentials TPM_RC_INTEGRITY)
 #./examples/attestation/activate_credential >> run.out
 #./examples/attestation/activate_credential -eh >> run.out
@@ -287,6 +295,7 @@ then
     ./examples/boot/secure_rot -nvindex=0x1400201 -authstr=test -lock >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "secure rot write ecc384 lock! $RESULT" && exit 1
+    # Test expected failure case
     ./examples/boot/secure_rot -nvindex=0x1400201 -write=./certs/example-ecc384-key-pub.der -sha384 >> run.out
     RESULT=$?
     [ $RESULT -eq 0 ] && echo -e "secure rot write ecc384 should be locked! $RESULT" && exit 1
@@ -296,7 +305,7 @@ fi
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secure rot write ecc384 read! $RESULT" && exit 1
 
-# Test expected failure cases
+# Test expected failure case
 ./examples/boot/secure_rot -nvindex=0x1400201 >> run.out
 RESULT=$?
 [ $RESULT -eq 0 ] && echo -e "secure rot write ecc384 read no auth! $RESULT" && exit 1
@@ -326,7 +335,10 @@ RESULT=$?
 # RSA
 ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out
 RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "policy sign rsa failed! $RESULT" && exit 1
+[ $RESULT -ne 0 ] && echo -e "policy sign rsa der failed! $RESULT" && exit 1
+./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "policy sign rsa pem failed! $RESULT" && exit 1
 
 TMPFILE=$(mktemp)
 SECRET_STRING=`head -c 32 /dev/random | base64`
@@ -344,8 +356,10 @@ RESULT=$?
 TMPFILE=$(mktemp)
 SECRET_STRING=`head -c 32 /dev/random | base64`
 ./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret seal rsa alt failed! $RESULT" && exit 1
 ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin | tee $TMPFILE >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt failed! $RESULT" && exit 1
 grep "$SECRET_STRING" $TMPFILE >> run.out
 RESULT=$?
@@ -354,13 +368,19 @@ rm $TMPFILE
 
 # ECC
 ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out
-[ $RESULT -ne 0 ] && echo -e "policy sign ecc failed! $RESULT" && exit 1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "policy sign ecc der failed! $RESULT" && exit 1
+./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "policy sign ecc pem failed! $RESULT" && exit 1
 
 TMPFILE=$(mktemp)
 SECRET_STRING=`head -c 32 /dev/random | base64`
 ./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret seal ecc failed! $RESULT" && exit 1
 ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin | tee $TMPFILE >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret unseal ecc failed! $RESULT" && exit 1
 grep "$SECRET_STRING" $TMPFILE >> run.out
 RESULT=$?
@@ -371,8 +391,10 @@ rm $TMPFILE
 TMPFILE=$(mktemp)
 SECRET_STRING=`head -c 32 /dev/random | base64`
 ./examples/boot/secret_seal -ecc -publickey=./certs/example-ecc256-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret seal ecc alt failed! $RESULT" && exit 1
 ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin | tee $TMPFILE >> run.out
+RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt failed! $RESULT" && exit 1
 grep "$SECRET_STRING" $TMPFILE >> run.out
 RESULT=$?

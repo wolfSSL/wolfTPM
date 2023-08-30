@@ -69,8 +69,10 @@ static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     int encType = ENCODING_TYPE_ASN1;
     byte* buf = NULL;
     size_t bufSz = 0;
+    const char* fileEnd;
 
-    if (XSTRNCMP(file, ".pem", XSTRLEN(".pem")) == 0) {
+    fileEnd = XSTRSTR(file, ".pem");
+    if (fileEnd != NULL && fileEnd[XSTRLEN(".pem")] == '\0') {
         encType = ENCODING_TYPE_PEM;
     }
 
@@ -211,7 +213,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
 
     /* Start an authenticated session (salted / unbound) */
     rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
-        TPM_SE_HMAC, paramEncAlg);
+        TPM_SE_POLICY, paramEncAlg);
     if (rc != 0) goto exit;
     printf("Session Handle 0x%x\n", (word32)tpmSession.handle.hndl);
     printf("Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));

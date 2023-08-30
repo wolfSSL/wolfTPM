@@ -86,6 +86,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         ecc_key ecc;
     #endif
     } key;
+    const char* keyFileEnd;
 
     XMEMSET(&key, 0, sizeof(key));
     XMEMSET(&rng, 0, sizeof(rng));
@@ -96,7 +97,8 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         return rc;
     }
 
-    if (XSTRNCMP(keyFile, ".pem", XSTRLEN(".pem")) == 0) {
+    keyFileEnd = XSTRSTR(keyFile, ".pem");
+    if (keyFileEnd != NULL && keyFileEnd[XSTRLEN(".pem")] == '\0') {
         encType = ENCODING_TYPE_PEM;
     }
 

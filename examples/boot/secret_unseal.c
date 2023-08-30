@@ -67,8 +67,10 @@ static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     int encType = ENCODING_TYPE_ASN1;
     byte* buf = NULL;
     size_t bufSz = 0;
+    const char* fileEnd;
 
-    if (XSTRNCMP(file, ".pem", XSTRLEN(".pem")) == 0) {
+    fileEnd = XSTRSTR(file, ".pem");
+    if (fileEnd != NULL && fileEnd[XSTRLEN(".pem")] == '\0') {
         encType = ENCODING_TYPE_PEM;
     }
 

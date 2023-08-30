@@ -76,6 +76,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     byte* buf = NULL;
     size_t bufSz = 0;
     int isPublicKey = 0;
+    const char* impFileEnd;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -123,7 +124,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         else if (alg == TPM_ALG_ECC)
             impFile = "./certs/example-ecc256-key.der";
     }
-    if (XSTRNCMP(impFile, ".pem", XSTRLEN(".pem")) == 0) {
+    impFileEnd = XSTRSTR(impFile, ".pem");
+    if (impFileEnd != NULL && impFileEnd[XSTRLEN(".pem")] == '\0') {
         encType = ENCODING_TYPE_PEM;
     }
 

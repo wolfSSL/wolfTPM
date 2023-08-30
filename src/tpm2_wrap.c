@@ -7244,7 +7244,7 @@ int wolfTPM2_PolicyRefMake(TPM_ALG_ID pcrAlg, byte* digest, word32* digestSz,
     }
     /* policyRef */
     if (rc == 0 && policyRefSz > 0) {
-        rc = wc_HashUpdate(&hash_ctx, hashType, digest, inSz);
+        rc = wc_HashUpdate(&hash_ctx, hashType, policyRef, policyRefSz);
     }
     if (rc == 0) {
         rc = wc_HashFinal(&hash_ctx, hashType, digest);
