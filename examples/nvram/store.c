@@ -137,7 +137,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     rc = readKeyBlob(filename, &keyBlob);
     if (rc != 0) goto exit;
 
-    /*  Prepare NV_AUTHWRITE and NV_AUTHREAD attributes necessary for password */
+    /* Prepare NV_AUTHWRITE and NV_AUTHREAD attributes necessary for password */
     parent.hndl = TPM_RH_OWNER;
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
     if (rc != 0) goto exit;

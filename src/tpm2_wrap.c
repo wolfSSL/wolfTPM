@@ -4048,6 +4048,9 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (rctmp != TPM_RC_SUCCESS)
         rc = rctmp;
 
+    /* make sure auth not set */
+    wolfTPM2_UnsetAuth(dev, 1);
+
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
         (word32)in.authHandle,
@@ -6454,28 +6457,22 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
     (void)devId;
 
+#if defined(DEBUG_CRYPTOCB) && defined(DEBUG_WOLFTPM)
+    wc_CryptoCb_InfoString(info);
+#endif
+
     if (info->algo_type == WC_ALGO_TYPE_RNG) {
     #ifndef WC_NO_RNG
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb RNG: Sz %d\n", info->rng.sz);
-    #endif
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->rng.out, info->rng.sz);
     #endif /* !WC_NO_RNG */
     }
     else if (info->algo_type == WC_ALGO_TYPE_SEED) {
     #ifndef WC_NO_RNG
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb RNG Seed: Sz %d\n", info->seed.sz);
-    #endif
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->seed.seed, info->seed.sz);
     #endif /* !WC_NO_RNG */
     }
 #if !defined(NO_RSA) || defined(HAVE_ECC)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb Pk: Type %d\n", info->pk.type);
-    #endif
-
     #ifndef NO_RSA
         /* RSA */
         if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
@@ -6543,11 +6540,15 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 return exit_rc;
             }
             curve_id = rc;
+            rc = 0;
 
-            /* Generate ephemeral key */
-            rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
-                (byte*)tlsCtx->eccKey->handle.auth.buffer,
-                tlsCtx->eccKey->handle.auth.size);
+            /* Generate ephemeral key - if one isn't already created */
+            if (tlsCtx->ecdhKey->handle.hndl == 0 ||
+                tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
+                rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
+                    (byte*)tlsCtx->eccKey->handle.auth.buffer,
+                    tlsCtx->eccKey->handle.auth.size);
+            }
             if (rc == 0) {
                 /* Export public key info to wolf ecc_key */
                 rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, tlsCtx->ecdhKey,
@@ -6648,9 +6649,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 #endif /* !NO_RSA || HAVE_ECC */
 #ifndef NO_AES
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
-    #endif
         if (info->cipher.type != WC_CIPHER_AES_CBC) {
             return exit_rc;
         }
@@ -6697,9 +6695,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         word32 hashFlags = 0;
     #endif
 
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
-    #endif
         if (info->hash.type != WC_HASH_TYPE_SHA &&
             info->hash.type != WC_HASH_TYPE_SHA256) {
             return exit_rc;
@@ -6827,9 +6822,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         TPM_ALG_ID hashAlg = TPM_ALG_ERROR;
     #endif
 
-    #ifdef DEBUG_WOLFTPM
-        printf("CryptoDevCb HMAC: Type %d\n", info->hmac.macType);
-    #endif
         if (info->hmac.macType != WC_HASH_TYPE_SHA &&
             info->hmac.macType != WC_HASH_TYPE_SHA256) {
             return exit_rc;

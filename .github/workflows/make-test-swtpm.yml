@@ -14,6 +14,7 @@ jobs:
     steps:
 #pull wolfTPM
     - uses: actions/checkout@master
+
 #setup wolfssl
     - uses: actions/checkout@master
       with:
@@ -28,6 +29,7 @@ jobs:
     - name: wolfssl make install
       working-directory: ./wolfssl
       run: sudo make install
+
 #setup ibmswtpm2
     - uses: actions/checkout@master
       with:
@@ -35,20 +37,62 @@ jobs:
         path: ibmswtpm2
     - name: ibmswtpm2 make
       working-directory: ./ibmswtpm2/src
-      run: make
-#setup wolfTPM
+      run: |
+          make
+          ./tpm_server &
+
+#setup and test defaults (with simulator)
     - name: autogen
       run: ./autogen.sh
     - name: configure
       run: ./configure --enable-swtpm
     - name: make test
-      run: |
-          ./ibmswtpm2/src/tpm_server &
-          sleep 2 && make check && ./examples/native/native_test && ./examples/wrap/wrap_test
+      run: make check
 
-#test wolfTPM without wolfCrypt
+#test no wolfcrypt
     - name: configure no wolfCrypt
       run: ./configure --enable-swtpm --disable-wolfcrypt
     - name: make test no wolfCrypt
-      run: |
-          make check && ./examples/native/native_test && ./examples/wrap/wrap_test
+      run: make check
+
+#test no wrapper
+    - name: configure no wrapper
+      run: ./configure --enable-swtpm --disable-wrapper
+    - name: make test no wolfCrypt
+      run: make check
+
+# test small stack
+    - name: configure smallstack
+      run: ./configure --enable-swtpm --enable-smallstack
+    - name: make test smallstack
+      run: make check
+
+# test tislock
+    - name: configure tislock
+      run: ./configure --enable-tislock
+    - name: make tislock
+      run: make
+
+# build debug
+    - name: configure debug
+      run: ./configure --enable-debug
+    - name: make debug
+      run: make
+
+# build verbose
+    - name: configure debug verbose
+      run: ./configure --enable-debug=verbose
+    - name: make debug verbose
+      run: make
+
+# build io
+    - name: configure debug io
+      run: ./configure --enable-debug=io CFLAGS="-DWOLFTPM_DEBUG_TIMEOUT"
+    - name: make debug io
+      run: make
+
+# build advio
+    - name: configure advio
+      run: ./configure --enable-advio
+    - name: make debug io
+      run: make

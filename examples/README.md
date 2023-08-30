@@ -48,7 +48,7 @@ More information about how to test and use PCR attestation can be found in the i
 
 Demonstrates how to create Remote Attestation challenge using the TPM 2.0 and afterwards prepare a response.
 
-Detailed information about using these examples can be found in  [examples/attestation/README.md](./examples/attestation/README.md)
+Detailed information about using these examples can be found in  [examples/attestation/README.md](/examples/attestation/README.md)
 
 `./examples/attestation/make_credential`
 `./examples/attestation/activate_credential`
@@ -79,8 +79,6 @@ This behavior depends on the `sessionAttributes`:
 - `TPMA_SESSION_decrypt` for command response
 
 Either one can be set separately or both can be set in one authorization session. This is up to the user (developer).
-
-`./examples/pcr/quote_paramenc`
 
 ## CSR
 

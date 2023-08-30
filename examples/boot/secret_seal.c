@@ -107,7 +107,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID alg = TPM_ALG_RSA, srkAlg;
     TPM_ALG_ID pcrAlg = USE_PCR_ALG;
     TPMT_PUBLIC template;
-    byte secret[MAX_SYM_DATA];
+    byte secret[MAX_SYM_DATA+1]; /* for NULL term */
     word32 secretSz = 0;
     const char* publicKeyFile = NULL;
     const char* outFile = "sealblob.bin";
@@ -119,6 +119,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&storage, 0, sizeof(WOLFTPM2_KEY));
     XMEMSET(&tpmSession, 0, sizeof(WOLFTPM2_SESSION));
     XMEMSET(&sealBlob, 0, sizeof(sealBlob));
+    XMEMSET(secret, 0, sizeof(secret));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -138,13 +139,15 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-secretstr=", XSTRLEN("-secretstr=")) == 0) {
             const char* secretStr = argv[argc-1] + XSTRLEN("-secretstr=");
             secretSz = (int)XSTRLEN(secretStr);
-            if (secretSz > (word32)sizeof(secret))
-                secretSz = (word32)sizeof(secret);
+            if (secretSz > (word32)sizeof(secret)-1)
+                secretSz = (word32)sizeof(secret)-1;
             XMEMCPY(secret, secretStr, secretSz);
         }
         else if (XSTRNCMP(argv[argc-1], "-secrethex=", XSTRLEN("-secrethex=")) == 0) {
             const char* secretStr = argv[argc-1] + XSTRLEN("-secrethex=");
             word32 secretStrSz = (word32)XSTRLEN(secretStr);
+            if (secretStrSz > (word32)(sizeof(secret)*2-1))
+                secretStrSz = (word32)(sizeof(secret)*2-1);
             secretSz = hexToByte(secretStr, secret, secretStrSz);
         }
         else if (XSTRNCMP(argv[argc-1], "-policy=",
@@ -181,7 +184,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         printf("Error getting secret\n");
         goto exit;
     }
-    printf("Secret (%d bytes):\n", secretSz);
+    printf("Secret (%d bytes): %s\n", secretSz, secret);
     printHexString(secret, secretSz, 32);
 
     /* Storage Root and Parameter Encryption */
