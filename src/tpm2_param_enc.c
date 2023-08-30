@@ -486,7 +486,6 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
         return rc;
 
     /* start HMAC - sessionKey || authValue */
-    /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
     if (auth) {
     #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("HMAC Key: %d\n", auth->size);
@@ -509,9 +508,6 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     /* nonce old (on cmd TPM, on resp caller) */
     if (rc == 0)
         rc = wc_HmacUpdate(&hmac_ctx, nonceOld->buffer, nonceOld->size);
-
-    /* TODO: nonceTPMDecrypt */
-    /* TODO: nonceTPMEncrypt */
 
     /* sessionAttributes */
     if (rc == 0)

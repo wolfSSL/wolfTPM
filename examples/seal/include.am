@@ -3,8 +3,7 @@
 
 if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/seal/seal \
-                   examples/seal/unseal \
-                   examples/seal/seal_policy_auth
+                   examples/seal/unseal
 
 noinst_HEADERS  += examples/seal/seal.h
 
@@ -17,21 +16,13 @@ examples_seal_unseal_SOURCES      = examples/seal/unseal.c \
                                     examples/tpm_test_keys.c
 examples_seal_unseal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_seal_unseal_DEPENDENCIES = src/libwolftpm.la
-
-
-examples_seal_seal_policy_auth_SOURCES      = examples/seal/seal_policy_auth.c \
-                                              examples/tpm_test_keys.c
-examples_seal_seal_policy_auth_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
-examples_seal_seal_policy_auth_DEPENDENCIES = src/libwolftpm.la
-
 endif
 
 example_sealdir = $(exampledir)/seal
 dist_example_seal_DATA = \
   examples/seal/seal.c \
-  examples/seal/unseal.c \
-  examples/seal/seal_policy_auth.c
+  examples/seal/unseal.c
 
 DISTCLEANFILES+= examples/seal/.libs/seal
 DISTCLEANFILES+= examples/seal/.libs/unseal
-DISTCLEANFILES+= examples/seal/.libs/seal_policy_auth
+

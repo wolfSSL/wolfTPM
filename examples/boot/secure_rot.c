@@ -60,35 +60,6 @@ static void usage(void)
     );
 }
 
-static signed char HexCharToByte(signed char ch)
-{
-    signed char ret = (signed char)ch;
-    if (ret >= '0' && ret <= '9')
-        ret -= '0';
-    else if (ret >= 'A' && ret <= 'F')
-        ret -= 'A' - 10;
-    else if (ret >= 'a' && ret <= 'f')
-        ret -= 'a' - 10;
-    else
-        ret = -1; /* error case - return code must be signed */
-    return ret;
-}
-static int HexToByte(const char *hex, unsigned char *output, unsigned long sz)
-{
-    int outSz = 0;
-    word32 i;
-    for (i = 0; i < sz; i+=2) {
-        signed char ch1, ch2;
-        ch1 = HexCharToByte(hex[i]);
-        ch2 = HexCharToByte(hex[i+1]);
-        if ((ch1 < 0) || (ch2 < 0)) {
-            return -1;
-        }
-        output[outSz++] = (unsigned char)((ch1 << 4) + ch2);
-    }
-    return outSz;
-}
-
 int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
 {
     int rc;
@@ -154,10 +125,10 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             const char* hashHexStr = argv[argc-1] + XSTRLEN("-hash=");
             int hashHexStrLen = (int)XSTRLEN(hashHexStr);
             if (hashHexStrLen > (int)sizeof(digest)*2+1)
-                hashHexStrLen = -1;
+                digestSz = -1;
             else
-                digestSz = HexToByte(hashHexStr, digest, hashHexStrLen);
-            if (digestSz < 0) {
+                digestSz = hexToByte(hashHexStr, digest, hashHexStrLen);
+            if (digestSz <= 0) {
                 fprintf(stderr, "Invalid hash length\n");
                 usage();
                 return -1;
@@ -170,7 +141,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             if (authHexStrLen > (int)sizeof(authBuf)*2+1)
                 authBufSz = -1;
             else
-                authBufSz = HexToByte(authHexStr, authBuf, authHexStrLen);
+                authBufSz = hexToByte(authHexStr, authBuf, authHexStrLen);
             if (authBufSz < 0) {
                 fprintf(stderr, "Invalid auth length\n");
                 usage();

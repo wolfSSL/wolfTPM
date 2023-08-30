@@ -6,6 +6,7 @@ noinst_PROGRAMS += examples/pcr/quote \
                    examples/pcr/read_pcr \
                    examples/pcr/extend \
                    examples/pcr/policy \
+                   examples/pcr/policy_sign \
                    examples/pcr/reset
 
 noinst_HEADERS  += examples/pcr/quote.h \
@@ -28,9 +29,15 @@ examples_pcr_reset_SOURCES      = examples/pcr/reset.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_reset_DEPENDENCIES = src/libwolftpm.la
 
-examples_pcr_policy_SOURCES      = examples/pcr/policy.c
+examples_pcr_policy_SOURCES      = examples/pcr/policy.c \
+                                   examples/tpm_test_keys.c
 examples_pcr_policy_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_policy_DEPENDENCIES = src/libwolftpm.la
+
+examples_pcr_policy_sign_SOURCES      = examples/pcr/policy_sign.c \
+                                        examples/tpm_test_keys.c
+examples_pcr_policy_sign_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_pcr_policy_sign_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_pcrdir = $(exampledir)/pcr
@@ -39,11 +46,13 @@ dist_example_pcr_DATA = \
   examples/pcr/read_pcr.c \
   examples/pcr/extend.c \
   examples/pcr/policy.c \
+  examples/pcr/policy_sign.c \
   examples/pcr/reset.c
 
 DISTCLEANFILES+= examples/pcr/.libs/quote \
                  examples/pcr/.libs/read_pcr \
                  examples/pcr/.libs/policy \
+                 examples/pcr/.libs/policy_sign \
                  examples/pcr/.libs/extend \
                  examples/pcr/.libs/reset
 

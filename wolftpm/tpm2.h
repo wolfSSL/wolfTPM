@@ -3324,7 +3324,7 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \sa TPM2_Quote
 */
 WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    word32* pcrArray, word32 pcrArrayLen);
+    byte* pcrArray, word32 pcrArrayLen);
 
 /*!
     \ingroup TPM2_Proprietary

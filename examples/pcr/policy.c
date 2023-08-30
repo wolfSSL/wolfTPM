@@ -34,35 +34,7 @@
 #include "hal/tpm_io.h"
 #include <examples/pcr/pcr.h>
 #include <examples/tpm_test.h>
-
-static signed char HexCharToByte(signed char ch)
-{
-    signed char ret = (signed char)ch;
-    if (ret >= '0' && ret <= '9')
-        ret -= '0';
-    else if (ret >= 'A' && ret <= 'F')
-        ret -= 'A' - 10;
-    else if (ret >= 'a' && ret <= 'f')
-        ret -= 'a' - 10;
-    else
-        ret = -1; /* error case - return code must be signed */
-    return ret;
-}
-static int HexToByte(const char *hex, unsigned char *output, unsigned long sz)
-{
-    word32 i;
-    for (i = 0; i < sz; i++) {
-        signed char ch1, ch2;
-        ch1 = HexCharToByte(hex[i * 2]);
-        ch2 = HexCharToByte(hex[i * 2 + 1]);
-        if ((ch1 < 0) || (ch2 < 0)) {
-            return -1;
-        }
-        output[i] = (unsigned char)((ch1 << 4) + ch2);
-    }
-    return (int)sz;
-}
-
+#include <examples/tpm_test_keys.h>
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 PCR Policy example tool  -- */
@@ -132,7 +104,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            digestLen = HexToByte(digestStr, digest, digestLen / 2);
+            digestLen = hexToByte(digestStr, digest, digestLen / 2);
         }
         else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */

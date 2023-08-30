@@ -386,7 +386,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         pemSz = (word32)sizeof(pem);
         rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, primary, pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+            rc = writeBin(pemFilename, pem, pemSz);
         }
         if (rc != 0) goto exit;
 
@@ -395,7 +395,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
             pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+            rc = writeBin(pemFilename, pem, pemSz);
         }
         wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
 
