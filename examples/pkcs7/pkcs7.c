@@ -49,13 +49,17 @@
     #define ENABLE_PKCS7EX_EXAMPLE
 #endif
 
+#ifndef MAX_PKCS7_SIZE
+#define MAX_PKCS7_SIZE MAX_CONTEXT_SIZE
+#endif
+
 /******************************************************************************/
 /* --- BEGIN TPM2 PKCS7 Example -- */
 /******************************************************************************/
 
 #ifdef ENABLE_PKCS7EX_EXAMPLE
 /* Dummy Function to Get Data */
-#define MY_DATA_CHUNKS  1024
+#define MY_DATA_CHUNKS  WOLFTPM2_MAX_BUFFER
 #define MY_DATA_TOTAL  (1024 * 1024) + 12 /* odd remainder for test */
 static int GetMyData(byte* buffer, word32 bufSz, word32 offset)
 {
@@ -93,7 +97,8 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
     byte             hashBuf[TPM_SHA256_DIGEST_SIZE];
     word32           hashSz = wc_HashGetDigestSize(hashType);
-    WOLFTPM2_BUFFER  outputHead, outputFoot;
+    byte outputHead[MAX_PKCS7_SIZE], outputFoot[MAX_PKCS7_SIZE];
+    int outputHeadSz, outputFootSz;
     byte dataChunk[MY_DATA_CHUNKS];
     word32 dataChunkSz, offset = 0;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
@@ -135,29 +140,29 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     pkcs7.hashOID = SHA256h;
     pkcs7.rng = wolfTPM2_GetRng(dev);
 
-    outputHead.size = sizeof(outputHead.buffer);
-    outputFoot.size = sizeof(outputFoot.buffer);
+    outputHeadSz = (int)sizeof(outputHead);
+    outputFootSz = (int)sizeof(outputFoot);
 
     rc = wc_PKCS7_EncodeSignedData_ex(&pkcs7, hashBuf, hashSz,
-        outputHead.buffer, (word32*)&outputHead.size,
-        outputFoot.buffer, (word32*)&outputFoot.size);
+        outputHead, (word32*)&outputHeadSz,
+        outputFoot, (word32*)&outputFootSz);
     if (rc != 0) goto exit;
 
     wc_PKCS7_Free(&pkcs7);
 
-    printf("PKCS7 Header %d\n", outputHead.size);
-    TPM2_PrintBin(outputHead.buffer, outputHead.size);
+    printf("PKCS7 Header %d\n", outputHeadSz);
+    TPM2_PrintBin(outputHead, outputHeadSz);
 
-    printf("PKCS7 Footer %d\n", outputFoot.size);
-    TPM2_PrintBin(outputFoot.buffer, outputFoot.size);
+    printf("PKCS7 Footer %d\n", outputFootSz);
+    TPM2_PrintBin(outputFoot, outputFootSz);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsignedex.p7s", "wb");
     if (pemFile != XBADFILE) {
 
         /* Header */
-        rc = (int)XFWRITE(outputHead.buffer, 1, outputHead.size, pemFile);
-        if (rc != outputHead.size) {
+        rc = (int)XFWRITE(outputHead, 1, outputHeadSz, pemFile);
+        if (rc != outputHeadSz) {
             XFCLOSE(pemFile);
             rc = -1; goto exit;
         }
@@ -179,8 +184,8 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
         dataChunkSz = GetMyData(NULL, 0, 0); /* get total size */
 
         /* Footer */
-        rc = (int)XFWRITE(outputFoot.buffer, 1, outputFoot.size, pemFile);
-        if (rc != outputFoot.size) {
+        rc = (int)XFWRITE(outputFoot, 1, outputFootSz, pemFile);
+        if (rc != outputFootSz) {
             XFCLOSE(pemFile);
             rc = -1; goto exit;
         }
@@ -197,7 +202,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
 
     pkcs7.contentSz = dataChunkSz;
     rc = wc_PKCS7_VerifySignedData_ex(&pkcs7, hashBuf, hashSz,
-        outputHead.buffer, outputHead.size, outputFoot.buffer, outputFoot.size);
+        outputHead, outputHeadSz, outputFoot, outputFootSz);
     if (rc != 0) goto exit;
 
     wc_PKCS7_Free(&pkcs7);
@@ -211,7 +216,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     if (rc != 0) goto exit;
     pkcs7.contentSz = dataChunkSz;
     rc = wc_PKCS7_VerifySignedData_ex(&pkcs7, hashBuf, hashSz,
-        outputHead.buffer, outputHead.size, outputFoot.buffer, outputFoot.size);
+        outputHead, outputHeadSz, outputFoot, outputFootSz);
     if (rc != 0) goto exit;
     wc_PKCS7_Free(&pkcs7);
 
@@ -227,7 +232,8 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     int rc;
     PKCS7 pkcs7;
     byte  data[] = "My encoded DER cert.";
-    WOLFTPM2_BUFFER output;
+    byte output[MAX_PKCS7_SIZE];
+    int outputSz;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE pemFile;
 #endif
@@ -246,20 +252,20 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     pkcs7.hashOID = SHA256h;
     pkcs7.rng = wolfTPM2_GetRng(dev);
 
-    rc = wc_PKCS7_EncodeSignedData(&pkcs7, output.buffer, sizeof(output.buffer));
+    rc = wc_PKCS7_EncodeSignedData(&pkcs7, output, sizeof(output));
     if (rc <= 0) goto exit;
     wc_PKCS7_Free(&pkcs7);
-    output.size = rc;
+    outputSz = rc;
 
-    printf("PKCS7 Signed Container %d\n", output.size);
-    TPM2_PrintBin(output.buffer, output.size);
+    printf("PKCS7 Signed Container %d\n", outputSz);
+    TPM2_PrintBin(output, outputSz);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsigned.p7s", "wb");
     if (pemFile != XBADFILE) {
-        rc = (int)XFWRITE(output.buffer, 1, output.size, pemFile);
+        rc = (int)XFWRITE(output, 1, outputSz, pemFile);
         XFCLOSE(pemFile);
-        if (rc != output.size) {
+        if (rc != outputSz) {
             rc = -1; goto exit;
         }
     }
@@ -270,7 +276,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     if (rc != 0) goto exit;
     rc = wc_PKCS7_InitWithCert(&pkcs7, NULL, 0);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_VerifySignedData(&pkcs7, output.buffer, output.size);
+    rc = wc_PKCS7_VerifySignedData(&pkcs7, output, outputSz);
     if (rc != 0) goto exit;
     wc_PKCS7_Free(&pkcs7);
 
@@ -281,7 +287,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     if (rc != 0) goto exit;
     rc = wc_PKCS7_InitWithCert(&pkcs7, NULL, 0);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_VerifySignedData(&pkcs7, output.buffer, output.size);
+    rc = wc_PKCS7_VerifySignedData(&pkcs7, output, outputSz);
     if (rc != 0) goto exit;
     wc_PKCS7_Free(&pkcs7);
 
@@ -359,11 +365,15 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
         XFSEEK(derFile, 0, XSEEK_END);
         der.size = (int)XFTELL(derFile);
         XREWIND(derFile);
-        rc = (int)XFREAD(der.buffer, 1, der.size, derFile);
-        XFCLOSE(derFile);
-        if (rc != der.size) {
-            rc = -1; goto exit;
+        if (der.size > (int)sizeof(der.buffer)) {
+            rc = BUFFER_E;
         }
+        else {
+            rc = (int)XFREAD(der.buffer, 1, der.size, derFile);
+            rc = (rc == der.size) ? 0 : -1;
+        }
+        XFCLOSE(derFile);
+        if (rc != 0) goto exit;
     }
 #endif
 

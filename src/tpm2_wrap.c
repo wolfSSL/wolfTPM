@@ -6117,10 +6117,15 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     #ifdef WOLFSSL_DER_TO_PEM
         WOLFTPM2_BUFFER tmp;
         tmp.size = rc;
-        XMEMCPY(tmp.buffer, out, rc);
-        XMEMSET(out, 0, outSz);
-        rc = wc_DerToPem(tmp.buffer, tmp.size, out, outSz,
-            selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+        if (rc > (int)sizeof(tmp.buffer)) {
+            rc = BUFFER_E;
+        }
+        else {
+            XMEMCPY(tmp.buffer, out, rc);
+            XMEMSET(out, 0, outSz);
+            rc = wc_DerToPem(tmp.buffer, tmp.size, out, outSz,
+                selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+        }
     #else
         #ifdef DEBUG_WOLFTPM
         printf("CSR_MakeAndSign PEM not supported\n")
