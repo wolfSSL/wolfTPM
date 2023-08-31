@@ -18,7 +18,7 @@ include examples/seal/include.am
 include examples/attestation/include.am
 
 if BUILD_EXAMPLES
-dist_noinst_SCRIPTS += examples/run_examples.sh
+EXTRA_DIST += examples/run_examples.sh
 endif
 
 dist_example_DATA+= examples/README.md \

@@ -49,7 +49,9 @@ jobs:
     - name: make
       run: make
     - name: make check
-      run: WOLFSSL_PATH=./wolfssl make check -j1
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
 
 #test no wolfcrypt
     - name: configure no wolfCrypt
@@ -57,7 +59,9 @@ jobs:
     - name: make no wolfCrypt
       run: make
     - name: make check no wolfCrypt
-      run: WOLFSSL_PATH=./wolfssl WOLFCRYPT_ENABLE=0 make check -j1
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl WOLFCRYPT_ENABLE=0  ./examples/run_examples.sh
 
 #test no wrapper
     - name: configure no wrapper
@@ -73,7 +77,9 @@ jobs:
     - name: make smallstack
       run: make
     - name: make check smallstack
-      run: WOLFSSL_PATH=./wolfssl make check -j1
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
 
 # test tislock
     - name: configure tislock
