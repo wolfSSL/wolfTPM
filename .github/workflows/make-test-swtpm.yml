@@ -57,7 +57,7 @@ jobs:
     - name: make no wolfCrypt
       run: make
     - name: make check no wolfCrypt
-      run: WOLFSSL_PATH=./wolfssl make check -j1
+      run: WOLFSSL_PATH=./wolfssl WOLFCRYPT_ENABLE=0 make check -j1
 
 #test no wrapper
     - name: configure no wrapper
@@ -65,7 +65,7 @@ jobs:
     - name: make no wrapper
       run: make
     - name: make check no wrapper
-      run: WOLFSSL_PATH=./wolfssl make check -j1
+      run: ./examples/native/native_test
 
 # test small stack
     - name: configure smallstack

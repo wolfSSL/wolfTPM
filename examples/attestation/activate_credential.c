@@ -57,7 +57,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEYBLOB akKey;
     WOLFTPM2_SESSION tpmSession;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE *fp;
     int dataSize = 0;
 #endif
@@ -174,7 +174,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     cmdIn.activCred.activateHandle = akKey.handle.hndl;
     cmdIn.activCred.keyHandle = primary->handle.hndl;
     /* Read credential from the user file */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(input, "rb");
     if (fp != XBADFILE) {
         dataSize = (int)XFREAD((BYTE*)&cmdIn.activCred.credentialBlob, 1,

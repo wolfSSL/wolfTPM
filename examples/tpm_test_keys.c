@@ -44,7 +44,7 @@ int writeBin(const char* filename, const byte *buf, word32 bufSz)
     if (filename == NULL || buf == NULL)
         return BAD_FUNC_ARG;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE fp = NULL;
     size_t fileSz = 0;
 
@@ -265,7 +265,7 @@ int createAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
         keyblob.pub.size, keyblob.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(filename, &keyblob);
     if (rc != 0) {
         return rc;

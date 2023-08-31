@@ -187,7 +187,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
              TPMA_OBJECT_userWithAuth |
              TPMA_OBJECT_noDA);
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     if (impFile != NULL) {
         printf("Loading %s%s key file: %s\n",
             encType == ENCODING_TYPE_PEM ? "PEM" : "DER",
@@ -244,7 +244,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         TPM2_GetAlgName(alg), impKey.pub.size, impKey.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
     !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(outputFile, &impKey);
 #else

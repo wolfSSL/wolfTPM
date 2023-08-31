@@ -71,7 +71,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE f;
 #endif
 
@@ -190,7 +190,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     data = (UINT8*)&cmdOut.quoteResult.quoted;
     data += sizeof(UINT16); /* skip the size field of TPMS_ATTEST */
     dataSz = (int)sizeof(TPMS_ATTEST) - sizeof(UINT16);
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     f = XFOPEN(outputFile, "wb");
     if (f != XBADFILE) {
         dataSz = (int)XFWRITE(data, 1, dataSz, f);
