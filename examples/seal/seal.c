@@ -82,7 +82,7 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
-        else {
+        else if (argv[argc-1][0] == '-') {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;

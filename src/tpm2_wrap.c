@@ -3890,6 +3890,7 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
     return rc;
 }
 
+/* TODO: Version that can read up to 8 PCR's at a time */
 int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     int* pDigestLen)
 {
@@ -3940,6 +3941,11 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
 
     if (dev == NULL || digestLen > TPM_MAX_DIGEST_SIZE) {
         return BAD_FUNC_ARG;
+    }
+
+    /* set session auth to blank */
+    if (dev->ctx.session) {
+        wolfTPM2_SetAuthPassword(dev, 0, NULL);
     }
 
     XMEMSET(&pcrExtend, 0, sizeof(pcrExtend));
