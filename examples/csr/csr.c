@@ -42,6 +42,10 @@ static const char* gClientCsrEccFile = "./certs/tpm-ecc-cert.csr";
 static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.pem";
 #endif
 
+#ifndef MAX_PEM_SIZE
+#define MAX_PEM_SIZE MAX_CONTEXT_SIZE
+#endif
+
 /******************************************************************************/
 /* --- BEGIN TPM2 CSR Example -- */
 /******************************************************************************/
@@ -53,7 +57,8 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     const char* subject = NULL;
     const char* keyUsage = "serverAuth,clientAuth,codeSigning,"
                            "emailProtection,timeStamping,OCSPSigning";
-    WOLFTPM2_BUFFER output;
+    byte output[MAX_PEM_SIZE];
+    int outputSz;
 #ifndef WOLFTPM2_NO_HEAP
     const char* custOid =    "1.2.3.4.5";
     const char* custOidVal = "This is NOT a critical extension";
@@ -73,11 +78,11 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
                   "/OU=ECC/CN=www.wolfssl.com/emailAddress=info@wolfssl.com";
     }
 
-    output.size = (int)sizeof(output.buffer);
+    outputSz = (int)sizeof(output);
 #ifdef WOLFTPM2_NO_HEAP
     /* single shot API for CSR generation */
     rc = wolfTPM2_CSR_Generate_ex(dev, key, subject, keyUsage,
-        CTC_FILETYPE_PEM, output.buffer, output.size, 0, makeSelfSignedCert,
+        CTC_FILETYPE_PEM, output, outputSz, 0, makeSelfSignedCert,
         devId);
 #else
     rc = wolfTPM2_CSR_SetSubject(dev, csr, subject);
@@ -95,24 +100,24 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     }
     if (rc == 0) {
         rc = wolfTPM2_CSR_MakeAndSign_ex(dev, csr, key, CTC_FILETYPE_PEM,
-            output.buffer, output.size, 0, makeSelfSignedCert, devId);
+            output, outputSz, 0, makeSelfSignedCert, devId);
     }
 #endif
     if (rc >= 0) {
-        output.size = rc;
-        printf("Generated/Signed Cert (PEM %d)\n", output.size);
+        outputSz = rc;
+        printf("Generated/Signed Cert (PEM %d)\n", outputSz);
     #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         XFILE pemFile = XFOPEN(outputPemFile, "wb");
         if (pemFile != XBADFILE) {
-            rc = (int)XFWRITE(output.buffer, 1, output.size, pemFile);
+            rc = (int)XFWRITE(output, 1, outputSz, pemFile);
             XFCLOSE(pemFile);
-            rc = (rc == output.size) ? 0 : -1;
+            rc = (rc == outputSz) ? 0 : -1;
             if (rc == 0) {
                 printf("Saved to %s\n", outputPemFile);
             }
         }
     #endif
-        printf("%s\n", (char*)output.buffer);
+        printf("%s\n", (char*)output);
     }
     (void)outputPemFile;
 

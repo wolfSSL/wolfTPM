@@ -48,7 +48,7 @@ More information about how to test and use PCR attestation can be found in the i
 
 Demonstrates how to create Remote Attestation challenge using the TPM 2.0 and afterwards prepare a response.
 
-Detailed information about using these examples can be found in  [examples/attestation/README.md](./examples/attestation/README.md)
+Detailed information about using these examples can be found in  [examples/attestation/README.md](/examples/attestation/README.md)
 
 `./examples/attestation/make_credential`
 `./examples/attestation/activate_credential`
@@ -79,8 +79,6 @@ This behavior depends on the `sessionAttributes`:
 - `TPMA_SESSION_decrypt` for command response
 
 Either one can be set separately or both can be set in one authorization session. This is up to the user (developer).
-
-`./examples/pcr/quote_paramenc`
 
 ## CSR
 
@@ -450,45 +448,17 @@ mySecretMessage
 
 After a successful unsealing, the data is stored into a new file. If no filename is provided, the `unseal` tool stores the data in `unseal.bin`.
 
-### Sealing data to the TPM with policy authorization
+### Sealing secret based on PCR(s) with policy signed by external key
 
-Data can also be sealed to the TPM, either to NVM or regular, with policy authorization. ./examples/seal/seal\_policy\_auth.c shows an example of how to seal data to the TPM using the wolfTPM2\_SealWithAuthKey function and unseal with wolfTPM2\_UnsealWithAuthSig. These functions call wolfTPM2\_PolicyPCR to add the PCR values to the policyDigest and TPM2\_PolicyAuthorize to sign the digest with either an ecc or rsa key. ./examples/nvram/seal\_policy\_auth\_nv.c is similar but seals to the data to NVM and uses TPM2\_PolicyAuthorizeNV to keep the policyDigest in NVM so it persists in between boots. ./examples/nvram/seal\_policy\_auth\_nv\_external.c works the same way but it shows how to use a key generated from outside wolfTPM, currently only supports ecc256 keys
+See [examples/boot/README.md](/examples/boot/README.md)
 
-```
-$ ./examples/seal/seal_policy_auth -ecc -aes 16
-Example for sealing data to the TPM with policy authorization
-	PCR Indicies:16 
-	Use Parameter Encryption: CFB
-wolfTPM2_Init: success
-TPM2_StartAuthSession: sessionHandle 0x3000000
-Loading SRK: Storage 0x81000200 (282 bytes)
-ECC template
-Loaded sealBlob to 0x80000002
-TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
 
-$ ./examples/nvram/seal_policy_auth_nv -ecc -aes 16
-Example for sealing data to NV memory with policy authorization
-	PCR Indicies:16 
-	Use Parameter Encryption: CFB
-wolfTPM2_Init: success
-TPM2_StartAuthSession: sessionHandle 0x3000000
-Loading SRK: Storage 0x81000200 (282 bytes)
-ECC template
-TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
+## Secure Boot
 
-$ ./examples/nvram/seal_policy_auth_nv_external -ecc -aes 16
-Warning: Unrecognized option: -ecc
-Example for sealing data to NV memory with policy authorization
-	PCR Indicies:16 
-	Use Parameter Encryption: CFB
-wolfTPM2_Init: success
-Loading SRK: Storage 0x81000200 (282 bytes)
-TPM2_StartAuthSession: sessionHandle 0x3000000
-TPM2_StartAuthSession: sessionHandle 0x3000000
-Usealed secret matches!
-```
+### TPM based root of trust
+
+See [examples/boot/README.md](/examples/boot/README.md)
+
 
 ## GPIO Control
 

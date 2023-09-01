@@ -59,7 +59,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     /* Arbitrary user data provided through a file */
     const char *filename = "input.data";
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
     XFILE fp = NULL;
     size_t len;
     BYTE hash[TPM_SHA256_DIGEST_SIZE];
@@ -120,7 +121,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TPM_ALG_SHA256;
 
     /* Prepare the hash from user file or predefined value */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
     if (filename) {
         fp = XFOPEN(filename, "rb");
     }

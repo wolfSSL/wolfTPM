@@ -2,15 +2,32 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-noinst_PROGRAMS += examples/boot/secure_rot
 noinst_HEADERS  += examples/boot/boot.h
+
+noinst_PROGRAMS += examples/boot/secure_rot
 examples_boot_secure_rot_SOURCES      = examples/boot/secure_rot.c \
                                         examples/tpm_test_keys.c
 examples_boot_secure_rot_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_boot_secure_rot_DEPENDENCIES = src/libwolftpm.la
+
+noinst_PROGRAMS += examples/boot/secret_seal
+examples_boot_secret_seal_SOURCES      = examples/boot/secret_seal.c \
+                                         examples/tpm_test_keys.c
+examples_boot_secret_seal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_boot_secret_seal_DEPENDENCIES = src/libwolftpm.la
+
+noinst_PROGRAMS += examples/boot/secret_unseal
+examples_boot_secret_unseal_SOURCES      = examples/boot/secret_unseal.c \
+                                           examples/tpm_test_keys.c
+examples_boot_secret_unseal_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_boot_secret_unseal_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_bootdir = $(exampledir)/boot
-dist_example_boot_DATA = examples/boot/secure_rot.c
+dist_example_boot_DATA = examples/boot/secure_rot.c \
+                         examples/boot/secret_seal.c \
+                         examples/boot/secret_unseal.c
 
-DISTCLEANFILES+= examples/boot/.libs/secure_rot
+DISTCLEANFILES+= examples/boot/.libs/secure_rot \
+                 examples/boot/.libs/secret_seal \
+                 examples/boot/.libs/secret_unseal

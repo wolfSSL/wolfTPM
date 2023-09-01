@@ -82,6 +82,7 @@ static void usage(void)
     printf("./examples/tls/tls_client [-ecc] [-aes/xor]\n");
     printf("* -ecc: Use RSA or ECC key\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
 }
 
 int TPM2_TLS_Client(void* userCtx)
@@ -123,6 +124,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
+    word32 port = TLS_PORT;
 
     /* initialize variables */
     XMEMSET(&storageKey, 0, sizeof(storageKey));
@@ -151,11 +153,18 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             useECC = 1;
         }
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
+            useECC = 0;
+        }
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
-        if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+        else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
+            const char* portStr = argv[argc-1] + XSTRLEN("-p=");
+            port = (word32)XATOI(portStr);
         }
         argc--;
     }
@@ -163,6 +172,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     printf("TPM2 TLS Client Example\n");
     printf("\tUse %s keys\n", useECC ? "ECC" : "RSA");
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
+    printf("\tUsing Port: %d\n", port);
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -446,7 +456,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 
     /* Setup socket and connection */
-    rc = SetupSocketAndConnect(&sockIoCtx, TLS_HOST, TLS_PORT);
+    rc = SetupSocketAndConnect(&sockIoCtx, TLS_HOST, port);
     if (rc != 0) goto exit;
 
     /* Setup read/write callback contexts */
@@ -556,6 +566,9 @@ exit:
 #ifdef HAVE_ECC
     wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    #ifndef WOLFTPM2_USE_SW_ECDHE
+        wolfTPM2_UnloadHandle(&dev, &ecdhKey.handle);
+    #endif
 #endif
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 

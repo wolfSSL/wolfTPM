@@ -6,9 +6,9 @@ echo Run ./examples/csr/csr first to generate the CSR
 
 # Make sure required CA files exist and are populated
 rm -f ./certs/index.*
-touch ./certs/index.txt 
+touch ./certs/index.txt
 if [ ! -f ./certs/serial ]; then
-	echo 1000 > ./certs/serial
+	echo 3650 > ./certs/serial
 fi
 if [ ! -f ./certs/crlnumber ]; then
 	echo 2000 > ./certs/crlnumber
@@ -25,7 +25,7 @@ if [ "$1" == "clean" ]; then
 
 	# cleanup the ./examples/csr/csr generated
 	rm -f ./certs/tpm-*-cert.csr
-	
+
 	exit 0
 fi
 
@@ -33,14 +33,14 @@ fi
 # Generate RSA 2048-bit CA
 if [ ! -f ./certs/ca-rsa-key.pem ]; then
 	openssl req -new -newkey rsa:2048 -keyout ./certs/ca-rsa-key.pem -nodes -out ./certs/ca-rsa-cert.csr -subj "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"
-    openssl x509 -req -in ./certs/ca-rsa-cert.csr -days 1000 -extfile ./certs/ca-rsa.cnf -extensions v3_ca -signkey ./certs/ca-rsa-key.pem -out ./certs/ca-rsa-cert.pem
+    openssl x509 -req -in ./certs/ca-rsa-cert.csr -days 3650 -extfile ./certs/ca-rsa.cnf -extensions v3_ca -signkey ./certs/ca-rsa-key.pem -out ./certs/ca-rsa-cert.pem
     rm ./certs/ca-rsa-cert.csr
 
 	openssl x509 -in ./certs/ca-rsa-cert.pem -inform PEM -out ./certs/ca-rsa-cert.der -outform DER
 	openssl rsa -in ./certs/ca-rsa-key.pem -inform PEM -out ./certs/ca-rsa-key.der -outform DER
 
 	# generate CRL
-	openssl ca -config ./certs/ca-rsa.cnf -gencrl -crldays 1000 -out ./certs/ca-rsa.crl -keyfile ./certs/ca-rsa-key.pem -cert ./certs/ca-rsa-cert.pem
+	openssl ca -config ./certs/ca-rsa.cnf -gencrl -crldays 3650 -out ./certs/ca-rsa.crl -keyfile ./certs/ca-rsa-key.pem -cert ./certs/ca-rsa-cert.pem
 fi
 
 # Sign RSA certificates
@@ -62,7 +62,7 @@ if [ ! -f ./certs/ca-ecc-key.pem ]; then
 	openssl ec -in ./certs/ca-ecc-key.pem -inform PEM -out ./certs/ca-ecc-key.der -outform DER
 
 	# generate CRL
-	openssl ca -config ./certs/ca-ecc.cnf -gencrl -crldays 1000 -out ./certs/ca-ecc.crl -keyfile ./certs/ca-ecc-key.pem -cert ./certs/ca-ecc-cert.pem
+	openssl ca -config ./certs/ca-ecc.cnf -gencrl -crldays 3650 -out ./certs/ca-ecc.crl -keyfile ./certs/ca-ecc-key.pem -cert ./certs/ca-ecc-cert.pem
 fi
 
 

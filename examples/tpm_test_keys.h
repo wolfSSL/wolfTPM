@@ -28,7 +28,9 @@
 
 WOLFTPM_LOCAL int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
 WOLFTPM_LOCAL int writeKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key);
-WOLFTPM_LOCAL int writeKeyPubPem(const char* filename, byte *buf, int bufSz);
+
+WOLFTPM_LOCAL int writeBin(const char* filename, const byte *buf, word32 bufSz);
+WOLFTPM_LOCAL int readBin(const char* filename, byte *buf, word32* bufSz);
 
 WOLFTPM_LOCAL int readAndLoadKey(WOLFTPM2_DEV* pDev,
                           WOLFTPM2_KEY* key,
@@ -69,6 +71,10 @@ WOLFTPM_LOCAL int getECCkey(WOLFTPM2_DEV* pDev,
 
 /* if *buf != NULL, it will use existing buffer and provided bufLen */
 WOLFTPM_LOCAL int loadFile(const char* fname, byte** buf, size_t* bufLen);
+
+WOLFTPM_LOCAL int hexToByte(const char *hex, unsigned char *output, unsigned long sz);
+WOLFTPM_LOCAL void printHexString(const unsigned char* bin, unsigned long sz,
+    unsigned long maxLine);
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
 

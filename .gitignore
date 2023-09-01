@@ -48,6 +48,7 @@ examples/pcr/quote
 examples/pcr/read_pcr
 examples/pcr/extend
 examples/pcr/policy
+examples/pcr/policy_sign
 examples/pcr/reset
 examples/timestamp/clock_set
 examples/management/flush
@@ -64,18 +65,17 @@ examples/keygen/external_import
 examples/nvram/store
 examples/nvram/read
 examples/nvram/counter
-examples/nvram/seal_policy_auth_nv
-examples/nvram/seal_policy_auth_nv_external
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read
 examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
-examples/seal/seal_policy_auth
 examples/attestation/make_credential
 examples/attestation/activate_credential
 examples/boot/secure_rot
+examples/boot/secret_seal
+examples/boot/secret_unseal
 
 # Generated Cert Files
 certs/ca-*.pem

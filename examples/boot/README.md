@@ -8,9 +8,9 @@ Design for storage of public key based root of trust into TPM:
 4) WolfBoot still has the public key internally and programs the TPM with the NV if not populated.
 5) The NV is locked and created under the platform hierarchy
 
-Exammple:
+Example:
 
-```
+```sh
 $ ./examples/boot/secure_rot -write=../wolfBoot/wolfboot_signing_public_key.der -lock
 TPM2: Caps 0x00000000, Did 0x0000, Vid 0x0000, Rid 0x 0
 TPM2_Startup pass
@@ -44,6 +44,41 @@ TPM2_FlushContext: Closed handle 0x2000000
 
 # Secure Boot Encryption Key Storage
 
-TODO:
-* Sealing based on PCR's and key?
-* RSA encrypt/decrypt?
+To seal a secret to PCR's without having the "brittleness" issue we use an external key to sign the state of the PCR(s).
+
+Tools:
+* `./examples/pcr/policy_sign`: Signs a digest for a PCR policy. Outputs the signature and also generates a policy authorization digest for the public key (-outpolicy)
+* `./examples/boot/secret_seal`: Seals a secret using the authorization policy digest for the public key. If no secret provided a random value is generated and sealed.
+* `./examples/boot/secret_unseal`: Unseals a secret using the sign authorization policy and the public key.
+
+Example for created a signed PCR policy:
+```sh
+# Extend "aaa" to test PCR 16
+echo aaa > aaa.bin
+./examples/pcr/reset 16
+./examples/pcr/extend 16 aaa.bin
+
+# RSA Sign this PCR (result to pcrsig.bin) - also creates policyauth.bin based on public key
+./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.der -out=pcrsig.bin -outpolicy=policyauth.bin
+# OR
+# ECC Sign
+./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.der -out=pcrsig.bin -outpolicy=policyauth.bin
+```
+Example for creating a sealed secret using that signed policy based on public key:
+
+```sh
+# Create a keyed hash sealed object using the policy authorization for the public key
+./examples/boot/secret_seal -rsa -policy=policyauth.bin -out=sealblob.bin
+./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin
+# OR
+# Provide the public key for policy authorization (instead of -policy=)
+./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin
+./examples/boot/secret_seal -ecc -publickey=./certs/example-ecc256-key-pub.der -out=sealblob.bin
+```
+
+Example for unsealing:
+```sh
+# Unseal using public key
+./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin
+./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin
+```

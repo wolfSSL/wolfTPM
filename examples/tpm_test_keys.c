@@ -37,14 +37,14 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
-int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
+int writeBin(const char* filename, const byte *buf, word32 bufSz)
 {
     int rc = TPM_RC_FAILURE;
 
     if (filename == NULL || buf == NULL)
         return BAD_FUNC_ARG;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE fp = NULL;
     size_t fileSz = 0;
 
@@ -55,10 +55,9 @@ int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
         if (fileSz == (word32)bufSz) {
             rc = TPM_RC_SUCCESS;
         }
-#ifdef DEBUG_WOLFTPM
-        printf("Public PEM file size = %zu\n", fileSz);
-        TPM2_PrintBin(buf, bufSz);
-#endif
+    #ifdef DEBUG_WOLFTPM
+        printf("Wrote %d bytes to %s\n", (int)fileSz, filename);
+    #endif
         XFCLOSE(fp);
     }
 #else
@@ -67,6 +66,45 @@ int writeKeyPubPem(const char* filename, byte *buf, int bufSz)
     return rc;
 }
 
+int readBin(const char* filename, byte *buf, word32* bufSz)
+{
+    int rc = TPM_RC_FAILURE;
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    XFILE  fp = NULL;
+    size_t fileSz = 0;
+    size_t bytes_read = 0;
+
+    fp = XFOPEN(filename, "rb");
+    if (fp != XBADFILE) {
+        XFSEEK(fp, 0, XSEEK_END);
+        fileSz = XFTELL(fp);
+        XREWIND(fp);
+        if (fileSz > (size_t)*bufSz) {
+            printf("File size check failed\n");
+            rc = BUFFER_E;
+        }
+        else {
+            *bufSz = (int)fileSz;
+        #ifdef DEBUG_WOLFTPM
+            printf("Reading %d bytes from %s\n", (int)fileSz, filename);
+        #endif
+            bytes_read = XFREAD(buf, 1, fileSz, fp);
+            if (bytes_read == fileSz) {
+                rc = TPM_RC_SUCCESS;
+            }
+        }
+        XFCLOSE(fp);
+    }
+    else {
+        rc = BUFFER_E;
+        printf("File %s not found!\n", filename);
+    }
+#else
+    (void)filename;
+    (void)key;
+#endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
+    return rc;
+}
 
 int writeKeyBlob(const char* filename,
                         WOLFTPM2_KEYBLOB* key)
@@ -227,7 +265,7 @@ int createAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
         keyblob.pub.size, keyblob.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(filename, &keyblob);
     if (rc != 0) {
         return rc;
@@ -436,6 +474,49 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
     ret = NOT_COMPILED_IN;
 #endif /* !NO_FILESYSTEM */
     return ret;
+}
+
+
+static signed char hexCharToByte(signed char ch)
+{
+    signed char ret = (signed char)ch;
+    if (ret >= '0' && ret <= '9')
+        ret -= '0';
+    else if (ret >= 'A' && ret <= 'F')
+        ret -= 'A' - 10;
+    else if (ret >= 'a' && ret <= 'f')
+        ret -= 'a' - 10;
+    else
+        ret = -1; /* error case - return code must be signed */
+    return ret;
+}
+int hexToByte(const char *hex, unsigned char *output, unsigned long sz)
+{
+    int outSz = 0;
+    word32 i;
+    for (i = 0; i < sz; i+=2) {
+        signed char ch1, ch2;
+        ch1 = hexCharToByte(hex[i]);
+        ch2 = hexCharToByte(hex[i+1]);
+        if ((ch1 < 0) || (ch2 < 0)) {
+            return -1;
+        }
+        output[outSz++] = (unsigned char)((ch1 << 4) + ch2);
+    }
+    return outSz;
+}
+
+void printHexString(const unsigned char* bin, unsigned long sz,
+    unsigned long maxLine)
+{
+    unsigned long i;
+    printf("\t");
+    for (i = 0; i < sz; i++) {
+        printf("%02x", bin[i]);
+        if (((i+1) % maxLine) == 0 && i+1 != sz)
+            printf("\n\t");
+    }
+    printf("\n");
 }
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

@@ -39,25 +39,24 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-pem/-der] "
+    printf("./examples/keygen/keyimport [keyblob.bin] [-ecc/-rsa] [-key=] "
            "[-aes/xor] [-password] [-public]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -rsa/-ecc: Use RSA or ECC key\n");
     printf("* -public: Input file is public key only\n");
     printf("* -password=[password]: Optional password for private key\n");
-    printf("* -pem=[keyfile]: PEM (Base64 Encoded) key file\n");
-    printf("* -der=[keyfile]: DER (ASN.1) binary key file\n");
+    printf("* -key=[keyfile]: PEM (Base64 Encoded) or DER (ASN.1) binary key file\n");
     printf("Examples:\n");
     printf("\t./examples/keygen/keyimport -ecc\n");
     printf("\t./examples/keygen/keyimport -rsa\n");
-    printf("\t./examples/keygen/keyimport -ecc -pem=./certs/example-ecc256-key.pem -aes\n");
-    printf("\t./examples/keygen/keyimport -rsa -pem=./certs/example-rsa2048-key.pem -aes\n");
-    printf("\t./examples/keygen/keyimport -ecc -der=./certs/example-ecc256-key.der -aes\n");
-    printf("\t./examples/keygen/keyimport -rsa -der=./certs/example-rsa2048-key.der -aes\n");
-    printf("\t./examples/keygen/keyimport -ecc -pem=../wolfssl/certs/ecc-keyPkcs8Enc.pem -password=yassl123 -aes\n");
-    printf("\t./examples/keygen/keyimport -rsa -pem=../wolfssl/certs/server-keyPkcs8Enc.pem -password=yassl123 -aes\n");
-    printf("\t./examples/keygen/keyimport -ecc -der=./certs/example-ecc256-key-pub.der -public\n");
-    printf("\t./examples/keygen/keyimport -rsa -der=./certs/example-rsa2048-key-pub.der -public\n");
+    printf("\t./examples/keygen/keyimport -ecc -key=./certs/example-ecc256-key.pem -aes\n");
+    printf("\t./examples/keygen/keyimport -rsa -key=./certs/example-rsa2048-key.pem -aes\n");
+    printf("\t./examples/keygen/keyimport -ecc -key=./certs/example-ecc256-key.der -aes\n");
+    printf("\t./examples/keygen/keyimport -rsa -key=./certs/example-rsa2048-key.der -aes\n");
+    printf("\t./examples/keygen/keyimport -ecc -key=../wolfssl/certs/ecc-keyPkcs8Enc.pem -password=yassl123 -aes\n");
+    printf("\t./examples/keygen/keyimport -rsa -key=../wolfssl/certs/server-keyPkcs8Enc.pem -password=yassl123 -aes\n");
+    printf("\t./examples/keygen/keyimport -ecc -key=./certs/example-ecc256-key-pub.der -public\n");
+    printf("\t./examples/keygen/keyimport -rsa -key=./certs/example-rsa2048-key-pub.der -public\n");
 }
 
 int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
@@ -77,6 +76,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     byte* buf = NULL;
     size_t bufSz = 0;
     int isPublicKey = 0;
+    const char* impFileEnd;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -107,19 +107,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
                 XSTRLEN("-password=")) == 0) {
             password = (const char*)(argv[argc-1] + XSTRLEN("-password="));
         }
-        else if (XSTRCMP(argv[argc-1], "-der") == 0) {
-            encType = ENCODING_TYPE_ASN1;
-        }
-        else if (XSTRNCMP(argv[argc-1], "-der=", XSTRLEN("-der=")) == 0) {
-            encType = ENCODING_TYPE_ASN1;
-            impFile = (const char*)(argv[argc-1] + XSTRLEN("-der="));
-        }
-        else if (XSTRCMP(argv[argc-1], "-pem") == 0) {
-            encType = ENCODING_TYPE_PEM;
-        }
-        else if (XSTRNCMP(argv[argc-1], "-pem=", XSTRLEN("-pem=")) == 0) {
-            encType = ENCODING_TYPE_PEM;
-            impFile = (const char*)(argv[argc-1] + XSTRLEN("-pem="));
+        else if (XSTRNCMP(argv[argc-1], "-key=", XSTRLEN("-key=")) == 0) {
+            impFile = (const char*)(argv[argc-1] + XSTRLEN("-key="));
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -134,6 +123,10 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
             impFile = "./certs/example-rsa2048-key.der";
         else if (alg == TPM_ALG_ECC)
             impFile = "./certs/example-ecc256-key.der";
+    }
+    impFileEnd = XSTRSTR(impFile, ".pem");
+    if (impFileEnd != NULL && impFileEnd[XSTRLEN(".pem")] == '\0') {
+        encType = ENCODING_TYPE_PEM;
     }
 
     XMEMSET(&storage, 0, sizeof(storage));
@@ -194,7 +187,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
              TPMA_OBJECT_userWithAuth |
              TPMA_OBJECT_noDA);
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     if (impFile != NULL) {
         printf("Loading %s%s key file: %s\n",
             encType == ENCODING_TYPE_PEM ? "PEM" : "DER",
@@ -251,7 +244,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         TPM2_GetAlgName(alg), impKey.pub.size, impKey.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
     !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(outputFile, &impKey);
 #else
@@ -266,6 +259,8 @@ exit:
     if (rc != 0) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
+
+    XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &storage.handle);

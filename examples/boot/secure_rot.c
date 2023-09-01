@@ -43,12 +43,12 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-auth] [-sha384] [-lock]\n");
+    printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-authhex=/-authstr=] [-sha384] [-lock]\n");
     printf("* -nvindex=[handle] (default 0x%x)\n",
         TPM2_DEMO_NV_SECURE_ROT_INDEX);
     printf("* -hash=hash: Hex string digest to write\n");
     printf("* -write=filename: DER formatted public key to write\n");
-    printf("* -auth=password: Optional password for NV\n");
+    printf("* -authstr=password/-authhex=hexstring: Optional password for NV\n");
     printf("* -sha384: Use SHA2-384 (default is SHA2-256)\n");
     printf("* -lock: Lock the write\n");
     printf("\nExamples:\n");
@@ -58,35 +58,6 @@ static void usage(void)
         "ed0b3344c5d7726f5742f4f0c0f451aa"
         "be4213f8b3b986639e69ed0ea8b49d94\n"
     );
-}
-
-static signed char HexCharToByte(signed char ch)
-{
-    signed char ret = (signed char)ch;
-    if (ret >= '0' && ret <= '9')
-        ret -= '0';
-    else if (ret >= 'A' && ret <= 'F')
-        ret -= 'A' - 10;
-    else if (ret >= 'a' && ret <= 'f')
-        ret -= 'a' - 10;
-    else
-        ret = -1; /* error case - return code must be signed */
-    return ret;
-}
-static int HexToByte(const char *hex, unsigned char *output, unsigned long sz)
-{
-    int outSz = 0;
-    word32 i;
-    for (i = 0; i < sz; i+=2) {
-        signed char ch1, ch2;
-        ch1 = HexCharToByte(hex[i]);
-        ch2 = HexCharToByte(hex[i+1]);
-        if ((ch1 < 0) || (ch2 < 0)) {
-            return -1;
-        }
-        output[outSz++] = (unsigned char)((ch1 << 4) + ch2);
-    }
-    return outSz;
 }
 
 int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
@@ -154,23 +125,30 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             const char* hashHexStr = argv[argc-1] + XSTRLEN("-hash=");
             int hashHexStrLen = (int)XSTRLEN(hashHexStr);
             if (hashHexStrLen > (int)sizeof(digest)*2+1)
-                hashHexStrLen = -1;
+                digestSz = -1;
             else
-                digestSz = HexToByte(hashHexStr, digest, hashHexStrLen);
-            if (digestSz < 0) {
+                digestSz = hexToByte(hashHexStr, digest, hashHexStrLen);
+            if (digestSz <= 0) {
                 fprintf(stderr, "Invalid hash length\n");
                 usage();
                 return -1;
             }
             doWrite = 1;
         }
-        else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
-            const char* authHexStr = argv[argc-1] + XSTRLEN("-auth=");
+        else if (XSTRNCMP(argv[argc-1], "-authstr=", XSTRLEN("-authstr=")) == 0) {
+            const char* authHexStr = argv[argc-1] + XSTRLEN("-authstr=");
+            authBufSz = (int)XSTRLEN(authHexStr);
+            if (authBufSz > (int)sizeof(authBuf))
+                authBufSz = (word32)sizeof(authBuf);
+            XMEMCPY(authBuf, authHexStr, authBufSz);
+        }
+        else if (XSTRNCMP(argv[argc-1], "-authhex=", XSTRLEN("-authhex=")) == 0) {
+            const char* authHexStr = argv[argc-1] + XSTRLEN("-authhex=");
             int authHexStrLen = (int)XSTRLEN(authHexStr);
             if (authHexStrLen > (int)sizeof(authBuf)*2+1)
                 authBufSz = -1;
             else
-                authBufSz = HexToByte(authHexStr, authBuf, authHexStrLen);
+                authBufSz = hexToByte(authHexStr, authBuf, authHexStrLen);
             if (authBufSz < 0) {
                 fprintf(stderr, "Invalid auth length\n");
                 usage();

@@ -1694,6 +1694,12 @@ typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
     #define WOLFTPM2_USE_WOLF_RNG
 #endif
 
+#if MAX_RESPONSE_SIZE > MAX_COMMAND_SIZE
+#define XFER_MAX_SIZE MAX_RESPONSE_SIZE
+#else
+#define XFER_MAX_SIZE MAX_COMMAND_SIZE
+#endif
+
 typedef struct TPM2_CTX {
     TPM2HalIoCb ioCb;
     void* userCtx;
@@ -1722,7 +1728,7 @@ typedef struct TPM2_CTX {
     TPM2_AUTH_SESSION* session;
 
     /* Command / Response Buffer */
-    byte cmdBuf[MAX_COMMAND_SIZE];
+    byte cmdBuf[XFER_MAX_SIZE];
 
     byte rid;
     /* Informational Bits - use unsigned int for best compiler compatibility */
@@ -3324,7 +3330,7 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \sa TPM2_Quote
 */
 WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    word32* pcrArray, word32 pcrArrayLen);
+    byte* pcrArray, word32 pcrArrayLen);
 
 /*!
     \ingroup TPM2_Proprietary

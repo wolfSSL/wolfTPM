@@ -28,6 +28,7 @@
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
+#include <examples/tpm_test_keys.h>
 #include <examples/wrap/wrap_test.h>
 
 #include <stdio.h>
@@ -327,6 +328,113 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+static WOLFTPM2_KEY authKey; /* also used for test_wolfTPM2_PCRPolicy */
+
+static void test_wolfTPM_ImportPublicKey(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    TPM_ALG_ID alg = TPM_ALG_RSA;
+    int encType = ENCODING_TYPE_PEM;
+    TPMA_OBJECT attributes = (
+        TPMA_OBJECT_sign |
+        TPMA_OBJECT_noDA |
+        TPMA_OBJECT_userWithAuth
+    );
+    /* public key from ibmtss/utils/policies/rsapubkey.pem */
+    const char* pemPublicKey =
+        "-----BEGIN PUBLIC KEY-----\n"
+        "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAukO2Z2rjxNm7EWi82TpW\n"
+        "hXmJo5fPf2enN4KzF35qVM4KjYdpVODWQ377Lq3edqriP1Ji2dUvqoUHNrkfwSOH\n"
+        "EHHKWXO++if4o+kI5YdC1MzwXMVHI2Yrn7fAteGArM7Ox9GRcdzmicw38HMWWGtM\n"
+        "OBUkaLZnO7rJW1VPQQw1IG9d+hFepXfrNl75zz2S2mceWecFRGBFE8DPW+zMQIMm\n"
+        "qFtt9g9+LIw0b1fn13DsMW7JX3J126ZwgTH6BEmSIY04xz2Tz0Z0+GNb+mwDypP9\n"
+        "1o0l0ITkETMsfabpGgEfC2x+67lQJR986MyLZ+WDK+3LeT2b4mA2bxpRa6yDrEv/\n"
+        "gQIDAQAB\n"
+        "-----END PUBLIC KEY-----";
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_ImportPublicKeyBuffer(&dev,
+        alg,
+        &authKey,
+        encType,
+        pemPublicKey, (word32)XSTRLEN(pemPublicKey),
+        attributes
+    );
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_Cleanup(&dev);
+}
+
+/* Test vector from ibmtss policy authorize test for SHA2-256 */
+static void test_wolfTPM2_PCRPolicy(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    TPM_ALG_ID pcrAlg = TPM_ALG_SHA256;
+    const char* aaa = "aaa";
+    byte pcrArray[1] = {TPM2_DEMO_PCR_INDEX};
+    word32 pcrArraySz = 1;
+    byte pcrIndex = pcrArray[0];
+    byte digest[WC_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+    byte pcrHash[WC_SHA256_DIGEST_SIZE];
+    word32 pcrHashSz;
+    const byte expectedPolicyAuth[] = {
+        0xEB, 0xA3, 0xF9, 0x8C,  0x5E, 0xAF, 0x1E, 0xA8,
+        0xF9, 0x4F, 0x51, 0x9B,  0x4D, 0x2A, 0x31, 0x83,
+        0xEE, 0x79, 0x87, 0x66,  0x72, 0x39, 0x8E, 0x23,
+        0x15, 0xD9, 0x33, 0xC2,  0x88, 0xA8, 0xE5, 0x03
+    };
+    const byte expectedPCRAuth[] = {
+        0x76, 0x44, 0xF6, 0x11,  0xEA, 0x10, 0xD7, 0x60,
+        0xDA, 0xB9, 0x36, 0xC3,  0x95, 0x1E, 0x1D, 0x85,
+        0xEC, 0xDB, 0x84, 0xCE,  0x9A, 0x79, 0x03, 0xDD,
+        0xE1, 0xC7, 0xE0, 0xA2,  0xD9, 0x09, 0xA0, 0x13
+    };
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* fixup public key to match TCG test vector */
+    authKey.pub.publicArea.parameters.rsaDetail.exponent = 0;
+
+    /* Generate authorization policy for public key */
+    /* Use public key from "test_wolfTPM_ImportPublicKey" */
+    XMEMSET(digest, 0, sizeof(digest)); /* empty old hash */
+    digestSz = WC_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyAuthorizeMake(pcrAlg, &authKey.pub,
+        digest, &digestSz, NULL, 0);
+    AssertIntEQ(rc, 0);
+
+    AssertIntEQ(XMEMCMP(digest, expectedPolicyAuth, sizeof(expectedPolicyAuth)), 0);
+
+    rc = wolfTPM2_ResetPCR(&dev, pcrIndex);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_ExtendPCR(&dev, pcrIndex, pcrAlg,
+        (byte*)aaa, (int)XSTRLEN(aaa));
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_PCRGetDigest(&dev, pcrAlg, pcrArray, pcrArraySz,
+        pcrHash, &pcrHashSz);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(digest, 0, sizeof(digest)); /* empty old hash */
+    digestSz = WC_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyPCRMake(pcrAlg, pcrArray, pcrArraySz,
+        pcrHash, pcrHashSz, digest, &digestSz);
+    AssertIntEQ(rc, 0);
+
+    AssertIntEQ(XMEMCMP(digest, expectedPCRAuth, sizeof(expectedPCRAuth)), 0);
+
+    wolfTPM2_Cleanup(&dev);
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
 #if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
 #include <pthread.h>
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -396,6 +504,10 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_KDFa();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    test_wolfTPM_ImportPublicKey();
+    test_wolfTPM2_PCRPolicy();
+    #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */

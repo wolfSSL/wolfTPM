@@ -5584,7 +5584,7 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 }
 
 void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    word32* pcrArray, word32 pcrArraySz)
+    byte* pcrArray, word32 pcrArraySz)
 {
     int i;
 
@@ -6136,7 +6136,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
     printf("Public Area (size %d):\n", pub->size);
 
     /* Sanity check */
-    if (pub->size > (sizeof(TPM2B_PUBLIC)) || pub->size == 0) {
+    if (pub->size > (sizeof(TPM2B_PUBLIC))) {
         printf("Invalid TPM2B_PUBLIC size\n");
         return;
     }

@@ -27,6 +27,8 @@
 #endif
 
 int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

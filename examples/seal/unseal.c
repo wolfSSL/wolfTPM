@@ -53,7 +53,7 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     TPM2B_AUTH auth;
     const char *filename = "unseal.bin";
     const char *inkeyfilename = "keyblob.bin";
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE fp = NULL;
     size_t len;
 #endif
@@ -127,7 +127,7 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
     TPM2_PrintBin(cmdOut_unseal.outData.buffer, cmdOut_unseal.outData.size);
 #endif
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     /* Output the unsealed data to a file */
     if (filename) {
         fp = XFOPEN(filename, "wb");

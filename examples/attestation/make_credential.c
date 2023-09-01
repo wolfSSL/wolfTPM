@@ -59,7 +59,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB primary;
     WOLFTPM2_HANDLE handle;
     TPM2B_NAME name;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     FILE *fp;
     int dataSize = 0;
 #endif
@@ -141,7 +141,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     printf("Public key for encryption loaded\n");
     handle.hndl = cmdOut.loadExtOut.objectHandle;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     /* Load AK Name digest */
     fp = XFOPEN("ak.name", "rb");
     if (fp != XBADFILE) {
@@ -170,7 +170,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_MakeCredential success\n");
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(output, "wb");
     if (fp != XBADFILE) {
         dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.credentialBlob, 1,

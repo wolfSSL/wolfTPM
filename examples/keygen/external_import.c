@@ -89,7 +89,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate3;
     TPMA_OBJECT attributes;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     const char* keyblobFile = "keyblob.bin";
 #endif
     int loadKeyBlob = 0;
@@ -166,7 +166,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         ENCODING_TYPE_PEM, extRSAPrivatePem, (word32)strlen(extRSAPrivatePem),
         NULL, attributes, seedValue.buffer, seedValue.size);
     if (rc != 0) {
-        printf("Failed to wolfTPM2_RsaPrivateKeyImportPem\n");
+        printf("wolfTPM2_ImportPrivateKeyBuffer failed import\n");
         goto exit;
     }
 
@@ -206,7 +206,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         TPM2_PrintBin(rsaKey3->priv.buffer, rsaKey3->priv.size);
 
         /* Save key as encrypted blob to the disk */
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+    #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         rc = writeKeyBlob(keyblobFile, rsaKey3);
         if (rc != TPM_RC_SUCCESS) {
             printf("Error saving keyblob.bin: %d\n", rc);

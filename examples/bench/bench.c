@@ -122,7 +122,7 @@ static void bench_stats_asym_finish(const char* algo, int strength,
 }
 
 static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
-    const byte* in, word32 inSz, byte* digest, word32 digestSz)
+    const byte* in, word32 inSz, byte* digest, word32 digestSz, double maxDuration)
 {
     int rc;
     int count;
@@ -139,7 +139,7 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
         if (rc != 0) goto exit;
         rc = wolfTPM2_HashFinish(dev, &hash, digest, &digestSz);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_sym_finish(desc, count, inSz, start);
 
 exit:
@@ -148,7 +148,7 @@ exit:
 
 static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     const char* desc, int algo, int keyBits, const byte* in, byte* out,
-    word32 inOutSz, int isDecrypt)
+    word32 inOutSz, int isDecrypt, double maxDuration)
 {
     int rc;
     int count;
@@ -173,11 +173,11 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
         rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, NULL, 0,
             isDecrypt);
         if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-            printf("Encrypt/Decrypt unavailble\n");
+            printf("Encrypt/Decrypt unavailable\n");
             break;
         }
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_sym_finish(desc, count, inOutSz, start);
 
 exit:
@@ -191,6 +191,8 @@ static void usage(void)
     printf("Expected usage:\n");
     printf("./examples/bench/bench [-aes/xor]\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -maxdur=[ms]: Maximum runtime for each algorithm in milliseconds "
+        "(default %d)\n", TPM2_BENCH_DURATION_SEC*1000);
 }
 
 /******************************************************************************/
@@ -217,6 +219,8 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     int count;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
+    double maxDuration = TPM2_BENCH_DURATION_SEC;
+    double maxKeyGenDurSec = TPM2_BENCH_DURATION_KEYGEN_SEC;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -232,6 +236,10 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-maxdur=", XSTRLEN("-maxdur=")) == 0) {
+            const char* maxStr = argv[argc-1] + XSTRLEN("-maxdur=");
+            maxKeyGenDurSec = maxDuration = XATOI(maxStr) / 1000.0;
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -275,68 +283,68 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     do {
         rc = wolfTPM2_GetRandom(&dev, message.buffer, sizeof(message.buffer));
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_sym_finish("RNG", count, sizeof(message.buffer), start);
 
     /* AES Benchmarks */
     /* AES CBC */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-enc", TPM_ALG_CBC, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CBC-dec", TPM_ALG_CBC, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-enc", TPM_ALG_CBC, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CBC-dec", TPM_ALG_CBC, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* AES CTR */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-enc", TPM_ALG_CTR, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CTR-dec", TPM_ALG_CTR, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-enc", TPM_ALG_CTR, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CTR-dec", TPM_ALG_CTR, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* AES CFB */
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-enc", TPM_ALG_CFB, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-128-CFB-dec", TPM_ALG_CFB, 128,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-enc", TPM_ALG_CFB, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_ENCRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
     rc = bench_sym_aes(&dev, &storageKey, "AES-256-CFB-dec", TPM_ALG_CFB, 256,
-        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT);
+        message.buffer, cipher.buffer, sizeof(message.buffer), WOLFTPM2_DECRYPT, maxDuration);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* Hashing Benchmarks */
     /* SHA1 */
     rc = bench_sym_hash(&dev, "SHA1", TPM_ALG_SHA1, message.buffer,
-        sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE);
+        sizeof(message.buffer), cipher.buffer, TPM_SHA_DIGEST_SIZE, maxDuration);
     if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
     /* SHA256 */
     rc = bench_sym_hash(&dev, "SHA256", TPM_ALG_SHA256, message.buffer,
-        sizeof(message.buffer), cipher.buffer, TPM_SHA256_DIGEST_SIZE);
+        sizeof(message.buffer), cipher.buffer, TPM_SHA256_DIGEST_SIZE, maxDuration);
     if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
     /* SHA384 */
     rc = bench_sym_hash(&dev, "SHA384", TPM_ALG_SHA384, message.buffer,
-        sizeof(message.buffer), cipher.buffer, TPM_SHA384_DIGEST_SIZE);
+        sizeof(message.buffer), cipher.buffer, TPM_SHA384_DIGEST_SIZE, maxDuration);
     if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
     /* SHA512 */
     rc = bench_sym_hash(&dev, "SHA512", TPM_ALG_SHA512, message.buffer,
-        sizeof(message.buffer), cipher.buffer, TPM_SHA512_DIGEST_SIZE);
+        sizeof(message.buffer), cipher.buffer, TPM_SHA512_DIGEST_SIZE, maxDuration);
     if (rc != 0 && (rc & TPM_RC_HASH) != TPM_RC_HASH) goto exit;
 
 
@@ -354,7 +362,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_CreateAndLoadKey(&dev, &rsaKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_KEYGEN_SEC));
+    } while (bench_stats_check(start, &count, maxKeyGenDurSec));
     bench_stats_asym_finish("RSA", 2048, "key gen", count, start);
 
     /* Perform RSA encrypt / decrypt (no pad) */
@@ -367,7 +375,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
             message.buffer, message.size, cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("RSA", 2048, "Public", count, start);
 
     bench_stats_start(&count, &start);
@@ -376,7 +384,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_NULL,
             cipher.buffer, cipher.size, plain.buffer, &plain.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("RSA", 2048, "Private", count, start);
 
 
@@ -390,7 +398,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
             message.buffer, message.size, cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("RSA", 2048, "Pub  OAEP", count, start);
 
     bench_stats_start(&count, &start);
@@ -399,7 +407,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
             cipher.buffer, cipher.size, plain.buffer, &plain.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("RSA", 2048, "Priv OAEP", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
@@ -421,7 +429,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_CreateAndLoadKey(&dev, &eccKey, &storageKey.handle,
             &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("ECC", 256, "key gen", count, start);
 
     /* Perform sign / verify */
@@ -434,7 +442,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,
             cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("ECDSA", 256, "sign", count, start);
 
     bench_stats_start(&count, &start);
@@ -442,7 +450,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_VerifyHash(&dev, &eccKey, cipher.buffer, cipher.size,
             message.buffer, message.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("ECDSA", 256, "verify", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
@@ -466,7 +474,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
             cipher.buffer, &cipher.size);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, TPM2_BENCH_DURATION_SEC));
+    } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("ECDHE", 256, "agree", count, start);
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);

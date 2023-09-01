@@ -136,9 +136,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     const char *ekPubFile = "ek.pub";
     const char *srkPubFile = "srk.pub";
     const char *pubFilename = NULL;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
-    #if !defined(NO_RSA)
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
     const char *pemFilename = NULL;
     #endif
     FILE *fp;
@@ -350,7 +350,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         newKeyBlob.pub.size, newKeyBlob.priv.size);
 
     /* Save key as encrypted blob to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     rc = writeKeyBlob(outputFile, &newKeyBlob);
     /* Generate key artifacts needed for remote attestation */
     if (bAIK) {
@@ -376,8 +376,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Save EK public key as PEM format file to the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM) && \
-    !defined(NO_RSA)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
     if (pemFiles) {
         byte pem[MAX_RSA_KEY_BYTES];
         word32 pemSz;
@@ -386,7 +386,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         pemSz = (word32)sizeof(pem);
         rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, primary, pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+            rc = writeBin(pemFilename, pem, pemSz);
         }
         if (rc != 0) goto exit;
 
@@ -395,7 +395,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
             pem, &pemSz);
         if (rc == 0) {
-            rc = writeKeyPubPem(pemFilename, pem, pemSz);
+            rc = writeBin(pemFilename, pem, pemSz);
         }
         wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
 

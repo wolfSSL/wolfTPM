@@ -154,7 +154,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     }
 
     /* Load encrypted key from the disk */
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     rc = readKeyBlob(inputFile, &newKey);
     if (rc != 0) goto exit;
 #else
