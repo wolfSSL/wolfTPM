@@ -110,7 +110,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-key=", XSTRLEN("-key=")) == 0) {
             impFile = (const char*)(argv[argc-1] + XSTRLEN("-key="));
         }
-        else {
+        else if (argv[argc-1][0] == '-') {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 

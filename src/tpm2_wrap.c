@@ -2156,7 +2156,8 @@ int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
-    pub.publicArea.nameAlg = TPM_ALG_NULL;
+    /* make sure nameAlg is set for ticket */
+    pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.objectAttributes = (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt |
         TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA | TPMA_OBJECT_stClear);
     pub.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_NULL;
@@ -2311,6 +2312,7 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
+    /* make sure nameAlg is set for ticket */
     pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_noDA;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
@@ -3890,6 +3892,7 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
     return rc;
 }
 
+/* TODO: Version that can read up to 8 PCR's at a time */
 int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     int* pDigestLen)
 {
@@ -3940,6 +3943,11 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
 
     if (dev == NULL || digestLen > TPM_MAX_DIGEST_SIZE) {
         return BAD_FUNC_ARG;
+    }
+
+    /* set session auth to blank */
+    if (dev->ctx.session) {
+        wolfTPM2_SetAuthPassword(dev, 0, NULL);
     }
 
     XMEMSET(&pcrExtend, 0, sizeof(pcrExtend));

@@ -202,7 +202,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
             uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
         }
-        else {
+        else if (argv[argc-1][0] == '-') {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 

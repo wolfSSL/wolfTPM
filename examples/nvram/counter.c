@@ -43,7 +43,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/nvram/counter [-nvindex=0x0] [-aes/-xor]\n");
+    printf("./examples/nvram/counter [-nvindex=] [-aes/-xor]\n");
     printf("* -nvindex=[handle] (default 0x%x)\n", TPM2_DEMO_NV_COUNTER_INDEX);
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
@@ -57,6 +57,7 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
     TPMS_NV_PUBLIC nvPublic;
+    TPMI_RH_NV_AUTH authHandle = TPM_RH_OWNER; /* or TPM_RH_PLATFORM */
     int paramEncAlg = TPM_ALG_NULL;
     word32 nvIndex = TPM2_DEMO_NV_COUNTER_INDEX;
 
@@ -73,21 +74,31 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
     }
-    while (argc) {
-        if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+    while (argc > 1) {
+        if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
+            const char* nvIndexStr = argv[argc-1] + XSTRLEN("-nvindex=");
+            nvIndex = (word32)XSTRTOL(nvIndexStr, NULL, 0);
+            if (!(authHandle == TPM_RH_PLATFORM && (
+                    nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
+                    nvIndex < TPM_20_OWNER_NV_SPACE)) &&
+                !(authHandle == TPM_RH_OWNER && (
+                    nvIndex > TPM_20_OWNER_NV_SPACE &&
+                    nvIndex < TPM_20_TCG_NV_SPACE)))
+            {
+                fprintf(stderr, "Invalid NV Index %s\n", nvIndexStr);
+                fprintf(stderr, "\tPlatform Range: 0x%x -> 0x%x\n",
+                    TPM_20_PLATFORM_MFG_NV_SPACE, TPM_20_OWNER_NV_SPACE);
+                fprintf(stderr, "\tOwner Range: 0x%x -> 0x%x\n",
+                    TPM_20_OWNER_NV_SPACE, TPM_20_TCG_NV_SPACE);
+                usage();
+                return -1;
+            }
+        }
+        else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
-        }
-        else if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
-            nvIndex = (word32)XSTRTOL(argv[argc-1] + XSTRLEN("-nvindex="),
-                NULL, 0);
-            if (nvIndex > TPM_20_OWNER_NV_SPACE &&
-                                                nvIndex < TPM_20_TCG_NV_SPACE) {
-                printf("Invalid NV Index %s\n", argv[argc-1] + 8);
-                nvIndex = 0;
-            }
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -133,7 +144,7 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
         word32 nvAttributes;
 
         /* create new NV counter under owner hierarchy */
-        parent.hndl = TPM_RH_OWNER;
+        parent.hndl = authHandle;
         rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
         if (rc != 0) goto exit;
 

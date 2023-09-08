@@ -44,8 +44,7 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/boot/secure_rot [-nvindex] [-write=/-hash=] [-authhex=/-authstr=] [-sha384] [-lock]\n");
-    printf("* -nvindex=[handle] (default 0x%x)\n",
-        TPM2_DEMO_NV_SECURE_ROT_INDEX);
+    printf("* -nvindex=[handle] (default 0x%x)\n", TPM2_DEMO_NV_SECURE_ROT_INDEX);
     printf("* -hash=hash: Hex string digest to write\n");
     printf("* -write=filename: DER formatted public key to write\n");
     printf("* -authstr=password/-authhex=hexstring: Optional password for NV\n");
