@@ -3314,7 +3314,7 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \param pcr pointer to a structure of type TPML_PCR_SELECTION
     \param alg value of type TPM_ALG_ID specifying the type of hash algorithm used
     \param pcrArray array of values between 0 and 23 specifying the PCR register for use
-    \param pcrArrayLen length of the pcrArray
+    \param pcrArraySz length of the pcrArray
 
     _Example_
     \code
@@ -3330,7 +3330,7 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \sa TPM2_Quote
 */
 WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    byte* pcrArray, word32 pcrArrayLen);
+    byte* pcrArray, word32 pcrArraySz);
 
 /*!
     \ingroup TPM2_Proprietary
