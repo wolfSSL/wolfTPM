@@ -117,7 +117,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-pub") == 0) {
             partialStore = PUBLIC_PART_ONLY;
         }
-        else {
+        else if (argv[argc-1][0] == '-') {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
@@ -146,7 +146,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     if (paramEncAlg != TPM_ALG_NULL) {
         /* Start TPM session for parameter encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
-                TPM_SE_HMAC, TPM_ALG_CFB);
+                TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);

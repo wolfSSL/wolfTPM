@@ -65,6 +65,7 @@ examples/keygen/external_import
 examples/nvram/store
 examples/nvram/read
 examples/nvram/counter
+examples/nvram/policy_nv
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read

@@ -138,6 +138,13 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "nv read pub only failed! $RESULT" && exit 1
 
+./examples/nvram/policy_nv >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv policy nv failed! $RESULT" && exit 1
+./examples/nvram/policy_nv -aes >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "nv policy nv aes failed! $RESULT" && exit 1
+
 
 # CSR Tests
 ./examples/keygen/keygen rsa_test_blob.raw -rsa -t >> run.out

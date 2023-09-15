@@ -144,7 +144,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     if (paramEncAlg != TPM_ALG_NULL) {
         /* Start TPM session for parameter encryption */
         rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
-                TPM_SE_HMAC, TPM_ALG_CFB);
+                TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
