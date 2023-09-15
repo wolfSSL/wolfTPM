@@ -156,6 +156,8 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
             nvAttributes, 8, (byte*)gNvAuth, sizeof(gNvAuth)-1);
         if (rc != 0) goto exit;
 
+        wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
         rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
     }
     if (rc != TPM_RC_SUCCESS) {

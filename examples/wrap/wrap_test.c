@@ -710,6 +710,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
         if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
+        wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
         message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
         XMEMSET(message.buffer, 0x11, message.size);
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,

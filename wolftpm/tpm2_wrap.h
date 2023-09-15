@@ -369,6 +369,25 @@ WOLFTPM_API int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Clears one of the TPM Authorization session slots, pointed by its index
+    number and saves the nonce from the TPM so the session can continue to be used
+    again with wolfTPM2_SetAuthSession
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: unable to get lock on the TPM2 Context
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param index integer value, specifying the TPM Authorization slot, between zero and three
+    \param session pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
+
+    \sa wolfTPM2_StartSession
+    \sa wolfTPM2_SetAuthSession
+*/
+WOLFTPM_API int wolfTPM2_UnsetAuthSession(WOLFTPM2_DEV* dev, int index, WOLFTPM2_SESSION* session);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Sets a TPM Authorization slot using the provided index, session handle, attributes and auth
     \note It is recommended to use one of the other wolfTPM2 wrappers, like wolfTPM2_SetAuthPassword.
     Because the wolfTPM2_SetAuth wrapper provides complete control over the TPM Authorization slot for

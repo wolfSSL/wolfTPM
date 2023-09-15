@@ -752,6 +752,26 @@ int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index)
     return TPM2_SetSessionAuth(dev->session);
 }
 
+int wolfTPM2_UnsetAuthSession(WOLFTPM2_DEV* dev, int index,
+    WOLFTPM2_SESSION* tpmSession)
+{
+    TPM2_AUTH_SESSION* devSession;
+
+    if (dev == NULL || tpmSession == NULL ||
+            index >= MAX_SESSION_NUM || index < 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    devSession = &dev->session[index];
+
+    /* save off nonce from TPM to support continued use of session */
+    XMEMCPY(&tpmSession->nonceTPM, &devSession->nonceTPM, sizeof(TPM2B_NONCE));
+
+    XMEMSET(devSession, 0, sizeof(TPM2_AUTH_SESSION));
+
+    return TPM2_SetSessionAuth(dev->session);
+}
+
 int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     TPM_HANDLE sessionHandle, const TPM2B_AUTH* auth,
     TPMA_SESSION sessionAttributes, const TPM2B_NAME* name)
@@ -4056,9 +4076,6 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (rctmp != TPM_RC_SUCCESS)
         rc = rctmp;
 
-    /* make sure auth not set */
-    wolfTPM2_UnsetAuth(dev, 1);
-
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
         (word32)in.authHandle,
@@ -4135,6 +4152,14 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
                 wolfTPM2_GetRCString(rc));
         #endif
             return rc;
+        }
+
+        /* if this is the first write to NV then the NV_WRITTEN bit will get set
+         * and name needs re-computed */
+        if (pos == 0) {
+            /* read public and re-compute name */
+            rc = wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
+            if (rc != 0) break;
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -4341,10 +4366,9 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
         if (rc != TPM_RC_SUCCESS) { return rc; }
     }
 
-    /* make sure auth not set */
-    wolfTPM2_UnsetAuth(dev, 1);
-
+    /* Necessary, because NVRead has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("Setting NV index name failed\n");
@@ -4390,10 +4414,9 @@ int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
         }
     }
 
-    /* make sure auth not set */
-    wolfTPM2_UnsetAuth(dev, 1);
-
+    /* Necessary, because NVRead has two handles, second is NV Index */
     rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("Setting NV index name failed\n");
@@ -4421,10 +4444,6 @@ int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (dev->ctx.session) {
         rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
         if (rc != TPM_RC_SUCCESS) { return rc; }
-
-        /* Make sure no other auth sessions exist */
-        (void)wolfTPM2_UnsetAuth(dev, 1);
-        (void)wolfTPM2_UnsetAuth(dev, 2);
     }
 
     XMEMSET(&in, 0, sizeof(in));

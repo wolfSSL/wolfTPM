@@ -169,6 +169,8 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
     if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
     printf("Storing key at TPM NV index 0x%x with password protection\n\n",
              nvIndex);
 
