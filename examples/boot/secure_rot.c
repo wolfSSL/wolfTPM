@@ -228,6 +228,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
                 printf("Warning: NV Index 0x%x already exists!\n", nvIndex);
                 rc = 0;
             }
+            wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
         }
         if (rc == 0) {
             /* Write digest to NV */

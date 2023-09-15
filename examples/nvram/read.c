@@ -216,6 +216,10 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         printf("Successfully read private key part from NV\n\n");
     }
 
+    /* auth 0 is owner, no auth */
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    wolfTPM2_UnsetAuth(&dev, 1);
+
     parent.hndl = authHandle;
     rc = wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
     if (rc != 0) goto exit;
