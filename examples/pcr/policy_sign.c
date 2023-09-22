@@ -167,7 +167,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     #endif
     }
     else if (rc == 0 && alg == TPM_ALG_ECC) {
-    #ifdef HAVE_ECC
+    #if defined(HAVE_ECC) && defined(WOLFSSL_PUBLIC_MP)
         rc = wc_ecc_init(&key.ecc);
         if (rc == 0) {
             word32 idx = 0;
