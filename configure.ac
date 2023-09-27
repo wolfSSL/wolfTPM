@@ -243,6 +243,11 @@ then
     then
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UART"
     fi
+
+    if test "x$ENABLED_SWTPM" = "xuartns550"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UARTNS550"
+    fi
 fi
 
 # Windows TBS device Support

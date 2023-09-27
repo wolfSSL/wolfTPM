@@ -30,12 +30,27 @@ make
 ## Build Options
 
 * `WOLFTPM_SWTPM`: Use socket transport (no TIS layer)
-* `TPM2_SWTPM_HOST`: The host TPM address (default=localhost)
-* `TPM2_SWTPM_PORT`: The socket port (default=2321)
+* `TPM2_SWTPM_HOST`: The serial device to use (default=/dev/ttyS0)
+* `TPM2_SWTPM_PORT`: The baud rate (default=115200)
 * `WOLFTPM_SWTPM_UART`: Use UART transport (no TIS layer)
 
-
 ## SWTPM simulator setup
+
+### Xilinx UART
+
+Alternatively for raw API calls with Xilinx
+
+```sh
+./cofnigure --enable-swtpm=uartns550
+make
+```
+
+## Build Options
+
+* `WOLFTPM_SWTPM`: Use socket transport (no TIS layer)
+* `TPM2_SWTPM_PORT`: Used as the default baud rate (default=115200)
+* `TPM2_SWTPM_HOST`: The device to connect with (default=XPAR_MB0_AXI_UART16550_2_DEVICE_ID)
+* `WOLFTPM_SWTPM_UARTNS550`: Use Xilinx UART transport (no TIS layer)
 
 ### ibmswtpm2
 

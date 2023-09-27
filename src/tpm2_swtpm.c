@@ -46,7 +46,8 @@
 #include <stdio.h>                  /* standard in/out procedures */
 #include <stdlib.h>                 /* defines system calls */
 
-#ifdef WOLFTPM_SWTPM_UART
+
+#if defined(WOLFTPM_SWTPM_UART)
     #define _XOPEN_SOURCE 600
     #include <netdb.h>
     #include <sys/socket.h>         /* used for all socket calls */
@@ -62,15 +63,33 @@
         #ifdef __MACH__
             #define TPM2_SWTPM_HOST "/dev/cu.usbserial-0001"
         #else
-            #define TPM2_SWTPM_HOST "/dev/ttyUSB0"
+            #define TPM2_SWTPM_HOST "/dev/ttyS0"
         #endif
     #endif
     #ifndef TPM2_SWTPM_PORT
     #define TPM2_SWTPM_PORT         115200
     #endif
     #ifndef TPM2_TIMEOUT_SECONDS
-    #define TPM2_TIMEOUT_SECONDS    60
+    #define TPM2_TIMEOUT_SECONDS    7200
     #endif
+    #define WOLFTPM_WRITE write
+    #define WOLFTPM_READ  read
+    #define WOLFTPM_CLOSE close
+#elif defined(WOLFTPM_SWTPM_UARTNS550)
+    /* Xilinx 16550 UART */
+    #ifndef TPM2_SWTPM_HOST
+        #define TPM2_SWTPM_HOST XPAR_MB0_AXI_UART16550_2_DEVICE_ID
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+    #define TPM2_SWTPM_PORT         115200
+    #endif
+    #ifndef TPM2_TIMEOUT_SECONDS
+    #define TPM2_TIMEOUT_SECONDS    21600
+    #endif
+    #define WOLFTPM_WRITE(u, b, sz) XUartNs550_Send(&(u), (b), (sz))
+    #define WOLFTPM_READ(u, b, sz)  XUartNs550_Recv(&(u), (b), (sz))
+    #define WOLFTPM_CLOSE(fd) 0
+
 #else
     #include <wolftpm/tpm2_socket.h>
 
@@ -83,6 +102,9 @@
     #ifndef TPM2_TIMEOUT_SECONDS
     #define TPM2_TIMEOUT_SECONDS    10
     #endif
+    #define WOLFTPM_WRITE write
+    #define WOLFTPM_READ  read
+    #define WOLFTPM_CLOSE close
 #endif /* WOLFTPM_SWTPM_UART */
 
 
@@ -91,23 +113,46 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
+    if (ctx == NULL || buffer == NULL) {
         return BAD_FUNC_ARG;
     }
 
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
+    if (ctx->tcpCtx.fd < 0) {
+        return BAD_FUNC_ARG;
+    }
+#endif
+
 #ifdef DEBUG_SWTPM_IO
-    printf("Write %zd\n", bufSz);
+    DEBUG_PRINTF("Write %zd\n\r", bufSz);
     TPM2_PrintBin(buffer, (word32)bufSz);
 #endif
 
-    wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
-    if (bufSz != wrc) {
-        rc = TPM_RC_FAILURE;
+#if defined(WOLFTPM_SWTPM_UARTNS550)
+    while (wrc < bufSz)
+#endif
+    {
+        ssize_t tmp;
+
+        tmp = WOLFTPM_WRITE(ctx->tcpCtx.fd, (unsigned char*)buffer + wrc,
+            bufSz - wrc);
+        if (tmp > 0) {
+            wrc += tmp;
+        }
+        if (tmp < 0) {
+            rc = TPM_RC_FAILURE;
+        }
+
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
+        if (bufSz != wrc) {
+            rc = TPM_RC_FAILURE;
+        }
+#endif
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (wrc < 0) {
-        printf("Failed to send the TPM command to fd %d, got errno %d ="
+        DEBUG_PRINTF("Failed to send the TPM command to fd %d, got errno %d ="
                "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
     }
 #endif
@@ -115,6 +160,7 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     return rc;
 }
 
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
 static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 {
     int rc;
@@ -129,30 +175,34 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 
     FD_ZERO(&rfds);
     FD_SET(ctx->tcpCtx.fd, &rfds);
+    remain   = rxSz;
 
-    remain = rxSz;
-    while (remain > 0) {
+    do {
         /* use select to wait for data */
         rc = select(ctx->tcpCtx.fd + 1, &rfds, NULL, NULL, &tv);
         if (rc == 0) {
             rc = SOCKET_ERROR_E; /* timeout */
             break;
         }
-        rc = (int)read(ctx->tcpCtx.fd, ptr, remain);
+        rc = (int)WOLFTPM_READ(ctx->tcpCtx.fd, ptr, remain);
 #ifdef DEBUG_SWTPM_IO
-        printf("Read asked %zd, got %d\n", remain, rc);
+        DEBUG_PRINTF("Read asked %zd, got %d\n\r", remain, rc);
 #endif
+
+        if (rc == 0) {
+            if (remain == 0) {
+                break;
+            }
+            continue; /* keep trying */
+        }
+
         if (rc <= 0) {
         #ifdef DEBUG_WOLFTPM
             if (rc == 0) {
-            #ifdef WOLFTPM_SWTPM_UART
-                continue; /* keep trying */
-            #else
-                printf("Failed to read from TPM socket: EOF\n");
-            #endif
+                DEBUG_PRINTF("Failed to read from TPM socket: EOF\n");
             }
             else {
-                printf("Failed to read from TPM socket %d, got errno %d"
+                DEBUG_PRINTF("Failed to read from TPM socket %d, got errno %d"
                        " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
             }
         #endif
@@ -167,16 +217,18 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
         ptr += rc;
 
     #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("TPM socket received %d waiting for %zu more\n",
+        DEBUG_PRINTF("TPM socket received %d waiting for %zd more\n\r",
                rc, remain);
     #endif
-    }
-    if (remain == 0) {
+    } while (remain > 0);
+
+    if (remain <= 0) {
         rc = TPM_RC_SUCCESS;
     }
 
     return rc;
 }
+#endif
 
 #ifdef WOLFTPM_SWTPM_UART
 static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
@@ -192,7 +244,7 @@ static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
     fd = open(uartDev, O_RDWR | O_NOCTTY);
     if (fd < 0) {
 #ifdef DEBUG_WOLFTPM
-        printf("Error opening %s: Error %i (%s)\n",
+        DEBUG_PRINTF("Error opening %s: Error %i (%s)\n",
             uartDev, errno, strerror(errno));
 #endif
         return SOCKET_ERROR_E;
@@ -218,6 +270,150 @@ static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
     ctx->tcpCtx.fd = fd;
 
     return TPM_RC_SUCCESS;
+}
+
+#elif defined(WOLFTPM_SWTPM_UARTNS550)
+
+static unsigned char rxBuff[512];
+static int rxBuffIdx = 0;
+
+static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
+{
+    int rc;
+    size_t remain, rxRemain;
+    int sendAck = 0;
+    int timeOut = TPM2_TIMEOUT_SECONDS;
+
+    if (ctx == NULL || buffer == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    remain   = rxSz;
+    rxRemain = rxSz;
+
+    /* use up any leftovers before trying to pull more */
+    if (rxBuffIdx > 0) {
+        int minSz = (rxBuffIdx < (int)remain)? rxBuffIdx : (int)remain;
+
+        memcpy(buffer, rxBuff, minSz);
+        if (rxBuffIdx > minSz) {
+            memmove(rxBuff, rxBuff + rxBuffIdx - minSz, rxBuffIdx - minSz);
+        }
+        rxBuffIdx -= minSz;
+        remain -= minSz;
+        rxRemain -= minSz;
+    }
+
+    do {
+        rc = (int)WOLFTPM_READ(ctx->tcpCtx.fd, rxBuff + rxBuffIdx,
+            sizeof(rxBuff) - rxBuffIdx);
+    #ifdef DEBUG_SWTPM_IO
+        DEBUG_PRINTF("Read asked %d, got %d\n\r", remain, rc);
+    #endif
+
+        /* send ack */
+        if (rc > 0 ) {
+            usleep(500);
+            sendAck = 1;
+            timeOut = TPM2_TIMEOUT_SECONDS; /* reset timeout */
+        }
+
+        if (rc == 0) {
+            if (sendAck) {
+                unsigned char tmpBuf[1] = {0x01};
+
+                sendAck = 0;
+                WOLFTPM_WRITE(ctx->tcpCtx.fd, tmpBuf, 1);
+            }
+
+            if (rxBuffIdx >= rxRemain || rxRemain == 0) {
+                break;
+            }
+
+            if ((timeOut--) <= 0) {
+                rxBuffIdx = 0; /* reset read state */
+                rc = SOCKET_ERROR_E; /* timeout */
+            #if DEBUG_WOLFTPM
+                DEBUG_PRINTF("Connection timed out\r\n");
+            #endif
+                break;
+            }
+            continue; /* keep trying */
+        }
+
+        if (rc <= 0) {
+        #ifdef DEBUG_WOLFTPM
+            DEBUG_PRINTF("Failed to read from TPM UART\n\r");
+        #endif
+            rc = SOCKET_ERROR_E;
+            break;
+        }
+        rxBuffIdx += rc;
+        remain -= rc;
+
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        DEBUG_PRINTF("TPM socket received %d waiting for %d more\n\r",
+               rc, remain);
+    #endif
+    } while (1);
+
+    if (remain <= 0) {
+        rc = TPM_RC_SUCCESS;
+    }
+
+    if (rxBuffIdx > 0 && rxRemain > 0) {
+        int minSz = (rxRemain < rxBuffIdx)? rxRemain : rxBuffIdx;
+        memcpy(buffer, rxBuff, minSz);
+        if (rxBuffIdx > minSz) {
+            memmove(rxBuff, rxBuff + minSz, rxBuffIdx - minSz);
+        }
+        rxBuffIdx -= minSz;
+        rc = TPM_RC_SUCCESS;
+    }
+
+    return rc;
+}
+
+
+static int SwTpmConnect(TPM2_CTX* ctx, uint32_t baud)
+{
+    int ret = TPM_RC_SUCCESS;
+    XUartNs550_Config *config;
+
+    config = XUartNs550_LookupConfig(TPM2_SWTPM_HOST);
+    if (config == NULL) {
+        ret = TPM_RC_FAILURE;
+    }
+
+    if (ret == TPM_RC_SUCCESS) {
+    #ifdef DEBUG_SWTPM_IO
+        DEBUG_PRINTF("Connecting with UART base address = %X\n\r",
+            config->BaseAddress);
+    #endif
+        if (XUartNs550_CfgInitialize(&(ctx->tcpCtx.fd), config,
+            config->BaseAddress) != XST_SUCCESS) {
+        #ifdef DEBUG_SWTPM_IO
+            DEBUG_PRINTF("cfg initialize fail\n\r");
+        #endif
+            ret = TPM_RC_FAILURE;
+        }
+    }
+
+    if (ret == TPM_RC_SUCCESS) {
+        if (XUartNs550_SelfTest(&(ctx->tcpCtx.fd)) != XST_SUCCESS) {
+        #ifdef DEBUG_SWTPM_IO
+            DEBUG_PRINTF("UART tpm selftest failed\n\r");
+        #endif
+            ret = TPM_RC_FAILURE;
+        }
+    }
+
+    if (ret == TPM_RC_SUCCESS) {
+        XUartNs550_SetBaudRate( &(ctx->tcpCtx.fd), baud);
+        XUartNs550_SetFifoThreshold( &(ctx->tcpCtx.fd), XUN_FIFO_TRIGGER_01);
+    }
+
+    return ret;
 }
 #else
 static int SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
@@ -261,7 +457,7 @@ static int SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     }
     #ifdef DEBUG_WOLFTPM
     else {
-        printf("Failed to connect to %s %s\n", host, port);
+        DEBUG_PRINTF("Failed to connect to %s %s\n", host, port);
     }
     #endif
 
@@ -274,29 +470,37 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     TPM_RC rc = TPM_RC_SUCCESS;
     uint32_t tss_cmd;
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0) {
+    if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
+    if (ctx->tcpCtx.fd < 0) {
+        return BAD_FUNC_ARG;
+    }
+#endif
 
     /* end software TPM session */
     tss_cmd = TPM2_Packet_SwapU32(TPM_SESSION_END);
     rc = SwTpmTransmit(ctx, &tss_cmd, sizeof(uint32_t));
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rc != TPM_RC_SUCCESS) {
-        printf("Failed to transmit SESSION_END\n");
+        DEBUG_PRINTF("Failed to transmit SESSION_END\n");
     }
 #endif
 
-    if (0 != close(ctx->tcpCtx.fd)) {
+    if (WOLFTPM_CLOSE(ctx->tcpCtx.fd) != 0) {
         rc = TPM_RC_FAILURE;
 
     #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("Failed to close fd %d, got errno %d ="
+        DEBUG_PRINTF("Failed to close fd %d, got errno %d ="
                "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
     #endif
     }
 
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
     ctx->tcpCtx.fd = -1;
+#endif
 
     return rc;
 }
@@ -307,7 +511,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
  */
 int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
-    int rc = TPM_RC_FAILURE;
+    int rc = TPM_RC_SUCCESS;
     int rspSz = 0;
     uint32_t tss_word;
 
@@ -315,12 +519,19 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
     }
 
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
     if (ctx->tcpCtx.fd < 0) {
         rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, TPM2_SWTPM_PORT);
     }
+#else
+    if (ctx->tcpCtx.setup == 0) {
+        ctx->tcpCtx.setup = 1;
+        rc = SwTpmConnect(ctx, TPM2_SWTPM_PORT);
+    }
+#endif
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Command size: %d\n", packet->pos);
+    DEBUG_PRINTF("Command size: %d\n\r", packet->pos);
     TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
@@ -352,7 +563,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         rspSz = TPM2_Packet_SwapU32(tss_word);
         if (rspSz > packet->size) {
         #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("Response size(%d) larger than command buffer(%d)\n",
+            DEBUG_PRINTF("Response size(%d) larger than command buffer(%d)\n",
                    rspSz, packet->pos);
         #endif
             rc = SOCKET_ERROR_E;
@@ -372,19 +583,23 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         tss_word = TPM2_Packet_SwapU32(tss_word);
     #ifdef WOLFTPM_DEBUG
         if (tss_word != 0) {
-            printf("SWTPM ack %d\n", tss_word);
+            DEBUG_PRINTF("SWTPM ack %d\n", tss_word);
         }
     #endif
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
-        printf("Response size: %d\n", rspSz);
-        TPM2_PrintBin(packet->buf, rspSz);
+        int sz = (rspSz < packet->size) ? rspSz : packet->size;
+        DEBUG_PRINTF("Response size: %d\n", rspSz);
+        TPM2_PrintBin(packet->buf, sz);
     }
 #endif
 
-    if (ctx->tcpCtx.fd >= 0) {
+#if !defined(WOLFTPM_SWTPM_UARTNS550)
+    if (ctx->tcpCtx.fd >= 0)
+#endif
+    {
         TPM_RC rc_disconnect = SwTpmDisconnect(ctx);
         if (rc == TPM_RC_SUCCESS) {
             rc = rc_disconnect;
