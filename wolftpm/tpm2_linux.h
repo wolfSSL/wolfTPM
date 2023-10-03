@@ -29,8 +29,13 @@
     extern "C" {
 #endif
 
+#ifdef WOLFTPM_LINUX_DEV
+
 /* TPM2 IO for using TPM through the Linux kernel driver */
-WOLFTPM_LOCAL int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
+WOLFTPM_LOCAL int TPM2_LINUX_SendCommand(struct TPM2_CTX* ctx,
+    struct TPM2_Packet* packet);
+
+#endif /* WOLFTPM_LINUX_DEV */
 
 #ifdef __cplusplus
     }  /* extern "C" */

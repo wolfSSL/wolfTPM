@@ -29,6 +29,11 @@
     extern "C" {
 #endif
 
+#ifdef WOLFTPM_SWTPM
+struct wolfTPM_tcpContext {
+    int fd;
+};
+
 /* copy from TpmTcpProtocol.h */
 #if 0
 #define TPM_SIGNAL_POWER_ON         1
@@ -43,7 +48,10 @@
 #endif
 
 /* TPM2 IO for using TPM through a Socket connection */
-WOLFTPM_LOCAL int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
+WOLFTPM_LOCAL int TPM2_SWTPM_SendCommand(struct TPM2_CTX* ctx,
+    struct TPM2_Packet* packet);
+
+#endif /* WOLFTPM_SWTPM */
 
 #ifdef __cplusplus
     }  /* extern "C" */
