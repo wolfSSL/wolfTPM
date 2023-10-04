@@ -18,6 +18,9 @@
  * along with wolfTPM.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 #include "wolftpm_test.h"
 
 #ifndef SINGLE_THREADED
@@ -45,7 +48,7 @@ void wolfTPMTest(const void* argument)
     printf("Running wolfTPM Wrap Test...\n");
 
     /* Run wolfTPM wrap test */
-    ret = TPM2_Wrapper_Test(NULL);
+    ret = TPM2_Wrapper_Test(argument);
 
     printf("wolfTPM wrap test: Return code %d\n", ret);
 

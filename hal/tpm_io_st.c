@@ -38,16 +38,24 @@
        defined(WOLFTPM_WINAPI) )
 
 #if defined(WOLFSSL_STM32_CUBEMX)
-    #ifdef WOLFTPM_I2C
+#ifdef WOLFTPM_I2C
+    #ifndef TPM_I2C_TRIES
+    #define TPM_I2C_TRIES 20
+    #endif
+    #ifndef TPM2_I2C_ADDR
     #define TPM2_I2C_ADDR 0x2e
+    #endif
+
     /* STM32 CubeMX HAL I2C */
     #define STM32_CUBEMX_I2C_TIMEOUT 250
     static int i2c_read(void* userCtx, word32 reg, byte* data, int len)
     {
-        int rc;
-        int i2cAddr = (TPM2_I2C_ADDR << 1) | 0x01; /* For I2C read LSB is 1 */
-        byte buf[MAX_SPI_FRAMESIZE+1];
+        int ret = TPM_RC_FAILURE;
+        HAL_StatusTypeDef status;
         I2C_HandleTypeDef* hi2c = (I2C_HandleTypeDef*)userCtx;
+        int i2cAddr = (TPM2_I2C_ADDR << 1) | 0x01; /* For I2C read LSB is 1 */
+        int timeout = TPM_I2C_TRIES;
+        byte buf[1];
 
         /* TIS layer should never provide a buffer larger than this,
            but double check for good coding practice */
@@ -55,37 +63,60 @@
             return BAD_FUNC_ARG;
 
         buf[0] = (reg & 0xFF);
-        rc = HAL_I2C_Master_Receive(&hi2c, i2cAddr, data, len, STM32_CUBEMX_I2C_TIMEOUT);
-
-        if (rc != -1) {
-            XMEMCPY(data, buf+1, len);
-            return TPM_RC_SUCCESS;
+        /* The I2C device may hold clock low to indicate busy, which results in
+         * HAL_BUSY failure here. Typically the retry completes in 1-3 retries */
+        timeout = TPM_I2C_TRIES;
+        do {
+            status = HAL_I2C_Master_Transmit(hi2c, i2cAddr, buf, sizeof(buf),
+                STM32_CUBEMX_I2C_TIMEOUT);
+        } while (status != HAL_OK && --timeout > 0);
+        if (status == HAL_OK) {
+            timeout = TPM_I2C_TRIES;
+            do {
+                status = HAL_I2C_Master_Receive(hi2c, i2cAddr, data, len,
+                    STM32_CUBEMX_I2C_TIMEOUT);
+            } while (status != HAL_OK && --timeout > 0);
         }
-
-        return TPM_RC_FAILURE;
+        if (status == HAL_OK) {
+            ret = TPM_RC_SUCCESS;
+        }
+        else {
+            printf("I2C Read failure %d\n", status);
+        }
+        return ret;
     }
 
     static int i2c_write(void* userCtx, word32 reg, byte* data, int len)
     {
-        int rc;
-        int i2cAddr = (TPM2_I2C_ADDR << 1); /* I2C write operation, LSB is 0 */
-        byte buf[MAX_SPI_FRAMESIZE+1];
+        int ret = TPM_RC_FAILURE;
+        HAL_StatusTypeDef status;
         I2C_HandleTypeDef* hi2c = (I2C_HandleTypeDef*)userCtx;
+        int i2cAddr = (TPM2_I2C_ADDR << 1); /* I2C write operation, LSB is 0 */
+        int timeout = TPM_I2C_TRIES;
+        byte buf[MAX_SPI_FRAMESIZE+1];
 
         /* TIS layer should never provide a buffer larger than this,
            but double check for good coding practice */
         if (len > MAX_SPI_FRAMESIZE)
             return BAD_FUNC_ARG;
 
-        buf[0] = (reg & 0xFF); /* TPM register address */
+        /* Build packet with TPM register and data */
+        buf[0] = (reg & 0xFF);
         XMEMCPY(buf + 1, data, len);
-        rc = HAL_I2C_Master_Transmit(&hi2c, TPM2_I2C_ADDR << 1, buf, len);
 
-        if (rc != -1) {
-            return TPM_RC_SUCCESS;
+        /* The I2C device may hold clock low to indicate busy, which results in
+         * HAL_BUSY failure here. Typically the retry completes in 1-3 retries */
+        do {
+            status = HAL_I2C_Master_Transmit(hi2c, i2cAddr, buf, len+1,
+                STM32_CUBEMX_I2C_TIMEOUT);
+        } while (status != HAL_OK && --timeout > 0);
+        if (status == HAL_OK) {
+            ret = TPM_RC_SUCCESS;
         }
-
-        return TPM_RC_FAILURE;
+        else {
+            printf("I2C Write failure %d\n", status);
+        }
+        return ret;
     }
 
     int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
@@ -105,7 +136,7 @@
         return ret;
     }
 
-    #else /* STM32 CubeMX Hal SPI */
+#else /* STM32 CubeMX Hal SPI */
     #define STM32_CUBEMX_SPI_TIMEOUT 250
     int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         word16 xferSz, void* userCtx)
@@ -178,7 +209,7 @@
 
         return ret;
     }
-    #endif /* WOLFTPM_I2C */
+#endif /* WOLFTPM_I2C */
 #endif
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */

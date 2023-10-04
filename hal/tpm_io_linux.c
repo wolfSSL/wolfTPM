@@ -109,7 +109,7 @@
         int rc;
         struct i2c_rdwr_ioctl_data rdwr;
         struct i2c_msg msgs[2];
-        unsigned char buf[2];
+        unsigned char buf[1];
         int timeout = TPM_I2C_TRIES;
 
         rdwr.msgs = msgs;
