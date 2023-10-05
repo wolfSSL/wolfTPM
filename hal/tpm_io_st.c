@@ -40,14 +40,16 @@
 #if defined(WOLFSSL_STM32_CUBEMX)
 #ifdef WOLFTPM_I2C
     #ifndef TPM_I2C_TRIES
-    #define TPM_I2C_TRIES 20
+    #define TPM_I2C_TRIES 10
     #endif
     #ifndef TPM2_I2C_ADDR
     #define TPM2_I2C_ADDR 0x2e
     #endif
+    #ifndef STM32_CUBEMX_I2C_TIMEOUT
+    #define STM32_CUBEMX_I2C_TIMEOUT 250 /* ticks/ms */
+    #endif
 
     /* STM32 CubeMX HAL I2C */
-    #define STM32_CUBEMX_I2C_TIMEOUT 250
     static int i2c_read(void* userCtx, word32 reg, byte* data, int len)
     {
         int ret = TPM_RC_FAILURE;
@@ -62,26 +64,31 @@
         if (len > MAX_SPI_FRAMESIZE)
             return BAD_FUNC_ARG;
 
-        buf[0] = (reg & 0xFF);
-        /* The I2C device may hold clock low to indicate busy, which results in
-         * HAL_BUSY failure here. Typically the retry completes in 1-3 retries */
-        timeout = TPM_I2C_TRIES;
+        buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
+
+        /* The I2C takes about 80us to wake up and will NAK until it is ready */
         do {
+            /* Write address to read from - retry until ack  */
             status = HAL_I2C_Master_Transmit(hi2c, i2cAddr, buf, sizeof(buf),
                 STM32_CUBEMX_I2C_TIMEOUT);
+            HAL_Delay(1); /* guard time - should be 250us */
         } while (status != HAL_OK && --timeout > 0);
         if (status == HAL_OK) {
             timeout = TPM_I2C_TRIES;
+            /* Perform read with retry */
             do {
                 status = HAL_I2C_Master_Receive(hi2c, i2cAddr, data, len,
                     STM32_CUBEMX_I2C_TIMEOUT);
+                if (status != HAL_OK)
+                    HAL_Delay(1); /* guard time - should be 250us */
             } while (status != HAL_OK && --timeout > 0);
         }
         if (status == HAL_OK) {
             ret = TPM_RC_SUCCESS;
         }
         else {
-            printf("I2C Read failure %d\n", status);
+            printf("I2C Read failure %d (tries %d)\n",
+                status, TPM_I2C_TRIES - timeout);
         }
         return ret;
     }
@@ -101,14 +108,15 @@
             return BAD_FUNC_ARG;
 
         /* Build packet with TPM register and data */
-        buf[0] = (reg & 0xFF);
+        buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
         XMEMCPY(buf + 1, data, len);
 
-        /* The I2C device may hold clock low to indicate busy, which results in
-         * HAL_BUSY failure here. Typically the retry completes in 1-3 retries */
+        /* The I2C takes about 80us to wake up and will NAK until it is ready */
         do {
             status = HAL_I2C_Master_Transmit(hi2c, i2cAddr, buf, len+1,
                 STM32_CUBEMX_I2C_TIMEOUT);
+            if (status != HAL_OK)
+                HAL_Delay(1); /* guard time - should be 250us */
         } while (status != HAL_OK && --timeout > 0);
         if (status == HAL_OK) {
             ret = TPM_RC_SUCCESS;
