@@ -9,7 +9,8 @@ src_libwolftpm_la_SOURCES      = \
                                 src/tpm2_packet.c \
                                 src/tpm2_tis.c \
                                 src/tpm2_wrap.c \
-                                src/tpm2_param_enc.c
+                                src/tpm2_param_enc.c \
+                                src/tpm2_cryptocb.c
 
 if BUILD_DEVTPM
 src_libwolftpm_la_SOURCES      += src/tpm2_linux.c
@@ -24,7 +25,7 @@ endif
 
 src_libwolftpm_la_CFLAGS       = $(src_libwolftpm_la_EXTRAS) -DBUILDING_WOLFTPM $(AM_CFLAGS)
 src_libwolftpm_la_CPPFLAGS     = -DBUILDING_WOLFTPM $(AM_CPPFLAGS)
-src_libwolftpm_la_LDFLAGS      = ${AM_LDFLAGS} -no-undefined -version-info ${WOLFTPM_LIBRARY_VERSION} 
+src_libwolftpm_la_LDFLAGS      = ${AM_LDFLAGS} -no-undefined -version-info ${WOLFTPM_LIBRARY_VERSION}
 
 #src_libwolftpm_la_DEPENDENCIES =
 #EXTRA_DIST +=
