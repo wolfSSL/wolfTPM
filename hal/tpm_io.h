@@ -66,7 +66,7 @@
 #ifdef WOLFTPM_EXAMPLE_HAL
 
 #ifdef WOLFTPM_ADV_IO
-WOLFTPM_API int TPM2_IoCb(TPM2_CTX*, int isRead, word32 addr, byte* buf, word16 size,
+WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx);
 #else
 WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,

@@ -21,9 +21,7 @@
 #ifndef WOLFTPM_TEST_H_
 #define WOLFTPM_TEST_H_
 
-#ifdef HAVE_CONFIG_H
-    #include <config.h>
-#endif
+#include <wolftpm/tpm2_types.h>
 
 #ifndef SINGLE_THREADED
 #include <cmsis_os.h>
