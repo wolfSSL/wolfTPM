@@ -5955,14 +5955,18 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.eccDetail.symmetric);
         out->parameters.eccDetail.scheme.scheme =
             in->parameters.eccDetail.scheme.scheme;
-        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL)
+        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL) {
             out->parameters.eccDetail.scheme.details.any.hashAlg =
                 in->parameters.eccDetail.scheme.details.any.hashAlg;
+        }
         out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
-        out->parameters.eccDetail.kdf =
-            in->parameters.eccDetail.kdf;
-
+        out->parameters.eccDetail.kdf.scheme =
+            in->parameters.eccDetail.kdf.scheme;
+        if (out->parameters.eccDetail.kdf.scheme != TPM_ALG_NULL) {
+            out->parameters.eccDetail.kdf.details.any.hashAlg =
+                in->parameters.eccDetail.kdf.details.any.hashAlg;
+        }
         wolfTPM2_CopyEccParam(&out->unique.ecc.x,
             &in->unique.ecc.x);
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
