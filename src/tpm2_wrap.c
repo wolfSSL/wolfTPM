@@ -4052,7 +4052,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
     in.publicInfo.nvPublic.nvIndex = nvIndex;
-    in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
+    in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
     in.publicInfo.nvPublic.attributes = nvAttributes;
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
 

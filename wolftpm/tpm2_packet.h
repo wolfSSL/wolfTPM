@@ -47,6 +47,30 @@ typedef struct TPM2_Packet {
     int size;
 } TPM2_Packet;
 
+
+/* Send Command Wrapper */
+typedef enum CmdFlags {
+    CMD_FLAG_NONE = 0x00,
+    CMD_FLAG_ENC2 = 0x01, /* 16-bit size of first command parameter */
+    CMD_FLAG_ENC4 = 0x02, /* 32-bit size (not used) */
+    CMD_FLAG_DEC2 = 0x04, /* 16-bit size of first response parameter */
+    CMD_FLAG_DEC4 = 0x08, /* 32-bit size (not used) */
+    CMD_FLAG_AUTH_USER1 = 0x10,
+    CMD_FLAG_AUTH_USER2 = 0x20,
+    CMD_FLAG_AUTH_ADMIN = 0x40,
+    CMD_FLAG_AUTH_DUP   = 0x80,
+} CmdFlags_t;
+
+
+/* Command Details */
+typedef struct {
+    unsigned char authCnt;      /* number of authentication handles - determined at run-time */
+    unsigned char inHandleCnt;  /* number of input handles - fixed */
+    unsigned char outHandleCnt; /* number of output handles - fixed */
+    unsigned char flags;        /* see CmdFlags_t - fixed */
+} CmdInfo_t;
+
+
 WOLFTPM_LOCAL void TPM2_Packet_U16ToByteArray(UINT16 val, BYTE* b);
 WOLFTPM_LOCAL void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b);
 
@@ -71,7 +95,7 @@ WOLFTPM_LOCAL void TPM2_Packet_MarkU16(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL int  TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz);
 WOLFTPM_LOCAL void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz);
 WOLFTPM_LOCAL void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz);
-WOLFTPM_LOCAL int  TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx);
+WOLFTPM_LOCAL TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* info);
 WOLFTPM_LOCAL void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd);
 WOLFTPM_LOCAL void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* auth);
 WOLFTPM_LOCAL void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr);
@@ -105,6 +129,9 @@ WOLFTPM_LOCAL void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out
 
 WOLFTPM_LOCAL TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet);
 WOLFTPM_LOCAL int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc);
+
+
+WOLFTPM_LOCAL int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, CmdInfo_t* info);
 
 #ifdef __cplusplus
     }  /* extern "C" */
