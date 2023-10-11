@@ -980,7 +980,8 @@ static int TPM2_KDFe(
     UINT32           keySz        /* IN: size of generated key in bytes */
 )
 {
-    int ret, hashType;
+    int ret;
+    enum wc_HashType hashType;
     wc_HashAlg hash_ctx;
     word32 counter = 0;
     int hLen, copyLen, lLen = 0;
@@ -992,9 +993,10 @@ static int TPM2_KDFe(
     if (key == NULL || Z == NULL)
         return BAD_FUNC_ARG;
 
-    hashType = TPM2_GetHashType(hashAlg);
-    if (hashType == WC_HASH_TYPE_NONE)
+    ret = TPM2_GetHashType(hashAlg);
+    if (ret == WC_HASH_TYPE_NONE)
         return NOT_COMPILED_IN;
+    hashType = (enum wc_HashType)ret;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
     if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))

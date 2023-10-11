@@ -108,7 +108,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_CFB;
     TPM_ALG_ID alg = TPM_ALG_RSA, srkAlg;
     TPM_ALG_ID pcrAlg = USE_PCR_ALG;
-    TPMT_PUBLIC template;
+    TPMT_PUBLIC sealTemplate;
     byte secret[MAX_SYM_DATA+1]; /* for NULL term */
     word32 secretSz = 0;
     const char* publicKeyFile = NULL;
@@ -264,11 +264,11 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     printHexString(policyDigest, policyDigestSz, policyDigestSz);
 
     /* Create a new key for sealing using signing auth for external key */
-    wolfTPM2_GetKeyTemplate_KeySeal(&template, pcrAlg);
-    template.authPolicy.size = policyDigestSz;
-    XMEMCPY(template.authPolicy.buffer, policyDigest, policyDigestSz);
+    wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, pcrAlg);
+    sealTemplate.authPolicy.size = policyDigestSz;
+    XMEMCPY(sealTemplate.authPolicy.buffer, policyDigest, policyDigestSz);
     rc = wolfTPM2_CreateKeySeal_ex(&dev, &sealBlob, &storage.handle,
-        &template, NULL, 0, pcrAlg, NULL, 0, secret, secretSz);
+        &sealTemplate, NULL, 0, pcrAlg, NULL, 0, secret, secretSz);
     if (rc != 0) goto exit;
     printf("Sealed keyed hash (pub %d, priv %d bytes):\n",
         sealBlob.pub.size, sealBlob.priv.size);

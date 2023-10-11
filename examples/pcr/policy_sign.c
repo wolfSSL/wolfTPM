@@ -141,7 +141,9 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             }
             if (rc == 0) {
                 /* ASN.1 encode hash */
-                int oid = wc_HashGetOID(TPM2_GetHashType(hashAlg));
+                int oid;
+                oid = TPM2_GetHashType(hashAlg);
+                oid = wc_HashGetOID((enum wc_HashType)oid);
                 rc = wc_EncodeSignature(encHash, hash, hashSz, oid);
                 if (rc > 0) {
                     hashSz = rc;
