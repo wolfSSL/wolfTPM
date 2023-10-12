@@ -131,7 +131,7 @@ WOLFTPM_LOCAL TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet);
 WOLFTPM_LOCAL int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc);
 
 
-WOLFTPM_LOCAL int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, CmdInfo_t* info);
+WOLFTPM_LOCAL int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info);
 
 #ifdef __cplusplus
     }  /* extern "C" */

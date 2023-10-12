@@ -290,7 +290,7 @@ void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
  * If the info is not provided then returns the populated ctx->session,
  * otherwise adjusted based on the command information provided.
  */
-int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, CmdInfo_t* info)
+int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
 {
     int authSessCount = 0, sessionCount;
     TPMI_SH_AUTH_SESSION sessionHandle;
@@ -330,12 +330,18 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, CmdInfo_t* info)
                  (sessionAttributes & TPMA_SESSION_audit))
                 authSessCount++;
         }
-    #ifdef DEBUG_WOLFTPM
-        else if (authReq) {
+        else if (!authReq) {
+            /* we cannot accept further authentications */
+            break;
+        }
+        else {
+            /* This will result in a TPM_RC_AUTH_MISSING auth error from the TPM
+             * Make sure the wolfTPM2_SetAuth* API is called for the index! */
+        #ifdef DEBUG_WOLFTPM
             printf("Warning: Command requires auth at index %d!\n",
                 sessionCount);
+        #endif
         }
-    #endif
     }
     return authSessCount;
 }

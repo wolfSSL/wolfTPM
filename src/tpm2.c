@@ -2427,7 +2427,8 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1 |
+            CMD_FLAG_AUTH_USER2);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -2697,8 +2698,8 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 |
-            CMD_FLAG_AUTH_USER1 | CMD_FLAG_AUTH_USER1);
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 | CMD_FLAG_AUTH_USER1 |
+            CMD_FLAG_AUTH_USER2);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -4694,7 +4695,7 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_AUTH_ADMIN | CMD_FLAG_AUTH_USER1);
+        info.flags = (CMD_FLAG_AUTH_ADMIN | CMD_FLAG_AUTH_USER2);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5082,7 +5083,8 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 3;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 | CMD_FLAG_AUTH_USER1);
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 | CMD_FLAG_AUTH_USER1 |
+            CMD_FLAG_AUTH_USER2);
 
         TPM2_Packet_Init(ctx, &packet);
 
