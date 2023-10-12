@@ -286,23 +286,89 @@ void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
     TPM2_Packet_AppendBytes(packet, authCmd->hmac.buffer, authCmd->hmac.size);
 }
 
-int TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx)
+/* Finds the number of active Auth Session in the given TPM2 context.
+ * If the info is not provided then returns the populated ctx->session,
+ * otherwise adjusted based on the command information provided.
+ */
+int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
 {
-    int authCount, i, tmpSz = 0;
-    if (ctx == NULL || ctx->session == NULL)
-        return BAD_FUNC_ARG;
-    authCount = TPM2_GetSessionAuthCount(ctx);
+    int authSessCount = 0, sessionCount;
+    TPMI_SH_AUTH_SESSION sessionHandle;
+    TPMA_SESSION sessionAttributes;
+    unsigned char flags = 0xFF;
 
-    TPM2_Packet_MarkU32(packet, &tmpSz);
-    for (i=0; i<authCount; i++) {
-        /* Note: Casting a TPM2_AUTH_SESSION to TPMS_AUTH_COMMAND here,
-            this is allowed because top of structure matches */
-        TPM2_Packet_AppendAuthCmd(packet, (TPMS_AUTH_COMMAND*)&ctx->session[i]);
+    if (info != NULL)
+        flags = info->flags;
+
+    /* The auth sessions must be first in the list */
+    for (sessionCount = 0; sessionCount < MAX_SESSION_NUM; sessionCount++) {
+        int authReq = 0;
+        sessionHandle = ctx->session[sessionCount].sessionHandle;
+        sessionAttributes = ctx->session[sessionCount].sessionAttributes;
+
+        if (info != NULL &&
+            ((sessionCount == 0 && (flags &
+                (CMD_FLAG_AUTH_USER1 |
+                 CMD_FLAG_AUTH_ADMIN |
+                 CMD_FLAG_AUTH_DUP))) ||
+             (sessionCount == 1 && (flags &
+                (CMD_FLAG_AUTH_USER2))))) {
+            authReq = 1;
+        }
+
+        /* Only a password auth if command user auth set */
+        if (sessionHandle == TPM_RS_PW && authReq) {
+            authSessCount++;
+        }
+
+        /* Only an HMAC session with encrypt, decrypt or audit set */
+        else if (authSessCount > 0 && TPM2_IS_HMAC_SESSION(sessionHandle)) {
+            if (((sessionAttributes & TPMA_SESSION_decrypt) && (flags &
+                    (CMD_FLAG_ENC2 | CMD_FLAG_ENC4))) ||
+                ((sessionAttributes & TPMA_SESSION_encrypt) && (flags &
+                    (CMD_FLAG_DEC2 | CMD_FLAG_DEC4))) ||
+                 (sessionAttributes & TPMA_SESSION_audit))
+                authSessCount++;
+        }
+        else if (!authReq) {
+            /* we cannot accept further authentications */
+            break;
+        }
+        else {
+            /* This will result in a TPM_RC_AUTH_MISSING auth error from the TPM
+             * Make sure the wolfTPM2_SetAuth* API is called for the index! */
+        #ifdef DEBUG_WOLFTPM
+            printf("Warning: Command requires auth at index %d!\n",
+                sessionCount);
+        #endif
+        }
     }
-    /* based on position difference places calculated size at marked U32 above */
-    TPM2_Packet_PlaceU32(packet, tmpSz);
+    return authSessCount;
+}
 
-    return authCount;
+TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* info)
+{
+    TPM_ST st = TPM_ST_NO_SESSIONS;
+
+    if (ctx == NULL || info == NULL)
+        return BAD_FUNC_ARG;
+    if (ctx->session == NULL)
+        return st;
+
+    info->authCnt = TPM2_GetCmdAuthCount(ctx, info);
+    if (info->authCnt > 0) {
+        int i, tmpSz = 0;
+        TPM2_Packet_MarkU32(packet, &tmpSz);
+        for (i=0; i<info->authCnt; i++) {
+            /* Note: Casting a TPM2_AUTH_SESSION to TPMS_AUTH_COMMAND here,
+             * this is allowed because top of structure matches */
+            TPM2_Packet_AppendAuthCmd(packet, (TPMS_AUTH_COMMAND*)&ctx->session[i]);
+        }
+        /* based on position difference places calculated size at marked U32 above */
+        TPM2_Packet_PlaceU32(packet, tmpSz);
+        st = TPM_ST_SESSIONS;
+    }
+    return st;
 }
 
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)

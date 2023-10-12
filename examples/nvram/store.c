@@ -73,6 +73,8 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     int pubAreaSize;
     word32 nvIndex = TPM2_DEMO_NVRAM_STORE_INDEX;
+    byte* auth = (byte*)gNvAuth;
+    word32 authSz = (word32)sizeof(gNvAuth)-1;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -133,6 +135,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         printf("Parameter Encryption: Not enabled (try -aes or -xor).\n\n");
     }
 
+    XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&keyBlob, 0, sizeof(keyBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&parent, 0, sizeof(parent));
@@ -164,11 +167,17 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
     if (rc != 0) goto exit;
 
-    /* Our wolfTPM2 wrapper for NV_Define */
-    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
-        nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
-    if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
+    /* Try and open existing NV */
+    rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, auth, authSz);
+    if (rc != 0) {
+        /* In not found try create using wolfTPM2 wrapper for NV_Define */
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
+            nvAttributes, TPM2_DEMO_NV_TEST_SIZE, auth, authSz);
 
+        if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
+    }
+    /* The set auth is done already in NVOpen and NVCreateAuth, but shown here
+     * as example for how to set the authentication on a handle */
     wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
 
     printf("Storing key at TPM NV index 0x%x with password protection\n\n",
