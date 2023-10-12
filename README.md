@@ -791,11 +791,8 @@ Connection: close
 
 ## Todo
 
-* Update to v1.59 of specification.
-* Add HMAC support for "authValue".
-* Add ECC encrypted salt.
-* Add bound auth session support.
-* Add multiple auth session (nonceTPMDecrypt and nonceTPMEncrypt) support.
+* Update to v1.59 of specification (adding CertifyX509)
+* Inner wrap support for SensitiveToPrivate.
 
 ## Support
 
