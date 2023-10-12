@@ -870,7 +870,8 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
-        session->symmetric = tpmSession->handle.symmetric;
+        XMEMCPY(&session->symmetric, &tpmSession->handle.symmetric,
+            sizeof(TPMT_SYM_DEF));
 
         /* fresh nonce generated in TPM2_CommandProcess based on this size */
         session->nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
@@ -979,7 +980,8 @@ static int TPM2_KDFe(
     UINT32           keySz        /* IN: size of generated key in bytes */
 )
 {
-    int ret, hashType;
+    int ret;
+    enum wc_HashType hashType;
     wc_HashAlg hash_ctx;
     word32 counter = 0;
     int hLen, copyLen, lLen = 0;
@@ -991,9 +993,10 @@ static int TPM2_KDFe(
     if (key == NULL || Z == NULL)
         return BAD_FUNC_ARG;
 
-    hashType = TPM2_GetHashType(hashAlg);
-    if (hashType == WC_HASH_TYPE_NONE)
+    ret = TPM2_GetHashType(hashAlg);
+    if (ret == WC_HASH_TYPE_NONE)
         return NOT_COMPILED_IN;
+    hashType = (enum wc_HashType)ret;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
     if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
@@ -5954,14 +5957,18 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.eccDetail.symmetric);
         out->parameters.eccDetail.scheme.scheme =
             in->parameters.eccDetail.scheme.scheme;
-        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL)
+        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL) {
             out->parameters.eccDetail.scheme.details.any.hashAlg =
                 in->parameters.eccDetail.scheme.details.any.hashAlg;
+        }
         out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
-        out->parameters.eccDetail.kdf =
-            in->parameters.eccDetail.kdf;
-
+        out->parameters.eccDetail.kdf.scheme =
+            in->parameters.eccDetail.kdf.scheme;
+        if (out->parameters.eccDetail.kdf.scheme != TPM_ALG_NULL) {
+            out->parameters.eccDetail.kdf.details.any.hashAlg =
+                in->parameters.eccDetail.kdf.details.any.hashAlg;
+        }
         wolfTPM2_CopyEccParam(&out->unique.ecc.x,
             &in->unique.ecc.x);
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,

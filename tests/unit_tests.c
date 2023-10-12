@@ -440,7 +440,7 @@ static void test_wolfTPM2_PCRPolicy(void)
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 int secondRunner = 0;
 
-static void test_wolfTPM2_thread_local_storage_work_thread(void* args)
+static void* test_wolfTPM2_thread_local_storage_work_thread(void* args)
 {
     TPM2_CTX tpm2Ctx;
 
@@ -466,6 +466,7 @@ static void test_wolfTPM2_thread_local_storage_work_thread(void* args)
     pthread_mutex_unlock(&mutex);
 
     (void)args;
+    return NULL;
 }
 #endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
 
@@ -476,9 +477,9 @@ static void test_wolfTPM2_thread_local_storage(void)
     pthread_t thread_2;
 
     pthread_create(&thread_1, NULL,
-        (void*)&test_wolfTPM2_thread_local_storage_work_thread, NULL);
+        test_wolfTPM2_thread_local_storage_work_thread, NULL);
     pthread_create(&thread_2, NULL,
-        (void*)&test_wolfTPM2_thread_local_storage_work_thread, NULL);
+        test_wolfTPM2_thread_local_storage_work_thread, NULL);
 
     pthread_join(thread_1, NULL);
     pthread_join(thread_2, NULL);
