@@ -89,9 +89,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate3;
     TPMA_OBJECT attributes;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
-#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     const char* keyblobFile = "keyblob.bin";
-#endif
     int loadKeyBlob = 0;
 
     if (argc >= 2) {
