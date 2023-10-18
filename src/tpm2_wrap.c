@@ -6247,7 +6247,7 @@ static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
                 csr->req.sigType = CTC_SHA256wECDSA;
             }
         }
-        else if (csr->req.sigType == 0) {
+        else if (sigType != 0) {
             csr->req.sigType = sigType;
         }
     }
