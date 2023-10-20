@@ -1326,10 +1326,9 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* tpmKey, const byte* pem, word32 pemSz);
 
-
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Import DER ECC private or public key into TPM public and sensitive structures. This does not make any calls to TPM hardware.
+    \brief Import DER RSA private or public key into TPM public and sensitive structures. This does not make any calls to TPM hardware.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1343,9 +1342,9 @@ WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
 
     \sa wolfTPM2_ImportPublicKeyBuffer
     \sa wolfTPM2_ImportPrivateKeyBuffer
-    \sa wolfTPM2_DecodeRsaDer
+    \sa wolfTPM2_DecodeEccDer
 */
-WOLFTPM_API int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz,
+WOLFTPM_API int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens, TPMA_OBJECT attributes);
 #endif /* !NO_RSA */
 
@@ -1426,7 +1425,7 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Import DER RSA private or public key into TPM public and sensitive structures. This does not make any calls to TPM hardware.
+    \brief Import DER ECC private or public key into TPM public and sensitive structures. This does not make any calls to TPM hardware.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1440,9 +1439,9 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
 
     \sa wolfTPM2_ImportPublicKeyBuffer
     \sa wolfTPM2_ImportPrivateKeyBuffer
-    \sa wolfTPM2_DecodeEccDer
+    \sa wolfTPM2_DecodeRsaDer
 */
-WOLFTPM_API int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
+WOLFTPM_API int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz,
     TPM2B_PUBLIC* pub, TPM2B_SENSITIVE* sens, TPMA_OBJECT attributes);
 #endif /* HAVE_ECC */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
