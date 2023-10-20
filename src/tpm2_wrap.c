@@ -6335,6 +6335,10 @@ int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 
     /* add Extended Key Usage */
     rc = wc_SetExtKeyUsage(&csr->req, keyUsage);
+    if (rc == EXTKEYUSAGE_E) {
+        /* try setting key usage values */
+        rc = wc_SetKeyUsage(&csr->req, keyUsage);
+    }
 #else
     if (keyUsage != NULL) {
     #ifdef DEBUG_WOLFTPM
