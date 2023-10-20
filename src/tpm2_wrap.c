@@ -3461,6 +3461,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, byte* sig, int* sigSz)
 {
     TPM_ALG_ID sigAlg = TPM_ALG_NULL;
+    TPMI_ALG_HASH hashAlg = WOLFTPM2_WRAP_DIGEST;
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL) {
         return BAD_FUNC_ARG;
@@ -3468,13 +3469,17 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        hashAlg = key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
+
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+        hashAlg = key->pub.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg;
     }
 
     return wolfTPM2_SignHashScheme(dev, key, digest, digestSz, sig, sigSz,
-        sigAlg, WOLFTPM2_WRAP_DIGEST);
+        sigAlg, hashAlg);
+
 }
 
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
@@ -5314,6 +5319,15 @@ static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
 
     if (publicTemplate == NULL || curveSz == 0)
         return BAD_FUNC_ARG;
+
+#if defined(NO_ECC256) && defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
+    /* make sure we use a curve that is enabled */
+    if (curve == TPM_ECC_NIST_P256) {
+        curve = TPM_ECC_NIST_P384;
+        nameAlg = TPM_ALG_SHA384;
+        sigHash = TPM_ALG_SHA384;
+    }
+#endif
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_ECC;

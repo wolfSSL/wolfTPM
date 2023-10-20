@@ -51,7 +51,7 @@ static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.pem";
 /******************************************************************************/
 
 static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
-    const char* outputPemFile, int makeSelfSignedCert, int devId)
+    const char* outputPemFile, int makeSelfSignedCert, int devId, int sigType)
 {
     int rc;
     const char* subject = NULL;
@@ -63,6 +63,7 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     const char* custOid =    "1.2.3.4.5";
     const char* custOidVal = "This is NOT a critical extension";
     WOLFTPM2_CSR* csr = wolfTPM2_NewCSR();
+
     if (csr == NULL) {
         return MEMORY_E;
     }
@@ -82,7 +83,7 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
 #ifdef WOLFTPM2_NO_HEAP
     /* single shot API for CSR generation */
     rc = wolfTPM2_CSR_Generate_ex(dev, key, subject, keyUsage,
-        CTC_FILETYPE_PEM, output, outputSz, 0, makeSelfSignedCert,
+        CTC_FILETYPE_PEM, output, outputSz, sigType, makeSelfSignedCert,
         devId);
 #else
     rc = wolfTPM2_CSR_SetSubject(dev, csr, subject);
@@ -100,7 +101,7 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     }
     if (rc == 0) {
         rc = wolfTPM2_CSR_MakeAndSign_ex(dev, csr, key, CTC_FILETYPE_PEM,
-            output, outputSz, 0, makeSelfSignedCert, devId);
+            output, outputSz, sigType, makeSelfSignedCert, devId);
     }
 #endif
     if (rc >= 0) {
@@ -202,7 +203,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &key,
                 makeSelfSignedCert ? gClientCertRsaFile : gClientCsrRsaFile,
-                makeSelfSignedCert, tpmDevId);
+                makeSelfSignedCert, tpmDevId, CTC_SHA256wRSA);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
     }
@@ -210,11 +211,20 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 
 #ifdef HAVE_ECC
     if (rc == 0) {
+        int sigType = CTC_SHA256wECDSA;
+        TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
         tpmCtx.eccKey = &key;
+
+    #if defined(NO_ECC256) && defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
+        /* make sure we use a curve that is enabled */
+        sigType = CTC_SHA384wECDSA;
+        curve = TPM_ECC_NIST_P384;
+    #endif
+
         rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                 TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+                curve, TPM_ALG_ECDSA);
         if (rc == 0) {
             rc = getECCkey(&dev, &storageKey, &key, NULL, tpmDevId,
                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1, &publicTemplate);
@@ -222,7 +232,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &key,
                 makeSelfSignedCert ? gClientCertEccFile : gClientCsrEccFile,
-                makeSelfSignedCert, tpmDevId);
+                makeSelfSignedCert, tpmDevId, sigType);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
     }
