@@ -52,6 +52,25 @@ jobs:
       run: |
         make check
         WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
+    - name: make install
+      run: sudo make install
+
+# build and test CSharp wrapper
+    - name: Install mono
+      run: |
+        sudo apt-get install -y mono-mcs mono-tools-devel nunit nunit-console
+    - name: Build CSharp wrapper
+      working-directory: ./wrapper/CSharp
+      run: |
+        mcs wolfTPM.cs wolfTPM-tests.cs -r:/usr/lib/cli/nunit.framework-2.6.3/nunit.framework.dll -t:library
+    - name: Run self test
+      working-directory: ./wrapper/CSharp
+      run: |
+        LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll -run=tpm_csharp_test.WolfTPMTest.TrySelfTest
+    - name: Run unit tests
+      working-directory: ./wrapper/CSharp
+      run: |
+        LD_LIBRARY_PATH=../../src/.libs/:../../wolfssl/src/.libs/ nunit-console wolfTPM.dll
 
 #test no wolfcrypt
     - name: configure no wolfCrypt
