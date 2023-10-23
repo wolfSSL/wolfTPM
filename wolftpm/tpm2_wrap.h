@@ -2670,7 +2670,10 @@ WOLFTPM_API int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Helper for Certificate Signing Request (CSR) generation to set a
-        key usage for a WOLFTPM2_CSR structure.
+        extended key usage or key usage for a WOLFTPM2_CSR structure.
+        Pass either extended key usage or key usage values.
+        Mixed string types are not supported, however you can call `wolfTPM2_CSR_SetKeyUsage`
+        twice (once for extended key usage strings and once for standard key usage strings).
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
@@ -2678,7 +2681,8 @@ WOLFTPM_API int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \param dev pointer to a TPM2_DEV struct (not used)
     \param csr pointer to a WOLFTPM2_CSR structure
     \param keyUsage string list of comma separated key usage attributes.
-        Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        Possible Extended Key Usage values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
+        Possible Key Usage values: digitalSignature, nonRepudiation, contentCommitment, keyEncipherment, dataEncipherment, keyAgreement, keyCertSign, cRLSign, encipherOnly, decipherOnly
         Default: "serverAuth,clientAuth,codeSigning"
 
     \sa wolfTPM2_CSR_SetSubject
