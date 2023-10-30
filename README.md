@@ -791,6 +791,7 @@ Connection: close
 
 ## Todo
 
+* Key Generation and Attestation examples using endorsement hierarchy "-eh" are broken.
 * Update to v1.59 of specification (adding CertifyX509)
 * Inner wrap support for SensitiveToPrivate.
 
