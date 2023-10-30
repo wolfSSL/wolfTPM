@@ -3306,7 +3306,7 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
             printf("TPM2_EvictControl (storing key to NV) not allowed on "
                    "Windows TBS (err 0x%x)\n", rc);
         #endif
-            rc = TPM_RC_NV_UNAVAILABLE;
+            rc = TPM_RC_COMMAND_CODE;
         }
     #endif
 

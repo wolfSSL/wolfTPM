@@ -241,13 +241,17 @@ then
 fi
 
 # Windows TBS device Support
+AC_ARG_ENABLE([wintbs],,
+    [ ENABLED_WINTBS=$enableval ],
+    [ ENABLED_WINTBS=no ]
+    )
 AC_ARG_ENABLE([winapi],
     [AS_HELP_STRING([--enable-winapi],[Enable use of TPM through Windows driver (default: disabled)])],
     [ ENABLED_WINAPI=$enableval ],
     [ ENABLED_WINAPI=no ]
     )
 
-if test "x$ENABLED_WINAPI" = "xyes"
+if test "x$ENABLED_WINAPI" = "xyes" || test "x$ENABLED_WINTBS" = "xyes"
 then
     if test "x$ENABLED_DEVTPM" = "xyes" -o "x$ENABLED_SWTPM" = "xyes"
     then
