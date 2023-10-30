@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2021 wolfSSL Inc.])
-AC_INIT([wolftpm],[2.7.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[3.0.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -28,7 +28,7 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=15:0:0
+WOLFTPM_LIBRARY_VERSION=16:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -241,13 +241,17 @@ then
 fi
 
 # Windows TBS device Support
+AC_ARG_ENABLE([wintbs],,
+    [ ENABLED_WINTBS=$enableval ],
+    [ ENABLED_WINTBS=no ]
+    )
 AC_ARG_ENABLE([winapi],
     [AS_HELP_STRING([--enable-winapi],[Enable use of TPM through Windows driver (default: disabled)])],
     [ ENABLED_WINAPI=$enableval ],
     [ ENABLED_WINAPI=no ]
     )
 
-if test "x$ENABLED_WINAPI" = "xyes"
+if test "x$ENABLED_WINAPI" = "xyes" || test "x$ENABLED_WINTBS" = "xyes"
 then
     if test "x$ENABLED_DEVTPM" = "xyes" -o "x$ENABLED_SWTPM" = "xyes"
     then

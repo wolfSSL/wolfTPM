@@ -1,5 +1,51 @@
 # Release Notes
 
+## wolfTPM Release 3.0.0 (Oct 31, 2023)
+
+**Summary**
+
+Refactor of command authentication. Support for ECC sessions and secrets. Support for policy sealing/unsealing. Examples for secure boot.
+
+**Detail**
+* Refactor of the command authentication. If command does not require auth do not supply it (PR #305)
+* Refactor HAL and added Microchip Harmony SPI HAL support (PR #251)
+* Relocate crypto callback code to its own code file (PR #304)
+* Fixed using a custom wolfTPM CSR sigType (PR #307)
+* Fixed support for ECC 384-bit only support (PR #307)
+* Fixed issue with using struct assignment (switched to memcpy) (PR #303)
+* Fixed various issues building with C++ compiler (PR #303)
+* Fixed issues with STM32 I2C build and improved performance (PR #302)
+* Fixed seal with RSA and PCR extend auth. (PR #296)
+* Fixed issue including user_settings.h when `--disable-wolfcrypt` set (PR #285)
+* Fixed TPM private key import with custom seed (PR #281)
+* Fixed autogen.sh (autoconf) to generate without warnings (PR #279)
+* Fixed TPM2 create with decrypt or restricted flag set (PR #275)
+* Fixed and improved low resource build options (PR #269)
+* Fixed the TPM_E_COMMAND_BLOCKED macro to have the correct value (PR #257)
+* Fixed casting and unused variable problems on windows (PR #255)
+* Fixed Linux usage of `cs_change` and added config overrides (PR #268)
+* Fixed and improved the NV auth and session auth set/unset (PR #299)
+* Fixed capability to handle unknown `TPM2_GetCapability` type and fix bad printf (PR #293)
+* Fixed macros for file IO XFEOF and XREWIND to make sure they are available (PR #277)
+* Fixed seal/unseal example (PR #306)
+* Fixed TLS examples with param enc enabled (PR #306)
+* Fixed signed_timestamp with ECC  (PR #306)
+* Added CI tests for CSharp wrappers (PR #307)
+* Added support for sealing/unsealing based on a PCR that is signed externally (PR #294)
+* Added examples for Secure Boot solution to store root of trust in NV (PR's #276, #289, #291 and #292)
+* Added support for importing and loading public ECC/RSA keys formatted as PEM or DER (PR #290)
+* Added new policy_nv example (PR #298)
+* Added `-nvhandle` argument to nvram examples (PR #296)
+* Added code to test external import between two TPM's (PR #288)
+* Added support for STM32 Cube Expansion Pack (PR #287)
+* Added support memory mapped (MMIO) TPM's (PR #271)
+* Added `wc_SetSeed_Cb` call for FIPS ecc (PR #270)
+* Added wrapper support for setting key usage (not just extended key usage) (PR #307)
+* Added RSA key import methods to handle PEM and DER encoding directly (PR #252)
+* Added thread local storage macro and make gActiveTPM local to the thread (PR #253)
+* Added Microchip macro names and Support for bench with MPLABX Harmony (PR #256)
+* Improvements to cmake build (PR's #280, #283 and #284)
+
 ## wolfTPM Release 2.7.0 (Dec 27, 2022)
 
 **Summary**

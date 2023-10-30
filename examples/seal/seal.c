@@ -40,9 +40,9 @@ static void usage(void)
 {
     printf("Expected usage:\n");
     printf("./examples/seal/seal [filename] [userdata]\n");
-    printf("* filename: Name of the file where the TPM key will be stored\n");
-    printf("* userdata: Arbitrary data to seal inside the TPM key (no whitespaces)\n");
-    printf("Demo usage, without parameters, uses keyblob.bin as a filename\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* filename: Name of the file where the TPM key will be stored (default: keyblob.bin)\n");
+    printf("* userdata: Arbitrary data to seal inside the TPM key (no whitespaces) (default: My1Pass2Phrase3)\n");
 }
 
 int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
@@ -95,6 +95,7 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
 
     printf("TPM2.0 Simple Seal example\n");
     printf("\tKey Blob: %s\n", outputFile);
+    printf("\tUser Data: %s\n", userData);
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -158,6 +159,9 @@ exit:
     if (rc != 0) {
         printf("\nFailure 0x%x: %s\n\n", rc, wolfTPM2_GetRCString(rc));
     }
+
+    /* Remove the auth for loaded TPM seal object */
+    wolfTPM2_UnsetAuth(&dev, 0);
 
     /* Close handles */
     wolfTPM2_UnloadHandle(&dev, &storage.handle);

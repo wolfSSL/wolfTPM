@@ -180,13 +180,8 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
     if (paramEncAlg != TPM_ALG_NULL) {
         sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
     }
-#if 0
-    /* TODO: Investigate param enc with signed timestamp */
     rc = wolfTPM2_SetAuthSession(&dev, 2, &tpmSession, sessionAttributes);
     if (rc != 0) goto exit;
-#else
-    (void)sessionAttributes;
-#endif
 
     /* At this stage: The SRK is created, AIK is created and loaded,
      * Endorsement Hierarchy is enabled through policySecret,

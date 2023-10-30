@@ -69,6 +69,10 @@ int writeBin(const char* filename, const byte *buf, word32 bufSz)
 int readBin(const char* filename, byte *buf, word32* bufSz)
 {
     int rc = TPM_RC_FAILURE;
+
+    if (filename == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
+
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE  fp = NULL;
     size_t fileSz = 0;
@@ -100,8 +104,7 @@ int readBin(const char* filename, byte *buf, word32* bufSz)
         printf("File %s not found!\n", filename);
     }
 #else
-    (void)filename;
-    (void)key;
+    (void)bufSz;
 #endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
     return rc;
 }

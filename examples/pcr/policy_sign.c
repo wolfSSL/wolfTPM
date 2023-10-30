@@ -165,6 +165,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             wc_FreeRsaKey(&key.rsa);
         }
     #else
+        (void)hashAlg;
         rc = NOT_COMPILED_IN;
     #endif
     }

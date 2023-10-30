@@ -3306,7 +3306,7 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
             printf("TPM2_EvictControl (storing key to NV) not allowed on "
                    "Windows TBS (err 0x%x)\n", rc);
         #endif
-            rc = TPM_RC_NV_UNAVAILABLE;
+            rc = TPM_RC_COMMAND_CODE;
         }
     #endif
 
@@ -5823,17 +5823,23 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
     int rc;
     GetTime_In getTimeCmd;
 
-    if (getTimeOut == NULL) return BAD_FUNC_ARG;
+    if (getTimeOut == NULL)
+        return BAD_FUNC_ARG;
 
     /* GetTime */
     XMEMSET(&getTimeCmd, 0, sizeof(getTimeCmd));
     XMEMSET(getTimeOut, 0, sizeof(*getTimeOut));
     getTimeCmd.privacyAdminHandle = TPM_RH_ENDORSEMENT;
-    /* TPM_RH_NULL is a valid handle for NULL signature */
-    getTimeCmd.signHandle = aikKey->handle.hndl;
-    /* TPM_ALG_NULL is a valid handle for  NULL signature */
-    getTimeCmd.inScheme.scheme = TPM_ALG_RSASSA;
-    getTimeCmd.inScheme.details.rsassa.hashAlg = TPM_ALG_SHA256;
+    if (aikKey != NULL) {
+        TPMT_ASYM_SCHEME* scheme =
+            &aikKey->pub.publicArea.parameters.asymDetail.scheme;
+        getTimeCmd.signHandle = aikKey->handle.hndl;
+        getTimeCmd.inScheme.scheme = scheme->scheme;
+        getTimeCmd.inScheme.details.any.hashAlg = scheme->details.anySig.hashAlg;
+    }
+    else {
+        getTimeCmd.signHandle = TPM_RH_NULL;
+    }
     getTimeCmd.qualifyingData.size = 0; /* optional */
     rc = TPM2_GetTime(&getTimeCmd, getTimeOut);
     if (rc != TPM_RC_SUCCESS) {
