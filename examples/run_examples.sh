@@ -77,12 +77,9 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/keyload ecckeyblob.bin -aes >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload ecc param enc failed! $RESULT" && exit 1
-
     ./examples/keygen/keyimport ecckeyblob.bin -ecc >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload ecc import failed! $RESULT" && exit 1
-    # TODO: TPM2_Load (TPM_RC_INTEGRITY)
-    #./examples/keygen/keyload ecckeyblob.bin >> run.out
 fi
 rm -f ecckeyblob.bin
 
@@ -201,7 +198,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
-    sleep 0.2
+    sleep 0.4
     ./examples/tls/tls_client -p=$port -$1 $2 2>&1 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
@@ -214,7 +211,7 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls server $1 $2 failed! $RESULT" && exit 1
     pushd $WOLFSSL_PATH >> run.out
-    sleep 0.2
+    sleep 0.4
     ./examples/client/client -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> $PWD/run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
@@ -223,24 +220,20 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     run_tpm_tls_client "rsa" ""
-    # TODO: Not working (TPM2_Load TPM_RC_COMMAND_SIZE)
-    #run_tpm_tls_client "rsa" "-aes"
+    run_tpm_tls_client "rsa" "-aes"
     run_tpm_tls_client "ecc" ""
-    # TODO: Not working (TPM2_Load TPM_RC_COMMAND_SIZE)
-    #run_tpm_tls_client "ecc" "-aes"
+    run_tpm_tls_client "ecc" "-aes"
 
     run_tpm_tls_server "rsa" ""
-    # TODO: Not working (TPM2_Load TPM_RC_COMMAND_SIZE)
-    #run_tpm_tls_server "rsa" "-aes"
+    run_tpm_tls_server "rsa" "-aes"
     run_tpm_tls_server "ecc" ""
-    # TODO: Not working (TPM2_Load TPM_RC_COMMAND_SIZE)
-    #run_tpm_tls_server "ecc" "-aes"
+    run_tpm_tls_server "ecc" "-aes"
 fi
 
 
 # Clock Tests
 echo -e "Clock tests"
-./examples/timestamp/clock_set
+./examples/timestamp/clock_set >> run.out
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "clock set failed! $RESULT" && exit 1
 
@@ -255,11 +248,14 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "signed_timestamp param enc failed! $RESULT" && exit 1
 fi
-# TODO: Test broken (wolfTPM2_GetTime TPM_RC_SCHEME)
-#./examples/timestamp/signed_timestamp -ecc >> run.out
-#if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    #./examples/timestamp/signed_timestamp -ecc -aes >> run.out
-#fi
+./examples/timestamp/signed_timestamp -ecc >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "signed_timestamp ecc failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/timestamp/signed_timestamp -ecc -aes >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "signed_timestamp ecc param enc failed! $RESULT" && exit 1
+fi
 
 ./examples/attestation/make_credential >> run.out
 RESULT=$?
@@ -350,11 +346,21 @@ fi
 echo -e "Seal/Unseal (PCR policy)"
 ./examples/seal/seal sealedkeyblob.bin mySecretMessage >> run.out
 RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "seal pcr failed! $RESULT" && exit 1
-# TODO (TPM2_Load TPM_RC_BAD_AUTH)
-#./examples/seal/unseal message.raw sealedkeyblob.bin >> run.out
+[ $RESULT -ne 0 ] && echo -e "seal failed! $RESULT" && exit 1
+./examples/seal/unseal message.raw sealedkeyblob.bin >> run.out
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "unseal failed! $RESULT" && exit 1
 rm -f sealedkeyblob.bin
 
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/seal/seal sealedkeyblob.bin mySecretMessage -aes >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "seal aes failed! $RESULT" && exit 1
+    ./examples/seal/unseal message.raw sealedkeyblob.bin -aes >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "unseal aes failed! $RESULT" && exit 1
+    rm -f sealedkeyblob.bin
+fi
 
 # Seal/Unseal (Policy auth)
 echo -e "Seal/Unseal (Policy auth)"
