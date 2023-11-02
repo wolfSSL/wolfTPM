@@ -6489,7 +6489,7 @@ int wolfTPM2_GetPolicyDigest(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
             rc = LENGTH_ONLY_E;
         }
         else if (policyGetDigestOut->policyDigest.size > *policyDigestSz) {
-            rc = INPUT_SIZE_E;
+            rc = BUFFER_E;
         }
         else {
             XMEMCPY(policyDigest, policyGetDigestOut->policyDigest.buffer,

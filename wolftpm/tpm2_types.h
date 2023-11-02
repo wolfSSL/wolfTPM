@@ -96,7 +96,6 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/types.h>
     #include <wolfssl/wolfcrypt/logging.h>
     #include <wolfssl/wolfcrypt/error-crypt.h>
-    #include <wolfssl/error-ssl.h>
     #include <wolfssl/wolfcrypt/hash.h>
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
@@ -151,10 +150,6 @@ typedef int64_t  INT64;
     #define BAD_FUNC_ARG          -173  /* Bad function argument provided */
     #define NOT_COMPILED_IN       -174  /* Feature not compiled in */
     #define LENGTH_ONLY_E         -202  /* Returning output length only */
-    #define INPUT_SIZE_E          -412  /* input size too big error */
-
-    /* Errors from wolfssl/error-ssl.h */
-    #define SOCKET_ERROR_E        -308  /* error state on socket    */
 
     #define ENCODING_TYPE_PEM  CTC_FILETYPE_PEM
     #define ENCODING_TYPE_ASN1 CTC_FILETYPE_ASN1

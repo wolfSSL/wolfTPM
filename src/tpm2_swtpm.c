@@ -64,7 +64,7 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 
     wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
     if (bufSz != wrc) {
-        rc = SOCKET_ERROR_E;
+        rc = TPM_RC_FAILURE;
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -100,7 +100,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
                        " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
             }
             #endif
-            rc = SOCKET_ERROR_E;
+            rc = TPM_RC_FAILURE;
             break;
         }
 
@@ -118,7 +118,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 
 static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
-    TPM_RC rc = SOCKET_ERROR_E;
+    TPM_RC rc = TPM_RC_FAILURE;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
     int s;
@@ -183,7 +183,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     #endif
 
     if (0 != close(ctx->tcpCtx.fd)) {
-        rc = SOCKET_ERROR_E;
+        rc = TPM_RC_FAILURE;
 
         #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Failed to close fd %d, got errno %d ="
@@ -198,7 +198,6 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 
 /* Talk to a TPM through socket
  * return TPM_RC_SUCCESS on success,
- *        SOCKET_ERROR_E on socket errors,
  *        TPM_RC_FAILURE on other errors
  */
 int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
@@ -251,7 +250,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             printf("Response size(%d) larger than command buffer(%d)\n",
                    rspSz, packet->pos);
             #endif
-            rc = SOCKET_ERROR_E;
+            rc = TPM_RC_FAILURE;
         }
     }
 
