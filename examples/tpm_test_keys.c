@@ -458,7 +458,7 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
         #endif
         }
         else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {
-            ret = INPUT_SIZE_E;
+            ret = BUFFER_E;
         }
         *bufLen = (size_t)fileSz;
         if (ret == 0) {
