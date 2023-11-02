@@ -7,6 +7,7 @@ echo Run ./examples/csr/csr first to generate the CSR
 # Make sure required CA files exist and are populated
 rm -f ./certs/index.*
 touch ./certs/index.txt
+touch ./certs/index.txt.attr
 if [ ! -f ./certs/serial ]; then
 	echo 3650 > ./certs/serial
 fi
