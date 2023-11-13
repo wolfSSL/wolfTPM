@@ -78,14 +78,41 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #ifndef NO_RSA
         /* RSA */
         if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
-            /* TODO: Add crypto callback RSA keygen support */
-            #if 0
-            RsaKey* key;
-            int     size;
-            long    e;
-            WC_RNG* rng;
-            #endif
-            rc = exit_rc;
+        #ifdef WOLFSSL_KEY_GEN
+            if (tlsCtx->rsaKeyGen != NULL && tlsCtx->storageKey != NULL) {
+                /* create a new RSA key */
+                TPMT_PUBLIC publicTemplate;
+                XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+                rc = GetKeyTemplateRSA(&publicTemplate,
+                    WOLFTPM2_WRAP_DIGEST,   /* name algorithm */
+                    (                       /* objectAttributes */
+                        TPMA_OBJECT_sensitiveDataOrigin |
+                        TPMA_OBJECT_userWithAuth |
+                        TPMA_OBJECT_decrypt |
+                        TPMA_OBJECT_noDA
+                    ),
+                    info->pk.rsakg.size,    /* keyBits */
+                    info->pk.rsakg.e,       /* exponent */
+                    TPM_ALG_NULL,           /* sigScheme */
+                    WOLFTPM2_WRAP_DIGEST    /* sigHash */
+                );
+                if (rc == 0) {
+                    rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->rsaKeyGen,
+                        &tlsCtx->storageKey->handle, &publicTemplate, NULL, 0);
+                }
+                if (rc == 0) {
+                    rc = wolfTPM2_LoadKey(tlsCtx->dev, tlsCtx->rsaKeyGen,
+                        &tlsCtx->storageKey->handle);
+                }
+                if (rc == 0) {
+                    /* export public portion of new key to wolf RsaKey struct */
+                    rc = wolfTPM2_RsaKey_TpmToWolf(tlsCtx->dev,
+                        (WOLFTPM2_KEY*)tlsCtx->rsaKeyGen, info->pk.rsakg.key);
+                }
+            }
+            else
+        #endif
+                rc = exit_rc;
         }
         else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {

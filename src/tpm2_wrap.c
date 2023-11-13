@@ -5280,8 +5280,8 @@ int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
 /* --- BEGIN Utility Functions -- */
 /******************************************************************************/
 
-static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
-    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, int exponent,
+int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, long exponent,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
     if (publicTemplate == NULL)
@@ -5293,7 +5293,7 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.rsaDetail.keyBits = keyBits;
-    publicTemplate->parameters.rsaDetail.exponent = exponent;
+    publicTemplate->parameters.rsaDetail.exponent = (UINT32)exponent;
     publicTemplate->parameters.rsaDetail.scheme.scheme = sigScheme;
     publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = sigHash;
     /* For fixedParent or (decrypt and restricted) enable symmetric */
@@ -5311,7 +5311,7 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     return TPM_RC_SUCCESS;
 }
 
-static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
+int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
