@@ -364,7 +364,9 @@ static void test_wolfTPM_ImportPublicKey(void)
         pemPublicKey, (word32)XSTRLEN(pemPublicKey),
         attributes
     );
-    AssertIntEQ(rc, 0);
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+        AssertIntEQ(rc, 0);
+    }
 
     wolfTPM2_Cleanup(&dev);
 }

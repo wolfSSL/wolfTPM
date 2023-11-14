@@ -3202,15 +3202,46 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (rc < 0)
         return rc;
     curve_id = rc;
+    rc = 0;
 
-    if (parentKey && wolfKey->type == ECC_PRIVATEKEY) {
+    if (parentKey && wolfKey->type != ECC_PUBLICKEY) {
         byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
         word32  dSz = sizeof(d);
 
         XMEMSET(d, 0, sizeof(d));
 
-        /* export the raw private/public ECC portions */
-        rc = wc_ecc_export_private_raw(wolfKey, qx, &qxSz, qy, &qySz, d, &dSz);
+        if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
+            /* compute public point without modifying incoming wolf key */
+            int keySz = wc_ecc_size(wolfKey);
+            ecc_point* point = wc_ecc_new_point();
+            if (point == NULL) {
+                rc = MEMORY_E;
+            }
+            if (rc == 0) {
+            #ifdef ECC_TIMING_RESISTANT
+                rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
+            #else
+                rc = wc_ecc_make_pub(wolfKey, point);
+            #endif
+                if (rc == 0)
+                    rc = wc_export_int(point->x, qx, &qxSz, keySz,
+                        WC_TYPE_UNSIGNED_BIN);
+                if (rc == 0)
+                    rc = wc_export_int(point->y, qy, &qySz, keySz,
+                        WC_TYPE_UNSIGNED_BIN);
+                if (rc == 0)
+                    rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
+                wc_ecc_del_point(point);
+            }
+        }
+        else {
+            /* export the raw private/public ECC portions */
+            rc = wc_ecc_export_private_raw(wolfKey,
+                qx, &qxSz,
+                qy, &qySz,
+                d, &dSz);
+        }
+
         if (rc == 0) {
             rc = wolfTPM2_LoadEccPrivateKey(dev, parentKey, tpmKey, curve_id,
                 qx, qxSz, qy, qySz, d, dSz);
