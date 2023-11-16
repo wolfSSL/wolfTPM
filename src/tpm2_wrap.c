@@ -2717,9 +2717,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     }
 
     if (encodingType == ENCODING_TYPE_PEM) {
-    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER) && \
-        (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
-        !defined(NO_ASN)
+    #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
         derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2755,7 +2753,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     #endif
     }
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+#ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
@@ -2785,7 +2783,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     XMEMSET(&sens, 0, sizeof(sens));
 
     if (encodingType == ENCODING_TYPE_PEM) {
-    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+    #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
         derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2856,7 +2854,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, pub, &sens);
     }
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+#ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
@@ -2915,8 +2913,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 }
 #endif /* !NO_ASN */
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
-
+#ifdef WOLFTPM2_PEM_DECODE
 int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
     const char* input, word32 inSz, char* pass,
@@ -2927,8 +2924,7 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     return wolfTPM2_ImportPrivateKeyBuffer(dev, parentKey, TPM_ALG_RSA, keyBlob,
         ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL, 0);
 }
-
-#endif /* !WOLFTPM2_NO_HEAP && WOLFSSL_PEM_TO_DER */
+#endif /* WOLFTPM2_PEM_DECODE */
 
 
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
@@ -3097,17 +3093,14 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     const byte* pem, word32 pemSz)
 {
     int rc = TPM_RC_FAILURE;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
-    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER))
+#ifdef WOLFTPM2_PEM_DECODE
     RsaKey rsaKey;
 #endif
 
     if (dev == NULL || tpmKey == NULL || pem == NULL)
         return BAD_FUNC_ARG;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
-    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
-    !defined(NO_ASN)
+#ifdef WOLFTPM2_PEM_DECODE
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
     if (rc == 0) {

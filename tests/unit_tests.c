@@ -328,7 +328,7 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE)
 static WOLFTPM2_KEY authKey; /* also used for test_wolfTPM2_PCRPolicy */
 
 static void test_wolfTPM_ImportPublicKey(void)
@@ -364,9 +364,7 @@ static void test_wolfTPM_ImportPublicKey(void)
         pemPublicKey, (word32)XSTRLEN(pemPublicKey),
         attributes
     );
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
-        AssertIntEQ(rc, 0);
-    }
+    AssertIntEQ(rc, 0);
 
     wolfTPM2_Cleanup(&dev);
 }
@@ -435,7 +433,7 @@ static void test_wolfTPM2_PCRPolicy(void)
 
     wolfTPM2_Cleanup(&dev);
 }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFTPM2_PEM_DECODE */
 
 #if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
 #include <pthread.h>
@@ -507,7 +505,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_KDFa();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
-    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE)
     test_wolfTPM_ImportPublicKey();
     test_wolfTPM2_PCRPolicy();
     #endif

@@ -109,7 +109,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     if (rc == 0) {
         /* handle PEM conversion to DER */
         if (encType == ENCODING_TYPE_PEM) {
-        #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+        #ifdef WOLFTPM2_PEM_DECODE
             /* der size is base 64 decode length */
             word32 derSz = (word32)bufSz * 3 / 4 + 1;
             byte* derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
