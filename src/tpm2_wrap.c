@@ -2380,7 +2380,11 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.objectAttributes = attributes;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    /* if both sign and decrypt are set then must use NULL algorithm */
+    pub.publicArea.parameters.eccDetail.scheme.scheme =
+        ((attributes & TPMA_OBJECT_sign) &&
+         (attributes & TPMA_OBJECT_decrypt)) ?
+            TPM_ALG_NULL : TPM_ALG_ECDSA;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
         WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
@@ -3494,7 +3498,9 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
         hashAlg = key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
-
+        if (sigAlg == TPM_ALG_NULL) {
+            sigAlg = TPM_ALG_ECDSA;
+        }
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
@@ -6001,18 +6007,14 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.eccDetail.symmetric);
         out->parameters.eccDetail.scheme.scheme =
             in->parameters.eccDetail.scheme.scheme;
-        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL) {
-            out->parameters.eccDetail.scheme.details.any.hashAlg =
-                in->parameters.eccDetail.scheme.details.any.hashAlg;
-        }
+        out->parameters.eccDetail.scheme.details.any.hashAlg =
+            in->parameters.eccDetail.scheme.details.any.hashAlg;
         out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
         out->parameters.eccDetail.kdf.scheme =
             in->parameters.eccDetail.kdf.scheme;
-        if (out->parameters.eccDetail.kdf.scheme != TPM_ALG_NULL) {
-            out->parameters.eccDetail.kdf.details.any.hashAlg =
-                in->parameters.eccDetail.kdf.details.any.hashAlg;
-        }
+        out->parameters.eccDetail.kdf.details.any.hashAlg =
+            in->parameters.eccDetail.kdf.details.any.hashAlg;
         wolfTPM2_CopyEccParam(&out->unique.ecc.x,
             &in->unique.ecc.x);
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
@@ -6023,9 +6025,8 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.asymDetail.symmetric);
         out->parameters.asymDetail.scheme.scheme =
             in->parameters.asymDetail.scheme.scheme;
-        if (out->parameters.asymDetail.scheme.scheme != TPM_ALG_NULL)
-            out->parameters.asymDetail.scheme.details.anySig.hashAlg =
-                in->parameters.asymDetail.scheme.details.anySig.hashAlg;
+        out->parameters.asymDetail.scheme.details.anySig.hashAlg =
+            in->parameters.asymDetail.scheme.details.anySig.hashAlg;
         break;
     }
 }
