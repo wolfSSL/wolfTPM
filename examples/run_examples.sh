@@ -180,13 +180,14 @@ fi
 echo -e "TLS tests"
 generate_port() { # function to produce a random port number
     if [[ "$OSTYPE" == "linux"* ]]; then
-        port=$(($(od -An -N2 /dev/urandom) % (65535-49512) + 49512))
+        port=$(($(od -An -N2 /dev/urandom) % (65535-49152) + 49152))
     elif [[ "$OSTYPE" == "darwin"* ]]; then
-        port=$(($(od -An -N2 /dev/random) % (65535-49512) + 49512))
+        port=$(($(od -An -N2 /dev/random) % (65535-49152) + 49152))
     else
         echo "Unknown OS TYPE"
         exit 1
     fi
+    echo -e "Using port $port"
     echo -e "Using port $port" >> run.out
 }
 
@@ -198,7 +199,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
-    sleep 0.4
+    sleep 0.5
     ./examples/tls/tls_client -p=$port -$1 $2 2>&1 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
@@ -211,7 +212,7 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls server $1 $2 failed! $RESULT" && exit 1
     pushd $WOLFSSL_PATH >> run.out
-    sleep 0.4
+    sleep 0.5
     ./examples/client/client -p $port -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> $PWD/run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
