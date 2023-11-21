@@ -164,7 +164,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             int curve_id;
 
             /* Make sure an ECDH key has been set and curve is supported */
-            rc = TPM2_GetTpmCurve(info->pk.eckg.curveId);
+            curve_id = info->pk.eckg.curveId;
+            if (curve_id == 0 && info->pk.eckg.key->dp != NULL) {
+                curve_id = info->pk.eckg.key->dp->id; /* use dp */
+            }
+            rc = TPM2_GetTpmCurve(curve_id);
             if (rc < 0 || tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
                 return exit_rc;
             }
