@@ -6213,11 +6213,22 @@ static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
     #ifdef HAVE_ECC
         csrKey->tpmCtx.eccKey = key;
     #endif
-        rc = wolfTPM2_SetCryptoDevCb(dev, wolfTPM2_CryptoDevCb,
-            &csrKey->tpmCtx, &csrKey->tpmDevId);
-        if (rc == 0) {
-            devId = csrKey->tpmDevId;
+
+        rc = wolfTPM2_GetTpmDevId(dev);
+        if (rc >= 0) {
+            devId = rc;
+            devId += 1; /* use a different devId for the CSR callback */
+            rc = 0;
         }
+        if (rc == 0) {
+            csrKey->tpmCtx.dev = dev;
+            rc = wc_CryptoCb_RegisterDevice(devId, wolfTPM2_CryptoDevCb,
+                &csrKey->tpmCtx);
+        }
+        if (rc != 0) {
+            return rc;
+        }
+        csrKey->tpmDevId = devId;
     }
 
     /* determine the type of key in WOLFTPM2_KEY */
