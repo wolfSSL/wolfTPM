@@ -237,12 +237,14 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
         printf("setsockopt SO_REUSEADDR failed\n");
         return -1;
     }
+#ifdef SO_REUSEPORT
     optval = 1;
     if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEPORT,
                    (void*)&optval, sizeof(optval)) == -1) {
         printf("setsockopt SO_REUSEPORT failed\n");
         return -1;
     }
+#endif
 
     /* Connect to the server */
     if (bind(sockIoCtx->listenFd, (struct sockaddr*)&servAddr,
