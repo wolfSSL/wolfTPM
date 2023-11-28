@@ -43,6 +43,17 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     const byte* in, word32 inSz);
 #endif /* WOLFTPM_USE_SYMMETRIC */
 
+/* Helper to trim leading zeros when not required  */
+static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
+{
+    word32 idx = 0;
+    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
+        idx++;
+        in++;
+    }
+    *len -= idx;
+    return in;
+}
 
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
@@ -228,21 +239,28 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
-            byte *r = sigRS, *s;
-            word32 rsLen = sizeof(sigRS), rLen, sLen;
+            word32 rsLen = sizeof(sigRS), keySz;
             word32 inlen = info->pk.eccsign.inlen;
 
             /* truncate input to match key size */
-            rLen = wc_ecc_size(info->pk.eccsign.key);
-            if (inlen > rLen)
-                inlen = rLen;
+            keySz = wc_ecc_size(info->pk.eccsign.key);
+            if (inlen > keySz)
+                inlen = keySz;
 
             rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
                 info->pk.eccsign.in, inlen, sigRS, (int*)&rsLen);
             if (rc == 0) {
-                /* Encode ECDSA Header */
+                byte *r, *s;
+                word32 rLen, sLen;
+
+                /* Make sure leading zero's not required are trimmed */
                 rLen = sLen = rsLen / 2;
+                r = &sigRS[0];
                 s = &sigRS[rLen];
+                r = wolfTPM2_ASNTrimZeros(r, &rLen);
+                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+
+                /* Encode ECDSA Header */
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
                     info->pk.eccsign.out, info->pk.eccsign.outlen);
             }
