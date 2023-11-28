@@ -240,9 +240,15 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
                         sigRS, rLen + sLen,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
-
-                    if (rc == 0 && info->pk.eccverify.res) {
-                        *info->pk.eccverify.res = 1;
+                    if (info->pk.eccverify.res) {
+                        if ((rc & TPM_RC_SIGNATURE) == TPM_RC_SIGNATURE) {
+                            /* mark invalid signature */
+                            *info->pk.eccverify.res = 0;
+                            rc = 0;
+                        }
+                        else if (rc == 0) {
+                            *info->pk.eccverify.res = 1;
+                        }
                     }
 
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
