@@ -270,7 +270,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte sigRS[MAX_ECC_BYTES*2];
             byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
             word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
+
             XMEMSET(&eccPub, 0, sizeof(eccPub));
+            XMEMSET(sigRS, 0, sizeof(sigRS));
 
             /* Decode ECDSA Header */
             rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,
@@ -280,10 +282,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
-                    /* combine R and S */
-                    XMEMCPY(sigRS + rLen, s, sLen);
+                    /* combine R and S at key size (zero pad leading) */
+                    word32 keySz = wc_ecc_size(info->pk.eccverify.key);
+                    XMEMCPY(&sigRS[keySz-rLen], r, rLen);
+                    XMEMSET(&sigRS[0], 0, keySz-rLen);
+                    XMEMCPY(&sigRS[keySz + (keySz-sLen)], s, sLen);
+                    XMEMSET(&sigRS[keySz], 0, keySz-sLen);
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
-                        sigRS, rLen + sLen,
+                        sigRS, keySz*2,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
                     if (info->pk.eccverify.res) {
                         if ((rc & TPM_RC_SIGNATURE) == TPM_RC_SIGNATURE) {
@@ -295,7 +301,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                             *info->pk.eccverify.res = 1;
                         }
                     }
-
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
                 else if (rc & TPM_RC_CURVE) {
