@@ -999,7 +999,7 @@ static int TPM2_KDFe(
     hashType = (enum wc_HashType)ret;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
-    if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
+    if ((hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
         return NOT_COMPILED_IN;
 
     /* get label length if provided, including null termination */
@@ -1021,37 +1021,32 @@ static int TPM2_KDFe(
         TPM2_Packet_U32ToByteArray(counter, uint32Buf);
         ret = wc_HashUpdate(&hash_ctx, hashType, uint32Buf,
             (word32)sizeof(uint32Buf));
-        if (ret != 0)
-            goto exit;
-
         /* add Z */
-        ret = wc_HashUpdate(&hash_ctx, hashType, Z->buffer, Z->size);
-
+        if (ret == 0) {
+            ret = wc_HashUpdate(&hash_ctx, hashType, Z->buffer, Z->size);
+        }
         /* add label */
-        if (label != NULL) {
+        if (ret == 0 && label != NULL) {
             ret = wc_HashUpdate(&hash_ctx, hashType, (byte*)label, lLen);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add partyUInfo */
-        if (partyUInfo != NULL && partyUInfo->size > 0) {
+        if (ret == 0 && partyUInfo != NULL && partyUInfo->size > 0) {
             ret = wc_HashUpdate(&hash_ctx, hashType, partyUInfo->buffer,
                 partyUInfo->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add partyVInfo */
-        if (partyVInfo != NULL && partyVInfo->size > 0) {
+        if (ret == 0 && partyVInfo != NULL && partyVInfo->size > 0) {
             ret = wc_HashUpdate(&hash_ctx, hashType, partyVInfo->buffer,
                 partyVInfo->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* get result */
-        ret = wc_HashFinal(&hash_ctx, hashType, hash);
+        if (ret == 0) {
+            ret = wc_HashFinal(&hash_ctx, hashType, hash);
+        }
+
         if (ret != 0)
             goto exit;
 

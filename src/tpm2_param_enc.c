@@ -103,7 +103,7 @@ int TPM2_KDFa(
         return NOT_COMPILED_IN;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
-    if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
+    if ((hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
         return NOT_COMPILED_IN;
 
     /* get label length if provided, including null termination */
@@ -128,46 +128,39 @@ int TPM2_KDFa(
         else {
             ret = wc_HmacSetKey(&hmac_ctx, hashType, NULL, 0);
         }
-        if (ret != 0)
-            goto exit;
-
         /* add counter - KDFa i2 */
-        TPM2_Packet_U32ToByteArray(counter, uint32Buf);
-        ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
-        if (ret != 0)
-            goto exit;
-
+        if (ret == 0) {
+            TPM2_Packet_U32ToByteArray(counter, uint32Buf);
+            ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
+        }
         /* add label - KDFa label */
-        if (label != NULL) {
+        if (ret == 0 && label != NULL) {
             ret = wc_HmacUpdate(&hmac_ctx, (byte*)label, lLen);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add contextU */
-        if (contextU != NULL && contextU->size > 0) {
+        if (ret == 0 && contextU != NULL && contextU->size > 0) {
             ret = wc_HmacUpdate(&hmac_ctx, contextU->buffer, contextU->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add contextV */
-        if (contextV != NULL && contextV->size > 0) {
+        if (ret == 0 && contextV != NULL && contextV->size > 0) {
             ret = wc_HmacUpdate(&hmac_ctx, contextV->buffer, contextV->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add size in bits */
-        TPM2_Packet_U32ToByteArray(sizeInBits, uint32Buf);
-        ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
-        if (ret != 0)
-            goto exit;
+        if (ret == 0) {
+            TPM2_Packet_U32ToByteArray(sizeInBits, uint32Buf);
+            ret = wc_HmacUpdate(&hmac_ctx, uint32Buf, (word32)sizeof(uint32Buf));
+        }
 
         /* get result */
-        ret = wc_HmacFinal(&hmac_ctx, hash);
-        if (ret != 0)
+        if (ret == 0) {
+            ret = wc_HmacFinal(&hmac_ctx, hash);
+        }
+        if (ret != 0) {
             goto exit;
+        }
 
         if ((UINT32)hLen > keySz - pos) {
           copyLen = keySz - pos;
