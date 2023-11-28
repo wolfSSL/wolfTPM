@@ -1047,8 +1047,9 @@ static int TPM2_KDFe(
             ret = wc_HashFinal(&hash_ctx, hashType, hash);
         }
 
-        if (ret != 0)
+        if (ret != 0) {
             goto exit;
+        }
 
         if ((UINT32)hLen > keySz - pos) {
           copyLen = keySz - pos;
@@ -1083,6 +1084,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     TPM2B_ECC_POINT pubPoint, secretPoint;
     ecc_point r[1];
     mp_int prime, a;
+    word32 keySz;
 
     publicArea = &tpmKey->pub.publicArea;
     XMEMSET(&rng, 0, sizeof(rng));
@@ -1117,6 +1119,8 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             TPM2_GetWolfCurve(publicArea->parameters.eccDetail.curveID));
     }
     if (rc == 0) {
+        keySz = wc_ecc_size(&eccKeyPriv);
+
         /* export private's public point as data */
         rc = wolfTPM2_EccKey_WolfToPubPoint(dev, &eccKeyPriv, &pubPoint);
     }
@@ -1144,9 +1148,11 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             r, &a, &prime, 1);
     }
     if (rc == 0) {
-        /* export shared secret x */
+        /* export shared secret x - zero pad to key size */
         secretPoint.point.x.size = mp_unsigned_bin_size(r->x);
-        rc = mp_to_unsigned_bin(r->x, secretPoint.point.x.buffer);
+        rc = mp_to_unsigned_bin(r->x,
+            &secretPoint.point.x.buffer[keySz-secretPoint.point.x.size]);
+        secretPoint.point.x.size = keySz;
     }
     if (rc == 0) {
         /* set size encryption key */
