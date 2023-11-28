@@ -162,6 +162,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             rc = exit_rc;
         #else
             int curve_id;
+            WOLFTPM2_KEY* key;
 
             /* Make sure an ECDH key has been set and curve is supported */
             curve_id = info->pk.eckg.curveId;
@@ -169,22 +170,48 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 curve_id = info->pk.eckg.key->dp->id; /* use dp */
             }
             rc = TPM2_GetTpmCurve(curve_id);
-            if (rc < 0 || tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
+            if (rc < 0 || (tlsCtx->ecdhKey == NULL && tlsCtx->eccKey == NULL)) {
                 return exit_rc;
             }
             curve_id = rc;
             rc = 0;
 
-            /* Generate ephemeral key - if one isn't already created */
-            if (tlsCtx->ecdhKey->handle.hndl == 0 ||
-                tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
-                rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
-                    (byte*)tlsCtx->eccKey->handle.auth.buffer,
-                    tlsCtx->eccKey->handle.auth.size);
+            /* If ecdhKey is NULL then it is a signing key */
+            if (tlsCtx->ecdhKey == NULL) {
+                /* Create an ECC key for ECDSA - if one isn't already created */
+                key = tlsCtx->eccKey;
+                if (key->handle.hndl == 0 ||
+                    key->handle.hndl == TPM_RH_NULL
+                ) {
+                    TPMT_PUBLIC publicTemplate;
+                    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+                    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                        curve_id, TPM_ALG_ECDSA);
+                    if (rc == 0) {
+                        publicTemplate.nameAlg = TPM_ALG_SHA256; /* make sure its SHA256 */
+                        rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, key,
+                            &tlsCtx->storageKey->handle, &publicTemplate,
+                            (byte*)key->handle.auth.buffer,
+                            key->handle.auth.size);
+                    }
+                }
+            }
+            else {
+                /* Generate ephemeral key - if one isn't already created */
+                key = tlsCtx->ecdhKey;
+                if (key->handle.hndl == 0 ||
+                    key->handle.hndl == TPM_RH_NULL) {
+                    rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, key, curve_id,
+                        NULL, 0 /* no auth for ephemeral key */
+                    );
+                }
             }
             if (rc == 0) {
                 /* Export public key info to wolf ecc_key */
-                rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, tlsCtx->ecdhKey,
+                rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, key,
                     info->pk.eckg.key);
                 if (rc != 0) {
                     /* if failure, release key */
@@ -195,7 +222,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 /* if the curve is not supported on TPM, then fall-back to software */
                 rc = exit_rc;
                 /* Make sure ECDHE key indicates nothing loaded */
-                tlsCtx->ecdhKey->handle.hndl = TPM_RH_NULL;
+                key->handle.hndl = TPM_RH_NULL;
             }
         #endif /* WOLFTPM2_USE_SW_ECDHE */
         }
