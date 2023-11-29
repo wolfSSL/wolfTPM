@@ -43,6 +43,17 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     const byte* in, word32 inSz);
 #endif /* WOLFTPM_USE_SYMMETRIC */
 
+/* Helper to trim leading zeros when not required  */
+static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
+{
+    word32 idx = 0;
+    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
+        idx++;
+        in++;
+    }
+    *len -= idx;
+    return in;
+}
 
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
@@ -78,14 +89,41 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #ifndef NO_RSA
         /* RSA */
         if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
-            /* TODO: Add crypto callback RSA keygen support */
-            #if 0
-            RsaKey* key;
-            int     size;
-            long    e;
-            WC_RNG* rng;
-            #endif
-            rc = exit_rc;
+        #ifdef WOLFSSL_KEY_GEN
+            if (tlsCtx->rsaKeyGen != NULL && tlsCtx->storageKey != NULL) {
+                /* create a new RSA key */
+                TPMT_PUBLIC publicTemplate;
+                XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+                rc = GetKeyTemplateRSA(&publicTemplate,
+                    WOLFTPM2_WRAP_DIGEST,   /* name algorithm */
+                    (                       /* objectAttributes */
+                        TPMA_OBJECT_sensitiveDataOrigin |
+                        TPMA_OBJECT_userWithAuth |
+                        TPMA_OBJECT_decrypt |
+                        TPMA_OBJECT_noDA
+                    ),
+                    info->pk.rsakg.size,    /* keyBits */
+                    info->pk.rsakg.e,       /* exponent */
+                    TPM_ALG_NULL,           /* sigScheme */
+                    WOLFTPM2_WRAP_DIGEST    /* sigHash */
+                );
+                if (rc == 0) {
+                    rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->rsaKeyGen,
+                        &tlsCtx->storageKey->handle, &publicTemplate, NULL, 0);
+                }
+                if (rc == 0) {
+                    rc = wolfTPM2_LoadKey(tlsCtx->dev, tlsCtx->rsaKeyGen,
+                        &tlsCtx->storageKey->handle);
+                }
+                if (rc == 0) {
+                    /* export public portion of new key to wolf RsaKey struct */
+                    rc = wolfTPM2_RsaKey_TpmToWolf(tlsCtx->dev,
+                        (WOLFTPM2_KEY*)tlsCtx->rsaKeyGen, info->pk.rsakg.key);
+                }
+            }
+            else
+        #endif
+                rc = exit_rc;
         }
         else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {
@@ -135,25 +173,56 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             rc = exit_rc;
         #else
             int curve_id;
+            WOLFTPM2_KEY* key;
 
             /* Make sure an ECDH key has been set and curve is supported */
-            rc = TPM2_GetTpmCurve(info->pk.eckg.curveId);
-            if (rc < 0 || tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL) {
+            curve_id = info->pk.eckg.curveId;
+            if (curve_id == 0 && info->pk.eckg.key->dp != NULL) {
+                curve_id = info->pk.eckg.key->dp->id; /* use dp */
+            }
+            rc = TPM2_GetTpmCurve(curve_id);
+            if (rc < 0 || (tlsCtx->ecdhKey == NULL && tlsCtx->eccKey == NULL)) {
                 return exit_rc;
             }
             curve_id = rc;
             rc = 0;
 
-            /* Generate ephemeral key - if one isn't already created */
-            if (tlsCtx->ecdhKey->handle.hndl == 0 ||
-                tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
-                rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey, curve_id,
-                    (byte*)tlsCtx->eccKey->handle.auth.buffer,
-                    tlsCtx->eccKey->handle.auth.size);
+            /* If ecdhKey is NULL then it is a signing key */
+            if (tlsCtx->ecdhKey == NULL) {
+                /* Create an ECC key for ECDSA - if one isn't already created */
+                key = tlsCtx->eccKey;
+                if (key->handle.hndl == 0 ||
+                    key->handle.hndl == TPM_RH_NULL
+                ) {
+                    TPMT_PUBLIC publicTemplate;
+                    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+                    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                        curve_id, TPM_ALG_ECDSA);
+                    if (rc == 0) {
+                        publicTemplate.nameAlg = TPM_ALG_SHA256; /* make sure its SHA256 */
+                        rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, key,
+                            &tlsCtx->storageKey->handle, &publicTemplate,
+                            (byte*)key->handle.auth.buffer,
+                            key->handle.auth.size);
+                    }
+                }
+            }
+            else {
+                /* Generate ephemeral key - if one isn't already created */
+                key = tlsCtx->ecdhKey;
+                if (key->handle.hndl == 0 ||
+                    key->handle.hndl == TPM_RH_NULL) {
+                    rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, key, curve_id,
+                        NULL, 0 /* no auth for ephemeral key */
+                    );
+                }
             }
             if (rc == 0) {
                 /* Export public key info to wolf ecc_key */
-                rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, tlsCtx->ecdhKey,
+                rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, key,
                     info->pk.eckg.key);
                 if (rc != 0) {
                     /* if failure, release key */
@@ -164,27 +233,34 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 /* if the curve is not supported on TPM, then fall-back to software */
                 rc = exit_rc;
                 /* Make sure ECDHE key indicates nothing loaded */
-                tlsCtx->ecdhKey->handle.hndl = TPM_RH_NULL;
+                key->handle.hndl = TPM_RH_NULL;
             }
         #endif /* WOLFTPM2_USE_SW_ECDHE */
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
-            byte *r = sigRS, *s;
-            word32 rsLen = sizeof(sigRS), rLen, sLen;
+            word32 rsLen = sizeof(sigRS), keySz;
             word32 inlen = info->pk.eccsign.inlen;
 
             /* truncate input to match key size */
-            rLen = wc_ecc_size(info->pk.eccsign.key);
-            if (inlen > rLen)
-                inlen = rLen;
+            keySz = wc_ecc_size(info->pk.eccsign.key);
+            if (inlen > keySz)
+                inlen = keySz;
 
             rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
                 info->pk.eccsign.in, inlen, sigRS, (int*)&rsLen);
             if (rc == 0) {
-                /* Encode ECDSA Header */
+                byte *r, *s;
+                word32 rLen, sLen;
+
+                /* Make sure leading zero's not required are trimmed */
                 rLen = sLen = rsLen / 2;
+                r = &sigRS[0];
                 s = &sigRS[rLen];
+                r = wolfTPM2_ASNTrimZeros(r, &rLen);
+                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+
+                /* Encode ECDSA Header */
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
                     info->pk.eccsign.out, info->pk.eccsign.outlen);
             }
@@ -194,7 +270,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte sigRS[MAX_ECC_BYTES*2];
             byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
             word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
+
             XMEMSET(&eccPub, 0, sizeof(eccPub));
+            XMEMSET(sigRS, 0, sizeof(sigRS));
 
             /* Decode ECDSA Header */
             rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,
@@ -204,16 +282,25 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
-                    /* combine R and S */
-                    XMEMCPY(sigRS + rLen, s, sLen);
+                    /* combine R and S at key size (zero pad leading) */
+                    word32 keySz = wc_ecc_size(info->pk.eccverify.key);
+                    XMEMCPY(&sigRS[keySz-rLen], r, rLen);
+                    XMEMSET(&sigRS[0], 0, keySz-rLen);
+                    XMEMCPY(&sigRS[keySz + (keySz-sLen)], s, sLen);
+                    XMEMSET(&sigRS[keySz], 0, keySz-sLen);
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
-                        sigRS, rLen + sLen,
+                        sigRS, keySz*2,
                         info->pk.eccverify.hash, info->pk.eccverify.hashlen);
-
-                    if (rc == 0 && info->pk.eccverify.res) {
-                        *info->pk.eccverify.res = 1;
+                    if (info->pk.eccverify.res) {
+                        if ((rc & TPM_RC_SIGNATURE) == TPM_RC_SIGNATURE) {
+                            /* mark invalid signature */
+                            *info->pk.eccverify.res = 0;
+                            rc = 0;
+                        }
+                        else if (rc == 0) {
+                            *info->pk.eccverify.res = 1;
+                        }
                     }
-
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
                 else if (rc & TPM_RC_CURVE) {

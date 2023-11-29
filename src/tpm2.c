@@ -2952,7 +2952,9 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendU16(&packet, in->validation.tag);
         TPM2_Packet_AppendU32(&packet, in->validation.hierarchy);

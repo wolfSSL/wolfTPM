@@ -2870,6 +2870,9 @@ typedef struct TpmCryptoDevCtx {
     WOLFTPM2_DEV* dev;
 #ifndef NO_RSA
     WOLFTPM2_KEY* rsaKey;  /* RSA */
+    #ifdef WOLFSSL_KEY_GEN
+    WOLFTPM2_KEYBLOB* rsaKeyGen;  /* RSA KeyGen */
+    #endif
 #endif
 #ifdef HAVE_ECC
     WOLFTPM2_KEY* eccKey;  /* ECDSA */
@@ -3386,6 +3389,15 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
 WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     const TPM2B_PUBLIC* pub, byte* digest, word32* digestSz,
     const byte* policyRef, word32 policyRefSz);
+
+
+/* Internal API's */
+WOLFTPM_LOCAL int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, long exponent,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
+WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
 
 #ifdef __cplusplus
     }  /* extern "C" */

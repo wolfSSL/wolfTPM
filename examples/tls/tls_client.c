@@ -130,6 +130,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&storageKey, 0, sizeof(storageKey));
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
     sockIoCtx.fd = -1;
+    sockIoCtx.listenFd = -1;
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
@@ -558,6 +559,15 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
+    /* Bidirectional shutdown */
+    while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+        printf("Shutdown not complete\n");
+    }
+
+    CloseAndCleanupSocket(&sockIoCtx);
+    wolfSSL_free(ssl);
+    wolfSSL_CTX_free(ctx);
+
     wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 #ifndef NO_RSA
     wc_FreeRsaKey(&wolfRsaKey);
@@ -571,12 +581,6 @@ exit:
     #endif
 #endif
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-
-    wolfSSL_shutdown(ssl);
-
-    CloseAndCleanupSocket(&sockIoCtx);
-    wolfSSL_free(ssl);
-    wolfSSL_CTX_free(ctx);
 
     wolfTPM2_Cleanup(&dev);
 

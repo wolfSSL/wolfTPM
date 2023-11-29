@@ -650,6 +650,11 @@ typedef int64_t  INT64;
     #define WOLFTPM2_CERT_GEN
 #endif
 
+#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER) && \
+    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
+    !defined(NO_ASN)
+    #define WOLFTPM2_PEM_DECODE
+#endif
 
 /* ---------------------------------------------------------------------------*/
 /* ENDIANESS HELPERS */

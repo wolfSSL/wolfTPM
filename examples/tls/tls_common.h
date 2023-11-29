@@ -209,7 +209,7 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
 {
     struct sockaddr_in servAddr;
-    int optval  = 1;
+    int optval;
 
 #ifdef _WIN32
     WSADATA wsd;
@@ -230,17 +230,26 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
         return -1;
     }
 
-    /* allow reuse */
+    /* allow reuse of port and address */
+    optval = 1;
     if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEADDR,
                    (void*)&optval, sizeof(optval)) == -1) {
         printf("setsockopt SO_REUSEADDR failed\n");
         return -1;
     }
+#ifdef SO_REUSEPORT
+    optval = 1;
+    if (setsockopt(sockIoCtx->listenFd, SOL_SOCKET, SO_REUSEPORT,
+                   (void*)&optval, sizeof(optval)) == -1) {
+        printf("setsockopt SO_REUSEPORT failed\n");
+        return -1;
+    }
+#endif
 
     /* Connect to the server */
     if (bind(sockIoCtx->listenFd, (struct sockaddr*)&servAddr,
                                                     sizeof(servAddr)) == -1) {
-        printf("ERROR: failed to bind\n");
+        printf("ERROR: failed to bind! errno %d\n", errno);
         return -1;
     }
 

@@ -999,7 +999,7 @@ static int TPM2_KDFe(
     hashType = (enum wc_HashType)ret;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
-    if ( (hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
+    if ((hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
         return NOT_COMPILED_IN;
 
     /* get label length if provided, including null termination */
@@ -1021,39 +1021,35 @@ static int TPM2_KDFe(
         TPM2_Packet_U32ToByteArray(counter, uint32Buf);
         ret = wc_HashUpdate(&hash_ctx, hashType, uint32Buf,
             (word32)sizeof(uint32Buf));
-        if (ret != 0)
-            goto exit;
-
         /* add Z */
-        ret = wc_HashUpdate(&hash_ctx, hashType, Z->buffer, Z->size);
-
+        if (ret == 0) {
+            ret = wc_HashUpdate(&hash_ctx, hashType, Z->buffer, Z->size);
+        }
         /* add label */
-        if (label != NULL) {
+        if (ret == 0 && label != NULL) {
             ret = wc_HashUpdate(&hash_ctx, hashType, (byte*)label, lLen);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add partyUInfo */
-        if (partyUInfo != NULL && partyUInfo->size > 0) {
+        if (ret == 0 && partyUInfo != NULL && partyUInfo->size > 0) {
             ret = wc_HashUpdate(&hash_ctx, hashType, partyUInfo->buffer,
                 partyUInfo->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* add partyVInfo */
-        if (partyVInfo != NULL && partyVInfo->size > 0) {
+        if (ret == 0 && partyVInfo != NULL && partyVInfo->size > 0) {
             ret = wc_HashUpdate(&hash_ctx, hashType, partyVInfo->buffer,
                 partyVInfo->size);
-            if (ret != 0)
-                goto exit;
         }
 
         /* get result */
-        ret = wc_HashFinal(&hash_ctx, hashType, hash);
-        if (ret != 0)
+        if (ret == 0) {
+            ret = wc_HashFinal(&hash_ctx, hashType, hash);
+        }
+
+        if (ret != 0) {
             goto exit;
+        }
 
         if ((UINT32)hLen > keySz - pos) {
           copyLen = keySz - pos;
@@ -1088,6 +1084,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     TPM2B_ECC_POINT pubPoint, secretPoint;
     ecc_point r[1];
     mp_int prime, a;
+    word32 keySz;
 
     publicArea = &tpmKey->pub.publicArea;
     XMEMSET(&rng, 0, sizeof(rng));
@@ -1122,6 +1119,8 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             TPM2_GetWolfCurve(publicArea->parameters.eccDetail.curveID));
     }
     if (rc == 0) {
+        keySz = wc_ecc_size(&eccKeyPriv);
+
         /* export private's public point as data */
         rc = wolfTPM2_EccKey_WolfToPubPoint(dev, &eccKeyPriv, &pubPoint);
     }
@@ -1149,9 +1148,11 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             r, &a, &prime, 1);
     }
     if (rc == 0) {
-        /* export shared secret x */
+        /* export shared secret x - zero pad to key size */
         secretPoint.point.x.size = mp_unsigned_bin_size(r->x);
-        rc = mp_to_unsigned_bin(r->x, secretPoint.point.x.buffer);
+        rc = mp_to_unsigned_bin(r->x,
+            &secretPoint.point.x.buffer[keySz-secretPoint.point.x.size]);
+        secretPoint.point.x.size = keySz;
     }
     if (rc == 0) {
         /* set size encryption key */
@@ -2380,7 +2381,11 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.objectAttributes = attributes;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    /* if both sign and decrypt are set then must use NULL algorithm */
+    pub.publicArea.parameters.eccDetail.scheme.scheme =
+        ((attributes & TPMA_OBJECT_sign) &&
+         (attributes & TPMA_OBJECT_decrypt)) ?
+            TPM_ALG_NULL : TPM_ALG_ECDSA;
     pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
         WOLFTPM2_WRAP_DIGEST;
     pub.publicArea.parameters.eccDetail.curveID = curveId;
@@ -2717,9 +2722,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     }
 
     if (encodingType == ENCODING_TYPE_PEM) {
-    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER) && \
-        (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
-        !defined(NO_ASN)
+    #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
         derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2755,7 +2758,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     #endif
     }
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+#ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
@@ -2785,7 +2788,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
     XMEMSET(&sens, 0, sizeof(sens));
 
     if (encodingType == ENCODING_TYPE_PEM) {
-    #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+    #ifdef WOLFTPM2_PEM_DECODE
         /* der size is base 64 decode length */
         derSz = inSz * 3 / 4 + 1;
         derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -2856,7 +2859,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, pub, &sens);
     }
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
+#ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
@@ -2915,8 +2918,7 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 }
 #endif /* !NO_ASN */
 
-#if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER)
-
+#ifdef WOLFTPM2_PEM_DECODE
 int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob,
     const char* input, word32 inSz, char* pass,
@@ -2927,8 +2929,7 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
     return wolfTPM2_ImportPrivateKeyBuffer(dev, parentKey, TPM_ALG_RSA, keyBlob,
         ENCODING_TYPE_PEM, input, inSz, pass, 0, NULL, 0);
 }
-
-#endif /* !WOLFTPM2_NO_HEAP && WOLFSSL_PEM_TO_DER */
+#endif /* WOLFTPM2_PEM_DECODE */
 
 
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
@@ -3097,17 +3098,14 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     const byte* pem, word32 pemSz)
 {
     int rc = TPM_RC_FAILURE;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
-    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER))
+#ifdef WOLFTPM2_PEM_DECODE
     RsaKey rsaKey;
 #endif
 
     if (dev == NULL || tpmKey == NULL || pem == NULL)
         return BAD_FUNC_ARG;
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_PEM_TO_DER) && \
-    (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
-    !defined(NO_ASN)
+#ifdef WOLFTPM2_PEM_DECODE
     /* Prepare wolfCrypt key structure */
     rc = wc_InitRsaKey(&rsaKey, NULL);
     if (rc == 0) {
@@ -3202,15 +3200,46 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (rc < 0)
         return rc;
     curve_id = rc;
+    rc = 0;
 
-    if (parentKey && wolfKey->type == ECC_PRIVATEKEY) {
+    if (parentKey && wolfKey->type != ECC_PUBLICKEY) {
         byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
         word32  dSz = sizeof(d);
 
         XMEMSET(d, 0, sizeof(d));
 
-        /* export the raw private/public ECC portions */
-        rc = wc_ecc_export_private_raw(wolfKey, qx, &qxSz, qy, &qySz, d, &dSz);
+        if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
+            /* compute public point without modifying incoming wolf key */
+            int keySz = wc_ecc_size(wolfKey);
+            ecc_point* point = wc_ecc_new_point();
+            if (point == NULL) {
+                rc = MEMORY_E;
+            }
+            if (rc == 0) {
+            #ifdef ECC_TIMING_RESISTANT
+                rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
+            #else
+                rc = wc_ecc_make_pub(wolfKey, point);
+            #endif
+                if (rc == 0)
+                    rc = wc_export_int(point->x, qx, &qxSz, keySz,
+                        WC_TYPE_UNSIGNED_BIN);
+                if (rc == 0)
+                    rc = wc_export_int(point->y, qy, &qySz, keySz,
+                        WC_TYPE_UNSIGNED_BIN);
+                if (rc == 0)
+                    rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
+                wc_ecc_del_point(point);
+            }
+        }
+        else {
+            /* export the raw private/public ECC portions */
+            rc = wc_ecc_export_private_raw(wolfKey,
+                qx, &qxSz,
+                qy, &qySz,
+                d, &dSz);
+        }
+
         if (rc == 0) {
             rc = wolfTPM2_LoadEccPrivateKey(dev, parentKey, tpmKey, curve_id,
                 qx, qxSz, qy, qySz, d, dSz);
@@ -3470,7 +3499,9 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
         hashAlg = key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
-
+        if (sigAlg == TPM_ALG_NULL) {
+            sigAlg = TPM_ALG_ECDSA;
+        }
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
@@ -4488,12 +4519,13 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
 {
+    WC_RNG* rng = NULL;
     if (dev) {
     #ifdef WOLFTPM2_USE_WOLF_RNG
-        return &dev->ctx.rng;
+        (void)TPM2_GetWolfRng(&rng);
     #endif
     }
-    return NULL;
+    return rng;
 }
 #endif
 
@@ -5280,8 +5312,8 @@ int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
 /* --- BEGIN Utility Functions -- */
 /******************************************************************************/
 
-static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
-    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, int exponent,
+int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, long exponent,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
     if (publicTemplate == NULL)
@@ -5293,7 +5325,7 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.rsaDetail.keyBits = keyBits;
-    publicTemplate->parameters.rsaDetail.exponent = exponent;
+    publicTemplate->parameters.rsaDetail.exponent = (UINT32)exponent;
     publicTemplate->parameters.rsaDetail.scheme.scheme = sigScheme;
     publicTemplate->parameters.rsaDetail.scheme.details.anySig.hashAlg = sigHash;
     /* For fixedParent or (decrypt and restricted) enable symmetric */
@@ -5311,7 +5343,7 @@ static int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
     return TPM_RC_SUCCESS;
 }
 
-static int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
+int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
@@ -5977,18 +6009,14 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.eccDetail.symmetric);
         out->parameters.eccDetail.scheme.scheme =
             in->parameters.eccDetail.scheme.scheme;
-        if (out->parameters.eccDetail.scheme.scheme != TPM_ALG_NULL) {
-            out->parameters.eccDetail.scheme.details.any.hashAlg =
-                in->parameters.eccDetail.scheme.details.any.hashAlg;
-        }
+        out->parameters.eccDetail.scheme.details.any.hashAlg =
+            in->parameters.eccDetail.scheme.details.any.hashAlg;
         out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
         out->parameters.eccDetail.kdf.scheme =
             in->parameters.eccDetail.kdf.scheme;
-        if (out->parameters.eccDetail.kdf.scheme != TPM_ALG_NULL) {
-            out->parameters.eccDetail.kdf.details.any.hashAlg =
-                in->parameters.eccDetail.kdf.details.any.hashAlg;
-        }
+        out->parameters.eccDetail.kdf.details.any.hashAlg =
+            in->parameters.eccDetail.kdf.details.any.hashAlg;
         wolfTPM2_CopyEccParam(&out->unique.ecc.x,
             &in->unique.ecc.x);
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
@@ -5999,9 +6027,8 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             &in->parameters.asymDetail.symmetric);
         out->parameters.asymDetail.scheme.scheme =
             in->parameters.asymDetail.scheme.scheme;
-        if (out->parameters.asymDetail.scheme.scheme != TPM_ALG_NULL)
-            out->parameters.asymDetail.scheme.details.anySig.hashAlg =
-                in->parameters.asymDetail.scheme.details.anySig.hashAlg;
+        out->parameters.asymDetail.scheme.details.anySig.hashAlg =
+            in->parameters.asymDetail.scheme.details.anySig.hashAlg;
         break;
     }
 }
