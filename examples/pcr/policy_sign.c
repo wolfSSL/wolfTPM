@@ -185,12 +185,16 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                     rc = wc_ecc_sign_hash_ex(hash, hashSz, &rng, &key.ecc, &r, &s);
                 }
                 if (rc == 0) {
-                    word32 keySz = key.ecc.dp->size;
-                    mp_to_unsigned_bin(&r, sig);
-                    mp_to_unsigned_bin(&s, sig + keySz);
+                    word32 keySz = key.ecc.dp->size, rSz, sSz;
+                    *sigSz = keySz * 2;
+                    XMEMSET(sig, 0, *sigSz);
+                    /* export sign r/s - zero pad to key size */
+                    rSz = mp_unsigned_bin_size(&r);
+                    mp_to_unsigned_bin(&r, &sig[keySz - rSz]);
+                    sSz = mp_unsigned_bin_size(&s);
+                    mp_to_unsigned_bin(&s, &sig[keySz + (keySz - sSz)]);
                     mp_clear(&r);
                     mp_clear(&s);
-                    *sigSz = keySz * 2;
                 }
             }
             wc_ecc_free(&key.ecc);
