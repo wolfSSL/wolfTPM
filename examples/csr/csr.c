@@ -25,7 +25,8 @@
 
 #include <stdio.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN) && \
+    defined(WOLFTPM_CRYPTOCB)
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -252,14 +253,15 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 /* --- END TPM2 CSR Example -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM2_CERT_GEN */
+#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM2_CERT_GEN && WOLFTPM_CRYPTOCB */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN)
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM2_CERT_GEN) && \
+    defined(WOLFTPM_CRYPTOCB)
     rc = TPM2_CSR_ExampleArgs(NULL, argc, argv);
 #else
     (void)argc;

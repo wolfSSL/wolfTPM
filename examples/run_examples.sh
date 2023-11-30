@@ -176,9 +176,11 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     [ $RESULT -ne 0 ] && echo -e "pkcs7 failed! $RESULT" && exit 1
 fi
 
-# TLS Tests RSA
+# TLS Tests
 echo -e "TLS tests"
-generate_port() { # function to produce a random port number
+generate_port() {
+    # for now it is okay to use the same port
+    # Note: The SW TPM uses many local ports, which can cause bind() issue
     port=11111
     echo -e "Using port $port"
     echo -e "Using port $port" >> run.out
@@ -193,6 +195,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
     sleep 0.1
+
     ./examples/tls/tls_client -p=$port -$1 $2 2>&1 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1

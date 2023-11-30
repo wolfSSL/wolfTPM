@@ -25,7 +25,7 @@
 
 #include <stdio.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
 
 #include <hal/tpm_io.h>
@@ -80,6 +80,9 @@ static void usage(void)
     printf("* -ecc: Use RSA or ECC key\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
+#if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
+    printf("* -pk: Use PK callbacks, not crypto callbacks\n");
+#endif
 }
 
 int TPM2_TLS_Server(void* userCtx)
@@ -104,7 +107,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #endif
     TpmCryptoDevCtx tpmCtx;
     SockIoCbCtx sockIoCtx;
-    int tpmDevId;
+    int tpmDevId = INVALID_DEVID;
     WOLFSSL_CTX* ctx = NULL;
     WOLFSSL* ssl = NULL;
 #ifndef TLS_BENCH_MODE
@@ -128,6 +131,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     int total_size;
 #endif
     int useECC = 0;
+    int usePK = 0;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
@@ -174,6 +178,11 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+    #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
+        else if (XSTRCMP(argv[argc-1], "-pk") == 0) {
+            usePK = 1;
+        }
+    #endif
         else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
             port = (word32)XATOI(portStr);
@@ -197,6 +206,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 
     /* Setup the wolf crypto device callback */
+    tpmCtx.dev = &dev;
 #ifndef NO_RSA
     tpmCtx.rsaKey = &rsaKey;
 #endif
@@ -207,9 +217,13 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #ifdef WOLFTPM_USE_SYMMETRIC
     tpmCtx.useSymmetricOnTPM = 1;
 #endif
-    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
-    if (rc != 0) goto exit;
 
+#ifdef WOLFTPM_CRYPTOCB
+    if (!usePK) {
+        rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
+        if (rc != 0) goto exit;
+    }
+#endif
     /* See if primary storage key already exists */
     rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
     if (rc != 0) goto exit;
@@ -284,6 +298,13 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     /* Setup IO Callbacks */
     wolfSSL_CTX_SetIORecv(ctx, SockIORecv);
     wolfSSL_CTX_SetIOSend(ctx, SockIOSend);
+
+    /* Setup PK callbacks */
+#ifdef HAVE_PK_CALLBACKS
+    if (usePK) {
+        wolfTPM_PK_SetCb(ctx);
+    }
+#endif
 
     /* Server certificate validation */
 #if 0
@@ -439,6 +460,13 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* Setup PK Callback context */
+#ifdef HAVE_PK_CALLBACKS
+    if (usePK) {
+        wolfTPM_PK_SetCbCtx(ssl, &tpmCtx);
+    }
+#endif
+
     /* Setup socket and connection */
     rc = SetupSocketAndListen(&sockIoCtx, port);
     if (rc != 0) goto exit;
@@ -568,23 +596,23 @@ exit:
 /* --- END TLS Server Example -- */
 /******************************************************************************/
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_CRYPTOCB && !NO_WOLFSSL_SERVER && \
-        * !WOLFCRYPT_ONLY */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT && !NO_WOLFSSL_SERVER \
+        * && !WOLFCRYPT_ONLY */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char* argv[])
 {
     int rc = -1;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
     rc = TPM2_TLS_ServerArgs(NULL, argc, argv);
 #else
     (void)argc;
     (void)argv;
 
-    printf("Wrapper/Crypto callback code or TLS support not compiled in\n");
-    printf("Build wolfssl with ./configure --enable-cryptocb\n");
+    printf("TPM Wrapper or PK//Crypto callback or TLS support not compiled in\n");
+    printf("Build wolfssl with ./configure --enable-wolftpm\n");
 #endif
 
     return rc;

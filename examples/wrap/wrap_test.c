@@ -437,8 +437,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wc_InitRsaKey(&wolfRsaPrivKey, NULL);
     if (rc != 0) goto exit;
     idx = 0;
+    PRIVATE_KEY_UNLOCK();
     rc = wc_RsaPrivateKeyDecode(kRsaKeyPrivDer, &idx, &wolfRsaPrivKey,
         (word32)sizeof(kRsaKeyPrivDer));
+    PRIVATE_KEY_LOCK();
     if (rc != 0) goto exit;
     rc = wolfTPM2_RsaKey_WolfToTpm_ex(&dev, &storageKey, &wolfRsaPrivKey,
         &rsaKey);

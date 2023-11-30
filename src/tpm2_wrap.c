@@ -3066,8 +3066,10 @@ int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKe
         XMEMSET(q, 0, sizeof(q));
 
         /* export the raw private and public RSA as unsigned binary */
+        PRIVATE_KEY_UNLOCK();
         rc = wc_RsaExportKey(wolfKey, e, &eSz, n, &nSz,
             d, &dSz, p, &pSz, q, &qSz);
+        PRIVATE_KEY_LOCK();
         if (rc == 0) {
             exponent = wolfTPM2_RsaKey_Exponent(e, eSz);
             rc = wolfTPM2_LoadRsaPrivateKey(dev, parentKey, tpmKey, n, nSz,
@@ -6099,7 +6101,7 @@ static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
 /* --- BEGIN Certificate Signing Request (CSR) Functions -- */
 /******************************************************************************/
 
-#ifdef WOLFTPM2_CERT_GEN
+#if defined(WOLFTPM2_CERT_GEN) && defined(WOLFTPM_CRYPTOCB)
 
 /* Distinguished Name Strings */
 typedef struct DNTags {
@@ -6476,7 +6478,7 @@ int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         out, outSz, 0, 0, INVALID_DEVID);
 }
 
-#endif /* WOLFTPM2_CERT_GEN */
+#endif /* WOLFTPM2_CERT_GEN && WOLFTPM_CRYPTOCB */
 
 /******************************************************************************/
 /* --- END Certificate Signing Request (CSR) Functions -- */
