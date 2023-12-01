@@ -73,11 +73,11 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     /* make sure each subject is unique */
     if (keyType == RSA_TYPE) {
         subject = "/C=US/ST=Oregon/L=Portland/SN=Test/O=wolfSSL"
-                  "/OU=RSA/CN=www.wolfssl.com/emailAddress=info@wolfssl.com";
+                  "/OU=RSA/CN=127.0.0.1/emailAddress=info@wolfssl.com";
     }
     else if (keyType == ECC_TYPE) {
         subject = "/C=US/ST=Oregon/L=Portland/SN=Test/O=wolfSSL"
-                  "/OU=ECC/CN=www.wolfssl.com/emailAddress=info@wolfssl.com";
+                  "/OU=ECC/CN=127.0.0.1/emailAddress=info@wolfssl.com";
     }
 
     outputSz = (int)sizeof(output);

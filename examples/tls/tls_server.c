@@ -87,6 +87,7 @@ static void usage(void)
     printf("* -pk: Use PK callbacks, not crypto callbacks\n");
 #endif
     printf("* -i: Run in loop, keep serving connections until failure\n");
+    printf("* -self: Use self-signed certs (csr -cert)\n");
 }
 
 int TPM2_TLS_Server(void* userCtx)
@@ -137,6 +138,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     int useECC = 0;
     int usePK = 0;
     int runLoop = 0;
+    int useSelfSign = 0;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
@@ -190,6 +192,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     #endif
         else if (XSTRCMP(argv[argc-1], "-i") == 0) {
             runLoop = 1;
+        }
+        else if (XSTRCMP(argv[argc-1], "-self") == 0) {
+            useSelfSign = 1;
         }
         else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
@@ -383,13 +388,15 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     #ifndef NO_RSA
         byte der[1024];
         word32 derSz = sizeof(der);
+        const char* useCert = "./certs/server-rsa-cert.pem";
+        if (useSelfSign) {
+            useCert = "./certs/tpm-rsa-cert.pem";
+        }
 
-        printf("Loading RSA certificate and public key\n");
+        printf("Loading RSA certificate (%s) and public key\n", useCert);
 
-        if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
-                                                   "./certs/server-rsa-cert.pem",
-                                                   WOLFSSL_FILETYPE_PEM))
-            != WOLFSSL_SUCCESS) {
+        if ((rc = wolfSSL_CTX_use_certificate_file(ctx, useCert,
+                WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
             printf("Error loading RSA client cert\n");
             goto exit;
         }
@@ -420,11 +427,14 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     #ifdef HAVE_ECC
         byte der[256];
         word32 derSz = sizeof(der);
+        const char* useCert = "./certs/server-ecc-cert.pem";
+        if (useSelfSign) {
+            useCert = "./certs/tpm-ecc-cert.pem";
+        }
 
-        printf("Loading ECC certificate and public key\n");
+        printf("Loading ECC certificate (%s) and public key\n", useCert);
 
-        if ((rc = wolfSSL_CTX_use_certificate_file(ctx,
-                "./certs/server-ecc-cert.pem",
+        if ((rc = wolfSSL_CTX_use_certificate_file(ctx, useCert,
                 WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
             printf("Error loading ECC client cert\n");
             goto exit;
