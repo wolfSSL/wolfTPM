@@ -36,11 +36,14 @@
 
 #include <wolfssl/ssl.h>
 
-#undef  USE_CERT_BUFFERS_2048
-#define USE_CERT_BUFFERS_2048
-#undef  USE_CERT_BUFFERS_256
-#define USE_CERT_BUFFERS_256
-#include <wolfssl/certs_test.h>
+#ifdef NO_FILESYSTEM
+    /* Load test certificates / keys from wolfSSL */
+    #undef  USE_CERT_BUFFERS_2048
+    #define USE_CERT_BUFFERS_2048
+    #undef  USE_CERT_BUFFERS_256
+    #define USE_CERT_BUFFERS_256
+    #include <wolfssl/certs_test.h>
+#endif
 
 #ifdef TLS_BENCH_MODE
     double benchStart;
@@ -179,6 +182,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
             port = (word32)XATOI(portStr);
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
         argc--;
     }
@@ -391,7 +397,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             goto exit;
         }
     #else
-        printf("RSA not supported in this build\n");
+        printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
     #endif /* !NO_RSA */
@@ -440,7 +446,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             goto exit;
         }
     #else
-        printf("RSA not supported in this build\n");
+        printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
     #endif /* !NO_RSA */

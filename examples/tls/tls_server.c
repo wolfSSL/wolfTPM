@@ -36,6 +36,8 @@
 
 #include <wolfssl/ssl.h>
 
+static int mStop = 0;
+
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif
@@ -73,6 +75,7 @@
 /******************************************************************************/
 /* --- BEGIN TLS SERVER Example -- */
 /******************************************************************************/
+
 static void usage(void)
 {
     printf("Expected usage:\n");
@@ -83,6 +86,7 @@ static void usage(void)
 #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
     printf("* -pk: Use PK callbacks, not crypto callbacks\n");
 #endif
+    printf("* -i: Run in loop, keep serving connections until failure\n");
 }
 
 int TPM2_TLS_Server(void* userCtx)
@@ -132,6 +136,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #endif
     int useECC = 0;
     int usePK = 0;
+    int runLoop = 0;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
@@ -183,6 +188,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
             usePK = 1;
         }
     #endif
+        else if (XSTRCMP(argv[argc-1], "-i") == 0) {
+            runLoop = 1;
+        }
         else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
             port = (word32)XATOI(portStr);
@@ -435,7 +443,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
          * This API accepts public keys when crypto callbacks are enabled */
         if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
                                     WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            printf("Failed to set ECC key!\r\n");
+            printf("Failed to set ECC key!\n");
             goto exit;
         }
     #else
@@ -446,7 +454,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 #endif /* !NO_FILESYSTEM */
 
-#if 0
+#ifdef TLS_CIPHER_SUITE
     /* Optionally choose the cipher suite */
     rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
     if (rc != WOLFSSL_SUCCESS) {
@@ -454,107 +462,122 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
 
-    /* Create wolfSSL object/session */
-    if ((ssl = wolfSSL_new(ctx)) == NULL) {
-        rc = wolfSSL_get_error(ssl, 0);
-        goto exit;
-    }
-
-    /* Setup PK Callback context */
-#ifdef HAVE_PK_CALLBACKS
-    if (usePK) {
-        wolfTPM_PK_SetCbCtx(ssl, &tpmCtx);
-    }
-#endif
-
     /* Setup socket and connection */
     rc = SetupSocketAndListen(&sockIoCtx, port);
     if (rc != 0) goto exit;
 
-    /* Setup read/write callback contexts */
-    wolfSSL_SetIOReadCtx(ssl, &sockIoCtx);
-    wolfSSL_SetIOWriteCtx(ssl, &sockIoCtx);
-
-    /* Accept client connections */
-    rc = SocketWaitClient(&sockIoCtx);
-    if (rc != 0) goto exit;
-
-    /* perform accept */
-#ifdef TLS_BENCH_MODE
-    benchStart = gettime_secs(1);
-#endif
-    do {
-        rc = wolfSSL_accept(ssl);
-        if (rc != WOLFSSL_SUCCESS) {
+    while (rc == 0 && !mStop) {
+        /* Create wolfSSL object/session */
+        if ((ssl = wolfSSL_new(ctx)) == NULL) {
             rc = wolfSSL_get_error(ssl, 0);
+            goto exit;
         }
-    } while (rc == WOLFSSL_ERROR_WANT_READ || rc == WOLFSSL_ERROR_WANT_WRITE);
-    if (rc != WOLFSSL_SUCCESS) {
-        goto exit;
-    }
-#ifdef TLS_BENCH_MODE
-    benchStart = gettime_secs(0) - benchStart;
-    printf("Accept: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
-#endif
 
-#ifdef TLS_BENCH_MODE
-    rc = 0;
-    total_size = 0;
-    while (rc == 0 && total_size < TOTAL_MSG_SZ)
-#endif
-    {
-        /* perform read */
-    #ifdef TLS_BENCH_MODE
-        benchStart = 0; /* use the read callback to trigger timing */
-    #endif
-        do {
-            rc = wolfSSL_read(ssl, msg, sizeof(msg));
-            if (rc < 0) {
-                rc = wolfSSL_get_error(ssl, 0);
-            }
-        } while (rc == WOLFSSL_ERROR_WANT_READ);
-        if (rc >= 0) {
-            msgSz = rc;
-        #ifdef TLS_BENCH_MODE
-            benchStart = gettime_secs(0) - benchStart;
-            printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                msgSz, benchStart, msgSz / benchStart / 1024);
-            total_size += msgSz;
-        #else
-            /* null terminate */
-            if (msgSz >= (int)sizeof(msg))
-                msgSz = (int)sizeof(msg) - 1;
-            msg[msgSz] = '\0';
-            printf("Read (%d): %s\n", msgSz, msg);
-        #endif
-            rc = 0; /* success */
+        /* Setup PK Callback context */
+    #ifdef HAVE_PK_CALLBACKS
+        if (usePK) {
+            wolfTPM_PK_SetCbCtx(ssl, &tpmCtx);
         }
+    #endif
+
+        /* Setup read/write callback contexts */
+        wolfSSL_SetIOReadCtx(ssl, &sockIoCtx);
+        wolfSSL_SetIOWriteCtx(ssl, &sockIoCtx);
+
+        /* Accept client connections */
+        rc = SocketWaitClient(&sockIoCtx);
         if (rc != 0) goto exit;
 
-        /* perform write */
+        /* perform accept */
     #ifdef TLS_BENCH_MODE
         benchStart = gettime_secs(1);
-    #else
-        msgSz = sizeof(webServerMsg);
-        XMEMCPY(msg, webServerMsg, msgSz);
     #endif
         do {
-            rc = wolfSSL_write(ssl, msg, msgSz);
-            if (rc != msgSz) {
+            rc = wolfSSL_accept(ssl);
+            if (rc != WOLFSSL_SUCCESS) {
                 rc = wolfSSL_get_error(ssl, 0);
             }
-        } while (rc == WOLFSSL_ERROR_WANT_WRITE);
-        if (rc >= 0) {
-            msgSz =  rc;
-        #ifdef TLS_BENCH_MODE
-            benchStart = gettime_secs(0) - benchStart;
-            printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
-                msgSz, benchStart, msgSz / benchStart / 1024);
-        #else
-            printf("Write (%d): %s\n", msgSz, msg);
-        #endif
-            rc = 0; /* success */
+        } while (rc == WOLFSSL_ERROR_WANT_READ || rc == WOLFSSL_ERROR_WANT_WRITE);
+        if (rc != WOLFSSL_SUCCESS) {
+            goto exit;
         }
+    #ifdef TLS_BENCH_MODE
+        benchStart = gettime_secs(0) - benchStart;
+        printf("Accept: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
+    #endif
+
+        printf("Cipher Suite: %s\n", wolfSSL_get_cipher(ssl));
+
+    #ifdef TLS_BENCH_MODE
+        rc = 0;
+        total_size = 0;
+        while (rc == 0 && total_size < TOTAL_MSG_SZ)
+    #endif
+        {
+            /* perform read */
+        #ifdef TLS_BENCH_MODE
+            benchStart = 0; /* use the read callback to trigger timing */
+        #endif
+            do {
+                rc = wolfSSL_read(ssl, msg, sizeof(msg));
+                if (rc < 0) {
+                    rc = wolfSSL_get_error(ssl, 0);
+                }
+            } while (rc == WOLFSSL_ERROR_WANT_READ);
+            if (rc >= 0) {
+                msgSz = rc;
+            #ifdef TLS_BENCH_MODE
+                benchStart = gettime_secs(0) - benchStart;
+                printf("Read: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                    msgSz, benchStart, msgSz / benchStart / 1024);
+                total_size += msgSz;
+            #else
+                /* null terminate */
+                if (msgSz >= (int)sizeof(msg))
+                    msgSz = (int)sizeof(msg) - 1;
+                msg[msgSz] = '\0';
+                printf("Read (%d): %s\n", msgSz, msg);
+            #endif
+                rc = 0; /* success */
+            }
+            if (rc != 0) goto exit;
+
+            /* perform write */
+        #ifdef TLS_BENCH_MODE
+            benchStart = gettime_secs(1);
+        #else
+            msgSz = sizeof(webServerMsg);
+            XMEMCPY(msg, webServerMsg, msgSz);
+        #endif
+            do {
+                rc = wolfSSL_write(ssl, msg, msgSz);
+                if (rc != msgSz) {
+                    rc = wolfSSL_get_error(ssl, 0);
+                }
+            } while (rc == WOLFSSL_ERROR_WANT_WRITE);
+            if (rc >= 0) {
+                msgSz = rc;
+            #ifdef TLS_BENCH_MODE
+                benchStart = gettime_secs(0) - benchStart;
+                printf("Write: %d bytes in %9.3f sec (%9.3f KB/sec)\n",
+                    msgSz, benchStart, msgSz / benchStart / 1024);
+            #else
+                printf("Write (%d): %s\n", msgSz, msg);
+            #endif
+                rc = 0; /* success */
+            }
+        }
+
+        /* Bidirectional shutdown */
+        while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+            printf("Shutdown not complete\n");
+        }
+
+        wolfSSL_free(ssl);
+        ssl = NULL;
+
+        if (!runLoop)
+            mStop = 1;
     }
 
 exit:
@@ -563,12 +586,14 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
 
-    /* Bidirectional shutdown */
-    while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
-        printf("Shutdown not complete\n");
-    }
+    if (ssl != NULL) {
+        /* Bidirectional shutdown */
+        while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+            printf("Shutdown not complete\n");
+        }
 
-    wolfSSL_free(ssl);
+        wolfSSL_free(ssl);
+    }
     wolfSSL_CTX_free(ctx);
 
     CloseAndCleanupSocket(&sockIoCtx);

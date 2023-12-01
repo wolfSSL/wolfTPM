@@ -810,7 +810,8 @@ static int RsaMGF1(wc_HashAlg* hash, enum wc_HashType hType,
     byte* seed, word32 seedSz, byte* out, word32 outSz)
 {
     int ret;
-    byte tmp[RSA_MAX_SIZE/8];
+    /* needs to be large enough for seed size plus counter(4) */
+    byte tmp[WC_MAX_DIGEST_SIZE + 4];
     word32 tmpSz = 0, counter = 0, idx = 0;
     int hLen, i = 0;
 
@@ -820,11 +821,13 @@ static int RsaMGF1(wc_HashAlg* hash, enum wc_HashType hType,
     }
 
     /* find largest amount of memory needed, which will be the max of
-     * hLen and (seedSz + 4) since tmp is used to store the hash digest */
+     * hLen and (seedSz + 4) */
     tmpSz = ((seedSz + 4) > (word32)hLen) ? seedSz + 4: (word32)hLen;
     if (tmpSz > sizeof(tmp)) {
         return BAD_FUNC_ARG;
     }
+
+    XMEMSET(tmp, 0, sizeof(tmp));
 
     do {
         XMEMCPY(tmp, seed, seedSz);
@@ -884,8 +887,8 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     int saltLen, int bits)
 {
     int ret = 0, hLen, o, maskLen, hiBits;
-    byte *m, *s, *salt;
-    byte msg[RSA_MAX_SIZE/8 + RSA_PSS_PAD_SZ];
+    byte *m, *s;
+    byte salt[WC_MAX_DIGEST_SIZE];
     enum wc_HashType hType;
     wc_HashAlg hashCtx; /* big stack consumer */
 
@@ -946,15 +949,17 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     }
 
     maskLen = (int)pkcsBlockLen - 1 - hLen;
-    salt = s = m = msg;
+
+    s = m = pkcsBlock;
     XMEMSET(m, 0, RSA_PSS_PAD_SZ);
     m += RSA_PSS_PAD_SZ;
     XMEMCPY(m, input, inputLen);
     m += inputLen;
-    o = (int)(m - s);
+    o = 0;
     if (saltLen > 0) {
-        ret = wc_RNG_GenerateBlock(rng, m, (word32)saltLen);
+        ret = wc_RNG_GenerateBlock(rng, salt, (word32)saltLen);
         if (ret == 0) {
+            XMEMCPY(m, salt, (size_t)saltLen);
             m += saltLen;
         }
     }
@@ -1012,6 +1017,7 @@ int wolfTPM2_PK_RsaPssSign(WOLFSSL* ssl,
         if (ret == 0) {
             byte   inPad[RSA_MAX_SIZE/8];
             word32 inPadSz = (word32)wc_RsaEncryptSize(&rsapub);
+            XMEMSET(inPad, 0, sizeof(inPad));
         #if 1
             /* Use local PSS padding function */
             ret = RsaPadPss(
