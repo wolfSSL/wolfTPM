@@ -146,6 +146,12 @@
 
 #else /* STM32 CubeMX Hal SPI */
     #define STM32_CUBEMX_SPI_TIMEOUT 250
+    #ifndef USE_SPI_CS_PORT
+    #define USE_SPI_CS_PORT GPIOA
+    #endif
+    #ifndef USE_SPI_CS_PIN
+    #define USE_SPI_CS_PIN 15
+    #endif
     int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         word16 xferSz, void* userCtx)
     {
@@ -158,7 +164,7 @@
 
         __HAL_SPI_ENABLE(hspi);
     #ifndef USE_HW_SPI_CS
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET); /* active low */
+        HAL_GPIO_WritePin(USE_SPI_CS_PORT, USE_SPI_CS_PIN, GPIO_PIN_RESET); /* active low */
     #endif
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
@@ -167,7 +173,7 @@
             TPM_TIS_HEADER_SZ, STM32_CUBEMX_SPI_TIMEOUT);
         if (status != HAL_OK) {
         #ifndef USE_HW_SPI_CS
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(USE_SPI_CS_PORT, USE_SPI_CS_PIN, GPIO_PIN_SET);
         #endif
             __HAL_SPI_DISABLE(hspi);
             return TPM_RC_FAILURE;
@@ -187,7 +193,7 @@
         #endif
             if (timeout <= 0) {
             #ifndef USE_HW_SPI_CS
-                HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+                HAL_GPIO_WritePin(USE_SPI_CS_PORT, USE_SPI_CS_PIN, GPIO_PIN_SET);
             #endif
                 __HAL_SPI_DISABLE(hspi);
                 return TPM_RC_FAILURE;
@@ -206,7 +212,7 @@
     #endif /* WOLFTPM_CHECK_WAIT_STATE */
 
     #ifndef USE_HW_SPI_CS
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(USE_SPI_CS_PORT, USE_SPI_CS_PIN, GPIO_PIN_SET);
     #endif
         __HAL_SPI_DISABLE(hspi);
 
