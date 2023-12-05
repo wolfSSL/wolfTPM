@@ -46,6 +46,7 @@ EXTRA_DIST+= README.md
 EXTRA_DIST+= ChangeLog.md
 EXTRA_DIST+= LICENSE
 EXTRA_DIST+= autogen.sh
+EXTRA_DIST+= CMakeLists.txt
 
 TEST_EXTENSIONS=.test
 TESTS += $(check_PROGRAMS)
