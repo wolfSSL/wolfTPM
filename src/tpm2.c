@@ -6042,7 +6042,7 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
         return;
 
     printf("authCmd:\n");
-    printf("sessionHandle=0x%08X\n", authCmd->sessionHandle);
+    printf("sessionHandle=0x%08X\n", (unsigned int)authCmd->sessionHandle);
     printf("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
     TPM2_PrintBin(authCmd->nonce.buffer, authCmd->nonce.size);
     printf("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
@@ -6062,7 +6062,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
     printf("  Type: %s (0x%X), name: %s (0x%X), objAttr: 0x%X, authPolicy sz: %d\n",
         TPM2_GetAlgName(pub->publicArea.type), pub->publicArea.type,
         TPM2_GetAlgName(pub->publicArea.nameAlg), pub->publicArea.nameAlg,
-        pub->publicArea.objectAttributes,
+        (unsigned int)pub->publicArea.objectAttributes,
         pub->publicArea.authPolicy.size);
     #ifdef WOLFTPM_DEBUG_VERBOSE
     TPM2_PrintBin(pub->publicArea.authPolicy.buffer, pub->publicArea.authPolicy.size);
@@ -6107,7 +6107,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
                 pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
             printf("       keyBits: %d, exponent: 0x%X, unique size %d\n",
                 pub->publicArea.parameters.rsaDetail.keyBits,
-                pub->publicArea.parameters.rsaDetail.exponent,
+                (unsigned int)pub->publicArea.parameters.rsaDetail.exponent,
                 pub->publicArea.unique.rsa.size);
             #ifdef WOLFTPM_DEBUG_VERBOSE
             TPM2_PrintBin(pub->publicArea.unique.rsa.buffer, pub->publicArea.unique.rsa.size);
