@@ -48,7 +48,7 @@ void wolfTPMTest(const void* argument)
     printf("Running wolfTPM Wrap Test...\n");
 
     /* Run wolfTPM wrap test */
-    ret = TPM2_Wrapper_Test(argument);
+    ret = TPM2_Wrapper_Test((void*)argument);
 
     printf("wolfTPM wrap test: Return code %d\n", ret);
 

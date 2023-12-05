@@ -66,11 +66,11 @@
 #ifdef WOLFTPM_EXAMPLE_HAL
 
 #ifdef WOLFTPM_ADV_IO
-WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf, word16 size,
-    void* userCtx);
+WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
+    BYTE* buf, UINT16 size, void* userCtx);
 #else
-WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-    word16 xferSz, void* userCtx);
+WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
+    UINT16 xferSz, void* userCtx);
 #endif
 
 /* Platform support, in alphabetical order */
