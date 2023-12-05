@@ -107,8 +107,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 
 
 #ifdef WOLFTPM_ADV_IO
-int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
-    word16 size, void* userCtx)
+int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
+    BYTE* buf, UINT16 size, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
@@ -185,8 +185,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
 #else
 
 /* IO Callback */
-int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-    word16 xferSz, void* userCtx)
+int TPM2_IoCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
+    UINT16 xferSz, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
 
