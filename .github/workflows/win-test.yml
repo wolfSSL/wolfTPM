@@ -53,6 +53,9 @@ jobs:
           # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
           run: msbuild /m /p:PlatformToolset=v142 /p:Platform=${{env.BUILD_PLATFORM}} /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}}
 
-        - name: Run Wrap Test
-          working-directory: ${{env.GITHUB_WORKSPACE}}
-          run: wolftpm\IDE\VisualStudio\Debug\x64\wrap_test.exe
+        # The GitHub CI runners do not have a TPM.
+        # Failure 0x8028400f: unknown error number
+        # TBS_E_TPM_NOT_FOUND (0x8028400F) A compatible Trusted Platform Module (TPM) Security Device cannot be found on this computer.
+        #- name: Run Wrap Test
+        #  working-directory: ${{env.GITHUB_WORKSPACE}}
+        #  run: wolftpm\IDE\VisualStudio\Debug\x64\wrap_test.exe
