@@ -310,14 +310,14 @@ TPM_HANDLE wolfTPM2_GetHandleValue(WOLFTPM2_HANDLE* handle)
 }
 
 int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
-                                WOLFTPM2_KEYBLOB* key)
+    WOLFTPM2_KEYBLOB* key)
 {
     int rc = 0;
     int sz = 0;
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     int pubAreaSize;
 
-    if ((buffer == NULL) || (bufferSz <= 0) || (key == NULL)) {
+    if (key == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -335,10 +335,19 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
         return BUFFER_E;
     }
 
-    if (bufferSz < sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size +
-                   sizeof(UINT16) + key->priv.size) {
+    /* calculate actual size */
+    sz = sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size +
+        sizeof(UINT16) + key->priv.size;
+
+    /* return size only */
+    if (buffer == NULL) {
+        return sz;
+
+    }
+    if ((int)bufferSz < sz) {
         return BUFFER_E;
     }
+    sz = 0;
 
     /* Write size marker for the public part */
     XMEMCPY(buffer + sz, &key->pub.size, sizeof(key->pub.size));
@@ -353,8 +362,8 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     sz += sizeof(UINT16) + key->priv.size;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Get KeyBlob: %d bytes\n", (int)sz);
     TPM2_PrintBin(buffer, sz);
-    printf("Getting %d bytes\n", (int)sz);
 #endif
 
     return sz;
@@ -368,9 +377,7 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     int pubAreaSize;
 
-    if (pubBuffer == NULL || pubBufferSz == NULL || (*pubBufferSz <= 0) ||
-        privBuffer == NULL || privBufferSz == NULL || (*privBufferSz <= 0) ||
-        (key == NULL)) {
+    if (key == NULL || pubBufferSz == NULL || privBufferSz == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -386,6 +393,12 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
         printf("Sanity check for publicArea size failed\n");
 #endif
         return BUFFER_E;
+    }
+
+    if (pubBuffer == NULL || privBuffer == NULL) {
+        *privBufferSz = sizeof(UINT16) + key->priv.size;
+        *pubBufferSz = sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size;
+        return LENGTH_ONLY_E;
     }
 
     if (*pubBufferSz < sizeof(key->pub.size) + sizeof(UINT16) + key->pub.size ||
@@ -410,11 +423,11 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     *privBufferSz += sizeof(UINT16) + key->priv.size;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Get KeyBlob public: %d bytes\n", (int)*pubBufferSz);
     TPM2_PrintBin(pubBuffer, *pubBufferSz);
-    printf("Getting %d bytes for public buffer\n", (int)*pubBufferSz);
 
+    printf("Get KeyBlob private: %d bytes\n", (int)*privBufferSz);
     TPM2_PrintBin(privBuffer, *privBufferSz);
-    printf("Getting %d bytes for private buffer\n", (int)*privBufferSz);
 #endif
 
     return sz;
@@ -436,8 +449,8 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     XMEMSET(key, 0, sizeof(WOLFTPM2_KEYBLOB));
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Set KeyBlob: %d bytes\n", (int)bufferSz);
     TPM2_PrintBin(buffer, bufferSz);
-    printf("Setting %d bytes\n", (int)bufferSz);
 #endif
 
     if (bufferSz < done_reading + sizeof(key->pub.size)) {
