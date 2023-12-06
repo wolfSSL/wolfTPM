@@ -1,0 +1,12 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+EXTRA_DIST+= IDE/VisualStudio/README.md
+EXTRA_DIST+= IDE/VisualStudio/wolftpm.sln
+EXTRA_DIST+= IDE/VisualStudio/wolftpm.vcxproj
+EXTRA_DIST+= IDE/VisualStudio/wolfssl.vcxproj
+EXTRA_DIST+= IDE/VisualStudio/wolfcrypt_test.vcxproj
+EXTRA_DIST+= IDE/VisualStudio/tls_server.vcxproj
+EXTRA_DIST+= IDE/VisualStudio/wrap_test.vcxproj
+EXTRA_DIST+= IDE/VisualStudio/user_settings.h

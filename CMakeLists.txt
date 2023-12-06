@@ -95,7 +95,7 @@ endif("${WOLFTPM_INTERFACE}" STREQUAL "auto")
 
 if(WIN32)
     target_compile_definitions(wolftpm PRIVATE
-        "_WINDLL"
+        "WOLFTPM_DLL"
         )
 endif(WIN32)
 

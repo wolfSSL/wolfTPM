@@ -121,3 +121,9 @@ docs/html
 # Wrapper
 wrapper/CSharp/obj
 wrapper/CSharp/bin
+
+# Visual Studio
+IDE/VisualStudio/Debug
+IDE/VisualStudio/DLL Debug
+IDE/VisualStudio/DLL Release
+IDE/VisualStudio/Release
