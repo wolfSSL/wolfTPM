@@ -23,6 +23,22 @@
 
 #if !defined(WOLFTPM2_NO_WRAPPER)
 
+#if defined(WOLFTPM_CRYPTOCB) || \
+   (defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY))
+
+/* Helper to trim leading zeros when not required  */
+static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
+{
+    word32 idx = 0;
+    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
+        idx++;
+        in++;
+    }
+    *len -= idx;
+    return in;
+}
+#endif /* WOLFTPM_CRYPTOCB || HAVE_PK_CALLBACKS */
+
 #ifdef WOLFTPM_CRYPTOCB
 
 /* Internal structure for tracking hash state */
@@ -44,18 +60,6 @@ typedef struct WOLFTPM2_HASHCTX {
 static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     const byte* in, word32 inSz);
 #endif /* WOLFTPM_USE_SYMMETRIC */
-
-/* Helper to trim leading zeros when not required  */
-static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
-{
-    word32 idx = 0;
-    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
-        idx++;
-        in++;
-    }
-    *len -= idx;
-    return in;
-}
 
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
@@ -1080,14 +1084,69 @@ int wolfTPM2_PK_RsaPssSignCheck(WOLFSSL* ssl,
 #endif /* WC_RSA_PSS */
 #endif /* !NO_RSA */
 
-#if 0 /* TODO: def HAVE_ECC */
+#ifdef HAVE_ECC
 int wolfTPM2_PK_EccSign(WOLFSSL* ssl,
     const unsigned char* in, unsigned int inSz,
     unsigned char* out, word32* outSz,
-    const unsigned char* keyDer, unsigned int keySz,
+    const unsigned char* keyDer, unsigned int keyDerSz,
     void* ctx)
 {
+    int ret;
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+    ecc_key eccpub;
 
+    (void)ssl;
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK ECC Sign: inSz %u, keyDerSz %u\n", inSz, keyDerSz);
+#endif
+
+    /* load ECC public key */
+    ret = wc_ecc_init_ex(&eccpub, NULL, INVALID_DEVID);
+    if (ret == 0) {
+        word32 keyIdx = 0;
+        ret = wc_EccPublicKeyDecode(keyDer, &keyIdx, &eccpub, (word32)keyDerSz);
+        if (ret == 0) {
+            byte sigRS[MAX_ECC_BYTES*2];
+            word32 rsLen = sizeof(sigRS), keySz;
+
+            /* truncate input to match key size */
+            keySz = wc_ecc_size(&eccpub);
+            if (inSz > keySz)
+                inSz = keySz;
+
+            ret = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
+                in, inSz, sigRS, (int*)&rsLen);
+            if (ret == 0) {
+                byte *r, *s;
+                word32 rLen, sLen;
+
+                /* Make sure leading zero's not required are trimmed */
+                rLen = sLen = rsLen / 2;
+                r = &sigRS[0];
+                s = &sigRS[rLen];
+                r = wolfTPM2_ASNTrimZeros(r, &rLen);
+                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+
+                /* Encode ECDSA Header */
+                ret = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outSz);
+            }
+        }
+        wc_ecc_free(&eccpub);
+    }
+
+    if (ret > 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("PK ECC Sign Hash Failure 0x%x: %s\n",
+            ret, wolfTPM2_GetRCString(ret));
+    #endif
+        ret = WC_HW_E;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK ECC Sign: ret %d, outSz %u\n", ret, *outSz);
+#endif
+    return ret;
 }
 #endif
 
@@ -1105,7 +1164,7 @@ int wolfTPM_PK_SetCb(WOLFSSL_CTX* ctx)
     wolfSSL_CTX_SetRsaPssSignCheckCb(ctx, wolfTPM2_PK_RsaPssSignCheck);
     #endif
 #endif
-#if 0 /* TODO: def HAVE_ECC */
+#ifdef HAVE_ECC
     wolfSSL_CTX_SetEccSignCb(ctx, wolfTPM2_PK_EccSign);
 #endif
     return 0;
@@ -1123,7 +1182,7 @@ int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx)
     wolfSSL_SetRsaPssSignCtx(ssl, userCtx);
     #endif
 #endif
-#if 0 /* TODO: def HAVE_ECC */
+#ifdef HAVE_ECC
     wolfSSL_SetEccSignCtx(ssl, userCtx);
 #endif
     return 0;
