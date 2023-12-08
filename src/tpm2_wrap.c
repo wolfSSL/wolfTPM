@@ -347,11 +347,10 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     if ((int)bufferSz < sz) {
         return BUFFER_E;
     }
-    sz = 0;
 
     /* Write size marker for the public part */
-    XMEMCPY(buffer + sz, &key->pub.size, sizeof(key->pub.size));
-    sz += sizeof(key->pub.size);
+    XMEMCPY(buffer, &key->pub.size, sizeof(key->pub.size));
+    sz = sizeof(key->pub.size);
 
     /* Write the public part with bytes aligned */
     XMEMCPY(buffer + sz, pubAreaBuffer, sizeof(UINT16) + key->pub.size);
@@ -373,7 +372,6 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     byte* privBuffer, word32* privBufferSz, WOLFTPM2_KEYBLOB* key)
 {
     int rc = 0;
-    int sz = 0;
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     int pubAreaSize;
 
@@ -430,7 +428,7 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     TPM2_PrintBin(privBuffer, *privBufferSz);
 #endif
 
-    return sz;
+    return TPM_RC_SUCCESS;
 }
 
 int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,

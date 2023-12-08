@@ -3171,7 +3171,7 @@ WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     cycling. If either buffer is NULL then the size will be returned for
     each part.
 
-    \return Positive integer (size of the output)
+    \return TPM_RC_SUCCESS: successful
     \return BUFFER_E: insufficient space in provided buffer
     \return BAD_FUNC_ARG: check the provided arguments
     \return LENGTH_ONLY_E: Returning length only (when either of the buffers is NULL)
