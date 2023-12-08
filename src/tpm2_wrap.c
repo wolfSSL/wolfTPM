@@ -3510,10 +3510,20 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        /* Keys that are created with sign and decrypt require scheme to be NULL,
+         * but we must supply ECDSA and Hash Algorithm for signing */
         sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
         hashAlg = key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
-        if (sigAlg == TPM_ALG_NULL) {
+        if (sigAlg == 0 || sigAlg == TPM_ALG_NULL) {
             sigAlg = TPM_ALG_ECDSA;
+        }
+        if (hashAlg == 0 || hashAlg == TPM_ALG_NULL) {
+            if (digestSz == 64)
+                hashAlg = TPM_ALG_SHA512;
+            else if (digestSz == 48)
+                hashAlg = TPM_ALG_SHA384;
+            else if (digestSz == 32)
+                hashAlg = TPM_ALG_SHA256;
         }
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
