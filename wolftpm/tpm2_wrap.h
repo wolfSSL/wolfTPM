@@ -3148,7 +3148,7 @@ WOLFTPM_API int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
 
     \brief Marshal data from a keyblob to a binary buffer. This can be
     stored to disk for loading in a separate process or after power
-    cycling.
+    cycling. If buffer is not provided then size only will be returned.
 
     \return Positive integer (size of the output)
     \return BUFFER_E: insufficient space in provided buffer
@@ -3168,11 +3168,13 @@ WOLFTPM_API int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 
     \brief Marshal data from a keyblob to a binary buffer. This can be
     stored to disk for loading in a separate process or after power
-    cycling.
+    cycling. If either buffer is NULL then the size will be returned for
+    each part.
 
-    \return Positive integer (size of the output)
+    \return TPM_RC_SUCCESS: successful
     \return BUFFER_E: insufficient space in provided buffer
     \return BAD_FUNC_ARG: check the provided arguments
+    \return LENGTH_ONLY_E: Returning length only (when either of the buffers is NULL)
 
     \param pubBuffer pointer to buffer in which to store the public part of the marshaled keyblob
     \param pubBufferSz pointer to the size of the above buffer

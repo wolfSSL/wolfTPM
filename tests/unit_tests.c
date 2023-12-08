@@ -486,6 +486,101 @@ static void test_wolfTPM2_thread_local_storage(void)
 #endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
 }
 
+/* Test creating key and exporting keyblob as buffer,
+ * importing and loading key. */
+static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
+{
+    int rc;
+    TPM_HANDLE handle;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEYBLOB key;
+    WOLFTPM2_BUFFER blob;
+    TPMT_PUBLIC publicTemplate;
+    word32 privBufferSz, pubBufferSz;
+
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    if (alg == TPM_ALG_ECC)
+        handle = TPM2_DEMO_STORAGE_KEY_HANDLE;
+    else /* RSA */
+        handle = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
+
+    /* Load or create the SRK */
+    rc = wolfTPM2_ReadPublicKey(&dev, &srk, handle);
+    if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
+        rc = wolfTPM2_CreateSRK(&dev, &srk, alg,
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+        AssertIntEQ(rc, 0);
+    }
+    else {
+        srk.handle.auth.size = sizeof(gStorageKeyAuth)-1;
+        XMEMCPY(srk.handle.auth.buffer, gStorageKeyAuth, srk.handle.auth.size);
+    }
+
+    if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+            TPM_ECC_NIST_P256, TPM_ALG_NULL);
+    }
+    else { /* RSA */
+        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+    }
+    AssertIntEQ(rc, 0);
+
+    /* Create key under SRK and get encrypted private and public from TPM */
+    rc = wolfTPM2_CreateKey(&dev, &key, &srk.handle, &publicTemplate,
+        (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    AssertIntEQ(rc, 0);
+
+    /* Test getting size only */
+    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(NULL, &pubBufferSz,
+        NULL, &privBufferSz, &key);
+    AssertIntEQ(rc, LENGTH_ONLY_E);
+
+    /* Test exporting private and public parts separately */
+    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(blob.buffer, &pubBufferSz,
+        &blob.buffer[pubBufferSz], &privBufferSz, &key);
+    AssertIntEQ(rc, 0);
+
+    /* Test getting size only */
+    rc = wolfTPM2_GetKeyBlobAsBuffer(NULL, sizeof(blob.buffer), &key);
+    AssertIntGT(rc, 0);
+
+    /* Export private and public key */
+    rc = wolfTPM2_GetKeyBlobAsBuffer(blob.buffer, sizeof(blob.buffer), &key);
+    AssertIntGT(rc, 0);
+    blob.size = rc;
+
+    /* Reset the originally created key */
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* Load key blob (private/public) from buffer */
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob.buffer, blob.size);
+    AssertIntEQ(rc, 0);
+    key.handle.auth.size = sizeof(gKeyAuth)-1;
+    XMEMCPY(key.handle.auth.buffer, gKeyAuth, key.handle.auth.size);
+
+    /* Load key to TPM and get temp handle */
+    rc = wolfTPM2_LoadKey(&dev, &key, &srk.handle);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_UnloadHandle(&dev, &key.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tKeyBlob %s:\t%s\n",
+        TPM2_GetAlgName(alg), rc == 0 ? "Passed" : "Failed");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -509,6 +604,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM_ImportPublicKey();
     test_wolfTPM2_PCRPolicy();
     #endif
+    test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
+    test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */
