@@ -31,9 +31,9 @@
 */
 
 #if defined(BUILDING_WOLFTPM)
-    #if defined(_MSC_VER) || defined(__CYGWIN__) || \
-      defined(__MINGW32__) || defined(__MINGW64__)
-        #ifdef _WINDLL
+    #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__) || \
+        defined(_WIN32_WCE)
+        #ifdef WOLFTPM_DLL
             #define WOLFTPM_API __declspec(dllexport)
         #else
             #define WOLFTPM_API
@@ -50,8 +50,13 @@
         #define WOLFTPM_LOCAL
     #endif /* HAVE_VISIBILITY */
 #else /* BUILDING_WOLFTPM */
-    #if defined(_MSC_VER) || defined(__CYGWIN__)
-        #define WOLFTPM_API __declspec(dllimport)
+    #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__) || \
+        defined(_WIN32_WCE)
+        #ifdef WOLFTPM_DLL
+            #define WOLFTPM_API __declspec(dllimport)
+        #else
+            #define WOLFTPM_API
+        #endif
         #define WOLFTPM_LOCAL
     #else
         #define WOLFTPM_API

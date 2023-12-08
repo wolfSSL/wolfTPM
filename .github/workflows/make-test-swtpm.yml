@@ -54,6 +54,8 @@ jobs:
         WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
     - name: make install
       run: sudo make install
+    - name: make dist
+      run: make dist
 
 # build and test CSharp wrapper
     - name: Install mono

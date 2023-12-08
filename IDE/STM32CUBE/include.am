@@ -2,7 +2,7 @@
 # included from Top Level Makefile.am
 # All paths should be given relative to the root
 
-EXTRA_DIST+= ide/STM32CUBE/wolftpm_test.c
-EXTRA_DIST+= ide/STM32CUBE/wolftpm_test.h
-EXTRA_DIST+= ide/STM32CUBE/README.md
-EXTRA_DIST+= ide/STM32CUBE/default_conf.ftl
+EXTRA_DIST+= IDE/STM32CUBE/wolftpm_test.c
+EXTRA_DIST+= IDE/STM32CUBE/wolftpm_test.h
+EXTRA_DIST+= IDE/STM32CUBE/README.md
+EXTRA_DIST+= IDE/STM32CUBE/default_conf.ftl

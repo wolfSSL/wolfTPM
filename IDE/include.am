@@ -6,3 +6,4 @@ include IDE/STM32CUBE/include.am
 include IDE/OPENSTM32/include.am
 include IDE/IAR-EWARM/include.am
 include IDE/QNX/include.am
+include IDE/VisualStudio/include.am
