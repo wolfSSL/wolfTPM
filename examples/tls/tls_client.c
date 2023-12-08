@@ -193,6 +193,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     printf("\tUse %s keys\n", useECC ? "ECC" : "RSA");
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
     printf("\tUsing Port: %d\n", port);
+    printf("\tUsing %s callbacks\n", usePK ? "PK" : "Crypto");
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);

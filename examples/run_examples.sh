@@ -218,6 +218,7 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
 }
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    # Run with Crypto CB
     run_tpm_tls_client "rsa" ""
     run_tpm_tls_client "rsa" "-aes"
     run_tpm_tls_client "ecc" ""
@@ -227,6 +228,17 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     run_tpm_tls_server "rsa" "-aes"
     run_tpm_tls_server "ecc" ""
     run_tpm_tls_server "ecc" "-aes"
+
+    # Run with PK
+    run_tpm_tls_client "rsa" "-pk"
+    run_tpm_tls_client "rsa" "-pk -aes"
+    run_tpm_tls_client "ecc" "-pk"
+    run_tpm_tls_client "ecc" "-pk -aes"
+
+    run_tpm_tls_server "rsa" "-pk "
+    run_tpm_tls_server "rsa" "-pk -aes"
+    run_tpm_tls_server "ecc" "-pk"
+    run_tpm_tls_server "ecc" "-pk -aes"
 fi
 
 
