@@ -46,6 +46,8 @@ make
 ./examples
 ```
 
+Note: To install the development base tools on MSYS2 use: `pacman -s base-devel` and `pacman -S mingw-w64-x86_64-toolchain`.
+
 ## Building on linux
 
 Tested using mingw-w32-bin_x86_64-linux_20131221.tar.bz2

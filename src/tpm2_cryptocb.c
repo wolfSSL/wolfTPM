@@ -21,7 +21,25 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
-#if defined(WOLFTPM_CRYPTOCB) && !defined(WOLFTPM2_NO_WRAPPER)
+#if !defined(WOLFTPM2_NO_WRAPPER)
+
+#if defined(WOLFTPM_CRYPTOCB) || \
+   (defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY))
+
+/* Helper to trim leading zeros when not required  */
+static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
+{
+    word32 idx = 0;
+    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
+        idx++;
+        in++;
+    }
+    *len -= idx;
+    return in;
+}
+#endif /* WOLFTPM_CRYPTOCB || HAVE_PK_CALLBACKS */
+
+#ifdef WOLFTPM_CRYPTOCB
 
 /* Internal structure for tracking hash state */
 typedef struct WOLFTPM2_HASHCTX {
@@ -42,18 +60,6 @@ typedef struct WOLFTPM2_HASHCTX {
 static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     const byte* in, word32 inSz);
 #endif /* WOLFTPM_USE_SYMMETRIC */
-
-/* Helper to trim leading zeros when not required  */
-static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
-{
-    word32 idx = 0;
-    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
-        idx++;
-        in++;
-    }
-    *len -= idx;
-    return in;
-}
 
 int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 {
@@ -687,5 +693,501 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     return ret;
 }
 #endif /* WOLFTPM_USE_SYMMETRIC */
+#endif /* WOLFTPM_CRYPTOCB */
 
-#endif /* WOLFTPM_CRYPTOCB && !WOLFTPM2_NO_WRAPPER */
+
+#if defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY)
+
+#ifndef NO_RSA
+
+#ifndef RSA_MAX_SIZE
+#define RSA_MAX_SIZE 4096
+#endif
+
+/* Padding Function, PKCSv15 (not exposed in wolfCrypt FIPS 3389) */
+static int RsaPadPkcsv15Type1(const byte* input, word32 inputLen,
+    byte* pkcsBlock, word32 pkcsBlockLen)
+{
+    if (input == NULL || inputLen == 0 || pkcsBlock == NULL ||
+         pkcsBlockLen == 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (pkcsBlockLen > RSA_MAX_SIZE/8) {
+        return RSA_BUFFER_E;
+    }
+    if (pkcsBlockLen - RSA_MIN_PAD_SZ < inputLen) {
+    #ifdef DEBUG_WOLFTPM
+        printf("RsaPad error, invalid length\n");
+    #endif
+        return RSA_PAD_E;
+    }
+
+    pkcsBlock[0] = 0x0; /* set first byte to zero and advance */
+    pkcsBlock++; pkcsBlockLen--;
+    pkcsBlock[0] = RSA_BLOCK_TYPE_1; /* insert padValue */
+
+    /* pad with 0xff bytes */
+    XMEMSET(&pkcsBlock[1], 0xFF, pkcsBlockLen - inputLen - 2);
+
+    pkcsBlock[pkcsBlockLen-inputLen-1] = 0; /* separator */
+    XMEMCPY(pkcsBlock+pkcsBlockLen-inputLen, input, inputLen);
+
+    return 0;
+}
+
+int wolfTPM2_PK_RsaSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, word32* outSz,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx)
+{
+    int ret;
+    RsaKey rsapub;
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+
+    (void)ssl;
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK RSA Sign: inSz %u, keySz %u\n", inSz, keySz);
+#endif
+
+    /* load RSA public key */
+    ret = wc_InitRsaKey(&rsapub, NULL);
+    if (ret == 0) {
+        word32 keyIdx = 0;
+        ret = wc_RsaPublicKeyDecode(keyDer, &keyIdx, &rsapub, (word32)keySz);
+        if (ret == 0) {
+            byte   inPad[RSA_MAX_SIZE/8];
+            word32 inPadSz = wc_RsaEncryptSize(&rsapub);
+            /* Pad with PKCSv1.5 type 1 */
+            ret = RsaPadPkcsv15Type1(in, inSz, inPad, inPadSz);
+            if (ret == 0) {
+                /* private operations */
+                ret = wolfTPM2_RsaDecrypt(tlsCtx->dev, tlsCtx->rsaKey,
+                    TPM_ALG_NULL, /* no padding */
+                    inPad, inPadSz,
+                    out, (int*)outSz);
+            }
+        }
+        wc_FreeRsaKey(&rsapub);
+    }
+
+    if (ret > 0) {
+        ret = WC_HW_E;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK RSA Sign: ret %d, outSz %u\n", ret, *outSz);
+#endif
+    return ret;
+}
+
+int wolfTPM2_PK_RsaSignCheck(WOLFSSL* ssl,
+    unsigned char* sig, unsigned int sigSz,
+    unsigned char** out,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx)
+{
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+
+    (void)ssl;
+    (void)sig;
+    (void)sigSz;
+    (void)out;
+    (void)keyDer;
+    (void)keySz;
+    (void)tlsCtx;
+    /* We used sign hardware, so assume sign is good */
+    return 0;
+}
+
+#ifdef WC_RSA_PSS
+
+/* Uses MGF1 standard as a mask generation function
+   hType: hash type used
+   seed:  seed to use for generating mask
+   seedSz: size of seed buffer
+   out:   mask output after generation
+   outSz: size of output buffer
+ */
+static int RsaMGF1(wc_HashAlg* hash, enum wc_HashType hType,
+    byte* seed, word32 seedSz, byte* out, word32 outSz)
+{
+    int ret;
+    /* needs to be large enough for seed size plus counter(4) */
+    byte tmp[WC_MAX_DIGEST_SIZE + 4];
+    word32 tmpSz = 0, counter = 0, idx = 0;
+    int hLen, i = 0;
+
+    hLen = wc_HashGetDigestSize(hType);
+    if (hLen < 0) {
+        return hLen;
+    }
+
+    /* find largest amount of memory needed, which will be the max of
+     * hLen and (seedSz + 4) */
+    tmpSz = ((seedSz + 4) > (word32)hLen) ? seedSz + 4: (word32)hLen;
+    if (tmpSz > sizeof(tmp)) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(tmp, 0, sizeof(tmp));
+
+    do {
+        XMEMCPY(tmp, seed, seedSz);
+
+        /* counter to byte array appended to tmp */
+        tmp[seedSz]     = (byte)((counter >> 24) & 0xFF);
+        tmp[seedSz + 1] = (byte)((counter >> 16) & 0xFF);
+        tmp[seedSz + 2] = (byte)((counter >>  8) & 0xFF);
+        tmp[seedSz + 3] = (byte)((counter)       & 0xFF);
+
+        /* hash and append to existing output */
+        ret = wc_HashUpdate(hash, hType, tmp, (seedSz + 4));
+        if (ret == 0) {
+            ret = wc_HashFinal(hash, hType, tmp);
+        }
+        if (ret == 0) {
+            for (i = 0; i < hLen && idx < outSz; i++) {
+                out[idx++] = tmp[i];
+            }
+        }
+        counter++;
+    } while (ret == 0 && idx < outSz);
+
+    return ret;
+}
+
+/* This routine performs a bitwise XOR operation of <*buf> and <*mask> of n
+ * counts, placing the result in <*buf>. */
+static void xorbuf(void* buf, const void* mask, word32 count)
+{
+    word32      i;
+    byte*       b = (byte*)buf;
+    const byte* m = (const byte*)mask;
+    for (i = 0; i < count; i++) {
+        b[i] ^= m[i];
+    }
+}
+
+/* 0x00 .. 0x00 0x01 | Salt | Gen Hash | 0xbc
+ * XOR MGF over all bytes down to end of Salt
+ * Gen Hash = HASH(8 * 0x00 | Message Hash | Salt)
+ *
+ * input         Digest of the message.
+ * inputLen      Length of digest.
+ * pkcsBlock     Buffer to write to.
+ * pkcsBlockLen  Length of buffer to write to.
+ * rng           Random number generator (for salt).
+ * htype         Hash function to use.
+ * mgf           Mask generation function.
+ * saltLen       Length of salt to put in padding.
+ * bits          Length of key in bits.
+ * returns 0 on success, PSS_SALTLEN_E when the salt length is invalid
+ * and other negative values on error.
+ */
+static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
+    word32 pkcsBlockLen, WC_RNG* rng, int hash, int mgf,
+    int saltLen, int bits)
+{
+    int ret = 0, hLen, o, maskLen, hiBits;
+    byte *m, *s;
+    byte salt[WC_MAX_DIGEST_SIZE];
+    enum wc_HashType hType;
+    wc_HashAlg hashCtx; /* big stack consumer */
+
+    switch (hash) {
+    #ifndef NO_SHA256
+        case SHA256h:
+            hType = WC_HASH_TYPE_SHA256;
+            break;
+    #endif
+    #ifdef WOLFSSL_SHA384
+        case SHA384h:
+            hType = WC_HASH_TYPE_SHA384;
+            break;
+    #endif
+    #ifdef WOLFSSL_SHA512
+        case SHA512h:
+            hType = WC_HASH_TYPE_SHA512;
+            break;
+    #endif
+        default:
+            return NOT_COMPILED_IN;
+    }
+
+    ret = wc_HashGetDigestSize(hType);
+    if (ret < 0) {
+        return ret;
+    }
+    hLen = ret;
+
+    if ((int)inputLen != hLen) {
+        return BAD_FUNC_ARG;
+    }
+
+    hiBits = (bits - 1) & 0x7;
+    if (hiBits == 0) {
+        /* Per RFC8017, set the leftmost 8emLen - emBits bits of the
+         * leftmost octet in DB to zero. */
+        *(pkcsBlock++) = 0;
+        pkcsBlockLen--;
+    }
+
+    if (saltLen == RSA_PSS_SALT_LEN_DEFAULT) {
+        saltLen = hLen;
+    #ifdef WOLFSSL_SHA512
+        /* See FIPS 186-4 section 5.5 item (e). */
+        if (bits == 1024 && hLen == WC_SHA512_DIGEST_SIZE) {
+            saltLen = RSA_PSS_SALT_MAX_SZ;
+        }
+    #endif
+    }
+    if ((int)pkcsBlockLen - hLen < saltLen + 2) {
+        return PSS_SALTLEN_E;
+    }
+
+    ret = wc_HashInit_ex(&hashCtx, hType, NULL, INVALID_DEVID);
+    if (ret != 0) {
+        return ret;
+    }
+
+    maskLen = (int)pkcsBlockLen - 1 - hLen;
+
+    s = m = pkcsBlock;
+    XMEMSET(m, 0, RSA_PSS_PAD_SZ);
+    m += RSA_PSS_PAD_SZ;
+    XMEMCPY(m, input, inputLen);
+    m += inputLen;
+    o = 0;
+    if (saltLen > 0) {
+        ret = wc_RNG_GenerateBlock(rng, salt, (word32)saltLen);
+        if (ret == 0) {
+            XMEMCPY(m, salt, (size_t)saltLen);
+            m += saltLen;
+        }
+    }
+    if (ret == 0) {
+        /* Put Hash at end of pkcsBlock - 1 */
+        ret = wc_HashUpdate(&hashCtx, hType, s, (word32)(m - s));
+        if (ret == 0) {
+            ret = wc_HashFinal(&hashCtx, hType, pkcsBlock + maskLen);
+        }
+    }
+    if (ret == 0) {
+        /* Set the last eight bits or trailer field to the octet 0xbc */
+        pkcsBlock[pkcsBlockLen - 1] = RSA_PSS_PAD_TERM;
+
+        ret = RsaMGF1(&hashCtx, hType, pkcsBlock + maskLen, (word32)hLen,
+            pkcsBlock, (word32)maskLen);
+        (void)mgf; /* not needed, using hType */
+    }
+    if (ret == 0) {
+        /* Clear the first high bit when "8emLen - emBits" is non-zero,
+         * where emBits = n modBits - 1 */
+        if (hiBits) {
+            pkcsBlock[0] &= (byte)((1 << hiBits) - 1);
+        }
+        m = pkcsBlock + maskLen - saltLen - 1;
+        *(m++) ^= 0x01;
+        xorbuf(m, salt + o, (word32)saltLen);
+    }
+    wc_HashFree(&hashCtx, hType);
+    return ret;
+}
+
+int wolfTPM2_PK_RsaPssSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, unsigned int* outSz,
+    int hash, int mgf,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx)
+{
+    int ret;
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+    RsaKey rsapub;
+
+    (void)ssl;
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK RSA PSS Sign: inSz %u, keySz %u, hash %d\n", inSz, keySz, hash);
+#endif
+
+    /* load RSA public key */
+    ret = wc_InitRsaKey(&rsapub, NULL);
+    if (ret == 0) {
+        word32 keyIdx = 0;
+        ret = wc_RsaPublicKeyDecode(keyDer, &keyIdx, &rsapub, (word32)keySz);
+        if (ret == 0) {
+            byte   inPad[RSA_MAX_SIZE/8];
+            word32 inPadSz = (word32)wc_RsaEncryptSize(&rsapub);
+            XMEMSET(inPad, 0, sizeof(inPad));
+        #if 1
+            /* Use local PSS padding function */
+            ret = RsaPadPss(
+                in, inSz,
+                inPad, inPadSz,
+                wolfTPM2_GetRng(tlsCtx->dev), hash, mgf,
+                RSA_PSS_SALT_LEN_DEFAULT, inPadSz*8);
+        #else
+            /* Pad with PSS using internal wolfSSL API, if available */
+            ret = wc_RsaPad_ex(in, inSz, inPad, inPadSz, RSA_BLOCK_TYPE_1,
+                wolfTPM2_GetRng(tlsCtx->dev), WC_RSA_PSS_PAD, hash, mgf,
+                NULL, 0, RSA_PSS_SALT_LEN_DEFAULT, inPadSz*8, NULL);
+        #endif
+            if (ret == 0) {
+                /* private operations */
+                ret = wolfTPM2_RsaDecrypt(tlsCtx->dev, tlsCtx->rsaKey,
+                    TPM_ALG_NULL, /* no padding */
+                    inPad, inPadSz,
+                    out, (int*)outSz);
+            }
+        }
+        wc_FreeRsaKey(&rsapub);
+    }
+
+    if (ret > 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("PK RSA PSS Sign Hash Failure 0x%x: %s\n",
+            ret, wolfTPM2_GetRCString(ret));
+    #endif
+        ret = WC_HW_E;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK RSA PSS Sign: ret %d, outSz %u\n", ret, *outSz);
+#endif
+    return ret;
+}
+
+int wolfTPM2_PK_RsaPssSignCheck(WOLFSSL* ssl,
+    unsigned char* sig, unsigned int sigSz, unsigned char** out,
+    int hash, int mgf,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx)
+{
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+
+    (void)ssl;
+    (void)sig;
+    (void)sigSz;
+    (void)out;
+    (void)hash;
+    (void)mgf;
+    (void)keyDer;
+    (void)keySz;
+    (void)tlsCtx;
+    /* We used sign hardware, so assume sign is good */
+    return 0;
+}
+
+#endif /* WC_RSA_PSS */
+#endif /* !NO_RSA */
+
+#ifdef HAVE_ECC
+int wolfTPM2_PK_EccSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, word32* outSz,
+    const unsigned char* keyDer, unsigned int keyDerSz,
+    void* ctx)
+{
+    int ret;
+    TpmCryptoDevCtx* tlsCtx = (TpmCryptoDevCtx*)ctx;
+    ecc_key eccpub;
+
+    (void)ssl;
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK ECC Sign: inSz %u, keyDerSz %u\n", inSz, keyDerSz);
+#endif
+
+    /* load ECC public key */
+    ret = wc_ecc_init_ex(&eccpub, NULL, INVALID_DEVID);
+    if (ret == 0) {
+        word32 keyIdx = 0;
+        ret = wc_EccPublicKeyDecode(keyDer, &keyIdx, &eccpub, (word32)keyDerSz);
+        if (ret == 0) {
+            byte sigRS[MAX_ECC_BYTES*2];
+            word32 rsLen = sizeof(sigRS), keySz;
+
+            /* truncate input to match key size */
+            keySz = wc_ecc_size(&eccpub);
+            if (inSz > keySz)
+                inSz = keySz;
+
+            ret = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
+                in, inSz, sigRS, (int*)&rsLen);
+            if (ret == 0) {
+                byte *r, *s;
+                word32 rLen, sLen;
+
+                /* Make sure leading zero's not required are trimmed */
+                rLen = sLen = rsLen / 2;
+                r = &sigRS[0];
+                s = &sigRS[rLen];
+                r = wolfTPM2_ASNTrimZeros(r, &rLen);
+                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+
+                /* Encode ECDSA Header */
+                ret = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outSz);
+            }
+        }
+        wc_ecc_free(&eccpub);
+    }
+
+    if (ret > 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("PK ECC Sign Hash Failure 0x%x: %s\n",
+            ret, wolfTPM2_GetRCString(ret));
+    #endif
+        ret = WC_HW_E;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("PK ECC Sign: ret %d, outSz %u\n", ret, *outSz);
+#endif
+    return ret;
+}
+#endif
+
+/* Setup PK callbacks */
+int wolfTPM_PK_SetCb(WOLFSSL_CTX* ctx)
+{
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+#ifndef NO_RSA
+    wolfSSL_CTX_SetRsaSignCb(ctx, wolfTPM2_PK_RsaSign);
+    wolfSSL_CTX_SetRsaSignCheckCb(ctx, wolfTPM2_PK_RsaSignCheck);
+    #ifdef WC_RSA_PSS
+    wolfSSL_CTX_SetRsaPssSignCb(ctx, wolfTPM2_PK_RsaPssSign);
+    wolfSSL_CTX_SetRsaPssSignCheckCb(ctx, wolfTPM2_PK_RsaPssSignCheck);
+    #endif
+#endif
+#ifdef HAVE_ECC
+    wolfSSL_CTX_SetEccSignCb(ctx, wolfTPM2_PK_EccSign);
+#endif
+    return 0;
+}
+
+/* Setup PK Callback context */
+int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx)
+{
+    if (ssl == NULL)
+        return BAD_FUNC_ARG;
+
+#ifndef NO_RSA
+    wolfSSL_SetRsaSignCtx(ssl, userCtx);
+    #ifdef WC_RSA_PSS
+    wolfSSL_SetRsaPssSignCtx(ssl, userCtx);
+    #endif
+#endif
+#ifdef HAVE_ECC
+    wolfSSL_SetEccSignCtx(ssl, userCtx);
+#endif
+    return 0;
+}
+
+#endif /* HAVE_PK_CALLBACKS && !WOLFCRYPT_ONLY */
+
+#endif /* !WOLFTPM2_NO_WRAPPER */

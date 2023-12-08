@@ -298,7 +298,8 @@ static void test_TPM2_KDFa(void)
 
 static void test_wolfTPM2_CSR(void)
 {
-#if defined(WOLFTPM2_CERT_GEN) && !defined(WOLFTPM2_NO_HEAP)
+#if defined(WOLFTPM2_CERT_GEN) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFTPM_CRYPTOCB)
     int rc;
     WOLFTPM2_CSR* csr = wolfTPM2_NewCSR();
     AssertNotNull(csr);

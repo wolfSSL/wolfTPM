@@ -99,6 +99,9 @@ typedef int64_t  INT64;
     #include <wolfssl/wolfcrypt/hash.h>
     #include <wolfssl/wolfcrypt/rsa.h>
     #include <wolfssl/wolfcrypt/ecc.h>
+    #if defined(HAVE_PK_CALLBACKS) && !defined(NO_RSA) && defined(WC_RSA_PSS)
+    #include <wolfssl/wolfcrypt/asn.h> /* for enum Hash_Sum */
+    #endif
     #include <wolfssl/wolfcrypt/asn_public.h>
     #include <wolfssl/wolfcrypt/hmac.h>
     #include <wolfssl/wolfcrypt/aes.h>

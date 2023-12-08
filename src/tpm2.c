@@ -442,6 +442,19 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+#ifdef HAVE_FIPS
+static void WolfFipsCb(int ok, int err, const char* hash)
+{
+    printf("in my Fips callback, ok = %d, err = %d\n", ok, err);
+    printf("message = %s\n", wc_GetErrorString(err));
+    printf("hash = %s\n", hash);
+
+    if (err == IN_CORE_FIPS_E) {
+        printf("In core integrity hash check failure, copy above hash\n");
+        printf("into verifyCore[] in fips_test.c and rebuild\n");
+    }
+}
+#endif
 static inline int TPM2_WolfCrypt_Init(void)
 {
     int rc = 0;
@@ -451,7 +464,9 @@ static inline int TPM2_WolfCrypt_Init(void)
     #ifdef DEBUG_WOLFSSL
         wolfSSL_Debugging_ON();
     #endif
-
+    #ifdef HAVE_FIPS
+        wolfCrypt_SetCb_fips(WolfFipsCb);
+    #endif
         rc = wolfCrypt_Init();
     #ifdef WC_RNG_SEED_CB
         if (rc == 0)

@@ -2862,9 +2862,8 @@ WOLFTPM_LOCAL int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* 
     TPM2B_DATA *secret, TPM2B_ENCRYPTED_SECRET *encSecret, const char* label);
 
 
-#ifdef WOLFTPM_CRYPTOCB
+#if defined(WOLFTPM_CRYPTOCB) || defined(HAVE_PK_CALLBACKS)
 struct TpmCryptoDevCtx;
-typedef int (*CheckWolfKeyCallbackFunc)(wc_CryptoInfo* info, struct TpmCryptoDevCtx* ctx);
 
 typedef struct TpmCryptoDevCtx {
     WOLFTPM2_DEV* dev;
@@ -2886,6 +2885,10 @@ typedef struct TpmCryptoDevCtx {
 #endif
     unsigned short useFIPSMode:1; /* if set requires FIPS mode on TPM and no fallback to software algos */
 } TpmCryptoDevCtx;
+
+#endif /* WOLFTPM_CRYPTOCB || HAVE_PK_CALLBACKS */
+
+#ifdef WOLFTPM_CRYPTOCB
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2941,6 +2944,50 @@ WOLFTPM_API int wolfTPM2_SetCryptoDevCb(WOLFTPM2_DEV* dev, CryptoDevCallbackFunc
 WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 
 #endif /* WOLFTPM_CRYPTOCB */
+
+#if defined(HAVE_PK_CALLBACKS) && !defined(WOLFTPM2_NO_WRAPPER) && \
+    !defined(WOLFCRYPT_ONLY)
+#ifndef NO_RSA
+WOLFTPM_API int wolfTPM2_PK_RsaSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, word32* outSz,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx);
+
+WOLFTPM_API int wolfTPM2_PK_RsaSignCheck(WOLFSSL* ssl,
+    unsigned char* sig, unsigned int sigSz,
+    unsigned char** out,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx);
+
+#ifdef WC_RSA_PSS
+WOLFTPM_API int wolfTPM2_PK_RsaPssSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, unsigned int* outSz,
+    int hash, int mgf,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx);
+
+WOLFTPM_API int wolfTPM2_PK_RsaPssSignCheck(WOLFSSL* ssl,
+    unsigned char* sig, unsigned int sigSz, unsigned char** out,
+    int hash, int mgf,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx);
+#endif /* WC_RSA_PSS */
+#endif /* !NO_RSA */
+#ifdef HAVE_ECC
+WOLFTPM_API int wolfTPM2_PK_EccSign(WOLFSSL* ssl,
+    const unsigned char* in, unsigned int inSz,
+    unsigned char* out, word32* outSz,
+    const unsigned char* keyDer, unsigned int keySz,
+    void* ctx);
+#endif
+
+/* Helpers for setting generic PK callbacks */
+WOLFTPM_API int wolfTPM_PK_SetCb(WOLFSSL_CTX* ctx);
+WOLFTPM_API int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx);
+
+#endif /* HAVE_PK_CALLBACKS */
 
 #ifndef WOLFTPM2_NO_HEAP
 

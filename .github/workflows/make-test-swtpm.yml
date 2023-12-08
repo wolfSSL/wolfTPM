@@ -25,7 +25,7 @@ jobs:
       run: ./autogen.sh
     - name: wolfssl configure
       working-directory: ./wolfssl
-      run: ./configure --enable-wolftpm
+      run: ./configure --enable-wolftpm --enable-pkcallbacks
     - name: wolfssl make install
       working-directory: ./wolfssl
       run: sudo make install
