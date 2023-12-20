@@ -399,7 +399,7 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("cpHash: cmd %x, size %d\n", cmdCode, hash->size);
+    printf("cpHash: cmd %x, size %d\n", (unsigned int)cmdCode, hash->size);
     TPM2_PrintBin(hash->buffer, hash->size);
 #endif
 
@@ -448,7 +448,7 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("rpHash: cmd %x, size %d\n", cmdCode, hash->size);
+    printf("rpHash: cmd %x, size %d\n", (unsigned int)cmdCode, hash->size);
     TPM2_PrintBin(hash->buffer, hash->size);
 #endif
 

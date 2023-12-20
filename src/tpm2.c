@@ -58,7 +58,7 @@ static volatile int gWolfCryptRefCount = 0;
 /******************************************************************************/
 static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
+#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
     (void)ctx;
 #else
     int ret;
@@ -86,7 +86,7 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 
 static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 {
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
+#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
     (void)ctx;
 #else
     ctx->lockCount--;
@@ -143,7 +143,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n",
-        info->authCnt, info->inHandleCnt, cmdSz, authSz, paramSz, encParamSz);
+        info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz, encParamSz);
 #else
     (void)paramSz;
 #endif
@@ -282,7 +282,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("ResponseProcess: Handles (Out %d), RespSz %d, ParamSz %d, DecSz %d, AuthSz %d\n",
-        info->outHandleCnt, respSz, paramSz, decParamSz, respSz - authPos);
+        info->outHandleCnt, (int)respSz, (int)paramSz, (int)decParamSz, (int)(respSz - authPos));
 #endif
 
     for (i=0; i<info->authCnt; i++) {
@@ -662,7 +662,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         wc_FreeRng(&ctx->rng);
     }
     #endif
-    #ifndef SINGLE_THREADED
+    #ifndef WOLFTPM_NO_LOCK
     if (ctx->hwLockInit) {
         ctx->hwLockInit = 0;
         wc_FreeMutex(&ctx->hwLock);

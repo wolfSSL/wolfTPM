@@ -145,7 +145,9 @@
     }
 
 #else /* STM32 CubeMX Hal SPI */
+    #ifndef STM32_CUBEMX_SPI_TIMEOUT
     #define STM32_CUBEMX_SPI_TIMEOUT 250
+    #endif
     #ifndef USE_SPI_CS_PORT
     #define USE_SPI_CS_PORT GPIOA
     #endif
@@ -218,6 +220,11 @@
 
         if (status == HAL_OK)
             ret = TPM_RC_SUCCESS;
+#ifdef WOLFTPM_DEBUG_VERBOSE
+        else {
+            printf("SPI Failed: Xfer %d, Status=0x%x\n", xferSz, status);
+        }
+#endif
 
         (void)ctx;
 
