@@ -264,6 +264,11 @@ typedef int64_t  INT64;
     #define printf XPRINTF
 #endif
 
+/* check if locking / mutex should be enabled */
+#if defined(SINGLE_THREADED)
+    #undef  WOLFTPM_NO_LOCK
+    #define WOLFTPM_NO_LOCK
+#endif
 
 
 /* ---------------------------------------------------------------------------*/
