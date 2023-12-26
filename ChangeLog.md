@@ -1,5 +1,60 @@
 # Release Notes
 
+## wolfTPM Release 3.1.0 (Dec 29, 2023)
+
+**Summary**
+
+Support for using TLS PK callbacks with TPM for ECC and RSA. Improved the crypto callback support and added RSA Key generation. Fixed issues with endorsement hierarchy. Added Windows Visual Studio solution and project for wolfTPM. Improved the STM32 HAL IO callback options and logging.
+
+**Detail**
+
+* Removed use of `error-ssl.h` in library proper. (PR #308)
+* Fixed CSR crypto callback to use a different (not default) `devId` to avoid conflict. (PR #310)
+* Added TPM crypto callback support for RSA key generation (PR #311)
+* Fixed and improved for ECC crypto callbacks (PR #311)
+  - Allow import of wolf ECC marked as private only (`ECC_PRIVATEKEY_ONLY`).
+  - Improve the ECC key import scheme for signing.
+  - Improve logic for finding TPM curve in ECC key generation. A call to wc_ecc_make_key can use curve_id 0 (to detect), but we can get it from the "dp".
+  - Properly translate a TPM ECC signature verify error for compatibility.
+  - Support ECC KeyGen for signing or derive based on callback context `eccKey` or `ecdhKey` population.
+  - Fix to make sure leading ECC sign leading zeros are removed when not required.
+  - Fix leading zero issue on ECC verify.
+* Cleanup KDF function return code checking to avoid scan-build warning. (PR #311)
+* Fixed ECC encrypt secret integrity check failed due to zero pad issue. (PR #311)
+* Fixed `wolfTPM2_GetRng` possibly not returning an initialized WC_RNG. (PR #311)
+* Fixed TLS bidirectional shutdown socket issue to to port collision with SWTPM. (PR #311)
+* Fixed `policy_sign` issue when `r` or `s` is less than key size (needs zero padding). (PR #311)
+* Fixed building wolfCrypt without PEM to DER support. (PR #311)
+* Added support for TLS PK callbacks with ECC and RSA Sign using PKCSv1.5 and PSS padding (PR #312)
+  - Fixed building wolfTPM without crypto callbacks.
+  - Fixed building/running with FIPS.
+  - Cleanup TLS PK callback RSA PSS padding.
+  - Cleanup TLS server/client.
+  - Added server `-i` option to keep running unless failure.
+  - Added TLS server option `-self` to use the self signed certs.
+  - Added tests for the TLS PK with TPM.
+* Added `CMakeList.txt` to autoconf, so its in the "make dist" commercial bundles. (PR #313)
+* Fixed HAL IO prototype to match (`TPM2HalIoCb` and `TPM2_IoCb`) and cast warnings. (PR #313)
+* Added support for getting the keyblob sizes if buffer is NULL. (PR #315)
+* Added tests for keyblob buffer export/import. (PR #315)
+* Added Windows Visual Studio project for wolfTPM. Added GitHub Actions to test it. (PR #316)
+* Added support for overriding the PORT/PIN for the STM32 Cube HAL. (PR #314)
+* Fixed ECC sign with key that is marked for sign and decrypt detect the ECDSA hash algorithm. (PR #317)
+* Fixes for compiler type warnings. (PR #318)
+* Added `WOLFTPM_NO_LOCK`. (PR #318)
+* Improved STM IO options/logging. (PR #318)
+* Fixed attestation with endorsement key (PR #320)
+  - Enabled the broken endorsement tests.
+  - Improved `TPM2_GetRCString` error rendering to correctly resolve `RC_WARN`.
+    - Added error debug for parameter, session and handle number.
+    - Refactor line length / alignment.
+    - Removed duplicate "success".
+  - Removed the `WOLFTPM2_KEYBLOB.name` (deprecated). It is/has been moved to `handle.name`.
+  - Fixed native test `TPM2_PolicyPCR`.
+  - Fixed CMake build broken, since cryptocb refactor in PR #304.
+  - Added CI tests for CMake.
+
+
 ## wolfTPM Release 3.0.0 (Oct 31, 2023)
 
 **Summary**

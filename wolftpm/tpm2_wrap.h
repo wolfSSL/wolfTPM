@@ -55,6 +55,8 @@ typedef struct WOLFTPM2_DEV {
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 } WOLFTPM2_DEV;
 
+/* WOLFTPM2_KEYBLOB can be cast to WOLFTPM2_KEY.
+ *   Both structures must have "handle" and "pub" as first members */
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
@@ -64,6 +66,7 @@ typedef struct WOLFTPM2_KEYBLOB {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
     TPM2B_PRIVATE     priv;
+    /* Note: Member "name" moved to "handle.name" */
 } WOLFTPM2_KEYBLOB;
 
 typedef struct WOLFTPM2_HASH {
