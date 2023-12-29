@@ -68,16 +68,10 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     const char *srkPubFile = "srk.pub";
     const char *pubFilename = NULL;
 
-    union {
-        MakeCredential_In makeCred;
-        LoadExternal_In  loadExtIn;
-        byte maxInput[MAX_COMMAND_SIZE];
-    } cmdIn;
-    union {
-        MakeCredential_Out makeCred;
-        LoadExternal_Out loadExtOut;
-        byte maxOutput[MAX_RESPONSE_SIZE];
-    } cmdOut;
+    MakeCredential_In  makeCredIn;
+    MakeCredential_Out makeCredOut;
+    LoadExternal_In  loadExtIn;
+    LoadExternal_Out loadExtOut;
 
     if (argc == 1) {
         printf("Using public key from SRK to create the challenge\n");
@@ -100,12 +94,6 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         goto exit_badargs;
     }
 
-    XMEMSET(&name, 0, sizeof(name));
-    XMEMSET(&cmdIn.makeCred, 0, sizeof(cmdIn.makeCred));
-    XMEMSET(&cmdOut.makeCred, 0, sizeof(cmdOut.makeCred));
-    XMEMSET(&cmdIn.loadExtIn, 0, sizeof(cmdIn.loadExtIn));
-    XMEMSET(&cmdOut.loadExtOut, 0, sizeof(cmdOut.loadExtOut));
-
     printf("Demo how to create a credential challenge for remote attestation\n");
     printf("Credential will be stored in %s\n", output);
 
@@ -125,24 +113,26 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     }
     rc = readKeyBlob(pubFilename, &primary);
     if (rc != 0) {
-        printf("Failure to load %s\n", pubFilename);
+        printf("Failure to read %s\n", pubFilename);
         goto exit;
     }
+
     /* Prepare the key for use by the TPM */
-    XMEMCPY(&cmdIn.loadExtIn.inPublic, &primary.pub,
-        sizeof(cmdIn.loadExtIn.inPublic));
-    cmdIn.loadExtIn.hierarchy = TPM_RH_NULL;
-    rc = TPM2_LoadExternal(&cmdIn.loadExtIn, &cmdOut.loadExtOut);
+    XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
+    XMEMSET(&loadExtOut, 0, sizeof(loadExtOut));
+    XMEMCPY(&loadExtIn.inPublic, &primary.pub, sizeof(loadExtIn.inPublic));
+    loadExtIn.hierarchy = TPM_RH_NULL;
+    rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_LoadExternal: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
         return rc;
     }
     printf("Public key for encryption loaded\n");
-    handle.hndl = cmdOut.loadExtOut.objectHandle;
-
+    handle.hndl = loadExtOut.objectHandle;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     /* Load AK Name digest */
+    XMEMSET(&name, 0, sizeof(name));
     fp = XFOPEN("ak.name", "rb");
     if (fp != XBADFILE) {
         size_t nameReadSz = XFREAD((BYTE*)&name, 1, sizeof(name), fp);
@@ -153,31 +143,37 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Create secret for the attestation server */
-    cmdIn.makeCred.credential.size = CRED_SECRET_SIZE;
-    wolfTPM2_GetRandom(&dev, cmdIn.makeCred.credential.buffer,
-                        cmdIn.makeCred.credential.size);
-    /* Prepare the AK name */
-    cmdIn.makeCred.objectName.size = name.size;
-    XMEMCPY(cmdIn.makeCred.objectName.name, name.name,
-                cmdIn.makeCred.objectName.size);
+    XMEMSET(&makeCredIn, 0, sizeof(makeCredIn));
+    XMEMSET(&makeCredOut, 0, sizeof(makeCredOut));
+    makeCredIn.credential.size = CRED_SECRET_SIZE;
+    wolfTPM2_GetRandom(&dev, makeCredIn.credential.buffer,
+                             makeCredIn.credential.size);
+    /* Set the object name */
+    makeCredIn.objectName.size = name.size;
+    XMEMCPY(makeCredIn.objectName.name, name.name,
+            makeCredIn.objectName.size);
     /* Set TPM key and execute */
-    cmdIn.makeCred.handle = handle.hndl;
-    rc = TPM2_MakeCredential(&cmdIn.makeCred, &cmdOut.makeCred);
+    makeCredIn.handle = handle.hndl;
+    rc = TPM2_MakeCredential(&makeCredIn, &makeCredOut);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_MakeCredentials failed 0x%x: %s\n", rc,
+        printf("TPM2_MakeCredential failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_MakeCredential success\n");
 
+    printf("Secret: %d\n", makeCredIn.credential.size);
+    TPM2_PrintBin(makeCredIn.credential.buffer,
+                  makeCredIn.credential.size);
+
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(output, "wb");
     if (fp != XBADFILE) {
-        dataSize = (int)XFWRITE((BYTE*)&cmdOut.makeCred.credentialBlob, 1,
-                                sizeof(cmdOut.makeCred.credentialBlob), fp);
+        dataSize = (int)XFWRITE((BYTE*)&makeCredOut.credentialBlob, 1,
+                                 sizeof(makeCredOut.credentialBlob), fp);
         if (dataSize > 0) {
-            dataSize += (int)XFWRITE((BYTE*)&cmdOut.makeCred.secret, 1,
-                                     sizeof(cmdOut.makeCred.secret), fp);
+            dataSize += (int)XFWRITE((BYTE*)&makeCredOut.secret, 1,
+                                      sizeof(makeCredOut.secret), fp);
         }
         XFCLOSE(fp);
     }

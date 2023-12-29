@@ -162,13 +162,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
     TPM2B_PUBLIC_KEY_RSA message;
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    byte pcr[TPM_SHA256_DIGEST_SIZE];
-    int pcr_len = TPM_SHA256_DIGEST_SIZE;
-    byte hash[TPM_SHA256_DIGEST_SIZE];
-    int hash_len = TPM_SHA256_DIGEST_SIZE;
-#endif
-
     TpmRsaKey endorse;
     TpmRsaKey storage;
     TpmHmacKey hmacKey;
@@ -564,18 +557,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         (int)cmdOut.pcrRead.pcrValues.digests[0].size,
         (int)cmdOut.pcrRead.pcrUpdateCounter);
     TPM2_PrintBin(cmdOut.pcrRead.pcrValues.digests[0].buffer,
-                   cmdOut.pcrRead.pcrValues.digests[0].size);
+                  cmdOut.pcrRead.pcrValues.digests[0].size);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* Hash SHA256 PCR[0] */
-    rc = wc_Hash(WC_HASH_TYPE_SHA256, pcr, pcr_len, hash, hash_len);
-    if (rc < 0) {
-        printf("wc_Hash failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("wc_Hash of PCR[0]: size %d\n", hash_len);
-    TPM2_PrintBin(hash, hash_len);
-
     /* Set Auth Session index 0 */
     session[0].sessionHandle = sessionHandle;
     session[0].sessionAttributes = (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
@@ -587,18 +571,17 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     session[0].nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
     session[0].auth = sessionAuth;
 
-    /* Policy PCR */
+    /* Policy PCR (Get) */
     pcrIndex = 0;
     XMEMSET(&cmdIn.policyPCR, 0, sizeof(cmdIn.policyPCR));
     cmdIn.policyPCR.policySession = sessionHandle;
-    cmdIn.policyPCR.pcrDigest.size = hash_len;
-    XMEMCPY(cmdIn.policyPCR.pcrDigest.buffer, hash, hash_len);
+    cmdIn.policyPCR.pcrDigest.size = 0;
     TPM2_SetupPCRSel(&cmdIn.policyPCR.pcrs, TPM_ALG_SHA1, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.policyPCR);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        //goto exit; /* TODO: Fix failure on TPM2_PolicyPCR */
+        goto exit;
     }
     else {
         printf("TPM2_PolicyPCR: Updated\n");

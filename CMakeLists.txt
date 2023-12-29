@@ -35,6 +35,7 @@ set(TPM_SOURCES
     src/tpm2_tis.c
     src/tpm2_winapi.c
     src/tpm2_wrap.c
+    src/tpm2_cryptocb.c
     hal/tpm_io.c
     )
 

@@ -822,11 +822,18 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
 {
     const TPM2B_AUTH* auth = NULL;
     const TPM2B_NAME* name = NULL;
-    /* don't set auth for policy session */
-    if (dev->ctx.session == NULL || handle->policyAuth) {
-        return 0;
+    if (dev == NULL || index >= MAX_SESSION_NUM) {
+        return BAD_FUNC_ARG;
     }
+
     if (handle) {
+        /* don't set auth for policy session, just name */
+        if (handle->policyAuth) {
+            TPM2_AUTH_SESSION* session = &dev->session[index];
+            session->name.size = handle->name.size;
+            XMEMCPY(session->name.name, handle->name.name, handle->name.size);
+            return TPM_RC_SUCCESS;
+        }
         auth = &handle->auth;
         name = &handle->name;
     }
@@ -892,12 +899,14 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         XMEMCPY(session->nonceTPM.buffer, tpmSession->nonceTPM.buffer,
             session->nonceTPM.size);
 
-        /* Parameter Encryption session will have an hmac added later.
+        /* Parameter Encryption or Policy session will have an HMAC added later.
          * Reserve space, the same way it was done for nonceCaller above.
          */
-        if (session->sessionHandle != TPM_RS_PW &&
-            ((session->sessionAttributes & TPMA_SESSION_encrypt) ||
-             (session->sessionAttributes & TPMA_SESSION_decrypt))) {
+        if ((session->sessionHandle != TPM_RS_PW &&
+                ((session->sessionAttributes & TPMA_SESSION_encrypt) ||
+                 (session->sessionAttributes & TPMA_SESSION_decrypt)))
+             || TPM2_IS_POLICY_SESSION(session->sessionHandle))
+        {
             session->auth.size = TPM2_GetHashDigestSize(session->authHash);
         }
     }
@@ -1763,7 +1772,7 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
     wolfTPM2_CopyPub(&keyBlob->pub, &createLoadedOut.outPublic);
     wolfTPM2_CopyPriv(&keyBlob->priv, &createLoadedOut.outPrivate);
-    wolfTPM2_CopyName(&keyBlob->name, &createLoadedOut.name);
+    wolfTPM2_CopyName(&keyBlob->handle.name, &createLoadedOut.name);
 
     return rc;
 }
