@@ -99,9 +99,22 @@ RESULT=$?
 rm -f keyedhashblob.bin
 [ $RESULT -ne 0 ] && echo -e "keygen keyed hash load failed! $RESULT" && exit 1
 
-# KeyGen Endorsement with Policy Secret
-# TODO Fix: (TPM2_Create TPM_RC_AUTH_UNAVAILABLE)
-#./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> run.out
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    # KeyGen under Endorsement
+    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+    ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa failed! $RESULT" && exit 1
+
+    ./examples/keygen/keygen ecckeyblobeh.bin -ecc -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+    ./examples/keygen/keyload ecckeyblobeh.bin -ecc -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+fi
 
 
 # NV Tests
@@ -190,12 +203,14 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     echo -e "TLS test (TPM as client) $1 $2"
     generate_port
     pushd $WOLFSSL_PATH >> run.out
+    echo -e "./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
     ./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem 2>&1 >> $PWD/run.out &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> run.out
     sleep 0.1
 
+    echo -e "./examples/tls/tls_client -p=$port -$1 $2"
     ./examples/tls/tls_client -p=$port -$1 $2 2>&1 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
@@ -268,15 +283,33 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     [ $RESULT -ne 0 ] && echo -e "signed_timestamp ecc param enc failed! $RESULT" && exit 1
 fi
 
-./examples/attestation/make_credential >> run.out
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "make_credential failed! $RESULT" && exit 1
-# TODO: Requires keygen -ek to be working
-#./examples/attestation/make_credential -eh >> run.out
-# TODO: Test broken (TPM2_ActivateCredentials TPM_RC_INTEGRITY)
-#./examples/attestation/activate_credential >> run.out
-#./examples/attestation/activate_credential -eh >> run.out
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/keygen/keygen keyblob.bin -rsa >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
+    ./examples/attestation/make_credential >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "make_credential failed! $RESULT" && exit 1
+    ./examples/attestation/activate_credential >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "activate_credential failed! $RESULT" && exit 1
 
+    # Endorsement hierarchy
+    ./examples/keygen/keygen keyblob.bin -rsa -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen rsa endorsement failed! $RESULT" && exit 1
+    ./examples/attestation/make_credential -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "make_credential endorsement failed! $RESULT" && exit 1
+    ./examples/attestation/activate_credential -eh >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "activate_credential endorsement failed! $RESULT" && exit 1
+
+    rm -f cred.blob
+    rm -f ek.pub
+    rm -f srk.pub
+    rm -f ak.name
+fi
 
 # PCR Quote Tests
 echo -e "PCR Quote tests"
@@ -457,6 +490,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     rm -f aaa.bin
 fi
 
+rm -f keyblob.bin
 
 echo -e "Success!"
 exit 0

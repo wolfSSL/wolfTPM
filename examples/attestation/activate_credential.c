@@ -44,6 +44,7 @@ static void usage(void)
     printf("Expected usage:\n");
     printf("./examples/attestation/activate_credential [cred.blob] [-eh]\n");
     printf("* cred.blob is a input file holding the generated credential.\n");
+    printf("* -eh: Use the EK public key to encrypt the challenge\n");
     printf("Demo usage without parameters, uses \"cred.blob\" filename.\n");
 }
 
@@ -64,14 +65,8 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     const char *input = "cred.blob";
     const char *keyblob = "keyblob.bin";
 
-    union {
-        ActivateCredential_In activCred;
-        byte maxInput[MAX_COMMAND_SIZE];
-    } cmdIn;
-    union {
-        ActivateCredential_Out activCred;
-        byte maxOutput[MAX_RESPONSE_SIZE];
-    } cmdOut;
+    ActivateCredential_In  activCredIn;
+    ActivateCredential_Out activCredOut;
 
     if (argc == 1) {
         printf("Using default values\n");
@@ -157,9 +152,13 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         /* Set the created Policy Session for use in next operation */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 0);
         if (rc != 0) goto exit;
+        /* Set the name for the endorsement handle */
+        rc = wolfTPM2_SetAuthHandleName(&dev, 1, &endorse.handle);
+        if (rc != 0) goto exit;
     }
     else {
-        wolfTPM2_SetAuthHandle(&dev, 1, &storage.handle);
+        rc = wolfTPM2_SetAuthHandle(&dev, 1, &storage.handle);
+        if (rc != 0) goto exit;
     }
 
     /* Prepare the auth password for the Attestation Key */
@@ -169,19 +168,19 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     wolfTPM2_SetAuthHandle(&dev, 0, &akKey.handle);
 
     /* Prepare the Activate Credential command */
-    XMEMSET(&cmdIn.activCred, 0, sizeof(cmdIn.activCred));
-    XMEMSET(&cmdOut.activCred, 0, sizeof(cmdOut.activCred));
-    cmdIn.activCred.activateHandle = akKey.handle.hndl;
-    cmdIn.activCred.keyHandle = primary->handle.hndl;
+    XMEMSET(&activCredIn, 0, sizeof(activCredIn));
+    XMEMSET(&activCredOut, 0, sizeof(activCredOut));
+    activCredIn.activateHandle = akKey.handle.hndl;
+    activCredIn.keyHandle = primary->handle.hndl;
     /* Read credential from the user file */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     fp = XFOPEN(input, "rb");
     if (fp != XBADFILE) {
-        dataSize = (int)XFREAD((BYTE*)&cmdIn.activCred.credentialBlob, 1,
-                                sizeof(cmdIn.activCred.credentialBlob), fp);
+        dataSize = (int)XFREAD((BYTE*)&activCredIn.credentialBlob, 1,
+                                sizeof(activCredIn.credentialBlob), fp);
         if (dataSize > 0) {
-            dataSize += (int)XFREAD((BYTE*)&cmdIn.activCred.secret, 1,
-                                    sizeof(cmdIn.activCred.secret), fp);
+            dataSize += (int)XFREAD((BYTE*)&activCredIn.secret, 1,
+                                     sizeof(activCredIn.secret), fp);
         }
         XFCLOSE(fp);
     }
@@ -192,18 +191,28 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     goto exit;
 #endif
     /* All required data to verify the credential is prepared */
-    rc = TPM2_ActivateCredential(&cmdIn.activCred, &cmdOut.activCred);
+    rc = TPM2_ActivateCredential(&activCredIn, &activCredOut);
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ActivateCredentials failed 0x%x: %s\n", rc,
+        printf("TPM2_ActivateCredential failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
         goto exit;
     }
     printf("TPM2_ActivateCredential success\n");
+    if (endorseKey) {
+        /* The policy session is closed after use.
+         * Reset handle, so we don't try and free it */
+        tpmSession.handle.hndl = TPM_RH_NULL;
+    }
+
+    printf("Secret: %d\n", activCredOut.certInfo.size);
+    TPM2_PrintBin(activCredOut.certInfo.buffer,
+                  activCredOut.certInfo.size);
 
 exit:
 
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &akKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 
 exit_badargs:

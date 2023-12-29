@@ -1640,7 +1640,7 @@ typedef struct TPM2_AUTH_SESSION {
 #define TPM_20_NV_INDEX_EK_NONCE       (TPM_20_PLATFORM_MFG_NV_SPACE + 3)
 #define TPM_20_NV_INDEX_EK_TEMPLATE    (TPM_20_PLATFORM_MFG_NV_SPACE + 4)
 
-/* Predetermined TPM 2.0 Endorsement policy auth template */
+/* Predetermined TPM 2.0 Endorsement policy auth template for SHA2-256 */
 static const BYTE TPM_20_EK_AUTH_POLICY[] = {
     0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xb3, 0xf8, 0x1a, 0x90, 0xcc,
     0x8d, 0x46, 0xa5, 0xd7, 0x24, 0xfd, 0x52, 0xd7, 0x6e, 0x06, 0x52,

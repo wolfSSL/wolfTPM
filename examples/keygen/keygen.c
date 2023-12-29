@@ -141,7 +141,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
     const char *pemFilename = NULL;
     #endif
-    FILE *fp;
 #endif
     size_t len = 0;
     char symMode[] = "aesctr";
@@ -251,20 +250,26 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_StartSession(&dev, &tpmSession, primary, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
-        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+        printf("HMAC Session: Handle 0x%x\n",
             (word32)tpmSession.handle.hndl);
 
         /* set session for authorization of the primary key */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
-            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
 
     if (endorseKey) {
         /* Endorsement Key requires authorization with Policy */
-        wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+        printf("EK Policy Session: Handle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
         /* Set the created Policy Session for use in next operation */
-        wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        if (rc != 0) goto exit;
     }
 
     /* Create new key */
@@ -285,6 +290,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else {
             rc = BAD_FUNC_ARG;
         }
+        if (rc != 0) goto exit;
 
         /* set session for authorization key */
         auth.size = (int)sizeof(gAiKeyAuth)-1;
@@ -341,11 +347,25 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_CreateKey failed\n");
         goto exit;
     }
+    if (endorseKey) {
+        /* Endorsement policy session is closed after use, so start another */
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc == 0) {
+            rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        }
+        if (rc != 0) goto exit;
+    }
     rc = wolfTPM2_LoadKey(&dev, &newKeyBlob, &primary->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_LoadKey failed\n");
         goto exit;
     }
+    if (endorseKey) {
+        /* The policy session is closed after use.
+         * Reset handle, so we don't try and free it */
+        tpmSession.handle.hndl = TPM_RH_NULL;
+    }
+
     printf("New key created and loaded (pub %d, priv %d bytes)\n",
         newKeyBlob.pub.size, newKeyBlob.priv.size);
 
@@ -420,10 +440,7 @@ exit:
     /* Close handles */
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
-    /* EK policy is destroyed after use, flush parameter encryption session */
-    if (paramEncAlg != TPM_ALG_NULL && !endorseKey) {
-        wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-    }
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
     return rc;
