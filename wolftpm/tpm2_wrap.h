@@ -63,7 +63,6 @@ typedef struct WOLFTPM2_KEY {
 typedef struct WOLFTPM2_KEYBLOB {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
-    TPM2B_NAME        name;
     TPM2B_PRIVATE     priv;
 } WOLFTPM2_KEYBLOB;
 

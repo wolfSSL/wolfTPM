@@ -1763,7 +1763,7 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
     wolfTPM2_CopyPub(&keyBlob->pub, &createLoadedOut.outPublic);
     wolfTPM2_CopyPriv(&keyBlob->priv, &createLoadedOut.outPrivate);
-    wolfTPM2_CopyName(&keyBlob->name, &createLoadedOut.name);
+    wolfTPM2_CopyName(&keyBlob->handle.name, &createLoadedOut.name);
 
     return rc;
 }

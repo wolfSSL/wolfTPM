@@ -357,14 +357,13 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         /* Store primary public key */
         XMEMCPY(&primaryBlob.pub, &primary->pub, sizeof(primaryBlob.pub));
         rc |= writeKeyBlob(pubFilename, &primaryBlob);
+
         /* Write AK's Name digest */
-        fp = XFOPEN(nameFile, "wb");
-        if (fp != XBADFILE) {
-            XFWRITE((BYTE*)&newKeyBlob.name, 1, sizeof(newKeyBlob.name), fp);
-            printf("Wrote AK Name digest\n");
-            XFCLOSE(fp);
-        }
+        rc |= writeBin(nameFile, (byte*)&newKeyBlob.handle.name,
+            sizeof(newKeyBlob.handle.name));
+        printf("Wrote AK Name digest\n");
     }
+    if (rc != TPM_RC_SUCCESS) goto exit;
 #else
     if (alg == TPM_ALG_SYMCIPHER) {
         printf("The Public Part of a symmetric key contains only meta data\n");
