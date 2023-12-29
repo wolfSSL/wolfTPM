@@ -154,7 +154,6 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
         XMEMCPY(cmdIn.pcrPolicy.pcrDigest.buffer, digest, digestLen);
     }
     TPM2_SetupPCRSel(&cmdIn.pcrPolicy.pcrs, TPM_ALG_SHA256, pcrIndex);
-    //TPM2_SetupPCRSel(&cmdIn.pcrPolicy.pcrs, TPM_ALG_SHA384, pcrIndex);
     rc = TPM2_PolicyPCR(&cmdIn.pcrPolicy);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PolicyPCR failed 0x%x: %s\n", rc,
