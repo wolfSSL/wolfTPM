@@ -1,0 +1,44 @@
+name: WolfTPM CMake Build Tests
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+#pull wolfTPM
+    - uses: actions/checkout@master
+
+# Install cmake
+    - name: Install cmake
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake
+
+#pull and build wolfssl
+    - uses: actions/checkout@master
+      with:
+        repository: wolfssl/wolfssl
+        path: wolfssl
+    - name: Build wolfssl
+      working-directory: ./wolfssl
+      run: |
+        mkdir build
+        cd build
+        cmake -DWOLFSSL_TPM=yes ..
+        make
+        sudo make install
+
+#build wolftpm
+    - name: Build wolfTPM
+      run: |
+        mkdir build
+        cd build
+        cmake -DWOLFTPM_INTERFACE=SWTPM ..
+        make

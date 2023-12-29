@@ -39,7 +39,7 @@ fi
 
 
 # Key Generation Tests
-echo -e "Ken Generation Tests"
+echo -e "Key Generation Tests"
 ./examples/keygen/keygen keyblob.bin -rsa >> run.out
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
