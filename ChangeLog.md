@@ -22,7 +22,7 @@ Support for using TLS PK callbacks with TPM for ECC and RSA. Improved the crypto
 * Cleanup KDF function return code checking to avoid scan-build warning. (PR #311)
 * Fixed ECC encrypt secret integrity check failed due to zero pad issue. (PR #311)
 * Fixed `wolfTPM2_GetRng` possibly not returning an initialized WC_RNG. (PR #311)
-* Fixed TLS bidirectional shutdown socket issue to to port collision with SWTPM. (PR #311)
+* Fixed TLS bidirectional shutdown socket issue due to port collision with SWTPM. (PR #311)
 * Fixed `policy_sign` issue when `r` or `s` is less than key size (needs zero padding). (PR #311)
 * Fixed building wolfCrypt without PEM to DER support. (PR #311)
 * Added support for TLS PK callbacks with ECC and RSA Sign using PKCSv1.5 and PSS padding (PR #312)
