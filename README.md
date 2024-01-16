@@ -795,6 +795,7 @@ Connection: close
 * Update to v1.59 of specification (adding CertifyX509).
 * Inner wrap support for SensitiveToPrivate.
 * Firmware upgrade support on TPM's.
+* Add support for IRQ (interrupt line)
 
 ## Support
 
