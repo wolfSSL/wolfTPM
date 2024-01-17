@@ -116,14 +116,29 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* Load encrypted key from the disk */
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    rc = readKeyBlob(inputFile, &newKey);
+    if (rc != 0) goto exit;
+#else
+    /* TODO: Option to load hex blob */
+    printf("Loading blob from disk not supported. Enable wolfcrypt support.\n");
+    goto exit;
+#endif
+
     if (endorseKey) {
+        /* endorsement is always RSA */
         rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
         if (rc != 0) goto exit;
         endorse.handle.policyAuth = 1;
         primary = &endorse;
     }
-    else { /* SRK */
-        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+    else {
+        /* SRK: Use RSA or ECC SRK only. Prefer ECC */
+        TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC;
+        if (newKey.pub.publicArea.type == TPM_ALG_RSA)
+            srkAlg = TPM_ALG_RSA;
+        rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         if (rc != 0) goto exit;
         primary = &storage;
     }
@@ -153,15 +168,6 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
 
-    /* Load encrypted key from the disk */
-#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    rc = readKeyBlob(inputFile, &newKey);
-    if (rc != 0) goto exit;
-#else
-    /* TODO: Option to load hex blob */
-    printf("Loading blob from disk not supported. Enable wolfcrypt support.\n");
-    goto exit;
-#endif
 
     if (newKey.priv.size == 0) {
         rc = wolfTPM2_LoadPublicKey(&dev, (WOLFTPM2_KEY*)&newKey, &newKey.pub);

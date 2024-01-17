@@ -110,10 +110,14 @@ The script creates the following X.509 files (also in .pem format):
 
 Example signs and verifies data with PKCS #7 using a TPM based key.
 
-* Must first run:
-1. `./examples/csr/csr`
-2. `./certs/certreq.sh`
-3. `./examples/pkcs7/pkcs7`
+```sh
+./examples/keygen/keygen rsa_test_blob.raw -rsa -t
+./examples/keygen/keygen ecc_test_blob.raw -ecc -t
+./examples/csr/csr
+./certs/certreq.sh
+./examples/pkcs7/pkcs7
+./examples/pkcs7/pkcs7 -ecc
+```
 
 The result is displayed to stdout on the console.
 
