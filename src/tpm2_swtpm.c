@@ -181,7 +181,7 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
         /* use select to wait for data */
         rc = select(ctx->tcpCtx.fd + 1, &rfds, NULL, NULL, &tv);
         if (rc == 0) {
-            rc = SOCKET_ERROR_E; /* timeout */
+            rc = TPM_RC_FAILURE; /* timeout */
             break;
         }
         rc = (int)WOLFTPM_READ(ctx->tcpCtx.fd, ptr, remain);
@@ -206,7 +206,7 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
                        " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
             }
         #endif
-            rc = SOCKET_ERROR_E;
+            rc = TPM_RC_FAILURE;
             break;
         }
 
@@ -247,7 +247,7 @@ static int SwTpmConnect(TPM2_CTX* ctx, const char* uartDev, uint32_t baud)
         DEBUG_PRINTF("Error opening %s: Error %i (%s)\n",
             uartDev, errno, strerror(errno));
 #endif
-        return SOCKET_ERROR_E;
+        return TPM_RC_FAILURE;
     }
     tcgetattr(fd, &tty);
     cfsetospeed(&tty, baud);
@@ -332,7 +332,7 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 
             if ((timeOut--) <= 0) {
                 rxBuffIdx = 0; /* reset read state */
-                rc = SOCKET_ERROR_E; /* timeout */
+                rc = TPM_RC_FAILURE; /* timeout */
             #if DEBUG_WOLFTPM
                 DEBUG_PRINTF("Connection timed out\r\n");
             #endif
@@ -345,7 +345,7 @@ static int SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
         #ifdef DEBUG_WOLFTPM
             DEBUG_PRINTF("Failed to read from TPM UART\n\r");
         #endif
-            rc = SOCKET_ERROR_E;
+            rc = TPM_RC_FAILURE;
             break;
         }
         rxBuffIdx += rc;
@@ -566,7 +566,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             DEBUG_PRINTF("Response size(%d) larger than command buffer(%d)\n",
                    rspSz, packet->pos);
         #endif
-            rc = SOCKET_ERROR_E;
+            rc = TPM_RC_FAILURE;
         }
     }
 
@@ -593,6 +593,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         int sz = (rspSz < packet->size) ? rspSz : packet->size;
         DEBUG_PRINTF("Response size: %d\n", rspSz);
         TPM2_PrintBin(packet->buf, sz);
+        (void)sz;
     }
 #endif
 
