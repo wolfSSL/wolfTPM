@@ -103,11 +103,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY storageKey;
 #ifndef NO_RSA
     WOLFTPM2_KEY rsaKey;
-    RsaKey wolfRsaKey;
 #endif
 #ifdef HAVE_ECC
     WOLFTPM2_KEY eccKey;
-    ecc_key wolfEccKey;
     #ifndef WOLFTPM2_USE_SW_ECDHE
     WOLFTPM2_KEY ecdhKey;
     #endif
@@ -141,11 +139,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
     XMEMSET(&rsaKey, 0, sizeof(rsaKey));
-    XMEMSET(&wolfRsaKey, 0, sizeof(wolfRsaKey));
 #endif
 #ifdef HAVE_ECC
     XMEMSET(&eccKey, 0, sizeof(eccKey));
-    XMEMSET(&wolfEccKey, 0, sizeof(wolfEccKey));
     #ifndef WOLFTPM2_USE_SW_ECDHE
     /* Ephemeral Key */
     XMEMSET(&ecdhKey, 0, sizeof(ecdhKey));
@@ -222,7 +218,8 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
     /* See if primary storage key already exists */
-    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
+    rc = getPrimaryStoragekey(&dev, &storageKey,
+        useECC ? TPM_ALG_ECC : TPM_ALG_RSA);
     if (rc != 0) goto exit;
 
     /* Start an authenticated session (salted / unbound) with parameter encryption */
@@ -250,7 +247,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         rc = getRSAkey(&dev,
                     &storageKey,
                     &rsaKey,
-                    &wolfRsaKey,
+                    NULL,
                     tpmDevId,
                     (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
                     &publicTemplate);
@@ -269,7 +266,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         rc = getECCkey(&dev,
                     &storageKey,
                     &eccKey,
-                    &wolfEccKey,
+                    NULL,
                     tpmDevId,
                     (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
                     &publicTemplate);
@@ -377,17 +374,16 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
      *   public key instead (if crypto callbacks are enabled).
      */
 #ifndef NO_TLS_MUTUAL_AUTH
-    if (!useECC) {
-    #ifndef NO_RSA
-        byte der[1024];
-        word32 derSz = sizeof(der);
-        rc = wc_RsaKeyToPublicDer_ex(&wolfRsaKey, der, derSz, 1);
+    {
+        /* Export TPM public key as DER */
+        byte   der[1024];
+        word32 derSz = (word32)sizeof(der);
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, !useECC ? &rsaKey : &eccKey,
+            ENCODING_TYPE_ASN1, der, &derSz);
         if (rc < 0) {
             printf("Failed to export RSA public key!\n");
             goto exit;
         }
-        derSz = rc;
-        rc = 0;
 
         /* Private key only exists on the TPM and crypto callbacks are used for
          * signing. Public key is required to enable TLS client (mutual auth).
@@ -397,37 +393,6 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             printf("Failed to set RSA key!\n");
             goto exit;
         }
-    #else
-        printf("Error: RSA not compiled in\n");
-        rc = -1;
-        goto exit;
-    #endif /* !NO_RSA */
-    }
-    else {
-    #ifdef HAVE_ECC
-        byte der[256];
-        word32 derSz = sizeof(der);
-        rc = wc_EccPublicKeyToDer(&wolfEccKey, der, derSz, 1);
-        if (rc < 0) {
-            printf("Failed to export ECC public key!\n");
-            goto exit;
-        }
-        derSz = rc;
-        rc = 0;
-
-        /* Private key only exists on the TPM and crypto callbacks are used for
-         * signing. Public key is required to enable TLS client (mutual auth).
-         * This API accepts public keys when crypto callbacks are enabled */
-        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
-                                    WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            printf("Failed to set ECC key!\n");
-            goto exit;
-        }
-    #else
-        printf("RSA not supported in this build\n");
-        rc = -1;
-        goto exit;
-    #endif /* HAVE_ECC */
     }
 
     /* Client Certificate (Mutual Authentication) */
@@ -611,11 +576,9 @@ exit:
 
     wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 #ifndef NO_RSA
-    wc_FreeRsaKey(&wolfRsaKey);
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
 #endif
 #ifdef HAVE_ECC
-    wc_ecc_free(&wolfEccKey);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     #ifndef WOLFTPM2_USE_SW_ECDHE
         wolfTPM2_UnloadHandle(&dev, &ecdhKey.handle);

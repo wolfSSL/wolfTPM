@@ -1189,6 +1189,24 @@ WOLFTPM_API int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     WOLFTPM2_KEY* key, int encodingType, const char* input, word32 inSz,
     TPMA_OBJECT objectAttributes);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper function to export a TPM RSA/ECC public key with PEM/DER formatting
+
+    \return TPM_RC_SUCCESS: successful - populates key->pub
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BUFFER_E: insufficient space in provided buffer
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmKey pointer to a WOLFTPM2_KEY with populated key
+    \param encodingType ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1 (DER)
+    \param out buffer to export public key
+    \param outSz pointer to length of the out buffer
+*/
+WOLFTPM_API int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    int encodingType, byte* out, word32* outSz);
+
 #ifndef NO_RSA
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1252,8 +1270,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Convert a public RSA TPM key to PEM format public key
-    Note: pem and tempBuf must be different buffers, of equal size
+    \brief Convert a public RSA TPM key to PEM format public key.
+    Note: This API is a wrapper around wolfTPM2_ExportPublicKeyBuffer
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -1264,6 +1282,7 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
     \param pem pointer to an array of byte type, used as temporary storage for PEM conversation
     \param pemSz pointer to integer variable, to store the used buffer size
 
+    \sa wolfTPM2_ExportPublicKeyBuffer
     \sa wolfTPM2_RsaKey_TpmToWolf
     \sa wolfTPM2_RsaKey_WolfToTpm
 */

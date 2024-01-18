@@ -186,17 +186,18 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
 
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
         &tpmDevId);
-    if (rc == 0) {
-        /* See if primary storage key already exists */
-        rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
-    }
 
 #ifndef NO_RSA
     if (rc == 0) {
         tpmCtx.rsaKey = &key; /* Setup the wolf crypto device callback */
-        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+
+        /* open the RSA SRK */
+        rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
+        if (rc == 0) {
+            rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
                     TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                     TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        }
         if (rc == 0) {
             rc = getRSAkey(&dev, &storageKey, &key, NULL, tpmDevId,
                 (byte*)gKeyAuth, sizeof(gKeyAuth)-1, &publicTemplate);
@@ -207,6 +208,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
                 makeSelfSignedCert, tpmDevId, CTC_SHA256wRSA);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
+        wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
     }
 #endif /* !NO_RSA */
 
@@ -214,18 +216,21 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     if (rc == 0) {
         int sigType = CTC_SHA256wECDSA;
         TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
-        tpmCtx.eccKey = &key;
-
     #if defined(NO_ECC256) && defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
         /* make sure we use a curve that is enabled */
         sigType = CTC_SHA384wECDSA;
         curve = TPM_ECC_NIST_P384;
     #endif
+        tpmCtx.eccKey = &key;
 
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        /* open the ECC SRK */
+        rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_ECC);
+        if (rc == 0) {
+            rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
                 TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                 TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                 curve, TPM_ALG_ECDSA);
+        }
         if (rc == 0) {
             rc = getECCkey(&dev, &storageKey, &key, NULL, tpmDevId,
                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1, &publicTemplate);
@@ -236,6 +241,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
                 makeSelfSignedCert, tpmDevId, sigType);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
+        wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
     }
 #endif /* HAVE_ECC */
 
@@ -243,7 +249,6 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
     wolfTPM2_Cleanup(&dev);
 
     return rc;

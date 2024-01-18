@@ -187,6 +187,10 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/pkcs7/pkcs7 >> run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pkcs7 failed! $RESULT" && exit 1
+
+    ./examples/pkcs7/pkcs7 -ecc >> run.out
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pkcs7 ecc failed! $RESULT" && exit 1
 fi
 
 # TLS Tests

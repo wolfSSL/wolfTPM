@@ -232,14 +232,18 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     }
 
     if (endorseKey) {
+        /* endorsement is always RSA */
         rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
         endorse.handle.policyAuth = 1; /* EK requires Policy auth, not Password */
         pubFilename = ekPubFile;
         primary = &endorse;
     }
     else {
-        /* get SRK */
-        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+        /* SRK: Use RSA or ECC SRK only. Prefer ECC */
+        TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC;
+        if (alg == TPM_ALG_RSA)
+            srkAlg = TPM_ALG_RSA;
+        rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         pubFilename = srkPubFile;
         primary = &storage;
     }
@@ -403,7 +407,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
         pemFilename = (endorseKey) ? pemFileEk : pemFileSrk;
         pemSz = (word32)sizeof(pem);
-        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, primary, pem, &pemSz);
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, primary,
+            ENCODING_TYPE_PEM, pem, &pemSz);
         if (rc == 0) {
             rc = writeBin(pemFilename, pem, pemSz);
         }
@@ -411,8 +416,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
         pemFilename = (bAIK) ? pemFileAk : pemFileKey;
         pemSz = (word32)sizeof(pem);
-        rc = wolfTPM2_RsaKey_TpmToPemPub(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
-            pem, &pemSz);
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, (WOLFTPM2_KEY*)&newKeyBlob,
+            ENCODING_TYPE_PEM, pem, &pemSz);
         if (rc == 0) {
             rc = writeBin(pemFilename, pem, pemSz);
         }

@@ -2729,6 +2729,107 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
 }
 #endif /* HAVE_ECC */
 
+int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    int encodingType, byte* out, word32* outSz)
+{
+    int rc;
+    word32 derSz = 0;
+    union keyUnion {
+    #ifndef NO_RSA
+        RsaKey rsa;
+    #endif
+    #ifdef HAVE_ECC
+        ecc_key ecc;
+    #endif
+    } key;
+
+    if (dev == NULL || tpmKey == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* determine the type of key in WOLFTPM2_KEY */
+    if (tpmKey->pub.publicArea.type == TPM_ALG_ECC) {
+    #ifdef HAVE_ECC
+        rc = wc_ecc_init(&key.ecc);
+        if (rc == 0) {
+            /* load public portion of key into wolf ECC Key */
+            rc = wolfTPM2_EccKey_TpmToWolf(dev, tpmKey, &key.ecc);
+            if (rc == 0) {
+                rc = wc_EccPublicKeyToDer(&key.ecc, out, *outSz, 1);
+                if (rc > 0) {
+                    derSz = rc;
+                    rc = 0;
+                }
+                else {
+                    rc = BUFFER_E;
+                }
+            }
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (tpmKey->pub.publicArea.type == TPM_ALG_RSA) {
+    #ifndef NO_RSA
+        rc = wc_InitRsaKey(&key.rsa, NULL);
+        if (rc == 0) {
+            /* load public portion of key into wolf RSA Key */
+            rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &key.rsa);
+            if (rc == 0) {
+                rc = wc_RsaKeyToPublicDer_ex(&key.rsa, out, *outSz, 1);
+                if (rc > 0) {
+                    derSz = rc;
+                    rc = 0;
+                }
+                else {
+                    rc = BUFFER_E;
+                }
+            }
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("Invalid tpmKey type!\n");
+    #endif
+        rc = BAD_FUNC_ARG;
+    }
+
+    /* Optionally convert to PEM */
+    if (rc == 0 && encodingType == ENCODING_TYPE_PEM) {
+    #ifdef WOLFSSL_DER_TO_PEM
+        WOLFTPM2_BUFFER tmp;
+        if (derSz > (word32)sizeof(tmp.buffer)) {
+            rc = BUFFER_E;
+        }
+        else {
+            /* move DER to temp variable */
+            tmp.size = derSz;
+            XMEMCPY(tmp.buffer, out, derSz);
+            XMEMSET(out, 0, *outSz);
+            rc = wc_DerToPem(tmp.buffer, tmp.size, out, *outSz, PUBLICKEY_TYPE);
+            if (rc > 0) {
+                *outSz = rc;
+                rc = 0;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (rc == 0) {
+        *outSz = derSz;
+    }
+    return rc;
+}
+
 int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     WOLFTPM2_KEY* key, int encodingType, const char* input, word32 inSz,
     TPMA_OBJECT objectAttributes)
@@ -2991,61 +3092,8 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     byte* pem, word32* pemSz)
 {
-    int rc = TPM_RC_FAILURE;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM) && \
-    (defined(WOLFSSL_KEY_GEN) || defined(OPENSSL_EXTRA)) && !defined(NO_RSA)
-    RsaKey rsaKey;
-    byte* derBuf = NULL;
-    int derSz = 0;
-#endif
-
-    if (dev == NULL || tpmKey == NULL || pem == NULL || pemSz == NULL)
-        return BAD_FUNC_ARG;
-
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_DER_TO_PEM) && \
-    (defined(WOLFSSL_KEY_GEN) || defined(OPENSSL_EXTRA)) && !defined(NO_RSA)
-
-    /* Prepare wolfCrypt key structure */
-    rc = wc_InitRsaKey(&rsaKey, NULL);
-    if (rc == 0) {
-        /* Convert the wolfTPM key to wolfCrypt format */
-        rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &rsaKey);
-        if (rc == 0) {
-            /* Get DER size - newer API can be called with NULL to get size */
-            rc = wc_RsaKeyToPublicDer(&rsaKey, NULL, 0);
-            if (rc > 0) {
-                derSz = rc;
-                rc = 0;
-            }
-            else if (rc == BAD_FUNC_ARG) {
-                /* for older wolfSSL estimate based on key size */
-                derSz = wc_RsaEncryptSize(&rsaKey) * 2;
-                rc = 0;
-            }
-        }
-        if (derSz > 0) {
-            derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            if (derBuf == NULL)
-                rc = MEMORY_E;
-        }
-        if (rc == 0) {
-            /* Convert the wolfCrypt key to DER format */
-            rc = wc_RsaKeyToPublicDer(&rsaKey, derBuf, derSz);
-        }
-        if (rc >= 0) {
-            /* Convert the DER key to PEM format */
-            derSz = rc;
-            rc = wc_DerToPem(derBuf, derSz, pem, *pemSz, PUBLICKEY_TYPE);
-        }
-        if (rc >= 0) {
-            *pemSz = rc;
-            rc = TPM_RC_SUCCESS;
-        }
-        XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        wc_FreeRsaKey(&rsaKey);
-    }
-#endif
-    return rc;
+    return wolfTPM2_ExportPublicKeyBuffer(dev, tpmKey,
+        ENCODING_TYPE_PEM, pem, pemSz);
 }
 
 static word32 wolfTPM2_RsaKey_Exponent(byte* e, word32 eSz)

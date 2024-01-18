@@ -89,14 +89,14 @@ static int GetMyData(byte* buffer, word32 bufSz, word32 offset)
 
 /* The wc_PKCS7_EncodeSignedData_ex and wc_PKCS7_VerifySignedData_ex functions
    were added in this PR https://github.com/wolfSSL/wolfssl/pull/1780. */
-static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* der)
+static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* derCert,
+    WOLFTPM2_BUFFER* derPubKey, int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
     PKCS7 pkcs7;
     wc_HashAlg       hash;
-    enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
-    byte             hashBuf[TPM_SHA256_DIGEST_SIZE];
-    word32           hashSz = wc_HashGetDigestSize(hashType);
+    byte             hashBuf[TPM_MAX_DIGEST_SIZE];
+    word32           hashSz;
     byte outputHead[MAX_PKCS7_SIZE], outputFoot[MAX_PKCS7_SIZE];
     int outputHeadSz, outputFootSz;
     byte dataChunk[MY_DATA_CHUNKS];
@@ -106,6 +106,11 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
 #endif
 
     XMEMSET(&pkcs7, 0, sizeof(pkcs7));
+
+    hashSz = wc_HashGetDigestSize(hashType);
+    if (hashSz <= 0) {
+        return hashSz;
+    }
 
     /* calculate hash for content */
     rc = wc_HashInit(&hash, hashType);
@@ -131,14 +136,18 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     /* Generate and verify PKCS#7 files containing data using TPM key */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_InitWithCert(&pkcs7, der->buffer, der->size);
+    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert->buffer, derCert->size);
     if (rc != 0) goto exit;
 
     pkcs7.content = NULL; /* not used */
     pkcs7.contentSz = dataChunkSz;
-    pkcs7.encryptOID = RSAk;
-    pkcs7.hashOID = SHA256h;
+    pkcs7.encryptOID = (alg == TPM_ALG_RSA) ? RSAk : ECDSAk;
+    pkcs7.hashOID = wc_HashGetOID(hashType);
     pkcs7.rng = wolfTPM2_GetRng(dev);
+    /* pass public key instead of private here. The PKCS7 will try a public
+     * key decode if using crypto callbacks */
+    pkcs7.privateKey = derPubKey->buffer;
+    pkcs7.privateKeySz = derPubKey->size;
 
     outputHeadSz = (int)sizeof(outputHead);
     outputFootSz = (int)sizeof(outputFoot);
@@ -157,7 +166,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     TPM2_PrintBin(outputFoot, outputFootSz);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsignedex.p7s", "wb");
+    pemFile = XFOPEN(outFile, "wb");
     if (pemFile != XBADFILE) {
 
         /* Header */
@@ -227,7 +236,8 @@ exit:
 }
 #endif /* ENABLE_PKCS7EX_EXAMPLE */
 
-static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* der)
+static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* derCert,
+    WOLFTPM2_BUFFER* derPubKey, int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
     PKCS7 pkcs7;
@@ -243,14 +253,18 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     /* Generate and verify PKCS#7 files containing data using TPM key */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_InitWithCert(&pkcs7, der->buffer, der->size);
+    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert->buffer, derCert->size);
     if (rc != 0) goto exit;
 
     pkcs7.content = data;
     pkcs7.contentSz = (word32)sizeof(data);
-    pkcs7.encryptOID = RSAk;
-    pkcs7.hashOID = SHA256h;
+    pkcs7.encryptOID = (alg == TPM_ALG_RSA) ? RSAk : ECDSAk;
+    pkcs7.hashOID = wc_HashGetOID(hashType);
     pkcs7.rng = wolfTPM2_GetRng(dev);
+    /* pass public key instead of private here. The PKCS7 will try a public
+     * key decode if using crypto callbacks */
+    pkcs7.privateKey = derPubKey->buffer;
+    pkcs7.privateKeySz = derPubKey->size;
 
     rc = wc_PKCS7_EncodeSignedData(&pkcs7, output, sizeof(output));
     if (rc <= 0) goto exit;
@@ -261,7 +275,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     TPM2_PrintBin(output, outputSz);
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    pemFile = XFOPEN("./examples/pkcs7/pkcs7tpmsigned.p7s", "wb");
+    pemFile = XFOPEN(outFile, "wb");
     if (pemFile != XBADFILE) {
         rc = (int)XFWRITE(output, 1, outputSz, pemFile);
         XFCLOSE(pemFile);
@@ -297,6 +311,16 @@ exit:
     return rc;
 }
 
+static void usage(void)
+{
+    printf("Expected usage:\n");
+    printf("./examples/pkcs7/pkcs7 [-ecc/-rsa] [-out=]\n");
+    printf("* -ecc/-rsa: Use RSA or ECC key (default is RSA)\n");
+    printf("* -incert=file: Certificate for key used\n");
+    printf("\tDefault: RSA=./certs/client-rsa-cert.der, ECC=./certs/client-ecc-cert.der\n");
+    printf("* -out=file: Generated PKCS7 file containing signed data and certificate\n");
+}
+
 int TPM2_PKCS7_Example(void* userCtx)
 {
     return TPM2_PKCS7_ExampleArgs(userCtx, 0, NULL);
@@ -306,22 +330,60 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
-    WOLFTPM2_KEY rsaKey;
+    WOLFTPM2_KEY tpmKey;
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
-    WOLFTPM2_BUFFER der;
+    WOLFTPM2_BUFFER derCert;
+    WOLFTPM2_BUFFER derPubKey;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE derFile;
+    const char* inCert = NULL;
 #endif
+    TPM_ALG_ID alg = TPM_ALG_RSA;
+    const char* outFile =   "./examples/pkcs7/pkcs7tpmsigned.p7s";
+    const char* outFileEx = "./examples/pkcs7/pkcs7tpmsignedex.p7s";
+    enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
 
-    (void)argc;
-    (void)argv;
+    if (argc >= 2) {
+        if (XSTRCMP(argv[1], "-?") == 0 ||
+            XSTRCMP(argv[1], "-h") == 0 ||
+            XSTRCMP(argv[1], "--help") == 0) {
+            usage();
+            return 0;
+        }
+    }
+    while (argc > 1) {
+        if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+            alg = TPM_ALG_ECC;
+        }
+        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
+            alg = TPM_ALG_RSA;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-incert=",
+                XSTRLEN("-incert=")) == 0) {
+            inCert = argv[argc-1] + XSTRLEN("-incert=");
+        }
+        else if (XSTRNCMP(argv[argc-1], "-out=",
+                XSTRLEN("-out=")) == 0) {
+            outFile = argv[argc-1] + XSTRLEN("-out=");
+        }
+        else if (XSTRNCMP(argv[argc-1], "-outex=",
+                XSTRLEN("-outex=")) == 0) {
+            outFileEx = argv[argc-1] + XSTRLEN("-outex=");
+        }
+        else {
+            printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
+        }
+        argc--;
+    }
 
     printf("TPM2 PKCS7 Example\n");
 
-    XMEMSET(&der, 0, sizeof(der));
-    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+
+    XMEMSET(&derCert, 0, sizeof(derCert));
+    XMEMSET(&derPubKey, 0, sizeof(derPubKey));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
     XMEMSET(&storageKey, 0, sizeof(storageKey));
 
     /* Init the TPM2 device */
@@ -331,60 +393,110 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
-    tpmCtx.rsaKey = &rsaKey;
+    if (alg == TPM_ALG_RSA)
+        tpmCtx.rsaKey = &tpmKey;
+#endif
+#ifdef HAVE_ECC
+    if (alg == TPM_ALG_ECC)
+        tpmCtx.eccKey = &tpmKey;
 #endif
     rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
     if (rc < 0) goto exit;
 
     /* get SRK */
-    rc = getPrimaryStoragekey(&dev, &storageKey, TPM_ALG_RSA);
+    rc = getPrimaryStoragekey(&dev, &storageKey, alg);
     if (rc != 0) goto exit;
 
-    /* Create/Load RSA key for PKCS7 signing */
-    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
-                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-                    TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
-    if (rc != 0) goto exit;
+    /* Create/Load key for PKCS7 signing */
+    if (alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+        if (rc == 0) {
+            rc = getRSAkey(&dev,
+                        &storageKey,
+                        &tpmKey,
+                        NULL,
+                        tpmDevId,
+                        (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                        &publicTemplate);
+        }
+        if (rc == 0) {
+            /* export public key as DER for PKCS7, so it has the key information */
 
-    rc = getRSAkey(&dev,
-                   &storageKey,
-                   &rsaKey,
-                   NULL,
-                   tpmDevId,
-                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
-                   &publicTemplate);
-    if (rc != 0) goto exit;
-    wolfTPM2_SetAuthHandle(&dev, 0, &rsaKey.handle);
+        }
+    }
+    else {
+        TPM_ECC_CURVE curve;
+    #if defined(NO_ECC256) && defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
+        /* make sure we use a curve that is enabled */
+        curve = TPM_ECC_NIST_P384;
+    #else
+        curve = TPM_ECC_NIST_P256;
+    #endif
 
+        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+            curve, TPM_ALG_ECDSA);
+        if (rc == 0) {
+            rc = getECCkey(&dev,
+                            &storageKey,
+                            &tpmKey,
+                            NULL,
+                            tpmDevId,
+                            (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                            &publicTemplate);
+        }
+        if (rc == 0) {
+            /* export public key as DER for PKCS7, so it has the key information */
+
+        }
+    }
+    if (rc != 0) goto exit;
+    wolfTPM2_SetAuthHandle(&dev, 0, &tpmKey.handle);
 
     /* load DER certificate for TPM key (obtained by running
-        `./examples/csr/csr` and `./certs/certreq.sh`) */
+     * `./examples/csr/csr` and `./certs/certreq.sh`) */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    derFile = XFOPEN("./certs/client-rsa-cert.der", "rb");
+    if (inCert == NULL) {
+        if (alg == TPM_ALG_RSA)
+            inCert = "./certs/client-rsa-cert.der";
+        else
+            inCert = "./certs/client-ecc-cert.der";
+    }
+    derFile = XFOPEN(inCert, "rb");
     if (derFile != XBADFILE) {
         XFSEEK(derFile, 0, XSEEK_END);
-        der.size = (int)XFTELL(derFile);
+        derCert.size = (int)XFTELL(derFile);
         XREWIND(derFile);
-        if (der.size > (int)sizeof(der.buffer)) {
+        if (derCert.size > (int)sizeof(derCert.buffer)) {
             rc = BUFFER_E;
         }
         else {
-            rc = (int)XFREAD(der.buffer, 1, der.size, derFile);
-            rc = (rc == der.size) ? 0 : -1;
+            rc = (int)XFREAD(derCert.buffer, 1, derCert.size, derFile);
+            rc = (rc == derCert.size) ? 0 : -1;
         }
         XFCLOSE(derFile);
         if (rc != 0) goto exit;
     }
 #endif
 
+    /* Export TPM public key as DER/ASN.1 (should match certificate) */
+    derPubKey.size = (int)sizeof(derPubKey.buffer);
+    rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &tpmKey,
+        ENCODING_TYPE_ASN1, derPubKey.buffer, (word32*)&derPubKey.size);
+    if (rc != 0) goto exit;
 
     /* PKCS 7 sign/verify example */
-    rc = PKCS7_SignVerify(&dev, tpmDevId, &der);
+    rc = PKCS7_SignVerify(&dev, tpmDevId, &derCert, &derPubKey, alg, hashType,
+        outFile);
     if (rc != 0) goto exit;
 
 #ifdef ENABLE_PKCS7EX_EXAMPLE
     /* PKCS 7 large data sign/verify example */
-    rc = PKCS7_SignVerifyEx(&dev, tpmDevId, &der);
+    rc = PKCS7_SignVerifyEx(&dev, tpmDevId, &derCert, &derPubKey, alg, hashType,
+        outFileEx);
     if (rc != 0) goto exit;
 #endif
 
@@ -394,7 +506,7 @@ exit:
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
-    wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmKey.handle);
 
     wolfTPM2_Cleanup(&dev);
 

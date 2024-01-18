@@ -248,8 +248,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             word32 rsLen = sizeof(sigRS), keySz;
             word32 inlen = info->pk.eccsign.inlen;
 
-            /* truncate input to match key size */
+            /* get key size from wolf signing key */
             keySz = wc_ecc_size(info->pk.eccsign.key);
+            if (keySz == 0) {
+                /* if not populated fallback to key size for TPM key */
+                keySz = TPM2_GetCurveSize(
+                   tlsCtx->eccKey->pub.publicArea.parameters.eccDetail.curveID);
+            }
+            /* truncate input to match key size */
             if (inlen > keySz)
                 inlen = keySz;
 
