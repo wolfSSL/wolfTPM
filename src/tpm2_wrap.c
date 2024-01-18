@@ -5419,12 +5419,28 @@ int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     return TPM_RC_SUCCESS;
 }
 
+int wolfTPM2_GetKeyTemplate_RSA_ex(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, long exponent,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
+{
+    return GetKeyTemplateRSA(publicTemplate, nameAlg,
+        objectAttributes, keyBits, exponent, sigScheme, sigHash);
+}
+
 int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes)
 {
     return GetKeyTemplateRSA(publicTemplate, WOLFTPM2_WRAP_DIGEST,
         objectAttributes, WOLFTPM2_WRAP_RSA_KEY_BITS, WOLFTPM2_WRAP_RSA_EXPONENT,
         TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST);
+}
+
+int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
+{
+    return GetKeyTemplateECC(publicTemplate, nameAlg,
+        objectAttributes, curve, sigScheme, sigHash);
 }
 
 int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,

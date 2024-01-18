@@ -2354,6 +2354,7 @@ WOLFTPM_API int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev);
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new RSA template
     \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
 
+    \sa wolfTPM2_GetKeyTemplate_RSA_ex
     \sa wolfTPM2_GetKeyTemplate_ECC
     \sa wolfTPM2_GetKeyTemplate_Symmetric
     \sa wolfTPM2_GetKeyTemplate_KeyedHash
@@ -2361,6 +2362,32 @@ WOLFTPM_API int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev);
 */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Prepares a TPM public template for new RSA key based on user selected object attributes
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new RSA template
+    \param nameAlg integer value of TPM_ALG_ID type, specifying a TPM supported hashing algorithm, typically TPM_ALG_SHA256 for SHA 256
+    \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
+    \param keyBits integer value, specifying the size of the symmetric key, typically 128 or 256 bits
+    \param exponent integer value of word32 type, specifying the RSA exponent
+    \param sigScheme integer value of TPM_ALG_ID type, specifying a TPM supported signature scheme
+    \param sigHash integer value of TPM_ALG_ID type, specifying a TPM supported signature hash scheme
+
+    \sa wolfTPM2_GetKeyTemplate_RSA
+    \sa wolfTPM2_GetKeyTemplate_ECC
+    \sa wolfTPM2_GetKeyTemplate_ECC_ex
+    \sa wolfTPM2_GetKeyTemplate_Symmetric
+    \sa wolfTPM2_GetKeyTemplate_KeyedHash
+    \sa wolfTPM2_GetKeyTemplate_KeySeal
+*/
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_ex(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, int keyBits, long exponent,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2374,6 +2401,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
     \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID
     \param sigScheme integer value of TPM_ALG_ID type, specifying a TPM supported signature scheme
 
+    \sa wolfTPM2_GetKeyTemplate_ECC_ex
     \sa wolfTPM2_GetKeyTemplate_RSA
     \sa wolfTPM2_GetKeyTemplate_Symmetric
     \sa wolfTPM2_GetKeyTemplate_KeyedHash
@@ -2381,6 +2409,30 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
 */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Prepares a TPM public template for new ECC key based on user selected object attributes
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new ECC key template
+    \param nameAlg integer value of TPM_ALG_ID type, specifying a TPM supported hashing algorithm, typically TPM_ALG_SHA256 for SHA 256
+    \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
+    \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID
+    \param sigScheme integer value of TPM_ALG_ID type, specifying a TPM supported signature scheme
+    \param sigHash integer value of TPM_ALG_ID type, specifying a TPM supported signature hash scheme
+
+    \sa wolfTPM2_GetKeyTemplate_ECC
+    \sa wolfTPM2_GetKeyTemplate_RSA
+    \sa wolfTPM2_GetKeyTemplate_Symmetric
+    \sa wolfTPM2_GetKeyTemplate_KeyedHash
+    \sa wolfTPM2_GetKeyTemplate_KeySeal
+*/
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
+    TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
+    TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
 
 /*!
     \ingroup wolfTPM2_Wrappers

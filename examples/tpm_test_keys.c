@@ -44,14 +44,15 @@
 int writeBin(const char* filename, const byte *buf, word32 bufSz)
 {
     int rc = TPM_RC_FAILURE;
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    XFILE fp = NULL;
+    size_t fileSz = 0;
+#endif
 
     if (filename == NULL || buf == NULL)
         return BAD_FUNC_ARG;
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    XFILE fp = NULL;
-    size_t fileSz = 0;
-
     fp = XFOPEN(filename, "wb");
     if (fp != XBADFILE) {
         fileSz = XFWRITE(buf, 1, bufSz, fp);
@@ -73,15 +74,16 @@ int writeBin(const char* filename, const byte *buf, word32 bufSz)
 int readBin(const char* filename, byte *buf, word32* bufSz)
 {
     int rc = TPM_RC_FAILURE;
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    XFILE  fp = NULL;
+    size_t fileSz = 0;
+    size_t bytes_read = 0;
+#endif
 
     if (filename == NULL || buf == NULL)
         return BAD_FUNC_ARG;
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    XFILE  fp = NULL;
-    size_t fileSz = 0;
-    size_t bytes_read = 0;
-
     fp = XFOPEN(filename, "rb");
     if (fp != XBADFILE) {
         XFSEEK(fp, 0, XSEEK_END);
