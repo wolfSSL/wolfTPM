@@ -2751,7 +2751,8 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* determine the type of key in WOLFTPM2_KEY */
     if (tpmKey->pub.publicArea.type == TPM_ALG_ECC) {
-    #ifdef HAVE_ECC
+    #if defined(HAVE_ECC) && \
+        defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT)
         rc = wc_ecc_init(&key.ecc);
         if (rc == 0) {
             /* load public portion of key into wolf ECC Key */
