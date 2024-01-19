@@ -2772,7 +2772,11 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     #endif
     }
     else if (tpmKey->pub.publicArea.type == TPM_ALG_RSA) {
-    #ifndef NO_RSA
+        /* RSA public key export only enabled with:
+         * cert gen, key gen or openssl extra */
+    #if !defined(NO_RSA) && \
+        (defined(WOLFSSL_CERT_GEN) || defined(OPENSSL_EXTRA) || \
+         defined(WOLFSSL_KEY_GEN))
         rc = wc_InitRsaKey(&key.rsa, NULL);
         if (rc == 0) {
             /* load public portion of key into wolf RSA Key */
