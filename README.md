@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API’s in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
-* Testing done using the following TPM 2.0 modules: STM ST33TP* SPI/I2C, Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC and Nuvoton NPCT650/NPCT750.
+* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
@@ -86,7 +86,7 @@ Tested with:
 
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670 and SLB9672.
     - LetsTrust: [http://letstrust.de] (<https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module).> Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
-* ST ST33TP* TPM 2.0 module (SPI and I2C)
+* STMicro STSAFE-TPM, ST33TPHF2XSPI/2XI2C and ST33KTPM2X
 * Microchip ATTPM20 module
 * Nuvoton NPCT65X or NPCT75x TPM2.0 module
 
@@ -100,11 +100,11 @@ Infineon SLB9672:
 TPM2: Caps 0x30000697, Did 0x001d, Vid 0x15d1, Rid 0x36
 Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), FIPS 140-2 1, CC-EAL4 1
 
-ST ST33TP SPI
+STMicro ST33TPHF2XSPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.8 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
-ST ST33TP I2C
+STMicro ST33TPHF2XI2C
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
 Mfg STM  (2), Vendor , Fw 74.9 (1151341959), FIPS 140-2 1, CC-EAL4 0
 
@@ -153,7 +153,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
 --enable-infineon       Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)
---enable-st             Enable ST ST33TPM Support (default: disabled) - WOLFTPM_ST33
+--enable-st             Enable ST ST33 Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 
@@ -179,7 +179,7 @@ cd wolfTPM
 make
 ```
 
-### Building ST ST33TP*
+### Building ST ST33
 
 Build wolfTPM:
 
@@ -437,7 +437,7 @@ ECDSA    256 verify        42 ops took 1.013 sec, avg 24.114 ms, 41.470 ops/sec
 ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
 ```
 
-Run on ST ST33TP SPI at 33MHz:
+Run on STMicro ST33TPHF2XSPI at 33MHz:
 
 ```
 ./examples/bench/bench
