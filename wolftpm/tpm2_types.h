@@ -703,7 +703,7 @@ static inline word16 ByteReverseWord16(word16 value)
 
 static inline word32 ByteReverseWord32(word32 value)
 {
-#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+#if defined(WOLF_ALLOW_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
     return (word32)__builtin_bswap32(value);
 #elif defined(PPC_INTRINSICS)
     /* PPC: load reverse indexed instruction */
@@ -743,7 +743,7 @@ static inline word32 ByteReverseWord32(word32 value)
 
 static inline word64 ByteReverseWord64(word64 value)
 {
-#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+#if defined(WOLF_ALLOW_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
     return (word64)__builtin_bswap64(value);
 #else
     return (word64)((word64)ByteReverseWord32((word32)value)) << 32 |
