@@ -134,7 +134,6 @@ typedef int64_t  INT64;
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
-    #include <arpa/inet.h>
 
     #ifdef WOLFTPM_USER_SETTINGS
         #include "user_settings.h"
@@ -230,20 +229,6 @@ typedef int64_t  INT64;
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
-
-    #ifndef XHTONS
-        /* WOLFCRYPT_ONLY means no wolfio and no arpa/inet.h */
-        #ifdef WOLFCRYPT_ONLY
-            #ifdef BIG_ENDIAN_ORDER
-                #define XHTONS(s) (s)
-            #else
-                #define XHTONS(s) ((((s) & 0xff) << 8) | (((s) & 0xff00) >> 8))
-            #endif
-        #else
-            #include <arpa/inet.h>
-            #define XHTONS(s)         htons((s))
-        #endif
-    #endif
 
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
     #define XATOI(s)          atoi((s))
