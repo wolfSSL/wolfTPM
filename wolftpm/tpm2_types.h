@@ -134,7 +134,6 @@ typedef int64_t  INT64;
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
-    #include <arpa/inet.h>
 
     #ifdef WOLFTPM_USER_SETTINGS
         #include "user_settings.h"
@@ -230,20 +229,6 @@ typedef int64_t  INT64;
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
-
-    #ifndef XHTONS
-        /* WOLFCRYPT_ONLY means no wolfio and no arpa/inet.h */
-        #ifdef WOLFCRYPT_ONLY
-            #ifdef BIG_ENDIAN_ORDER
-                #define XHTONS(s) (s)
-            #else
-                #define XHTONS(s) ((((s) & 0xff) << 8) | (((s) & 0xff00) >> 8))
-            #endif
-        #else
-            #include <arpa/inet.h>
-            #define XHTONS(s)         htons((s))
-        #endif
-    #endif
 
     #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
     #define XATOI(s)          atoi((s))
@@ -718,7 +703,7 @@ static inline word16 ByteReverseWord16(word16 value)
 
 static inline word32 ByteReverseWord32(word32 value)
 {
-#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+#if defined(WOLF_ALLOW_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
     return (word32)__builtin_bswap32(value);
 #elif defined(PPC_INTRINSICS)
     /* PPC: load reverse indexed instruction */
@@ -758,7 +743,7 @@ static inline word32 ByteReverseWord32(word32 value)
 
 static inline word64 ByteReverseWord64(word64 value)
 {
-#if !defined(WOLF_NO_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
+#if defined(WOLF_ALLOW_BUILTIN) && defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
     return (word64)__builtin_bswap64(value);
 #else
     return (word64)((word64)ByteReverseWord32((word32)value)) << 32 |
