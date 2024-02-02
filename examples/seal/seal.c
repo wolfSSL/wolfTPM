@@ -124,6 +124,8 @@ int TPM2_Seal_Example(void* userCtx, int argc, char *argv[])
     }
 
     wolfTPM2_GetKeyTemplate_KeySeal(&publicTemplate, TPM_ALG_SHA256);
+    /* Allow password based unsealing */
+    publicTemplate.objectAttributes |= TPMA_OBJECT_userWithAuth;
 
     /* set session for authorization key */
     auth.size = (int)sizeof(gKeyAuth)-1;
