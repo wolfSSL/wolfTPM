@@ -325,7 +325,14 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("Loaded sealBlob to 0x%x\n", (word32)sealBlob.handle.hndl);
-    wolfTPM2_SetAuthHandle(&dev, 0, &sealBlob.handle);
+
+    /* use the policy session for unseal */
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+        TPMA_SESSION_continueSession));
+    if (rc != 0) goto exit;
+    /* set the sealed object name 0 (required) */
+    wolfTPM2_SetAuthHandleName(&dev, 0, &sealBlob.handle);
 
     /* unseal */
     unsealIn.itemHandle = sealBlob.handle.hndl;

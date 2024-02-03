@@ -5559,7 +5559,7 @@ int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID name
     publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
+        TPMA_OBJECT_noDA);
     publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_NULL;
     return TPM_RC_SUCCESS;
 }

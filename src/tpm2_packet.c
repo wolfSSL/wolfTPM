@@ -332,8 +332,7 @@ int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info)
         }
 
         /* Allow policy auth */
-        else if (authReq && TPM2_IS_POLICY_SESSION(sessionHandle) &&
-                sessionAttributes == 0) {
+        else if (authReq && TPM2_IS_POLICY_SESSION(sessionHandle)) {
             authSessCount++;
         }
         else if (!authReq) {
