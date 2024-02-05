@@ -194,6 +194,12 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
         caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
 
+    /* List the active persistent handles */
+    rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
+    if (rc >= 0) {
+        printf("Found %d persistent handles\n", rc);
+    }
+
     if (resetTPM) {
         /* reset all content on TPM and reseed */
         rc = wolfTPM2_Clear(&dev);
