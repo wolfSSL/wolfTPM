@@ -320,7 +320,7 @@ WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Reported the available TPM capabilities
+    \brief Reports the available TPM capabilities
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO communication and TPM return code)
@@ -347,6 +347,31 @@ WOLFTPM_API int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev);
     \sa wolfTPM2_Init
 */
 WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps);
+
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Gets a list of handles
+
+    \return 0 or great: successful, count of handles
+    \return TPM_RC_FAILURE: generic failure (check TPM IO communication and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param handle handle to start from (example: PCR_FIRST, NV_INDEX_FIRST, HMAC_SESSION_FIRST, POLICY_SESSION_FIRST, PERMANENT_FIRST, TRANSIENT_FIRST or PERSISTENT_FIRST)
+    \param handles pointer to TPML_HANDLE to return handle results (optional)
+
+    _Example_
+    \code
+    int persistent_handle_count;
+
+    // get count of persistent handles
+    persistent_handle_count = wolfTPM2_GetHandles(&dev, PERSISTENT_FIRST, NULL);
+    \endcode
+
+    \sa wolfTPM2_GetCapabilities
+*/
+WOLFTPM_API int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles);
+
 
 /*!
     \ingroup wolfTPM2_Wrappers

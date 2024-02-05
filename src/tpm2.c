@@ -857,7 +857,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
             TPM2_Packet_ParseU32(&packet, &out->capabilityData.capability);
 
             switch (out->capabilityData.capability) {
-                case TPM_CAP_TPM_PROPERTIES: {
+                case TPM_CAP_TPM_PROPERTIES:
+                {
                     TPML_TAGGED_TPM_PROPERTY* prop =
                         &out->capabilityData.data.tpmProperties;
                     TPM2_Packet_ParseU32(&packet, &prop->count);
@@ -866,6 +867,16 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                             &prop->tpmProperty[i].property);
                         TPM2_Packet_ParseU32(&packet,
                             &prop->tpmProperty[i].value);
+                    }
+                    break;
+                }
+                case TPM_CAP_HANDLES:
+                {
+                    TPML_HANDLE* handles =
+                        &out->capabilityData.data.handles;
+                    TPM2_Packet_ParseU32(&packet, &handles->count);
+                    for (i=0; i<(int)handles->count; i++) {
+                        TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
                     }
                     break;
                 }
