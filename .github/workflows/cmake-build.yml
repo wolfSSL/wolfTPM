@@ -22,7 +22,8 @@ jobs:
         sudo apt-get install -y cmake
 
 #pull and build wolfssl
-    - uses: actions/checkout@master
+    - name: Checkout wolfssl
+      uses: actions/checkout@master
       with:
         repository: wolfssl/wolfssl
         path: wolfssl
@@ -31,14 +32,16 @@ jobs:
       run: |
         mkdir build
         cd build
-        cmake -DWOLFSSL_TPM=yes ..
-        make
-        sudo make install
+        # wolfSSL PR 7188 broke "make install" unless WOLFSSL_INSTALL is set
+        cmake -DWOLFSSL_TPM=yes -DWOLFSSL_INSTALL=yes -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" ..
+        cmake --build .
+        cmake --install .
 
 #build wolftpm
     - name: Build wolfTPM
       run: |
         mkdir build
         cd build
-        cmake -DWOLFTPM_INTERFACE=SWTPM ..
-        make
+        cmake -DWOLFTPM_INTERFACE=SWTPM -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" -DWITH_WOLFSSL="$GITHUB_WORKSPACE/install" ..
+        cmake --build .
+        cmake --install .
