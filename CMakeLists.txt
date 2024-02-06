@@ -1,6 +1,6 @@
 # CMakeList.txt
 #
-# Copyright (C) 2006-2022 wolfSSL Inc.
+# Copyright (C) 2006-2024 wolfSSL Inc.
 #
 # This file is part of wolfSSL. (formerly known as CyaSSL)
 #
@@ -132,7 +132,7 @@ if (WITH_WOLFSSL)
     target_link_libraries(wolftpm PUBLIC wolfssl)
     target_include_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/include)
     target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
-    elseif (WITH_WOLFSSL_TREE)
+elseif (WITH_WOLFSSL_TREE)
     set(WOLFSSL_TPM "yes" CACHE STRING "")
     set(WOLFSSL_EXAMPLES "no" CACHE STRING "")
     set(WOLFSSL_CRYPT_TESTS "no" CACHE STRING "")
@@ -221,7 +221,7 @@ file(REMOVE ${OPTION_FILE})
 file(APPEND ${OPTION_FILE} "/* wolftpm options.h\n")
 file(APPEND ${OPTION_FILE} " * generated from cmake configure options\n")
 file(APPEND ${OPTION_FILE} " *\n")
-file(APPEND ${OPTION_FILE} " * Copyright (C) 2006-2022 wolfSSL Inc.\n")
+file(APPEND ${OPTION_FILE} " * Copyright (C) 2006-2024 wolfSSL Inc.\n")
 file(APPEND ${OPTION_FILE} " *\n")
 file(APPEND ${OPTION_FILE} " * This file is part of wolfSSL.\n")
 file(APPEND ${OPTION_FILE} " *\n")
@@ -292,7 +292,8 @@ install(TARGETS wolftpm
 # Install the export set
 install(EXPORT wolftpm-targets
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm
-        FILE wolftpm-config.cmake)
+        FILE wolftpm-config.cmake
+        NAMESPACE wolfssl::)
 
 # Install the headers
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/wolftpm/
