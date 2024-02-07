@@ -22,10 +22,6 @@
 #ifndef __TPM2_TYPES_H__
 #define __TPM2_TYPES_H__
 
-#ifdef HAVE_CONFIG_H
-    #include <config.h>
-#endif
-
 #include <wolftpm/visibility.h>
 #include <stdint.h>
 

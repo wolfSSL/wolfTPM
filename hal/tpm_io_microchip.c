@@ -20,8 +20,12 @@
  */
 
 /* This example shows IO interfaces for Microchip micro-controllers using
- * MPLAB X and Harmony */
+ * MPLAB X and Harmony
+ */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_tis.h>

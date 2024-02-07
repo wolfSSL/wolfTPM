@@ -23,6 +23,10 @@
  * and extract the secret for challenge response to an attestation server
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>

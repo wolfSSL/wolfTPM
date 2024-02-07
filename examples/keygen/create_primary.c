@@ -21,6 +21,10 @@
 
 /* Tool and example for creating and storing primary keys using TPM2.0 */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>

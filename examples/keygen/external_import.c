@@ -20,7 +20,12 @@
  */
 
 /* Example for importing an external RSA key with seed and creating a
- * child key under it. */
+ * child key under it.
+ */
+
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_wrap.h>
 

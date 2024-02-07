@@ -21,6 +21,10 @@
 
 /* This is a helper tool for extending hash into a TPM2.0 PCR */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER

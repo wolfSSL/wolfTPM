@@ -20,7 +20,12 @@
  */
 
 /* This examples demonstrates the use of GPIO available on some TPM modules.
- * Support tested with STM ST33 and Nuvoton NPCT750 FW 7.2.3.0 or later */
+ * Support tested with STM ST33 and Nuvoton NPCT750 FW 7.2.3.0 or later
+ */
+
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_wrap.h>
 

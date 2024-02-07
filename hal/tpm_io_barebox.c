@@ -21,6 +21,9 @@
 
 /* This example shows IO interfaces for Barebox */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_tis.h>

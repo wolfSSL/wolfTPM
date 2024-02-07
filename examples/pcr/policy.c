@@ -21,6 +21,10 @@
 
 /* This is a helper tool for setting policies on a TPM 2.0 PCR */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>
