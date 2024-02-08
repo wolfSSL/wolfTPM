@@ -21,6 +21,10 @@
 
 /* This example shows using the TPM2_ specification API's in TPM2_Native_Test() */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_param_enc.h>
 

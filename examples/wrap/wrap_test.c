@@ -19,7 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* This example shows using the TPM2 wrapper API's in TPM2_Wrapper_Test() below. */
+/* This example shows using the TPM2 wrapper API's in TPM2_Wrapper_Test() below.
+ */
+
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>

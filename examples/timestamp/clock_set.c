@@ -21,6 +21,10 @@
 
 /* This example shows how to increment the TPM2 clock */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>

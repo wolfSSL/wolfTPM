@@ -19,9 +19,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_packet.h>
-
 
 /* Endianess Helpers */
 #ifdef LITTLE_ENDIAN_ORDER

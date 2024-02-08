@@ -21,6 +21,10 @@
 
 /* Example for TPM 2.0 sealing a user secret using TPM key */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <stdio.h>

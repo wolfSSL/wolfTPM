@@ -22,6 +22,9 @@
 /* Example for signing PCR(s) to create a policy for unsealing a secret
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
