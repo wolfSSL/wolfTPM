@@ -753,6 +753,42 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
     return wolfTPM2_GetCapabilities_NoDev(cap);
 }
 
+int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+#ifdef DEBUG_WOLFTPM
+    UINT32 i;
+#endif
+
+    /* Get Capability TPM_CAP_HANDLES - PCR */
+    XMEMSET(&in, 0, sizeof(in));
+    in.capability = TPM_CAP_HANDLES;
+    in.property = handle;
+    in.propertyCount = MAX_CAP_HANDLES;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability handles failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    if (handles != NULL) {
+        /* optionally return handles count/list */
+        XMEMCPY(handles, &out.capabilityData.data.handles, sizeof(TPML_HANDLE));
+    }
+    handles = &out.capabilityData.data.handles;
+#ifdef DEBUG_WOLFTPM
+    printf("Handles Cap: Start 0x%x, Count %d\n", handle, handles->count);
+    for (i=0; i<handles->count; i++) {
+        printf("\tHandle 0x%x\n", handles->handle[i]);
+    }
+#endif
+    return handles->count;
+}
+
 int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index)
 {
     TPM2_AUTH_SESSION* session;
