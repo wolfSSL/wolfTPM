@@ -21,6 +21,10 @@
 
 /* This example demonstrates how to extract the data from a TPM seal object */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_FILESYSTEM)

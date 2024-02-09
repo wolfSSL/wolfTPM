@@ -23,6 +23,10 @@
  * PCR measurement. PCR values are used as basis for system integrity.
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER

@@ -19,6 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 /* use ANSI stdio for support of format strings, must be set before
  * including stdio.h
  */

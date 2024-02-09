@@ -21,6 +21,9 @@
 
 /* Tool and example for creating, storing and loading keys using TPM2.0 */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 /* use ANSI stdio for support of format strings, must be set before
  * including stdio.h

@@ -23,6 +23,10 @@
  * generate a signed timestamp from the TPM using a Attestation Identity Key.
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #ifndef WOLFTPM2_NO_WRAPPER

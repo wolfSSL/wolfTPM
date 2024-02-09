@@ -25,6 +25,10 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 
 #include <examples/gpio/gpio.h>

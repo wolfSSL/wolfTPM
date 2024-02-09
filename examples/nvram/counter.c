@@ -24,7 +24,11 @@
  * NB: This example uses Parameter Encryption to protect
  *     the Password Authorization of the TPM NVRAM Index
  *
- **/
+ */
+
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_wrap.h>
 

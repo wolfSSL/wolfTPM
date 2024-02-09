@@ -22,6 +22,10 @@
 /* This example shows benchmarks using the TPM2 wrapper API's in
     TPM2_Wrapper_Bench() below. */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 
