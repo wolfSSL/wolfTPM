@@ -108,9 +108,6 @@ typedef int64_t  INT64;
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
     #endif
-    #ifndef XFEOF
-        #define XFEOF      feof
-    #endif
 
 #else
 
@@ -199,6 +196,13 @@ typedef int64_t  INT64;
     #define printf XPRINTF
 #endif
 
+/* make sure file IO macros are available for examples */
+#ifndef XFEOF /* used in pcr/extend example */
+    #define XFEOF      feof
+#endif
+#ifndef XREWIND /* used in tpm_test_keys.c */
+    #define XREWIND    rewind
+#endif
 
 
 /* ---------------------------------------------------------------------------*/
