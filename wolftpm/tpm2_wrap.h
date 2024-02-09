@@ -356,7 +356,7 @@ WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps)
     \ingroup wolfTPM2_Wrappers
     \brief Gets a list of handles
 
-    \return 0 or great: successful, count of handles
+    \return 0 or greater: successful, count of handles
     \return TPM_RC_FAILURE: generic failure (check TPM IO communication and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
@@ -368,7 +368,7 @@ WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps)
     int persistent_handle_count;
 
     // get count of persistent handles
-    persistent_handle_count = wolfTPM2_GetHandles(&dev, PERSISTENT_FIRST, NULL);
+    persistent_handle_count = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
     \endcode
 
     \sa wolfTPM2_GetCapabilities
