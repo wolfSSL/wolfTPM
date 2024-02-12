@@ -823,7 +823,8 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
-        session->symmetric = tpmSession->handle.symmetric;
+        XMEMCPY(&session->symmetric, &tpmSession->handle.symmetric,
+             sizeof(TPMT_SYM_DEF));
 
         /* fresh nonce generated in TPM2_CommandProcess based on this size */
         session->nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
