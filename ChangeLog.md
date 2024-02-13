@@ -1,5 +1,20 @@
 # Release Notes
 
+## wolfTPM Release 2.7.1 (Feb 12, 2024) - LTS
+
+**Summary**
+
+Long Term Support Release
+
+**Detail**
+
+* Fixed config.h, which should only be included from .c files, not headers. PR 330
+* Fixed XREWIND missing issue. (PR 227)
+* Fixed issue with `struct` assignment (PR 303).
+* Added new API `wolfTPM2_GetHandles` to get list of handles from the TPM capabilities. (PR 328)
+* Added support for ECC parameter encryption. (PR 276)
+
+
 ## wolfTPM Release 2.7.0 (Dec 27, 2022)
 
 **Summary**
