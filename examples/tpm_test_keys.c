@@ -288,14 +288,23 @@ int readAndLoadKey(WOLFTPM2_DEV* pDev,
     return rc;
 }
 
-int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
-                                       WOLFTPM2_KEY* pStorageKey,
-                                       TPM_ALG_ID alg)
+int getPrimaryStoragekey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey,
+    TPM_ALG_ID alg)
 {
     int rc;
+    TPM_HANDLE handle;
+
+    if (alg == TPM_ALG_RSA)
+        handle = TPM2_DEMO_STORAGE_KEY_HANDLE;
+    else if (alg == TPM_ALG_ECC)
+        handle = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
+    else {
+        printf("Invalid SRK alg %x\n", alg);
+        return BAD_FUNC_ARG;
+    }
 
     /* See if SRK already exists */
-    rc = wolfTPM2_ReadPublicKey(pDev, pStorageKey, TPM2_DEMO_STORAGE_KEY_HANDLE);
+    rc = wolfTPM2_ReadPublicKey(pDev, pStorageKey, handle);
     if (rc != 0) {
         /* Create primary storage key */
         rc = wolfTPM2_CreateSRK(pDev, pStorageKey, alg,
@@ -303,8 +312,7 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
     #ifndef WOLFTPM_WINAPI
         if (rc == TPM_RC_SUCCESS) {
             /* Move storage key into persistent NV */
-            rc = wolfTPM2_NVStoreKey(pDev, TPM_RH_OWNER, pStorageKey,
-                TPM2_DEMO_STORAGE_KEY_HANDLE);
+            rc = wolfTPM2_NVStoreKey(pDev, TPM_RH_OWNER, pStorageKey, handle);
         }
     #endif
     }

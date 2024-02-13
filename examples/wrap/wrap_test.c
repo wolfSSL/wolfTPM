@@ -519,7 +519,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             storageKey.handle.auth.size);
     }
 
-#if 0 /* disabled until ECC Encrypted salt is added */
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
         rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
@@ -533,7 +532,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
     }
-#endif
 
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
