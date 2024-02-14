@@ -230,7 +230,7 @@ AC_ARG_ENABLE([swtpm],
     [ ENABLED_SWTPM=no ]
     )
 
-if test "x$ENABLED_SWTPM" = "xyes"
+if test "x$ENABLED_SWTPM" != "xno"
 then
     if test "x$ENABLED_DEVTPM" = "xyes"
     then
@@ -238,6 +238,16 @@ then
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
+
+    if test "x$ENABLED_SWTPM" = "xuart"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UART"
+    fi
+
+    if test "x$ENABLED_SWTPM" = "xuartns550"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UARTNS550"
+    fi
 fi
 
 # Windows TBS device Support
@@ -253,7 +263,7 @@ AC_ARG_ENABLE([winapi],
 
 if test "x$ENABLED_WINAPI" = "xyes" || test "x$ENABLED_WINTBS" = "xyes"
 then
-    if test "x$ENABLED_DEVTPM" = "xyes" -o "x$ENABLED_SWTPM" = "xyes"
+    if test "x$ENABLED_DEVTPM" = "xyes" -o "x$ENABLED_SWTPM" != "xno"
     then
         AC_MSG_ERROR([Cannot enable swtpm or devtpm with windows API])
     fi
@@ -392,7 +402,7 @@ AC_ARG_ENABLE([hal],
     [ ENABLED_EXAMPLE_HAL=$enableval ],
     [ ENABLED_EXAMPLE_HAL=yes ]
     )
-if test "x$ENABLED_EXAMPLE_HAL" = "xyes"
+if test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_EXAMPLE_HAL"
 fi
@@ -425,12 +435,12 @@ AM_CONDITIONAL([BUILD_ST], [test "x$ENABLED_ST" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" != "xno"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
-AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" != "xno"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
-AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes"])
 
 
 CREATE_HEX_VERSION
