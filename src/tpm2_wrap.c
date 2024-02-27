@@ -834,14 +834,12 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         XMEMCPY(session->nonceTPM.buffer, tpmSession->nonceTPM.buffer,
             session->nonceTPM.size);
 
-        /* Parameter Encryption or Policy session will have an HMAC added later.
+        /* Parameter Encryption session will have an hmac added later.
          * Reserve space, the same way it was done for nonceCaller above.
          */
-        if ((session->sessionHandle != TPM_RS_PW &&
-                ((session->sessionAttributes & TPMA_SESSION_encrypt) ||
-                 (session->sessionAttributes & TPMA_SESSION_decrypt)))
-             || TPM2_IS_POLICY_SESSION(session->sessionHandle))
-        {
+        if (session->sessionHandle != TPM_RS_PW &&
+            ((session->sessionAttributes & TPMA_SESSION_encrypt) ||
+             (session->sessionAttributes & TPMA_SESSION_decrypt))) {
             session->auth.size = TPM2_GetHashDigestSize(session->authHash);
         }
     }
