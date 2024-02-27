@@ -1,5 +1,15 @@
 # Release Notes
 
+## wolfTPM Release 2.7.2 (Feb 27, 2024) - LTS
+
+**Summary**
+
+Long Term Support Release
+
+**Detail**
+
+* Revert change from 26dc13916e698549c0375919c8ec9ace3a8050a1 . This change is part of the auth refactor, not ECC parameter encryption.
+
 ## wolfTPM Release 2.7.1 (Feb 12, 2024) - LTS
 
 **Summary**
