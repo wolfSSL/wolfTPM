@@ -47,18 +47,18 @@ enum tpm_tis_status {
     TPM_STS_RESP_RETRY          = 0x02,
 };
 
-enum tpm_tis_int_flags {
-    TPM_GLOBAL_INT_ENABLE       = 0x80000000,
-    TPM_INTF_BURST_COUNT_STATIC = 0x100,
-    TPM_INTF_CMD_READY_INT      = 0x080,
-    TPM_INTF_INT_EDGE_FALLING   = 0x040,
-    TPM_INTF_INT_EDGE_RISING    = 0x020,
-    TPM_INTF_INT_LEVEL_LOW      = 0x010,
-    TPM_INTF_INT_LEVEL_HIGH     = 0x008,
-    TPM_INTF_LOC_CHANGE_INT     = 0x004,
-    TPM_INTF_STS_VALID_INT      = 0x002,
-    TPM_INTF_DATA_AVAIL_INT     = 0x001,
-};
+/* enum tpm_tis_int_flags */
+#define TPM_GLOBAL_INT_ENABLE       0x80000000UL
+#define TPM_INTF_BURST_COUNT_STATIC 0x100
+#define TPM_INTF_CMD_READY_INT      0x080
+#define TPM_INTF_INT_EDGE_FALLING   0x040
+#define TPM_INTF_INT_EDGE_RISING    0x020
+#define TPM_INTF_INT_LEVEL_LOW      0x010
+#define TPM_INTF_INT_LEVEL_HIGH     0x008
+#define TPM_INTF_LOC_CHANGE_INT     0x004
+#define TPM_INTF_STS_VALID_INT      0x002
+#define TPM_INTF_DATA_AVAIL_INT     0x001
+
 
 #ifndef TPM_BASE_ADDRESS
 #define TPM_BASE_ADDRESS (0xD40000u)

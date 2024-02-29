@@ -132,6 +132,12 @@ jobs:
     - name: make debug io
       run: make
 
+# build pedantic
+    - name: configure pedantic
+      run: ./configure CFLAGS="-Wpedantic"
+    - name: make pedantic
+      run: make
+
 # capture logs on failure
     - name: Upload failure logs
       if: failure()
