@@ -1122,7 +1122,7 @@ typedef struct TPMT_SYM_DEF {
     TPMI_ALG_SYM algorithm;
     TPMU_SYM_KEY_BITS keyBits;
     TPMU_SYM_MODE mode;
-    //TPMU_SYM_DETAILS details;
+    /*TPMU_SYM_DETAILS details;*/ /* not used */
 } TPMT_SYM_DEF;
 
 typedef TPMT_SYM_DEF TPMT_SYM_DEF_OBJECT;
