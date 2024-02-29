@@ -47,6 +47,27 @@ target_compile_definitions(wolftpm PRIVATE
     "BUILDING_WOLFTPM"
     )
 
+include(CheckIncludeFile)
+check_include_file("fcntl.h" HAVE_FCNTL_H)
+check_include_file("netdb.h" HAVE_NETDB_H)
+check_include_file("time.h" HAVE_TIME_H)
+check_include_file("sys/ioctl.h" HAVE_SYS_IOCTL_H)
+check_include_file("sys/socket.h" HAVE_SYS_SOCKET_H)
+check_include_file("sys/time.h" HAVE_SYS_TIME_H)
+check_include_file("errno.h" HAVE_ERRNO_H)
+check_include_file("stdint.h" HAVE_STDINT_H)
+check_include_file("stdlib.h" HAVE_STDLIB_H)
+check_include_file("string.h" HAVE_STRING_H)
+check_include_file("sys/stat.h" HAVE_SYS_STAT_H)
+check_include_file("sys/types.h" HAVE_SYS_TYPES_H)
+check_include_file("unistd.h" HAVE_UNISTD_H)
+
+include(CheckFunctionExists)
+check_function_exists("gethostbyname" HAVE_GETHOSTBYNAME)
+check_function_exists("getaddrinfo" HAVE_GETADDRINFO)
+check_function_exists("gettimeofday" HAVE_GETTIMEOFDAY)
+
+
 
 # TODO
 # * wrapper
@@ -243,6 +264,26 @@ file(APPEND ${OPTION_FILE} "\n#ifdef __cplusplus\n")
 file(APPEND ${OPTION_FILE} "}\n")
 file(APPEND ${OPTION_FILE} "#endif\n\n\n")
 file(APPEND ${OPTION_FILE} "#endif /* WOLFTPM_OPTIONS_H */\n\n")
+
+
+
+# generate config.h
+message("Generating config header...")
+set(WOLFTPM_CONFIG_H "yes" CACHE STRING
+"Enable generation of config.h and define HAVE_CONFIG_H (default: enabled)")
+set_property(CACHE WOLFTPM_DEBUG
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_CONFIG_H)
+    add_definitions("-DHAVE_CONFIG_H")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.in"
+                   "${CMAKE_CURRENT_BINARY_DIR}/config.h" )
+    # If config.h exists, delete it to avoid a mixup with build/config.h
+    if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.h")
+        file(REMOVE "${CMAKE_CURRENT_SOURCE_DIR}/config.h")
+    endif()
+endif()
+
+
 
 
 if (WOLFTPM_EXAMPLES)
