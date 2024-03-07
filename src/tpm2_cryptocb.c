@@ -436,8 +436,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         if (hashCtx)
             hash.handle.hndl = hashCtx->handle;
 
+        rc = 0; /* initialize return code */
         if (info->hash.in != NULL) { /* Update */
-            rc = 0;
             /* If not single shot (update and final) then allocate context */
             if (hashCtx == NULL && info->hash.digest == NULL) {
                 hashCtx = (WOLFTPM2_HASHCTX*)XMALLOC(sizeof(*hashCtx), NULL,
