@@ -1,5 +1,8 @@
 # wolfTPM User Manual
 
+The latest wolfTPM user manual is available at: https://www.wolfssl.com/documentation/manuals/wolftpm/index.html
+Source generated from: https://github.com/wolfSSL/documentation/blob/master/wolfTPM/src/
+
 ## Introduction
 
 wolfTPM is a portable TPM 2.0 project, designed for embedded use. It is highly portable, due to having been written in native C, having a single IO callback for SPI hardware interface, no external dependencies, and its compacted code with low resource usage.

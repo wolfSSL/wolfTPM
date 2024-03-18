@@ -545,7 +545,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     \return TPM_RC_FAILURE: check TPM return code, check available handles, check TPM IO
 
     \param dev pointer to a TPM2_DEV struct
-    \param session pointer to an empty WOLFTPM2_SESSION struct
+    \param tpmSession pointer to an empty WOLFTPM2_SESSION struct
 
     \sa wolfTPM2_SetAuthSession
     \sa wolfTPM2_StartSession
@@ -862,6 +862,7 @@ WOLFTPM_API int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     \param rsaPrivSz integer value of word32 type, specifying the private material buffer size
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
     \param hashAlg integer value of TPMI_ALG_HASH type, specifying a supported TPM 2.0 hash algorithm
+    \param attributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM (or 0 to automatically populate)
     \param seedSz Optional (use NULL) or supply a custom seed for KDF
     \param seed Size of the seed (use 32 bytes for SHA2-256)
 
@@ -1008,6 +1009,7 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
     \param eccPubYSz integer value of word32 type, specifying the point Y buffer size
     \param eccPriv pointer to a byte buffer containing the private material
     \param eccPrivSz integer value of word32 type, specifying the private material size
+    \param attributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM (or 0 to automatically populate)
     \param seedSz Optional (use NULL) or supply a custom seed for KDF
     \param seed Size of the seed (use 32 bytes for SHA2-256)
 
@@ -1379,7 +1381,6 @@ WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
 
-    \param dev pointer to a TPM2_DEV struct
     \param der The der encoding of the content of the extension.
     \param derSz The size in bytes of the der encoding.
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
@@ -1476,7 +1477,6 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
 
-    \param dev pointer to a TPM2_DEV struct
     \param der The der encoding of the content of the extension.
     \param derSz The size in bytes of the der encoding.
     \param pub pointer to a populated structure of TPM2B_PUBLIC type
@@ -3455,6 +3455,7 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHa
     \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
+    \param dev pointer to a TPM2_DEV struct
     \param pcrAlg the hash algorithm to use with pcr policy
     \param pcrArray array of pcr Index to use when creating the policy
     \param pcrArraySz the number of Index in the pcrArray
