@@ -5256,6 +5256,23 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
     }
     return rc;
 }
+
+TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    
+    TPM2_Packet packet;
+    TPM2_Packet_Init(ctx, &packet);
+    TPM2_Packet_AppendU32(&packet, 0x100);
+    TPM2_Packet_AppendU32(&packet, 3);
+    TPM2_Packet_AppendU32(&packet, 1);
+    TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetCapability);
+    
+    rc = TPM2_SendCommand(ctx, &packet);
+    if (rc == TPM_RC_SUCCESS) memcpy(info, &packet.buf[25], size);
+    return rc;
+}
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 /* GPIO Vendor Specific API's */
