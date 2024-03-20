@@ -105,9 +105,9 @@ Infineon SLB9673:
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a), FIPS 140-2 1, CC-EAL4 1
 
-STMicro ST33KTPM2XI2C
+STMicro ST33KTPM2XSPI
 TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 0
-Mfg STM  (2), Vendor ST33KTPM2XI2C, Fw 9.256 (0x0), FIPS 140-2 1, CC-EAL4 0
+Mfg STM  (2), Vendor ST33KTPM2XSPI, Fw 9.256 (0x0), FIPS 140-2 1, CC-EAL4 0
 
 STMicro ST33TPHF2XSPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
@@ -483,7 +483,7 @@ ECDSA    256 verify        18 ops took 1.043 sec, avg 57.921 ms, 17.265 ops/sec
 ECDHE    256 agree          9 ops took 1.025 sec, avg 113.888 ms, 8.781 ops/sec
 ```
 
-Run on STMicro ST33KTPM2XI2C at 33MHz:
+Run on STMicro ST33KTPM2XSPI at 33MHz:
 
 ```
 ./examples/bench/bench
