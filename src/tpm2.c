@@ -5177,6 +5177,7 @@ int TPM2_SetCommandSet(SetCommandSet_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5209,6 +5210,7 @@ int TPM2_SetMode(SetMode_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5625,7 +5627,7 @@ const char* TPM2_GetRCString(int rc)
         return "Success";
     }
 
-    if ((rc & RC_WARN) && (rc & RC_FMT1) == 0) {
+    if ((rc & RC_WARN) && (rc & RC_FMT1) == 0 && (rc & RC_VER1) == 0) {
         int rc_warn = rc & RC_MAX_WARN;
 
         switch (rc_warn) {

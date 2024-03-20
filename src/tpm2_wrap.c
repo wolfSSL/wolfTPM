@@ -5089,6 +5089,9 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         /* try to enable support */
         rc = wolfTPM2_SetCommand(dev, TPM_CC_EncryptDecrypt2, YES);
         if (rc == TPM_RC_SUCCESS) {
+            /* reset session auth for key */
+            wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
             /* try command again */
             rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
         }
@@ -5152,6 +5155,9 @@ int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
         SetCommandSet_In in;
+
+        /* set blank platform auth */
+        wolfTPM2_SetAuthPassword(dev, 0, NULL);
 
         /* Enable commands (like TPM2_EncryptDecrypt2) */
         XMEMSET(&in, 0, sizeof(in));

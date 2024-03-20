@@ -86,7 +86,7 @@ Tested with:
 
 * Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB9670, SLB9672 and SLB9673 (I2C).
     - LetsTrust: Vendor for TPM development boards [http://letstrust.de](http://letstrust.de).
-* STMicro STSAFE-TPM, ST33TPHF2XSPI/2XI2C and ST33KTPM2X
+* STMicro STSAFE-TPM, ST33TPHF2XSPI/2XI2C and ST33KTPM2X (SPI and I2C)
 * Microchip ATTPM20 module
 * Nuvoton NPCT65X or NPCT75x TPM2.0 module
 * Nations Technologies Z32H330 TPM 2.0 module
@@ -104,6 +104,10 @@ Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), FIPS 140-2 1, CC-EAL4 1
 Infineon SLB9673:
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a), FIPS 140-2 1, CC-EAL4 1
+
+STMicro ST33KTPM2XI2C
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 0
+Mfg STM  (2), Vendor ST33KTPM2XI2C, Fw 9.256 (0x0), FIPS 140-2 1, CC-EAL4 0
 
 STMicro ST33TPHF2XSPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
@@ -477,6 +481,40 @@ ECC      256 key gen        4 ops took 1.244 sec, avg 311.031 ms, 3.215 ops/sec
 ECDSA    256 sign          14 ops took 1.009 sec, avg 72.057 ms, 13.878 ops/sec
 ECDSA    256 verify        18 ops took 1.043 sec, avg 57.921 ms, 17.265 ops/sec
 ECDHE    256 agree          9 ops took 1.025 sec, avg 113.888 ms, 8.781 ops/sec
+```
+
+Run on STMicro ST33KTPM2XI2C at 33MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+RNG                 24 KB took 1.042 seconds,   23.028 KB/s
+AES-128-CBC-enc     52 KB took 1.018 seconds,   51.077 KB/s
+AES-128-CBC-dec     52 KB took 1.027 seconds,   50.644 KB/s
+AES-256-CBC-enc     46 KB took 1.012 seconds,   45.446 KB/s
+AES-256-CBC-dec     46 KB took 1.021 seconds,   45.072 KB/s
+AES-128-CTR-enc     44 KB took 1.025 seconds,   42.927 KB/s
+AES-128-CTR-dec     44 KB took 1.024 seconds,   42.955 KB/s
+AES-256-CTR-enc     40 KB took 1.025 seconds,   39.016 KB/s
+AES-256-CTR-dec     40 KB took 1.026 seconds,   38.992 KB/s
+AES-128-CFB-enc     52 KB took 1.026 seconds,   50.674 KB/s
+AES-128-CFB-dec     46 KB took 1.023 seconds,   44.986 KB/s
+AES-256-CFB-enc     46 KB took 1.021 seconds,   45.047 KB/s
+AES-256-CFB-dec     42 KB took 1.033 seconds,   40.665 KB/s
+SHA1               138 KB took 1.009 seconds,  136.727 KB/s
+SHA256             128 KB took 1.010 seconds,  126.723 KB/s
+SHA384             116 KB took 1.001 seconds,  115.833 KB/s
+RSA     2048 key gen        9 ops took 17.497 sec, avg 1944.057 ms, 0.514 ops/sec
+RSA     2048 Public       155 ops took 1.003 sec, avg 6.468 ms, 154.601 ops/sec
+RSA     2048 Private       12 ops took 1.090 sec, avg 90.806 ms, 11.013 ops/sec
+RSA     2048 Pub  OAEP    122 ops took 1.004 sec, avg 8.230 ms, 121.501 ops/sec
+RSA     2048 Priv OAEP     11 ops took 1.023 sec, avg 92.964 ms, 10.757 ops/sec
+ECC      256 key gen       12 ops took 1.070 sec, avg 89.172 ms, 11.214 ops/sec
+ECDSA    256 sign          40 ops took 1.010 sec, avg 25.251 ms, 39.602 ops/sec
+ECDSA    256 verify        28 ops took 1.023 sec, avg 36.543 ms, 27.365 ops/sec
+ECDHE    256 agree         16 ops took 1.062 sec, avg 66.391 ms, 15.062 ops/sec
 ```
 
 Run on STMicro ST33TPHF2XSPI at 33MHz:
