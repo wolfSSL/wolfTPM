@@ -260,19 +260,31 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 
 #ifdef HAVE_ECC
     if (useECC) {
-        /* Create/Load ECC key for TLS authentication */
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-                TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-                TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
-        if (rc != 0) goto exit;
-        rc = getECCkey(&dev,
-                    &storageKey,
-                    &eccKey,
-                    NULL,
-                    tpmDevId,
-                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
-                    &publicTemplate);
+    #ifdef WOLFTPM_MFG_IDENTITY
+        /* Attempt to use pre-provisioned identity key */
+        rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
+        if (rc == 0) {
+            /* TODO: Supply master password (if not TEST_SAMPLE) */
+            wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
+        }
+        else
+    #endif
+        {
+            /* Create/Load ECC key for TLS authentication */
+            rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                    TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                    TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+            if (rc == 0) {
+                rc = getECCkey(&dev,
+                            &storageKey,
+                            &eccKey,
+                            NULL,
+                            tpmDevId,
+                            (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                            &publicTemplate);
+            }
+        }
         if (rc != 0) goto exit;
     }
 
@@ -423,7 +435,17 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     else {
     #ifdef HAVE_ECC
         printf("Loading ECC certificate\n");
-        #ifdef NO_FILESYSTEM
+        #ifdef WOLFTPM_MFG_IDENTITY
+        uint8_t cert[800];
+        uint32_t certSz = (uint32_t)sizeof(cert);
+        rc = wolfTPM2_NVReadCert(&dev, TPM2_IDEVID_CERT_HANDLE, cert, &certSz);
+        if (rc == 0) {
+            /* Load "cert" buffer with ASN.1/DER certificate */
+            rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert, (long)certSz,
+                WOLFSSL_FILETYPE_ASN1);
+
+        }
+        #elif defined(NO_FILESYSTEM)
         /* Load "cert" buffer with ASN.1/DER certificate */
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
