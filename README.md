@@ -84,11 +84,12 @@ We also support an advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`), which
 
 Tested with:
 
-* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB 9670 and SLB9672.
-    - LetsTrust: [http://letstrust.de] (<https://buyzero.de/collections/andere-platinen/products/letstrust-hardware-tpm-trusted-platform-module).> Compact Raspberry Pi TPM 2.0 board based on Infineon SLB 9670.
+* Infineon OPTIGA (TM) Trusted Platform Module 2.0 SLB9670, SLB9672 and SLB9673 (I2C).
+    - LetsTrust: Vendor for TPM development boards [http://letstrust.de](http://letstrust.de).
 * STMicro STSAFE-TPM, ST33TPHF2XSPI/2XI2C and ST33KTPM2X
 * Microchip ATTPM20 module
 * Nuvoton NPCT65X or NPCT75x TPM2.0 module
+* Nations Technologies Z32H330 TPM 2.0 module
 
 #### Device Identification
 
@@ -99,6 +100,10 @@ Mfg IFX (1), Vendor SLB9670, Fw 7.85 (4555), FIPS 140-2 1, CC-EAL4 1
 Infineon SLB9672:
 TPM2: Caps 0x30000697, Did 0x001d, Vid 0x15d1, Rid 0x36
 Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), FIPS 140-2 1, CC-EAL4 1
+
+Infineon SLB9673:
+TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
+Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a), FIPS 140-2 1, CC-EAL4 1
 
 STMicro ST33TPHF2XSPI
 TPM2: Caps 0x1a7e2882, Did 0x0000, Vid 0x104a, Rid 0x4e
@@ -152,7 +157,7 @@ autogen.sh requires: automake and libtool: `sudo apt-get install automake libtoo
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
---enable-infineon       Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)
+--enable-infineon       Enable Infineon SLB9670/SLB9672/SLB9673 TPM Support (default: disabled) - WOLFTPM_SLB9670 / WOLFTPM_SLB9672
 --enable-st             Enable ST ST33 Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
@@ -167,7 +172,15 @@ TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 ```
 
-### Building Infineon SLB9670/SLB9672
+Note: For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:
+1. Edit `sudo vim /boot/config.txt`
+2. Uncomment `dtparam=i2c_arm=on`
+3. Reboot `sudo reboot`
+
+
+### Building Infineon
+
+Support for SLB9670 or SLB9672 (SPI) / SLB9673 (I2C)
 
 Build wolfTPM:
 
@@ -175,7 +188,7 @@ Build wolfTPM:
 git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
 ./autogen.sh
-./configure --enable-infineon
+./configure --enable-infineon [--enable-i2c]
 make
 ```
 
@@ -188,11 +201,6 @@ Build wolfTPM:
 ./configure --enable-st33 [--enable-i2c]
 make
 ```
-
-For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:
-1. Edit `sudo vim /boot/config.txt`
-2. Uncomment `dtparam=i2c_arm=on`
-3. Reboot `sudo reboot`
 
 ### Building Microchip ATTPM20
 
@@ -435,6 +443,40 @@ ECC      256 key gen        8 ops took 1.088 sec, avg 135.956 ms, 7.355 ops/sec
 ECDSA    256 sign          29 ops took 1.033 sec, avg 35.621 ms, 28.073 ops/sec
 ECDSA    256 verify        42 ops took 1.013 sec, avg 24.114 ms, 41.470 ops/sec
 ECDHE    256 agree         16 ops took 1.055 sec, avg 65.948 ms, 15.164 ops/sec
+```
+
+Run on Infineon SLB9673 on I2C at 400kHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+RNG                  4 KB took 1.429 seconds,    2.799 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+AES-128-CFB-enc      4 KB took 1.022 seconds,    3.914 KB/s
+AES-128-CFB-dec      4 KB took 1.021 seconds,    3.916 KB/s
+AES-256-CFB-enc      4 KB took 1.023 seconds,    3.911 KB/s
+AES-256-CFB-dec      4 KB took 1.023 seconds,    3.912 KB/s
+SHA1                 8 KB took 1.203 seconds,    6.650 KB/s
+SHA256               8 KB took 1.208 seconds,    6.623 KB/s
+SHA384               8 KB took 1.209 seconds,    6.617 KB/s
+RSA     2048 key gen       10 ops took 19.106 sec, avg 1910.554 ms, 0.523 ops/sec
+RSA     2048 Public        14 ops took 1.046 sec, avg 74.740 ms, 13.380 ops/sec
+RSA     2048 Private        6 ops took 1.008 sec, avg 168.057 ms, 5.950 ops/sec
+RSA     2048 Pub  OAEP     15 ops took 1.008 sec, avg 67.231 ms, 14.874 ops/sec
+RSA     2048 Priv OAEP      7 ops took 1.126 sec, avg 160.789 ms, 6.219 ops/sec
+ECC      256 key gen        4 ops took 1.244 sec, avg 311.031 ms, 3.215 ops/sec
+ECDSA    256 sign          14 ops took 1.009 sec, avg 72.057 ms, 13.878 ops/sec
+ECDSA    256 verify        18 ops took 1.043 sec, avg 57.921 ms, 17.265 ops/sec
+ECDHE    256 agree          9 ops took 1.025 sec, avg 113.888 ms, 8.781 ops/sec
 ```
 
 Run on STMicro ST33TPHF2XSPI at 33MHz:
