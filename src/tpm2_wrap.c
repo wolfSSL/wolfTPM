@@ -4421,6 +4421,42 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     return rc;
 }
 
+int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
+    uint8_t* buffer, uint32_t* len)
+{
+    int rc;
+    WOLFTPM2_NV nv;
+    TPMS_NV_PUBLIC nvPublic;
+
+    XMEMSET(&nvPublic, 0, sizeof(nvPublic));
+    XMEMSET(&nv, 0, sizeof(nv));
+
+    /* Get or check size of NV */
+    rc = wolfTPM2_NVReadPublic(dev, handle, &nvPublic);
+    if (rc == 0) {
+        if (buffer == NULL) {
+            /* just return size */
+            *len = nvPublic.dataSize;
+            return 0;
+        }
+        if (nvPublic.dataSize > *len) {
+            return BUFFER_E;
+        }
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("NV public read of handle 0x%x failed %d: %s\n",
+            handle, rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* Perform read of NV without auth password */
+    nv.handle.hndl = handle;
+    rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, len, 0);
+    return rc;
+}
+
 /* older API kept for compatibility, recommend using wolfTPM2_NVReadAuth */
 int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
@@ -7002,5 +7038,81 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /******************************************************************************/
 /* --- END Policy Support -- */
 /******************************************************************************/
+
+
+
+/******************************************************************************/
+/* --- BEGIN Provisioned TPM Support -- */
+/******************************************************************************/
+
+/* pre-provisioned IAK and IDevID key/cert from TPM vendor */
+#ifdef WOLFTPM_MFG_IDENTITY
+
+#ifdef TEST_SAMPLE
+static const uint8_t* TPM2_IAK_SAMPLE_MASTER_PASSWORD = {
+    0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
+    0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
+};
+#endif
+
+int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
+    uint8_t* masterPassword, uint16_t masterPasswordSz)
+{
+    int rc;
+    uint8_t serialNum[7];
+    wc_HashAlg hash_ctx;
+    enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
+    uint8_t digest[TPM_SHA256_DIGEST_SIZE];
+
+    /* Get TPM serial number */
+    rc = TPM2_GetProductInfo(serialNum, (uint16_t)sizeof(serialNum));
+    if (rc != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetProductInfo failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    /* Hash both values */
+    rc = wc_HashInit(&hash_ctx, hashType);
+    if (rc == 0) {
+        rc = wc_HashUpdate(&hash_ctx, hashType, serialNum, sizeof(serialNum));
+        if (rc == 0)
+        #ifdef TEST_SAMPLE
+            rc = wc_HashUpdate(&hash_ctx, hashType,
+                TPM2_IAK_SAMPLE_MASTER_PASSWORD,
+                sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
+            (void)masterPassword;
+            (void)masterPasswordSs;
+        #else
+            rc = wc_HashUpdate(&hash_ctx, hashType,
+                masterPassword, masterPasswordSz);
+        #endif
+        if (rc == 0) {
+            rc = wc_HashFinal(&hash_ctx, hashType, digest);
+        }
+
+        wc_HashFree(&hash_ctx, hashType);
+    }
+
+    /* Hash Final truncate to 16 bytes */
+    /* Use 16-byte for auth when accessing key */
+    handle->auth.size = 16;
+    XMEMCPY(handle->auth.buffer, &digest[16], 16);
+
+    (void)dev;
+
+    return rc;
+}
+
+#endif /* WOLFTPM_MFG_IDENTITY */
+
+/******************************************************************************/
+/* --- END Provisioned TPM Support -- */
+/******************************************************************************/
+
+
+
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
