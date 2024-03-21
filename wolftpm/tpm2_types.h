@@ -308,13 +308,19 @@ typedef int64_t  INT64;
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
     #endif
 #else
-    /* Infineon OPTIGA SLB9670/SLB9672 */
+    /* Infineon OPTIGA SLB9670/SLB9672/SLB9673 */
     #ifdef WOLFTPM_SLB9670
         /* Max: 43MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 43000000
     #else
-        #undef  WOLFTPM_SLB9672
-        #define WOLFTPM_SLB9672
+        #ifdef WOLFTPM_I2C
+            #undef  WOLFTPM_SLB9673
+            #define WOLFTPM_SLB9673
+        #else
+            #undef  WOLFTPM_SLB9672
+            #define WOLFTPM_SLB9672
+        #endif
+
         /* Max: 33MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 33000000
     #endif

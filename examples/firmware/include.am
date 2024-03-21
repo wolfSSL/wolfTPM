@@ -1,0 +1,6 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+EXTRA_DIST += examples/firmware/README.md
+EXTRA_DIST += examples/firmware/ifx_fw_extract.c
+EXTRA_DIST += examples/firmware/Makefile
