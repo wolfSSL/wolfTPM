@@ -31,7 +31,8 @@
 
 #include <stdio.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_FILESYSTEM)
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -66,7 +67,6 @@ static void usage(void)
     printf("./examples/pcr/policy_sign -pcr=16 -pcr=15 -pcrdigest=ba8ac02be16d9d33080d98611d70bb869aa8ac3fc684ab732b91f75f164b36bc\n");
 }
 
-#ifndef NO_FILESYSTEM
 #ifndef WC_MAX_ENCODED_DIG_ASN_SZ
 #define WC_MAX_ENCODED_DIG_ASN_SZ 9 /* enum(bit or octet) + length(4) */
 #endif
@@ -217,7 +217,6 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     }
     return rc;
 }
-#endif /* !NO_FILESYSTEM */
 
 int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
 {
@@ -361,9 +360,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             printf("PCR Policy Signature (%d bytes):\n", sigSz);
             printHexString(sig, sigSz, 32);
-        #if !defined(NO_FILESYSTEM)
             rc = writeBin(outFile, sig, sigSz);
-        #endif
         }
         if (rc == 0) {
             /* Create Signing Authority Policy */
@@ -377,9 +374,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
             if (rc == 0) {
                 printf("Policy Authorize Digest (%d bytes):\n", digestSz);
                 printHexString(digest, digestSz, digestSz);
-            #if !defined(NO_FILESYSTEM)
                 rc = writeBin(outPolicyFile, digest, digestSz);
-            #endif
             }
         }
     }
@@ -398,7 +393,7 @@ exit:
 
     return rc;
 }
-#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM */
 
 /******************************************************************************/
 /* --- END TPM Secure Boot Sign Policy Example -- */
@@ -409,7 +404,8 @@ int main(int argc, char *argv[])
 {
     int rc = NOT_COMPILED_IN;
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_FILESYSTEM)
     rc = TPM2_PCR_PolicySign_Example(NULL, argc, argv);
 #else
     printf("Example not compiled in! Requires Wrapper and wolfCrypt\n");

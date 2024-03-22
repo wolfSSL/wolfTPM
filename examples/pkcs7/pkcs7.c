@@ -204,6 +204,8 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
 
         XFCLOSE(pemFile);
     }
+#else
+    (void)outFile;
 #endif
 
     /* Test verify with TPM */
@@ -363,10 +365,12 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
             alg = TPM_ALG_RSA;
         }
+    #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
         else if (XSTRNCMP(argv[argc-1], "-incert=",
                 XSTRLEN("-incert=")) == 0) {
             inCert = argv[argc-1] + XSTRLEN("-incert=");
         }
+    #endif
         else if (XSTRNCMP(argv[argc-1], "-out=",
                 XSTRLEN("-out=")) == 0) {
             outFile = argv[argc-1] + XSTRLEN("-out=");

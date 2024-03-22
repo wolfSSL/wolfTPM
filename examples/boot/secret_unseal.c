@@ -281,6 +281,8 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
     }
 #else
     printf("File system support not compiled in!\n");
+    (void)publicKeyFile;
+    (void)pcrSigFile;
     rc = NOT_COMPILED_IN;
 #endif
     if (rc != TPM_RC_SUCCESS) {
@@ -314,6 +316,7 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
 #ifndef NO_FILESYSTEM
     rc = readKeyBlob(sealFile, &sealBlob);
 #else
+    (void)sealFile;
     rc = NOT_COMPILED_IN;
 #endif
     if (rc != TPM_RC_SUCCESS) {

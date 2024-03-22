@@ -221,6 +221,11 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         }
     }
     else
+#else
+    (void)encType;
+    (void)attributes;
+    (void)bufSz;
+    (void)isPublicKey;
 #endif
     if (alg == TPM_ALG_RSA) {
         printf("Loading example RSA key (see kRsaKeyPrivQ)\n");
