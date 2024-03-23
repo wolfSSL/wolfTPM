@@ -404,8 +404,10 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         printf("Loading RSA certificate\n");
         #ifdef NO_FILESYSTEM
         /* Load "cert" buffer with ASN.1/DER certificate */
+        #if 0
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
+        #endif
         #else
         rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-rsa-cert.pem",
                                               WOLFSSL_FILETYPE_PEM);
@@ -425,8 +427,10 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         printf("Loading ECC certificate\n");
         #ifdef NO_FILESYSTEM
         /* Load "cert" buffer with ASN.1/DER certificate */
+        #if 0
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
+        #endif
         #else
         rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
                                               WOLFSSL_FILETYPE_PEM);

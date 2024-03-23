@@ -282,6 +282,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     printHexString((const byte*)&sealBlob.pub.publicArea, sealBlob.pub.size, 32);
     printf("Sealed keyed hash priv %d\n", sealBlob.priv.size);
     printHexString(sealBlob.priv.buffer, sealBlob.priv.size, 32);
+    (void)outFile;
 #endif
 
 exit:

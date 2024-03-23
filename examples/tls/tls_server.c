@@ -383,6 +383,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
             goto exit;
         }
     #endif
+    (void)useSelfSign;
 #else
     {
         /* Export TPM public key as DER */
