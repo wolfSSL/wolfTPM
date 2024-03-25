@@ -1,12 +1,14 @@
 # TPM Firmware Update Support
 
-Current support is for Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules only. Infienon has open sourced their firmware update.
+Currently wolfTPM supports firmare update capability for the Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infienon has open sourced their firmware update.
 
 ## Infineon Firmware
 
-The firmware files released from Infienon as a single .bin (example: TPM20_15.23.17664.0_R1.BIN).
+### Extracting the firmware
 
-This .bin contains a 16-byte GUID header, at least one manifest based on key group and the firmware. A typical manifest is 3KB and firmware is 920KB.
+Infienon releates firmware as a .bin file (example: TPM20_15.23.17664.0_R1.BIN).
+
+The .bin contains a 16-byte GUID header, at least one manifest based on key group and the firmware. A typical manifest is 3KB and firmware is 920KB.
 
 We have included a host side tool `ifx_fw_extract` for extracting the manifest and firmware data file required for a TPM upgrade.
 
@@ -33,21 +35,26 @@ Manifest size is 3236
 Data size is 919879
 Writing TPM20_15.23.17664.0_R1.MANIFEST
 Writing TPM20_15.23.17664.0_R1.DATA
+```
 
-# Run the firmware update tool
+### Updating the firmware
+
+The `ifx_fw_update` tool uses the manifest (header) and firmware data file.
+
+The TPM has a vendor capability for getting the key group id. This is populated in the `WOLFTPM2_CAPS.keyGroupId` when `wolfTPM2_GetCapabilities` is called. This value should match the firmware extract tool `keygroup_id`.
+
+```sh
 ./ifx_fw_update --help
 Usage:
   ifx_fw_update <manifest_file> <firmware_file>
 
+# Run without arguments to display the current firmware information including key group id.
 ./ifx_fw_update
 Infineon Firmware Update Tool
-Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), KeyGroup 0x4
+Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), KeyGroupId 0x4
 Manifest file or firmware file arguments missing!
 
+# Run with manifest and firmware files
 ./ifx_fw_update TPM20_15.23.17664.0_R1.MANIFEST TPM20_15.23.17664.0_R1.DATA
 
 ```
-
-
-There is a TPM vendor command for getting the key group id(s). See `tpm2_ifx_firmware_dumpinfo`.
-

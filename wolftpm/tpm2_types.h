@@ -449,10 +449,24 @@ typedef int64_t  INT64;
 
 /* sleep helper, used in firmware update */
 #ifndef XSLEEP_MS
-    #ifdef USE_WINDOWS_API
-        #define XSLEEP_MS(t) Sleep(t)
+    #ifdef WIN32
+        #include <windows.h>
+        #define XSLEEP_MS(ms) Sleep(ms)
+    #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+        #include <time.h>
+        #define XSLEEP_MS(ms) ({ \
+            struct timespec ts; \
+            ts.tv_sec = ms / 1000; \
+            ts.tv_nsec = (ms % 1000) * 1000000; \
+            nanosleep(&ts, NULL); \
+        })
     #else
-        #define XSLEEP_MS(t) sleep(t)
+        #include <unistd.h>
+        #define XSLEEP_MS(ms) ({ \
+            if (ms >= 1000) \
+                sleep(ms / 1000); \
+            usleep((ms % 1000) * 1000); \
+        })
     #endif
 #endif
 

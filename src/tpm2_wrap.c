@@ -753,7 +753,6 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     }
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
-#ifdef WOLFTPM_FIRMWARE_UPGRADE
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     /* Get the keygroup_id */
     XMEMSET(&in, 0, sizeof(in));
@@ -786,7 +785,6 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
         return rc;
     }
 #endif
-#endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
     return rc;
 }
@@ -7060,12 +7058,6 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* Maximum size of firmware chunks */
 #define IFX_FW_MAX_CHUNK_SZ 1024
 
-/* Infineon SLB9672 or SLB9673 Firmware Upgrade support */
-/* firmware files have this GUID header */
-#define IFX_FW_BIN_GUID \
-    {0x1a, 0x53, 0x66, 0x7a, 0xfb, 0x12, 0x47, 0x9e,\
-     0xac, 0x58, 0xec, 0x99, 0x58, 0x86, 0x10, 0x94}
-
 /* Setup the policy to enable firmware upgrade start */
 static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
 {
@@ -7132,7 +7124,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
             XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
             val16 = be16_to_cpu(hashAlg);
             XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
-            XMEMCPY(&cmd[4], manifest_hash, manifest_hash_sz);
+            XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
 
             rc = TPM2_IFX_FieldUpgradeStart(tpmSession.handle.hndl,
                 cmd, 1 + 2 + 2 + manifest_hash_sz);
