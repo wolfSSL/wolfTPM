@@ -651,6 +651,12 @@ typedef int64_t  INT64;
     #define WOLFTPM2_PEM_DECODE
 #endif
 
+/* Firmware upgrade requires wolfCrypt for hash */
+#if defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_FIRMWARE_UPGRADE)
+    #undef WOLFTPM_FIRMWARE_UPGRADE
+#endif
+
+
 /* ---------------------------------------------------------------------------*/
 /* ENDIANESS HELPERS */
 /* ---------------------------------------------------------------------------*/
