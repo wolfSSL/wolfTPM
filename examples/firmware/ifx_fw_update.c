@@ -68,13 +68,15 @@ static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
 {
     int rc;
     WOLFTPM2_CAPS caps;
-
-    XMEMSET(&caps, 0, sizeof(caps));
     rc = wolfTPM2_GetCapabilities(dev, &caps);
     if (rc == TPM_RC_SUCCESS) {
         printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), KeyGroup 0x%x\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
             caps.fwVerMinor, caps.fwVerVendor, caps.keyGroupId);
+        if (caps.keyGroupId == 0) {
+            printf("Error getting key group id from TPM!\n");
+            rc = -1;
+        }
     }
     return rc;
 }
@@ -83,8 +85,8 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
-    const char* manifest_file = "none";
-    const char* firmware_file = "none";
+    const char* manifest_file = NULL;
+    const char* firmware_file = NULL;
     fw_info_t fwinfo;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
@@ -102,18 +104,21 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
             firmware_file = argv[2];
         }
     }
-    else {
-        usage();
-        return 0;
-    }
 
     printf("Infineon Firmware Update Tool\n");
-    printf("\tManifest File: %s\n", manifest_file);
-    printf("\tFirmware File: %s\n", firmware_file);
+    if (manifest_file != NULL)
+        printf("\tManifest File: %s\n", manifest_file);
+    if (firmware_file != NULL)
+        printf("\tFirmware File: %s\n", firmware_file);
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
+    }
+
+    rc = TPM2_IFX_PrintInfo(&dev);
+    if (rc != 0) {
         goto exit;
     }
 
@@ -122,6 +127,7 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* load manifest and data files */
     rc = loadFile(manifest_file,
         &fwinfo.manifest_buf, &fwinfo.manifest_bufSz);
     if (rc == 0) {
@@ -129,15 +135,12 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
             &fwinfo.firmware_buf, &fwinfo.firmware_bufSz);
     }
     if (rc == 0) {
-        TPM2_IFX_PrintInfo(&dev);
-    }
-    if (rc == 0) {
         rc = wolfTPM2_FirmwareUpgrade(&dev,
             fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
             TPM2_IFX_FwData_Cb, &fwinfo);
     }
     if (rc == 0) {
-        TPM2_IFX_PrintInfo(&dev);
+        rc = TPM2_IFX_PrintInfo(&dev);
     }
 
 exit:

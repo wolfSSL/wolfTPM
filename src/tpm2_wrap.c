@@ -700,20 +700,6 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
             case TPM_PT_MODES:
                 caps->fips140_2 = (val & 0x00000001) ? 1: 0;
                 break;
-        #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-            (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673))
-            case TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID:
-            {
-                if (val == 0)
-                    continue;
-                caps->keyGroupId = val;
-            #ifdef DEBUG_WOLFTPM
-                printf("Keygroup_id: [%i]:0x%08x\n", i, val);
-            #endif
-                break;
-            }
-        #endif /* WOLFTPM_FIRMWARE_UPGRADE */
-
             default:
                 break;
         }
@@ -776,14 +762,29 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     in.property = TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID;
     in.propertyCount = 1;
     rc = TPM2_GetCapability(&in, &out);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
+        UINT32 count, i, pos = 0;
+        UINT16 val;
+        XMEMCPY(&count, &buf->buffer[pos], sizeof(count));
+        pos += sizeof(count);
+        count = be32_to_cpu(count);
+        for (i=0; i<count; i++) {
+            XMEMCPY(&val, &buf->buffer[pos], sizeof(val));
+            pos += sizeof(val);
+            val = be16_to_cpu(val);
+            if (val == 0)
+                continue;
+            cap->keyGroupId = val;
+        }
+    }
+    else {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_GetCapability key group failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
         return rc;
     }
-    rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 #endif
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 

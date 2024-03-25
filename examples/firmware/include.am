@@ -8,12 +8,14 @@ EXTRA_DIST += examples/firmware/Makefile
 EXTRA_DIST += examples/firmware/ifx_fw_extract.c
 
 if BUILD_EXAMPLES
+if BUILD_INFINEON
 noinst_PROGRAMS += examples/firmware/ifx_fw_update
 noinst_HEADERS  += examples/firmware/ifx_fw_update.h
 examples_firmware_ifx_fw_update_SOURCES      = examples/firmware/ifx_fw_update.c \
                                                examples/tpm_test_keys.c
 examples_firmware_ifx_fw_update_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_firmware_ifx_fw_update_DEPENDENCIES = src/libwolftpm.la
+endif
 endif
 
 example_firmwaredir = $(exampledir)/firmware

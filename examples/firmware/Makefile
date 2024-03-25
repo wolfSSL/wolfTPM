@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall
 LIBS=
 
-all: ifx_fw_extract
+all: clean ifx_fw_extract
 
 ifx_fw_extract: ifx_fw_extract.o
 	$(CC) -o $@ $^ $(CFLAGS) $(LIBS)
@@ -10,4 +10,4 @@ ifx_fw_extract: ifx_fw_extract.o
 .PHONY: clean
 
 clean:
-	rm -f *.o signature
+	rm -f *.o ifx_fw_extract

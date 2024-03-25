@@ -35,6 +35,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <stdint.h>
 
 /* Endianess helpers */
 #if defined(__MACH__) || defined(__APPLE__)

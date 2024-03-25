@@ -4,7 +4,7 @@ Current support is for Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules 
 
 ## Infineon Firmware
 
-The firmware files released from Infienon come in a single .bin (example: TPM20_15.23.17664.0_R1.BIN).
+The firmware files released from Infienon as a single .bin (example: TPM20_15.23.17664.0_R1.BIN).
 
 This .bin contains a 16-byte GUID header, at least one manifest based on key group and the firmware. A typical manifest is 3KB and firmware is 920KB.
 
@@ -13,6 +13,7 @@ We have included a host side tool `ifx_fw_extract` for extracting the manifest a
 Example usage:
 
 ```sh
+make
 ./ifx_fw_extract --help
 Usage:
   ifx_fw_extract <fw-file>
@@ -33,9 +34,18 @@ Data size is 919879
 Writing TPM20_15.23.17664.0_R1.MANIFEST
 Writing TPM20_15.23.17664.0_R1.DATA
 
+# Run the firmware update tool
 ./ifx_fw_update --help
+Usage:
+  ifx_fw_update <manifest_file> <firmware_file>
+
+./ifx_fw_update
+Infineon Firmware Update Tool
+Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), KeyGroup 0x4
+Manifest file or firmware file arguments missing!
 
 ./ifx_fw_update TPM20_15.23.17664.0_R1.MANIFEST TPM20_15.23.17664.0_R1.DATA
+
 ```
 
 

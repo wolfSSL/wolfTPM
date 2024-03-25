@@ -870,6 +870,20 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+                case TPM_CAP_VENDOR_PROPERTY:
+                {
+                    out->capabilityData.data.vendor.size =
+                        packet.size - packet.pos;
+                    if (out->capabilityData.data.vendor.size >
+                            sizeof(out->capabilityData.data.vendor.buffer)) {
+                        out->capabilityData.data.vendor.size =
+                            sizeof(out->capabilityData.data.vendor.buffer);
+                    }
+                    TPM2_Packet_ParseBytes(&packet,
+                        out->capabilityData.data.vendor.buffer,
+                        out->capabilityData.data.vendor.size);
+                    break;
+                }
                 default:
             #ifdef DEBUG_WOLFTPM
                     printf("Unknown capability type 0x%x\n",

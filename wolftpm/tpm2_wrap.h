@@ -119,7 +119,9 @@ typedef struct WOLFTPM2_CAPS {
     word16 fwVerMinor;
     word32 fwVerVendor;
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     word32 keyGroupId;
+#endif
 #endif
 
     /* bits */
