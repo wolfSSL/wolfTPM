@@ -45,13 +45,15 @@ The TPM has a vendor capability for getting the key group id. This is populated 
 
 ```sh
 ./ifx_fw_update --help
-Usage:
-  ifx_fw_update <manifest_file> <firmware_file>
+Infineon Firmware Update Usage:
+        ./ifx_fw_update (get info)
+        ./ifx_fw_update --abandon (cancel)
+        ./ifx_fw_update <manifest_file> <firmware_file>
 
-# Run without arguments to display the current firmware information including key group id.
+# Run without arguments to display the current firmware information including key group id and operational mode
 ./ifx_fw_update
 Infineon Firmware Update Tool
-Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), KeyGroupId 0x4
+Mfg IFX (1), Vendor SLB9672, Fw 16.10 (0x4068), KeyGroupId 0x5, OpMode 0x4
 Manifest file or firmware file arguments missing!
 
 # Run with manifest and firmware files

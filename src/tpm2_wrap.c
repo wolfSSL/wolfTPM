@@ -728,8 +728,8 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability manufacture failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability manufacture failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -746,14 +746,36 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability modes failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability modes failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    /* Get the operation mode */
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_VENDOR_PROPERTY;
+    in.property = TPM_PT_VENDOR_FIX_FU_OPERATION_MODE;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
+        /* 4 bytes=count + 2 bytes=len + vendor value */
+        if (buf->buffer[3] == 1 && buf->buffer[5] == 1) {
+            cap->opMode = buf->buffer[6];
+        }
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability op mode failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
     /* Get the keygroup_id */
     XMEMSET(&in, 0, sizeof(in));
     XMEMSET(&out, 0, sizeof(out));
@@ -763,24 +785,18 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = TPM2_GetCapability(&in, &out);
     if (rc == TPM_RC_SUCCESS) {
         TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
-        UINT32 count, i, pos = 0;
-        UINT16 val;
-        XMEMCPY(&count, &buf->buffer[pos], sizeof(count));
-        pos += sizeof(count);
-        count = be32_to_cpu(count);
-        for (i=0; i<count; i++) {
-            XMEMCPY(&val, &buf->buffer[pos], sizeof(val));
-            pos += sizeof(val);
-            val = be16_to_cpu(val);
-            if (val == 0)
-                continue;
+        /* 4 bytes=count + 2 bytes=len + vendor value */
+        if (buf->buffer[3] == 1 && buf->buffer[5] == 4) {
+            UINT32 val;
+            XMEMCPY(&val, &buf->buffer[6], sizeof(val));
+            val = be32_to_cpu(val);
             cap->keyGroupId = val;
         }
     }
     else {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability key group failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability key group failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -7298,6 +7314,29 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     (void)cb;
     (void)cb_ctx;
 
+    return rc;
+}
+
+/* terminate a firmware update */
+int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    uint8_t cmd[2];
+    uint16_t val16;
+
+    (void)dev;
+
+    val16 = 0; /* data size */
+    XMEMCPY(&cmd[0], &val16, sizeof(val16));
+
+    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor,
+        cmd, sizeof(cmd));
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware abandon failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
     return rc;
 }
 

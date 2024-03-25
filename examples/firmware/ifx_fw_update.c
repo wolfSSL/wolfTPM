@@ -40,8 +40,10 @@
 
 static void usage(void)
 {
-    printf("Usage:\n");
-    printf("  ifx_fw_update <manifest_file> <firmware_file>\n");
+    printf("Infineon Firmware Update Usage:\n");
+    printf("\t./ifx_fw_update (get info)\n");
+    printf("\t./ifx_fw_update --abandon (cancel)\n");
+    printf("\t./ifx_fw_update <manifest_file> <firmware_file>\n");
 }
 
 typedef struct {
@@ -70,9 +72,10 @@ static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
     WOLFTPM2_CAPS caps;
     rc = wolfTPM2_GetCapabilities(dev, &caps);
     if (rc == TPM_RC_SUCCESS) {
-        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), KeyGroupId 0x%x\n",
+        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), "
+               "KeyGroupId 0x%x, OpMode 0x%x\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
-            caps.fwVerMinor, caps.fwVerVendor, caps.keyGroupId);
+            caps.fwVerMinor, caps.fwVerVendor, caps.keyGroupId, caps.opMode);
         if (caps.keyGroupId == 0) {
             printf("Error getting key group id from TPM!\n");
             rc = -1;
@@ -88,6 +91,7 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     const char* manifest_file = NULL;
     const char* firmware_file = NULL;
     fw_info_t fwinfo;
+    int abandon = 0;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
 
@@ -98,10 +102,14 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-
-        manifest_file = argv[1];
-        if (argc >= 3) {
-            firmware_file = argv[2];
+        if (XSTRCMP(argv[1], "--abandon") == 0) {
+            abandon = 1;
+        }
+        else {
+            manifest_file = argv[1];
+            if (argc >= 3) {
+                firmware_file = argv[2];
+            }
         }
     }
 
@@ -119,6 +127,12 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
 
     rc = TPM2_IFX_PrintInfo(&dev);
     if (rc != 0) {
+        goto exit;
+    }
+
+    if (abandon) {
+        printf("Firmware Update Abandon:\n");
+        rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
         goto exit;
     }
 

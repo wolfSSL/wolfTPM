@@ -120,6 +120,7 @@ typedef struct WOLFTPM2_CAPS {
     word32 fwVerVendor;
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     word32 keyGroupId;
+    byte   opMode;
 #endif
 
     /* bits */
@@ -3558,6 +3559,7 @@ typedef int (*wolfTPM2FwDataCb)(
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev);
 
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
