@@ -78,6 +78,7 @@ examples/boot/secure_rot
 examples/boot/secret_seal
 examples/boot/secret_unseal
 examples/firmware/ifx_fw_extract
+examples/firmware/ifx_fw_update
 
 # Generated Cert Files
 certs/ca-*.pem

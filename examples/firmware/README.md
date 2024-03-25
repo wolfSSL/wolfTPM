@@ -33,9 +33,11 @@ Data size is 919879
 Writing TPM20_15.23.17664.0_R1.MANIFEST
 Writing TPM20_15.23.17664.0_R1.DATA
 
-# Generate a SHA2-384 hash of the manifest file
-sha384sum -b TPM20_15.23.17664.0_R1.MANIFEST | cut -d ' ' -f 1 | xxd -r -p > TPM20_15.23.17664.0_R1.MANIFESTHASH
+./ifx_fw_update --help
+
+./ifx_fw_update TPM20_15.23.17664.0_R1.MANIFEST TPM20_15.23.17664.0_R1.DATA
 ```
+
 
 There is a TPM vendor command for getting the key group id(s). See `tpm2_ifx_firmware_dumpinfo`.
 

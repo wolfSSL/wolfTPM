@@ -2,5 +2,21 @@
 # All paths should be given relative to the root
 
 EXTRA_DIST += examples/firmware/README.md
-EXTRA_DIST += examples/firmware/ifx_fw_extract.c
 EXTRA_DIST += examples/firmware/Makefile
+
+# Host side tool for extracting the firmware manifest and data
+EXTRA_DIST += examples/firmware/ifx_fw_extract.c
+
+if BUILD_EXAMPLES
+noinst_PROGRAMS += examples/firmware/ifx_fw_update
+noinst_HEADERS  += examples/firmware/ifx_fw_update.h
+examples_firmware_ifx_fw_update_SOURCES      = examples/firmware/ifx_fw_update.c \
+                                               examples/tpm_test_keys.c
+examples_firmware_ifx_fw_update_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_firmware_ifx_fw_update_DEPENDENCIES = src/libwolftpm.la
+endif
+
+example_firmwaredir = $(exampledir)/firmware
+dist_example_firmware_DATA = examples/firmware/ifx_fw_update.c
+
+DISTCLEANFILES+= examples/firmware/.libs/ifx_fw_update
