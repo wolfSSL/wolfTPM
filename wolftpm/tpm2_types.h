@@ -312,7 +312,7 @@ typedef int64_t  INT64;
     #ifdef WOLFTPM_SLB9670
         /* Max: 43MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 43000000
-    #else
+    #elif !defined(WOLFTPM_AUTODETECT)
         #ifdef WOLFTPM_I2C
             #undef  WOLFTPM_SLB9673
             #define WOLFTPM_SLB9673
