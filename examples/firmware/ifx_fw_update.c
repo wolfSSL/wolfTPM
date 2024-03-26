@@ -134,7 +134,13 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     if (abandon) {
         printf("Firmware Update Abandon:\n");
         rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
-        goto exit;
+        if (rc != 0) {
+            printf("Abandon failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        }
+        else {
+            printf("Success: Please reset or power cycle TPM\n");
+        }
+        return rc;
     }
 
     if (manifest_file == NULL || firmware_file == NULL) {

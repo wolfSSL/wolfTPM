@@ -7158,7 +7158,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
             /* delay 1 second to give the TPM time to switch modes */
             XSLEEP_MS(1000);
             /* it is not required to release session handle,
-                * since TPM reset into firmware upgrade mode */
+             * since TPM reset into firmware upgrade mode */
         }
         else {
             wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
@@ -7181,17 +7181,17 @@ static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
     uint8_t state; /* 1=start, 2=more, 0=done */
 
     (void)dev;
-    for (offset = 0; offset < manifest_sz; offset += IFX_FW_MAX_CHUNK_SZ) {
+    for (offset = 0; offset < manifest_sz; offset += chunk_sz) {
         uint8_t cmd[1 + 2 + IFX_FW_MAX_CHUNK_SZ];
         uint16_t val16;
 
         chunk_sz = manifest_sz - offset;
         if (chunk_sz > IFX_FW_MAX_CHUNK_SZ) {
             chunk_sz = IFX_FW_MAX_CHUNK_SZ;
-            state = 2; /* more */
+            state = (offset == 0) ? 1 : 2;
         }
         else {
-            state = (offset == 0) ? 1 : 0;
+            state = 0;
         }
     #ifdef DEBUG_WOLFTPM
         printf("Firmware manifest chunk %u offset (%u / %u), state %d\n",
