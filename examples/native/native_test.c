@@ -331,7 +331,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
         XMEMSET(&cmdIn.getRand, 0, sizeof(cmdIn.getRand));
-        i = (int)sizeof(cmdOut.getRand2.randomBytes);
+        i = (int)sizeof(cmdOut.getRand2.randomBytes.buffer);
         if (i > (MAX_RESPONSE_SIZE-(int)sizeof(UINT16))) {
             i = (MAX_RESPONSE_SIZE-(int)sizeof(UINT16));
         }
@@ -361,7 +361,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     /* the getRand and getRand2 have same return size header in cmdOut union */
     if (cmdOut.getRand.randomBytes.size != i) {
         printf("TPM2_GetRandom length mismatch %d != %d\n",
-            cmdOut.getRand.randomBytes.size, MAX_RNG_REQ_SIZE);
+            cmdOut.getRand.randomBytes.size, i);
         goto exit;
     }
     printf("TPM2_GetRandom: Got %d bytes\n", cmdOut.getRand.randomBytes.size);
@@ -371,7 +371,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Stir Random */
     XMEMSET(&cmdIn.stirRand, 0, sizeof(cmdIn.stirRand));
-    cmdIn.stirRand.inData.size = cmdOut.getRand.randomBytes.size;
+    cmdIn.stirRand.inData.size = MAX_RNG_REQ_SIZE;
     XMEMCPY(cmdIn.stirRand.inData.buffer,
         cmdOut.getRand.randomBytes.buffer, cmdIn.stirRand.inData.size);
     rc = TPM2_StirRandom(&cmdIn.stirRand);

@@ -5177,6 +5177,7 @@ int TPM2_SetCommandSet(SetCommandSet_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5209,6 +5210,7 @@ int TPM2_SetMode(SetMode_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -5253,6 +5255,45 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
         }
 
         TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || info == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, TPM_CAP_VENDOR_PROPERTY);
+        TPM2_Packet_AppendU32(&packet, 3); /* cTPM_SUBCAP_VENDOR_GET_PRODUCT_INFO */
+        TPM2_Packet_AppendU32(&packet, 1); /* only 1 property */
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetCapability);
+
+        /* send command */
+        rc = TPM2_SendCommand(ctx, &packet);
+        if (rc == TPM_RC_SUCCESS) {
+            /* Product info is:
+             * Serial Number (7 bytes)
+             * Pad (1 byte)
+             * Product ID (PIN) (2 bytes)
+             * Master Product ID (MPIN) (2 bytes)
+             * Product Internal Revision (1 byte)
+             * Pad (3 bytes)
+             * Firmware kernel version (4 bytes)
+             */
+
+            /* start of product info starts at byte 26 */
+            if (size > packet.size - 26)
+                size = packet.size - 26;
+            XMEMCPY(info, &packet.buf[25], size);
+        }
     }
     return rc;
 }
@@ -5586,7 +5627,7 @@ const char* TPM2_GetRCString(int rc)
         return "Success";
     }
 
-    if ((rc & RC_WARN) && (rc & RC_FMT1) == 0) {
+    if ((rc & RC_WARN) && (rc & RC_FMT1) == 0 && (rc & RC_VER1) == 0) {
         int rc_warn = rc & RC_MAX_WARN;
 
         switch (rc_warn) {
