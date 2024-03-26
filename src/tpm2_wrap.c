@@ -707,6 +707,44 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     return rc;
 }
 
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+static int tpm2_ifx_cap_vendor_get(WOLFTPM2_CAPS* cap, uint32_t property,
+    uint8_t* val, size_t valSz)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_VENDOR_PROPERTY;
+    in.property = property;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
+        /* 4 bytes=count + 2 bytes=len + vendor value */
+        if (buf->buffer[3] == 1 && buf->buffer[5] == valSz) {
+            XMEMCPY(val, &buf->buffer[6], valSz);
+            if (valSz == 2) {
+                *((uint16_t*)val) = be16_to_cpu(*((uint16_t*)val));
+            }
+            else if (valSz == 4) {
+                *((uint32_t*)val) = be32_to_cpu(*((uint32_t*)val));
+            }
+        }
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability vendor prop 0x%x failed 0x%x: %s\n",
+            property, rc, TPM2_GetRCString(rc));
+    #endif
+    }
+    (void)cap;
+    return rc;
+}
+#endif
+
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 {
     int rc;
@@ -754,51 +792,22 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
 
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
-    /* Get the operation mode */
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_VENDOR_PROPERTY;
-    in.property = TPM_PT_VENDOR_FIX_FU_OPERATION_MODE;
-    in.propertyCount = 1;
-    rc = TPM2_GetCapability(&in, &out);
-    if (rc == TPM_RC_SUCCESS) {
-        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
-        /* 4 bytes=count + 2 bytes=len + vendor value */
-        if (buf->buffer[3] == 1 && buf->buffer[5] == 1) {
-            cap->opMode = buf->buffer[6];
-        }
+    /* Get vendor specific information */
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_OPERATION_MODE,
+            &cap->opMode, sizeof(cap->opMode));
     }
-    else {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability op mode failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    #endif
-        return rc;
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID,
+            (uint8_t*)&cap->keyGroupId, sizeof(cap->keyGroupId));
     }
-
-    /* Get the keygroup_id */
-    XMEMSET(&in, 0, sizeof(in));
-    XMEMSET(&out, 0, sizeof(out));
-    in.capability = TPM_CAP_VENDOR_PROPERTY;
-    in.property = TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID;
-    in.propertyCount = 1;
-    rc = TPM2_GetCapability(&in, &out);
-    if (rc == TPM_RC_SUCCESS) {
-        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
-        /* 4 bytes=count + 2 bytes=len + vendor value */
-        if (buf->buffer[3] == 1 && buf->buffer[5] == 4) {
-            UINT32 val;
-            XMEMCPY(&val, &buf->buffer[6], sizeof(val));
-            val = be32_to_cpu(val);
-            cap->keyGroupId = val;
-        }
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER,
+            (uint8_t*)&cap->fwCounter, sizeof(cap->fwCounter));
     }
-    else {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability key group failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    #endif
-        return rc;
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER_SAME,
+            (uint8_t*)&cap->fwCounterSame, sizeof(cap->fwCounterSame));
     }
 #endif
 

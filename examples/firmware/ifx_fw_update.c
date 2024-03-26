@@ -72,10 +72,11 @@ static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
     WOLFTPM2_CAPS caps;
     rc = wolfTPM2_GetCapabilities(dev, &caps);
     if (rc == TPM_RC_SUCCESS) {
-        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), "
-               "KeyGroupId 0x%x, OpMode 0x%x\n",
+        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
-            caps.fwVerMinor, caps.fwVerVendor, caps.keyGroupId, caps.opMode);
+            caps.fwVerMinor, caps.fwVerVendor);
+        printf("\tKeyGroupId 0x%x, OpMode 0x%x, FwCounter %d (%d same)\n",
+            caps.keyGroupId, caps.opMode, caps.fwCounter, caps.fwCounterSame);
         if (caps.keyGroupId == 0) {
             printf("Error getting key group id from TPM!\n");
             rc = -1;

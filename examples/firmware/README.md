@@ -6,7 +6,7 @@ Currently wolfTPM supports firmare update capability for the Infineon SLB9672 (S
 
 ### Extracting the firmware
 
-Infienon releates firmware as a .bin file (example: TPM20_15.23.17664.0_R1.BIN).
+Infienon releases firmware as a .bin file (example: TPM20_15.23.17664.0_R1.BIN).
 
 The .bin contains a 16-byte GUID header, at least one manifest based on key group and the firmware. A typical manifest is 3KB and firmware is 920KB.
 

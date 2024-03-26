@@ -120,6 +120,8 @@ typedef struct WOLFTPM2_CAPS {
     word32 fwVerVendor;
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     word32 keyGroupId;
+    word16 fwCounter;
+    word16 fwCounterSame;
     byte   opMode;
 #endif
 
