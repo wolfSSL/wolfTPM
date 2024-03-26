@@ -4435,13 +4435,14 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
     rc = wolfTPM2_NVReadPublic(dev, handle, &nvPublic);
     if (rc == 0) {
         if (buffer == NULL) {
-            /* just return size */
+            /* just set size and return success */
             *len = nvPublic.dataSize;
             return 0;
         }
         if (nvPublic.dataSize > *len) {
             return BUFFER_E;
         }
+        *len = nvPublic.dataSize;
     }
     else {
     #ifdef DEBUG_WOLFTPM
