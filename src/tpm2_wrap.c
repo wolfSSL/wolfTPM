@@ -7155,10 +7155,16 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
                 cmd, 1 + 2 + 2 + manifest_hash_sz);
         }
         if (rc == TPM_RC_SUCCESS) {
-            /* delay 1 second to give the TPM time to switch modes */
-            XSLEEP_MS(1000);
+            /* delay to give the TPM time to switch modes */
+            XSLEEP_MS(300);
             /* it is not required to release session handle,
              * since TPM reset into firmware upgrade mode */
+
+        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+            !defined(WOLFTPM_WINAPI)
+            /* Do chip startup and request locality again */
+            rc = TPM2_ChipStartup(&dev->ctx, 10);
+        #endif
         }
         else {
             wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
@@ -7260,7 +7266,13 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
 
     if (rc == 0) {
         /* Give the TPM time to start the new firmware */
-        XSLEEP_MS(1000);
+        XSLEEP_MS(300);
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
     }
 #ifdef DEBUG_WOLFTPM
     else {

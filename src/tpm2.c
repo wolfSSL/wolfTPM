@@ -575,7 +575,7 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 }
 
 /* If timeoutTries <= 0 then it will not try and startup chip and will
-    use existing default locality */
+ * use existing default locality */
 TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
