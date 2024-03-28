@@ -308,13 +308,19 @@ typedef int64_t  INT64;
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
     #endif
 #else
-    /* Infineon OPTIGA SLB9670/SLB9672 */
+    /* Infineon OPTIGA SLB9670/SLB9672/SLB9673 */
     #ifdef WOLFTPM_SLB9670
         /* Max: 43MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 43000000
-    #else
-        #undef  WOLFTPM_SLB9672
-        #define WOLFTPM_SLB9672
+    #elif !defined(WOLFTPM_AUTODETECT)
+        #ifdef WOLFTPM_I2C
+            #undef  WOLFTPM_SLB9673
+            #define WOLFTPM_SLB9673
+        #else
+            #undef  WOLFTPM_SLB9672
+            #define WOLFTPM_SLB9672
+        #endif
+
         /* Max: 33MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 33000000
     #endif
@@ -439,6 +445,29 @@ typedef int64_t  INT64;
 #endif
 #ifndef XTPM_WAIT
     #define XTPM_WAIT() /* just poll without delay by default */
+#endif
+
+/* sleep helper, used in firmware update */
+#ifndef XSLEEP_MS
+    #ifdef WIN32
+        #include <windows.h>
+        #define XSLEEP_MS(ms) Sleep(ms)
+    #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+        #include <time.h>
+        #define XSLEEP_MS(ms) ({ \
+            struct timespec ts; \
+            ts.tv_sec = ms / 1000; \
+            ts.tv_nsec = (ms % 1000) * 1000000; \
+            nanosleep(&ts, NULL); \
+        })
+    #else
+        #include <unistd.h>
+        #define XSLEEP_MS(ms) ({ \
+            if (ms >= 1000) \
+                sleep(ms / 1000); \
+            usleep((ms % 1000) * 1000); \
+        })
+    #endif
 #endif
 
 #ifndef BUFFER_ALIGNMENT
@@ -644,6 +673,15 @@ typedef int64_t  INT64;
     !defined(NO_ASN)
     #define WOLFTPM2_PEM_DECODE
 #endif
+
+/* Firmware upgrade requires wolfCrypt for hash and supported
+ * only for Infineon SLB9672/SLB9673 */
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
+    (defined(WOLFTPM2_NO_WOLFCRYPT) || \
+     (!defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)))
+    #undef WOLFTPM_FIRMWARE_UPGRADE
+#endif
+
 
 /* ---------------------------------------------------------------------------*/
 /* ENDIANESS HELPERS */

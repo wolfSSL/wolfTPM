@@ -43,6 +43,7 @@ include wrapper/include.am
 include hal/include.am
 include cmake/include.am
 
+EXTRA_DIST+= .cyignore
 EXTRA_DIST+= README.md
 EXTRA_DIST+= ChangeLog.md
 EXTRA_DIST+= LICENSE

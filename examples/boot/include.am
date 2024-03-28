@@ -1,6 +1,8 @@
 # vim:ft=automake
 # All paths should be given relative to the root
 
+EXTRA_DIST += examples/boot/README.md
+
 if BUILD_EXAMPLES
 noinst_HEADERS  += examples/boot/boot.h
 

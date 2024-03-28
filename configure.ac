@@ -408,6 +408,18 @@ then
 fi
 
 
+# Built-in TPM firmware upgrade support
+AC_ARG_ENABLE([firmware],
+    [AS_HELP_STRING([--enable-firmware],[Enable support for TPM firmware upgrades (default: enabled)])],
+    [ ENABLED_FIRMWARE=$enableval ],
+    [ ENABLED_FIRMWARE=yes ]
+    )
+if test "x$ENABLED_FIRMWARE" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FIRMWARE_UPGRADE"
+fi
+
+
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
 
@@ -431,6 +443,7 @@ AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
+AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
 
 
@@ -556,3 +569,4 @@ echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
+echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
