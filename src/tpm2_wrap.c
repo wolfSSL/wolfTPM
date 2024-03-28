@@ -7229,19 +7229,24 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
 {
     int rc;
     uint32_t offset, chunk_sz;
+    uint8_t cmd[2 + IFX_FW_MAX_CHUNK_SZ];
+    uint16_t val16;
 
     (void)dev;
-    for (offset = 0; ; offset += IFX_FW_MAX_CHUNK_SZ) {
-        uint8_t cmd[2 + IFX_FW_MAX_CHUNK_SZ];
-        uint16_t val16;
-
+    for (offset = 0; ; offset += chunk_sz) {
         XMEMSET(cmd, 0, sizeof(cmd));
 
         /* get chunk */
         rc = cb(&cmd[2], IFX_FW_MAX_CHUNK_SZ, offset, cb_ctx);
-        if (rc >= 0 && rc <= IFX_FW_MAX_CHUNK_SZ) {
+        if (rc > 0 && rc <= IFX_FW_MAX_CHUNK_SZ) {
             chunk_sz = rc;
             rc = 0;
+        }
+        else if (rc == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Firmware data done\n");
+        #endif
+            break;
         }
         else {
         #ifdef DEBUG_WOLFTPM
@@ -7310,9 +7315,46 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     wolfTPM2FwDataCb cb, void* cb_ctx)
 {
     int rc;
+    WOLFTPM2_CAPS caps;
     TPM_ALG_ID hashAlg = TPM_ALG_SHA384; /* use SHA2-384 for manifest hash */
     uint8_t  manifest_hash[TPM_SHA384_DIGEST_SIZE];
     uint32_t manifest_hash_sz = (uint32_t)sizeof(manifest_hash);
+
+    /* check the operational mode */
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc == 0) {
+    #ifdef DEBUG_WOLFTPM
+        const char* opModeStr = "Unknown";
+        switch (caps.opMode) {
+            case 0x00:
+                opModeStr = "Normal TPM operational mode";
+                break;
+            case 0x01:
+                opModeStr = "TPM firmware update mode (abandon possible)";
+                break;
+            case 0x02:
+                opModeStr = "TPM firmware update mode (abandon not possible)";
+                break;
+            case 0x03:
+                opModeStr = "After successful update, but before finalize";
+                break;
+            case 0x04:
+                opModeStr = "After finalize or abandon, reboot required";
+                break;
+            default:
+                break;
+        }
+        printf("Oerational mode: %s (0x%x)\n", opModeStr, caps.opMode);
+    #endif
+
+        if (caps.opMode == 0x03) {
+            /* firmware update is done, just needs finalized */
+        #ifdef DEBUG_WOLFTPM
+            printf("Firmware update done, finalizing\n");
+        #endif
+            return tpm2_ifx_firmware_final(dev);
+        }
+    }
 
     /* hash the manifest */
     rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);

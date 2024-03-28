@@ -57,6 +57,9 @@ static int TPM2_IFX_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     uint32_t offset, void* cb_ctx)
 {
     fw_info_t* fwinfo = (fw_info_t*)cb_ctx;
+    if (offset > fwinfo->firmware_bufSz) {
+        return BUFFER_E;
+    }
     if (offset + data_req_sz > (uint32_t)fwinfo->firmware_bufSz) {
         data_req_sz = (uint32_t)fwinfo->firmware_bufSz - offset;
     }
