@@ -7056,7 +7056,7 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 #ifdef WOLFTPM_MFG_IDENTITY
 
 #ifdef TEST_SAMPLE
-static const uint8_t* TPM2_IAK_SAMPLE_MASTER_PASSWORD = {
+static const uint8_t TPM2_IAK_SAMPLE_MASTER_PASSWORD[] = {
     0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
     0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
 };
@@ -7085,17 +7085,18 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     rc = wc_HashInit(&hash_ctx, hashType);
     if (rc == 0) {
         rc = wc_HashUpdate(&hash_ctx, hashType, serialNum, sizeof(serialNum));
-        if (rc == 0)
+        if (rc == 0) {
         #ifdef TEST_SAMPLE
             rc = wc_HashUpdate(&hash_ctx, hashType,
                 TPM2_IAK_SAMPLE_MASTER_PASSWORD,
                 sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
             (void)masterPassword;
-            (void)masterPasswordSs;
+            (void)masterPasswordSz;
         #else
             rc = wc_HashUpdate(&hash_ctx, hashType,
                 masterPassword, masterPasswordSz);
         #endif
+        }
         if (rc == 0) {
             rc = wc_HashFinal(&hash_ctx, hashType, digest);
         }
