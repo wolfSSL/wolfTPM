@@ -1911,6 +1911,9 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
 
+WOLFTPM_API int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
+    uint8_t* buffer, uint32_t* len);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Increments an NV one-way counter
@@ -3537,6 +3540,23 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
 WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     const TPM2B_PUBLIC* pub, byte* digest, word32* digestSz,
     const byte* policyRef, word32 policyRefSz);
+
+
+/* pre-provisioned IAK and IDevID key/cert from TPM vendor */
+#ifdef WOLFTPM_MFG_IDENTITY
+
+/* Initial attestation key (IAK) and an initial device ID (IDevID) */
+/* Default is: ECDSA SECP384P1, SHA2-384 */
+#define TPM2_IAK_KEY_HANDLE     0x81080000
+#define TPM2_IAK_CERT_HANDLE    0x1C20100
+
+#define TPM2_IDEVID_KEY_HANDLE  0x81080001
+#define TPM2_IDEVID_CERT_HANDLE 0x1C20101
+
+WOLFTPM_API int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
+    uint8_t* masterPassword, uint16_t masterPasswordSz);
+
+#endif /* WOLFTPM_MFG_IDENTITY */
 
 
 /* Internal API's */
