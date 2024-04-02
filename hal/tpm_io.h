@@ -82,6 +82,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, by
 #elif defined(WOLFSSL_STM32_CUBEMX)
 WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
+#elif defined(WOLFTPM_MICROCHIP_HARMONY)
+WOLFTPM_LOCAL int TPM2_IoCb_MicrochipHarmony_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
 #endif /* __linux__ */
 
 #else /* SPI */
