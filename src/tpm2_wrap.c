@@ -7442,6 +7442,9 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t  manifest_hash[TPM_SHA384_DIGEST_SIZE];
     uint32_t manifest_hash_sz = (uint32_t)sizeof(manifest_hash);
 
+    /* Can use SHA2-384 or SHA2-512 for manifest hash */
+    hashAlg = TPM_ALG_SHA384;
+
     /* check the operational mode */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
     if (rc == TPM_RC_SUCCESS) {
@@ -7454,9 +7457,10 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
         }
     }
 
-    /* hash the manifest */
-    hashAlg = TPM_ALG_SHA384; /* use SHA2-384 or SHA2-512 for manifest hash */
-    rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
+    if (rc == TPM_RC_SUCCESS) {
+        /* hash the manifest */
+        rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
+    }
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_enable_policy(dev);
     }

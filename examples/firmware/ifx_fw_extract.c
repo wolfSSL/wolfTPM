@@ -83,7 +83,7 @@
 }
 
 
-/* macros for stdio */
+/* portability macros for stdio */
 #define XFILE      FILE*
 #define XFOPEN     fopen
 #define XFSEEK     fseek
@@ -97,12 +97,10 @@
 #define XFGETS     fgets
 #define XFEOF      feof
 
-/* internal error codes */
-#define MEMORY_E     -125  /* out of memory error */
-#define BUFFER_E     -132  /* output buffer too small or input too large */
-#define BAD_FUNC_ARG -173  /* Bad function argument provided */
 
-
+/* Helper function to split .bin into manifest and firmware file
+ * based on key group id */
+/* Can also display the key group */
 static int extractFW(
     uint8_t *fw, size_t fw_size, uint32_t keygroup_id,
     uint8_t **manifest, size_t *manifest_size,
@@ -111,7 +109,9 @@ static int extractFW(
     size_t offset = 0, offset2;
     uint16_t size16, num;
     uint32_t size32, group;
+    int i;
 
+    /* all Infineon firmware.bin files have this GUID header */
     const uint8_t guid[] = { 0x1a, 0x53, 0x66, 0x7a,
                              0xfb, 0x12, 0x47, 0x9e,
                              0xac, 0x58, 0xec, 0x99,
@@ -143,7 +143,7 @@ static int extractFW(
     READ_BE16(num, fw, offset, offset2);
 
     *manifest = NULL;
-    for (int i = 0; i < num; i++) {
+    for (i = 0; i < num; i++) {
         READ_BE32(group, fw, offset, offset2);
         printf("Found group %08x\n", group);
 
@@ -200,13 +200,13 @@ static int readfile(const char* fname, uint8_t** buf, size_t* bufLen)
     XFILE fp;
 
     if (fname == NULL || buf == NULL || bufLen == NULL)
-        return BAD_FUNC_ARG;
+        return -1;
 
     /* open file (read-only binary) */
     fp = XFOPEN(fname, "rb");
     if (fp == XBADFILE) {
         fprintf(stderr, "Error loading %s\n", fname);
-        return BUFFER_E;
+        return -1;
     }
 
     XFSEEK(fp, 0, XSEEK_END);
@@ -216,10 +216,10 @@ static int readfile(const char* fname, uint8_t** buf, size_t* bufLen)
         if (*buf == NULL) {
             *buf = (uint8_t*)malloc(fileSz);
             if (*buf == NULL)
-                ret = MEMORY_E;
+                ret = -1;
         }
         else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {
-            ret = BUFFER_E;
+            ret = -1;
         }
         *bufLen = (size_t)fileSz;
         if (ret == 0) {
@@ -228,7 +228,7 @@ static int readfile(const char* fname, uint8_t** buf, size_t* bufLen)
         }
     }
     else {
-        ret = BUFFER_E;
+        ret = -1;
     }
     XFCLOSE(fp);
     return ret;
@@ -241,7 +241,7 @@ static int writefile(const char* filename, const uint8_t *buf, size_t bufSz)
     size_t fileSz = 0;
 
     if (filename == NULL || buf == NULL)
-        return BAD_FUNC_ARG;
+        return -1;
 
     fp = XFOPEN(filename, "wb");
     if (fp != XBADFILE) {
@@ -270,7 +270,8 @@ int main(int argc, char **argv)
     {
         printf("Usage:\n");
         printf("  ifx_fw_extract <fw-file>\n");
-        printf("  ifx_fw_extract <fw-file> <keygroup_id> <manifest-file> <data-file>\n");
+        printf("  ifx_fw_extract <fw-file> "
+                    "<keygroup_id> <manifest-file> <data-file>\n");
         exit(1);
     }
 
@@ -282,7 +283,9 @@ int main(int argc, char **argv)
         }
 
         if (argc >= 3) {
-            if (sscanf(argv[2], "0x%08x", &keygroup_id) != 1 && sscanf(argv[2], "%08x", &keygroup_id) != 1) {
+            if (sscanf(argv[2], "0x%08x", &keygroup_id) != 1 &&
+                sscanf(argv[2], "%08x", &keygroup_id) != 1)
+            {
                 LOG("Cannot read keygroup_id.");
                 rc = EXIT_FAILURE;
                 goto exit;
@@ -306,12 +309,11 @@ int main(int argc, char **argv)
                 goto exit;
             }
         }
-        rc = 0;
+        rc = 0; /* success */
     }
     else {
         printf("Bad arguments.\n");
         rc = EXIT_FAILURE;
-        goto exit;
     }
 
 exit:
