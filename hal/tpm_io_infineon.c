@@ -162,10 +162,22 @@
     #endif
 
     #if defined(CY_USING_HAL)
+    #include "cyhal_spi.h"
     int TPM2_IoCb_Infineon_SPI(TPM2_CTX* ctx, const byte* txBuf,
         byte* rxBuf, word16 xferSz, void* userCtx)
     {
+        cyhal_spi_t* spi = (cyhal_spi_t*)userCtx;
+        cy_rslt_t result;
 
+        if (userCtx == NULL) {
+            return BAD_FUNC_ARG;
+        }
+
+        result = cyhal_spi_transfer(spi, txBuf, xferSz, rxBuf, xferSz, 0);
+        if (result != CY_RSLT_SUCCESS) {
+            return TPM_RC_FAILURE;
+        }
+        return TPM_RC_SUCCESS;
     }
     #elif defined(WOLFTPM_INFINEON_TRICORE)
 
