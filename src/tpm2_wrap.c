@@ -619,6 +619,15 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  *  TPM_PT_MODES = Bit 0 = FIPS_140_2
  */
 
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    /* Infineon SLB9672 or SLB9673 Firmware Upgrade support */
+    #define TPM_PT_VENDOR_FIX 0x80000000
+    #define TPM_PT_VENDOR_FIX_FU_COUNTER        (TPM_PT_VENDOR_FIX + 3)
+    #define TPM_PT_VENDOR_FIX_FU_COUNTER_SAME   (TPM_PT_VENDOR_FIX + 4)
+    #define TPM_PT_VENDOR_FIX_FU_OPERATION_MODE (TPM_PT_VENDOR_FIX + 7)
+    #define TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID    (TPM_PT_VENDOR_FIX + 8)
+#endif
+
 /* ST33TP
  *  TPM_PT_MANUFACTURER 0x53544D20: "STM"
  *  TPM_PT_FIRMWARE_VERSION_1 TPM FW version: 0x00006400
@@ -698,6 +707,44 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
     return rc;
 }
 
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+static int tpm2_ifx_cap_vendor_get(WOLFTPM2_CAPS* cap, uint32_t property,
+    uint8_t* val, size_t valSz)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_VENDOR_PROPERTY;
+    in.property = property;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
+        /* 4 bytes=count + 2 bytes=len + vendor value */
+        if (buf->buffer[3] == 1 && buf->buffer[5] == valSz) {
+            XMEMCPY(val, &buf->buffer[6], valSz);
+            if (valSz == 2) {
+                *((uint16_t*)val) = be16_to_cpu(*((uint16_t*)val));
+            }
+            else if (valSz == 4) {
+                *((uint32_t*)val) = be32_to_cpu(*((uint32_t*)val));
+            }
+        }
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_GetCapability vendor prop 0x%x failed 0x%x: %s\n",
+            property, rc, TPM2_GetRCString(rc));
+    #endif
+    }
+    (void)cap;
+    return rc;
+}
+#endif
+
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 {
     int rc;
@@ -712,14 +759,15 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 
     /* Get Capabilities TPM_PT_MANUFACTURER thru TPM_PT_FIRMWARE_VERSION_2 */
     XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
     in.capability = TPM_CAP_TPM_PROPERTIES;
     in.property = TPM_PT_MANUFACTURER;
     in.propertyCount = 8;
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability manufacture failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -729,18 +777,39 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 
     /* Get Capability TPM_PT_MODES */
     XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
     in.capability = TPM_CAP_TPM_PROPERTIES;
     in.property = TPM_PT_MODES;
     in.propertyCount = 1;
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
+        printf("TPM2_GetCapability modes failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
     rc = wolfTPM2_ParseCapabilities(cap, &out.capabilityData.data.tpmProperties);
+
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    /* Get vendor specific information */
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_OPERATION_MODE,
+            &cap->opMode, sizeof(cap->opMode));
+    }
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID,
+            (uint8_t*)&cap->keyGroupId, sizeof(cap->keyGroupId));
+    }
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER,
+            (uint8_t*)&cap->fwCounter, sizeof(cap->fwCounter));
+    }
+    if (rc == 0) {
+        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER_SAME,
+            (uint8_t*)&cap->fwCounterSame, sizeof(cap->fwCounterSame));
+    }
+#endif
 
     return rc;
 }
@@ -1144,7 +1213,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     TPM2B_ECC_POINT pubPoint, secretPoint;
     ecc_point r[1];
     mp_int prime, a;
-    word32 keySz;
+    word32 keySz = 0;
 
     publicArea = &tpmKey->pub.publicArea;
     XMEMSET(&rng, 0, sizeof(rng));
@@ -4454,7 +4523,7 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
 
     /* Perform read of NV without auth password */
     nv.handle.hndl = handle;
-    rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, len, 0);
+    rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, (word32*)len, 0);
     return rc;
 }
 
@@ -7122,5 +7191,324 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 
 
 
+
+
+/******************************************************************************/
+/* --- BEGIN Firmware Upgrade Support -- */
+/******************************************************************************/
+
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+
+/* Maximum size of firmware chunks */
+#define IFX_FW_MAX_CHUNK_SZ 1024
+
+/* Setup the policy to enable firmware upgrade start */
+static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    PolicyCommandCode_In policyCC;
+    SetPrimaryPolicy_In policy;
+    WOLFTPM2_SESSION tpmSession;
+
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&policyCC, 0, sizeof(policyCC));
+    XMEMSET(&policy, 0, sizeof(policy));
+
+    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL);
+    if (rc == TPM_RC_SUCCESS) {
+        policyCC.policySession = tpmSession.handle.hndl;
+        policyCC.code = TPM_CC_FieldUpgradeStartVendor;
+        rc = TPM2_PolicyCommandCode(&policyCC);
+        if (rc == TPM_RC_SUCCESS) {
+            word32 policySz = (word32)sizeof(policy.authPolicy.buffer);
+            rc = wolfTPM2_GetPolicyDigest(dev, tpmSession.handle.hndl,
+                policy.authPolicy.buffer, &policySz);
+            policy.authPolicy.size = policySz;
+        }
+        wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        policy.authHandle = TPM_RH_PLATFORM;
+        policy.hashAlg = TPM_ALG_SHA256;
+        rc = TPM2_SetPrimaryPolicy(&policy);
+    }
+
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Enable firmware start policy failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz)
+{
+    int rc;
+    WOLFTPM2_SESSION tpmSession;
+    PolicyCommandCode_In policyCC;
+
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&policyCC, 0, sizeof(policyCC));
+
+    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL);
+    if (rc == TPM_RC_SUCCESS) {
+        policyCC.policySession = tpmSession.handle.hndl;
+        policyCC.code = TPM_CC_FieldUpgradeStartVendor;
+        rc = TPM2_PolicyCommandCode(&policyCC);
+        if (rc == TPM_RC_SUCCESS) {
+            /* build command for manifest header */
+            uint16_t val16;
+            /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
+            uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
+            cmd[0] = 0x01; /* type */
+            val16 = be16_to_cpu(manifest_hash_sz + 2);
+            XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
+            val16 = be16_to_cpu(hashAlg);
+            XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
+            XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
+
+            rc = TPM2_IFX_FieldUpgradeStart(tpmSession.handle.hndl,
+                cmd, 1 + 2 + 2 + manifest_hash_sz);
+        }
+        if (rc == TPM_RC_SUCCESS) {
+            /* delay to give the TPM time to switch modes */
+            XSLEEP_MS(300);
+            /* it is not required to release session handle,
+             * since TPM reset into firmware upgrade mode */
+
+        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+            !defined(WOLFTPM_WINAPI)
+            /* Do chip startup and request locality again */
+            rc = TPM2_ChipStartup(&dev->ctx, 10);
+        #endif
+        }
+        else {
+            wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
+        }
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware upgrade start failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz)
+{
+    int rc = TPM_RC_FAILURE;
+    uint32_t offset, chunk_sz;
+    uint8_t state; /* 1=start, 2=more, 0=done */
+
+    (void)dev;
+    for (offset = 0; offset < manifest_sz; offset += chunk_sz) {
+        /* max cmd: type (1) + chunk sz (2) + max chunk (1024) */
+        uint8_t cmd[1 + 2 + IFX_FW_MAX_CHUNK_SZ];
+        uint16_t val16;
+
+        chunk_sz = manifest_sz - offset;
+        if (chunk_sz > IFX_FW_MAX_CHUNK_SZ) {
+            chunk_sz = IFX_FW_MAX_CHUNK_SZ;
+            state = (offset == 0) ? 1 : 2;
+        }
+        else {
+            state = 0;
+        }
+    #ifdef DEBUG_WOLFTPM
+        printf("Firmware manifest chunk %u offset (%u / %u), state %d\n",
+            chunk_sz, offset, manifest_sz, state);
+    #endif
+
+        cmd[0] = state;
+        val16 = be16_to_cpu(chunk_sz);
+        XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* chunk size */
+        XMEMCPY(&cmd[3], &manifest[offset], chunk_sz);
+
+        rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeManifestVendor,
+            cmd, 1 + 2 + chunk_sz);
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware upgrade manifest failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    int rc;
+    uint32_t offset, chunk_sz;
+    uint8_t cmd[2 + IFX_FW_MAX_CHUNK_SZ];
+    uint16_t val16;
+
+    (void)dev;
+    for (offset = 0; ; offset += chunk_sz) {
+        XMEMSET(cmd, 0, sizeof(cmd));
+
+        /* get chunk */
+        rc = cb(&cmd[2], IFX_FW_MAX_CHUNK_SZ, offset, cb_ctx);
+        if (rc > 0 && rc <= IFX_FW_MAX_CHUNK_SZ) {
+            chunk_sz = rc;
+            rc = 0;
+        }
+        else if (rc == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Firmware data done\n");
+        #endif
+            break;
+        }
+        else {
+        #ifdef DEBUG_WOLFTPM
+            printf("Firmware data callback error! %d\n", rc);
+        #endif
+            break;
+        }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("Firmware data chunk offset %u\n", offset);
+    #endif
+
+        val16 = be16_to_cpu(chunk_sz);
+        XMEMCPY(&cmd[0], &val16, sizeof(val16)); /* chunk size */
+
+        rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor,
+            cmd, 2 + chunk_sz);
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
+    }
+
+    if (rc == TPM_RC_SUCCESS) {
+        /* Give the TPM time to start the new firmware */
+        XSLEEP_MS(300);
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
+    }
+#ifdef DEBUG_WOLFTPM
+    else {
+        printf("Firmware upgrade data failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    uint8_t cmd[2];
+    uint16_t val16;
+
+    (void)dev;
+
+    val16 = 0;
+    XMEMCPY(&cmd[0], &val16, sizeof(val16)); /* data size */
+
+    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeFinalizeVendor,
+        cmd, sizeof(cmd));
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware finalize failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    int rc;
+    WOLFTPM2_CAPS caps;
+    TPM_ALG_ID hashAlg;
+    uint8_t  manifest_hash[TPM_SHA384_DIGEST_SIZE];
+    uint32_t manifest_hash_sz = (uint32_t)sizeof(manifest_hash);
+
+    /* check the operational mode */
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc == TPM_RC_SUCCESS) {
+        if (caps.opMode == 0x03) {
+            /* firmware update is done, just needs finalized and TPM reset */
+        #ifdef DEBUG_WOLFTPM
+            printf("Firmware update done, finalizing\n");
+        #endif
+            return tpm2_ifx_firmware_final(dev);
+        }
+    }
+
+    /* hash the manifest */
+    hashAlg = TPM_ALG_SHA384; /* use SHA2-384 or SHA2-512 for manifest hash */
+    rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_ifx_firmware_enable_policy(dev);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_ifx_firmware_start(dev, hashAlg, manifest_hash, manifest_hash_sz);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_ifx_firmware_manifest(dev, manifest, manifest_sz);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_ifx_firmware_data(dev, cb, cb_ctx);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_ifx_firmware_final(dev);
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware update failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+/* terminate a firmware update */
+int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    uint8_t cmd[2];
+    uint16_t val16;
+
+    (void)dev;
+
+    val16 = 0; /* data size */
+    XMEMCPY(&cmd[0], &val16, sizeof(val16));
+
+    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor,
+        cmd, sizeof(cmd));
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware abandon failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+/******************************************************************************/
+/* --- END Firmware Upgrade Support -- */
+/******************************************************************************/
 
 #endif /* !WOLFTPM2_NO_WRAPPER */

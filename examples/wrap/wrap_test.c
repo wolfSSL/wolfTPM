@@ -198,6 +198,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         "FIPS 140-2 %d, CC-EAL4 %d\n",
         caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
         caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    printf("\tKeyGroupId 0x%x, Operational Mode 0x%x, FwCounter %d (%d same)\n",
+        caps.keyGroupId, caps.opMode, caps.fwCounter, caps.fwCounterSame);
+#endif
 
     /* List the active persistent handles */
     rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);

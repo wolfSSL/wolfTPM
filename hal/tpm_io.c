@@ -65,7 +65,7 @@
 #include "hal/tpm_io_qnx.c"
 #elif defined(__XILINX__)
 #include "hal/tpm_io_xilinx.c"
-#elif defined(WOLFTPM_INFINEON_TRICORE)
+#elif defined(WOLFTPM_INFINEON_TRICORE) || defined(CY_USING_HAL)
 #include "hal/tpm_io_infineon.c"
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
 #include "hal/tpm_io_microchip.c"
@@ -89,6 +89,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_QNX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__XILINX__)
     ret = TPM2_IoCb_Xilinx_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(CY_USING_HAL)
+    ret = TPM2_IoCb_Infineon_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFTPM_INFINEON_TRICORE)
     ret = TPM2_IoCb_Infineon_TriCore_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
@@ -140,6 +142,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     #elif defined(WOLFSSL_STM32_CUBEMX)
         /* Use STM32 CubeMX HAL for I2C */
         ret = TPM2_IoCb_STCubeMX_I2C(ctx, isRead, addr, buf, size, userCtx);
+    #elif defined(CY_USING_HAL)
+        ret = TPM2_IoCb_Infineon_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");

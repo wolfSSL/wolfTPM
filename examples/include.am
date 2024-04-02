@@ -16,6 +16,7 @@ include examples/nvram/include.am
 include examples/gpio/include.am
 include examples/seal/include.am
 include examples/attestation/include.am
+include examples/firmware/include.am
 
 if BUILD_EXAMPLES
 EXTRA_DIST += examples/run_examples.sh

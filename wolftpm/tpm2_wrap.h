@@ -118,6 +118,12 @@ typedef struct WOLFTPM2_CAPS {
     word16 fwVerMajor;
     word16 fwVerMinor;
     word32 fwVerVendor;
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    word32 keyGroupId;
+    word16 fwCounter;
+    word16 fwCounterSame;
+    byte   opMode;
+#endif
 
     /* bits */
     word16 fips140_2 : 1; /* using FIPS mode */
@@ -3566,6 +3572,18 @@ WOLFTPM_LOCAL int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
 WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
+
+
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+typedef int (*wolfTPM2FwDataCb)(
+    uint8_t* data, uint32_t data_req_sz, uint32_t offset, void* cb_ctx);
+
+WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx);
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev);
+
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
 #ifdef __cplusplus
     }  /* extern "C" */
