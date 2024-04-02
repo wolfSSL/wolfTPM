@@ -216,7 +216,6 @@
 
         do {
             /* Queue the write with I2C_BB. */
-            //queued = I2C_BB_Write(i2cAddr, buf, len + 1);
             queued = I2C_BB_Write(TPM2_I2C_ADDR, buf, len + 1);
 
             if (!queued) {
@@ -252,7 +251,8 @@
         /* Set callback to null to do time based polling of
          * I2C_BB_IsBusy instead.
          *
-         * Note: Apparently a callback is actually required.
+         * Note: Apparently a callback is actually required,
+         * even if not used.
          * */
         I2C_BB_Initialize();
         I2C_BB_CallbackRegister(dummy_callback, dummy_context);
