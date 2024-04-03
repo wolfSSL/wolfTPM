@@ -25,23 +25,6 @@
 
 #include <wolftpm/tpm2_packet.h>
 
-/* Endianess Helpers */
-#ifdef LITTLE_ENDIAN_ORDER
-    #define cpu_to_be16(d) ByteReverseWord16(d)
-    #define cpu_to_be32(d) ByteReverseWord32(d)
-    #define cpu_to_be64(d) ByteReverseWord64(d)
-    #define be16_to_cpu(d) ByteReverseWord16(d)
-    #define be32_to_cpu(d) ByteReverseWord32(d)
-    #define be64_to_cpu(d) ByteReverseWord64(d)
-#else
-    #define cpu_to_be16(d) (d)
-    #define cpu_to_be32(d) (d)
-    #define cpu_to_be64(d) (d)
-    #define be16_to_cpu(d) (d)
-    #define be32_to_cpu(d) (d)
-    #define be64_to_cpu(d) (d)
-#endif
-
 /* convert 16 bit integer to opaque */
 static inline void c16toa(word16 wc_u16, byte* c)
 {

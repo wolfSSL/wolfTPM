@@ -65,7 +65,7 @@
     #include <unistd.h>
 
     #ifdef WOLFTPM_I2C
-        /* I2C - (Only tested with ST33HTPH I2C) */
+        /* I2C - (Only tested with SLB9673 and ST33 I2C) */
         #define TPM2_I2C_ADDR 0x2e
         #define TPM2_I2C_DEV  "/dev/i2c-1"
         #define TPM2_I2C_HZ   400000 /* 400kHz */

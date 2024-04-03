@@ -575,7 +575,7 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 }
 
 /* If timeoutTries <= 0 then it will not try and startup chip and will
-    use existing default locality */
+ * use existing default locality */
 TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     int timeoutTries)
 {
@@ -868,6 +868,20 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     for (i=0; i<(int)handles->count; i++) {
                         TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
                     }
+                    break;
+                }
+                case TPM_CAP_VENDOR_PROPERTY:
+                {
+                    out->capabilityData.data.vendor.size =
+                        packet.size - packet.pos;
+                    if (out->capabilityData.data.vendor.size >
+                            sizeof(out->capabilityData.data.vendor.buffer)) {
+                        out->capabilityData.data.vendor.size =
+                            sizeof(out->capabilityData.data.vendor.buffer);
+                    }
+                    TPM2_Packet_ParseBytes(&packet,
+                        out->capabilityData.data.vendor.buffer,
+                        out->capabilityData.data.vendor.size);
                     break;
                 }
                 default:
@@ -5394,6 +5408,63 @@ int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
     return rc;
 }
 #endif /* WOLFTPM_NUVOTON */
+
+
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+    uint8_t* data, uint32_t size)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPMS_AUTH_COMMAND session;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        int tmpSz = 0;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, TPM_RH_PLATFORM);
+
+        XMEMSET(&session, 0, sizeof(session));
+        session.sessionHandle = sessionHandle;
+
+        TPM2_Packet_MarkU32(&packet, &tmpSz);
+        TPM2_Packet_AppendAuthCmd(&packet, &session);
+        TPM2_Packet_PlaceU32(&packet, tmpSz);
+
+        TPM2_Packet_AppendBytes(&packet, data, size);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_FieldUpgradeStartVendor);
+
+        rc = TPM2_SendCommand(ctx, &packet);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendBytes(&packet, data, size);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, cc);
+        rc = TPM2_SendCommand(ctx, &packet);
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+
+#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
 /******************************************************************************/
 /* --- END Manufacture Specific TPM API's -- */
 /******************************************************************************/

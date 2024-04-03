@@ -1,0 +1,4 @@
+# wolfTPM folders
+$(SEARCH_wolftpm)/IDE
+$(SEARCH_wolftpm)/examples
+$(SEARCH_wolftpm)/tests

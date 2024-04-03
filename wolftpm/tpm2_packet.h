@@ -30,6 +30,23 @@
 
 #define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
 
+/* Endianess Helpers */
+#ifdef LITTLE_ENDIAN_ORDER
+    #define cpu_to_be16(d) ByteReverseWord16(d)
+    #define cpu_to_be32(d) ByteReverseWord32(d)
+    #define cpu_to_be64(d) ByteReverseWord64(d)
+    #define be16_to_cpu(d) ByteReverseWord16(d)
+    #define be32_to_cpu(d) ByteReverseWord32(d)
+    #define be64_to_cpu(d) ByteReverseWord64(d)
+#else
+    #define cpu_to_be16(d) (d)
+    #define cpu_to_be32(d) (d)
+    #define cpu_to_be64(d) (d)
+    #define be16_to_cpu(d) (d)
+    #define be32_to_cpu(d) (d)
+    #define be64_to_cpu(d) (d)
+#endif
+
 /* For reference here is the TPM2 header (not used) */
 typedef struct TPM2_HEADER {
     UINT16 tag;

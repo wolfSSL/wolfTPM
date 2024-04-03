@@ -82,6 +82,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, by
 #elif defined(WOLFSSL_STM32_CUBEMX)
 WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
+#elif defined(CY_USING_HAL)
+WOLFTPM_LOCAL int TPM2_IoCb_Infineon_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
 #endif /* __linux__ */
 
 #else /* SPI */
@@ -103,6 +106,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_QNX_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(__XILINX__)
 WOLFTPM_LOCAL int TPM2_IoCb_Xilinx_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(CY_USING_HAL)
+WOLFTPM_LOCAL int TPM2_IoCb_Infineon_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(WOLFTPM_INFINEON_TRICORE)
 WOLFTPM_LOCAL int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,

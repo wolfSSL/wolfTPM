@@ -261,6 +261,13 @@ typedef enum {
     TPM_CC_NTC2_PreConfig           = CC_VEND + 0x0211,
     TPM_CC_NTC2_GetConfig           = CC_VEND + 0x0213,
 #endif
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    TPM_CC_FieldUpgradeStartVendor    = CC_VEND + 0x12F,
+    TPM_CC_FieldUpgradeAbandonVendor  = CC_VEND + 0x130,
+    TPM_CC_FieldUpgradeManifestVendor = CC_VEND + 0x131,
+    TPM_CC_FieldUpgradeDataVendor     = CC_VEND + 0x132,
+    TPM_CC_FieldUpgradeFinalizeVendor = CC_VEND + 0x133,
+#endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -1017,6 +1024,7 @@ typedef union TPMU_CAPABILITIES {
     TPML_TAGGED_PCR_PROPERTY pcrProperties; /* TPM_CAP_PCR_PROPERTIES */
     TPML_ECC_CURVE eccCurves; /* TPM_CAP_ECC_CURVES */
     TPML_TAGGED_POLICY authPolicies; /* TPM_CAP_AUTH_POLICIES */
+    TPM2B_MAX_BUFFER vendor;
 } TPMU_CAPABILITIES;
 
 typedef struct TPMS_CAPABILITY_DATA {
@@ -2823,7 +2831,20 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
     WOLFTPM_API TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out);
 
     WOLFTPM_API TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size);
-#endif
+#endif /* ST33 Vendor Specific */
+
+
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+    defined(WOLFTPM_AUTODETECT)
+
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+WOLFTPM_API int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+    uint8_t* data, uint32_t size);
+WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+#endif /* Infineon SLB Vendor Specific */
+
 
 /* Vendor Specific GPIO */
 #ifdef WOLFTPM_ST33
@@ -2959,8 +2980,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
         CFG_STRUCT preConfig;
     } NTC2_GetConfig_Out;
     WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
-
-#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* Vendor GPIO Commands */
 
 
 /* Non-standard API's */
