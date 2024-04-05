@@ -3578,7 +3578,15 @@ WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
 typedef int (*wolfTPM2FwDataCb)(
     uint8_t* data, uint32_t data_req_sz, uint32_t offset, void* cb_ctx);
 
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
+    TPM_ALG_ID hashAlg, /* Can use SHA2-384 or SHA2-512 for manifest hash */
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx);
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx);
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
 WOLFTPM_API int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev);
