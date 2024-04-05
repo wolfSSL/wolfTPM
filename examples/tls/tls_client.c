@@ -594,7 +594,7 @@ exit:
     }
 
     /* Bidirectional shutdown */
-    while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+    while (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
         printf("Shutdown not complete\n");
     }
 

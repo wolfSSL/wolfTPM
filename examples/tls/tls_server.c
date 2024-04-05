@@ -564,7 +564,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         }
 
         /* Bidirectional shutdown */
-        while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+        while (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
             printf("Shutdown not complete\n");
         }
 
@@ -583,7 +583,7 @@ exit:
 
     if (ssl != NULL) {
         /* Bidirectional shutdown */
-        while (wolfSSL_shutdown(ssl) == SSL_SHUTDOWN_NOT_DONE) {
+        while (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
             printf("Shutdown not complete\n");
         }
 
