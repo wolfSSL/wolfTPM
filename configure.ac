@@ -478,7 +478,7 @@ rm -f $OPTION_FILE
 echo "/* wolftpm options.h" > $OPTION_FILE
 echo " * generated from configure options" >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
-echo " * Copyright (C) 2006-2021 wolfSSL Inc." >> $OPTION_FILE
+echo " * Copyright (C) 2006-2024 wolfSSL Inc." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
 echo " * * This file is part of wolfTPM." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
