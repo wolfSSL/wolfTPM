@@ -1862,6 +1862,7 @@ WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     \param auth pointer to a string constant, specifying the password authorization for this NV Index
     \param authSz integer value, specifying the size of the password authorization, in bytes
 
+    \sa wolfTPM2_NVCreateAuthPolicy
     \sa wolfTPM2_NVWriteAuth
     \sa wolfTPM2_NVReadAuth
     \sa wolfTPM2_NVDeleteAuth
@@ -1870,6 +1871,36 @@ WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
 WOLFTPM_API int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Creates a new NV Index to be later used for storing data into the TPM's NVRAM
+    \note This is a wolfTPM2 wrapper around TPM2_NV_DefineSpace
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parent pointer to a WOLFTPM2_HANDLE, specifying the TPM hierarchy for the new NV Index
+    \param nv pointer to an empty structure of WOLFTPM2_NV type, to hold the new NV Index
+    \param nvIndex integer value, holding the NV Index Handle given by the TPM upon success
+    \param nvAttributes integer value, use wolfTPM2_GetNvAttributesTemplate to create correct value
+    \param maxSize integer value, specifying the maximum number of bytes written at this NV Index
+    \param auth pointer to a string constant, specifying the password authorization for this NV Index
+    \param authSz integer value, specifying the size of the password authorization, in bytes
+    \param authPolicy optional policy for using this key (The policy is computed using the nameAlg of the object)
+    \param authPolicySz size of the authPolicy
+
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_NVWriteAuth
+    \sa wolfTPM2_NVReadAuth
+    \sa wolfTPM2_NVDeleteAuth
+    \sa wolfTPM2_NVOpen
+*/
+WOLFTPM_API int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
