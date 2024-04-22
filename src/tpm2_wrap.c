@@ -7432,18 +7432,13 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
 {
     int rc;
     WOLFTPM2_CAPS caps;
-    TPM_ALG_ID hashAlg;
-    uint8_t  manifest_hash[TPM_SHA384_DIGEST_SIZE];
-    uint32_t manifest_hash_sz = (uint32_t)sizeof(manifest_hash);
-
-    /* Can use SHA2-384 or SHA2-512 for manifest hash */
-    hashAlg = TPM_ALG_SHA384;
 
     /* check the operational mode */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
@@ -7456,16 +7451,12 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
             return tpm2_ifx_firmware_final(dev);
         }
     }
-
-    if (rc == TPM_RC_SUCCESS) {
-        /* hash the manifest */
-        rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
-    }
-    if (rc == TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_SUCCESS && caps.opMode == 0x00) {
         rc = tpm2_ifx_firmware_enable_policy(dev);
-    }
-    if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_ifx_firmware_start(dev, hashAlg, manifest_hash, manifest_hash_sz);
+        if (rc == TPM_RC_SUCCESS) {
+            rc = tpm2_ifx_firmware_start(dev, hashAlg,
+                manifest_hash, manifest_hash_sz);
+        }
     }
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_manifest(dev, manifest, manifest_sz);
@@ -7483,6 +7474,37 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     }
 #endif
     return rc;
+}
+
+int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    int rc;
+    uint8_t manifest_hash[TPM_SHA384_DIGEST_SIZE];
+
+    /* hash the manifest */
+    rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
+    if (rc == 0) {
+        rc = wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
+            manifest_hash, (uint32_t)sizeof(manifest_hash),
+            manifest, manifest_sz, cb, cb_ctx);
+    }
+    return rc;
+}
+
+int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    uint8_t manifest_hash[TPM_SHA384_DIGEST_SIZE];
+
+    /* recovery mode manifest hash is all 0x3C */
+    XMEMSET(manifest_hash, 0x3C, sizeof(manifest_hash));
+
+    return wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
+            manifest_hash, (uint32_t)sizeof(manifest_hash),
+            manifest, manifest_sz, cb, cb_ctx);
 }
 
 /* terminate a firmware update */

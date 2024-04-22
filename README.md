@@ -874,7 +874,6 @@ Connection: close
 * Add support for Endorsement certificates (EK Credential Profile).
 * Update to v1.59 of specification (adding CertifyX509).
 * Inner wrap support for SensitiveToPrivate.
-* Firmware upgrade support on TPM's.
 * Add support for IRQ (interrupt line)
 
 ## Support

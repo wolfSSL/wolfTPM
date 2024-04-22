@@ -94,35 +94,26 @@ static const char* TPM2_IFX_GetOpModeStr(int opMode)
     return opModeStr;
 }
 
-static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
+static void TPM2_IFX_PrintInfo(WOLFTPM2_CAPS* caps)
 {
-    int rc;
-    WOLFTPM2_CAPS caps;
-    rc = wolfTPM2_GetCapabilities(dev, &caps);
-    if (rc == TPM_RC_SUCCESS) {
-        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
-            caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
-            caps.fwVerMinor, caps.fwVerVendor);
-        printf("Operational mode: %s (0x%x)\n",
-            TPM2_IFX_GetOpModeStr(caps.opMode), caps.opMode);
-        printf("KeyGroupId 0x%x, FwCounter %d (%d same)\n",
-            caps.keyGroupId, caps.fwCounter, caps.fwCounterSame);
-        if (caps.keyGroupId == 0) {
-            printf("Error getting key group id from TPM!\n");
-            rc = -1;
-        }
-    }
-    return rc;
+    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
+        caps->mfgStr, caps->mfg, caps->vendorStr, caps->fwVerMajor,
+        caps->fwVerMinor, caps->fwVerVendor);
+    printf("Operational mode: %s (0x%x)\n",
+        TPM2_IFX_GetOpModeStr(caps->opMode), caps->opMode);
+    printf("KeyGroupId 0x%x, FwCounter %d (%d same)\n",
+        caps->keyGroupId, caps->fwCounter, caps->fwCounterSame);
 }
 
 int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
     const char* manifest_file = NULL;
     const char* firmware_file = NULL;
     fw_info_t fwinfo;
-    int abandon = 0;
+    int abandon = 0, recovery = 0;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
 
@@ -156,9 +147,17 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    rc = TPM2_IFX_PrintInfo(&dev);
-    if (rc != 0) {
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    if (rc != TPM_RC_SUCCESS) {
         goto exit;
+    }
+    TPM2_IFX_PrintInfo(&caps);
+    if (caps.keyGroupId == 0) {
+        printf("Error getting key group id from TPM!\n");
+    }
+    if (caps.opMode == 0x02 || (caps.opMode & 0x80)) {
+        /* if opmode == 2 or 0x8x then we need to use recovery mode */
+        recovery = 1;
     }
 
     if (abandon) {
@@ -188,12 +187,21 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
             &fwinfo.firmware_buf, &fwinfo.firmware_bufSz);
     }
     if (rc == 0) {
-        rc = wolfTPM2_FirmwareUpgrade(&dev,
-            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
-            TPM2_IFX_FwData_Cb, &fwinfo);
+        if (recovery) {
+            printf("Firmware Update (recovery mode):\n");
+            rc = wolfTPM2_FirmwareUpgradeRecover(&dev,
+                fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
+                TPM2_IFX_FwData_Cb, &fwinfo);
+        }
+        else {
+            printf("Firmware Update (normal mode):\n");
+            rc = wolfTPM2_FirmwareUpgrade(&dev,
+                fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
+                TPM2_IFX_FwData_Cb, &fwinfo);
+        }
     }
     if (rc == 0) {
-        rc = TPM2_IFX_PrintInfo(&dev);
+        TPM2_IFX_PrintInfo(&caps);
     }
 
 exit:
