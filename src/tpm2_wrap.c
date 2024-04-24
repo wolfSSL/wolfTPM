@@ -4258,9 +4258,10 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
 
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
-int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+/* authPolicy and authPolicySz are optional policy digest */
+int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
-    const byte* auth, int authSz)
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
 {
     int rc, rctmp, alreadyExists = 0;
     NV_DefineSpace_In in;
@@ -4275,7 +4276,7 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = parent->hndl;
-    if (auth && authSz > 0) {
+    if (auth != NULL && authSz > 0) {
         if (authSz > (int)sizeof(in.auth.buffer))
             authSz = (int)sizeof(in.auth.buffer);
         in.auth.size = authSz;
@@ -4285,6 +4286,14 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
     in.publicInfo.nvPublic.attributes = nvAttributes;
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
+    if (authPolicy != NULL && authPolicySz > 0) {
+        if (authPolicySz > (int)sizeof(in.publicInfo.nvPublic.authPolicy.buffer)) {
+            authPolicySz = (int)sizeof(in.publicInfo.nvPublic.authPolicy.buffer);
+        }
+        in.publicInfo.nvPublic.authPolicy.size = authPolicySz;
+        XMEMCPY(in.publicInfo.nvPublic.authPolicy.buffer, authPolicy,
+            in.publicInfo.nvPublic.authPolicy.size);
+    }
 
     rc = TPM2_NV_DefineSpace(&in);
     if (rc == TPM_RC_NV_DEFINED) {
@@ -4319,6 +4328,14 @@ int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     /* if handle already existed then return `TPM_RC_NV_DEFINED` */
     return (rc == TPM_RC_SUCCESS && alreadyExists) ? TPM_RC_NV_DEFINED : rc;
+}
+
+int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz)
+{
+    return wolfTPM2_NVCreateAuthPolicy(dev, parent, nv, nvIndex, nvAttributes,
+        maxSize, auth, authSz, NULL, 0);
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVCreateAuth */
