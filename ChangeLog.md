@@ -1,5 +1,16 @@
 # Release Notes
 
+## wolfTPM Release 2.7.3 (Apr 24, 2024) - LTS
+
+**Summary**
+
+Long Term Support Release
+
+**Detail**
+
+* Fixed `TPM2_CommandProcess` to allow unique handles (from PR #266). See ZD 17817
+* Fixed build issues with `netdb.h` (from PR #332 and #333)
+
 ## wolfTPM Release 2.7.2 (Feb 27, 2024) - LTS
 
 **Summary**
