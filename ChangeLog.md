@@ -1,5 +1,68 @@
 # Release Notes
 
+## wolfTPM Release 3.2.0 (Apr 24, 2024)
+
+**Summary**
+
+Added TPM Firmware update support (Infineon SLB9672/SLB9673). Added support for pre-provisioned device identity keys/certificates (STMicro ST33). Fixed issue with sealing secret to prevent `userWithAuth` by default. Expanded the TPM get capabilities support.
+
+**Detail**
+
+* Added new API `wolfTPM2_NVCreateAuthPolicy` for allowing NV creation with policy (PR #344)
+* Added Infineon firmware update recovery support (PR #342)
+* Added support for Infineon Firmware upgrade (PR #339)
+  - Added support for Infineon SLB9672/SLB9673 Firmware upgrade (see examples/firmware/README.md)
+  - Added Infineon Modus Toolbox support. See `wolfssl/IDE/Infineon/README.md` for setup instructions.
+  - Added support for Infineon CyHal I2C support.
+  - Added Firmware extraction tool
+  - Added Firmware update example application `examples/firmware/ifx_fw_update`.
+  - Added support for vendor capabilities `TPM_CAP_VENDOR_PROPERTY`.
+  - Added `XSLEEP_MS` macro for firmware update delay.
+  - Added support for getting key group id, operational mode and update counts.
+  - Added support for abandoning an update.
+  - Added support for firmware update done, but not finalized
+  - Added Infineon CyHal SPI support.
+  - Fixed auto-detect to not define SLB9672/SLB9673.
+* Fixed TLS examples to not use openssl compatibility macros (PR #341)
+* Added ST33 support for pre-provisioned device identity key and certificate (PR #336)
+  - Added support for pre-provisioned TPM using the "TPM 2.0 Keys for Device Identity and Attestation" specification. See build macro: `WOLFTPM_MFG_IDENTITY`.
+  - Added example for using TPM pre-provisioned device identity to TLS client example.
+  - Fixed ST33 vendor command to enable command codes (TPM2_SetCommandSet) (it requires platform auth to be set).
+  - Added benchmarks for new ST33KTPM2XI2C.
+  - Fixed 0x1XX error code parsing.
+  - Fixed ST33 part descriptions.
+  - Updated example certificates.
+* Fixes for building wolfTPM examples with `NO_FILESYSTEM` (PR #338)
+* Fixed crypto callback hashing return code initialization (PR #334)
+* Updated documentation for Infineon SLB9673 (I2C) (PR #337)
+* Fixed Documentation references for generated user manual (PR #335)
+* Fixed netdb.h include (PR #333)
+* Fixes for building with "-Wpedantic" (PR #332)
+* Added new API `wolfTPM2_GetHandles` to get list of handles from the TPM capabilities. (PR #328)
+* Fixed config.h, which should only be included from .c files, not headers. (PR #330/#331)
+* Fixed CMake tests (PR #329)
+* Fixed and improved secret sealing/unsealing (PR #327)
+  - Do not set userWithAuth by default when creating sealed objects. That flag allows password auth for the sealed object. Without the flag it only allows policy auth.
+  - Allow setting policy auth with flags.
+  - Fix secret_unseal to use policy session and valid sealed name.
+  - Added expected failure test cases for seal/unseal with policy.
+  - Improve the run_examples.sh script
+* Improved types for htons and byte swap (PR #326)
+  - Match byte swap logic with wolfSSL (use WOLF_ALLOW_BUILTIN).
+  - Remove unused `XHTONS` and `arpa/inet.h`.
+* Improved STMicro product naming (PR #325)
+* Improved the STM32Cube template (PR #324)
+  - Setup so next pack can add small stack and transport options: `WOLFTPM_CONF_SMALL_STACK` and `WOLFTPM_CONF_TRANSPORT` (0=SPI, 1=I2C).
+* Fixed build error with missing `wc_RsaKeyToPublicDer_ex` (PR #323)
+* Improved the ECC macro checks for `wc_EccPublicKeyToDer` (PR #323)
+* Added PKCS7 ECC support to example (PR #322)
+  - Added wrapper function to export TPM public key as DER/ASN.1 or PEM.
+  - Fixed for crypto callback ECC sign to handle getting keySz for unknown cases (like PKCS7 without privateKey set).
+* Added expanded key template and cleanups (PR #321)
+  - Fixed mixed variable declaration.
+  - Added _ex version for GetKeyTemplate RSA/ECC to allow setting all template parameters.
+
+
 ## wolfTPM Release 3.1.0 (Dec 29, 2023)
 
 **Summary**

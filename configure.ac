@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2021 wolfSSL Inc.])
-AC_INIT([wolftpm],[3.1.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[3.2.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -28,18 +28,17 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=16:1:0
+WOLFTPM_LIBRARY_VERSION=16:2:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
 #                current:revision:age
 #                 |        |     |
-#                 |        |     +- increment if interfaces have been added
-#                 |        |        set to zero if interfaces have been removed
-#                 |        |        or changed
-#                 |        +- increment if source code has changed
-#                 |           set to zero if current is incremented
-#                 +- increment if interfaces have been added, removed or changed
+#                 |        |     +- increment if source code has changed
+#                 |        |        set to zero if [current] or [revision] is incremented
+#                 |        +- increment if interfaces have been added
+#                 |           set to zero if [current] is incremented
+#                 +- increment if interfaces have been removed or changed
 AC_SUBST([WOLFTPM_LIBRARY_VERSION])
 
 
@@ -479,7 +478,7 @@ rm -f $OPTION_FILE
 echo "/* wolftpm options.h" > $OPTION_FILE
 echo " * generated from configure options" >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
-echo " * Copyright (C) 2006-2021 wolfSSL Inc." >> $OPTION_FILE
+echo " * Copyright (C) 2006-2024 wolfSSL Inc." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
 echo " * * This file is part of wolfTPM." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE

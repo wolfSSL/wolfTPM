@@ -1,6 +1,6 @@
 /* tls_server.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2024 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -57,7 +57,7 @@ static int mStop = 0;
  * This example server listens on port 11111 by default, but can be set at
  * build-time using `TLS_PORT`.
  *
- * By default this example will loads RSA keys unless RSA is disabled (NO_RSA)
+ * By default this example will load RSA keys unless RSA is disabled (NO_RSA)
  * or the TLS_USE_ECC build option is used.
  *
  * You can validate using the wolfSSL example client this like:
