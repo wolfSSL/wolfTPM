@@ -94,6 +94,9 @@ typedef struct SockIoCbCtx {
 
 #ifndef WOLFSSL_USER_IO
 /* socket includes */
+#ifdef HAVE_NETDB_H
+#include <netdb.h>
+#endif
 
 static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
 {

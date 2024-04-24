@@ -47,6 +47,9 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+#ifdef HAVE_NETDB_H
+#include <netdb.h>
+#endif
 
 #include <wolftpm/tpm2_socket.h>
 
