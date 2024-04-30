@@ -43,6 +43,7 @@
        defined(WOLFTPM_SWTPM) ||     \
        defined(WOLFTPM_WINAPI) )
 
+#if defined(WOLFTPM_INFINEON_TRICORE) || defined(CY_USING_HAL)
 #ifdef WOLFTPM_I2C
     #ifndef TPM_I2C_TRIES
         #define TPM_I2C_TRIES 10
@@ -148,7 +149,7 @@
 
     #else
         #error Infineon I2C support on this platform not supported yet
-    #endif /* CY_USING_HAL or WOLFTPM_INFINEON_TRICORE */
+    #endif /* CY_USING_HAL */
 
 #else /* SPI */
 
@@ -211,6 +212,8 @@
         #error Infineon I2C support on this platform not supported yet
     #endif /* CY_USING_HAL or WOLFTPM_INFINEON_TRICORE */
 #endif /* SPI or I2C */
+#endif /* WOLFTPM_INFINEON_TRICORE || CY_USING_HAL */
+
 
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
