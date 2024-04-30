@@ -1803,8 +1803,18 @@ static const BYTE TPM_20_IAK_POLICY_SHA512[] = {
 struct TPM2_CTX;
 
 #ifdef WOLFTPM_SWTPM
+#if defined(WOLFTPM_SWTPM_UARTNS550)
+    #include "xparameters.h"
+    #include "xuartns550.h"
+#endif
+
 struct wolfTPM_tcpContext {
+#if defined(WOLFTPM_SWTPM_UARTNS550)
+    XUartNs550 fd;
+    int setup;
+#else
     int fd;
+#endif
 };
 #endif /* WOLFTPM_SWTPM */
 
