@@ -14,6 +14,59 @@ fi
 rm -f run.out
 touch run.out
 
+
+# Create Primary Tests
+echo -e "Create Primary Tests"
+./examples/keygen/create_primary -rsa -oh >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary owner rsa key failed! $RESULT" && exit 1
+./examples/keygen/create_primary -ecc -oh >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary owner ecc key failed! $RESULT" && exit 1
+
+./examples/keygen/create_primary -rsa -eh >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary endosement rsa key failed! $RESULT" && exit 1
+./examples/keygen/create_primary -ecc -eh >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary endosement ecc key failed! $RESULT" && exit 1
+
+./examples/keygen/create_primary -rsa -ph >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary platform rsa key failed! $RESULT" && exit 1
+./examples/keygen/create_primary -ecc -ph >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary platform ecc key failed! $RESULT" && exit 1
+
+./examples/keygen/create_primary -rsa -oh -auth=ThisIsMyStorageKeyAuth -store=0x81000200 >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "create primary owner rsa key stored failed! $RESULT" && exit 1
+
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/keygen/create_primary -rsa -oh -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary owner rsa key param enc failed! $RESULT" && exit 1
+    ./examples/keygen/create_primary -ecc -oh -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary owner ecc key param enc failed! $RESULT" && exit 1
+
+    ./examples/keygen/create_primary -rsa -eh -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa key param enc failed! $RESULT" && exit 1
+    ./examples/keygen/create_primary -ecc -eh -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc key param enc failed! $RESULT" && exit 1
+
+    ./examples/keygen/create_primary -rsa -ph -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary platform rsa key param enc failed! $RESULT" && exit 1
+    ./examples/keygen/create_primary -ecc -ph -aes >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary platform ecc key param enc failed! $RESULT" && exit 1
+fi
+
+
+
 # Native API test TPM2_x
 echo -e "Native tests for TPM2_x API's"
 ./examples/native/native_test >> run.out 2>&1
