@@ -163,10 +163,10 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 
     ./examples/keygen/keygen ecckeyblobeh.bin -ecc -eh >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement ecc failed! $RESULT" && exit 1
     ./examples/keygen/keyload ecckeyblobeh.bin -ecc -eh >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement ecc failed! $RESULT" && exit 1
 fi
 
 

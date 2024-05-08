@@ -251,18 +251,14 @@ void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
 
 void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
 {
-    if (packet == NULL || authCmd == NULL)
+    if (packet == NULL || authCmd == NULL) {
         return;
+    }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     TPM2_PrintAuth(authCmd);
 #endif
 
-    /* make sure continueSession is set for TPM_RS_PW */
-    if (authCmd->sessionHandle == TPM_RS_PW &&
-        (authCmd->sessionAttributes & TPMA_SESSION_continueSession) == 0) {
-        authCmd->sessionAttributes |= TPMA_SESSION_continueSession;
-    }
     TPM2_Packet_AppendU32(packet, authCmd->sessionHandle);
     TPM2_Packet_AppendU16(packet, authCmd->nonce.size);
     TPM2_Packet_AppendBytes(packet, authCmd->nonce.buffer, authCmd->nonce.size);
@@ -347,15 +343,53 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
 
     info->authCnt = TPM2_GetCmdAuthCount(ctx, info);
     if (info->authCnt > 0) {
-        int i, tmpSz = 0;
-        TPM2_Packet_MarkU32(packet, &tmpSz);
+        int i, authTotalSzPos = 0;
+        TPM2_Packet_MarkU32(packet, &authTotalSzPos);
         for (i=0; i<info->authCnt; i++) {
-            /* Note: Casting a TPM2_AUTH_SESSION to TPMS_AUTH_COMMAND here,
-             * this is allowed because top of structure matches */
-            TPM2_Packet_AppendAuthCmd(packet, (TPMS_AUTH_COMMAND*)&ctx->session[i]);
+            TPM2_AUTH_SESSION* session = &ctx->session[i];
+
+            /* Determine auth size - appended later in TPM2_CommandProcess */
+
+            /* sessionHandle */
+            packet->pos += sizeof(UINT32);
+
+            /* Nonce size:
+             * Determined by us and TPM matches it on reply
+             * Typically use SHA2-256 digest size (16 bytes). The random nonce
+             * is populated in TPM2_CommandProcess */
+            packet->pos += sizeof(UINT16); /* nonceSz */
+            if (session->sessionHandle != TPM_RS_PW) {
+                session->nonceCaller.size =
+                    TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+                packet->pos += session->nonceCaller.size;
+            }
+
+            /* sessionAttributes */
+            packet->pos += sizeof(UINT8);
+            if (session->sessionHandle == TPM_RS_PW) {
+                /* make sure continueSession is set for TPM_RS_PW */
+                session->sessionAttributes |= TPMA_SESSION_continueSession;
+            }
+
+            /* Password Auth */
+            packet->pos += sizeof(UINT16); /* hmac.size */
+            if (session->sessionHandle == TPM_RS_PW) {
+                packet->pos += session->auth.size;
+            }
+            /* HMAC or Policy Session */
+            else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+                     TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
+                if (session->policyAuth && session->auth.size > 0) {
+                    packet->pos += session->auth.size;
+                }
+                else {
+                    /* auth is always HMAC result */
+                    packet->pos += TPM2_GetHashDigestSize(session->authHash);
+                }
+            }
         }
         /* based on position difference places calculated size at marked U32 above */
-        TPM2_Packet_PlaceU32(packet, tmpSz);
+        TPM2_Packet_PlaceU32(packet, authTotalSzPos);
         st = TPM_ST_SESSIONS;
     }
     return st;

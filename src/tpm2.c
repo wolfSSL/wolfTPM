@@ -108,7 +108,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     BYTE *param, *encParam = NULL;
     int paramSz, encParamSz = 0;
     int i, authPos;
-    int tmpSz = 0; /* Used to calculate the new total size of the Auth Area */
+    int authTotalSzPos = 0;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
@@ -120,8 +120,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Parse Auth */
     TPM2_Packet_ParseU32(packet, &authSz);
     packet->pos -= sizeof(authSz);
-    /* Later Auth Area size is updated */
-    TPM2_Packet_MarkU32(packet, &tmpSz);
+    /* Get position for total auth size to be updated later */
+    TPM2_Packet_MarkU32(packet, &authTotalSzPos);
     /* Mark the position of the Auth Area data */
     authPos = packet->pos;
     packet->pos += authSz;
@@ -174,16 +174,31 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
         }
 
-        /* Note: Copy between TPM2_AUTH_SESSION and TPMS_AUTH_COMMAND is allowed */
-        XMEMCPY(&authCmd, session, sizeof(TPMS_AUTH_COMMAND));
+        /* Build auth */
+        XMEMSET(&authCmd, 0, sizeof(authCmd));
+        authCmd.sessionHandle = session->sessionHandle;
+        authCmd.sessionAttributes = session->sessionAttributes;
+        authCmd.nonce.size = session->nonceCaller.size;
+        XMEMCPY(authCmd.nonce.buffer, session->nonceCaller.buffer,
+            authCmd.nonce.size);
 
-        if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
-            TPM2_IS_POLICY_SESSION(session->sessionHandle))
+        /* Password Auth */
+        if (session->sessionHandle == TPM_RS_PW) {
+            authCmd.hmac.size = session->auth.size;
+            XMEMCPY(authCmd.hmac.buffer, session->auth.buffer,
+                session->auth.size);
+        }
+        /* HMAC or Policy Session */
+        else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+                 TPM2_IS_POLICY_SESSION(session->sessionHandle))
         {
         #ifndef WOLFTPM2_NO_WOLFCRYPT
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
         #endif
+
+            /* default is a HMAC output (using alg authHash) */
+            authCmd.hmac.size = TPM2_GetHashDigestSize(session->authHash);
 
             /* if param enc is not supported for this command then clear flag */
             /* session attribute flags are from TPM perspective */
@@ -240,14 +255,14 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
         }
 
-        /* Replace auth in session */
+        /* Place session auth */
         packet->pos = authPos;
         TPM2_Packet_AppendAuthCmd(packet, &authCmd);
         authPos = packet->pos; /* update auth position */
     }
 
-    /* Update the Auth Area size in the command packet */
-    TPM2_Packet_PlaceU32(packet, tmpSz);
+    /* Update the Auth Area total size in the command packet */
+    TPM2_Packet_PlaceU32(packet, authTotalSzPos);
 
     (void)cmdCode;
     return rc;

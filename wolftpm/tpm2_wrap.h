@@ -31,10 +31,12 @@
 
 typedef struct WOLFTPM2_HANDLE {
     TPM_HANDLE      hndl;
-    TPM2B_AUTH      auth;       /* Used if policyAuth is not set */
+    TPM2B_AUTH      auth;
     TPMT_SYM_DEF    symmetric;
     TPM2B_NAME      name;
-    int             policyAuth; /* Handle requires Policy, not password Auth */
+
+    /* bit-fields */
+    unsigned int    policyAuth : 1; /* Handle requires policy auth */
     unsigned int    nameLoaded : 1; /* flag to indicate if "name" was loaded and computed */
 } WOLFTPM2_HANDLE;
 

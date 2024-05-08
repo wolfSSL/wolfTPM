@@ -936,9 +936,10 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
     }
 
     if (handle) {
+        TPM2_AUTH_SESSION* session = &dev->session[index];
+        session->policyAuth = handle->policyAuth;
         /* don't set auth for policy session, just name */
         if (handle->policyAuth) {
-            TPM2_AUTH_SESSION* session = &dev->session[index];
             session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, handle->name.size);
             return TPM_RC_SUCCESS;
@@ -962,7 +963,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     name = &handle->name;
     session = &dev->session[index];
 
-    if (session->auth.size == 0 && handle->auth.size > 0) {
+    if (session->sessionHandle == TPM_RS_PW && handle->auth.size > 0) {
         session->auth.size = handle->auth.size;
         XMEMCPY(session->auth.buffer, handle->auth.buffer, handle->auth.size);
     }
@@ -1000,24 +1001,11 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         XMEMCPY(&session->symmetric, &tpmSession->handle.symmetric,
             sizeof(TPMT_SYM_DEF));
 
-        /* fresh nonce generated in TPM2_CommandProcess based on this size */
-        session->nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
-
         /* Capture TPM provided nonce */
         session->nonceTPM.size = tpmSession->nonceTPM.size;
         XMEMCPY(session->nonceTPM.buffer, tpmSession->nonceTPM.buffer,
             session->nonceTPM.size);
 
-        /* Parameter Encryption or Policy session will have an HMAC added later.
-         * Reserve space, the same way it was done for nonceCaller above.
-         */
-        if ((session->sessionHandle != TPM_RS_PW &&
-                ((session->sessionAttributes & TPMA_SESSION_encrypt) ||
-                 (session->sessionAttributes & TPMA_SESSION_decrypt)))
-             || TPM2_IS_POLICY_SESSION(session->sessionHandle))
-        {
-            session->auth.size = TPM2_GetHashDigestSize(session->authHash);
-        }
     }
     return rc;
 }
