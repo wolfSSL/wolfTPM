@@ -452,6 +452,8 @@ typedef int64_t  INT64;
     #ifdef WIN32
         #include <windows.h>
         #define XSLEEP_MS(ms) Sleep(ms)
+    #elif defined(WOLFSSL_ESPIDF)
+        #define XSLEEP_MS(ms) vTaskDelay(ms)
     #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #include <time.h>
         #define XSLEEP_MS(ms) ({ \

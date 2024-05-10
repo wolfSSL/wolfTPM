@@ -769,7 +769,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     rc = TPM2_CreateLoaded(&cmdIn.createLoaded, &cmdOut.createLoaded);
     if (rc == TPM_RC_SUCCESS) {
         printf("TPM2_CreateLoaded: handle 0x%x pub %d, priv %d\n",
-               cmdOut.createLoaded.objectHandle, cmdOut.createLoaded.outPublic.size,
+               (unsigned int)cmdOut.createLoaded.objectHandle,
+               cmdOut.createLoaded.outPublic.size,
                cmdOut.createLoaded.outPrivate.size);
         cmdIn.flushCtx.flushHandle = cmdOut.createLoaded.objectHandle;
         TPM2_FlushContext(&cmdIn.flushCtx);

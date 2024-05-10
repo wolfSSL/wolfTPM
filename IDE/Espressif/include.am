@@ -1,0 +1,27 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+#
+# Don't list any config.h files here
+
+EXTRA_DIST+= IDE/Espressif/CMakeLists.txt
+EXTRA_DIST+= IDE/Espressif/README.md
+EXTRA_DIST+= IDE/Espressif/partitions_singleapp_large.csv
+EXTRA_DIST+= IDE/Espressif/sdkconfig.defaults
+
+# wolfSSL source code is not included here and must be available in separate directory.
+EXTRA_DIST+= IDE/Espressif/components/wolfssl/CMakeLists.txt
+EXTRA_DIST+= IDE/Espressif/components/wolfssl/include/user_settings.h
+
+# the wolfTPM source code used will typically be the parent of the IDE directory.
+EXTRA_DIST+= IDE/Espressif/components/wolftpm/CMakeLists.txt
+EXTRA_DIST+= IDE/Espressif/components/wolftpm/include/README.md
+
+# The example application.
+EXTRA_DIST+= IDE/Espressif/main/CMakeLists.txt
+EXTRA_DIST+= IDE/Espressif/main/Kconfig.projbuild
+EXTRA_DIST+= IDE/Espressif/main/main.c
+EXTRA_DIST+= IDE/Espressif/main/include/main.h
+
+# VisualGDB Project Files. See also https://github.com/wolfSSL/wolfssl/tree/master/IDE/Espressif/ESP-IDF/examples/template/VisualGDB
+EXTRA_DIST+= IDE/Espressif/VisualGDB/wolfssl_IDF_v5.2_ESP32.vgdbproj
