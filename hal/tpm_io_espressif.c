@@ -74,10 +74,14 @@
     #include <driver/i2c_master.h>
 #endif
 
+#ifndef CONFIG_SOC_I2C_SUPPORTED
+    #error "It appears I2C is not supported. Please check sdkconfig."
+#endif
+
 /* GPIO number used for I2C master clock */
 #ifdef CONFIG_I2C_MASTER_SCL
     /* Yellow wire Clock */
-    #define I2C_MASTER_SCL_IO           CONFIG_I2C_MASTER_SCL
+    #define I2C_MASTER_SCL_IO       CONFIG_I2C_MASTER_SCL
 #else
     /* There should have been a Kconfig.projbuild file in the ./main
      * directory to set I2C parameters in the sdkconfig project file. */
@@ -87,7 +91,7 @@
 /* GPIO number used for I2C master data */
 #ifdef CONFIG_I2C_MASTER_SDA
     /* Orange wire */
-    #define I2C_MASTER_SDA_IO           CONFIG_I2C_MASTER_SDA
+    #define I2C_MASTER_SDA_IO       CONFIG_I2C_MASTER_SDA
 #else
     /* There should have been a Kconfig.projbuild file in the ./main
      * directory to set I2C parameters in the sdkconfig project file. */
@@ -96,7 +100,9 @@
 
 /* I2C master i2c port number,
  * the number of i2c peripheral interfaces available will depend on the chip */
-#define I2C_MASTER_NUM              0
+#ifndef I2C_MASTER_NUM
+    #define I2C_MASTER_NUM          0
+#endif
 
 /* I2C master clock frequency
  *   Typically, an I2C slave device has a 7-bit address or 10-bit address.
@@ -184,11 +190,19 @@ static esp_err_t esp_i2c_master_init(void)
     int i2c_master_port = I2C_MASTER_NUM;
     esp_err_t ret = ESP_OK;
 
+    /* I2C port number, can be I2C_NUM_0 ~ (I2C_NUM_MAX-1). */
+    if (I2C_MASTER_NUM >= I2C_NUM_MAX) {
+        ESP_LOGW(TAG, "Warning: I2C_MASTER_NUM value %d exceeds (I2C_NUM_MAX-1)"
+                      " %d ", I2C_MASTER_NUM, I2C_NUM_MAX);
+    }
     ESP_LOGI(TAG, "esp_i2c_master_init");
     ESP_LOGI(TAG, "I2C_MASTER_FREQ_HZ    = %d", (int)I2C_MASTER_FREQ_HZ);
     ESP_LOGI(TAG, "I2C_READ_WAIT_TICKS   = %d", (int)I2C_READ_WAIT_TICKS);
     ESP_LOGI(TAG, "I2C_WRITE_WAIT_TICKS  = %d", (int)I2C_WRITE_WAIT_TICKS);
     ESP_LOGI(TAG, "I2C_MASTER_TIMEOUT_MS = %d", (int)I2C_MASTER_TIMEOUT_MS);
+    ESP_LOGI(TAG, "I2C_MASTER_NUM        = %d", (int)I2C_MASTER_NUM);
+    ESP_LOGI(TAG, "I2C_MASTER_SCL_IO     = %d", (int)I2C_MASTER_SCL_IO);
+    ESP_LOGI(TAG, "I2C_MASTER_SDA_IO     = %d", (int)I2C_MASTER_SDA_IO);
 
     conf.mode = I2C_MODE_MASTER;
     conf.sda_io_num = I2C_MASTER_SDA_IO;

@@ -69,6 +69,8 @@
 #include "hal/tpm_io_infineon.c"
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
 #include "hal/tpm_io_microchip.c"
+#elif defined(WOLFSSL_ESPIDF)
+#include "hal/tpm_io_espressif.c"
 #endif
 
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)

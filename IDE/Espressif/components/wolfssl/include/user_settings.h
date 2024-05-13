@@ -656,10 +656,23 @@ Turn on timer debugging (used when CPU cycles not available)
 #define TPM_TIMEOUT_TRIES 10000
 
 /* If not defined here, TPM_I2C_TRIES is set to a default value of 10 */
-/* TPM_I2C_TRIES 10 */
+/* #define TPM_I2C_TRIES 10 */
+
+/* If not defined here, I2C_MASTER_FREQ_HZ is 100000
+ * Do not exceed a value of 400000 */
+/* #define I2C_MASTER_FREQ_HZ 100000 */
 
 /* Examples may have a main() function, we'll have oour own: */
 #define NO_MAIN_DRIVER
+
+/* I2C GPIO settings are defined in idf.py menuconfig
+ *
+ * CONFIG_I2C_MASTER_SCL (default SCL GPIO pin is 19)
+ * CONFIG_I2C_MASTER_SDA (default SDA GPIO pin is 18)
+ */
+
+/* The default I2C_MASTER_NUM is 0 but can be overridden: */
+/* #define I2C_MASTER_NUM 0 */
 
 /* I2C_MASTER_FREQ_HZ notes:
  *
