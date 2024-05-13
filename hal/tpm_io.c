@@ -69,6 +69,8 @@
 #include "hal/tpm_io_infineon.c"
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
 #include "hal/tpm_io_microchip.c"
+#elif defined(WOLFSSL_ESPIDF)
+#include "hal/tpm_io_espressif.c"
 #endif
 
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
@@ -144,6 +146,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
         ret = TPM2_IoCb_STCubeMX_I2C(ctx, isRead, addr, buf, size, userCtx);
     #elif defined(CY_USING_HAL)
         ret = TPM2_IoCb_Infineon_I2C(ctx, isRead, addr, buf, size, userCtx);
+    #elif defined(WOLFSSL_ESPIDF)
+        ret = TPM2_IoCb_Espressif_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");
@@ -205,7 +209,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
 #endif
 
 #ifdef WOLFTPM_DEBUG_IO
-    printf("TPM2_IoCb: Ret %d, Sz %d\n", ret, xferSz);
+    printf("TPM2_IoCb: ret %d, Sz %d\n", ret, xferSz);
     TPM2_PrintBin(txBuf, xferSz);
     TPM2_PrintBin(rxBuf, xferSz);
 #endif
