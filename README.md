@@ -5,11 +5,11 @@ Portable TPM 2.0 project designed for embedded use.
 
 ## Project Features
 
-* This implementation provides all TPM 2.0 API’s in compliance with the specification.
+* This implementation provides all TPM 2.0 API's in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
 * Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
-* wolfTPM can also use the Linux TPM kernel interface (/dev/tpmX) to talk with any physical TPM on SPI, I2C and even LPC bus.
+* wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
 * The design allows for easy portability to different platforms:
     * Native C code designed for embedded use.
@@ -17,7 +17,7 @@ Portable TPM 2.0 project designed for embedded use.
     * No external dependencies.
     * Compact code size and minimal memory use.
 * Includes example code for:
-    * Most TPM2 native API’s
+    * Most TPM2 native API's
     * All TPM2 wrapper API's
     * PKCS 7
     * Certificate Signing Request (CSR)
@@ -64,7 +64,9 @@ Contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash diges
 This project uses the terms append vs. marshall and parse vs. unmarshall.
 
 Acronyms:
+* HAL: Hardware Abstraction Layer.
 * NV: Non-Volatile memory.
+* TPM: Trusted Platform Module.
 
 ## Platform
 
@@ -72,11 +74,19 @@ The examples in this library are written for use on a Raspberry Pi and use the `
 
 ### IO Callback (HAL)
 
-See the HAL manual in [`hal/README.md] (hal/README.md).
+See the HAL manual in [hal/README.md](hal/README.md).
 
 For interfacing to your hardware interface (SPI/I2C) a single HAL callback is used and configuration on initialization when calling `TPM2_Init` or `wolfTPM2_Init`.
 
-There are HAL examples in `hal` directory for Linux, STM32 CubeMX, Atmel ASF, Xilinx, Infineon TriCore and BareBox.
+There are HAL examples in `hal` directory for:
+
+* Atmel ASF
+* BareBox
+* Espressif ESP-IDF
+* Infineon TriCore
+* Linux
+* STM32 CubeMX
+* Xilinx
 
 We also support an advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`), which adds the register and read/write flag as parameter to the IO callback. This is required for I2C support.
 
@@ -135,7 +145,7 @@ Mfg NTC (0), Vendor NPCT75x"!!4rls, Fw 7.2 (131072), FIPS 140-2 1, CC-EAL4 0
 
 ### Building wolfSSL
 
-```
+```bash
 git clone https://github.com/wolfSSL/wolfssl.git
 cd wolfssl
 ./autogen.sh
@@ -147,9 +157,23 @@ sudo ldconfig
 
 autogen.sh requires: automake and libtool: `sudo apt-get install automake libtool`
 
+### Building wolfSSL with an alternate directory
+
+```bash
+# cd /your-wolfssl-repo
+./autogen.h # as necessary
+./configure --prefix=~/workspace/my_wolfssl_bin --enable-all
+make install
+
+# then for some other library such as wolfTPM:
+
+# cd /your-wolftpm-repo
+./configure --enable-swtpm --with-wolfcrypt=~/workspace/my_wolfssl_bin 
+```
+
 ### Build options and defines
 
-```
+```text
 --enable-debug          Add debug code/turns off optimizations (yes|no|verbose|io) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
 --enable-examples       Enable Examples (default: enabled)
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
@@ -188,7 +212,7 @@ Support for SLB9670 or SLB9672 (SPI) / SLB9673 (I2C)
 
 Build wolfTPM:
 
-```
+```bash
 git clone https://github.com/wolfSSL/wolfTPM.git
 cd wolfTPM
 ./autogen.sh
@@ -200,7 +224,7 @@ make
 
 Build wolfTPM:
 
-```
+```bash
 ./autogen.sh
 ./configure --enable-st33 [--enable-i2c]
 make
@@ -210,7 +234,7 @@ make
 
 Build wolfTPM:
 
-```
+```bash
 ./autogen.sh
 ./configure --enable-microchip
 make
@@ -220,10 +244,25 @@ make
 
 Build wolfTPM:
 
-```
+```bash
 ./autogen.sh
 ./configure --enable-nuvoton
 make
+```
+
+### Building Espressif ESP-IDF
+
+See the wolfTPM-specific settings in the wolfSSL `user_settings.h` file, typically found in `[project]/components/wolfssl/include`.
+
+```bash
+git clone https://github.com/wolfSSL/wolfTPM.git
+cd wolfTPM/IDE/Espressif
+
+# set your path to ESP-IDF, shown here for VisualGDB using v5.2
+WRK_IDF_PATH=/mnt/c/SysGCC/esp32/esp-idf/v5.2
+
+. ${WRK_IDF_PATH}/export.sh
+idf.py build
 ```
 
 ### Building for "/dev/tpmX"
@@ -232,7 +271,7 @@ This build option allows you to talk to any TPM vendor supported by the Linux TI
 
 Build wolfTPM:
 
-```
+```bash
 ./autogen.sh
 ./configure --enable-devtpm
 make
@@ -240,7 +279,7 @@ make
 
 Note: When using a TPM device through the Linux kernel driver make sure sufficient permissions are given to the application that uses wolfTPM, because the "/dev/tpmX" typically has read-write permissions only for the "tss" user group. Either run wolfTPM examples and your application using sudo or add your user to the "tss" group like this:
 
-```
+```bash
 sudo adduser yourusername tss
 ```
 
@@ -258,7 +297,7 @@ CMake supports compiling in many environments including Visual Studio
 if CMake support is installed. The commands below can be run in
 `Developer Command Prompt`.
 
-```
+```bash
 mkdir build
 cd build
 # to use installed wolfSSL location (library and headers)
