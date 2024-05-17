@@ -903,6 +903,23 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     }
 
     session = &dev->session[index];
+
+  #ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Session %d: Edit\n", index);
+    printf("\tHandle 0x%x -> 0x%x\n", session->sessionHandle, sessionHandle);
+    printf("\tAttributes 0x%x -> 0x%x\n", session->sessionAttributes, sessionAttributes);
+    if (auth) {
+        printf("\tAuth Sz %d -> %d\n", session->auth.size, auth->size);
+        TPM2_PrintBin(session->auth.buffer, session->auth.size);
+        TPM2_PrintBin(auth->buffer, auth->size);
+    }
+    if (name) {
+        printf("\tName Sz %d -> %d\n", session->name.size, name->size);
+        TPM2_PrintBin(session->name.name, session->name.size);
+        TPM2_PrintBin(name->name, name->size);
+    }
+#endif
+
     XMEMSET(session, 0, sizeof(TPM2_AUTH_SESSION));
     session->sessionHandle = sessionHandle;
     session->sessionAttributes = sessionAttributes;
@@ -936,10 +953,24 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
     }
 
     if (handle) {
-        TPM2_AUTH_SESSION* session = &dev->session[index];
-        session->policyAuth = handle->policyAuth;
         /* don't set auth for policy session, just name */
         if (handle->policyAuth) {
+            TPM2_AUTH_SESSION* session = &dev->session[index];
+            int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("Session %d: Edit (PolicyAuth)\n", index);
+            printf("\tHandle 0x%x (not touching)\n", session->sessionHandle);
+            printf("\tPolicyAuth %d->%d\n", session->policyAuth, handle->policyAuth);
+            printf("\tAuth Sz %d -> %d\n", session->auth.size, authDigestSz + handle->auth.size);
+            TPM2_PrintBin(session->auth.buffer, session->auth.size);
+            TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
+            printf("\tName Sz %d -> %d\n", session->name.size, handle->name.size);
+            TPM2_PrintBin(session->name.name, session->name.size);
+            TPM2_PrintBin(handle->name.name, handle->name.size);
+        #endif
+            session->policyAuth = handle->policyAuth;
+            session->auth.size = authDigestSz + handle->auth.size;
+            XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer, handle->auth.size);
             session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, handle->name.size);
             return TPM_RC_SUCCESS;
@@ -963,9 +994,27 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     name = &handle->name;
     session = &dev->session[index];
 
-    if (session->sessionHandle == TPM_RS_PW && handle->auth.size > 0) {
-        session->auth.size = handle->auth.size;
-        XMEMCPY(session->auth.buffer, handle->auth.buffer, handle->auth.size);
+    if (handle->auth.size > 0) {
+        if (session->sessionHandle == TPM_RS_PW) {
+            /* password based authentication */
+            session->auth.size = handle->auth.size;
+            XMEMCPY(session->auth.buffer, handle->auth.buffer, handle->auth.size);
+        }
+        else {
+            if (handle->policyPass) {
+                /* use policy password directly */
+                session->auth.size = handle->auth.size;
+                XMEMCPY(session->auth.buffer, handle->auth.buffer, handle->auth.size);
+                session->policyPass = handle->policyPass;
+            }
+            else if (handle->policyAuth) {
+                /* HMAC + policy auth value */
+                int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
+                session->auth.size = authDigestSz + handle->auth.size;
+                XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer, handle->auth.size);
+                session->policyAuth = handle->policyAuth;
+            }
+        }
     }
     session->name.size = name->size;
     XMEMCPY(session->name.name, name->name, session->name.size);
@@ -995,6 +1044,10 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* save off session attributes */
         tpmSession->sessionAttributes = sessionAttributes;
+
+        /* Capture auth type */
+        session->policyAuth = tpmSession->handle.policyAuth;
+        session->policyPass = tpmSession->handle.policyPass;
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
@@ -7120,7 +7173,118 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* --- END Policy Support -- */
 /******************************************************************************/
 
+/******************************************************************************/
+/* Additional Functions to support policy authorizations - START  */
+/******************************************************************************/
 
+
+int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index, WOLFTPM2_SESSION* tpmSession)
+{
+    TPM2_AUTH_SESSION* session;
+
+    if (dev == NULL || index >= MAX_SESSION_NUM || index < 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    session = &dev->session[index];
+    session->sessionHandle = TPM_RS_PW;
+
+    /* Set password handle unless TPM session is available */
+    if (tpmSession) {
+        session->sessionHandle = tpmSession->handle.hndl;
+
+        session->auth.size = tpmSession->handle.auth.size;
+        XMEMCPY(session->auth.buffer, tpmSession->handle.auth.buffer, tpmSession->handle.auth.size);
+
+        session->name.size = tpmSession->handle.name.size;
+        XMEMCPY(session->name.name, tpmSession->handle.name.name, tpmSession->handle.name.size);
+
+        session->policyAuth = tpmSession->handle.policyAuth;
+        session->policyPass = tpmSession->handle.policyPass;
+    }
+
+    TPM2_SetSessionAuth(dev->session);
+
+    return TPM_RC_SUCCESS;
+}
+
+/* Use this password (in clear) for the policy session instead of the HMAC */
+int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    const byte* auth, int authSz)
+{
+    PolicyPassword_In policyPasswordIn;
+
+    if (dev == NULL || tpmSession == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (auth != NULL && authSz >= 0) {
+        tpmSession->handle.auth.size = authSz;
+        tpmSession->handle.policyPass = 1;
+        XMEMCPY(tpmSession->handle.auth.buffer, auth, authSz);
+    }
+
+    XMEMSET(&policyPasswordIn, 0, sizeof(policyPasswordIn));
+    policyPasswordIn.policySession = tpmSession->handle.hndl;
+
+    return TPM2_PolicyPassword(&policyPasswordIn);
+}
+
+/* Use this auth with HMAC key on HMAC computation */
+int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    const byte* auth, int authSz)
+{
+    PolicyAuthValue_In policyAuthValueIn;
+
+    if (dev == NULL || tpmSession == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (auth != NULL && authSz >= 0) {
+        int authDigestSz = TPM2_GetHashDigestSize(tpmSession->authHash);
+        tpmSession->handle.auth.size = authDigestSz + authSz;
+        /* leave room for the computed HMAC key */
+        XMEMCPY(&tpmSession->handle.auth.buffer[authDigestSz], auth, authSz);
+        tpmSession->handle.policyAuth = 1;
+    }
+
+    XMEMSET(&policyAuthValueIn, 0, sizeof(policyAuthValueIn));
+    policyAuthValueIn.policySession = tpmSession->handle.hndl;
+
+    return TPM2_PolicyAuthValue(&policyAuthValueIn);
+}
+
+int wolfTPM2_GetKeyTemplate_RSA_policySRK(TPMT_PUBLIC* publicTemplate)
+{
+    TPMA_OBJECT objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_adminWithPolicy |
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+
+    return GetKeyTemplateRSA(publicTemplate, TPM_ALG_SHA256,
+        objectAttributes, 2048, 0, TPM_ALG_NULL, TPM_ALG_NULL);
+}
+
+int wolfTPM2_GetKeyTemplate_policyKeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID nameAlg)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+    /* Seal Object can be only of type KEYEDHASH and can not be used for
+     * signing or encryption. Hash algorithm can be chosen by the developer.
+     */
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_KEYEDHASH;
+    publicTemplate->nameAlg = nameAlg;
+    publicTemplate->objectAttributes = (
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_adminWithPolicy | TPMA_OBJECT_noDA);
+    publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_NULL;
+    return TPM_RC_SUCCESS;
+}
+
+/******************************************************************************/
+/* Additional Functions to support policy authorizations - END  */
+/******************************************************************************/
 
 /******************************************************************************/
 /* --- BEGIN Provisioned TPM Support -- */

@@ -262,7 +262,17 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     /* Update the Auth Area total size in the command packet */
-    TPM2_Packet_PlaceU32(packet, authTotalSzPos);
+    i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
+
+#ifdef DEBUG_WOLFTPM
+    if ((int)authSz != i) {
+        /* actual auth size did not match estimated size from
+         * TPM2_Packet_AppendAuth */
+        printf("Error: Calculated auth size %d did not match actual %d!\n",
+            authSz, i);
+        return BUFFER_E;
+    }
+#endif
 
     (void)cmdCode;
     return rc;
@@ -358,6 +368,11 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return TPM_RC_HMAC;
                 }
             }
+
+            /* Save off last known HMAC */
+            session->hmac.size = authRsp.hmac.size;
+            XMEMCMP(session->hmac.buffer, authRsp.hmac.buffer,
+                authRsp.hmac.size);
         #else
             (void)cmdCode;
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */

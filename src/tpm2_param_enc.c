@@ -383,18 +383,42 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
         /* Hash Command Code */
         UINT32 ccSwap = TPM2_Packet_SwapU32(cmdCode);
         rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&ccSwap, sizeof(ccSwap));
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("cpHash: cmdcode size %d\n", (int)sizeof(TPM_CC));
+        TPM2_PrintBin((unsigned char*)&cmdCode, sizeof(TPM_CC));
+    #endif
 
         /* For Command's only hash each session name */
-        if (rc == 0 && name1 && name1->size > 0)
+        if (rc == 0 && name1 && name1->size > 0) {
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("Name 0: %d\n", name1->size);
+    		TPM2_PrintBin(name1->name, name1->size);
+        #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name1->name, name1->size);
-        if (rc == 0 && name2 && name2->size > 0)
+        }
+        if (rc == 0 && name2 && name2->size > 0) {
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("Name 1: %d\n", name2->size);
+    		TPM2_PrintBin(name2->name, name2->size);
+        #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name2->name, name2->size);
-        if (rc == 0 && name3 && name3->size > 0)
+        }
+        if (rc == 0 && name3 && name3->size > 0) {
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("Name 2: %d\n", name3->size);
+    		TPM2_PrintBin(name3->name, name3->size);
+        #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name3->name, name3->size);
+        }
 
         /* Hash Remainder of parameters - after handles and auth */
-        if (rc == 0)
+        if (rc == 0) {
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("cpHash: params size %d\n", paramSz);
+            TPM2_PrintBin(param, paramSz);
+        #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, param, paramSz);
+        }
 
         if (rc == 0)
             rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);

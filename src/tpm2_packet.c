@@ -233,20 +233,22 @@ void TPM2_Packet_MarkU32(TPM2_Packet* packet, int* markSz)
         TPM2_Packet_AppendU32(packet, 0);
     }
 }
-void TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
+int TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
 {
+    int actSz = 0;
     /* update with actual size */
     if (packet) {
         UINT32 data;
         byte* sizePtr = &packet->buf[markSz];
         markSz += sizeof(UINT32); /* skip marker */
         if (markSz <= packet->pos) {
-            markSz = packet->pos - markSz;
+            actSz = packet->pos - markSz;
 
-            data = cpu_to_be32(markSz);
+            data = cpu_to_be32(actSz);
             XMEMCPY(sizePtr, &data, sizeof(UINT32));
         }
     }
+    return actSz;
 }
 
 void TPM2_Packet_AppendAuthCmd(TPM2_Packet* packet, TPMS_AUTH_COMMAND* authCmd)
@@ -379,7 +381,7 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             /* HMAC or Policy Session */
             else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
                      TPM2_IS_POLICY_SESSION(session->sessionHandle)) {
-                if (session->policyAuth && session->auth.size > 0) {
+                if (!session->policyAuth && session->auth.size > 0) {
                     packet->pos += session->auth.size;
                 }
                 else {
@@ -389,7 +391,7 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             }
         }
         /* based on position difference places calculated size at marked U32 above */
-        TPM2_Packet_PlaceU32(packet, authTotalSzPos);
+        i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
         st = TPM_ST_SESSIONS;
     }
     return st;

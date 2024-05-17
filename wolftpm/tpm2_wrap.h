@@ -36,6 +36,7 @@ typedef struct WOLFTPM2_HANDLE {
     TPM2B_NAME      name;
 
     /* bit-fields */
+    unsigned int    policyPass : 1;
     unsigned int    policyAuth : 1; /* Handle requires policy auth */
     unsigned int    nameLoaded : 1; /* flag to indicate if "name" was loaded and computed */
 } WOLFTPM2_HANDLE;
@@ -3625,6 +3626,15 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev);
 
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+
+WOLFTPM_API int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index, WOLFTPM2_SESSION* tpmSession);
+/* Use this password (in clear) for the policy session instead of the HMAC */
+WOLFTPM_API int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession, const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession, const byte* auth, int authSz);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_policySRK(TPMT_PUBLIC* publicTemplate);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_policyKeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID nameAlg);
+
 
 #ifdef __cplusplus
     }  /* extern "C" */
