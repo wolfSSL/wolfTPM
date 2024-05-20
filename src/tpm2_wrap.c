@@ -4312,8 +4312,10 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     }
 
     /* set session auth for key */
-    rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
-    if (rc != TPM_RC_SUCCESS) { return rc; }
+    if (dev->ctx.session && !parent->policyAuth) {
+        rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
+        if (rc != TPM_RC_SUCCESS) { return rc; }
+    }
 
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = parent->hndl;
@@ -4394,39 +4396,54 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
         maxSize, auth, authSz);
 }
 
-int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
     NV_Write_In in;
 
-    if (dev == NULL || nv == NULL) {
+    if (dev == NULL || nv == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
-    }
-
-    /* make sure the name is computed for the handle */
-    if (!nv->handle.nameLoaded) {
-        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
-        if (rc != 0) {
-            return rc;
-        }
-    }
-
-    /* Necessary, because NVWrite has two handles, second is NV Index */
-    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Setting NV index name failed\n");
-    #endif
-        return TPM_RC_FAILURE;
     }
 
     while (dataSz > 0) {
         towrite = dataSz;
         if (towrite > MAX_NV_BUFFER_SIZE)
             towrite = MAX_NV_BUFFER_SIZE;
+
+        /* Make sure the name is computed for the handle.
+         * Name changes on each iteration for policy session.
+         * If this is the first write to NV then the NV_WRITTEN bit will get
+         * set and name needs re-computed */
+        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        if (rc != 0)
+            break;
+        /* For policy session recompute PCR for each iteration */
+        if (tpmSession != NULL
+                           && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
+            /* PCR resets after each call for TPMA_SESSION_continueSession */
+            rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
+                pcrAlg, pcrArray, pcrArraySz);
+            if (rc != TPM_RC_SUCCESS)
+                break;
+
+            /* Set policy session while saving nonceTPM */
+            wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
+        }
+
+        /* Necessary, because NVWrite has two handles, second is NV Index
+         * If policy session Name will update via nonceTPM each iteration */
+        rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+        rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Setting NV index name failed\n");
+        #endif
+            rc = TPM_RC_FAILURE;
+            break;
+        }
 
         XMEMSET(&in, 0, sizeof(in));
         in.authHandle = nv->handle.hndl;
@@ -4438,19 +4455,7 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 
         rc = TPM2_NV_Write(&in);
         if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_NV_Write failed %d: %s\n", rc,
-                wolfTPM2_GetRCString(rc));
-        #endif
-            return rc;
-        }
-
-        /* if this is the first write to NV then the NV_WRITTEN bit will get set
-         * and name needs re-computed */
-        if (pos == 0) {
-            /* read public and re-compute name */
-            rc = wolfTPM2_NVOpen(dev, nv, nv->handle.hndl, NULL, 0);
-            if (rc != 0) break;
+            break;
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -4463,7 +4468,20 @@ int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
         dataSz -= towrite;
     }
 
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_Write failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    }
+#endif
+
     return rc;
+}
+
+int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+{
+    return wolfTPM2_NVWriteAuthPolicy(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, dataSz, offset);
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVWriteAuth */
@@ -4477,7 +4495,8 @@ int wolfTPM2_NVWrite(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     return wolfTPM2_NVWriteAuth(dev, &nv, nvIndex, dataBuf, dataSz, offset);
 }
 
-int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
 {
     int rc = TPM_RC_SUCCESS;
@@ -4485,24 +4504,8 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     NV_Read_In in;
     NV_Read_Out out;
 
-    if (dev == NULL || nv == NULL || pDataSz == NULL) {
+    if (dev == NULL || nv == NULL || pDataSz == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
-    }
-
-    /* make sure the name is computed for the handle */
-    if (!nv->handle.nameLoaded) {
-        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
-        if (rc != TPM_RC_SUCCESS) { return rc; }
-    }
-
-    /* Necessary, because NVRead has two handles, second is NV Index */
-    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Setting NV index name failed\n");
-    #endif
-        return TPM_RC_FAILURE;
     }
 
     dataSz = *pDataSz;
@@ -4510,6 +4513,39 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
         toread = dataSz;
         if (toread > MAX_NV_BUFFER_SIZE)
             toread = MAX_NV_BUFFER_SIZE;
+
+        /* Make sure the name is computed for the handle.
+         * Name changes on each iteration for policy session. */
+        if (!nv->handle.nameLoaded || (tpmSession != NULL
+                         && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
+            rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+            if (rc != 0)
+                break;
+        }
+        /* For policy session recompute PCR for each iteration */
+        if (tpmSession != NULL
+                           && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
+            /* PCR resets after each call for TPMA_SESSION_continueSession */
+            rc = wolfTPM2_PolicyPCR(dev, tpmSession->handle.hndl,
+                pcrAlg, pcrArray, pcrArraySz);
+            if (rc != 0)
+                break;
+
+            /* Set policy session while saving nonceTPM */
+            wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
+        }
+
+        /* Necessary, because NVWrite has two handles, second is NV Index
+         * If policy session Name will update via nonceTPM each iteration */
+        rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+        rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Setting NV index name failed\n");
+        #endif
+            rc = TPM_RC_FAILURE;
+            break;
+        }
 
         XMEMSET(&in, 0, sizeof(in));
         in.authHandle = nv->handle.hndl;
@@ -4519,11 +4555,7 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 
         rc = TPM2_NV_Read(&in, &out);
         if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_NV_Read failed %d: %s\n", rc,
-                wolfTPM2_GetRCString(rc));
-        #endif
-            return rc;
+            break;
         }
 
         toread = out.data.size;
@@ -4537,15 +4569,29 @@ int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     #endif
 
         /* if we are done reading, exit loop */
-        if (toread == 0)
+        if (toread == 0) {
             break;
+        }
 
         pos += toread;
         dataSz -= toread;
     }
     *pDataSz = pos;
 
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_NV_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    }
+#endif
+
     return rc;
+}
+
+int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset)
+{
+    return wolfTPM2_NVReadAuthPolicy(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, pDataSz, offset);
 }
 
 int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,

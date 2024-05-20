@@ -1928,6 +1928,10 @@ WOLFTPM_API int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* 
 WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
 
+WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Reads user data from a NV Index, starting at the given offset
@@ -1949,6 +1953,10 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     \sa wolfTPM2_NVDeleteAuth
 */
 WOLFTPM_API int wolfTPM2_NVReadAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
+
+WOLFTPM_API int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32* pDataSz, word32 offset);
 
 WOLFTPM_API int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
