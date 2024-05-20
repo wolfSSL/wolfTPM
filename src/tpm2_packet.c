@@ -391,7 +391,7 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             }
         }
         /* based on position difference places calculated size at marked U32 above */
-        i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
+        (void)TPM2_Packet_PlaceU32(packet, authTotalSzPos);
         st = TPM_ST_SESSIONS;
     }
     return st;

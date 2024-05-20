@@ -275,6 +275,8 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 #endif
 
     (void)cmdCode;
+    (void)i;
+
     return rc;
 }
 
