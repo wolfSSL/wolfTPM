@@ -3689,7 +3689,6 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param sessionHandle the handle of the current policy session, a session is required to use policy PCR
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
     \param auth pointer to a string constant, specifying the password authorization for the policy session
     \param authSz integer value, specifying the size of the password authorization, in bytes
@@ -3708,7 +3707,6 @@ WOLFTPM_API int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev,
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param sessionHandle the handle of the current policy session, a session is required to use policy PCR
     \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
     \param auth pointer to a string constant, specifying the password authorization for the policy session
     \param authSz integer value, specifying the size of the password authorization, in bytes
