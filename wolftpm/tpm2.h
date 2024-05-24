@@ -1621,19 +1621,21 @@ typedef struct TPMS_AUTH_RESPONSE {
 
 /* Implementation specific authorization session information */
 typedef struct TPM2_AUTH_SESSION {
-    /* BEGIN */
-    /* This section should match TPMS_AUTH_COMMAND */
+    /* this section is used for TPMS_AUTH_COMMAND */
     TPMI_SH_AUTH_SESSION sessionHandle;
     TPM2B_NONCE nonceCaller;
     TPMA_SESSION sessionAttributes;
-    TPM2B_AUTH auth;
-    /* END */
+    TPM2B_AUTH hmac;
 
     /* additional auth data required for implementation */
     TPM2B_NONCE nonceTPM;
     TPMT_SYM_DEF symmetric;
     TPMI_ALG_HASH authHash;
     TPM2B_NAME name;
+    TPM2B_AUTH auth;
+
+    unsigned int policyAuth : 1; /* if policy auth should be used */
+    unsigned int policyPass : 1;
 } TPM2_AUTH_SESSION;
 
 /* Macros to determine TPM 2.0 Session type */
