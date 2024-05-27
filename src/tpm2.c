@@ -373,7 +373,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
             /* Save off last known HMAC */
             session->hmac.size = authRsp.hmac.size;
-            XMEMCMP(session->hmac.buffer, authRsp.hmac.buffer,
+            XMEMCPY(session->hmac.buffer, authRsp.hmac.buffer,
                 authRsp.hmac.size);
         #else
             (void)cmdCode;
