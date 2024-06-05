@@ -2976,6 +2976,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             }
         }
     #else
+        (void)out;
         rc = NOT_COMPILED_IN;
     #endif
     }
@@ -3008,6 +3009,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             }
         }
     #else
+        (void)out;
         rc = NOT_COMPILED_IN;
     #endif
     }
