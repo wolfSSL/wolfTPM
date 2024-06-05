@@ -2802,7 +2802,8 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
     } SetCommandSet_In;
     WOLFTPM_API int TPM2_SetCommandSet(SetCommandSet_In* in);
 
-    enum {
+    /* Mode bit-masks for STMicro ST33 */
+    enum TPM_MODE_Vendor_Mask{
         TPMLib_2 = 0x01,
         TPMFips = 0x02,
         TPMLowPowerOff = 0x00,
