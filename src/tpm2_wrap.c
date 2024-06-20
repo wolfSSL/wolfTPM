@@ -277,6 +277,9 @@ WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
             XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             csr = NULL;
         }
+        if (csr) {
+            csr->req.version = 0; /* per RFC2986 : CSR version should be 0 */
+        }
     }
     return csr;
 }
@@ -6842,6 +6845,8 @@ int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMSET(&csrKey, 0, sizeof(csrKey));
     rc = wc_InitCert(&csr.req);
     if (rc == 0) {
+        csr.req.version = 0; /* per RFC2986 : CSR version should be 0 */
+
         rc = CSR_KeySetup(dev, &csr, key, &csrKey, sigType, devId);
     }
     if (rc == 0) {
