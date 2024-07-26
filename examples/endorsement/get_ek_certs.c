@@ -223,39 +223,40 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     for (nvIdx=0; nvIdx<(int)handles.count; nvIdx++) {
         nvIndex = handles.handle[nvIdx];
 
+        XMEMSET(&nv, 0, sizeof(nv)); /* Must reset the NV for each read */
+        XMEMSET(certBuf, 0, sizeof(certBuf));
+
         printf("TCG Handle 0x%x\n", nvIndex);
 
-        /* Read Public portion of NV */
-        rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
+        /* Get Endorsement Public Key template using NV index */
+        rc = wolfTPM2_GetKeyTemplate_EKIndex(nvIndex, &publicTemplate);
         if (rc != 0) {
-            printf("Failed to read public for NV Index 0x%08x\n", nvIndex);
+            printf("EK Index 0x%08x not valid\n", nvIndex);
             continue;
         }
 
-        /* Read data */
-        XMEMSET(&nv, 0, sizeof(nv)); /* Must reset the NV for each read */
-        XMEMSET(certBuf, 0, sizeof(certBuf));
-        certSz = (uint32_t)sizeof(certBuf);
-        if (certSz > nvPublic.dataSize) {
-            certSz = nvPublic.dataSize;
+        /* Read Public portion of NV to get actual size */
+        rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
+        if (rc != 0) {
+            printf("Failed to read public for NV Index 0x%08x\n", nvIndex);
         }
-        rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, certBuf, &certSz, 0);
+
+        /* Read data */
         if (rc == 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("EK Data: %d\n", certSz);
-            TPM2_PrintBin(certBuf, certSz);
-        #endif
+            certSz = (uint32_t)sizeof(certBuf);
+            if (certSz > nvPublic.dataSize) {
+                certSz = nvPublic.dataSize;
+            }
+            rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, certBuf, &certSz, 0);
+            if (rc == 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("EK Data: %d\n", certSz);
+                TPM2_PrintBin(certBuf, certSz);
+            #endif
+            }
         }
 
         /* Create Endorsement Key */
-        if (rc == 0) {
-            /* Get Endorsement Public Key template using NV index */
-            rc = wolfTPM2_GetKeyTemplate_EKIndex(nvIndex, &publicTemplate);
-            if (rc != 0) {
-                printf("EK Index 0x%08x not valid\n", nvIndex);
-                rc = BAD_FUNC_ARG;
-            }
-        }
         if (rc == 0) {
             /* Create Endorsement Key using EK auth policy */
             printf("Creating Endorsement Key\n");
@@ -324,12 +325,14 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     }
                 }
                 else {
-                    printf("Error importing certificates public key! %d\n", rc);
+                    printf("Error importing certificates public key! %s (%d)\n",
+                        TPM2_GetRCString(rc), rc);
+                    rc = 0; /* ignore error */
                 }
             }
             else {
-                printf("Error parsing certificate 0x%x: %s\n",
-                    rc, TPM2_GetRCString(rc));
+                printf("Error parsing certificate! %s (%d)\n",
+                    TPM2_GetRCString(rc), rc);
             }
             wc_FreeDecodedCert(&cert);
 
@@ -345,8 +348,8 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
 
         #ifdef WOLFSSL_DER_TO_PEM
             /* Convert certificate to PEM and display */
-            rc = wc_DerToPemEx(certBuf, certSz, NULL, 0, NULL, CERT_TYPE);
-            if (rc > 0) {
+            rc = wc_DerToPem(certBuf, certSz, NULL, 0, CERT_TYPE);
+            if (rc > 0) { /* returns actual PEM size */
                 pemSz = (word32)rc;
                 rc = 0;
 
@@ -359,7 +362,8 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             if (rc == 0) {
                 XMEMSET(pem, 0, pemSz);
                 rc = wc_DerToPem(certBuf, certSz, (byte*)pem, pemSz, CERT_TYPE);
-                if (rc > 0) {
+                if (rc > 0) { /* returns actual PEM size */
+                    pemSz = (word32)rc;
                     rc = 0;
                 }
             }
