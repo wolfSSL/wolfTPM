@@ -600,6 +600,13 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 
 fi
 
+# Endorsement key and certificate
+echo -e "Endorsement Key (EK) and Certificate"
+./examples/endorsement/get_ek_certs >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "get_ek_certs failed! $RESULT" && exit 1
+
+
 rm -f keyblob.bin
 
 echo -e "Success!"

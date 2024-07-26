@@ -34,6 +34,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Parameter encryption support using AES-CFB or XOR.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
+* Support for reading Endorsement certificates (EK Credential Profile).
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -168,7 +169,7 @@ make install
 # then for some other library such as wolfTPM:
 
 # cd /your-wolftpm-repo
-./configure --enable-swtpm --with-wolfcrypt=~/workspace/my_wolfssl_bin 
+./configure --enable-swtpm --with-wolfcrypt=~/workspace/my_wolfssl_bin
 ```
 
 ### Build options and defines
@@ -825,7 +826,6 @@ Connection: close
 
 ## Todo
 
-* Add support for Endorsement certificates (EK Credential Profile).
 * Update to v1.59 of specification (adding CertifyX509).
 * Inner wrap support for SensitiveToPrivate.
 * Add support for IRQ (interrupt line)
