@@ -826,8 +826,8 @@ Connection: close
 
 ### TPM Endorsement Key Certificates
 
-The TCG EK Credential Profile defines how manfactures provision endorsement certificates in the TCG NV index range (see TPM_20_TCG_NV_SPACE).
-The `get_ek_certs` example show how to retrieve those EK cerificates, validate them and create a primary EK handle for signing key.
+The TCG EK Credential Profile defines how manufacturers provision endorsement certificates in the TCG NV index range (see TPM_20_TCG_NV_SPACE).
+The `get_ek_certs` example shows how to retrieve those EK cerificates, validate them and create a primary EK handle for signing.
 See `./examples/endorsement/get_ek_certs`.
 
 
