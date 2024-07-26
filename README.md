@@ -823,6 +823,14 @@ Connection: close
 </html>
 ```
 
+## Device Identity and Attestation Keys
+
+The TCG published a specification for TPM manufacture guidance on setting up keys that can be used for device identiy and attestation.
+
+This feature has been tested with the ST33KTPM and is enabled with `WOLFTPM_MFG_IDENTITY`. The ST33KTPM samples are provisioned with a default master password enabled with `TEST_SAMPLE`. To define your own master password use `TPM2_IAK_SAMPLE_MASTER_PASSWORD`. The master password is hashed along with the device serial number to produce authentication for accessing these keys.
+
+The default keys are ECDSA SECP384R1 with SHA2-384 and stored in NV Index defined by `TPM2_IAK_KEY_HANDLE`, `TPM2_IAK_CERT_HANDLE`, `TPM2_IDEVID_KEY_HANDLE` and `TPM2_IDEVID_CERT_HANDLE`.
+
 
 ### TPM Endorsement Key Certificates
 
