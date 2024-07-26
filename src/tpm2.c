@@ -5495,8 +5495,6 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
     }
     return rc;
 }
-
-
 #endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
@@ -6004,6 +6002,10 @@ int TPM2_GetTpmCurve(int curve_id)
         case ECC_SECP521R1:
             ret = TPM_ECC_NIST_P521;
             break;
+        case ECC_BRAINPOOLP256R1:
+            ret = TPM_ECC_BN_P256;
+            break;
+        case TPM_ECC_BN_P638:
         default:
             ret = ECC_CURVE_OID_E;
     }
@@ -6033,7 +6035,10 @@ int TPM2_GetWolfCurve(int curve_id)
             ret = ECC_SECP521R1;
             break;
         case TPM_ECC_BN_P256:
+            ret = ECC_BRAINPOOLP256R1;
+            break;
         case TPM_ECC_BN_P638:
+        default:
             ret = ECC_CURVE_OID_E;
     }
 #endif

@@ -134,10 +134,6 @@ typedef struct WOLFTPM2_CAPS {
     word16 req_wait_state : 1; /* requires SPI wait state */
 } WOLFTPM2_CAPS;
 
-/* NV Handles */
-#define TPM2_NV_RSA_EK_CERT 0x01C00002
-#define TPM2_NV_ECC_EK_CERT 0x01C0000A
-
 
 /* Wrapper API's to simplify TPM use */
 
@@ -2680,6 +2676,46 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Prepares a TPM public template for generating the TPM Endorsement Key
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
+    \param alg can be only TPM_ALG_RSA or TPM_ALG_ECC, see Note above
+    \param keyBits integer value, specifying bits for the key, typically 2048 (RSA) or 256 (ECC)
+    \param curveId use one of the accepted TPM_ECC_CURVE values like TPM_ECC_NIST_P256 (only used when alg=TPM_ALG_ECC)
+    \param nameAlg integer value of TPMI_ALG_HASH type, specifying a valid TPM2 hashing algorithm (typically TPM_ALG_SHA256)
+    \param highRange integer value: 0=low range, 1=high range
+
+    \sa wolfTPM2_GetKeyTemplate_ECC_EK
+    \sa wolfTPM2_GetKeyTemplate_RSA_SRK
+    \sa wolfTPM2_GetKeyTemplate_RSA_AIK
+    \sa wolfTPM2_GetKeyTemplate_EKIndex
+*/
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_EK(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID alg,
+    int keyBits, TPM_ECC_CURVE curveID, TPM_ALG_ID nameAlg, int highRange);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper to get the Endorsement public key template by NV index
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param nvIndex handle for NV index. Typically starting from TPM_20_TCG_NV_SPACE
+    \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
+
+    \sa wolfTPM2_GetKeyTemplate_EK
+    \sa wolfTPM2_GetKeyTemplate_ECC_EK
+    \sa wolfTPM2_GetKeyTemplate_RSA_SRK
+    \sa wolfTPM2_GetKeyTemplate_RSA_AIK
+*/
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_EKIndex(word32 nvIndex,
+    TPMT_PUBLIC* publicTemplate);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Prepares a TPM public template for generating the TPM Endorsement Key of RSA type
 
     \return TPM_RC_SUCCESS: successful
@@ -2687,6 +2723,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM
 
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
 
+    \sa wolfTPM2_GetKeyTemplate_EK
     \sa wolfTPM2_GetKeyTemplate_ECC_EK
     \sa wolfTPM2_GetKeyTemplate_RSA_SRK
     \sa wolfTPM2_GetKeyTemplate_RSA_AIK
@@ -2702,6 +2739,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_EK(TPMT_PUBLIC* publicTemplate);
 
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
 
+    \sa wolfTPM2_GetKeyTemplate_EK
     \sa wolfTPM2_GetKeyTemplate_RSA_EK
     \sa wolfTPM2_GetKeyTemplate_ECC_SRK
     \sa wolfTPM2_GetKeyTemplate_ECC_AIK

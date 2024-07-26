@@ -55,6 +55,7 @@ static void usage(void)
     printf("* -priv: Read ony the private part\n");
     printf("* -pub: Read only the public part\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -endorsement/platform/owner: Auth hierarchy\n");
 }
 
 int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
@@ -68,7 +69,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_NV nv;
     TPM2B_AUTH auth;
     word32 readSize;
-    TPMI_RH_NV_AUTH authHandle = TPM_RH_OWNER; /* or TPM_RH_PLATFORM */
+    TPMI_RH_NV_AUTH authHandle = TPM_RH_OWNER;
     int paramEncAlg = TPM_ALG_NULL;
     int partialRead = 0;
     int offset = 0;
@@ -89,13 +90,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
             const char* nvIndexStr = argv[argc-1] + XSTRLEN("-nvindex=");
             nvIndex = (word32)XSTRTOL(nvIndexStr, NULL, 0);
-            if (!(authHandle == TPM_RH_PLATFORM && (
-                    nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
-                    nvIndex < TPM_20_OWNER_NV_SPACE)) &&
-                !(authHandle == TPM_RH_OWNER && (
-                    nvIndex > TPM_20_OWNER_NV_SPACE &&
-                    nvIndex < TPM_20_TCG_NV_SPACE)))
-            {
+            if (nvIndex < NV_INDEX_FIRST || nvIndex > NV_INDEX_LAST) {
                 fprintf(stderr, "Invalid NV Index %s\n", nvIndexStr);
                 fprintf(stderr, "\tPlatform Range: 0x%x -> 0x%x\n",
                     TPM_20_PLATFORM_MFG_NV_SPACE, TPM_20_OWNER_NV_SPACE);
@@ -104,6 +99,15 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
                 usage();
                 return -1;
             }
+        }
+        else if (XSTRCMP(argv[argc-1], "-endorsement") == 0) {
+            authHandle = TPM_RH_ENDORSEMENT;
+        }
+        else if (XSTRCMP(argv[argc-1], "-platform") == 0) {
+            authHandle = TPM_RH_PLATFORM;
+        }
+        else if (XSTRCMP(argv[argc-1], "-owner") == 0) {
+            authHandle = TPM_RH_OWNER;
         }
         else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
@@ -123,14 +127,19 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    printf("NV Read\n");
+    printf("\tNV Index: 0x%08x\n", nvIndex);
+    printf("\tAuth: %s\n",
+        (authHandle == TPM_RH_ENDORSEMENT) ? "Endorsement" :
+        (authHandle == TPM_RH_PLATFORM) ? "Platform" : "Owner");
     if (paramEncAlg == TPM_ALG_CFB) {
-        printf("Parameter Encryption: Enabled. (AES CFB)\n\n");
+        printf("\tParameter Encryption: Enabled. (AES CFB)\n\n");
     }
     else if (paramEncAlg == TPM_ALG_XOR) {
-        printf("Parameter Encryption: Enabled. (XOR)\n\n");
+        printf("\tParameter Encryption: Enabled. (XOR)\n\n");
     }
     else {
-        printf("Parameter Encryption: Not enabled (try -aes or -xor).\n\n");
+        printf("\tParameter Encryption: Not enabled (try -aes or -xor).\n\n");
     }
 
     XMEMSET(&keyBlob, 0, sizeof(keyBlob));

@@ -29,7 +29,8 @@
 #include <stdio.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
+    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY) && \
+    (defined(WOLFTPM_CRYPTOCB) || defined(HAVE_PK_CALLBACKS))
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -623,7 +624,8 @@ int main(int argc, char* argv[])
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY)
+    !defined(NO_WOLFSSL_SERVER) && !defined(WOLFCRYPT_ONLY) && \
+    (defined(WOLFTPM_CRYPTOCB) || defined(HAVE_PK_CALLBACKS))
     rc = TPM2_TLS_ServerArgs(NULL, argc, argv);
 #else
     (void)argc;
