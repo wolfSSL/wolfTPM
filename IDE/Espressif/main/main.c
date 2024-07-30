@@ -1,4 +1,6 @@
-/* wolftpm test main.c
+/* main.c
+ *
+ * Copyright (C) 2006-2024 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
