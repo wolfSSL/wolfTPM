@@ -30,7 +30,7 @@
 
 /* For some struct to buffer conversions */
 #include <wolftpm/tpm2_packet.h>
-
+#include <hal/tpm_io.h> /* for default IO callback */
 
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
@@ -182,7 +182,7 @@ WOLFTPM2_DEV* wolfTPM2_New(void)
     WOLFTPM2_DEV *dev = (WOLFTPM2_DEV*)XMALLOC(
         sizeof(WOLFTPM2_DEV), NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (dev != NULL) {
-        if (wolfTPM2_Init(dev, NULL, NULL) != TPM_RC_SUCCESS) {
+        if (wolfTPM2_Init(dev, TPM2_IoCb, NULL) != TPM_RC_SUCCESS) {
             XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             dev = NULL;
         }
@@ -797,20 +797,27 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     /* Get vendor specific information */
     if (rc == 0) {
-        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_OPERATION_MODE,
+        int rc_ifx;
+        rc_ifx = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_OPERATION_MODE,
             &cap->opMode, sizeof(cap->opMode));
-    }
-    if (rc == 0) {
-        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID,
-            (uint8_t*)&cap->keyGroupId, sizeof(cap->keyGroupId));
-    }
-    if (rc == 0) {
-        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER,
-            (uint8_t*)&cap->fwCounter, sizeof(cap->fwCounter));
-    }
-    if (rc == 0) {
-        rc = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER_SAME,
-            (uint8_t*)&cap->fwCounterSame, sizeof(cap->fwCounterSame));
+        if (rc_ifx == 0) {
+            rc_ifx = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_KEYGROUP_ID,
+                (uint8_t*)&cap->keyGroupId, sizeof(cap->keyGroupId));
+        }
+        if (rc_ifx == 0) {
+            rc_ifx = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER,
+                (uint8_t*)&cap->fwCounter, sizeof(cap->fwCounter));
+        }
+        if (rc_ifx == 0) {
+            rc_ifx = tpm2_ifx_cap_vendor_get(cap, TPM_PT_VENDOR_FIX_FU_COUNTER_SAME,
+                (uint8_t*)&cap->fwCounterSame, sizeof(cap->fwCounterSame));
+        }
+        if (rc_ifx != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Error getting Infineon vendor capabilities 0x%x: %s\n",
+                rc_ifx, TPM2_GetRCString(rc_ifx));
+        #endif
+        }
     }
 #endif
 
@@ -1142,7 +1149,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         return rc;
 #endif
 
-    if (doShutdown)  {
+    if (doShutdown && TPM2_GetActiveCtx() != NULL)  {
         Shutdown_In shutdownIn;
         XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
         shutdownIn.shutdownType = TPM_SU_CLEAR;

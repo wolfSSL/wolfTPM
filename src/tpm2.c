@@ -642,7 +642,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
-      return rc;
+        return rc;
 #endif
 
     /* Set the active TPM global */

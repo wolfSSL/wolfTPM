@@ -38,7 +38,9 @@
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #include <wolfssl/wolfcrypt/asn.h>
+    #if !defined(WOLFCRYPT_ONLY)
     #include "trusted_certs.h"
+    #endif
 #endif
 
 /******************************************************************************/
@@ -89,7 +91,7 @@ static void show_ek_public(const TPM2B_PUBLIC* pub)
     }
     else if (pub->publicArea.type == TPM_ALG_ECC) {
         const char* curveName = "NULL";
-    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
         curveName = wc_ecc_get_name(
             TPM2_GetWolfCurve(pub->publicArea.parameters.eccDetail.curveID));
     #endif
@@ -153,8 +155,8 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate;
     word32 nvIndex;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    int i;
     #ifndef WOLFCRYPT_ONLY
+    int i;
     WOLFSSL_CERT_MANAGER* cm = NULL;
     #endif
     DecodedCert cert;
@@ -351,9 +353,10 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             rc = wc_DerToPem(certBuf, certSz, NULL, 0, CERT_TYPE);
             if (rc > 0) { /* returns actual PEM size */
                 pemSz = (word32)rc;
-                rc = 0;
-
                 pemSz++; /* for '\0'*/
+                rc = 0;
+            }
+            if (rc == 0) {
                 pem = (char*)XMALLOC(pemSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                 if (pem == NULL) {
                     rc = MEMORY_E;
