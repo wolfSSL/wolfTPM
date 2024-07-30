@@ -46,6 +46,7 @@ extern "C" {
 /* TPM */
 #define WOLFSSL_AES_CFB /* required for parameter encryption */
 #define WOLFSSL_PUBLIC_MP /* expose mp_ math functions - required for tpm ECC secret encrypt */
+#define WOLFTPM_AUTODETECT /* support any TPM model (unknown/safe options) */
 
 /* Callbacks */
 #define WOLF_CRYPTO_CB

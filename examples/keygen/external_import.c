@@ -88,8 +88,13 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY *primary;
+#ifndef WOLFTPM2_NO_HEAP
     WOLFTPM2_KEYBLOB* key2;
     WOLFTPM2_KEYBLOB* rsaKey3;
+#else
+    WOLFTPM2_KEYBLOB key2[1];
+    WOLFTPM2_KEYBLOB rsaKey3[1];
+#endif
     TPM2B_DIGEST seedValue;
     TPMT_PUBLIC publicTemplate3;
     TPMA_OBJECT attributes;
@@ -122,8 +127,10 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+#ifndef WOLFTPM2_NO_HEAP
     key2 = wolfTPM2_NewKeyBlob();
     rsaKey3 = wolfTPM2_NewKeyBlob();
+#endif
     primary = &storage;
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
@@ -229,8 +236,10 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &key2->handle);
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
 
+#ifndef WOLFTPM2_NO_HEAP
     wolfTPM2_FreeKeyBlob(key2);
     wolfTPM2_FreeKeyBlob(rsaKey3);
+#endif
 
     wolfTPM2_Cleanup(&dev);
 

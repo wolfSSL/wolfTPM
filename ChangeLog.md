@@ -1,5 +1,32 @@
 # Release Notes
 
+## wolfTPM Release 3.4.0 (July 30, 2024)
+
+**Summary**
+
+Added Endorsement Key Certificate support. Added support for NV read/write with policy. Added policy password support. Refactor of the session authentication structures.
+
+**Detail**
+
+* Added EK Certificate Support (PR #360)
+  - Added new API's `wolfTPM2_GetKeyTemplate_EK` and `wolfTPM2_GetKeyTemplate_EK` for getting EK public templates used for generating the EK primary key.
+  - Added `examples/endorsement/get_ek_certs` for showing how to retrieve and validate the manufacturers endorsement key certificates.
+* Improvements to auth handling to support Policy Password and Policy Auth Value (PR #350)
+  - Refactor to eliminate confusing cast between TPMS_AUTH_COMMAND and TPM2_AUTH_SESSION.
+  - Support for policy auth value and policy password.
+  - Add new NV policy write/read API's `wolfTPM2_NVWriteAuthPolicy` and `wolfTPM2_NVReadAuthPolicy`.
+* Fixed ST33KTPM IAK/IDevID provisioning NV indexes. (PR #361)
+* Fixed TLS example build issues with wolfSSL not having crypto callback or PK callback enabled. (PR #360)
+* Fixed CSR version (use version 0) (PR #359)
+* Fixed issue with Doxygen generation of wolfTPM due to doxybook2 crashing on unnamed enum. (PR #357)
+* Fixed HMAC session save last (not typically used) (PR #355)
+* Fixed Infineon I2C HAL gating logic (PR #347)
+* Added documentation for IAK/IDevID build options. (PR #361)
+* Added support for Espressif IDE (see IDE/Espressif) (PR #321)
+* Added tests for create_primary (PR #345)
+* Improved software TPM (docs/SWTPM.md) documentation (PR #348)
+
+
 ## wolfTPM Release 3.2.0 (Apr 24, 2024)
 
 **Summary**

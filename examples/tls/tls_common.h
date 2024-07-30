@@ -89,8 +89,8 @@
 /******************************************************************************/
 
 typedef struct SockIoCbCtx {
-    int listenFd;
-    int fd;
+    SOCKET_T listenFd;
+    SOCKET_T fd;
 } SockIoCbCtx;
 
 #ifndef WOLFSSL_USER_IO
@@ -266,7 +266,7 @@ static inline int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port)
 
 static inline int SocketWaitClient(SockIoCbCtx* sockIoCtx)
 {
-    int connd;
+    SOCKET_T connd;
     struct sockaddr_in clientAddr;
     XSOCKLENT          size = sizeof(clientAddr);
 
