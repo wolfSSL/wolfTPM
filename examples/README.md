@@ -38,7 +38,7 @@ This example demonstrates the use of `authSession` (authorization Session) and `
 
 Demonstrates the generation of TPM2.0 Quote used for attestation of the system state by putting PCR value(s) in a TPM signed structure.
 
-More information about how to test and use PCR attestation can be found in the in [examples/pcr/README.md](./examples/pcr/README.md).
+More information about how to test and use PCR attestation can be found in the in [examples/pcr/README.md](/examples/pcr/README.md).
 
 `./examples/pcr/quote`
 `./examples/pcr/extend`
