@@ -432,16 +432,15 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 /* Optional delay between polling */
-#if (defined(WOLFTPM_SLB9670) || defined(WOLFTPM_SLB9672)) && !defined(XTPM_WAIT)
-    /* For Infineon SLB9670 and SLB9672 adding 10us delay improves performance
+#if defined(__linux__) && !defined(XTPM_WAIT)
+    /* Avoid excessive polling.
+     * For Infineon SLB9670 and SLB9672 adding 10us delay improves performance
      * and prevents issue with rapid use at higher speeds */
-    #ifdef __linux__
-        #ifndef XTPM_WAIT_POLLING_US
-            #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
-        #endif
-        #include <unistd.h>
-        #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
+    #ifndef XTPM_WAIT_POLLING_US
+        #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
     #endif
+    #include <unistd.h>
+    #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
 #endif
 #ifndef XTPM_WAIT
     #define XTPM_WAIT() /* just poll without delay by default */

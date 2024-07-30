@@ -2684,7 +2684,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new template
     \param alg can be only TPM_ALG_RSA or TPM_ALG_ECC, see Note above
     \param keyBits integer value, specifying bits for the key, typically 2048 (RSA) or 256 (ECC)
-    \param curveId use one of the accepted TPM_ECC_CURVE values like TPM_ECC_NIST_P256 (only used when alg=TPM_ALG_ECC)
+    \param curveID use one of the accepted TPM_ECC_CURVE values like TPM_ECC_NIST_P256 (only used when alg=TPM_ALG_ECC)
     \param nameAlg integer value of TPMI_ALG_HASH type, specifying a valid TPM2 hashing algorithm (typically TPM_ALG_SHA256)
     \param highRange integer value: 0=low range, 1=high range
 
