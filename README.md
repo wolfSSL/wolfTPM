@@ -296,7 +296,7 @@ sudo chgrp wolftpm /dev/tpm0
 
 2) Create new rule file: `sudo vim /etc/udev/rules.d/wolftpm-udev.rules`
 
-3) Add the following replacing "yourusername" with actual user or group.
+3) Add the following rule to file:
 
 ```
 KERNEL=="tpm[0-9]*", TAG+="systemd", MODE="0660", GROUP="wolftpm"
