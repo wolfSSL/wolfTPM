@@ -1,6 +1,6 @@
 # Quote & Attestation Demo
 
-This folder contains examples for performing local attestation. You will learn how to measure a system file using wolfTPM and then generate a TPM 2.0 Quote as proof for that measurement. See [Technology Introduction](## Technology introduction) below.
+This folder contains examples for performing local attestation. You will learn how to measure a system file using wolfTPM and then generate a TPM 2.0 Quote as proof for that measurement. See [Technology Introduction](/examples/pcr/README.md#technology-introduction) below.
 
 ## List of examples
 
@@ -18,7 +18,7 @@ Scripts:
 * `./examples/pcr/demo-quote-zip.sh` - script demonstrating how using the tools above a system file can be measured and a TPM-signed proof with that measurement generated
 
 
-## Technology introduction
+## Technology Introduction
 
 ### Platform Configuration Registers (PCR)
 

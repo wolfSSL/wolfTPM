@@ -221,6 +221,8 @@ cd wolfTPM
 make
 ```
 
+The default is SLB9672/SLB9673 (if I2C). To specify SLB9670 use `--enable-infineon=slb9670`.
+
 ### Building ST ST33
 
 Build wolfTPM:
@@ -268,9 +270,9 @@ idf.py build
 
 ### Building for "/dev/tpmX"
 
-This build option allows you to talk to any TPM vendor supported by the Linux TIS kernel driver
+The `--enable-devtpm` or `WOLFTPM_LINUX_DEV` build option allows you to use the Linux supplied TPM (TIS) driver.
 
-Build wolfTPM:
+To specify a different `/dev/tpmX` device use `CFLAGS="-DTPM2_LINUX_DEV=/dev/tpm1"`
 
 ```bash
 ./autogen.sh
@@ -278,11 +280,30 @@ Build wolfTPM:
 make
 ```
 
-Note: When using a TPM device through the Linux kernel driver make sure sufficient permissions are given to the application that uses wolfTPM, because the "/dev/tpmX" typically has read-write permissions only for the "tss" user group. Either run wolfTPM examples and your application using sudo or add your user to the "tss" group like this:
+The `TPM2_Init` or `wolfTPM2_Init` calls should use NULL for the HAL IO callback argument. The default HAL IO `TPM2_IoCb` maps to a macro specifying NULL (`#define TPM2_IoCb NULL`) in tpm_io.h for the devtpm option.
+
+By default the `/dev/tpmX` requires sudo permissions to use it. If using the tpm2-tss it will install a "tss" group that you can add permissions to `sudo adduser [username] tss`.
+
+To add your own custom wolfTPM rule for /dev/tpm0 do the following:
+
+1) Create new group and add your user to it (replace "[username]" with yours):
 
 ```bash
-sudo adduser yourusername tss
+sudo addgroup wolftpm
+sudo adduser [username] wolftpm
+sudo chgrp wolftpm /dev/tpm0
 ```
+
+2) Create new rule file: `sudo vim /etc/udev/rules.d/wolftpm-udev.rules`
+
+3) Add the following replacing "yourusername" with actual user or group.
+
+```
+KERNEL=="tpm[0-9]*", TAG+="systemd", MODE="0660", GROUP="wolftpm"
+```
+
+4) Reboot or reload rules: `sudo udevadm control -R`
+
 
 ### Building for SWTPM
 

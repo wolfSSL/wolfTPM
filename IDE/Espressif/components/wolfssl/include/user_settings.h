@@ -394,7 +394,7 @@
     /***** END CONFIG_IDF_TARGET_ESP8684 *****/
 
 #else
-    /* Anything else encountered, disable HW accleration */
+    /* Anything else encountered, disable HW acceleration */
     #warning "Unexpected CONFIG_IDF_TARGET_NN value"
     #define NO_ESP32_CRYPT
     #define NO_WOLFSSL_ESP32_CRYPT_HASH
@@ -662,7 +662,7 @@ Turn on timer debugging (used when CPU cycles not available)
  * Do not exceed a value of 400000 */
 /* #define I2C_MASTER_FREQ_HZ 100000 */
 
-/* Examples may have a main() function, we'll have oour own: */
+/* Examples may have a main() function, we'll have our own: */
 #define NO_MAIN_DRIVER
 
 /* I2C GPIO settings are defined in idf.py menuconfig

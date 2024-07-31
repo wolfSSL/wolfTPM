@@ -39,7 +39,7 @@
  * * Windows systems
  * * Hybrid SoC
  * * Linux using /dev/tpm0
- * * Linux using devspi
+ * * Linux using spidev driver
  * * Linux using i2c driver
  *
  * Typically, a wolfTPM developer would use the wolfTPM2 wrappers for quicker development.
