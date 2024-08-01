@@ -120,6 +120,7 @@ ek.pem
 
 # Generated Documentation
 docs/html
+docs/xml
 
 # Wrapper
 wrapper/CSharp/obj

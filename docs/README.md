@@ -98,6 +98,8 @@ Every example application that is included with wolfTPM includes the `tpm_io.h` 
 
 The `tpm_io.c` file sets up the example HAL IO callback necessary for testing and running the example applications with a Linux Kernel, STM32 CubeMX HAL or Atmel/Microchip ASF. The reference is easily modified, such that custom IO callbacks or different callbacks may be added or removed as desired.
 
+See [hal/README.md](/hal/README.md) for HAL IO callback details.
+
 ## API Reference
 
 See [https://www.wolfssl.com/docs/wolftpm-manual/](https://www.wolfssl.com/docs/wolftpm-manual/).

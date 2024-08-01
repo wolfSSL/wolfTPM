@@ -870,6 +870,7 @@ INPUT                  = ./docs/README.md \
                          ./examples/pcr/README.md \
                          ./examples/attestation/README.md \
                          ./examples/boot/README.md \
+                         ./hal/README.md \
                          ./wolftpm/tpm2.h \
                          ./wolftpm/tpm2_wrap.h \
                          ./hal/tpm_io.h

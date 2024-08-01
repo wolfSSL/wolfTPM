@@ -69,7 +69,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #endif
 
     fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
-    if (fd > 0) {
+    if (fd >= 0) {
         /* Send the TPM command */
         if (write(fd, packet->buf, packet->pos) == packet->pos) {
             fds.fd = fd;
