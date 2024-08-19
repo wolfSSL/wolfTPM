@@ -79,6 +79,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     word32 nvIndex = TPM2_DEMO_NVRAM_STORE_INDEX;
     byte* auth = (byte*)gNvAuth;
     word32 authSz = (word32)sizeof(gNvAuth)-1;
+    word32 nvSize;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -171,12 +172,17 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
     if (rc != 0) goto exit;
 
+    /* Estimate size of NV */
+    nvSize =
+        keyBlob.pub.size + sizeof(keyBlob.pub.size) + sizeof(UINT16) +
+        keyBlob.priv.size + sizeof(keyBlob.priv.size) + sizeof(UINT16);
+
     /* Try and open existing NV */
     rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, auth, authSz);
     if (rc != 0) {
         /* In not found try create using wolfTPM2 wrapper for NV_Define */
         rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
-            nvAttributes, TPM2_DEMO_NV_TEST_SIZE, auth, authSz);
+            nvAttributes, nvSize, auth, authSz);
 
         if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
     }

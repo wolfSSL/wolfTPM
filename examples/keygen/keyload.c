@@ -66,11 +66,14 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEYBLOB newKey;
     WOLFTPM2_KEY persistKey;
+    TPM_ALG_ID alg;
+    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* inputFile = "keyblob.bin";
     int persistent = 0;
     int endorseKey = 0;
+
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -129,18 +132,19 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     goto exit;
 #endif
 
+    alg = newKey.pub.publicArea.type;
+    if (alg == TPM_ALG_RSA)
+        srkAlg = TPM_ALG_RSA;
+    printf("Loading %s key\n", TPM2_GetAlgName(alg));
+
     if (endorseKey) {
         /* endorsement is always RSA */
-        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+        rc = wolfTPM2_CreateEK(&dev, &endorse, srkAlg);
         if (rc != 0) goto exit;
         endorse.handle.policyAuth = 1;
         primary = &endorse;
     }
     else {
-        /* SRK: Use RSA or ECC SRK only. Prefer ECC */
-        TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC;
-        if (newKey.pub.publicArea.type == TPM_ALG_RSA)
-            srkAlg = TPM_ALG_RSA;
         rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         if (rc != 0) goto exit;
         primary = &storage;
@@ -154,11 +158,19 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
         if (rc != 0) goto exit;
     }
-
-    if (paramEncAlg != TPM_ALG_NULL) {
+    else if (paramEncAlg != TPM_ALG_NULL) {
+        void* bindKey = &storage;
+    #ifndef HAVE_ECC
+        if (srkAlg == TPM_ALG_ECC)
+            bindKey = NULL; /* cannot bind to key without ECC enabled */
+    #endif
+    #ifdef NO_RSA
+        if (srkAlg == TPM_ALG_RSA)
+            bindKey = NULL; /* cannot bind to key without RSA enabled */
+    #endif
         /* Start an authenticated session (salted / unbound) with parameter
          * encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",

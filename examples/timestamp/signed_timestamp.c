@@ -46,7 +46,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/timestamp/signed_timestamp [-ecc] [-aes/xor]\n");
+    printf("./examples/timestamp/signed_timestamp [-ecc/-rsa] [-aes/xor]\n");
     printf("* -ecc: Use RSA or ECC for SRK/AIK\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
 }
@@ -92,6 +92,9 @@ int TPM2_Timestamp_TestArgs(void* userCtx, int argc, char *argv[])
     while (argc > 1) {
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
+        }
+        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
+            alg = TPM_ALG_RSA;
         }
         else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;

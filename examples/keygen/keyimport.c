@@ -69,7 +69,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEYBLOB impKey;
-    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA, srkAlg; /* TPM_ALG_ECC */
+    TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
+    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* outputFile = "keyblob.bin";
@@ -97,6 +98,9 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     while (argc > 1) {
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
+        }
+        else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
+            alg = TPM_ALG_RSA;
         }
         else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
@@ -137,9 +141,13 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&impKey, 0, sizeof(impKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
+    if (alg == TPM_ALG_RSA)
+        srkAlg = TPM_ALG_RSA;
+
     printf("TPM2.0 Key Import example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
+    printf("\tSRK: %s\n", TPM2_GetAlgName(srkAlg));
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
     printf("\tpassword: %s\n", password);
 
@@ -149,24 +157,24 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    srkAlg = alg;
-#if defined(HAVE_ECC) && !defined(WOLFSSL_PUBLIC_MP)
-    if (srkAlg == TPM_ALG_ECC && paramEncAlg != TPM_ALG_NULL) {
-        /* ECC encrypt requires mp_ API's */
-        printf("Parameter encryption with ECC SRK support not available, "
-               "using RSA SRK\n");
-        srkAlg = TPM_ALG_RSA;
-    }
-#endif
-
     /* get SRK */
     rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
+        void* bindKey = &storage;
+    #ifndef HAVE_ECC
+        if (srkAlg == TPM_ALG_ECC)
+            bindKey = NULL; /* cannot bind to key without ECC enabled */
+    #endif
+    #ifdef NO_RSA
+        if (srkAlg == TPM_ALG_RSA)
+            bindKey = NULL; /* cannot bind to key without RSA enabled */
+    #endif
+
         /* Start an authenticated session (salted / unbound) with parameter
          * encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
@@ -191,7 +199,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
              TPMA_OBJECT_userWithAuth |
              TPMA_OBJECT_noDA);
 
-#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && !defined(NO_ASN)
     if (impFile != NULL) {
         printf("Loading %s%s key file: %s\n",
             encType == ENCODING_TYPE_PEM ? "PEM" : "DER",
@@ -202,7 +210,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
             if (isPublicKey) {
                 rc = wolfTPM2_ImportPublicKeyBuffer(&dev,
                     alg,
-                (WOLFTPM2_KEY*)&impKey,
+                    (WOLFTPM2_KEY*)&impKey,
                     encType,
                     (const char*)buf, (word32)bufSz,
                     attributes
@@ -219,6 +227,12 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
                 );
             }
         }
+    #if defined(NO_RSA) || !defined(HAVE_ECC)
+        if (rc == NOT_COMPILED_IN) {
+            printf("Feature not compiled in! Skipping test\n");
+            rc = 0; /* allowing error */
+        }
+    #endif
     }
     else
 #else

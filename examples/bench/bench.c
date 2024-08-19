@@ -269,8 +269,12 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
+        void* bindKey = &storageKey;
+    #ifdef NO_RSA
+        bindKey = NULL; /* cannot bind to key without RSA enabled */
+    #endif
         /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",

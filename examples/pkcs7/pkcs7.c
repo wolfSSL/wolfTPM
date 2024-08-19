@@ -62,7 +62,7 @@
 
 #ifdef ENABLE_PKCS7EX_EXAMPLE
 /* Dummy Function to Get Data */
-#define MY_DATA_CHUNKS  WOLFTPM2_MAX_BUFFER
+#define MY_DATA_CHUNKS  MAX_DIGEST_BUFFER
 #define MY_DATA_TOTAL  (1024 * 1024) + 12 /* odd remainder for test */
 static int GetMyData(byte* buffer, word32 bufSz, word32 offset)
 {
@@ -92,8 +92,9 @@ static int GetMyData(byte* buffer, word32 bufSz, word32 offset)
 
 /* The wc_PKCS7_EncodeSignedData_ex and wc_PKCS7_VerifySignedData_ex functions
    were added in this PR https://github.com/wolfSSL/wolfssl/pull/1780. */
-static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* derCert,
-    WOLFTPM2_BUFFER* derPubKey, int alg, enum wc_HashType hashType, const char* outFile)
+static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
+    byte* derCert, word32 derCertSz, byte* derPubKey, word32 derPubKeySz,
+    int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
     PKCS7 pkcs7;
@@ -139,7 +140,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     /* Generate and verify PKCS#7 files containing data using TPM key */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert->buffer, derCert->size);
+    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert, derCertSz);
     if (rc != 0) goto exit;
 
     pkcs7.content = NULL; /* not used */
@@ -149,8 +150,8 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* 
     pkcs7.rng = wolfTPM2_GetRng(dev);
     /* pass public key instead of private here. The PKCS7 will try a public
      * key decode if using crypto callbacks */
-    pkcs7.privateKey = derPubKey->buffer;
-    pkcs7.privateKeySz = derPubKey->size;
+    pkcs7.privateKey = derPubKey;
+    pkcs7.privateKeySz = derPubKeySz;
 
     outputHeadSz = (int)sizeof(outputHead);
     outputFootSz = (int)sizeof(outputFoot);
@@ -241,8 +242,9 @@ exit:
 }
 #endif /* ENABLE_PKCS7EX_EXAMPLE */
 
-static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* derCert,
-    WOLFTPM2_BUFFER* derPubKey, int alg, enum wc_HashType hashType, const char* outFile)
+static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId,
+    byte* derCert, word32 derCertSz, byte* derPubKey, word32 derPubKeySz,
+    int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
     PKCS7 pkcs7;
@@ -258,7 +260,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     /* Generate and verify PKCS#7 files containing data using TPM key */
     rc = wc_PKCS7_Init(&pkcs7, NULL, tpmDevId);
     if (rc != 0) goto exit;
-    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert->buffer, derCert->size);
+    rc = wc_PKCS7_InitWithCert(&pkcs7, derCert, derCertSz);
     if (rc != 0) goto exit;
 
     pkcs7.content = data;
@@ -268,8 +270,8 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId, WOLFTPM2_BUFFER* de
     pkcs7.rng = wolfTPM2_GetRng(dev);
     /* pass public key instead of private here. The PKCS7 will try a public
      * key decode if using crypto callbacks */
-    pkcs7.privateKey = derPubKey->buffer;
-    pkcs7.privateKeySz = derPubKey->size;
+    pkcs7.privateKey = derPubKey;
+    pkcs7.privateKeySz = derPubKeySz;
 
     rc = wc_PKCS7_EncodeSignedData(&pkcs7, output, sizeof(output));
     if (rc <= 0) goto exit;
@@ -339,8 +341,10 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate;
     TpmCryptoDevCtx tpmCtx;
     int tpmDevId;
-    WOLFTPM2_BUFFER derCert;
-    WOLFTPM2_BUFFER derPubKey;
+    byte derCert[MAX_PKCS7_SIZE];
+    word32 derCertSz = 0;
+    byte derPubKey[MAX_PKCS7_SIZE];
+    word32 derPubKeySz;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE derFile;
     const char* inCert = NULL;
@@ -387,11 +391,23 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
 
     printf("TPM2 PKCS7 Example\n");
 
-
     XMEMSET(&derCert, 0, sizeof(derCert));
     XMEMSET(&derPubKey, 0, sizeof(derPubKey));
     XMEMSET(&tpmKey, 0, sizeof(tpmKey));
     XMEMSET(&storageKey, 0, sizeof(storageKey));
+
+#ifndef HAVE_ECC
+    if (alg == TPM_ALG_ECC) {
+        printf("ECC not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
+#ifdef NO_RSA
+    if (alg == TPM_ALG_RSA) {
+        printf("RSA not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -475,35 +491,43 @@ int TPM2_PKCS7_ExampleArgs(void* userCtx, int argc, char *argv[])
     derFile = XFOPEN(inCert, "rb");
     if (derFile != XBADFILE) {
         XFSEEK(derFile, 0, XSEEK_END);
-        derCert.size = (int)XFTELL(derFile);
+        derCertSz = (int)XFTELL(derFile);
         XREWIND(derFile);
-        if (derCert.size > (int)sizeof(derCert.buffer)) {
+        if (derCertSz > (int)sizeof(derCert)) {
             rc = BUFFER_E;
         }
         else {
-            rc = (int)XFREAD(derCert.buffer, 1, derCert.size, derFile);
-            rc = (rc == derCert.size) ? 0 : -1;
+            rc = (int)XFREAD(derCert, 1, derCertSz, derFile);
+            rc = (rc == (int)derCertSz) ? 0 : -1;
         }
         XFCLOSE(derFile);
         if (rc != 0) goto exit;
     }
+    else {
+        printf("Failed to open %s\n", inCert);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+#else
+    rc = NOT_COMPILED_IN;
+    goto exit;
 #endif
 
     /* Export TPM public key as DER/ASN.1 (should match certificate) */
-    derPubKey.size = (int)sizeof(derPubKey.buffer);
+    derPubKeySz = (int)sizeof(derPubKey);
     rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &tpmKey,
-        ENCODING_TYPE_ASN1, derPubKey.buffer, (word32*)&derPubKey.size);
+        ENCODING_TYPE_ASN1, derPubKey, (word32*)&derPubKeySz);
     if (rc != 0) goto exit;
 
     /* PKCS 7 sign/verify example */
-    rc = PKCS7_SignVerify(&dev, tpmDevId, &derCert, &derPubKey, alg, hashType,
-        outFile);
+    rc = PKCS7_SignVerify(&dev, tpmDevId, derCert, derCertSz, derPubKey,
+        derPubKeySz, alg, hashType, outFile);
     if (rc != 0) goto exit;
 
 #ifdef ENABLE_PKCS7EX_EXAMPLE
     /* PKCS 7 large data sign/verify example */
-    rc = PKCS7_SignVerifyEx(&dev, tpmDevId, &derCert, &derPubKey, alg, hashType,
-        outFileEx);
+    rc = PKCS7_SignVerifyEx(&dev, tpmDevId, derCert, derCertSz, derPubKey,
+        derPubKeySz, alg, hashType, outFileEx);
     if (rc != 0) goto exit;
 #endif
 

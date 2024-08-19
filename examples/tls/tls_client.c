@@ -86,8 +86,9 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/tls/tls_client [-ecc] [-aes/xor]\n");
-    printf("* -ecc: Use RSA or ECC key\n");
+    printf("./examples/tls/tls_client [-ecc/rsa] [-aes/xor]\n");
+    printf("* -ecc: Use ECC key/cert\n");
+    printf("* -rsa: Use RSA key/cert\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
 #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
@@ -194,6 +195,19 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
     printf("\tUsing Port: %d\n", port);
     printf("\tUsing %s callbacks\n", usePK ? "PK" : "Crypto");
+
+#ifndef HAVE_ECC
+    if (useECC) {
+        printf("ECC not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
+#ifdef NO_RSA
+    if (!useECC) {
+        printf("RSA not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -394,7 +408,16 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         /* Export TPM public key as DER */
         byte   der[1024];
         word32 derSz = (word32)sizeof(der);
-        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, !useECC ? &rsaKey : &eccKey,
+    #if defined(HAVE_ECC) && !defined(NO_RSA)
+        void* pkey = !useECC ? &rsaKey : &eccKey;
+    #elif !defined(NO_RSA)
+        void* pkey = &rsaKey;
+    #elif defined(HAVE_ECC)
+        void* pkey = &eccKey;
+    #else
+        void* pkey = NULL;
+    #endif
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, pkey,
             ENCODING_TYPE_ASN1, der, &derSz);
         if (rc < 0) {
             printf("Failed to export RSA public key!\n");

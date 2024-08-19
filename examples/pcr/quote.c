@@ -145,8 +145,17 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         (word32)aik.handle.hndl, aik.pub.size);
 
     if (paramEncAlg != TPM_ALG_NULL) {
+        void* bindKey = &storage;
+    #ifndef HAVE_ECC
+        if (alg == TPM_ALG_ECC)
+            bindKey = NULL; /* cannot bind to key without ECC enabled */
+    #endif
+    #ifdef NO_RSA
+        if (alg == TPM_ALG_RSA)
+            bindKey = NULL; /* cannot bind to key without RSA enabled */
+    #endif
         /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storage, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",

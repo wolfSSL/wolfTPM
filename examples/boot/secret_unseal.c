@@ -62,7 +62,7 @@ static void usage(void)
 }
 
 /* Load Key Public Info */
-#if !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_ASN)
 static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     TPM_ALG_ID alg, const char* file)
 {
@@ -103,7 +103,7 @@ static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     }
     return rc;
 }
-#endif /* !NO_FILESYSTEM */
+#endif /* !NO_FILESYSTEM && !NO_ASN */
 
 int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
 {
@@ -251,7 +251,7 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
     printHexString(policyDigest, policyDigestSz, policyDigestSz);
 
     /* Load external public key and signature */
-#if !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_ASN)
     /* Policy Authorization Signature */
     if (pcrSigFile) {
         sigSz = (word32)sizeof(sig);

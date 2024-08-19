@@ -332,7 +332,8 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
+    !defined(NO_RSA)
 static WOLFTPM2_KEY authKey; /* also used for test_wolfTPM2_PCRPolicy */
 
 static void test_wolfTPM_ImportPublicKey(void)
@@ -499,7 +500,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY srk;
     WOLFTPM2_KEYBLOB key;
-    WOLFTPM2_BUFFER blob;
+    byte blob[MAX_CONTEXT_SIZE];
     TPMT_PUBLIC publicTemplate;
     word32 privBufferSz, pubBufferSz;
 
@@ -550,25 +551,26 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         NULL, &privBufferSz, &key);
     AssertIntEQ(rc, LENGTH_ONLY_E);
 
+    AssertIntLT(pubBufferSz + privBufferSz, sizeof(blob));
+
     /* Test exporting private and public parts separately */
-    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(blob.buffer, &pubBufferSz,
-        &blob.buffer[pubBufferSz], &privBufferSz, &key);
+    rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(blob, &pubBufferSz,
+        blob +pubBufferSz, &privBufferSz, &key);
     AssertIntEQ(rc, 0);
 
     /* Test getting size only */
-    rc = wolfTPM2_GetKeyBlobAsBuffer(NULL, sizeof(blob.buffer), &key);
+    rc = wolfTPM2_GetKeyBlobAsBuffer(NULL, sizeof(blob), &key);
     AssertIntGT(rc, 0);
 
     /* Export private and public key */
-    rc = wolfTPM2_GetKeyBlobAsBuffer(blob.buffer, sizeof(blob.buffer), &key);
+    rc = wolfTPM2_GetKeyBlobAsBuffer(blob, sizeof(blob), &key);
     AssertIntGT(rc, 0);
-    blob.size = rc;
 
     /* Reset the originally created key */
     XMEMSET(&key, 0, sizeof(key));
 
     /* Load key blob (private/public) from buffer */
-    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob.buffer, blob.size);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, rc);
     AssertIntEQ(rc, 0);
     key.handle.auth.size = sizeof(gKeyAuth)-1;
     XMEMCPY(key.handle.auth.buffer, gKeyAuth, key.handle.auth.size);
@@ -604,7 +606,8 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_KDFa();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE)
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
+        !defined(NO_RSA)
     test_wolfTPM_ImportPublicKey();
     test_wolfTPM2_PCRPolicy();
     #endif

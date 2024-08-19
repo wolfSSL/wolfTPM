@@ -95,13 +95,10 @@ typedef struct WOLFTPM2_CSR {
 } WOLFTPM2_CSR;
 #endif
 
-#ifndef WOLFTPM2_MAX_BUFFER
-    #define WOLFTPM2_MAX_BUFFER 2048
-#endif
-
+/* buffer similar to TPM2B_MAX_BUFFER that can be used */
 typedef struct WOLFTPM2_BUFFER {
     int size;
-    byte buffer[WOLFTPM2_MAX_BUFFER];
+    byte buffer[MAX_DIGEST_BUFFER];
 } WOLFTPM2_BUFFER;
 
 typedef enum WOLFTPM2_MFG {

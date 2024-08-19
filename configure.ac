@@ -355,7 +355,7 @@ then
 
     # Reduces max packet and buffer sizes to 1024 bytes
     # RSA KeyGen AES response is 1329 MAX_RESPONSE_SIZE
-    AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1350 -DWOLFTPM2_MAX_BUFFER=1500 -DMAX_DIGEST_BUFFER=973"
+    AM_CFLAGS="$AM_CFLAGS -DMAX_COMMAND_SIZE=1024 -DMAX_RESPONSE_SIZE=1350 -DMAX_DIGEST_BUFFER=896"
 
     # If parameter encryption is not used then maximum session count is one
     if test "x$ENABLED_WOLFCRYPT" = "xno"

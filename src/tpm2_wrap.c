@@ -970,8 +970,10 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Session %d: Edit (PolicyAuth)\n", index);
             printf("\tHandle 0x%x (not touching)\n", session->sessionHandle);
-            printf("\tPolicyAuth %d->%d\n", session->policyAuth, handle->policyAuth);
-            printf("\tAuth Sz %d -> %d\n", session->auth.size, authDigestSz + handle->auth.size);
+            printf("\tPolicyAuth %d->%d\n",
+                session->policyAuth, handle->policyAuth);
+            printf("\tAuth Sz %d -> %d\n", session->auth.size,
+                authDigestSz + handle->auth.size);
             TPM2_PrintBin(session->auth.buffer, session->auth.size);
             TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
             printf("\tName Sz %d -> %d\n", session->name.size, handle->name.size);
@@ -979,8 +981,13 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             TPM2_PrintBin(handle->name.name, handle->name.size);
         #endif
             session->policyAuth = handle->policyAuth;
+            if ((word32)handle->auth.size + authDigestSz >
+                    sizeof(session->auth.buffer)) {
+                return BUFFER_E;
+            }
             session->auth.size = authDigestSz + handle->auth.size;
-            XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer, handle->auth.size);
+            XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer,
+                handle->auth.size);
             session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, handle->name.size);
             return TPM_RC_SUCCESS;
@@ -2085,20 +2092,21 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed, int useIv)
 {
     int rc = 0;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_AES) && defined(WOLFSSL_AES_CFB) && !defined(NO_HMAC)
+#ifndef WOLFTPM2_NO_WOLFCRYPT
     int outerWrap = 0, innerWrap = 0;
     int digestSz = 0;
     int integritySz = 0;
     int ivSz = 0;
     int sensSz = 0;
     BYTE* sensitiveData = NULL;
+    TPM2B_SYM_KEY symKey;
     TPM2B_IV ivField;
     TPM2_Packet packet;
-    TPM2B_SYM_KEY symKey;
+#ifdef WOLFTPM2_PRIVATE_IMPORT
     TPM2B_DIGEST hmacKey;
     Aes enc;
     Hmac hmac_ctx;
+#endif
 
     if (sens == NULL || priv == NULL) {
         return BAD_FUNC_ARG;
@@ -2160,6 +2168,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     }
 
     if (outerWrap) {
+    #ifdef WOLFTPM2_PRIVATE_IMPORT
         /* Generate symmetric key for encryption of inner values */
         symKey.size = (symKey.size + 7) / 8; /* convert to byte and round up */
         rc = TPM2_KDFa(nameAlg, symSeed, "STORAGE", (TPM2B_NONCE*)name,
@@ -2230,10 +2239,15 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         /* store the size of the integrity */
         digestSz = TPM2_Packet_SwapU16(digestSz);
         XMEMCPY(&priv->buffer[0], &digestSz, sizeof(word16));
+    #else
+        (void)sensitiveData;
+        (void)name;
+        (void)symKey;
+        rc = NOT_COMPILED_IN;
+    #endif
     }
 
 #else
-    rc = NOT_COMPILED_IN;
     (void)sens;
     (void)priv;
     (void)nameAlg;
@@ -2242,6 +2256,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     (void)sym;
     (void)symSeed;
     (void)useIv;
+    rc = NOT_COMPILED_IN;
 #endif
     return rc;
 }
@@ -2727,7 +2742,6 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-
 #ifndef NO_ASN
 #ifndef NO_RSA
 int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
@@ -2825,7 +2839,7 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
 
     return rc;
 }
-#endif
+#endif /* !NO_RSA */
 #ifdef HAVE_ECC
 int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
     TPM2B_SENSITIVE* sens, TPMA_OBJECT attributes)
@@ -2967,6 +2981,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             }
         }
     #else
+        (void)out;
         rc = NOT_COMPILED_IN;
     #endif
     }
@@ -3006,16 +3021,15 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     /* Optionally convert to PEM */
     if (rc == 0 && encodingType == ENCODING_TYPE_PEM) {
     #ifdef WOLFSSL_DER_TO_PEM
-        WOLFTPM2_BUFFER tmp;
-        if (derSz > (word32)sizeof(tmp.buffer)) {
+        byte tmp[MAX_CONTEXT_SIZE];
+        if (derSz > (word32)sizeof(tmp)) {
             rc = BUFFER_E;
         }
         else {
             /* move DER to temp variable */
-            tmp.size = derSz;
-            XMEMCPY(tmp.buffer, out, derSz);
+            XMEMCPY(tmp, out, derSz);
             XMEMSET(out, 0, *outSz);
-            rc = wc_DerToPem(tmp.buffer, tmp.size, out, *outSz, PUBLICKEY_TYPE);
+            rc = wc_DerToPem(tmp, derSz, out, *outSz, PUBLICKEY_TYPE);
             if (rc > 0) {
                 *outSz = rc;
                 rc = 0;
@@ -3193,10 +3207,8 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
 
     return rc;
 }
-#endif /* !NO_ASN */
 
 #ifndef NO_RSA
-#ifndef NO_ASN
 int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* input,
     word32 inSz, TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg)
@@ -3242,7 +3254,6 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
 
     return rc;
 }
-#endif /* !NO_ASN */
 
 #ifdef WOLFTPM2_PEM_DECODE
 int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
@@ -3257,6 +3268,24 @@ int wolfTPM2_RsaPrivateKeyImportPem(WOLFTPM2_DEV* dev,
 }
 #endif /* WOLFTPM2_PEM_DECODE */
 
+int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
+    byte* pem, word32* pemSz)
+{
+    return wolfTPM2_ExportPublicKeyBuffer(dev, tpmKey,
+        ENCODING_TYPE_PEM, pem, pemSz);
+}
+#endif /* !NO_RSA */
+#endif /* !NO_ASN */
+
+#ifndef NO_RSA
+static word32 wolfTPM2_RsaKey_Exponent(byte* e, word32 eSz)
+{
+    word32 exponent = 0, i;
+    for (i=0; i<eSz && i<sizeof(word32); i++) {
+        exponent |= ((word32)e[i]) << (i*8);
+    }
+    return exponent;
+}
 
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     RsaKey* wolfKey)
@@ -3292,22 +3321,6 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
 
     return rc;
-}
-
-int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
-    byte* pem, word32* pemSz)
-{
-    return wolfTPM2_ExportPublicKeyBuffer(dev, tpmKey,
-        ENCODING_TYPE_PEM, pem, pemSz);
-}
-
-static word32 wolfTPM2_RsaKey_Exponent(byte* e, word32 eSz)
-{
-    word32 exponent = 0, i;
-    for (i=0; i<eSz && i<sizeof(word32); i++) {
-        exponent |= ((word32)e[i]) << (i*8);
-    }
-    return exponent;
 }
 
 int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
@@ -3369,6 +3382,7 @@ int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     return wolfTPM2_RsaKey_WolfToTpm_ex(dev, NULL, wolfKey, tpmKey);
 }
 
+#ifndef NO_ASN
 int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     const byte* pem, word32 pemSz)
 {
@@ -3413,6 +3427,7 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     return rc;
 }
+#endif /* !NO_ASN */
 #endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
@@ -6719,15 +6734,14 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     /* Optionally convert to PEM */
     if (rc >= 0 && outFormat == CTC_FILETYPE_PEM) {
     #ifdef WOLFSSL_DER_TO_PEM
-        WOLFTPM2_BUFFER tmp;
-        tmp.size = rc;
-        if (rc > (int)sizeof(tmp.buffer)) {
+        byte tmp[MAX_CONTEXT_SIZE];
+        if (rc > (int)sizeof(tmp)) {
             rc = BUFFER_E;
         }
         else {
-            XMEMCPY(tmp.buffer, out, rc);
+            XMEMCPY(tmp, out, rc);
             XMEMSET(out, 0, outSz);
-            rc = wc_DerToPem(tmp.buffer, tmp.size, out, outSz,
+            rc = wc_DerToPem(tmp, (word32)rc, out, outSz,
                 selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
         }
     #else
