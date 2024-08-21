@@ -363,7 +363,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Prepare GPIO configuration according to Nuvoton requirements */
-    if(gpioMode == TPM_GPIO_MODE_PUSHPULL) {
+    if (gpioMode == TPM_GPIO_MODE_PUSHPULL) {
         /* For NUVOTON_GPIO_MODE_PUSHPULL */
         newConfig.GpioPushPull |= (1 << gpioNum);
     }

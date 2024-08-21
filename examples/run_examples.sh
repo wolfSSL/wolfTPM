@@ -166,13 +166,30 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 fi
 rm -f ececcblob.bin
 
-./examples/keygen/keygen symkeyblob.bin -sym=aescfb128 >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "keygen sym aes failed! $RESULT" && exit 1
-./examples/keygen/keyload symkeyblob.bin >> run.out 2>&1
-RESULT=$?
-rm -f symkeyblob.bin
-[ $RESULT -ne 0 ] && echo -e "keygen sym aes load failed! $RESULT" && exit 1
+
+# KeyGen AES Tests
+run_keygen_aes_test() { # Usage: run_keygen_aes_test [aescfb128]
+    echo -e "KeyGen test: $1"
+    ./examples/keygen/keygen symkeyblob.bin -sym=$1 >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen sym $1 failed! $RESULT" && exit 1
+    ./examples/keygen/keyload symkeyblob.bin >> run.out 2>&1
+    RESULT=$?
+    rm -f symkeyblob.bin
+    [ $RESULT -ne 0 ] && echo -e "keygen sym $1 load failed! $RESULT" && exit 1
+}
+
+run_keygen_aes_test "aescfb128"
+run_keygen_aes_test "aescfb256"
+run_keygen_aes_test "aesctr128"
+run_keygen_aes_test "aesctr256"
+run_keygen_aes_test "aescbc128"
+run_keygen_aes_test "aescbc256"
+
+# AES 192-bit not supported with SWTPM
+#run_keygen_aes_test "aescfb192"
+#run_keygen_aes_test "aesctr192"
+#run_keygen_aes_test "aescbc192"
 
 ./examples/keygen/keygen keyedhashblob.bin -keyedhash >> run.out 2>&1
 RESULT=$?
