@@ -646,6 +646,7 @@ typedef int64_t  INT64;
 #ifndef WOLFTPM2_WRAP_DIGEST
     #define WOLFTPM2_WRAP_DIGEST TPM_ALG_SHA256
 #endif
+
 /* Defines the default RSA key bits for the wrapper functions */
 #ifndef WOLFTPM2_WRAP_RSA_KEY_BITS
     #define WOLFTPM2_WRAP_RSA_KEY_BITS MAX_RSA_KEY_BITS
@@ -672,15 +673,22 @@ typedef int64_t  INT64;
 #if !defined(WOLFTPM2_NO_HEAP) && defined(WOLFSSL_PEM_TO_DER) && \
     (defined(WOLFSSL_CERT_EXT) || defined(WOLFSSL_PUB_PEM_TO_DER)) && \
     !defined(NO_ASN)
+    /* Enable the certificate PEM decode support */
     #define WOLFTPM2_PEM_DECODE
 #endif
 
-/* Firmware upgrade requires wolfCrypt for hash and supported
- * only for Infineon SLB9672/SLB9673 */
+/* Firmware upgrade requires wolfCrypt for hashing.
+ * Supported only for Infineon SLB9672/SLB9673 */
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
     (defined(WOLFTPM2_NO_WOLFCRYPT) || \
      (!defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)))
     #undef WOLFTPM_FIRMWARE_UPGRADE
+#endif
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_AES) && defined(WOLFSSL_AES_CFB) && !defined(NO_HMAC)
+    /* Support for importing external private keys */
+    #define WOLFTPM2_PRIVATE_IMPORT
 #endif
 
 

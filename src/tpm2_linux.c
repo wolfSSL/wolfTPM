@@ -28,7 +28,6 @@
 #ifdef WOLFTPM_LINUX_DEV
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_packet.h>
-#include <wolftpm/tpm2_wrap.h> /* Needed only for WOLFTPM2_MAX_BUFFER */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -48,11 +47,7 @@
  * partial reads. The only way to receive a complete response is to read
  * the maximum allowed TPM response from the kernel, which is 4K. And most
  * of the ARM systems use older kernels, such as the RPI that uses v4.12
- *
- * The caller knows what the expected outcome of the operation is. Therefore,
- * the response size is limited only by the WOLFTPM2_MAX_BUFFER used to limit
- * the WOLFTPM2_BUFFER in wolfTPM wrappers */
-
+ */
 
 /* Talk to a TPM device exposed by the Linux tpm_tis driver */
 int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)

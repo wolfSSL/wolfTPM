@@ -64,7 +64,7 @@ static void usage(void)
 }
 
 /* Load Key Public Info */
-#if !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_ASN)
 static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     TPM_ALG_ID alg, const char* file)
 {
@@ -99,7 +99,7 @@ static int LoadAuthKeyInfo(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* authKey,
     }
     return rc;
 }
-#endif /* !NO_FILESYSTEM */
+#endif /* !NO_FILESYSTEM && !NO_ASN */
 
 int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
 {
@@ -232,7 +232,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         else if (alg == TPM_ALG_ECC)
             publicKeyFile = "./certs/example-ecc256-key-pub.der";
     }
-#if !defined(NO_FILESYSTEM)
+#if !defined(NO_FILESYSTEM) && !defined(NO_ASN)
     /* Policy Authorization */
     if (policyFile) {
         policyDigestSz = (word32)sizeof(policyDigest);

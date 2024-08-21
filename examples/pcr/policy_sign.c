@@ -133,7 +133,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         }
     }
     if (rc == 0 && alg == TPM_ALG_RSA) {
-    #ifndef NO_RSA
+    #if !defined(NO_RSA) && !defined(NO_ASN)
         rc = wc_InitRsaKey(&key.rsa, NULL);
         if (rc == 0) {
             byte encHash[WC_MAX_DIGEST_SIZE + WC_MAX_ENCODED_DIG_ASN_SZ];
@@ -173,7 +173,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     #endif
     }
     else if (rc == 0 && alg == TPM_ALG_ECC) {
-    #if defined(HAVE_ECC) && defined(WOLFSSL_PUBLIC_MP)
+    #if defined(HAVE_ECC) && defined(WOLFSSL_PUBLIC_MP) && !defined(NO_ASN)
         rc = wc_ecc_init(&key.ecc);
         if (rc == 0) {
             word32 idx = 0;
@@ -203,6 +203,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             wc_ecc_free(&key.ecc);
         }
     #else
+        (void)hashAlg;
         rc = NOT_COMPILED_IN;
     #endif
     }
@@ -211,6 +212,12 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
     }
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     wc_FreeRng(&rng);
+
+    (void)hash;
+    (void)hashSz;
+    (void)sig;
+    (void)sigSz;
+    (void)authPubKey;
 
     if (rc != 0) {
         printf("Policy Sign with external key failed %d\n", rc);
@@ -301,6 +308,19 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
     }
 
     printf("Sign PCR Policy Example\n");
+
+#ifndef HAVE_ECC
+    if (alg == TPM_ALG_ECC) {
+        printf("ECC not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
+#ifdef NO_RSA
+    if (alg == TPM_ALG_RSA) {
+        printf("RSA not compiled in!\n");
+        return 0; /* don't report error */
+    }
+#endif
 
     /* Setup PCR's */
     if (pcrArraySz == 0) {

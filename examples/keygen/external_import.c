@@ -172,6 +172,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     printf("Import Seed %d\n", seedValue.size);
     TPM2_PrintBin(seedValue.buffer, seedValue.size);
 
+#ifndef NO_ASN
     rc = wolfTPM2_ImportPrivateKeyBuffer(&dev, &storage, TPM_ALG_RSA, key2,
         ENCODING_TYPE_PEM, extRSAPrivatePem, (word32)strlen(extRSAPrivatePem),
         NULL, attributes, seedValue.buffer, seedValue.size);
@@ -179,6 +180,9 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_ImportPrivateKeyBuffer failed import\n");
         goto exit;
     }
+#else
+    (void)attributes;
+#endif
 
     rc = wolfTPM2_LoadKey(&dev, key2, &primary->handle);
     if (rc != 0) {

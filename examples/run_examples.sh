@@ -10,6 +10,15 @@ fi
 if [ -z "$WOLFCRYPT_ENABLE" ]; then
     WOLFCRYPT_ENABLE=1
 fi
+if [ -z "$WOLFCRYPT_DEFAULT" ]; then
+    WOLFCRYPT_DEFAULT=0
+fi
+if [ -z "$WOLFCRYPT_ECC" ]; then
+    WOLFCRYPT_ECC=1
+fi
+if [ -z "$WOLFCRYPT_RSA" ]; then
+    WOLFCRYPT_RSA=1
+fi
 
 rm -f run.out
 touch run.out
@@ -100,41 +109,62 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keyload rsa failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/keygen/keygen keyblob.bin -rsa -aes >> run.out 2>&1
+    ./examples/keygen/keygen keyblob.bin -rsa -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen rsa param enc failed! $RESULT" && exit 1
-    ./examples/keygen/keyload keyblob.bin -aes >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "keygen rsa param enc xor failed! $RESULT" && exit 1
+    ./examples/keygen/keyload keyblob.bin -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keyload rsa param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "keyload rsa param enc xor failed! $RESULT" && exit 1
 
-    ./examples/keygen/keyimport rsakeyblob.bin -rsa >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keyload rsa import load failed! $RESULT" && exit 1
-    ./examples/keygen/keyload rsakeyblob.bin >> run.out 2>&1
-    RESULT=$?
-    rm -f rsakeyblob.bin
-    [ $RESULT -ne 0 ] && echo -e "keyload rsa import load failed! $RESULT" && exit 1
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/keygen/keygen keyblob.bin -rsa -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen rsa param enc aes failed! $RESULT" && exit 1
+        ./examples/keygen/keyload keyblob.bin -aes >> run.out 2>&1
+        RESULT=$?
+
+        if [ $WOLFCRYPT_RSA -eq 1 ]; then
+            [ $RESULT -ne 0 ] && echo -e "keyload rsa param enc aes failed! $RESULT" && exit 1
+            ./examples/keygen/keyimport rsakeyblob.bin -rsa >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "keyload rsa import load failed! $RESULT" && exit 1
+            ./examples/keygen/keyload rsakeyblob.bin >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "keyload rsa load failed! $RESULT" && exit 1
+            rm -f rsakeyblob.bin
+        fi
+    fi
 fi
 # keeping keyblob.bin for later tests
 
-./examples/keygen/keygen ecckeyblob.bin -ecc >> run.out 2>&1
+./examples/keygen/keygen eccblob.bin -ecc >> run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen ecc failed! $RESULT" && exit 1
-./examples/keygen/keyload ecckeyblob.bin >> run.out 2>&1
+./examples/keygen/keyload eccblob.bin >> run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keyload ecc failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/keygen/keygen ecckeyblob.bin -ecc -aes >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen ecc param enc failed! $RESULT" && exit 1
-    ./examples/keygen/keyload ecckeyblob.bin -aes >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keyload ecc param enc failed! $RESULT" && exit 1
-    ./examples/keygen/keyimport ecckeyblob.bin -ecc >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keyload ecc import failed! $RESULT" && exit 1
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/keygen/keygen eccblob.bin -ecc -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen ecc param enc failed! $RESULT" && exit 1
+        ./examples/keygen/keyload eccblob.bin -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload ecc param enc failed! $RESULT" && exit 1
+
+        if [ $WOLFCRYPT_ECC -eq 1 ]; then
+            ./examples/keygen/keyimport ecckeyblob.bin -ecc >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "keyload ecc import failed! $RESULT" && exit 1
+
+            ./examples/keygen/keyload ecckeyblob.bin >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "keyload ecc load failed! $RESULT" && exit 1
+            rm -f ecckeyblob.bin
+        fi
+    fi
 fi
-rm -f ecckeyblob.bin
+rm -f ececcblob.bin
 
 ./examples/keygen/keygen symkeyblob.bin -sym=aescfb128 >> run.out 2>&1
 RESULT=$?
@@ -173,12 +203,21 @@ fi
 # NV Tests
 echo -e "NV Tests"
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/nvram/store -aes >> run.out 2>&1
+    ./examples/nvram/store -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv store param enc failed! $RESULT" && exit 1
-    ./examples/nvram/read -aes >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "nv store param enc xorfailed! $RESULT" && exit 1
+    ./examples/nvram/read -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv read param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "nv read param enc xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/nvram/store -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv store param enc aes failed! $RESULT" && exit 1
+        ./examples/nvram/read -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv read param enc aes failed! $RESULT" && exit 1
+    fi
 fi
 ./examples/nvram/store -priv >> run.out 2>&1
 RESULT=$?
@@ -187,12 +226,21 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "nv read priv only failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/nvram/store -priv -aes >> run.out 2>&1
+    ./examples/nvram/store -priv -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc failed! $RESULT" && exit 1
-    ./examples/nvram/read -priv -aes >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc xor failed! $RESULT" && exit 1
+    ./examples/nvram/read -priv -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/nvram/store -priv -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc aes failed! $RESULT" && exit 1
+        ./examples/nvram/read -priv -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc aes failed! $RESULT" && exit 1
+    fi
 fi
 ./examples/nvram/store -pub >> run.out 2>&1
 RESULT=$?
@@ -217,7 +265,7 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen ecc test for csr failed! $RESULT" && exit 1
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
     ./examples/csr/csr -cert >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "cert self-signed failed! $RESULT" && exit 1
@@ -236,7 +284,7 @@ fi
 
 # PKCS7 Tests
 echo -e "PKCS7 tests"
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
     ./examples/pkcs7/pkcs7 >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pkcs7 failed! $RESULT" && exit 1
@@ -256,11 +304,11 @@ generate_port() {
     echo -e "Using port $port" >> run.out 2>&1
 }
 
-run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
-    echo -e "TLS test (TPM as client) $1 $2"
+run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversion]
+    echo -e "TLS test (TPM as client) $1 $2 $3"
     generate_port
     pushd $WOLFSSL_PATH >> run.out 2>&1
-    echo -e "./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
+    echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
     ./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem &> $PWD/run.out &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
@@ -273,8 +321,8 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs]]
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
 }
 
-run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
-    echo -e "TLS test (TPM as server) $1 $2"
+run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversion]
+    echo -e "TLS test (TPM as server) $1 $2 $3"
     generate_port
 
     echo -e "./examples/tls/tls_server -p=$port -$1 $2"
@@ -284,35 +332,61 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs]]
     pushd $WOLFSSL_PATH >> run.out 2>&1
     sleep 0.1
 
-    echo -e "./examples/client/client -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
+    echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
     ./examples/client/client -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem &> $PWD/run.out
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
     popd >> run.out 2>&1
 }
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    # Run with Crypto CB
-    run_tpm_tls_client "rsa" ""
-    run_tpm_tls_client "rsa" "-aes"
-    run_tpm_tls_client "ecc" ""
-    run_tpm_tls_client "ecc" "-aes"
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+    if [ $WOLFCRYPT_RSA -eq 1 ]; then
+        # TLS client/server RSA TLS v1.2 and v1.2 Crypto callbacks
+        run_tpm_tls_client "rsa" "" "3"
+        run_tpm_tls_client "rsa" "-aes" "3"
+        run_tpm_tls_client "rsa" "" "4"
+        run_tpm_tls_client "rsa" "-aes" "4"
 
-    run_tpm_tls_server "rsa" ""
-    run_tpm_tls_server "rsa" "-aes"
-    run_tpm_tls_server "ecc" ""
-    run_tpm_tls_server "ecc" "-aes"
+        run_tpm_tls_server "rsa" "" "3"
+        run_tpm_tls_server "rsa" "-aes" "3"
+        run_tpm_tls_server "rsa" "" "4"
+        run_tpm_tls_server "rsa" "-aes" "4"
 
-    # Run with PK
-    run_tpm_tls_client "rsa" "-pk"
-    run_tpm_tls_client "rsa" "-pk -aes"
-    run_tpm_tls_client "ecc" "-pk"
-    run_tpm_tls_client "ecc" "-pk -aes"
+        # TLS client/server ECC TLS v1.2 and v1.2 PK callbacks
+        run_tpm_tls_client "rsa" "-pk" "3"
+        run_tpm_tls_client "rsa" "-pk -aes" "3"
+        run_tpm_tls_client "rsa" "-pk" "4"
+        run_tpm_tls_client "rsa" "-pk -aes" "4"
 
-    run_tpm_tls_server "rsa" "-pk "
-    run_tpm_tls_server "rsa" "-pk -aes"
-    run_tpm_tls_server "ecc" "-pk"
-    run_tpm_tls_server "ecc" "-pk -aes"
+        run_tpm_tls_server "rsa" "-pk " "3"
+        run_tpm_tls_server "rsa" "-pk -aes" "3"
+        run_tpm_tls_server "rsa" "-pk " "4"
+        run_tpm_tls_server "rsa" "-pk -aes" "4"
+
+    fi
+    if [ $WOLFCRYPT_ECC -eq 1 ]; then
+        # TLS client/server ECC TLS v1.2 and v1.2 Crypto callbacks
+        run_tpm_tls_client "ecc" "" "3"
+        run_tpm_tls_client "ecc" "-aes" "3"
+        run_tpm_tls_client "ecc" "" "4"
+        run_tpm_tls_client "ecc" "-aes" "4"
+
+        run_tpm_tls_server "ecc" "" "3"
+        run_tpm_tls_server "ecc" "-aes" "3"
+        run_tpm_tls_server "ecc" "" "4"
+        run_tpm_tls_server "ecc" "-aes" "4"
+
+        # TLS client/server ECC TLS v1.2 and v1.2 PK callbacks
+        run_tpm_tls_client "ecc" "-pk" "3"
+        run_tpm_tls_client "ecc" "-pk -aes" "3"
+        run_tpm_tls_client "ecc" "-pk" "4"
+        run_tpm_tls_client "ecc" "-pk -aes" "4"
+
+        run_tpm_tls_server "ecc" "-pk" "3"
+        run_tpm_tls_server "ecc" "-pk -aes" "3"
+        run_tpm_tls_server "ecc" "-pk" "4"
+        run_tpm_tls_server "ecc" "-pk -aes" "4"
+    fi
 fi
 
 
@@ -382,17 +456,29 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr quote failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/pcr/quote 16 zip.quote -aes >> run.out 2>&1
+    ./examples/pcr/quote 16 zip.quote -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "pcr quote param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "pcr quote param enc xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/pcr/quote 16 zip.quote -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "pcr quote param enc aes failed! $RESULT" && exit 1
+    fi
 fi
 ./examples/pcr/quote 16 zip.quote -ecc >> run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr quote ecc failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/pcr/quote 16 zip.quote -ecc -aes >> run.out 2>&1
+    ./examples/pcr/quote 16 zip.quote -ecc -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "pcr quote ecc param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "pcr quote ecc param enc xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/pcr/quote 16 zip.quote -ecc -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "pcr quote ecc param enc aes failed! $RESULT" && exit 1
+    fi
 fi
 rm -f zip.quote
 
@@ -403,14 +489,20 @@ echo -e "Benchmark tests"
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "bench failed! $RESULT" && exit 1
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/bench/bench -maxdur=25 -aes >> run.out 2>&1
+    ./examples/bench/bench -maxdur=25 -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "bench (AES param enc) failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "bench (XOR param enc) failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/bench/bench -maxdur=25 -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "bench (AES param enc) failed! $RESULT" && exit 1
+    fi
 fi
 
 # Secure Boot ROT
 echo -e "Secure Boot ROT (Root of Trust) test"
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
     ./examples/boot/secure_rot -nvindex=0x1400200 -authstr=test -write=./certs/example-ecc256-key-pub.der >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "secure rot write ecc256! $RESULT" && exit 1
@@ -455,19 +547,28 @@ RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "unseal failed! $RESULT" && exit 1
 rm -f sealedkeyblob.bin
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/seal/seal sealedkeyblob.bin mySecretMessage -aes >> run.out 2>&1
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_RSA -eq 1 ]; then
+    ./examples/seal/seal sealedkeyblob.bin mySecretMessage -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "seal aes failed! $RESULT" && exit 1
-    ./examples/seal/unseal message.raw sealedkeyblob.bin -aes >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "seal xor failed! $RESULT" && exit 1
+    ./examples/seal/unseal message.raw sealedkeyblob.bin -xor >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "unseal aes failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "unseal xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/seal/seal sealedkeyblob.bin mySecretMessage -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal aes failed! $RESULT" && exit 1
+        ./examples/seal/unseal message.raw sealedkeyblob.bin -aes >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "unseal aes failed! $RESULT" && exit 1
+    fi
     rm -f sealedkeyblob.bin
 fi
 
 # Seal/Unseal (Policy auth)
 echo -e "Seal/Unseal (Policy auth)"
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
     # Extend "aaa" to test PCR 16
     echo aaa > aaa.bin
     ./examples/pcr/reset 16 >> run.out 2>&1
@@ -477,121 +578,124 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pcr 16 extend failed! $RESULT" && exit 1
 
-    # RSA
-    ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign rsa der failed! $RESULT" && exit 1
-    ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign rsa pem failed! $RESULT" && exit 1
+    if [ $WOLFCRYPT_RSA -eq 1 ]; then
+        # RSA
+        ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign rsa der failed! $RESULT" && exit 1
+        ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign rsa pem failed! $RESULT" && exit 1
 
-    TMPFILE=$(mktemp)
-    SECRET_STRING=`head -c 32 /dev/random | base64`
-    ./examples/boot/secret_seal -rsa -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "secret seal rsa failed! $RESULT" && exit 1
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
-    RESULT=$?
-    cat $TMPFILE >> run.out
-    [ $RESULT -ne 0 ] && echo -e "secret unseal rsa failed! $RESULT" && exit 1
-    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "secret unseal rsa match failed! $RESULT" && exit 1
+        TMPFILE=$(mktemp)
+        SECRET_STRING=`head -c 32 /dev/random | base64`
+        ./examples/boot/secret_seal -rsa -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "secret seal rsa failed! $RESULT" && exit 1
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> run.out
+        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa match failed! $RESULT" && exit 1
 
-    # RSA (recreate policy auth using public key instead of using policyauth.bin)
-    TMPFILE=$(mktemp)
-    SECRET_STRING=`head -c 32 /dev/random | base64`
-    ./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "secret seal rsa alt failed! $RESULT" && exit 1
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
-    RESULT=$?
-    cat $TMPFILE >> run.out
-    [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt failed! $RESULT" && exit 1
-    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-    RESULT=$?
-    rm -f $TMPFILE
-    [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt match failed! $RESULT" && exit 1
+        # RSA (recreate policy auth using public key instead of using policyauth.bin)
+        TMPFILE=$(mktemp)
+        SECRET_STRING=`head -c 32 /dev/random | base64`
+        ./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "secret seal rsa alt failed! $RESULT" && exit 1
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> run.out
+        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+        RESULT=$?
+        rm -f $TMPFILE
+        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt match failed! $RESULT" && exit 1
 
-    # Test RSA Unseal Expected Failure Case
-    # Create different ECC policy key to test failure case
-    openssl genrsa -out tmp-rsa2048-key.pem 2048 >> run.out 2>&1
-    openssl rsa -in tmp-rsa2048-key.pem -outform der -out tmp-rsa2048-key-pub.der -pubout >> run.out 2>&1
+        # Test RSA Unseal Expected Failure Case
+        # Create different ECC policy key to test failure case
+        openssl genrsa -out tmp-rsa2048-key.pem 2048 >> run.out 2>&1
+        openssl rsa -in tmp-rsa2048-key.pem -outform der -out tmp-rsa2048-key-pub.der -pubout >> run.out 2>&1
 
-    # Sign policy using different private key
-    ./examples/pcr/policy_sign -pcr=16 -rsa -key=tmp-rsa2048-key.pem -out=pcrsig_fail.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign (expected failure case) rsa pem failed! $RESULT" && exit 1
+        # Sign policy using different private key
+        ./examples/pcr/policy_sign -pcr=16 -rsa -key=tmp-rsa2048-key.pem -out=pcrsig_fail.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign (expected failure case) rsa pem failed! $RESULT" && exit 1
 
-    # This RSA unseal should fail!
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig_fail.bin -rsa -publickey=tmp-rsa2048-key-pub.der -seal=sealblob.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -eq 0 ] && echo -e "secret unseal rsa should have failed! $RESULT" && exit 1
-
-
-    rm -f tmp-rsa2048-key.pem
-    rm -f tmp-rsa2048-key-pub.der
-    rm -f pcrsig_fail.bin
+        # This RSA unseal should fail!
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig_fail.bin -rsa -publickey=tmp-rsa2048-key-pub.der -seal=sealblob.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -eq 0 ] && echo -e "secret unseal rsa should have failed! $RESULT" && exit 1
 
 
-    # ECC
-    ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign ecc der failed! $RESULT" && exit 1
-    ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign ecc pem failed! $RESULT" && exit 1
+        rm -f tmp-rsa2048-key.pem
+        rm -f tmp-rsa2048-key-pub.der
+        rm -f pcrsig_fail.bin
+    fi
 
-    TMPFILE=$(mktemp)
-    SECRET_STRING=`head -c 32 /dev/random | base64`
-    ./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "secret seal ecc failed! $RESULT" && exit 1
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
-    RESULT=$?
-    cat $TMPFILE >> run.out
-    [ $RESULT -ne 0 ] && echo -e "secret unseal ecc failed! $RESULT" && exit 1
+    if [ $WOLFCRYPT_ECC -eq 1 ]; then
+        # ECC
+        ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign ecc der failed! $RESULT" && exit 1
+        ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign ecc pem failed! $RESULT" && exit 1
 
-    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-    RESULT=$?
-    rm -f $TMPFILE
-    [ $RESULT -ne 0 ] && echo -e "secret unseal ecc match failed! $RESULT" && exit 1
+        TMPFILE=$(mktemp)
+        SECRET_STRING=`head -c 32 /dev/random | base64`
+        ./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "secret seal ecc failed! $RESULT" && exit 1
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> run.out
+        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc failed! $RESULT" && exit 1
 
-
-    # ECC (recreate policy auth using public key instead of using policyauth.bin)
-    TMPFILE=$(mktemp)
-    SECRET_STRING=`head -c 32 /dev/random | base64`
-    ./examples/boot/secret_seal -ecc -publickey=./certs/example-ecc256-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "secret seal ecc alt failed! $RESULT" && exit 1
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
-    RESULT=$?
-    cat $TMPFILE >> run.out
-    [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt failed! $RESULT" && exit 1
-    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-    RESULT=$?
-    rm -f $TMPFILE
-    [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt match failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+        RESULT=$?
+        rm -f $TMPFILE
+        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc match failed! $RESULT" && exit 1
 
 
-    # Test ECC Unseal Expected Failure Case
-    # Create different ECC policy key to test failure case
-    openssl ecparam -name prime256v1 -genkey -noout -out tmp-ecc256-key.pem >> run.out 2>&1
-    openssl ec -in tmp-ecc256-key.pem -outform der -out tmp-ecc256-key-pub.der -pubout >> run.out 2>&1
+        # ECC (recreate policy auth using public key instead of using policyauth.bin)
+        TMPFILE=$(mktemp)
+        SECRET_STRING=`head -c 32 /dev/random | base64`
+        ./examples/boot/secret_seal -ecc -publickey=./certs/example-ecc256-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "secret seal ecc alt failed! $RESULT" && exit 1
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> run.out
+        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+        RESULT=$?
+        rm -f $TMPFILE
+        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt match failed! $RESULT" && exit 1
 
-    # Sign policy using different private key
-    ./examples/pcr/policy_sign -pcr=16 -ecc -key=tmp-ecc256-key.pem -out=pcrsig_fail.bin -outpolicy=policyauth.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "policy sign (expected failure case) ecc pem failed! $RESULT" && exit 1
 
-    # This ECC unseal should fail!
-    ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig_fail.bin -ecc -publickey=tmp-ecc256-key-pub.der -seal=sealblob.bin >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -eq 0 ] && echo -e "secret unseal ecc should have failed! $RESULT" && exit 1
+        # Test ECC Unseal Expected Failure Case
+        # Create different ECC policy key to test failure case
+        openssl ecparam -name prime256v1 -genkey -noout -out tmp-ecc256-key.pem >> run.out 2>&1
+        openssl ec -in tmp-ecc256-key.pem -outform der -out tmp-ecc256-key-pub.der -pubout >> run.out 2>&1
 
-    rm -f tmp-ecc256-key.pem
-    rm -f tmp-ecc256-key-pub.der
-    rm -f pcrsig_fail.bin
+        # Sign policy using different private key
+        ./examples/pcr/policy_sign -pcr=16 -ecc -key=tmp-ecc256-key.pem -out=pcrsig_fail.bin -outpolicy=policyauth.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "policy sign (expected failure case) ecc pem failed! $RESULT" && exit 1
+
+        # This ECC unseal should fail!
+        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig_fail.bin -ecc -publickey=tmp-ecc256-key-pub.der -seal=sealblob.bin >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -eq 0 ] && echo -e "secret unseal ecc should have failed! $RESULT" && exit 1
+
+        rm -f tmp-ecc256-key.pem
+        rm -f tmp-ecc256-key-pub.der
+        rm -f pcrsig_fail.bin
+    fi
 
     rm -f pcrsig.bin
     rm -f policyauth.bin

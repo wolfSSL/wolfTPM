@@ -90,6 +90,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&parent, 0, sizeof(parent));
     XMEMSET(authBuf, 0, sizeof(authBuf));
     XMEMSET(digest, 0, sizeof(digest));
+    XMEMSET(&nv, 0, sizeof(nv));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||

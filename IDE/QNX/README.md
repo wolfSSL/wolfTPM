@@ -41,9 +41,8 @@ Here is a template:
 
 /* Reduce stack use */
 #define MAX_COMMAND_SIZE    1024
-#define MAX_RESPONSE_SIZE   1024
-#define WOLFTPM2_MAX_BUFFER 1500
-#define MAX_DIGEST_BUFFER   973
+#define MAX_RESPONSE_SIZE   1350
+#define MAX_DIGEST_BUFFER   896
 
 /* Debugging */
 #if 1
@@ -113,7 +112,7 @@ Edit the following QNX BSP files:
 @@ -442,7 +442,7 @@ static void xzynq_setup(xzynq_spi_t *dev, uint32_t device)
      spi_debug1("%s: CONFIG_SPI_REG = 0x%x", __func__, dev->ctrl[id]);
  #endif
- 
+
 -    if(dev->fcs) {
 +    if(dev->fcs || (devlist[id].cfg.mode & SPI_MODE_MAN_CS)) {
          out32(base + XZYNQ_SPI_CR_OFFSET, dev->ctrl[id] | XZYNQ_SPI_CR_MAN_CS);
@@ -122,7 +121,7 @@ Edit the following QNX BSP files:
 @@ -621,7 +621,7 @@ void *xzynq_xfer(void *hdl, uint32_t device, uint8_t *buf, int *len)
          reset = 1;
      }
- 
+
 -    if(!dev->fcs) {
 +    if(!dev->fcs && !(devlist[id].cfg.mode & SPI_MODE_MAN_CS)) {
          xzynq_spi_slave_select(dev, id, 0);
@@ -135,12 +134,12 @@ Edit the following QNX BSP files:
 @@ -72,6 +73,16 @@ int xzynq_cfg(void *hdl, spi_cfg_t *cfg, int cs)
      /* Enable ModeFail generation */
      ctrl |= XZYNQ_SPI_CR_MFAIL_EN;
- 
+
 +    if (cfg->mode & SPI_MODE_MAN_CS)
 +        ctrl |= XZYNQ_SPI_CR_MAN_CS; /* enable manual CS mode */
 +
 +    if (cfg->mode & SPI_MODE_CLEAR_CS) {
-+        /* make sure all chip selects are de-asserted */ 
++        /* make sure all chip selects are de-asserted */
 +        /* set all CS bits high to de-assert */
 +        out32(base + XZYNQ_SPI_CR_OFFSET,
 +            in32(base + XZYNQ_SPI_CR_OFFSET) | XZYNQ_SPI_CR_CS);
@@ -156,7 +155,7 @@ Edit the following QNX BSP files:
  #define	SPI_MODE_IDLE_INSERT	(1 << 16)
 +#define	SPI_MODE_MAN_CS			(1 << 17)   /* Manual Chip select */
 +#define	SPI_MODE_CLEAR_CS		(1 << 18)   /* Clear all chip selects (used with SPI_MODE_MAN_CS) */
- 
+
  #define	SPI_MODE_LOCKED			(1 << 31)	/* The device is locked by another client */
 ```
 

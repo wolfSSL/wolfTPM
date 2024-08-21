@@ -107,7 +107,7 @@ static void show_ek_public(const TPM2B_PUBLIC* pub)
     }
 }
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
 static int compare_ek_public(const TPM2B_PUBLIC* ekpub,
     const TPM2B_PUBLIC* certpub)
 {
@@ -154,7 +154,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     uint32_t certSz;
     TPMT_PUBLIC publicTemplate;
     word32 nvIndex;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     #ifndef WOLFCRYPT_ONLY
     int i;
     WOLFSSL_CERT_MANAGER* cm = NULL;
@@ -196,7 +196,8 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     rc = 0;
     printf("Found %d TCG handles\n", handles.count);
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFCRYPT_ONLY)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFCRYPT_ONLY) && \
+    !defined(NO_ASN)
     /* load trusted certificates to cert manager */
     certSz = 0;
     cm = wolfSSL_CertManagerNew();
@@ -208,12 +209,13 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                 WOLFSSL_FILETYPE_PEM);
             if (rc == WOLFSSL_SUCCESS) {
                 certSz++;
-                rc = 0;
             }
             else {
-                printf("Warning: Failed to load trusted PEM at index %d\n", i);
+                printf("Warning: Failed to load trusted PEM at index %d. "
+                    "Error %s (rc %d)\n", i, TPM2_GetRCString(rc), rc);
                 /* not fatal, continue loading trusted certs */
             }
+            rc = 0; /* reset return code */
         }
         printf("Loaded %d trusted certificates\n", certSz);
     }
@@ -272,7 +274,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             show_ek_public(&endorse.pub);
         }
 
-    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
         if (rc == 0) {
             /* Attempt to parse certificate */
             printf("Parsing certificate (%d bytes)\n", certSz);
@@ -376,7 +378,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             }
         #endif /* WOLFSSL_DER_TO_PEM */
         }
-    #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+    #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
 
         wolfTPM2_UnloadHandle(&dev, &endorse.handle);
         XMEMSET(&endorse, 0, sizeof(endorse));
@@ -384,7 +386,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     #ifdef WOLFSSL_DER_TO_PEM
     XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     #endif

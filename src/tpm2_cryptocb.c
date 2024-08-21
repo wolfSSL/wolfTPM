@@ -27,9 +27,8 @@
 
 #if !defined(WOLFTPM2_NO_WRAPPER)
 
-#if defined(WOLFTPM_CRYPTOCB) || \
-   (defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY))
-
+#if defined(HAVE_ECC) && (defined(WOLFTPM_CRYPTOCB) || \
+   (defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY)))
 /* Helper to trim leading zeros when not required  */
 static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
 {
@@ -41,7 +40,7 @@ static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
     *len -= idx;
     return in;
 }
-#endif /* WOLFTPM_CRYPTOCB || HAVE_PK_CALLBACKS */
+#endif
 
 #ifdef WOLFTPM_CRYPTOCB
 

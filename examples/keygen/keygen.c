@@ -127,6 +127,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB primaryBlob; /* Primary key as WOLFTPM2_KEYBLOB */
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
+    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
@@ -142,7 +143,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     const char *pubFilename = NULL;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     const char *pemFilename = NULL;
     #endif
 #endif
@@ -220,6 +221,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&auth, 0, sizeof(auth));
 
+    if (alg == TPM_ALG_RSA)
+        srkAlg = TPM_ALG_RSA;
+
     printf("TPM2.0 Key generation example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
@@ -227,6 +231,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         printf("\t\t %s mode, %d keybits\n", symMode, keyBits);
     }
     printf("\tTemplate: %s\n", bAIK ? "AIK" : "Default");
+    printf("\tSRK: %s\n", TPM2_GetAlgName(srkAlg));
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -237,16 +242,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     if (endorseKey) {
         /* endorsement is always RSA */
-        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+        rc = wolfTPM2_CreateEK(&dev, &endorse, srkAlg);
         endorse.handle.policyAuth = 1; /* EK requires Policy auth, not Password */
         pubFilename = ekPubFile;
         primary = &endorse;
     }
     else {
-        /* SRK: Use RSA or ECC SRK only. Prefer ECC */
-        TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC;
-        if (alg == TPM_ALG_RSA)
-            srkAlg = TPM_ALG_RSA;
         rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         pubFilename = srkPubFile;
         primary = &storage;
@@ -254,8 +255,17 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
+        void* bindKey = primary;
+    #ifndef HAVE_ECC
+        if (srkAlg == TPM_ALG_ECC)
+            bindKey = NULL; /* cannot bind to key without ECC enabled */
+    #endif
+    #ifdef NO_RSA
+        if (srkAlg == TPM_ALG_RSA)
+            bindKey = NULL; /* cannot bind to key without RSA enabled */
+    #endif
         /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, primary, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("HMAC Session: Handle 0x%x\n",
@@ -404,7 +414,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     /* Save EK public key as PEM format file to the disk */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
-    !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     if (pemFiles) {
         byte pem[MAX_RSA_KEY_BYTES];
         word32 pemSz;
