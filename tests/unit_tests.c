@@ -241,6 +241,62 @@ static void test_wolfTPM2_GetRandom(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_TPM2_PCRSel(void)
+{
+    int rc = 0;
+    TPML_PCR_SELECTION pcr;
+    byte   pcrArray[PCR_SELECT_MAX];
+    word32 pcrArraySz;
+
+    XMEMSET(&pcr, 0, sizeof(pcr));
+    XMEMSET(pcrArray, 0, sizeof(pcrArray));
+
+    pcrArraySz = 0;
+    pcrArray[pcrArraySz++] = 1;
+    pcrArray[pcrArraySz++] = 2;
+    pcrArray[pcrArraySz++] = 3;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA, pcrArray, pcrArraySz);
+
+    pcrArraySz = 0;
+    pcrArray[pcrArraySz++] = 4;
+    pcrArray[pcrArraySz++] = 5;
+    pcrArray[pcrArraySz++] = 6;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA256, pcrArray, pcrArraySz);
+
+    if (pcr.count != 2 ||
+        pcr.pcrSelections[0].hash != TPM_ALG_SHA ||
+        pcr.pcrSelections[0].pcrSelect[0] != 0x0E ||
+        pcr.pcrSelections[1].hash != TPM_ALG_SHA256 ||
+        pcr.pcrSelections[1].pcrSelect[0] != 0x70
+    ) {
+        rc = BAD_FUNC_ARG;
+    }
+    AssertIntEQ(rc, 0);
+
+    /* Test bad case - invalid PCR */
+    XMEMSET(&pcr, 0, sizeof(pcr));
+    pcrArray[0] = PCR_SELECT_MAX+1;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA256, pcrArray, 1);
+    if (pcr.count != 0) {
+        rc = BAD_FUNC_ARG;
+    }
+
+    /* Test bad case - too many hash algorithms */
+    XMEMSET(&pcr, 0, sizeof(pcr));
+    pcrArray[0] = 1;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA, pcrArray, 1);
+    pcrArray[0] = 2;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA256, pcrArray, 1);
+    pcrArray[0] = 3;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA384, pcrArray, 1);
+    if (pcr.count != 2) {
+        rc = BAD_FUNC_ARG;
+    }
+
+    printf("Test TPM Wrapper:\tPCR Select Array:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
 static void test_wolfTPM2_Cleanup(void)
 {
     int rc;
@@ -603,6 +659,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
+    test_TPM2_PCRSel();
     test_TPM2_KDFa();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();

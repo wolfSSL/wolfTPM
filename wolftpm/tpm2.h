@@ -3363,7 +3363,7 @@ WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
     \brief Helper function to prepare a correct PCR selection
             For example, when preparing to create a TPM2_Quote
 
-    \param pcr pointer to a structure of type TPML_PCR_SELECTION
+    \param pcr pointer to a structure of type TPML_PCR_SELECTION. Note: Caller must zeroize/memset(0)
     \param alg value of type TPM_ALG_ID specifying the type of hash algorithm used
     \param pcrIndex value between 0 and 23 specifying the PCR register for use
 
@@ -3371,7 +3371,7 @@ WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
     \code
     int pcrIndex = 16; // This is a PCR register for DEBUG & testing purposes
     PCR_Read_In pcrRead;
-
+    XMEMSET(&pcrRead, 0, sizeof(pcrRead));
     TPM2_SetupPCRSel(&pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
     \endcode
 
@@ -3388,17 +3388,22 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \brief Helper function to prepare a correct PCR selection with multiple indices
             For example, when preparing to create a TPM2_Quote
 
-    \param pcr pointer to a structure of type TPML_PCR_SELECTION
+    \param pcr pointer to a structure of type TPML_PCR_SELECTION. Note: Caller must zeroize/memset(0)
     \param alg value of type TPM_ALG_ID specifying the type of hash algorithm used
     \param pcrArray array of values between 0 and 23 specifying the PCR register for use
-    \param pcrArrayLen length of the pcrArray
+    \param pcrArraySz length of the pcrArray
 
     _Example_
     \code
-    int pcrIndex = 16; // This is a PCR register for DEBUG & testing purposes
     PCR_Read_In pcrRead;
+    byte   pcrArray[PCR_SELECT_MAX];
+    word32 pcrArraySz = 0;
 
-    TPM2_SetupPCRSel(&pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrIndex);
+    XMEMSET(&pcrRead, 0, sizeof(pcrRead));
+    XMEMSET(pcrArray, 0, sizeof(pcrArray));
+    pcrArray[pcrArraySz++] = 16; // This is a PCR register for DEBUG & testing purposes
+
+    TPM2_SetupPCRSelArray(&pcrRead.pcrSelectionIn, TPM_ALG_SHA256, pcrArray, pcrArraySz);
     \endcode
 
     \sa TPM2_PCR_Read
@@ -3407,7 +3412,7 @@ WOLFTPM_API void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     \sa TPM2_Quote
 */
 WOLFTPM_API void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
-    byte* pcrArray, word32 pcrArrayLen);
+    byte* pcrArray, word32 pcrArraySz);
 
 /*!
     \ingroup TPM2_Proprietary
