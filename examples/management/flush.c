@@ -41,8 +41,8 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./tool/management/flush [handle]\n");
-    printf("* handle is a valid TPM2.0 handle index\n");
+    printf("./examples/management/flush [handle]\n");
+    printf("* handle is a valid TPM2.0 handle (example 0x80000000)\n");
     printf("Note: Default behavior, without parameters, the tool flushes\n"
            "\tcommon transient TPM2.0 objects, including:\n"
            "- Transient Key handles 0x8000000\n"
@@ -53,18 +53,13 @@ static void usage(void)
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
 {
     int rc = TPM_RC_FAILURE;
-    int allTransientObjects = 0, handle = 0;
+    int allTransientObjects = 0;
+    TPM_HANDLE handle = 0;
     WOLFTPM2_DEV dev;
     FlushContext_In flushCtx;
 
     if (argc == 2) {
-        /* TODO: Parse input parameter as 8 digit hex value */
-        (void)argv;
-        if(1) {
-            printf("Input value does not look like a TPM handle\n");
-            usage();
-            return 0;
-        }
+        handle = (word32)XSTRTOUL(argv[1], NULL, 0);
     }
     else if (argc == 1) {
         allTransientObjects = 1;
@@ -83,21 +78,21 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-    if (allTransientObjects) {
+    if (allTransientObjects || handle == 0) {
         /* Flush key objects */
-        for (handle=0x80000000; handle < (int)0x8000000A; handle++) {
+        for (handle=0x80000000; handle < 0x8000000A; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
         }
         /* Flush policy sessions */
-        for (handle=0x3000000; handle < (int)0x3000004; handle++) {
+        for (handle=0x3000000; handle < 0x3000004; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
         }
         /* Flush hmac sessions */
-        for (handle=0x3000000; handle < (int)0x3000004; handle++) {
+        for (handle=0x3000000; handle < 0x3000004; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);

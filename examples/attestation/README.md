@@ -10,7 +10,8 @@ Complete list of the required examples is shown below:
 
 * `./examples/attestation/make_credential`: Used by a server to create a remote attestation challenge
 * `./examples/attestation/activate_credential`: Used by a client to decrypt the challenge and respond
-* `./examples/keygen/keygen`: Used to create a primary key(PK) and attestation key(AK)
+* `./examples/attestation/certify`: Used to certify (attest) or prove an object with name is loaded in the TPM.
+* `./examples/keygen/create_primary`: Used to create a primary key(PK) and attestation key(AK)
 
 Note: All of these example allow the use of the Endorsement Key and Attestation Key under the Endorsement Hierarchy. This is done by adding the `-eh` option when executing any of the three examples above. The advantage of using EK/EH is that the private key material of the EK never leaves the TPM. Anything encrypted using the public part of the EK can be encrypted only internally by the TPM owner of the EK, and EK is unique for every TPM chip. Therefore, creating challenges for Remote Attestation using the EK/EH has greater value in some scenarios. One drawback is that by using the EK the identity of the host under attestation is always known, because the EK private-public key pair identifies the TPM and in some scenarios this might rise privacy concerns. Our remote attestation examples support both AK under SRK and AK under EK. It is up to the developer to decide which one to use.
 
@@ -98,6 +99,58 @@ TPM2_ActivateCredential success
 ```
 
 The transfer of the challenge response containing the secret in plain (or used as a symmetric key seed) is not part of the `activate_credential` example, because the exchange is also implementation specific.
+
+### Certify Example
+
+The certify example shows how to use the `TPM2_Certify` API to sign the attestation info for another key. This can be used to prove that an object with a specific name is loaded into the TPM. A common example of this is using the restricted IAK to sign the attestation information for the IDevID.
+
+The create_primary example support creating RSA or ECC initial device identity (IDevID) and attestation identity (IAK) keys. These are created under the endorsement hierarchy and follow the "TPM 2.0 Keys for Device Identity and Attestation" TCG specification for setting up the primary key policies. Figures 10 and 11 fom this specification shows the IAK/IDevID policy.
+
+![Figure 10: Example IDevID Key Delegation Policy](tpm_idevid_policy.png)
+
+![Figure 11: Example IAK Key Delegation Policy](tpm_iak_policy.png)
+
+The IDevID key can be used for external non-restrictive signing.
+The IAK is used for internal attestation.
+
+Here we use the IAK to certify the attestation information for the IDevID key.
+
+```sh
+% ./examples/keygen/create_primary -rsa -eh -iak -keep
+TPM2.0 Primary Key generation example
+        Algorithm: RSA
+        Unique: IAK
+        Store Handle: 0x00000000
+        Use Parameter Encryption: NULL
+Creating new RSA primary key...
+Create Primary Handle: 0x80000000
+
+% ./examples/keygen/create_primary -rsa -eh -idevid -keep
+TPM2.0 Primary Key generation example
+        Algorithm: RSA
+        Unique: IDEVID
+        Store Handle: 0x00000000
+        Use Parameter Encryption: NULL
+Creating new RSA primary key...
+Create Primary Handle: 0x80000001
+
+% ./examples/attestation/certify -rsa -certify=0x80000001 -signer=0x80000000
+Certify 0x80000001 with 0x80000000 to generate TPM-signed attestation info
+EK Policy Session: Handle 0x3000000
+TPM2_Certify complete
+Certify Info 172
+RSA Signature: 256
+
+% ./examples/management/flush 0x80000001
+Preparing to free TPM2.0 Resources
+Freeing 80000001 object
+
+% ./examples/management/flush 0x80000000
+Preparing to free TPM2.0 Resources
+Freeing 80000000 object
+```
+
+For ECC use the same steps as above, but replace `-rsa` with `-ecc`.
 
 ## More information
 

@@ -226,9 +226,8 @@ typedef int64_t  INT64;
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
 
-    #define XSTRTOL(s,e,b)    strtol((s),(e),(b))
+    #define XSTRTOUL(s,e,b)   strtoul((s),(e),(b))
     #define XATOI(s)          atoi((s))
-
 #endif
 
 /* make sure file IO macros are available for examples */

@@ -3,27 +3,36 @@
 
 if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/attestation/make_credential \
-                   examples/attestation/activate_credential
+                   examples/attestation/activate_credential \
+                   examples/attestation/certify
 
-noinst_HEADERS  += examples/attestation/credential.h
+noinst_HEADERS  += examples/attestation/attestation.h
 
 examples_attestation_make_credential_SOURCES      = examples/attestation/make_credential.c \
                                                     examples/tpm_test_keys.c
 examples_attestation_make_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_make_credential_DEPENDENCIES = src/libwolftpm.la
 
-examples_attestation_activate_credential_SOURCES  = examples/attestation/activate_credential.c \
-                                                    examples/tpm_test_keys.c
+examples_attestation_activate_credential_SOURCES      = examples/attestation/activate_credential.c \
+                                                        examples/tpm_test_keys.c
 examples_attestation_activate_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_activate_credential_DEPENDENCIES = src/libwolftpm.la
 
+examples_attestation_certify_SOURCES      = examples/attestation/certify.c \
+                                            examples/tpm_test_keys.c
+examples_attestation_certify_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_attestation_certify_DEPENDENCIES = src/libwolftpm.la
 endif
 example_attestationdir = $(exampledir)/attestation
 dist_example_attestation_DATA = \
   examples/attestation/make_credential.c \
-  examples/attestation/activate_credential.c
+  examples/attestation/activate_credential.c \
+  examples/attestation/certify.c
 
 DISTCLEANFILES+= examples/attestation/.libs/make_credential \
-                 examples/attestation/.libs/activate_credential
+                 examples/attestation/.libs/activate_credential \
+                 examples/attestation/.libs/certify
 
-EXTRA_DIST+= examples/attestation/README.md
+EXTRA_DIST+= examples/attestation/README.md \
+             examples/attestation/tpm_idevid_policy.png \
+             examples/attestation/tpm_iak_policy.png
