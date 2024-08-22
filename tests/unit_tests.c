@@ -289,7 +289,9 @@ static void test_TPM2_PCRSel(void)
     TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA256, pcrArray, 1);
     pcrArray[0] = 3;
     TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA384, pcrArray, 1);
-    if (pcr.count != 2) {
+    pcrArray[0] = 4;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA512, pcrArray, 1);
+    if (pcr.count != HASH_COUNT) {
         rc = BAD_FUNC_ARG;
     }
 
