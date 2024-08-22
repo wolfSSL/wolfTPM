@@ -69,7 +69,7 @@ int TPM2_GPIO_Read_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
         pin = XATOI(argv[1]);
-        if(pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
+        if (pin < TPM_GPIO_NUM_MIN || pin > TPM_GPIO_NUM_MAX) {
             usage();
             return 0;
         }

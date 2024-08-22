@@ -36,12 +36,6 @@
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 
-#define SYM_EXTRA_OPTS_LEN 14 /* 5 chars for "-sym=" and 9 for extra options */
-#define SYM_EXTRA_OPTS_POS 4  /* Array pos of the equal sign for extra opts */
-#define SYM_EXTRA_OPTS_AES_MODE_POS 8
-#define SYM_EXTRA_OPTS_KEY_BITS_POS 11
-
-
 
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
@@ -79,35 +73,22 @@ static void usage(void)
     printf("\t\t keygen -sym=aescbc256 -xor\n");
 }
 
-static int symChoice(const char* arg, TPM_ALG_ID* algSym, int* keyBits,
-                     char* symMode)
+static int symChoice(const char* symMode, TPM_ALG_ID* algSym, int* keyBits)
 {
-    size_t len = XSTRLEN(arg);
-
-    if (len != SYM_EXTRA_OPTS_LEN) {
-        return TPM_RC_FAILURE;
-    }
-    if (XSTRCMP(&arg[SYM_EXTRA_OPTS_POS+1], "aes")) {
-        return TPM_RC_FAILURE;
-    }
-
-    /* Copy string for user information later */
-    XMEMCPY(symMode, &arg[SYM_EXTRA_OPTS_POS+1], 6);
-
-    if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cfb") == 0) {
+    if (XSTRNCMP(symMode, "aescfb", 6) == 0) {
         *algSym = TPM_ALG_CFB;
     }
-    else if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "ctr") == 0) {
+    else if (XSTRNCMP(symMode, "aesctr", 6) == 0) {
         *algSym = TPM_ALG_CTR;
     }
-    else if (XSTRCMP(&arg[SYM_EXTRA_OPTS_AES_MODE_POS], "cbc") == 0) {
+    else if (XSTRNCMP(symMode, "aescbc", 6) == 0) {
         *algSym = TPM_ALG_CBC;
     }
     else {
         return TPM_RC_FAILURE;
     }
 
-    *keyBits = XATOI(&arg[SYM_EXTRA_OPTS_KEY_BITS_POS]);
+    *keyBits = XATOI(&symMode[6]);
     if (*keyBits != 128 && *keyBits != 192 && *keyBits != 256) {
         return TPM_RC_FAILURE;
     }
@@ -147,8 +128,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     const char *pemFilename = NULL;
     #endif
 #endif
-    size_t len = 0;
-    char symMode[] = "aesctr";
+    const char* symMode = "aesctr";
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -157,8 +137,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-        if (argv[1][0] != '-')
-            outputFile = argv[1];
     }
     while (argc > 1) {
         if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
@@ -167,20 +145,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
+        else if (XSTRNCMP(argv[argc-1], "-sym=", XSTRLEN("-sym=")) == 0) {
+            symMode = argv[argc-1] + XSTRLEN("-sym=");
+            alg = TPM_ALG_SYMCIPHER;
+            bAIK = 0;
+        }
         else if (XSTRCMP(argv[argc-1], "-sym") == 0) {
-            len = XSTRLEN(argv[argc-1]);
-            if (len >= SYM_EXTRA_OPTS_LEN) {
-                /* Did the user provide specific options? */
-                if (argv[argc-1][SYM_EXTRA_OPTS_POS] == '=') {
-                    rc = symChoice(argv[argc-1], &algSym, &keyBits, symMode);
-                    /* In case of incorrect extra options, abort execution */
-                    if (rc != TPM_RC_SUCCESS) {
-                        usage();
-                        return 0;
-                    }
-                }
-                /* Otherwise, defaults are used: AES CTR, 256 key bits */
-            }
             alg = TPM_ALG_SYMCIPHER;
             bAIK = 0;
         }
@@ -206,7 +176,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
             uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
         }
-        else if (argv[argc-1][0] == '-') {
+        else if (argv[argc-1][0] != '-') {
+            outputFile = argv[argc-1];
+        }
+        else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
 
@@ -223,11 +196,18 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     if (alg == TPM_ALG_RSA)
         srkAlg = TPM_ALG_RSA;
+    if (alg == TPM_ALG_SYMCIPHER) {
+        rc = symChoice(symMode, &algSym, &keyBits);
+        if (rc != TPM_RC_SUCCESS) {
+            usage();
+            return 0;
+        }
+    }
 
     printf("TPM2.0 Key generation example\n");
     printf("\tKey Blob: %s\n", outputFile);
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
-    if(alg == TPM_ALG_SYMCIPHER) {
+    if (alg == TPM_ALG_SYMCIPHER) {
         printf("\t\t %s mode, %d keybits\n", symMode, keyBits);
     }
     printf("\tTemplate: %s\n", bAIK ? "AIK" : "Default");

@@ -5650,6 +5650,7 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
     return TPM_RC_SUCCESS;
 }
 
+/* Caller must zeroize/memset(0) pcr (TPML_PCR_SELECTION) */
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
 {
     int i = 0;
@@ -5662,21 +5663,35 @@ void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
         else {
             /* iterate over all banks until the alg matches */
             for (i = 0; (word32)i < pcr->count; i++) {
-                if (pcr->pcrSelections[0].hash == alg)
+                if (pcr->pcrSelections[i].hash == alg)
                     break;
             }
 
             /* if no match increase the number of banks */
-            if ((word32)i >= pcr->count)
+            if ((word32)i >= pcr->count) {
+                if (pcr->count + 1 > HASH_COUNT) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("TPM2_SetupPCRSel: Hash algorithm count error\n");
+                #endif
+                    return;
+                }
                 pcr->count++;
+            }
         }
 
         pcr->pcrSelections[i].hash = alg;
         pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MAX;
-        pcr->pcrSelections[i].pcrSelect[pcrIndex >> 3] = (1 << (pcrIndex & 0x7));
+        pcr->pcrSelections[i].pcrSelect[pcrIndex >> 3] |=
+            (1 << (pcrIndex & 0x7));
     }
+#ifdef DEBUG_WOLFTPM
+    else {
+        printf("Invalid PCR Index %d\n", pcrIndex);
+    }
+#endif
 }
 
+/* Caller must zeroize/memset(0) pcr (TPML_PCR_SELECTION) */
 void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
     byte* pcrArray, word32 pcrArraySz)
 {
