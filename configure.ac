@@ -418,6 +418,17 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FIRMWARE_UPGRADE"
 fi
 
+# Enable support for provisioning identity keys for device and attestation
+AC_ARG_ENABLE([provisioning],
+    [AS_HELP_STRING([--enable-provisioning],[Enable support for Provisioning Initial Device Identity (IDevID) and Attestation Identity Keys (default: enabled)])],
+    [ ENABLED_PROVISIONING=$enableval ],
+    [ ENABLED_PROVISIONING=yes ]
+    )
+if test "x$ENABLED_PROVISIONING" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PROVISIONING"
+fi
+
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS

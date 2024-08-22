@@ -95,7 +95,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     while (argc > 1) {
         if (XSTRNCMP(argv[argc-1], "-nvindex=", XSTRLEN("-nvindex=")) == 0) {
             const char* nvIndexStr = argv[argc-1] + XSTRLEN("-nvindex=");
-            nvIndex = (word32)XSTRTOL(nvIndexStr, NULL, 0);
+            nvIndex = (word32)XSTRTOUL(nvIndexStr, NULL, 0);
             if (!(authHandle == TPM_RH_PLATFORM && (
                     nvIndex > TPM_20_PLATFORM_MFG_NV_SPACE &&
                     nvIndex < TPM_20_OWNER_NV_SPACE)) &&

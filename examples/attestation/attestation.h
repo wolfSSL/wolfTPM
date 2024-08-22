@@ -1,4 +1,4 @@
-/* credential.h
+/* attestation.h
  *
  * Copyright (C) 2006-2024 wolfSSL Inc.
  *
@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-#ifndef _CREDENTIAL_H_
-#define _CREDENTIAL_H_
+#ifndef _ATTESTATION_H_
+#define _ATTESTATION_H_
 
 #ifdef __cplusplus
     extern "C" {
@@ -30,9 +30,10 @@
 
 int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[]);
 int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_Certify_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
 
-#endif /* _CREDENTIAL_H_ */
+#endif /* _ATTESTATION_H_ */

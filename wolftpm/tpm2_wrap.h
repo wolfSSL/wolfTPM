@@ -58,13 +58,27 @@ typedef struct WOLFTPM2_DEV {
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 } WOLFTPM2_DEV;
 
-/* WOLFTPM2_KEYBLOB can be cast to WOLFTPM2_KEY.
- *   Both structures must have "handle" and "pub" as first members */
+/* Public Key with Handle.
+ *   Must have "handle" and "pub" as first members */
 typedef struct WOLFTPM2_KEY {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
 } WOLFTPM2_KEY;
 
+/* Primary Key - From TPM2_CreatePrimary that include creation hash and ticket.
+ * WOLFTPM2_PKEY can be cast to WOLFTPM2_KEY.
+ *   Must have "handle" and "pub" as first members */
+typedef struct WOLFTPM2_PKEY {
+    WOLFTPM2_HANDLE   handle;
+    TPM2B_PUBLIC      pub;
+
+    TPM2B_DIGEST      creationHash;
+    TPMT_TK_CREATION  creationTicket;
+} WOLFTPM2_PKEY;
+
+/* Private/Public Key:
+ * WOLFTPM2_KEYBLOB can be cast to WOLFTPM2_KEY
+ * Must have "handle" and "pub" as first members */
 typedef struct WOLFTPM2_KEYBLOB {
     WOLFTPM2_HANDLE   handle;
     TPM2B_PUBLIC      pub;
@@ -595,11 +609,39 @@ WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
     \param authSz integer value, specifying the size of the password authorization, in bytes
 
     \sa wolfTPM2_CreateKey
+    \sa wolfTPM2_CreatePrimaryKey_ex
     \sa wolfTPM2_GetKeyTemplate_RSA
     \sa wolfTPM2_GetKeyTemplate_ECC
 */
 WOLFTPM_API int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, TPM_HANDLE primaryHandle, TPMT_PUBLIC* publicTemplate,
+    const byte* auth, int authSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Single function to prepare and create a TPM 2.0 Primary Key
+    \note TPM 2.0 allows only asymmetric RSA or ECC primary keys. Afterwards, both symmetric and asymmetric keys can be created under a TPM 2.0 Primary Key
+    Typically, Primary Keys are used to create Hierarchies of TPM 2.0 Keys.
+    The TPM uses a Primary Key to wrap the other keys, signing or decrypting.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param pkey pointer to an empty struct of WOLFTPM2_PKEY type including the creation hash and ticket.
+    \param primaryHandle integer value, specifying one of four TPM 2.0 Primary Seeds: TPM_RH_OWNER, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM or TPM_RH_NULL
+    \param publicTemplate pointer to a TPMT_PUBLIC structure populated manually or using one of the wolfTPM2_GetKeyTemplate_... wrappers
+    \param auth pointer to a string constant, specifying the password authorization for the Primary Key
+    \param authSz integer value, specifying the size of the password authorization, in bytes
+
+    \sa wolfTPM2_CreateKey
+    \sa wolfTPM2_CreatePrimaryKey
+    \sa wolfTPM2_GetKeyTemplate_RSA
+    \sa wolfTPM2_GetKeyTemplate_ECC
+*/
+WOLFTPM_API int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
+    TPM_HANDLE primaryHandle, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz);
 
 /*!
@@ -2801,6 +2843,18 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_AIK(TPMT_PUBLIC* publicTemplate);
 */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate);
 
+#ifdef WOLFTPM_PROVISIONING
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_IAK(TPMT_PUBLIC* publicTemplate, int keyBits,
+    TPM_ALG_ID hashAlg);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_IAK(TPMT_PUBLIC* publicTemplate,
+    TPM_ECC_CURVE curveID, TPM_ALG_ID hashAlg);
+
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC_IDevID(TPMT_PUBLIC* publicTemplate,
+    TPM_ECC_CURVE curveID, TPM_ALG_ID hashAlg);
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_IDevID(TPMT_PUBLIC* publicTemplate, int keyBits,
+    TPM_ALG_ID hashAlg);
+#endif /* WOLFTPM_PROVISIONING */
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Sets the unique area of a public template used by Create or CreatePrimary.
@@ -3694,6 +3748,29 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
 /*!
     \ingroup wolfTPM2_Wrappers
 
+    \brief Utility for creating a policy hash.
+    Generic helper that takes command code and input array.
+    policyDigestnew = hash(policyDigestOld || [cc] || [Input])
+
+    \return TPM_RC_SUCCESS: successful
+    \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param pcrAlg the hash algorithm to use with pcr policy
+    \param digest input/out digest (input "old" / output "new")
+    \param digestSz input/out digest size
+    \param input pointer to a array to use (optional)
+    \param inputSz size of input
+
+    \sa wolfTPM2_PolicyPCRMake
+*/
+WOLFTPM_API int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
+    byte* digest, word32* digestSz, TPM_CC cc,
+    const byte* input, word32 inputSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
     \brief Utility for generating a policy authorization digest based on a public key
 
     \return TPM_RC_SUCCESS: successful
@@ -3708,7 +3785,7 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
     \param policyRefSz optional nonce size
 
     \sa wolfTPM2_PolicyPCRMake
-    \sa wolfTPM2_PolicyPCRMake
+    \sa wolfTPM2_PolicyHash
 */
 WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     const TPM2B_PUBLIC* pub, byte* digest, word32* digestSz,
@@ -3729,6 +3806,7 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     \param authSz integer value, specifying the size of the password authorization, in bytes
 
     \sa wolfTPM2_PolicyAuthValue
+    \sa wolfTPM2_PolicyCommandCode
 */
 WOLFTPM_API int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* tpmSession, const byte* auth, int authSz);
@@ -3747,10 +3825,28 @@ WOLFTPM_API int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev,
     \param authSz integer value, specifying the size of the password authorization, in bytes
 
     \sa wolfTPM2_PolicyPassword
+    \sa wolfTPM2_PolicyCommandCode
 */
 WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* tpmSession, const byte* auth, int authSz);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Wrapper for setting a policy command code
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
+    \param cc TPM_CC command code
+
+    \sa wolfTPM2_PolicyPassword
+    \sa wolfTPM2_PolicyAuthValue
+*/
+WOLFTPM_API int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* tpmSession, TPM_CC cc);
 
 
 /* Pre-provisioned IAK and IDevID key/cert from TPM vendor */

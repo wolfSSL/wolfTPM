@@ -140,6 +140,12 @@ jobs:
     - name: make pedantic
       run: make
 
+# build not provisioning
+    - name: configure not provisioning
+      run: ./configure --disable-provisioning
+    - name: make not provisioning
+      run: make
+
 # test without ECC
     - name: wolfssl no ECC
       working-directory: ./wolfssl

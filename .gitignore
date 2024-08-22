@@ -74,6 +74,7 @@ examples/seal/seal
 examples/seal/unseal
 examples/attestation/make_credential
 examples/attestation/activate_credential
+examples/attestation/certify
 examples/boot/secure_rot
 examples/boot/secret_seal
 examples/boot/secret_unseal

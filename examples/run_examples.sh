@@ -52,6 +52,37 @@ RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "create primary owner rsa key stored failed! $RESULT" && exit 1
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    # Provisioning examples (required --enable-provisioning)
+    ./examples/keygen/create_primary -rsa -eh -iak -keep >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa IAK key failed! $RESULT" && exit 1
+    ./examples/keygen/create_primary -rsa -eh -idevid -keep >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa IDevID key failed! $RESULT" && exit 1
+
+    ./examples/attestation/certify -rsa -certify=0x80000001 -signer=0x80000000 >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "certify RSA IDevID with IAK failed! $RESULT" && exit 1
+
+    ./examples/management/flush 0x80000000 >> run.out 2>&1
+    ./examples/management/flush 0x80000001 >> run.out 2>&1
+
+    ./examples/keygen/create_primary -ecc -eh -iak -keep >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc IAK key failed! $RESULT" && exit 1
+    ./examples/keygen/create_primary -ecc -eh -idevid -keep >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc IDevID key failed! $RESULT" && exit 1
+
+    ./examples/attestation/certify -ecc -certify=0x80000001 -signer=0x80000000 >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "certify ECC IDevID with IAK failed! $RESULT" && exit 1
+
+    ./examples/management/flush 0x80000000 >> run.out 2>&1
+    ./examples/management/flush 0x80000001 >> run.out 2>&1
+fi
+
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/create_primary -rsa -oh -aes >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "create primary owner rsa key param enc failed! $RESULT" && exit 1
