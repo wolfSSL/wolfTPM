@@ -3756,9 +3756,10 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
     \return INPUT_SIZE_E: policyDigestSz is too small to hold the returned digest
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param pcrAlg the hash algorithm to use with pcr policy
+    \param hashAlg the hash algorithm to use with pcr policy
     \param digest input/out digest (input "old" / output "new")
     \param digestSz input/out digest size
+    \param cc is the command code used
     \param input pointer to a array to use (optional)
     \param inputSz size of input
 
