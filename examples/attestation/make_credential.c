@@ -134,9 +134,9 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     }
     printf("Public key for encryption loaded\n");
     handle.hndl = loadExtOut.objectHandle;
+    XMEMSET(&name, 0, sizeof(name));
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     /* Load AK Name digest */
-    XMEMSET(&name, 0, sizeof(name));
     fp = XFOPEN("ak.name", "rb");
     if (fp != XBADFILE) {
         size_t nameReadSz = XFREAD((BYTE*)&name, 1, sizeof(name), fp);
