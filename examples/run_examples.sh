@@ -10,6 +10,9 @@ fi
 if [ -z "$WOLFCRYPT_ENABLE" ]; then
     WOLFCRYPT_ENABLE=1
 fi
+if [ -z "$NO_FILESYSTEM" ]; then
+    NO_FILESYSTEM=0
+fi
 if [ -z "$WOLFCRYPT_DEFAULT" ]; then
     WOLFCRYPT_DEFAULT=0
 fi
@@ -250,52 +253,54 @@ fi
 
 # NV Tests
 echo -e "NV Tests"
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/nvram/store -xor >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv store param enc xorfailed! $RESULT" && exit 1
-    ./examples/nvram/read -xor >> run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv read param enc xor failed! $RESULT" && exit 1
+if [ $NO_FILESYSTEM -eq 0 ]; then
+    if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+        ./examples/nvram/store -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv store param enc xorfailed! $RESULT" && exit 1
+        ./examples/nvram/read -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv read param enc xor failed! $RESULT" && exit 1
 
-    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
-        ./examples/nvram/store -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "nv store param enc aes failed! $RESULT" && exit 1
-        ./examples/nvram/read -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "nv read param enc aes failed! $RESULT" && exit 1
+        if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+            ./examples/nvram/store -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "nv store param enc aes failed! $RESULT" && exit 1
+            ./examples/nvram/read -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "nv read param enc aes failed! $RESULT" && exit 1
+        fi
     fi
-fi
-./examples/nvram/store -priv >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "nv store priv only failed! $RESULT" && exit 1
-./examples/nvram/read -priv >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "nv read priv only failed! $RESULT" && exit 1
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
-    ./examples/nvram/store -priv -xor >> run.out 2>&1
+    ./examples/nvram/store -priv >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc xor failed! $RESULT" && exit 1
-    ./examples/nvram/read -priv -xor >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "nv store priv only failed! $RESULT" && exit 1
+    ./examples/nvram/read -priv >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc xor failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "nv read priv only failed! $RESULT" && exit 1
+    if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+        ./examples/nvram/store -priv -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc xor failed! $RESULT" && exit 1
+        ./examples/nvram/read -priv -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc xor failed! $RESULT" && exit 1
 
-    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
-        ./examples/nvram/store -priv -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc aes failed! $RESULT" && exit 1
-        ./examples/nvram/read -priv -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc aes failed! $RESULT" && exit 1
+        if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+            ./examples/nvram/store -priv -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc aes failed! $RESULT" && exit 1
+            ./examples/nvram/read -priv -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc aes failed! $RESULT" && exit 1
+        fi
     fi
+    ./examples/nvram/store -pub >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv store pub only failed! $RESULT" && exit 1
+    ./examples/nvram/read -pub >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "nv read pub only failed! $RESULT" && exit 1
 fi
-./examples/nvram/store -pub >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "nv store pub only failed! $RESULT" && exit 1
-./examples/nvram/read -pub >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "nv read pub only failed! $RESULT" && exit 1
 
 ./examples/nvram/policy_nv >> run.out 2>&1
 RESULT=$?
@@ -313,7 +318,7 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "keygen ecc test for csr failed! $RESULT" && exit 1
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/csr/csr -cert >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "cert self-signed failed! $RESULT" && exit 1
@@ -332,7 +337,7 @@ fi
 
 # PKCS7 Tests
 echo -e "PKCS7 tests"
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/pkcs7/pkcs7 >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pkcs7 failed! $RESULT" && exit 1
@@ -387,7 +392,7 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
     popd >> run.out 2>&1
 }
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     if [ $WOLFCRYPT_RSA -eq 1 ]; then
         # TLS client/server RSA TLS v1.2 and v1.2 Crypto callbacks
         run_tpm_tls_client "rsa" "" "3"
@@ -464,7 +469,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     [ $RESULT -ne 0 ] && echo -e "signed_timestamp ecc param enc failed! $RESULT" && exit 1
 fi
 
-if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/keygen/keygen keyblob.bin -rsa >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
@@ -550,7 +555,7 @@ fi
 
 # Secure Boot ROT
 echo -e "Secure Boot ROT (Root of Trust) test"
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/boot/secure_rot -nvindex=0x1400200 -authstr=test -write=./certs/example-ecc256-key-pub.der >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "secure rot write ecc256! $RESULT" && exit 1
@@ -586,37 +591,39 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
 fi
 
 # Seal/Unseal (PCR Policy)
-echo -e "Seal/Unseal (PCR policy)"
-./examples/seal/seal sealedkeyblob.bin mySecretMessage >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "seal failed! $RESULT" && exit 1
-./examples/seal/unseal message.raw sealedkeyblob.bin >> run.out 2>&1
-RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "unseal failed! $RESULT" && exit 1
-rm -f sealedkeyblob.bin
-
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_RSA -eq 1 ]; then
-    ./examples/seal/seal sealedkeyblob.bin mySecretMessage -xor >> run.out 2>&1
+if [ $NO_FILESYSTEM -eq 0 ]; then
+    echo -e "Seal/Unseal (PCR policy)"
+    ./examples/seal/seal sealedkeyblob.bin mySecretMessage >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "seal xor failed! $RESULT" && exit 1
-    ./examples/seal/unseal message.raw sealedkeyblob.bin -xor >> run.out 2>&1
+    [ $RESULT -ne 0 ] && echo -e "seal failed! $RESULT" && exit 1
+    ./examples/seal/unseal message.raw sealedkeyblob.bin >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "unseal xor failed! $RESULT" && exit 1
-
-    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
-        ./examples/seal/seal sealedkeyblob.bin mySecretMessage -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "seal aes failed! $RESULT" && exit 1
-        ./examples/seal/unseal message.raw sealedkeyblob.bin -aes >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "unseal aes failed! $RESULT" && exit 1
-    fi
+    [ $RESULT -ne 0 ] && echo -e "unseal failed! $RESULT" && exit 1
     rm -f sealedkeyblob.bin
+
+    if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_RSA -eq 1 ]; then
+        ./examples/seal/seal sealedkeyblob.bin mySecretMessage -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal xor failed! $RESULT" && exit 1
+        ./examples/seal/unseal message.raw sealedkeyblob.bin -xor >> run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "unseal xor failed! $RESULT" && exit 1
+
+        if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+            ./examples/seal/seal sealedkeyblob.bin mySecretMessage -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "seal aes failed! $RESULT" && exit 1
+            ./examples/seal/unseal message.raw sealedkeyblob.bin -aes >> run.out 2>&1
+            RESULT=$?
+            [ $RESULT -ne 0 ] && echo -e "unseal aes failed! $RESULT" && exit 1
+        fi
+        rm -f sealedkeyblob.bin
+    fi
 fi
 
 # Seal/Unseal (Policy auth)
 echo -e "Seal/Unseal (Policy auth)"
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     # Extend "aaa" to test PCR 16
     echo aaa > aaa.bin
     ./examples/pcr/reset 16 >> run.out 2>&1

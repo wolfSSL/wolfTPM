@@ -200,7 +200,7 @@ jobs:
         ./configure --enable-swtpm
         make
         make check
-        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
+        WOLFSSL_PATH=./wolfssl NO_FILESYSTEM=1 ./examples/run_examples.sh
 
 # capture logs on failure
     - name: Upload failure logs

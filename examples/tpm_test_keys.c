@@ -244,6 +244,7 @@ exit:
 #else
     (void)filename;
     (void)key;
+    rc = NOT_COMPILED_IN;
 #endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */
     return rc;
 }
