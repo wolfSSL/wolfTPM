@@ -188,6 +188,20 @@ jobs:
         make check
         WOLFSSL_PATH=./wolfssl WOLFCRYPT_DEFAULT=1 ./examples/run_examples.sh
 
+# test with no filesystem / threading
+    - name: wolfssl no filesystem
+      working-directory: ./wolfssl
+      run: |
+        ./configure --enable-wolftpm --disable-filesystem --enable-singlethreaded
+        make
+        sudo make install
+    - name: wolftpm no filesystem
+      run: |
+        ./configure --enable-swtpm
+        make
+        make check
+        WOLFSSL_PATH=./wolfssl NO_FILESYSTEM=1 ./examples/run_examples.sh
+
 # capture logs on failure
     - name: Upload failure logs
       if: failure()

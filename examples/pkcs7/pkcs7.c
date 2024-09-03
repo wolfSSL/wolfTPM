@@ -290,6 +290,8 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId,
             rc = -1; goto exit;
         }
     }
+#else
+    (void)outFile;
 #endif
 
     /* Test verify with TPM */
