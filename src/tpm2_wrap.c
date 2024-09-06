@@ -4722,6 +4722,13 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
     /* Perform read of NV without auth password */
     nv.handle.hndl = handle;
     rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, (word32*)len, 0);
+
+#ifdef DEBUG_WOLFTPM
+    printf("NV public read certificate 0x%x (%u bytes)\n",
+        handle, *len);
+    TPM2_PrintBin(buffer, *len);
+#endif
+
     return rc;
 }
 
@@ -7598,12 +7605,10 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* pre-provisioned IAK and IDevID key/cert from TPM vendor */
 #ifdef WOLFTPM_MFG_IDENTITY
 
-#ifdef TEST_SAMPLE
 static const uint8_t TPM2_IAK_SAMPLE_MASTER_PASSWORD[] = {
     0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
     0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
 };
-#endif
 
 int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     uint8_t* masterPassword, uint16_t masterPasswordSz)
@@ -7623,22 +7628,25 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     #endif
         return rc;
     }
+#ifdef DEBUG_WOLFTPM
+    printf("TPM Serial Number (%d bytes)\n", (int)sizeof(serialNum));
+    TPM2_PrintBin(serialNum, sizeof(serialNum));
+#endif
 
     /* Hash both values */
     rc = wc_HashInit(&hash_ctx, hashType);
     if (rc == 0) {
         rc = wc_HashUpdate(&hash_ctx, hashType, serialNum, sizeof(serialNum));
         if (rc == 0) {
-        #ifdef TEST_SAMPLE
-            rc = wc_HashUpdate(&hash_ctx, hashType,
-                TPM2_IAK_SAMPLE_MASTER_PASSWORD,
-                sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
-            (void)masterPassword;
-            (void)masterPasswordSz;
-        #else
-            rc = wc_HashUpdate(&hash_ctx, hashType,
-                masterPassword, masterPasswordSz);
-        #endif
+            if (masterPassword == NULL || masterPasswordSz == 0) {
+                rc = wc_HashUpdate(&hash_ctx, hashType,
+                    TPM2_IAK_SAMPLE_MASTER_PASSWORD,
+                    sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
+            }
+            else {
+                rc = wc_HashUpdate(&hash_ctx, hashType,
+                    masterPassword, masterPasswordSz);
+            }
         }
         if (rc == 0) {
             rc = wc_HashFinal(&hash_ctx, hashType, digest);
@@ -7651,6 +7659,10 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     /* Use 16-byte for auth when accessing key */
     handle->auth.size = 16;
     XMEMCPY(handle->auth.buffer, &digest[16], 16);
+#ifdef DEBUG_WOLFTPM
+    printf("Handle 0x%x, Auth %d\n", handle->hndl, handle->auth.size);
+    TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
+#endif
 
     (void)dev;
 
