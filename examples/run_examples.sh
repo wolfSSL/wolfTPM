@@ -621,11 +621,52 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     fi
 fi
 
+run_tpm_policy() { # Usage: run_tpm_policy [ecc/rsa] [key] [pcrs]
+    echo -e "TPM Seal/Unseal (Policy Auth) test $1 $2 $3"
+
+    # Test Seal/Unseal (Policy auth)
+    ./examples/pcr/policy_sign $3 -$1 -key=$2.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "policy sign $1 der failed! $RESULT" && exit 1
+    ./examples/pcr/policy_sign $3 -$1 -key=$2.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "policy sign $1 pem failed! $RESULT" && exit 1
+
+    TMPFILE=$(mktemp)
+    SECRET_STRING=`head -c 32 /dev/random | base64`
+    ./examples/boot/secret_seal -$1 -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "secret seal $1 failed! $RESULT" && exit 1
+    ./examples/boot/secret_unseal $3 -pcrsig=pcrsig.bin -$1 -publickey=$2-pub.der -seal=sealblob.bin &> $TMPFILE
+    RESULT=$?
+    cat $TMPFILE >> run.out
+    [ $RESULT -ne 0 ] && echo -e "secret unseal $1 failed! $RESULT" && exit 1
+    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "secret unseal $1 match failed! $RESULT" && exit 1
+
+    # Recreate policy auth using public key instead of using policyauth.bin
+    TMPFILE=$(mktemp)
+    SECRET_STRING=`head -c 32 /dev/random | base64`
+    ./examples/boot/secret_seal -$1 -publickey=$2-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "secret seal $1 alt failed! $RESULT" && exit 1
+    ./examples/boot/secret_unseal $3 -pcrsig=pcrsig.bin -$1 -publickey=$2-pub.der -seal=sealblob.bin &> $TMPFILE
+    RESULT=$?
+    cat $TMPFILE >> run.out
+    [ $RESULT -ne 0 ] && echo -e "secret unseal $1 alt failed! $RESULT" && exit 1
+    grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
+    RESULT=$?
+    rm -f $TMPFILE
+    [ $RESULT -ne 0 ] && echo -e "secret unseal $1 alt match failed! $RESULT" && exit 1
+}
+
 # Seal/Unseal (Policy auth)
 echo -e "Seal/Unseal (Policy auth)"
 if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     # Extend "aaa" to test PCR 16
     echo aaa > aaa.bin
+    echo bbb > bbb.bin
     ./examples/pcr/reset 16 >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pcr 16 reset failed! $RESULT" && exit 1
@@ -633,42 +674,17 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pcr 16 extend failed! $RESULT" && exit 1
 
+    ./examples/pcr/reset 23 >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 23 reset failed! $RESULT" && exit 1
+    ./examples/pcr/extend 23 bbb.bin >> run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 23 extend failed! $RESULT" && exit 1
+
     if [ $WOLFCRYPT_RSA -eq 1 ]; then
         # RSA
-        ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "policy sign rsa der failed! $RESULT" && exit 1
-        ./examples/pcr/policy_sign -pcr=16 -rsa -key=./certs/example-rsa2048-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "policy sign rsa pem failed! $RESULT" && exit 1
-
-        TMPFILE=$(mktemp)
-        SECRET_STRING=`head -c 32 /dev/random | base64`
-        ./examples/boot/secret_seal -rsa -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "secret seal rsa failed! $RESULT" && exit 1
-        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
-        RESULT=$?
-        cat $TMPFILE >> run.out
-        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa failed! $RESULT" && exit 1
-        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa match failed! $RESULT" && exit 1
-
-        # RSA (recreate policy auth using public key instead of using policyauth.bin)
-        TMPFILE=$(mktemp)
-        SECRET_STRING=`head -c 32 /dev/random | base64`
-        ./examples/boot/secret_seal -rsa -publickey=./certs/example-rsa2048-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "secret seal rsa alt failed! $RESULT" && exit 1
-        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -rsa -publickey=./certs/example-rsa2048-key-pub.der -seal=sealblob.bin &> $TMPFILE
-        RESULT=$?
-        cat $TMPFILE >> run.out
-        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt failed! $RESULT" && exit 1
-        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-        RESULT=$?
-        rm -f $TMPFILE
-        [ $RESULT -ne 0 ] && echo -e "secret unseal rsa alt match failed! $RESULT" && exit 1
+        run_tpm_policy "rsa" "./certs/example-rsa2048-key" "-pcr=16"
+        run_tpm_policy "rsa" "./certs/example-rsa2048-key" "-pcr=23 -pcr=16"
 
         # Test RSA Unseal Expected Failure Case
         # Create different ECC policy key to test failure case
@@ -693,44 +709,8 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
 
     if [ $WOLFCRYPT_ECC -eq 1 ]; then
         # ECC
-        ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.der -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "policy sign ecc der failed! $RESULT" && exit 1
-        ./examples/pcr/policy_sign -pcr=16 -ecc -key=./certs/example-ecc256-key.pem -out=pcrsig.bin -outpolicy=policyauth.bin >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "policy sign ecc pem failed! $RESULT" && exit 1
-
-        TMPFILE=$(mktemp)
-        SECRET_STRING=`head -c 32 /dev/random | base64`
-        ./examples/boot/secret_seal -ecc -policy=policyauth.bin -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "secret seal ecc failed! $RESULT" && exit 1
-        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
-        RESULT=$?
-        cat $TMPFILE >> run.out
-        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc failed! $RESULT" && exit 1
-
-        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-        RESULT=$?
-        rm -f $TMPFILE
-        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc match failed! $RESULT" && exit 1
-
-
-        # ECC (recreate policy auth using public key instead of using policyauth.bin)
-        TMPFILE=$(mktemp)
-        SECRET_STRING=`head -c 32 /dev/random | base64`
-        ./examples/boot/secret_seal -ecc -publickey=./certs/example-ecc256-key-pub.der -out=sealblob.bin -secretstr=$SECRET_STRING >> run.out 2>&1
-        RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "secret seal ecc alt failed! $RESULT" && exit 1
-        ./examples/boot/secret_unseal -pcr=16 -pcrsig=pcrsig.bin -ecc -publickey=./certs/example-ecc256-key-pub.der -seal=sealblob.bin &> $TMPFILE
-        RESULT=$?
-        cat $TMPFILE >> run.out
-        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt failed! $RESULT" && exit 1
-        grep "$SECRET_STRING" $TMPFILE >> run.out 2>&1
-        RESULT=$?
-        rm -f $TMPFILE
-        [ $RESULT -ne 0 ] && echo -e "secret unseal ecc alt match failed! $RESULT" && exit 1
-
+        run_tpm_policy "ecc" "./certs/example-ecc256-key" "-pcr=16"
+        run_tpm_policy "ecc" "./certs/example-ecc256-key" "-pcr=23 -pcr=16"
 
         # Test ECC Unseal Expected Failure Case
         # Create different ECC policy key to test failure case
@@ -756,7 +736,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     rm -f policyauth.bin
     rm -f sealblob.bin
     rm -f aaa.bin
-
+    rm -f bbb.bin
 fi
 
 # Endorsement key and certificate
