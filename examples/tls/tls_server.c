@@ -263,7 +263,12 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         bindKey = &storageKey;
     }
     else {
-    #ifndef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
+        /* error printed in getPrimaryStoragekey */
+    #ifdef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
+        printf("Allowing primary creation failure, since not required "
+               "when using a pre-provisioned IDevID key\n");
+        rc = 0;
+    #else
         goto exit;
     #endif
     }
@@ -307,7 +312,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         /* Attempt to use pre-provisioned identity key */
         rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
         if (rc == 0) {
-            /* TODO: Supply master password (if not TEST_SAMPLE) */
+            /* Custom should supply their own custom master password used during
+             * device provisioning. If using a sample TPM supply NULL to use the
+             * default password. */
             wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
         else
@@ -454,7 +461,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
                                                 WOLFSSL_FILETYPE_ASN1);
         #endif
         #else
-		const char* useCert = "./certs/server-rsa-cert.pem";
+        const char* useCert = "./certs/server-rsa-cert.pem";
         if (useSelfSign) {
             useCert = "./certs/tpm-rsa-cert.pem";
         }
@@ -481,16 +488,15 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
             /* Load "cert" buffer with ASN.1/DER certificate */
             rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert, (long)certSz,
                 WOLFSSL_FILETYPE_ASN1);
-
         }
     #elif defined(NO_FILESYSTEM)
-        /* Load "cert" buffer with ASN.1/DER certificate */
+        /* Example for loading cert using an ASN.1/DER certificate */
         #if 0
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
         #endif
     #else
-		const char* useCert = "./certs/server-ecc-cert.pem";
+        const char* useCert = "./certs/server-ecc-cert.pem";
         if (useSelfSign) {
             useCert = "./certs/tpm-ecc-cert.pem";
         }
