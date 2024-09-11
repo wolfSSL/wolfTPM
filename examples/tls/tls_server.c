@@ -74,6 +74,8 @@ static int mStop = 0;
  * With browsers you will get certificate warnings until you load the test CA's
  * ./certs/ca-rsa-cert.pem and ./certs/ca-ecc-cert.pem into your OS key store.
  * With most browsers you can bypass the certificate warning.
+ *
+ * For TLS v1.3 add to client "-v 4"
  */
 
 /******************************************************************************/
@@ -104,6 +106,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
+    WOLFTPM2_KEY* bindKey = NULL;
 #ifndef NO_RSA
     WOLFTPM2_KEY rsaKey;
 #endif
@@ -252,14 +255,27 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
 #endif
+
     /* See if primary storage key already exists */
     rc = getPrimaryStoragekey(&dev, &storageKey,
         useECC ? TPM_ALG_ECC : TPM_ALG_RSA);
-    if (rc != 0) goto exit;
+    if (rc == 0) {
+        bindKey = &storageKey;
+    }
+    else {
+        /* error printed in getPrimaryStoragekey */
+    #ifdef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
+        printf("Allowing primary creation failure, since not required "
+               "when using a pre-provisioned IDevID key\n");
+        rc = 0;
+    #else
+        goto exit;
+    #endif
+    }
 
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
@@ -292,19 +308,33 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 
 #ifdef HAVE_ECC
     if (useECC) {
-        /* Create/Load ECC key for TLS authentication */
-        rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
-                TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-                TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
-        if (rc != 0) goto exit;
-        rc = getECCkey(&dev,
-                    &storageKey,
-                    &eccKey,
-                    NULL,
-                    tpmDevId,
-                    (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
-                    &publicTemplate);
+    #ifdef WOLFTPM_MFG_IDENTITY
+        /* Attempt to use pre-provisioned identity key */
+        rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
+        if (rc == 0) {
+            /* Custom should supply their own custom master password used during
+             * device provisioning. If using a sample TPM supply NULL to use the
+             * default password. */
+            wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
+        }
+        else
+    #endif
+        {
+            /* Create/Load ECC key for TLS authentication */
+            rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                    TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+                    TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+                    TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+            if (rc == 0) {
+                rc = getECCkey(&dev,
+                            &storageKey,
+                            &eccKey,
+                            NULL,
+                            tpmDevId,
+                            (byte*)gKeyAuth, sizeof(gKeyAuth)-1,
+                            &publicTemplate);
+            }
+        }
         if (rc != 0) goto exit;
     }
 
@@ -336,10 +366,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Server certificate validation */
-#if 0
-    /* skip server cert validation for this test */
-    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, myVerify);
-#else
+    /* Note: Can use "WOLFSSL_VERIFY_NONE" to skip peer cert validation */
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* example loading from buffer */
@@ -374,7 +401,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-ecc-cert.pem cert\n");
+        #ifndef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
             goto exit;
+        #endif
         }
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
@@ -388,18 +417,8 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     #endif /* HAVE_ECC */
     }
 #endif /* !NO_FILESYSTEM */
-#endif
 
-#ifdef NO_FILESYSTEM
-    /* example loading from buffer */
-    #if 0
-        if (wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
-                                        WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            goto exit;
-        }
-    #endif
-    (void)useSelfSign;
-#else
+
     {
         /* Export TPM public key as DER */
         byte   der[1024];
@@ -431,47 +450,69 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 
     /* Server certificate */
+    printf("Loading %s certificate\n", useECC ? "ECC" : "RSA");
     if (!useECC) {
-    #ifndef NO_RSA
+#ifndef NO_RSA
+        printf("Loading RSA certificate\n");
+        #ifdef NO_FILESYSTEM
+        /* Load "cert" buffer with ASN.1/DER certificate */
+        #if 0
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #endif
+        #else
         const char* useCert = "./certs/server-rsa-cert.pem";
         if (useSelfSign) {
             useCert = "./certs/tpm-rsa-cert.pem";
         }
-
-        printf("Loading RSA certificate (%s) and public key\n", useCert);
-
-        if ((rc = wolfSSL_CTX_use_certificate_file(ctx, useCert,
-                WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
+        rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
+        #endif
+        if (rc != WOLFSSL_SUCCESS) {
             printf("Error loading RSA client cert\n");
             goto exit;
         }
-    #else
+#else
         printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
-    #endif /* !NO_RSA */
+#endif /* !NO_RSA */
+        (void)useSelfSign;
     }
     else {
-    #ifdef HAVE_ECC
+#ifdef HAVE_ECC
+    #ifdef WOLFTPM_MFG_IDENTITY
+        uint8_t cert[1024];
+        uint32_t certSz = (uint32_t)sizeof(cert);
+        rc = wolfTPM2_NVReadCert(&dev, TPM2_IDEVID_CERT_HANDLE, cert, &certSz);
+        if (rc == 0) {
+            /* Load "cert" buffer with ASN.1/DER certificate */
+            rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert, (long)certSz,
+                WOLFSSL_FILETYPE_ASN1);
+        }
+    #elif defined(NO_FILESYSTEM)
+        /* Example for loading cert using an ASN.1/DER certificate */
+        #if 0
+        rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
+                                                WOLFSSL_FILETYPE_ASN1);
+        #endif
+    #else
         const char* useCert = "./certs/server-ecc-cert.pem";
         if (useSelfSign) {
             useCert = "./certs/tpm-ecc-cert.pem";
         }
-
-        printf("Loading ECC certificate (%s) and public key\n", useCert);
-
-        if ((rc = wolfSSL_CTX_use_certificate_file(ctx, useCert,
-                WOLFSSL_FILETYPE_PEM)) != WOLFSSL_SUCCESS) {
+        rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
+    #endif
+        if (rc != WOLFSSL_SUCCESS) {
             printf("Error loading ECC client cert\n");
             goto exit;
         }
-    #else
+#else
         printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
-    #endif /* HAVE_ECC */
+#endif /* HAVE_ECC */
     }
-#endif /* !NO_FILESYSTEM */
+
 
 #ifdef TLS_CIPHER_SUITE
     /* Optionally choose the cipher suite */

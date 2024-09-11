@@ -65,7 +65,7 @@
  * This example client connects to localhost on on port 11111 by default.
  * These can be overriden using `TLS_HOST` and `TLS_PORT`.
  *
- * By default this example will loads RSA keys unless RSA is disabled (NO_RSA)
+ * By default this example will load RSA keys unless RSA is disabled (NO_RSA)
  * or the TLS_USE_ECC build option is used.
  *
  * You can validate using the wolfSSL example server this like:
@@ -75,8 +75,11 @@
  * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-rsa-cert.pem
  * or
  * ./examples/server/server -b -p 11111 -g -A ./certs/tpm-ca-ecc-cert.pem
+ *
  * If using an ECDSA cipher suite add:
- * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
+ *  "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
+ *
+ * For TLS v1.3 add to server "-v 4"
  */
 
 
@@ -106,6 +109,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
+    WOLFTPM2_KEY* bindKey = NULL;
 #ifndef NO_RSA
     WOLFTPM2_KEY rsaKey;
 #endif
@@ -235,14 +239,27 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
 #endif
+
     /* See if primary storage key already exists */
     rc = getPrimaryStoragekey(&dev, &storageKey,
         useECC ? TPM_ALG_ECC : TPM_ALG_RSA);
-    if (rc != 0) goto exit;
+    if (rc == 0) {
+        bindKey = &storageKey;
+    }
+    else {
+        /* error printed in getPrimaryStoragekey */
+    #ifdef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
+        printf("Allowing primary creation failure, since not required "
+               "when using a pre-provisioned IDevID key\n");
+        rc = 0;
+    #else
+        goto exit;
+    #endif
+    }
 
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, &storageKey, NULL,
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
             TPM_SE_HMAC, paramEncAlg);
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
@@ -279,7 +296,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         /* Attempt to use pre-provisioned identity key */
         rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
         if (rc == 0) {
-            /* TODO: Supply master password (if not TEST_SAMPLE) */
+            /* Custom should supply their own custom master password used during
+             * device provisioning. If using a sample TPM supply NULL to use the
+             * default password. */
             wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
         else
@@ -309,6 +328,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     #endif
 #endif /* HAVE_ECC */
 
+
     /* Setup the WOLFSSL context (factory)
      * Use highest version, allow downgrade */
     if ((ctx = wolfSSL_CTX_new(wolfSSLv23_client_method())) == NULL) {
@@ -330,7 +350,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #endif
 
     /* Server certificate validation */
-    /* Note: Can use "WOLFSSL_VERIFY_NONE" to skip server cert validation */
+    /* Note: Can use "WOLFSSL_VERIFY_NONE" to skip peer cert validation */
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 #ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
@@ -383,7 +403,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading ca-ecc-cert.pem cert\n");
+        #ifndef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
             goto exit;
+        #endif
         }
         if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
                                               0) != WOLFSSL_SUCCESS) {
@@ -420,7 +442,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_ExportPublicKeyBuffer(&dev, pkey,
             ENCODING_TYPE_ASN1, der, &derSz);
         if (rc < 0) {
-            printf("Failed to export RSA public key!\n");
+            printf("Failed to export TPM public key!\n");
             goto exit;
         }
 
@@ -436,7 +458,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 
     /* Client Certificate (Mutual Authentication) */
     if (!useECC) {
-    #ifndef NO_RSA
+#ifndef NO_RSA
         printf("Loading RSA certificate\n");
         #ifdef NO_FILESYSTEM
         /* Load "cert" buffer with ASN.1/DER certificate */
@@ -452,17 +474,17 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             printf("Error loading RSA client cert\n");
             goto exit;
         }
-    #else
-        printf("Error: ECC not compiled in\n");
+#else
+        printf("Error: RSA not compiled in\n");
         rc = -1;
         goto exit;
-    #endif /* !NO_RSA */
+#endif /* !NO_RSA */
     }
     else {
-    #ifdef HAVE_ECC
+#ifdef HAVE_ECC
         printf("Loading ECC certificate\n");
-        #ifdef WOLFTPM_MFG_IDENTITY
-        uint8_t cert[800];
+    #ifdef WOLFTPM_MFG_IDENTITY
+        uint8_t cert[1024];
         uint32_t certSz = (uint32_t)sizeof(cert);
         rc = wolfTPM2_NVReadCert(&dev, TPM2_IDEVID_CERT_HANDLE, cert, &certSz);
         if (rc == 0) {
@@ -471,25 +493,25 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
                 WOLFSSL_FILETYPE_ASN1);
 
         }
-        #elif defined(NO_FILESYSTEM)
-        /* Load "cert" buffer with ASN.1/DER certificate */
+    #elif defined(NO_FILESYSTEM)
+        /* Example for loading cert using an ASN.1/DER certificate */
         #if 0
         rc = wolfSSL_CTX_use_certificate_buffer(ctx, cert.buffer, (long)cert.size,
                                                 WOLFSSL_FILETYPE_ASN1);
         #endif
-        #else
+    #else
         rc = wolfSSL_CTX_use_certificate_file(ctx, "./certs/client-ecc-cert.pem",
                                               WOLFSSL_FILETYPE_PEM);
-        #endif
+    #endif
         if (rc != WOLFSSL_SUCCESS) {
             printf("Error loading ECC client cert\n");
             goto exit;
         }
-    #else
-        printf("ECC not supported in this build\n");
+#else
+        printf("Error: ECC not compiled in\n");
         rc = -1;
         goto exit;
-    #endif /* HAVE_ECC */
+#endif /* HAVE_ECC */
     }
 #endif /* !NO_TLS_MUTUAL_AUTH */
 

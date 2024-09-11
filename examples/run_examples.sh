@@ -394,7 +394,7 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     if [ $WOLFCRYPT_RSA -eq 1 ]; then
-        # TLS client/server RSA TLS v1.2 and v1.2 Crypto callbacks
+        # TLS client/server RSA TLS v1.2 and v1.3 Crypto callbacks
         run_tpm_tls_client "rsa" "" "3"
         run_tpm_tls_client "rsa" "-aes" "3"
         run_tpm_tls_client "rsa" "" "4"
@@ -405,7 +405,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_server "rsa" "" "4"
         run_tpm_tls_server "rsa" "-aes" "4"
 
-        # TLS client/server ECC TLS v1.2 and v1.2 PK callbacks
+        # TLS client/server ECC TLS v1.2 and v1.3 PK callbacks
         run_tpm_tls_client "rsa" "-pk" "3"
         run_tpm_tls_client "rsa" "-pk -aes" "3"
         run_tpm_tls_client "rsa" "-pk" "4"
@@ -418,7 +418,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
 
     fi
     if [ $WOLFCRYPT_ECC -eq 1 ]; then
-        # TLS client/server ECC TLS v1.2 and v1.2 Crypto callbacks
+        # TLS client/server ECC TLS v1.2 and v1.3 Crypto callbacks
         run_tpm_tls_client "ecc" "" "3"
         run_tpm_tls_client "ecc" "-aes" "3"
         run_tpm_tls_client "ecc" "" "4"
@@ -429,7 +429,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_server "ecc" "" "4"
         run_tpm_tls_server "ecc" "-aes" "4"
 
-        # TLS client/server ECC TLS v1.2 and v1.2 PK callbacks
+        # TLS client/server ECC TLS v1.2 and v1.3 PK callbacks
         run_tpm_tls_client "ecc" "-pk" "3"
         run_tpm_tls_client "ecc" "-pk -aes" "3"
         run_tpm_tls_client "ecc" "-pk" "4"
