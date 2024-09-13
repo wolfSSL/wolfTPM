@@ -60,6 +60,10 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     const char *outputFile = "quote.blob";
     BYTE *data = NULL;
     int dataSz;
+#ifdef HAVE_ECC
+    byte *pubKey = NULL;
+    word32 pubKeySz;
+#endif
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
@@ -143,6 +147,39 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
         (word32)aik.handle.hndl, aik.pub.size);
+
+#ifdef HAVE_ECC
+    if (alg == TPM_ALG_ECC) {
+        word32 i;
+
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &aik, ENCODING_TYPE_ASN1,
+            NULL, &pubKeySz);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_ExportPublicKeyBuffer failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+
+        pubKey = (byte*)malloc(pubKeySz);
+        if (pubKey == NULL) {
+            printf("Failed to malloc buffer for public key\n");
+            goto exit;
+        }
+
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &aik, ENCODING_TYPE_ASN1,
+            pubKey, &pubKeySz);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_ExportPublicKeyBuffer failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+
+        printf("Public Key for AIK [in Hex] : ");
+        for (i = 0; i < pubKeySz; i++)
+            printf("%02X", pubKey[i]);
+        printf("\n");
+    }
+#endif
 
     if (paramEncAlg != TPM_ALG_NULL) {
         void* bindKey = &storage;
@@ -229,6 +266,39 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         cmdOut.quoteResult.signature.signature.rsassa.sig.size);
 #endif
 
+#ifdef HAVE_ECC
+    if (alg == TPM_ALG_ECC) {
+        printf("Attempting to manually verify the quotes signature :");
+        int res = 0;
+        word32 inOutIdx = 0;
+        mp_int r,s;
+        ecc_key ecKey;
+
+        rc = wc_ecc_init(&ecKey);
+        if (rc == 0)
+            rc = wc_EccPublicKeyDecode(pubKey, &inOutIdx, &ecKey, pubKeySz);
+        mp_init(&r);
+        mp_init(&s);
+        mp_read_unsigned_bin(&r,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureR.buffer,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureR.size);
+        mp_read_unsigned_bin(&s,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureS.buffer,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureS.size);
+        if (rc == 0)
+            rc = wc_ecc_verify_hash_ex(&r, &s,
+                attestedData.attested.quote.pcrDigest.buffer,
+                attestedData.attested.quote.pcrDigest.size,
+                &res,
+                &ecKey);
+        mp_free(&r);
+        mp_free(&s);
+        wc_ecc_free(&ecKey);
+        printf("%s [rc = %d, result = %d]\n", (res == 1)? "SUCCESS": "FAILURE",
+            rc, res);
+    }
+#endif
+
 exit:
 
     /* Close key handles */
@@ -237,6 +307,12 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
+
+#ifdef HAVE_ECC
+    if (pubKey != NULL) {
+        free(pubKey);
+    }
+#endif
     return rc;
 }
 
