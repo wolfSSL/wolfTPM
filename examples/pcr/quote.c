@@ -267,16 +267,37 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 #endif
 
 #ifdef HAVE_ECC
-    if (alg == TPM_ALG_ECC) {
-        printf("Attempting to manually verify the quotes signature :");
+    if (alg == TPM_ALG_ECC &&
+          cmdOut.quoteResult.signature.signature.ecdsa.hash == TPM_ALG_SHA256) {
         int res = 0;
         word32 inOutIdx = 0;
         mp_int r,s;
         ecc_key ecKey;
+        wc_Sha256 sha256;
+        byte digest[WC_SHA256_DIGEST_SIZE];
 
+        printf("Attempting to manually verify the quotes signature :");
+
+        /* re-create the hash that was signed */
+        rc = wc_InitSha256(&sha256);
+        if (cmdIn.quoteAsk.qualifyingData.size > 0) {
+            /* do a wc_Sha256Update with qualifying data first if used */
+        }
+        if (rc == 0) {
+            rc = wc_Sha256Update(&sha256,
+                cmdOut.quoteResult.quoted.attestationData,
+                cmdOut.quoteResult.quoted.size);
+        }
+        if (rc == 0) {
+            wc_Sha256Final(&sha256, digest);
+        }
+        wc_Sha256Free(&sha256);
+
+        /* read in the public key and the signature r/s values */
         rc = wc_ecc_init(&ecKey);
-        if (rc == 0)
+        if (rc == 0) {
             rc = wc_EccPublicKeyDecode(pubKey, &inOutIdx, &ecKey, pubKeySz);
+        }
         mp_init(&r);
         mp_init(&s);
         mp_read_unsigned_bin(&r,
@@ -285,12 +306,12 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         mp_read_unsigned_bin(&s,
             cmdOut.quoteResult.signature.signature.ecdsa.signatureS.buffer,
             cmdOut.quoteResult.signature.signature.ecdsa.signatureS.size);
-        if (rc == 0)
-            rc = wc_ecc_verify_hash_ex(&r, &s,
-                attestedData.attested.quote.pcrDigest.buffer,
-                attestedData.attested.quote.pcrDigest.size,
-                &res,
-                &ecKey);
+
+        /* try to confirm the signature */
+        if (rc == 0) {
+            rc = wc_ecc_verify_hash_ex(&r, &s, digest, WC_SHA256_DIGEST_SIZE,
+                &res, &ecKey);
+        }
         mp_free(&r);
         mp_free(&s);
         wc_ecc_free(&ecKey);
