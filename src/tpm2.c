@@ -5746,7 +5746,7 @@ const char* TPM2_GetRCString(int rc)
         return "Success";
     }
 
-    if ((rc & RC_WARN) && (rc & RC_FMT1) == 0 && (rc & RC_VER1) == 0) {
+    if ((rc & RC_WARN) == RC_WARN && (rc & RC_FMT1) == 0) {
         int rc_warn = rc & RC_MAX_WARN;
 
         switch (rc_warn) {
