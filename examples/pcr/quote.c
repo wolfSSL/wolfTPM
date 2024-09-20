@@ -148,7 +148,8 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
         (word32)aik.handle.hndl, aik.pub.size);
 
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
     if (alg == TPM_ALG_ECC) {
         word32 i;
 
@@ -160,7 +161,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
             goto exit;
         }
 
-        pubKey = (byte*)malloc(pubKeySz);
+        pubKey = (byte*)XMALLOC(pubKeySz, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
         if (pubKey == NULL) {
             printf("Failed to malloc buffer for public key\n");
             goto exit;
@@ -266,7 +267,8 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         cmdOut.quoteResult.signature.signature.rsassa.sig.size);
 #endif
 
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
     if (alg == TPM_ALG_ECC &&
           cmdOut.quoteResult.signature.signature.ecdsa.hash == TPM_ALG_SHA256) {
         int res = 0;
@@ -331,7 +333,7 @@ exit:
 
 #ifdef HAVE_ECC
     if (pubKey != NULL) {
-        free(pubKey);
+        XFREE(pubKey, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
     }
 #endif
     return rc;

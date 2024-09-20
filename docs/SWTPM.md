@@ -72,11 +72,18 @@ The rm switch is optional and remove the cache file NVChip. Alternately you can 
 
 ```sh
 git clone https://github.com/microsoft/ms-tpm-20-ref
-cd ms-tpm-20-ref
+cd ms-tpm-20-ref/TPMCmd
 ./bootstrap
 ./configure
 make
 ./Simulator/src/tpm2-simulator
+```
+
+In another terminal power on ms-tpm-20-ref and start NV
+
+```sh
+echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322 | exit
+echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322 | exit
 ```
 
 ### swtpm
