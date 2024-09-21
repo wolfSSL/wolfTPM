@@ -60,7 +60,8 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     const char *outputFile = "quote.blob";
     BYTE *data = NULL;
     int dataSz;
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
     byte *pubKey = NULL;
     word32 pubKeySz;
 #endif
@@ -331,7 +332,8 @@ exit:
 
     wolfTPM2_Cleanup(&dev);
 
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
     if (pubKey != NULL) {
         XFREE(pubKey, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
     }
