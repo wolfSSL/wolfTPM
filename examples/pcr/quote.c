@@ -60,6 +60,11 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     const char *outputFile = "quote.blob";
     BYTE *data = NULL;
     int dataSz;
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
+    byte *pubKey = NULL;
+    word32 pubKeySz;
+#endif
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* TPM_ALG_ECC */
@@ -143,6 +148,40 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_CreateAndLoadAIK: AIK 0x%x (%d bytes)\n",
         (word32)aik.handle.hndl, aik.pub.size);
+
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
+    if (alg == TPM_ALG_ECC) {
+        word32 i;
+
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &aik, ENCODING_TYPE_ASN1,
+            NULL, &pubKeySz);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_ExportPublicKeyBuffer failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+
+        pubKey = (byte*)XMALLOC(pubKeySz, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
+        if (pubKey == NULL) {
+            printf("Failed to malloc buffer for public key\n");
+            goto exit;
+        }
+
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, &aik, ENCODING_TYPE_ASN1,
+            pubKey, &pubKeySz);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_ExportPublicKeyBuffer failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+
+        printf("Public Key for AIK [in Hex] : ");
+        for (i = 0; i < pubKeySz; i++)
+            printf("%02X", pubKey[i]);
+        printf("\n");
+    }
+#endif
 
     if (paramEncAlg != TPM_ALG_NULL) {
         void* bindKey = &storage;
@@ -229,6 +268,61 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         cmdOut.quoteResult.signature.signature.rsassa.sig.size);
 #endif
 
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
+    if (alg == TPM_ALG_ECC &&
+          cmdOut.quoteResult.signature.signature.ecdsa.hash == TPM_ALG_SHA256) {
+        int res = 0;
+        word32 inOutIdx = 0;
+        mp_int r,s;
+        ecc_key ecKey;
+        wc_Sha256 sha256;
+        byte digest[WC_SHA256_DIGEST_SIZE];
+
+        printf("Attempting to manually verify the quotes signature :");
+
+        /* re-create the hash that was signed */
+        rc = wc_InitSha256(&sha256);
+        if (cmdIn.quoteAsk.qualifyingData.size > 0) {
+            /* do a wc_Sha256Update with qualifying data first if used */
+        }
+        if (rc == 0) {
+            rc = wc_Sha256Update(&sha256,
+                cmdOut.quoteResult.quoted.attestationData,
+                cmdOut.quoteResult.quoted.size);
+        }
+        if (rc == 0) {
+            wc_Sha256Final(&sha256, digest);
+        }
+        wc_Sha256Free(&sha256);
+
+        /* read in the public key and the signature r/s values */
+        rc = wc_ecc_init(&ecKey);
+        if (rc == 0) {
+            rc = wc_EccPublicKeyDecode(pubKey, &inOutIdx, &ecKey, pubKeySz);
+        }
+        mp_init(&r);
+        mp_init(&s);
+        mp_read_unsigned_bin(&r,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureR.buffer,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureR.size);
+        mp_read_unsigned_bin(&s,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureS.buffer,
+            cmdOut.quoteResult.signature.signature.ecdsa.signatureS.size);
+
+        /* try to confirm the signature */
+        if (rc == 0) {
+            rc = wc_ecc_verify_hash_ex(&r, &s, digest, WC_SHA256_DIGEST_SIZE,
+                &res, &ecKey);
+        }
+        mp_free(&r);
+        mp_free(&s);
+        wc_ecc_free(&ecKey);
+        printf("%s [rc = %d, result = %d]\n", (res == 1)? "SUCCESS": "FAILURE",
+            rc, res);
+    }
+#endif
+
 exit:
 
     /* Close key handles */
@@ -237,6 +331,13 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
     wolfTPM2_Cleanup(&dev);
+
+#if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
+    defined(WOLFSSL_PUBLIC_MP)
+    if (pubKey != NULL) {
+        XFREE(pubKey, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
+    }
+#endif
     return rc;
 }
 
