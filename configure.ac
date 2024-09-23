@@ -80,11 +80,12 @@ AS_IF([test "x$ax_enable_debug" != "xno"],
 
 
 AX_PTHREAD([
+    AC_DEFINE([HAVE_PTHREAD], [1], [Define if you have POSIX threads libraries and header files.])
     # If AX_PTHREAD is adding -Qunused-arguments, need to prepend with
     # -Xcompiler libtool will use it. Newer versions of clang don't need
     # the -Q flag when using pthreads.
     AS_CASE([$PTHREAD_CFLAGS],[-Qunused-arguments*],[PTHREAD_CFLAGS="-Xcompiler $PTHREAD_CFLAGS"])
-    AM_CFLAGS="$AM_CFLAGS $PTHREAD_CFLAGS -DHAVE_PTHREAD"])
+    AM_CFLAGS="$AM_CFLAGS $PTHREAD_CFLAGS"])
 
 
 # Checks for typedefs, structures, and compiler characteristics.
