@@ -30,6 +30,9 @@ void TPM2_Wrapper_SetReset(int reset);
 int TPM2_Wrapper_Test(void* userCtx);
 int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[]);
 
+int TPM2_Wrapper_Caps(void* userCtx);
+int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[]);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
