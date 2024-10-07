@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API's in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
-* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC and Nuvoton NPCT650/NPCT750.
+* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
@@ -27,10 +27,11 @@ Portable TPM 2.0 project designed for embedded use.
     * Attestation (activate and make credential)
     * Benchmarking TPM algorithms and TLS
     * Key Generation (primary, RSA/ECC and symmetric), loading and storing to flash (NV memory)
-    * Sealing and Unsealing data with an RSA key
+    * Sealing and Unsealing data with an RSA key or externally signed policy.
     * Time signed or set
     * PCR read/reset
     * GPIO configure, read and write.
+    * Endrosement Key/Cert retreival and validation.
 * Parameter encryption support using AES-CFB or XOR.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
@@ -99,8 +100,8 @@ Tested with:
     - LetsTrust: Vendor for TPM development boards [http://letstrust.de](http://letstrust.de).
 * STMicro STSAFE-TPM, ST33TPHF2XSPI/2XI2C and ST33KTPM2X (SPI and I2C)
 * Microchip ATTPM20 module
-* Nuvoton NPCT65X or NPCT75x TPM2.0 module
-* Nations Technologies Z32H330 TPM 2.0 module
+* Nuvoton NPCT65X or NPCT75x TPM2.0 modules
+* Nations Technologies Z32H330 or NS350 TPM 2.0 modules
 
 #### Device Identification
 
@@ -132,8 +133,12 @@ Microchip ATTPM20
 TPM2: Caps 0x30000695, Did 0x3205, Vid 0x1114, Rid 0x 1
 Mfg MCHP (3), Vendor , Fw 512.20481 (0), FIPS 140-2 0, CC-EAL4 0
 
-Nations Technologies Inc. TPM 2.0 module
+Nations Technologies Inc. Z32H330 TPM 2.0 module
 Mfg NTZ (0), Vendor Z32H330, Fw 7.51 (419631892), FIPS 140-2 0, CC-EAL4 0
+
+Nations Technologies Inc. NS350 TPM 2.0 module
+TPM2: Caps 0x30000615, Did 0x0701, Vid 0x9999, Rid 0x 1
+Mfg NSG (0), Vendor NS350, Fw 30.30 (0x24042510), FIPS 140-2 1, CC-EAL4 0
 
 Nuvoton NPCT650 TPM2.0
 Mfg NTC (0), Vendor rlsNPCT , Fw 1.3 (65536), FIPS 140-2 0, CC-EAL4 0
@@ -253,6 +258,11 @@ Build wolfTPM:
 make
 ```
 
+### Building Nations Tech
+
+Use `./configure` with defaults. All TPM 2.0 modules are compatible.
+The Nations NS350 Raspberry Pi TPM 2.0 module uses `/dev/spidev0.0`. The TPM wait states are required (on by default with WOLFTPM_CHECK_WAIT_STATE).
+
 ### Building Espressif ESP-IDF
 
 See the wolfTPM-specific settings in the wolfSSL `user_settings.h` file, typically found in `[project]/components/wolfssl/include`.
@@ -333,6 +343,18 @@ cmake --build .
 ## Running Examples
 
 These examples demonstrate features of a TPM 2.0 module. The examples create RSA and ECC keys in NV for testing using handles defined in `./hal/tpm_io.h`. The PKCS #7 and TLS examples require generating CSR's and signing them using a test script. See `examples/README.md` for details on using the examples. To run the TLS sever and client on same machine you must build with `WOLFTPM_TIS_LOCK` to enable concurrent access protection.
+
+### TPM2 Capabilities
+
+Simple test that gets TPM capabilities and search for any persistent handles.
+
+```
+./examples/wrap/caps
+TPM2 Get Capabilities
+wolfSSL Entering wolfCrypt_Init
+Mfg NSG (0), Vendor NS350, Fw 30.30 (0x24042510), FIPS 140-2 1, CC-EAL4 0
+Found 2 persistent handles
+```
 
 ### TPM2 Wrapper Tests
 
@@ -556,7 +578,7 @@ ECDSA    256 verify        24 ops took 1.031 sec, avg 42.970 ms, 23.272 ops/sec
 ECDHE    256 agree         16 ops took 1.023 sec, avg 63.934 ms, 15.641 ops/sec
 ```
 
-Run on Nations Technologies Inc. TPM 2.0 module at 33MHz:
+Run on Nations Technologies Inc. Z32H330 TPM 2.0 module at 33MHz:
 
 ```
 ./examples/bench/bench
@@ -586,6 +608,43 @@ ECC      256 key gen       20 ops took 1.037 sec, avg 51.871 ms, 19.279 ops/sec
 ECDSA    256 sign          43 ops took 1.006 sec, avg 23.399 ms, 42.736 ops/sec
 ECDSA    256 verify        28 ops took 1.030 sec, avg 36.785 ms, 27.185 ops/sec
 ECDHE    256 agree         26 ops took 1.010 sec, avg 38.847 ms, 25.742 ops/sec
+```
+
+Run on Nations Technologies Inc. NS350 TPM 2.0 module at 33MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+        Use Parameter Encryption: NULL
+RNG                  6 KB took 1.052 seconds,    5.703 KB/s
+Benchmark symmetric AES-128-CBC-enc not supported!
+Benchmark symmetric AES-128-CBC-dec not supported!
+Benchmark symmetric AES-256-CBC-enc not supported!
+Benchmark symmetric AES-256-CBC-dec not supported!
+Benchmark symmetric AES-128-CTR-enc not supported!
+Benchmark symmetric AES-128-CTR-dec not supported!
+Benchmark symmetric AES-256-CTR-enc not supported!
+Benchmark symmetric AES-256-CTR-dec not supported!
+Encrypt/Decrypt unavailable
+AES-128-CFB-enc      0 bytes took 0.005 seconds,    0.000 bytes/s
+Encrypt/Decrypt unavailable
+AES-128-CFB-dec      0 bytes took 0.006 seconds,    0.000 bytes/s
+Encrypt/Decrypt unavailable
+AES-256-CFB-enc      0 bytes took 0.006 seconds,    0.000 bytes/s
+Encrypt/Decrypt unavailable
+AES-256-CFB-dec      0 bytes took 0.005 seconds,    0.000 bytes/s
+SHA1                68 KB took 1.003 seconds,   67.772 KB/s
+SHA256              68 KB took 1.002 seconds,   67.871 KB/s
+SHA384              66 KB took 1.007 seconds,   65.548 KB/s
+RSA     2048 key gen        7 ops took 16.652 sec, avg 2378.893 ms, 0.420 ops/sec
+RSA     2048 Public       126 ops took 1.005 sec, avg 7.980 ms, 125.321 ops/sec
+RSA     2048 Private       20 ops took 1.035 sec, avg 51.735 ms, 19.329 ops/sec
+RSA     2048 Pub  OAEP     81 ops took 1.008 sec, avg 12.443 ms, 80.366 ops/sec
+RSA     2048 Priv OAEP     19 ops took 1.027 sec, avg 54.033 ms, 18.507 ops/sec
+ECC      256 key gen       20 ops took 1.042 sec, avg 52.095 ms, 19.196 ops/sec
+ECDSA    256 sign          60 ops took 1.009 sec, avg 16.816 ms, 59.466 ops/sec
+ECDSA    256 verify        46 ops took 1.008 sec, avg 21.921 ms, 45.618 ops/sec
+ECDHE    256 agree         38 ops took 1.008 sec, avg 26.532 ms, 37.691 ops/sec
 ```
 
 Run on Nuvoton NPCT650:
