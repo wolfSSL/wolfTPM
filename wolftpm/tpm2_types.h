@@ -635,6 +635,9 @@ typedef int64_t  INT64;
 #ifndef MAX_TAGGED_POLICIES
 #define MAX_TAGGED_POLICIES (MAX_CAP_DATA / sizeof(TPMS_TAGGED_POLICY))
 #endif
+#ifndef MAX_ACT_DATA
+#define MAX_ACT_DATA  (MAX_CAP_DATA / sizeof(TPMS_ACT_DATA))
+#endif
 
 
 /* ---------------------------------------------------------------------------*/

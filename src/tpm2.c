@@ -879,6 +879,59 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
             TPM2_Packet_ParseU32(&packet, &out->capabilityData.capability);
 
             switch (out->capabilityData.capability) {
+                case TPM_CAP_ALGS:
+                {
+                    TPML_ALG_PROPERTY* algorithms =
+                        &out->capabilityData.data.algorithms;
+                    TPM2_Packet_ParseU32(&packet, &algorithms->count);
+                    for (i=0; i<(int)algorithms->count; i++) {
+                        TPM2_Packet_ParseU16(&packet,
+                            &algorithms->algProperties[i].alg);
+                        TPM2_Packet_ParseU32(&packet,
+                            &algorithms->algProperties[i].algProperties);
+                    }
+                    break;
+                }
+                case TPM_CAP_HANDLES:
+                {
+                    TPML_HANDLE* handles =
+                        &out->capabilityData.data.handles;
+                    TPM2_Packet_ParseU32(&packet, &handles->count);
+                    for (i=0; i<(int)handles->count; i++) {
+                        TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_COMMANDS:
+                {
+                    TPML_CCA* cmdAttribs =
+                        &out->capabilityData.data.command;
+                    TPM2_Packet_ParseU32(&packet, &cmdAttribs->count);
+                    for (i=0; i<(int)cmdAttribs->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &cmdAttribs->commandAttributes[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_PP_COMMANDS:
+                case TPM_CAP_AUDIT_COMMANDS:
+                {
+                    TPML_CC* cmdCodes =
+                        &out->capabilityData.data.ppCommands;
+                    TPM2_Packet_ParseU32(&packet, &cmdCodes->count);
+                    for (i=0; i<(int)cmdCodes->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &cmdCodes->commandCodes[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_PCRS:
+                {
+                    TPML_PCR_SELECTION* assignedPCR =
+                        &out->capabilityData.data.assignedPCR;
+                    TPM2_Packet_ParsePCR(&packet, assignedPCR);
+                    break;
+                }
                 case TPM_CAP_TPM_PROPERTIES:
                 {
                     TPML_TAGGED_TPM_PROPERTY* prop =
@@ -892,13 +945,56 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
-                case TPM_CAP_HANDLES:
+                case TPM_CAP_PCR_PROPERTIES:
                 {
-                    TPML_HANDLE* handles =
-                        &out->capabilityData.data.handles;
-                    TPM2_Packet_ParseU32(&packet, &handles->count);
-                    for (i=0; i<(int)handles->count; i++) {
-                        TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
+                    TPML_TAGGED_PCR_PROPERTY* pcrProp =
+                        &out->capabilityData.data.pcrProperties;
+                    TPM2_Packet_ParseU32(&packet, &pcrProp->count);
+                    break;
+                }
+                case TPM_CAP_ECC_CURVES:
+                {
+                    TPML_ECC_CURVE* eccCurves =
+                        &out->capabilityData.data.eccCurves;
+                    TPM2_Packet_ParseU32(&packet, &eccCurves->count);
+                    for (i=0; i<(int)eccCurves->count; i++) {
+                        TPM2_Packet_ParseU16(&packet,
+                            &eccCurves->eccCurves[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_AUTH_POLICIES:
+                {
+                    TPML_TAGGED_POLICY* authPol =
+                        &out->capabilityData.data.authPolicies;
+                    TPM2_Packet_ParseU32(&packet, &authPol->count);
+                    for (i=0; i<(int)authPol->count; i++) {
+                        int digSz;
+                        TPMS_TAGGED_POLICY* pol = &authPol->policies[i];
+                        TPM2_Packet_ParseU32(&packet, &pol->handle);
+                        TPM2_Packet_ParseU16(&packet, &pol->policyHash.hashAlg);
+                        digSz = (int)TPM2_GetHashDigestSize(
+                            pol->policyHash.hashAlg);
+                        if (digSz > (int)sizeof(pol->policyHash.digest)) {
+                            digSz = (int)sizeof(pol->policyHash.digest);
+                        }
+                        TPM2_Packet_ParseBytes(&packet,
+                            pol->policyHash.digest.H, digSz);
+                    }
+                    break;
+                }
+                case TPM_CAP_ACT:
+                {
+                    TPML_ACT_DATA* actData =
+                        &out->capabilityData.data.actData;
+                    TPM2_Packet_ParseU32(&packet, &actData->count);
+                    for (i=0; i<(int)actData->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].handle);
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].timeout);
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].attributes);
                     }
                     break;
                 }
@@ -914,12 +1010,6 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPM2_Packet_ParseBytes(&packet,
                         out->capabilityData.data.vendor.buffer,
                         out->capabilityData.data.vendor.size);
-                    break;
-                }
-                case TPM_CAP_PCRS:
-                {
-                    TPM2_Packet_ParsePCR(&packet,
-                        &out->capabilityData.data.assignedPCR);
                     break;
                 }
                 default:
