@@ -158,6 +158,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     } cmdOut;
 
     int pcrCount, pcrIndex, i;
+    TPML_PCR_SELECTION* pcrSel;
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE handle = TPM_RH_NULL;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
@@ -326,6 +327,31 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     printf("TPM2_GetCapability: Property FIRMWARE_VERSION_2 0x%08x\n",
         (unsigned int)tpmProp->tpmProperty[0].value);
 
+    /* Get Capability for PCR's */
+    XMEMSET(&cmdIn.cap, 0, sizeof(cmdIn.cap));
+    cmdIn.cap.capability = TPM_CAP_PCRS;
+    cmdIn.cap.property = 0;
+    cmdIn.cap.propertyCount = 1;
+    rc = TPM2_GetCapability(&cmdIn.cap, &cmdOut.cap);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
+    pcrSel = &cmdOut.cap.capabilityData.data.assignedPCR;
+    printf("Assigned PCR's:\n");
+    for (pcrCount=0; pcrCount < (int)pcrSel->count; pcrCount++) {
+        printf("\t%s: ", TPM2_GetAlgName(pcrSel->pcrSelections[pcrCount].hash));
+        for (pcrIndex=0;
+             pcrIndex<pcrSel->pcrSelections[pcrCount].sizeofSelect*8;
+             pcrIndex++) {
+            if ((pcrSel->pcrSelections[pcrCount].pcrSelect[pcrIndex/8] &
+                    ((1 << (pcrIndex % 8)))) != 0) {
+                printf(" %d", pcrIndex);
+            }
+        }
+        printf("\n");
+    }
 
     /* Random */
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)

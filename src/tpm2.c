@@ -916,6 +916,12 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                         out->capabilityData.data.vendor.size);
                     break;
                 }
+                case TPM_CAP_PCRS:
+                {
+                    TPM2_Packet_ParsePCR(&packet,
+                        &out->capabilityData.data.assignedPCR);
+                    break;
+                }
                 default:
             #ifdef DEBUG_WOLFTPM
                     printf("Unknown capability type 0x%x\n",
