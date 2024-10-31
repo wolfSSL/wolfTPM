@@ -5525,6 +5525,26 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
+TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    switch (hashType) {
+        case (int)WC_HASH_TYPE_SHA:
+            return TPM_ALG_SHA1;
+        case (int)WC_HASH_TYPE_SHA256:
+            return TPM_ALG_SHA256;
+        case (int)WC_HASH_TYPE_SHA384:
+            return TPM_ALG_SHA384;
+        case (int)WC_HASH_TYPE_SHA512:
+            return TPM_ALG_SHA512;
+        default:
+            break;
+    }
+#endif
+    (void)hashType;
+    return TPM_ALG_ERROR;
+}
+
 int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT

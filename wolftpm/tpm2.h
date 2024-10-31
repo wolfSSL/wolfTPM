@@ -3396,6 +3396,28 @@ WOLFTPM_API int TPM2_GetHashType(TPMI_ALG_HASH hashAlg);
 
 /*!
     \ingroup TPM2_Proprietary
+    \brief Translate a wolfCrypt hash type to TPM2 hash type
+
+    \return a TPM2 hash type (TPM_ALG_*)
+    \return TPM_ALG_ERROR when wolfCrypt hash type is invalid or not found
+
+    \param hashType a wolfCrypt hash type
+
+    _Example_
+    \code
+    int wc_hashType = WC_HASH_TYPE_SHA256;
+    TPMI_ALG_HASH hashAlg;
+
+    hashAlg = TPM2_GetHashDigestSize(wc_hashType);
+    if (hashAlg != TPM_ALG_ERROR) {
+        //hashAlg contains a valid TPM2 hash type
+    }
+    \endcode
+*/
+WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
+
+/*!
+    \ingroup TPM2_Proprietary
     \brief Generate a fresh nonce of random numbers
     \note Can use the TPM random number generator if WOLFTPM2_USE_HW_RNG is defined
 
