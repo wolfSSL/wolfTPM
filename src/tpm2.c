@@ -884,6 +884,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_ALG_PROPERTY* algorithms =
                         &out->capabilityData.data.algorithms;
                     TPM2_Packet_ParseU32(&packet, &algorithms->count);
+                    if (algorithms->count > MAX_CAP_ALGS)
+                        algorithms->count = MAX_CAP_ALGS;
                     for (i=0; i<(int)algorithms->count; i++) {
                         TPM2_Packet_ParseU16(&packet,
                             &algorithms->algProperties[i].alg);
@@ -897,6 +899,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_HANDLE* handles =
                         &out->capabilityData.data.handles;
                     TPM2_Packet_ParseU32(&packet, &handles->count);
+                    if (handles->count > MAX_CAP_HANDLES)
+                        handles->count = MAX_CAP_HANDLES;
                     for (i=0; i<(int)handles->count; i++) {
                         TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
                     }
@@ -907,6 +911,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_CCA* cmdAttribs =
                         &out->capabilityData.data.command;
                     TPM2_Packet_ParseU32(&packet, &cmdAttribs->count);
+                    if (cmdAttribs->count > MAX_CAP_CC)
+                        cmdAttribs->count = MAX_CAP_CC;
                     for (i=0; i<(int)cmdAttribs->count; i++) {
                         TPM2_Packet_ParseU32(&packet,
                             &cmdAttribs->commandAttributes[i]);
@@ -919,6 +925,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_CC* cmdCodes =
                         &out->capabilityData.data.ppCommands;
                     TPM2_Packet_ParseU32(&packet, &cmdCodes->count);
+                    if (cmdCodes->count > MAX_CAP_CC)
+                        cmdCodes->count = MAX_CAP_CC;
                     for (i=0; i<(int)cmdCodes->count; i++) {
                         TPM2_Packet_ParseU32(&packet,
                             &cmdCodes->commandCodes[i]);
@@ -937,6 +945,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_TAGGED_TPM_PROPERTY* prop =
                         &out->capabilityData.data.tpmProperties;
                     TPM2_Packet_ParseU32(&packet, &prop->count);
+                    if (prop->count > MAX_TPM_PROPERTIES)
+                        prop->count = MAX_TPM_PROPERTIES;
                     for (i=0; i<(int)prop->count; i++) {
                         TPM2_Packet_ParseU32(&packet,
                             &prop->tpmProperty[i].property);
@@ -950,6 +960,17 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_TAGGED_PCR_PROPERTY* pcrProp =
                         &out->capabilityData.data.pcrProperties;
                     TPM2_Packet_ParseU32(&packet, &pcrProp->count);
+                    if (pcrProp->count > MAX_PCR_PROPERTIES)
+                        pcrProp->count = MAX_PCR_PROPERTIES;
+                    for (i=0; i<(int)pcrProp->count; i++) {
+                        TPMS_TAGGED_PCR_SELECT* sel = &pcrProp->pcrProperty[i];
+                        TPM2_Packet_ParseU32(&packet, &sel->tag);
+                        TPM2_Packet_ParseU8(&packet, &sel->sizeofSelect);
+                        if (sel->sizeofSelect > PCR_SELECT_MAX)
+                            sel->sizeofSelect = PCR_SELECT_MAX;
+                        TPM2_Packet_ParseBytes(&packet, sel->pcrSelect,
+                            sel->sizeofSelect);
+                    }
                     break;
                 }
                 case TPM_CAP_ECC_CURVES:
@@ -957,6 +978,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_ECC_CURVE* eccCurves =
                         &out->capabilityData.data.eccCurves;
                     TPM2_Packet_ParseU32(&packet, &eccCurves->count);
+                    if (eccCurves->count > MAX_ECC_CURVES)
+                        eccCurves->count = MAX_ECC_CURVES;
                     for (i=0; i<(int)eccCurves->count; i++) {
                         TPM2_Packet_ParseU16(&packet,
                             &eccCurves->eccCurves[i]);
@@ -968,6 +991,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_TAGGED_POLICY* authPol =
                         &out->capabilityData.data.authPolicies;
                     TPM2_Packet_ParseU32(&packet, &authPol->count);
+                    if (authPol->count > MAX_TAGGED_POLICIES)
+                        authPol->count = MAX_TAGGED_POLICIES;
                     for (i=0; i<(int)authPol->count; i++) {
                         int digSz;
                         TPMS_TAGGED_POLICY* pol = &authPol->policies[i];
@@ -988,6 +1013,8 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_ACT_DATA* actData =
                         &out->capabilityData.data.actData;
                     TPM2_Packet_ParseU32(&packet, &actData->count);
+                    if (actData->count > MAX_ACT_DATA)
+                        actData->count = MAX_ACT_DATA;
                     for (i=0; i<(int)actData->count; i++) {
                         TPM2_Packet_ParseU32(&packet,
                             &actData->actData[i].handle);
