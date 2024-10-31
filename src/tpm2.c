@@ -879,16 +879,18 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
             TPM2_Packet_ParseU32(&packet, &out->capabilityData.capability);
 
             switch (out->capabilityData.capability) {
-                case TPM_CAP_TPM_PROPERTIES:
+                case TPM_CAP_ALGS:
                 {
-                    TPML_TAGGED_TPM_PROPERTY* prop =
-                        &out->capabilityData.data.tpmProperties;
-                    TPM2_Packet_ParseU32(&packet, &prop->count);
-                    for (i=0; i<(int)prop->count; i++) {
+                    TPML_ALG_PROPERTY* algorithms =
+                        &out->capabilityData.data.algorithms;
+                    TPM2_Packet_ParseU32(&packet, &algorithms->count);
+                    if (algorithms->count > MAX_CAP_ALGS)
+                        algorithms->count = MAX_CAP_ALGS;
+                    for (i=0; i<(int)algorithms->count; i++) {
+                        TPM2_Packet_ParseU16(&packet,
+                            &algorithms->algProperties[i].alg);
                         TPM2_Packet_ParseU32(&packet,
-                            &prop->tpmProperty[i].property);
-                        TPM2_Packet_ParseU32(&packet,
-                            &prop->tpmProperty[i].value);
+                            &algorithms->algProperties[i].algProperties);
                     }
                     break;
                 }
@@ -897,8 +899,129 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     TPML_HANDLE* handles =
                         &out->capabilityData.data.handles;
                     TPM2_Packet_ParseU32(&packet, &handles->count);
+                    if (handles->count > MAX_CAP_HANDLES)
+                        handles->count = MAX_CAP_HANDLES;
                     for (i=0; i<(int)handles->count; i++) {
                         TPM2_Packet_ParseU32(&packet, &handles->handle[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_COMMANDS:
+                {
+                    TPML_CCA* cmdAttribs =
+                        &out->capabilityData.data.command;
+                    TPM2_Packet_ParseU32(&packet, &cmdAttribs->count);
+                    if (cmdAttribs->count > MAX_CAP_CC)
+                        cmdAttribs->count = MAX_CAP_CC;
+                    for (i=0; i<(int)cmdAttribs->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &cmdAttribs->commandAttributes[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_PP_COMMANDS:
+                case TPM_CAP_AUDIT_COMMANDS:
+                {
+                    TPML_CC* cmdCodes =
+                        &out->capabilityData.data.ppCommands;
+                    TPM2_Packet_ParseU32(&packet, &cmdCodes->count);
+                    if (cmdCodes->count > MAX_CAP_CC)
+                        cmdCodes->count = MAX_CAP_CC;
+                    for (i=0; i<(int)cmdCodes->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &cmdCodes->commandCodes[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_PCRS:
+                {
+                    TPML_PCR_SELECTION* assignedPCR =
+                        &out->capabilityData.data.assignedPCR;
+                    TPM2_Packet_ParsePCR(&packet, assignedPCR);
+                    break;
+                }
+                case TPM_CAP_TPM_PROPERTIES:
+                {
+                    TPML_TAGGED_TPM_PROPERTY* prop =
+                        &out->capabilityData.data.tpmProperties;
+                    TPM2_Packet_ParseU32(&packet, &prop->count);
+                    if (prop->count > MAX_TPM_PROPERTIES)
+                        prop->count = MAX_TPM_PROPERTIES;
+                    for (i=0; i<(int)prop->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &prop->tpmProperty[i].property);
+                        TPM2_Packet_ParseU32(&packet,
+                            &prop->tpmProperty[i].value);
+                    }
+                    break;
+                }
+                case TPM_CAP_PCR_PROPERTIES:
+                {
+                    TPML_TAGGED_PCR_PROPERTY* pcrProp =
+                        &out->capabilityData.data.pcrProperties;
+                    TPM2_Packet_ParseU32(&packet, &pcrProp->count);
+                    if (pcrProp->count > MAX_PCR_PROPERTIES)
+                        pcrProp->count = MAX_PCR_PROPERTIES;
+                    for (i=0; i<(int)pcrProp->count; i++) {
+                        TPMS_TAGGED_PCR_SELECT* sel = &pcrProp->pcrProperty[i];
+                        TPM2_Packet_ParseU32(&packet, &sel->tag);
+                        TPM2_Packet_ParseU8(&packet, &sel->sizeofSelect);
+                        if (sel->sizeofSelect > PCR_SELECT_MAX)
+                            sel->sizeofSelect = PCR_SELECT_MAX;
+                        TPM2_Packet_ParseBytes(&packet, sel->pcrSelect,
+                            sel->sizeofSelect);
+                    }
+                    break;
+                }
+                case TPM_CAP_ECC_CURVES:
+                {
+                    TPML_ECC_CURVE* eccCurves =
+                        &out->capabilityData.data.eccCurves;
+                    TPM2_Packet_ParseU32(&packet, &eccCurves->count);
+                    if (eccCurves->count > MAX_ECC_CURVES)
+                        eccCurves->count = MAX_ECC_CURVES;
+                    for (i=0; i<(int)eccCurves->count; i++) {
+                        TPM2_Packet_ParseU16(&packet,
+                            &eccCurves->eccCurves[i]);
+                    }
+                    break;
+                }
+                case TPM_CAP_AUTH_POLICIES:
+                {
+                    TPML_TAGGED_POLICY* authPol =
+                        &out->capabilityData.data.authPolicies;
+                    TPM2_Packet_ParseU32(&packet, &authPol->count);
+                    if (authPol->count > MAX_TAGGED_POLICIES)
+                        authPol->count = MAX_TAGGED_POLICIES;
+                    for (i=0; i<(int)authPol->count; i++) {
+                        int digSz;
+                        TPMS_TAGGED_POLICY* pol = &authPol->policies[i];
+                        TPM2_Packet_ParseU32(&packet, &pol->handle);
+                        TPM2_Packet_ParseU16(&packet, &pol->policyHash.hashAlg);
+                        digSz = (int)TPM2_GetHashDigestSize(
+                            pol->policyHash.hashAlg);
+                        if (digSz > (int)sizeof(pol->policyHash.digest)) {
+                            digSz = (int)sizeof(pol->policyHash.digest);
+                        }
+                        TPM2_Packet_ParseBytes(&packet,
+                            pol->policyHash.digest.H, digSz);
+                    }
+                    break;
+                }
+                case TPM_CAP_ACT:
+                {
+                    TPML_ACT_DATA* actData =
+                        &out->capabilityData.data.actData;
+                    TPM2_Packet_ParseU32(&packet, &actData->count);
+                    if (actData->count > MAX_ACT_DATA)
+                        actData->count = MAX_ACT_DATA;
+                    for (i=0; i<(int)actData->count; i++) {
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].handle);
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].timeout);
+                        TPM2_Packet_ParseU32(&packet,
+                            &actData->actData[i].attributes);
                     }
                     break;
                 }

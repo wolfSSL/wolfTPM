@@ -45,7 +45,42 @@ static void usage(void)
 {
     printf("Expected Usage:\n");
     printf("./examples/wrap/caps\n");
+}
 
+static int TPM2_PCRs_Print(void)
+{
+    int rc;
+    int pcrCount, pcrIndex;
+    GetCapability_In  capIn;
+    GetCapability_Out capOut;
+    TPML_PCR_SELECTION* pcrSel;
+
+    /* List available PCR's */
+    XMEMSET(&capIn, 0, sizeof(capIn));
+    capIn.capability = TPM_CAP_PCRS;
+    capIn.property = 0;
+    capIn.propertyCount = 1;
+    rc = TPM2_GetCapability(&capIn, &capOut);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_GetCapability failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        return rc;
+    }
+    pcrSel = &capOut.capabilityData.data.assignedPCR;
+    printf("Assigned PCR's:\n");
+    for (pcrCount=0; pcrCount < (int)pcrSel->count; pcrCount++) {
+        printf("\t%s: ", TPM2_GetAlgName(pcrSel->pcrSelections[pcrCount].hash));
+        for (pcrIndex=0;
+             pcrIndex<pcrSel->pcrSelections[pcrCount].sizeofSelect*8;
+             pcrIndex++) {
+            if ((pcrSel->pcrSelections[pcrCount].pcrSelect[pcrIndex/8] &
+                    ((1 << (pcrIndex % 8)))) != 0) {
+                printf(" %d", pcrIndex);
+            }
+        }
+        printf("\n");
+    }
+    return 0;
 }
 
 int TPM2_Wrapper_Caps(void* userCtx)
@@ -90,6 +125,9 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
     if (rc >= 0) {
         printf("Found %d persistent handles\n", rc);
     }
+
+    /* Print the available PCR's */
+    TPM2_PCRs_Print();
 
 exit:
     wolfTPM2_Shutdown(&dev, 0); /* 0=just shutdown, no startup */

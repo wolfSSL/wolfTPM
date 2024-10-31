@@ -485,7 +485,9 @@ typedef enum {
     TPM_CAP_TPM_PROPERTIES  = 0x00000006,
     TPM_CAP_PCR_PROPERTIES  = 0x00000007,
     TPM_CAP_ECC_CURVES      = 0x00000008,
-    TPM_CAP_LAST            = TPM_CAP_ECC_CURVES,
+    TPM_CAP_AUTH_POLICIES   = 0x00000009,
+    TPM_CAP_ACT             = 0x0000000A,
+    TPM_CAP_LAST            = TPM_CAP_ACT,
 
     TPM_CAP_VENDOR_PROPERTY = 0x00000100,
 } TPM_CAP_T;
@@ -1010,6 +1012,24 @@ typedef struct TPML_TAGGED_POLICY {
     TPMS_TAGGED_POLICY policies[MAX_TAGGED_POLICIES];
 } TPML_TAGGED_POLICY;
 
+/* Authenticated Countdown Timers (ACT): Added v1.59 */
+typedef enum {
+    TPMA_ACT_signaled         = 0x00000001,
+    TPMA_ACT_preserveSignaled = 0x00000002,
+} TPMA_ACT_T;
+typedef UINT32 TPMA_ACT;
+
+typedef struct TPMS_ACT_DATA {
+    TPM_HANDLE handle;
+    UINT32     timeout;
+    TPMA_ACT   attributes;
+} TPMS_ACT_DATA;
+
+typedef struct TPML_ACT_DATA {
+    UINT32        count;
+    TPMS_ACT_DATA actData[MAX_ACT_DATA];
+} TPML_ACT_DATA;
+
 
 /* Capabilities Structures */
 
@@ -1024,6 +1044,7 @@ typedef union TPMU_CAPABILITIES {
     TPML_TAGGED_PCR_PROPERTY pcrProperties; /* TPM_CAP_PCR_PROPERTIES */
     TPML_ECC_CURVE eccCurves; /* TPM_CAP_ECC_CURVES */
     TPML_TAGGED_POLICY authPolicies; /* TPM_CAP_AUTH_POLICIES */
+    TPML_ACT_DATA actData; /* TPM_CAP_ACT - added v1.57 */
     TPM2B_MAX_BUFFER vendor;
 } TPMU_CAPABILITIES;
 

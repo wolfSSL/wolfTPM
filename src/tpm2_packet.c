@@ -425,9 +425,13 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
 {
     int i;
     TPM2_Packet_ParseU32(packet, &pcr->count);
+    if (pcr->count > HASH_COUNT)
+        pcr->count = HASH_COUNT;
     for (i=0; i<(int)pcr->count; i++) {
         TPM2_Packet_ParseU16(packet, &pcr->pcrSelections[i].hash);
         TPM2_Packet_ParseU8(packet, &pcr->pcrSelections[i].sizeofSelect);
+        if (pcr->pcrSelections[i].sizeofSelect > PCR_SELECT_MIN)
+            pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MIN;
         TPM2_Packet_ParseBytes(packet,
             pcr->pcrSelections[i].pcrSelect,
             pcr->pcrSelections[i].sizeofSelect);
