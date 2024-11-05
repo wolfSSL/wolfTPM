@@ -1,5 +1,41 @@
 # Release Notes
 
+## wolfTPM Release 3.6.0 (Nov 5, 2024)
+
+**Summary**
+
+Release includes minor bug fixes and new features such as TPM provisioning of IDevID/IAK, improved capabilities parsing, new TPM2_Certify example, new wolfTPM2_CreatePrimaryKey_ex API for creation ticket and tested support with Nations NS350 TPM.
+
+**Detail**
+
+* Fixed issue with `TPM2_SetupPCRSel` and added test cases. (PR #372)
+* Fixed `RC_WARN` error codes (broken in commit f983525f56c245a8bc998bb20f1f6a8cc7ec748f). (PR #378)
+* Fixed issue with RSA/ECC symmetric field (should only be populated with restricted/decrypt) (PR #375)
+* Fixed examples/keygen/keygen `-sym=` argument. (PR #372)
+* Fixed building wolfCrypt/wolfTPM without ECC or RSA and added tests. (PR #371)
+* Fixed file descriptor check for `/dev/tpm0` (PR #366)
+* Fixed STM32 GPIO SPI CS control to use pin number as bit offset, not direct value (PR #380)
+* Fixed issues building with no filesystem. (PR #374)
+* Added support for parsing all capabilities from (TPM2_GetCapability) (PR #383)
+* Added support for creation of IDevID or IAK with `examples/keygen/create_primary`. (PR #369)
+* Added support for Nations NS350. (PR #382)
+* Added example for `TPM2_Certify` (see examples/attestation/certify) (PR #369)
+* Added new `wolfTPM2_CreatePrimaryKey_ex` and `WOLFTPM2_PKEY` that supports returning creation ticket/hash. (PR #369)
+* Added key templates for initial device (IDevID) and attestation keys (IAK). (PR #369)
+* Added new build option for TPM provisioning (`--enable-provisioning` on by default). (PR #369)
+* Added simple capabilities example (`examples/wrap/caps`) (PR #382)
+* Added example to manual verify quote with ECC signature. (PR #379)
+* Added tests for policy seal/unseal with multiple PCR's. (PR #377)
+* Added `-alg` argument for PCR extend (PR #383)
+* Added helper to get wolfCrypt hash type `TPM2_GetTpmHashType` (PR #384)
+* Added new policy hash helper API `wolfTPM2_PolicyHash` (PR #369)
+* Added documentation for `/dev/tpm0` permissions (PR #366)
+* Improved the TPM TLS examples for use with `WOLFTPM_MFG_IDENTITY` (PR #376)
+* Moved PTHREAD definition from options.h to config.h (avoids possible re-declaration issue) PR (#381)
+* Switched `handle`/`nvIndex` string parsing to use `strtoul`.	(PR #369)
+* Various spelling and documentation cleanups. (PR #366 / PR #373)
+
+
 ## wolfTPM Release 3.4.0 (July 30, 2024)
 
 **Summary**
