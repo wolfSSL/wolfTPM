@@ -155,7 +155,6 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     if (filename && fp != XBADFILE) {
         rc = TPM2_GetHashType(alg);
         hashType = (enum wc_HashType)rc;
-        rc = 0;
         wc_HashInit(&dig, hashType);
         while (!XFEOF(fp)) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);

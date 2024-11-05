@@ -184,7 +184,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 #endif
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        void* bindKey = &storage;
+        WOLFTPM2_KEY* bindKey = &storage;
     #ifndef HAVE_ECC
         if (alg == TPM_ALG_ECC)
             bindKey = NULL; /* cannot bind to key without ECC enabled */

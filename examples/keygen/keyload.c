@@ -159,7 +159,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
     else if (paramEncAlg != TPM_ALG_NULL) {
-        void* bindKey = &storage;
+        WOLFTPM2_KEY* bindKey = &storage;
     #ifndef HAVE_ECC
         if (srkAlg == TPM_ALG_ECC)
             bindKey = NULL; /* cannot bind to key without ECC enabled */

@@ -267,7 +267,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
-        void* bindKey = &storageKey;
+        WOLFTPM2_KEY* bindKey = &storageKey;
     #ifdef NO_RSA
         bindKey = NULL; /* cannot bind to key without RSA enabled */
     #endif
@@ -547,7 +547,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Start an authenticated session (salted / unbound) with parameter encryption */
     if (paramEncAlg != TPM_ALG_NULL) {
-        void* bindKey = &storageKey;
+        WOLFTPM2_KEY* bindKey = &storageKey;
     #ifndef HAVE_ECC
         bindKey = NULL; /* cannot bind to key without ECC enabled */
     #endif
