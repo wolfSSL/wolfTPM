@@ -269,7 +269,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        void* bindKey = &storageKey;
+        WOLFTPM2_KEY* bindKey = &storageKey;
     #ifdef NO_RSA
         bindKey = NULL; /* cannot bind to key without RSA enabled */
     #endif

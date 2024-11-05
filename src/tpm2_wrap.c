@@ -2216,7 +2216,8 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
                 ivField.size == 0 ? NULL : ivField.buffer, AES_ENCRYPTION);
             if (rc == 0) {
                 /* use inline encryption for both IV and sensitive */
-                rc = wc_AesCfbEncrypt(&enc, sensitiveData, sensitiveData, sensSz);
+                rc = wc_AesCfbEncrypt(&enc, sensitiveData, sensitiveData,
+                    sensSz);
             }
             wc_AesFree(&enc);
         }
@@ -2272,6 +2273,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         (void)sensitiveData;
         (void)name;
         (void)symKey;
+        (void)sensSz;
         rc = NOT_COMPILED_IN;
     #endif
     }
