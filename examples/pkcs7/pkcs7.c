@@ -97,7 +97,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
     int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
-    PKCS7 pkcs7;
+    wc_PKCS7 pkcs7;
     wc_HashAlg       hash;
     byte             hashBuf[TPM_MAX_DIGEST_SIZE];
     word32           hashSz;
@@ -247,7 +247,7 @@ static int PKCS7_SignVerify(WOLFTPM2_DEV* dev, int tpmDevId,
     int alg, enum wc_HashType hashType, const char* outFile)
 {
     int rc;
-    PKCS7 pkcs7;
+    wc_PKCS7 pkcs7;
     byte  data[] = "My encoded DER cert.";
     byte output[MAX_PKCS7_SIZE];
     int outputSz;
