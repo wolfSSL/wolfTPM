@@ -221,13 +221,14 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     }
 
     if (endorseKey) {
-        /* endorsement is always RSA */
+        /* endorsement key (EK) */
         rc = wolfTPM2_CreateEK(&dev, &endorse, srkAlg);
         endorse.handle.policyAuth = 1; /* EK requires Policy auth, not Password */
         pubFilename = ekPubFile;
         primary = &endorse;
     }
     else {
+        /* storage root key (SRK) */
         rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         pubFilename = srkPubFile;
         primary = &storage;

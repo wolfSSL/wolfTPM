@@ -138,13 +138,14 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     printf("Loading %s key\n", TPM2_GetAlgName(alg));
 
     if (endorseKey) {
-        /* endorsement is always RSA */
+        /* endorsement key (EK) */
         rc = wolfTPM2_CreateEK(&dev, &endorse, srkAlg);
         if (rc != 0) goto exit;
         endorse.handle.policyAuth = 1;
         primary = &endorse;
     }
     else {
+        /* storage root key (SRK) */
         rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         if (rc != 0) goto exit;
         primary = &storage;
