@@ -2127,11 +2127,11 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     int integritySz = 0;
     int ivSz = 0;
     int sensSz = 0;
-    BYTE* sensitiveData = NULL;
-    TPM2B_SYM_KEY symKey;
     TPM2B_IV ivField;
     TPM2_Packet packet;
 #ifdef WOLFTPM2_PRIVATE_IMPORT
+    BYTE* sensitiveData = NULL;
+    TPM2B_SYM_KEY symKey;
     TPM2B_DIGEST hmacKey;
     Aes enc;
     Hmac hmac_ctx;
@@ -2144,12 +2144,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     /* if using a parent then use it's integrity algorithm */
     if (parentKey != NULL) {
         nameAlg = parentKey->pub.publicArea.nameAlg;
-        symKey.size = parentKey->handle.symmetric.keyBits.sym;
     }
-    else {
-        symKey.size = sym->keyBits.sym;
-    }
-
     digestSz = TPM2_GetHashDigestSize(nameAlg);
     if (digestSz == 0) {
     #ifdef DEBUG_WOLFTPM
@@ -2188,9 +2183,23 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     TPM2_Packet_AppendSensitive(&packet, sens);
     sensSz = packet.pos;
     priv->size = integritySz + ivSz + sensSz;
-
-    sensitiveData = &priv->buffer[integritySz];
     sensSz = ivSz + sensSz;
+
+#ifdef WOLFTPM2_PRIVATE_IMPORT
+    sensitiveData = &priv->buffer[integritySz];
+    if (parentKey != NULL) {
+        symKey.size = parentKey->handle.symmetric.keyBits.sym;
+    }
+    else {
+        symKey.size = sym->keyBits.sym;
+    }
+    /* convert from bit to byte and round up */
+    symKey.size = (symKey.size + 7) / 8;
+    /* check for invalid value */
+    if (symKey.size > sizeof(symKey.buffer)) {
+        return BUFFER_E;
+    }
+#endif
 
     if (innerWrap) {
         /* TODO: Inner wrap support */
@@ -2199,7 +2208,6 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     if (outerWrap) {
     #ifdef WOLFTPM2_PRIVATE_IMPORT
         /* Generate symmetric key for encryption of inner values */
-        symKey.size = (symKey.size + 7) / 8; /* convert to byte and round up */
         rc = TPM2_KDFa(nameAlg, symSeed, "STORAGE", (TPM2B_NONCE*)name,
             NULL, symKey.buffer, symKey.size);
         if (rc != symKey.size) {
@@ -2213,7 +2221,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
         if (rc == 0) {
             rc = wc_AesSetKey(&enc, symKey.buffer, symKey.size,
-                ivField.size == 0 ? NULL : ivField.buffer, AES_ENCRYPTION);
+                ivField.buffer, AES_ENCRYPTION);
             if (rc == 0) {
                 /* use inline encryption for both IV and sensitive */
                 rc = wc_AesCfbEncrypt(&enc, sensitiveData, sensitiveData,
@@ -2270,9 +2278,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         digestSz = TPM2_Packet_SwapU16(digestSz);
         XMEMCPY(&priv->buffer[0], &digestSz, sizeof(word16));
     #else
-        (void)sensitiveData;
         (void)name;
-        (void)symKey;
         (void)sensSz;
         rc = NOT_COMPILED_IN;
     #endif
@@ -5258,7 +5264,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
         return BUFFER_E;
     }
 
-    hashAlg = (keySz == 32) ? TPM_ALG_SHA256 : TPM_ALG_SHA1;
+    hashAlg = WOLFTPM2_WRAP_DIGEST;
     hashAlgDigSz = TPM2_GetHashDigestSize(hashAlg);
 
     /* Setup load command */

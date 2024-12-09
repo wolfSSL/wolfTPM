@@ -299,7 +299,8 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     /* Perform AES CFB Encryption */
     rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
     if (rc == 0) {
-        rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz], AES_ENCRYPTION);
+        rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz],
+            AES_ENCRYPTION);
         if (rc == 0) {
             rc = wc_AesCfbEncrypt(&enc, paramData, paramData, paramSz);
         }
@@ -315,7 +316,7 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     UINT32 paramSz)
 {
     int rc = TPM_RC_FAILURE;
-    BYTE symKey[32 + 16];	/* AES key 128-bit + IV (block size) */
+    BYTE symKey[32 + 16];    /* AES key 128-bit + IV (block size) */
     int symKeySz = session->symmetric.keyBits.aes / 8;
     const int symKeyIvSz = 16;
     Aes dec;
@@ -344,7 +345,8 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* keyIn,
     /* Perform AES CFB Decryption */
     rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
     if (rc == 0) {
-        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz], AES_ENCRYPTION);
+        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz],
+            AES_ENCRYPTION);
         if (rc == 0) {
             rc = wc_AesCfbDecrypt(&dec, paramData, paramData, paramSz);
         }
@@ -392,21 +394,21 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
         if (rc == 0 && name1 && name1->size > 0) {
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Name 0: %d\n", name1->size);
-    		TPM2_PrintBin(name1->name, name1->size);
+            TPM2_PrintBin(name1->name, name1->size);
         #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name1->name, name1->size);
         }
         if (rc == 0 && name2 && name2->size > 0) {
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Name 1: %d\n", name2->size);
-    		TPM2_PrintBin(name2->name, name2->size);
+            TPM2_PrintBin(name2->name, name2->size);
         #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name2->name, name2->size);
         }
         if (rc == 0 && name3 && name3->size > 0) {
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Name 2: %d\n", name3->size);
-    		TPM2_PrintBin(name3->name, name3->size);
+            TPM2_PrintBin(name3->name, name3->size);
         #endif
             rc = wc_HashUpdate(&hash_ctx, hashType, name3->name, name3->size);
         }
