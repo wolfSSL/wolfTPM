@@ -4498,13 +4498,16 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
         maxSize, auth, authSz);
 }
 
-int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
-    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset, int extend)
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
-    NV_Write_In in;
+    union {
+        NV_Write_In write;
+        NV_Extend_In extend;
+    } in;
 
     if (dev == NULL || nv == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
@@ -4541,29 +4544,34 @@ int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("Setting NV index name failed\n");
+            printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
         #endif
             rc = TPM_RC_FAILURE;
             break;
         }
 
         XMEMSET(&in, 0, sizeof(in));
-        in.authHandle = nv->handle.hndl;
-        in.nvIndex = nvIndex;
-        in.offset = offset+pos;
-        in.data.size = towrite;
+        in.write.authHandle = nv->handle.hndl;
+        in.write.nvIndex = nvIndex;
+        in.write.data.size = towrite;
         if (dataBuf)
-            XMEMCPY(in.data.buffer, &dataBuf[pos], towrite);
-
-        rc = TPM2_NV_Write(&in);
+            XMEMCPY(in.write.data.buffer, &dataBuf[pos], towrite);
+        if (!extend) {
+            in.write.offset = offset+pos;
+            rc = TPM2_NV_Write(&in.write);
+        }
+        else {
+            rc = TPM2_NV_Extend(&in.extend);
+        }
         if (rc != TPM_RC_SUCCESS) {
             break;
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_Write: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
-            (word32)in.authHandle, (word32)in.nvIndex,
-            in.offset, in.data.size);
+        printf("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
+            "Extend %d\n",
+            (word32)in.write.authHandle, (word32)in.write.nvIndex,
+            in.write.offset, in.write.data.size, extend);
     #endif
 
         pos += towrite;
@@ -4572,18 +4580,34 @@ int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_Write failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("wolfTPM2_NVWriteData failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
     }
 #endif
 
     return rc;
 }
 
+int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz)
+{
+    return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, dataSz, 0, 1);
+}
+
+int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+{
+    return wolfTPM2_NVWriteData(dev, tpmSession, pcrAlg, pcrArray, pcrArraySz,
+        nv, nvIndex, dataBuf, dataSz, offset, 0);
+}
+
 int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
-    return wolfTPM2_NVWriteAuthPolicy(dev, NULL, TPM_ALG_NULL, NULL, 0,
-        nv, nvIndex, dataBuf, dataSz, offset);
+    return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, dataSz, offset, 0);
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVWriteAuth */
@@ -4789,6 +4813,7 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
 
     /* flag that the NV was "opened" and name was loaded */
     nv->handle.nameLoaded = 1;
+    nv->attributes = nvPublic.attributes;
 
     return rc;
 }
