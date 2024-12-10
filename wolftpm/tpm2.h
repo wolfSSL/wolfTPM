@@ -1552,7 +1552,7 @@ typedef UINT32 TPMA_NV;
 #define TPMA_NV_OWNERWRITE     0x00000002UL
 #define TPMA_NV_AUTHWRITE      0x00000004UL
 #define TPMA_NV_POLICYWRITE    0x00000008UL
-#define TPMA_NV_TPM_NT         0x000000F0UL
+#define TPMA_NV_TPM_NT         0x000000F0UL /* index type see TPM_NT_ */
 #define TPMA_NV_POLICY_DELETE  0x00000400UL
 #define TPMA_NV_WRITELOCKED    0x00000800UL
 #define TPMA_NV_WRITEALL       0x00001000UL
@@ -1654,6 +1654,7 @@ typedef struct TPM2_AUTH_SESSION {
     TPMI_ALG_HASH authHash;
     TPM2B_NAME name;
     TPM2B_AUTH auth;
+    TPM2B_AUTH* bind;
 
     unsigned int policyAuth : 1; /* if policy auth should be used */
     unsigned int policyPass : 1;

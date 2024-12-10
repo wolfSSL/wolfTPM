@@ -1066,6 +1066,9 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         session->policyAuth = tpmSession->handle.policyAuth;
         session->policyPass = tpmSession->handle.policyPass;
 
+        /* Capture pointer to bind */
+        session->bind = tpmSession->bind;
+
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
         XMEMCPY(&session->symmetric, &tpmSession->handle.symmetric,
@@ -1536,7 +1539,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     int rc;
     StartAuthSession_In  authSesIn;
     StartAuthSession_Out authSesOut;
-    TPM2B_AUTH* bindAuth = NULL;
     TPM2B_DATA keyIn;
     TPMI_ALG_HASH authHash = WOLFTPM2_WRAP_DIGEST;
     int hashDigestSz;
@@ -1556,7 +1558,8 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* set session auth for key */
     if (tpmKey) {
         TPMA_SESSION sessionAttributes = 0;
-        if (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR) {
+        if (bind != NULL &&
+            (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR)) {
             /* if parameter encryption is enabled and key bind set, enable
              * encrypt/decrypt by default */
             sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
@@ -1573,7 +1576,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     authSesIn.bind = (TPMI_DH_ENTITY)TPM_RH_NULL;
     if (bind) {
         authSesIn.bind = bind->hndl;
-        bindAuth = &bind->auth;
     }
 
     authSesIn.sessionType = sesType;
@@ -1632,9 +1634,10 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* Calculate "key" and store into auth */
     /* key is bindAuthValue || salt */
     XMEMSET(&keyIn, 0, sizeof(keyIn));
-    if (bindAuth && bindAuth->size > 0) {
-        XMEMCPY(&keyIn.buffer[keyIn.size], bindAuth->buffer, bindAuth->size);
-        keyIn.size += bindAuth->size;
+    if (bind && bind->auth.size > 0) {
+        XMEMCPY(&keyIn.buffer[keyIn.size], bind->auth.buffer,
+            bind->auth.size);
+        keyIn.size += bind->auth.size;
     }
     if (session->salt.size > 0) {
         XMEMCPY(&keyIn.buffer[keyIn.size], session->salt.buffer,
@@ -1667,6 +1670,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     session->handle.hndl = authSesOut.sessionHandle;
     wolfTPM2_CopySymmetric(&session->handle.symmetric, &authSesIn.symmetric);
     if (bind) {
+        session->bind = &bind->auth; /* pointer to bind key auth */
         wolfTPM2_CopyName(&session->handle.name, &bind->name);
     }
     session->nonceCaller.size = authSesIn.nonceCaller.size;
@@ -4498,13 +4502,16 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
         maxSize, auth, authSz);
 }
 
-int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
-    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset, int extend)
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
-    NV_Write_In in;
+    union {
+        NV_Write_In write;
+        NV_Extend_In extend;
+    } in;
 
     if (dev == NULL || nv == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
@@ -4541,29 +4548,34 @@ int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("Setting NV index name failed\n");
+            printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
         #endif
             rc = TPM_RC_FAILURE;
             break;
         }
 
         XMEMSET(&in, 0, sizeof(in));
-        in.authHandle = nv->handle.hndl;
-        in.nvIndex = nvIndex;
-        in.offset = offset+pos;
-        in.data.size = towrite;
+        in.write.authHandle = nv->handle.hndl;
+        in.write.nvIndex = nvIndex;
+        in.write.data.size = towrite;
         if (dataBuf)
-            XMEMCPY(in.data.buffer, &dataBuf[pos], towrite);
-
-        rc = TPM2_NV_Write(&in);
+            XMEMCPY(in.write.data.buffer, &dataBuf[pos], towrite);
+        if (!extend) {
+            in.write.offset = offset+pos;
+            rc = TPM2_NV_Write(&in.write);
+        }
+        else {
+            rc = TPM2_NV_Extend(&in.extend);
+        }
         if (rc != TPM_RC_SUCCESS) {
             break;
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_Write: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
-            (word32)in.authHandle, (word32)in.nvIndex,
-            in.offset, in.data.size);
+        printf("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
+            "Extend %d\n",
+            (word32)in.write.authHandle, (word32)in.write.nvIndex,
+            in.write.offset, in.write.data.size, extend);
     #endif
 
         pos += towrite;
@@ -4572,18 +4584,34 @@ int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_Write failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("wolfTPM2_NVWriteData failed %d: %s\n",
+            rc, wolfTPM2_GetRCString(rc));
     }
 #endif
 
     return rc;
 }
 
+int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz)
+{
+    return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, dataSz, 0, 1);
+}
+
+int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
+{
+    return wolfTPM2_NVWriteData(dev, tpmSession, pcrAlg, pcrArray, pcrArraySz,
+        nv, nvIndex, dataBuf, dataSz, offset, 0);
+}
+
 int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
-    return wolfTPM2_NVWriteAuthPolicy(dev, NULL, TPM_ALG_NULL, NULL, 0,
-        nv, nvIndex, dataBuf, dataSz, offset);
+    return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
+        nv, nvIndex, dataBuf, dataSz, offset, 0);
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVWriteAuth */
@@ -4789,6 +4817,7 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
 
     /* flag that the NV was "opened" and name was loaded */
     nv->handle.nameLoaded = 1;
+    nv->attributes = nvPublic.attributes;
 
     return rc;
 }
