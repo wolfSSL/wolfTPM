@@ -2818,6 +2818,8 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     rc = wc_InitRsaKey(key, NULL);
     if (rc == 0) {
         idx = 0;
+        /* skip PKCS8 header */
+        (void)wc_GetPkcs8TraditionalOffset((byte*)der, &idx, derSz);
         rc = wc_RsaPrivateKeyDecode(der, &idx, key, derSz);
         if (rc == 0) {
             isPrivateKey = 1;
@@ -3033,7 +3035,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
             /* load public portion of key into wolf RSA Key */
             rc = wolfTPM2_RsaKey_TpmToWolf(dev, tpmKey, &key.rsa);
             if (rc == 0) {
-                rc = wc_RsaKeyToPublicDer_ex(&key.rsa, out, *outSz, 1);
+                rc = wc_RsaKeyToPublicDer(&key.rsa, out, *outSz);
                 if (rc > 0) {
                     derSz = rc;
                     rc = 0;
@@ -6836,15 +6838,19 @@ static int CSR_Parse_DN(CertName* name, const char* subject)
         {"/CN=",     OFFSETOF(CertName, commonName)}, /* Common Name */
         {"/C=",      OFFSETOF(CertName, country)},    /* Country */
         {"/ST=",     OFFSETOF(CertName, state)},      /* State */
-        {"/street=", OFFSETOF(CertName, street)},     /* Street */
         {"/L=",      OFFSETOF(CertName, locality)},   /* Locality */
         {"/SN=",     OFFSETOF(CertName, sur)},        /* Surname */
         {"/O=",      OFFSETOF(CertName, org)},        /* Organization */
         {"/OU=",     OFFSETOF(CertName, unit)},       /* Organization Unit */
-        {"/postalCode=",   OFFSETOF(CertName, postalCode)}, /* PostalCode */
-        {"/userid=",       OFFSETOF(CertName, userId)},     /* UserID */
         {"/serialNumber=", OFFSETOF(CertName, serialDev)},  /* Serial Number */
         {"/emailAddress=", OFFSETOF(CertName, email)},      /* Email Address */
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX > 0x05000000
+        {"/street=", OFFSETOF(CertName, street)},     /* Street */
+        {"/postalCode=",   OFFSETOF(CertName, postalCode)}, /* PostalCode */
+    #endif
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX > 0x05003000
+        {"/userid=",       OFFSETOF(CertName, userId)},     /* UserID */
+    #endif
     #ifdef WOLFSSL_CERT_EXT
         {"/businessCategory=", OFFSETOF(CertName, busCat)}, /* Business Category */
     #endif
@@ -6916,7 +6922,7 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     }
 
     /* Optionally convert to PEM */
-    if (rc >= 0 && outFormat == CTC_FILETYPE_PEM) {
+    if (rc >= 0 && outFormat == ENCODING_TYPE_PEM) {
     #ifdef WOLFSSL_DER_TO_PEM
         byte tmp[MAX_CONTEXT_SIZE];
         if (rc > (int)sizeof(tmp)) {

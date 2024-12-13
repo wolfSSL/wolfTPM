@@ -125,6 +125,17 @@ typedef int64_t  INT64;
     #define ENCODING_TYPE_PEM  1 /* CTC_FILETYPE_PEM */
     #define ENCODING_TYPE_ASN1 2 /* CTC_FILETYPE_ASN1 */
 
+    #ifndef WOLFSSL_HAVE_ECC_KEY_GET_PRIV
+        #define wc_ecc_key_get_priv(key) (&((key)->k))
+        #define WOLFSSL_HAVE_ECC_KEY_GET_PRIV
+    #endif
+
+    #ifndef PRIVATE_KEY_LOCK
+    #define PRIVATE_KEY_LOCK() do {} while (0)
+    #endif
+    #ifndef PRIVATE_KEY_UNLOCK
+    #define PRIVATE_KEY_UNLOCK() do {} while (0)
+    #endif
 #else
 
     #include <stdio.h>
@@ -172,14 +183,6 @@ typedef int64_t  INT64;
         #define LITTLE_ENDIAN_ORDER
     #endif
 
-    #ifndef OFFSETOF
-        #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ >= 4))
-            #define OFFSETOF(type, field) __builtin_offsetof(type, field)
-        #else
-            #define OFFSETOF(type, field) ((size_t)&(((type *)0)->field))
-        #endif
-    #endif
-
     /* GCC Version */
     #ifndef __GNUC_PREREQ
         #if defined(__GNUC__) && defined(__GNUC_MINOR__)
@@ -222,6 +225,14 @@ typedef int64_t  INT64;
     #endif
 
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+#ifndef OFFSETOF
+    #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ >= 4))
+        #define OFFSETOF(type, field) __builtin_offsetof(type, field)
+    #else
+        #define OFFSETOF(type, field) ((size_t)&(((type *)0)->field))
+    #endif
+#endif
 
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>

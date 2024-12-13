@@ -13,6 +13,9 @@ fi
 if [ -z "$NO_FILESYSTEM" ]; then
     NO_FILESYSTEM=0
 fi
+if [ -z "$NO_PUBASPRIV" ]; then
+    NO_PUBASPRIV=0
+fi
 if [ -z "$WOLFCRYPT_DEFAULT" ]; then
     WOLFCRYPT_DEFAULT=0
 fi
@@ -337,7 +340,7 @@ fi
 
 # PKCS7 Tests
 echo -e "PKCS7 tests"
-if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ] && [ $NO_PUBASPRIV -eq 0 ]; then
     ./examples/pkcs7/pkcs7 >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "pkcs7 failed! $RESULT" && exit 1
@@ -400,10 +403,12 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_client "rsa" "" "4"
         run_tpm_tls_client "rsa" "-aes" "4"
 
-        run_tpm_tls_server "rsa" "" "3"
-        run_tpm_tls_server "rsa" "-aes" "3"
-        run_tpm_tls_server "rsa" "" "4"
-        run_tpm_tls_server "rsa" "-aes" "4"
+        if [ $NO_PUBASPRIV -eq 0 ]; then
+            run_tpm_tls_server "rsa" "" "3"
+            run_tpm_tls_server "rsa" "-aes" "3"
+            run_tpm_tls_server "rsa" "" "4"
+            run_tpm_tls_server "rsa" "-aes" "4"
+        fi
 
         # TLS client/server ECC TLS v1.2 and v1.3 PK callbacks
         run_tpm_tls_client "rsa" "-pk" "3"
@@ -411,11 +416,12 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_client "rsa" "-pk" "4"
         run_tpm_tls_client "rsa" "-pk -aes" "4"
 
-        run_tpm_tls_server "rsa" "-pk " "3"
-        run_tpm_tls_server "rsa" "-pk -aes" "3"
-        run_tpm_tls_server "rsa" "-pk " "4"
-        run_tpm_tls_server "rsa" "-pk -aes" "4"
-
+        if [ $NO_PUBASPRIV -eq 0 ]; then
+            run_tpm_tls_server "rsa" "-pk " "3"
+            run_tpm_tls_server "rsa" "-pk -aes" "3"
+            run_tpm_tls_server "rsa" "-pk " "4"
+            run_tpm_tls_server "rsa" "-pk -aes" "4"
+        fi
     fi
     if [ $WOLFCRYPT_ECC -eq 1 ]; then
         # TLS client/server ECC TLS v1.2 and v1.3 Crypto callbacks
@@ -424,10 +430,12 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_client "ecc" "" "4"
         run_tpm_tls_client "ecc" "-aes" "4"
 
-        run_tpm_tls_server "ecc" "" "3"
-        run_tpm_tls_server "ecc" "-aes" "3"
-        run_tpm_tls_server "ecc" "" "4"
-        run_tpm_tls_server "ecc" "-aes" "4"
+        if [ $NO_PUBASPRIV -eq 0 ]; then
+            run_tpm_tls_server "ecc" "" "3"
+            run_tpm_tls_server "ecc" "-aes" "3"
+            run_tpm_tls_server "ecc" "" "4"
+            run_tpm_tls_server "ecc" "-aes" "4"
+        fi
 
         # TLS client/server ECC TLS v1.2 and v1.3 PK callbacks
         run_tpm_tls_client "ecc" "-pk" "3"
@@ -435,10 +443,12 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
         run_tpm_tls_client "ecc" "-pk" "4"
         run_tpm_tls_client "ecc" "-pk -aes" "4"
 
-        run_tpm_tls_server "ecc" "-pk" "3"
-        run_tpm_tls_server "ecc" "-pk -aes" "3"
-        run_tpm_tls_server "ecc" "-pk" "4"
-        run_tpm_tls_server "ecc" "-pk -aes" "4"
+        if [ $NO_PUBASPRIV -eq 0 ]; then
+            run_tpm_tls_server "ecc" "-pk" "3"
+            run_tpm_tls_server "ecc" "-pk -aes" "3"
+            run_tpm_tls_server "ecc" "-pk" "4"
+            run_tpm_tls_server "ecc" "-pk -aes" "4"
+        fi
     fi
 fi
 
