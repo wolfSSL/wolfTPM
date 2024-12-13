@@ -218,11 +218,12 @@ jobs:
       # Old wolfSSL before PR #5075 does not support using a public key in place of private key with
       # crypto callbacks enabled.
       # To use PKCS7 or TLS Server a dummy private key must be used for older wolfSSL versions.
+      # Use newer wolfSSL TLS client/server to resolve test certificate expirations
       run: |
         ./configure --enable-swtpm
         make
         make check
-        WOLFSSL_PATH=./wolfssl-old NO_PUBASPRIV=1 ./examples/run_examples.sh
+        WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh
 
 # capture logs on failure
     - name: Upload failure logs
