@@ -203,14 +203,18 @@ jobs:
         WOLFSSL_PATH=./wolfssl NO_FILESYSTEM=1 ./examples/run_examples.sh
 
 # test with older wolfCrypt (v4.7.0)
-    - name: wolfssl old v4.7.0
+    - uses: actions/checkout@master
+      with:
+        repository: wolfssl/wolfssl
+        path: wolfssl-old
+        ref: v4.7.0-stable
+    - name: wolfssl old
       working-directory: ./wolfssl
       run: |
-        git checkout v4.7.0-stable
         ./configure --enable-wolftpm CFLAGS="-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN"
         make
         sudo make install
-    - name: wolftpm old wolfssl
+    - name: wolftpm with old wolfssl
       # Old wolfSSL before PR #5075 does not support using a public key in place of private key with
       # crypto callbacks enabled.
       # To use PKCS7 or TLS Server a dummy private key must be used for older wolfSSL versions.
@@ -218,7 +222,7 @@ jobs:
         ./configure --enable-swtpm
         make
         make check
-        WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh
+        WOLFSSL_PATH=./wolfssl-old NO_PUBASPRIV=1 ./examples/run_examples.sh
 
 # capture logs on failure
     - name: Upload failure logs
