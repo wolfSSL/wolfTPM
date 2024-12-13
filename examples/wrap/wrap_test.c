@@ -47,13 +47,6 @@
 /* --- BEGIN Wrapper API Tests -- */
 /******************************************************************************/
 
-static int resetTPM = 0;
-
-void TPM2_Wrapper_SetReset(int reset)
-{
-    resetTPM = reset;
-}
-
 static void usage(void)
 {
     printf("Expected Usage:\n");
@@ -207,12 +200,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
     if (rc >= 0) {
         printf("Found %d persistent handles\n", rc);
-    }
-
-    if (resetTPM) {
-        /* reset all content on TPM and reseed */
-        rc = wolfTPM2_Clear(&dev);
-        if (rc != 0) return rc;
     }
 
     /* unload all transient handles */
@@ -1045,16 +1032,11 @@ int main(int argc, char *argv[])
 {
     int rc = -1;
 
-    if (argc > 1) {
-    #ifndef WOLFTPM2_NO_WRAPPER
-        TPM2_Wrapper_SetReset(1);
-    #endif
-    }
-    (void)argv;
-
 #ifndef WOLFTPM2_NO_WRAPPER
     rc = TPM2_Wrapper_TestArgs(NULL, argc, argv);
 #else
+    (void)argc;
+    (void)argv;
     printf("Wrapper code not compiled in\n");
 #endif
 

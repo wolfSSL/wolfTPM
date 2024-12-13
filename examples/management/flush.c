@@ -27,7 +27,7 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
-#include <examples/management/flush.h>
+#include <examples/management/management.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 
