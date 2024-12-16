@@ -173,8 +173,14 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* 1: Create EK RSA 2048-bit */
-    rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
+    /* 1: Create EK (RSA or ECC) */
+    rc = wolfTPM2_CreateEK(&dev, &endorse,
+    #ifndef NO_RSA
+        TPM_ALG_RSA
+    #else
+        TPM_ALG_ECC
+    #endif
+    );
     if (rc != 0) {
         printf("Create EK RSA failed!\n");
         goto exit;
