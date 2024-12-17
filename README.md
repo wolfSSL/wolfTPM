@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API's in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
-* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
+* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672/SLB9673, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
@@ -31,7 +31,7 @@ Portable TPM 2.0 project designed for embedded use.
     * Time signed or set
     * PCR read/reset
     * GPIO configure, read and write.
-    * Endrosement Key/Cert retreival and validation.
+    * Endorsement Key/Cert retrieval and validation.
 * Parameter encryption support using AES-CFB or XOR.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
