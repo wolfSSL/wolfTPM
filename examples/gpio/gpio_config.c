@@ -406,7 +406,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
     /* Add NV attributes required by Nuvoton specification */
     nvAttributes |= (TPMA_NV_PLATFORMCREATE | TPMA_NV_POLICY_DELETE);
-    nvAttributes |= (TPM_NT_ORDINARY & TPMA_NV_TPM_NT);
+    nvAttributes |= (TPMA_NV_TPM_NT & (TPM_NT_ORDINARY << 4));
     if (rc != TPM_RC_SUCCESS) {
         printf("Setting NV attributes failed\n");
         goto exit;

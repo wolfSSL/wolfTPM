@@ -5056,6 +5056,9 @@ TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->authHandle);
+        /* When using an HMAC or Policy session make sure the NV "name" is
+         * populated in the TPM2_AUTH_SESSION name.name. This is a computed
+         * hash (see TPM2_HashNvPublic) */
         TPM2_Packet_AppendU32(&packet, in->nvIndex);
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 

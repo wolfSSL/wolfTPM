@@ -41,10 +41,10 @@ RESULT=$?
 
 ./examples/keygen/create_primary -rsa -eh >> run.out 2>&1
 RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "create primary endosement rsa key failed! $RESULT" && exit 1
+[ $RESULT -ne 0 ] && echo -e "create primary endorsement rsa key failed! $RESULT" && exit 1
 ./examples/keygen/create_primary -ecc -eh >> run.out 2>&1
 RESULT=$?
-[ $RESULT -ne 0 ] && echo -e "create primary endosement ecc key failed! $RESULT" && exit 1
+[ $RESULT -ne 0 ] && echo -e "create primary endorsement ecc key failed! $RESULT" && exit 1
 
 ./examples/keygen/create_primary -rsa -ph >> run.out 2>&1
 RESULT=$?
@@ -61,10 +61,10 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     # Provisioning examples (required --enable-provisioning)
     ./examples/keygen/create_primary -rsa -eh -iak -keep >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa IAK key failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement rsa IAK key failed! $RESULT" && exit 1
     ./examples/keygen/create_primary -rsa -eh -idevid -keep >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa IDevID key failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement rsa IDevID key failed! $RESULT" && exit 1
 
     ./examples/attestation/certify -rsa -certify=0x80000001 -signer=0x80000000 >> run.out 2>&1
     RESULT=$?
@@ -75,10 +75,10 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 
     ./examples/keygen/create_primary -ecc -eh -iak -keep >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc IAK key failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement ecc IAK key failed! $RESULT" && exit 1
     ./examples/keygen/create_primary -ecc -eh -idevid -keep >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc IDevID key failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement ecc IDevID key failed! $RESULT" && exit 1
 
     ./examples/attestation/certify -ecc -certify=0x80000001 -signer=0x80000000 >> run.out 2>&1
     RESULT=$?
@@ -98,10 +98,10 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 
     ./examples/keygen/create_primary -rsa -eh -aes >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement rsa key param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement rsa key param enc failed! $RESULT" && exit 1
     ./examples/keygen/create_primary -ecc -eh -aes >> run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "create primary endosement ecc key param enc failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "create primary endorsement ecc key param enc failed! $RESULT" && exit 1
 
     ./examples/keygen/create_primary -rsa -ph -aes >> run.out 2>&1
     RESULT=$?
@@ -260,8 +260,8 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         ./examples/nvram/store -xor >> run.out 2>&1
         RESULT=$?
-        [ $RESULT -ne 0 ] && echo -e "nv store param enc xorfailed! $RESULT" && exit 1
-        ./examples/nvram/read -xor >> run.out 2>&1
+        [ $RESULT -ne 0 ] && echo -e "nv store param enc xor failed! $RESULT" && exit 1
+        ./examples/nvram/read -xor -delete >> run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "nv read param enc xor failed! $RESULT" && exit 1
 
@@ -269,7 +269,7 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
             ./examples/nvram/store -aes >> run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "nv store param enc aes failed! $RESULT" && exit 1
-            ./examples/nvram/read -aes >> run.out 2>&1
+            ./examples/nvram/read -aes -delete >> run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "nv read param enc aes failed! $RESULT" && exit 1
         fi
@@ -277,14 +277,14 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/nvram/store -priv >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "nv store priv only failed! $RESULT" && exit 1
-    ./examples/nvram/read -priv >> run.out 2>&1
+    ./examples/nvram/read -priv -delete >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "nv read priv only failed! $RESULT" && exit 1
     if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         ./examples/nvram/store -priv -xor >> run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc xor failed! $RESULT" && exit 1
-        ./examples/nvram/read -priv -xor >> run.out 2>&1
+        ./examples/nvram/read -priv -xor -delete >> run.out 2>&1
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc xor failed! $RESULT" && exit 1
 
@@ -292,7 +292,7 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
             ./examples/nvram/store -priv -aes >> run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "nv store priv only param enc aes failed! $RESULT" && exit 1
-            ./examples/nvram/read -priv -aes >> run.out 2>&1
+            ./examples/nvram/read -priv -aes -delete >> run.out 2>&1
             RESULT=$?
             [ $RESULT -ne 0 ] && echo -e "nv read priv only param enc aes failed! $RESULT" && exit 1
         fi
@@ -300,9 +300,20 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     ./examples/nvram/store -pub >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "nv store pub only failed! $RESULT" && exit 1
-    ./examples/nvram/read -pub >> run.out 2>&1
+    ./examples/nvram/read -pub -delete >> run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "nv read pub only failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        # extend test
+        ./examples/nvram/extend -aes
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv extend aes failed! $RESULT" && exit 1
+
+        ./examples/nvram/extend -xor
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "nv extend xor failed! $RESULT" && exit 1
+    fi
 fi
 
 ./examples/nvram/policy_nv >> run.out 2>&1

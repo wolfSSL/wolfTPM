@@ -51,6 +51,7 @@ typedef struct WOLFTPM2_SESSION {
     TPM2B_DIGEST    salt;         /* User defined */
     TPMI_ALG_HASH   authHash;
     TPMA_SESSION    sessionAttributes;
+    TPM2B_AUTH*     bind;         /* pointer to bind auth password */
 } WOLFTPM2_SESSION;
 
 typedef struct WOLFTPM2_DEV {
@@ -92,6 +93,7 @@ typedef struct WOLFTPM2_HASH {
 
 typedef struct WOLFTPM2_NV {
     WOLFTPM2_HANDLE handle;
+    TPMA_NV attributes;
 } WOLFTPM2_NV;
 
 typedef struct WOLFTPM2_HMAC {
@@ -2013,6 +2015,29 @@ WOLFTPM_API int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
 WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Extend data to an NV index
+    \note When NV index is read it will return the digest
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param nv pointer to a populated structure of WOLFTPM2_NV type
+    \param nvIndex integer value, holding an existing NV Index Handle value
+    \param dataBuf pointer to a byte buffer, containing the user data to be written to the TPM's NVRAM
+    \param dataSz integer value, specifying the size of the user data buffer, in bytes
+
+    \sa wolfTPM2_NVReadAuth
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_NVOpen
+    \sa wolfTPM2_NVDeleteAuth
+*/
+WOLFTPM_API int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz);
 
 /*!
     \ingroup wolfTPM2_Wrappers
