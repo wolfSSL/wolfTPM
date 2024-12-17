@@ -2,16 +2,23 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-noinst_PROGRAMS += examples/management/flush
+noinst_PROGRAMS += examples/management/flush \
+                   examples/management/tpmclear
 
-noinst_HEADERS  += examples/management/flush.h
+noinst_HEADERS  += examples/management/management.h
 
 examples_management_flush_SOURCES      = examples/management/flush.c
 examples_management_flush_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_management_flush_DEPENDENCIES = src/libwolftpm.la
+
+examples_management_tpmclear_SOURCES      = examples/management/tpmclear.c
+examples_management_tpmclear_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_management_tpmclear_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_managementdir = $(exampledir)/management
-dist_example_management_DATA = examples/management/flush.c
+dist_example_management_DATA = examples/management/flush.c \
+                               examples/management/tpmclear.c
 
-DISTCLEANFILES+= examples/management/.libs/flush
+DISTCLEANFILES+= examples/management/.libs/flush \
+                 examples/management/.libs/tpmclear

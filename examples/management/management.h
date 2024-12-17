@@ -1,4 +1,4 @@
-/* flush.h
+/* management.h
  *
  * Copyright (C) 2006-2024 wolfSSL Inc.
  *
@@ -27,6 +27,7 @@
 #endif
 
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[]);
+int TPM2_Clear_Tool(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

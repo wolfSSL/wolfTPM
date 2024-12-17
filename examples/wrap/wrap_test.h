@@ -26,7 +26,6 @@
     extern "C" {
 #endif
 
-void TPM2_Wrapper_SetReset(int reset);
 int TPM2_Wrapper_Test(void* userCtx);
 int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[]);
 
