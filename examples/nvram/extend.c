@@ -27,14 +27,16 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_packet.h>
 #include <stdio.h>
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/nvram/nvram.h>
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
+
 
 /******************************************************************************/
 /* --- BEGIN TPM NVRAM Extend Example -- */
@@ -48,50 +50,26 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");;
 }
 
-/* Policy A: TPM2_PolicyCommandCode -> TPM_CC_NV_Read */
-static const byte policyA[] = {
-    0x47, 0xCE, 0x30, 0x32, 0xD8, 0xBA, 0xD1, 0xF3,
-    0x08, 0x9C, 0xB0, 0xC0, 0x90, 0x88, 0xDE, 0x43,
-    0x50, 0x14, 0x91, 0xD4, 0x60, 0x40, 0x2B, 0x90,
-    0xCD, 0x1B, 0x7F, 0xC0, 0xB6, 0x8C, 0xA9, 0x2F
-};
-/* Policy B: TPM2_PolicyCommandCode -> TPM_CC_NV_Extend */
-static const byte policyB[] = {
-    0xB6, 0xA2, 0xE7, 0x14, 0x2E, 0xE5, 0x6F, 0xD9,
-    0x78, 0x04, 0x74, 0x88, 0x48, 0x3D, 0xAA, 0x5B,
-    0x42, 0xB8, 0xDC, 0x4C, 0xC7, 0xDD, 0xCC, 0xED,
-    0xDF, 0xB9, 0x17, 0x93, 0xCF, 0x1F, 0xF1, 0xB7
-};
-/* Policy C: TPM2_PolicyCommandCode -> TPM_CC_PolicyNV */
-static const byte policyC[] = {
-    0x20, 0x3E, 0x4B, 0xD5, 0xD0, 0x44, 0x8C, 0x96,
-    0x15, 0xCC, 0x13, 0xFA, 0x18, 0xE8, 0xD3, 0x92,
-    0x22, 0x44, 0x1C, 0xC4, 0x02, 0x04, 0xD9, 0x9A,
-    0x77, 0x26, 0x20, 0x68, 0xDB, 0xD5, 0x5A, 0x43
-};
-
-/* pre-computed policy:
- * NV Read (A), NV Extend (B), PolicyNV (C), then policy OR (A/B/C) */
-static const byte policyNv[] = {
-    0x7F, 0x17, 0x93, 0x7E, 0x20, 0x62, 0x79, 0xA3,
-    0xF7, 0x55, 0xFB, 0x60, 0xF4, 0x0C, 0xF1, 0x26,
-    0xB7, 0x0E, 0x5B, 0x1D, 0x9B, 0xF2, 0x02, 0x86,
-    0x6D, 0x52, 0x76, 0x13, 0x87, 0x4A, 0x64, 0xAC
-};
-
-
-static int PolicyOrApply(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* policySession)
+static int BuildPolicyCommandCode(TPMI_ALG_HASH hashAlg,
+    byte* digest, word32* digestSz, TPM_CC cc)
 {
+    word32 val = cpu_to_be32(cc);
+    return wolfTPM2_PolicyHash(hashAlg, digest, digestSz,
+        TPM_CC_PolicyCommandCode, (byte*)&val, sizeof(val));
+}
+
+static int PolicyOrApply(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* policySession,
+    byte** hashList, word32 hashListSz, word32 digestSz)
+{
+    word32 i;
     PolicyOR_In policyOR;
     XMEMSET(&policyOR, 0, sizeof(policyOR));
     policyOR.policySession = policySession->handle.hndl;
-    policyOR.pHashList.count = 3;
-    policyOR.pHashList.digests[0].size = sizeof(policyA);
-    XMEMCPY(policyOR.pHashList.digests[0].buffer, policyA, sizeof(policyA));
-    policyOR.pHashList.digests[1].size = sizeof(policyB);
-    XMEMCPY(policyOR.pHashList.digests[1].buffer, policyB, sizeof(policyB));
-    policyOR.pHashList.digests[2].size = sizeof(policyC);
-    XMEMCPY(policyOR.pHashList.digests[2].buffer, policyC, sizeof(policyC));
+    policyOR.pHashList.count = hashListSz;
+    for (i=0; i<hashListSz; i++) {
+        policyOR.pHashList.digests[i].size = digestSz;
+        XMEMCPY(policyOR.pHashList.digests[i].buffer, hashList[i], digestSz);
+    }
     (void)dev;
     return TPM2_PolicyOR(&policyOR);
 }
@@ -109,11 +87,15 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     int paramEncAlg = TPM_ALG_CFB;
     TPMI_RH_NV_AUTH authHandle = TPM_RH_PLATFORM;
     word32 nvIndex = TPM2_DEMO_NVRAM_EXTEND_INDEX;
-    word32 nvSize; /* 32 for SHA2-256 */
     byte*  auth = (byte*)"cpusecret";
     word32 authSz = (word32)XSTRLEN((const char*)auth);
-    byte   nvDigest[32];
-    word32 nvDigestSz = (word32)sizeof(nvDigest);
+    TPMI_ALG_HASH hashAlg = WOLFTPM2_WRAP_DIGEST;
+    word32 nvSize = TPM2_GetHashDigestSize(hashAlg);
+    byte   nvDigest[TPM_MAX_DIGEST_SIZE]; /* buffer for nv read */
+    byte   policyDigest[3*TPM_MAX_DIGEST_SIZE]; /* Policy A/B/C */
+    word32 policyDigestSz = 0;
+    byte*  policy[3]; /* pointers to policy A/B/C */
+    byte   policyOr[TPM_MAX_DIGEST_SIZE];
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -166,12 +148,47 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&bind, 0, sizeof(bind));
     XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&nvAuth, 0, sizeof(nvAuth));
+    XMEMSET(nvDigest, 0, sizeof(nvDigest));
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed\n");
         goto exit;
     }
+
+    /* Build Policies A/B/C */
+    /* Policy A: TPM2_PolicyCommandCode -> TPM_CC_NV_Read */
+    /* 47ce3032d8bad1f3089cb0c09088de43501491d460402b90cd1b7fc0b68ca92f */
+    policy[0] = &policyDigest[policyDigestSz];
+    BuildPolicyCommandCode(hashAlg, policy[0], &nvSize, TPM_CC_NV_Read);
+    printf("PolicyA: %d\n", nvSize);
+    TPM2_PrintBin(policy[0], nvSize);
+    policyDigestSz += nvSize;
+
+    /* Policy B: TPM2_PolicyCommandCode -> TPM_CC_NV_Extend */
+    /* b6a2e7142ee56fd978047488483daa5b42b8dc4cc7ddcceddfb91793cf1ff1b7 */
+    policy[1] = &policyDigest[policyDigestSz];
+    BuildPolicyCommandCode(hashAlg, policy[1], &nvSize, TPM_CC_NV_Extend);
+    printf("PolicyB: %d\n", nvSize);
+    TPM2_PrintBin(policy[1], nvSize);
+    policyDigestSz += nvSize;
+
+    /* Policy C: TPM2_PolicyCommandCode -> TPM_CC_PolicyNV */
+    /* 203e4bd5d0448c9615cc13fa18e8d39222441cc40204d99a77262068dbd55a43 */
+    policy[2] = &policyDigest[policyDigestSz];
+    BuildPolicyCommandCode(hashAlg, policy[2], &nvSize, TPM_CC_PolicyNV);
+    printf("PolicyC: %d\n", nvSize);
+    TPM2_PrintBin(policy[2], nvSize);
+    policyDigestSz += nvSize;
+
+    /* Policy OR A/B/C */
+    /* 7f17937e206279a3f755fb60f40cf126b70e5b1d9bf202866d527613874a64ac */
+    XMEMSET(policyOr, 0, sizeof(policyOr));
+    rc = wolfTPM2_PolicyHash(hashAlg, policyOr, &nvSize,
+        TPM_CC_PolicyOR, policyDigest, policyDigestSz);
+    printf("PolicyOR A/B/C: %d\n", nvSize);
+    TPM2_PrintBin(policyOr, nvSize);
 
     /* 1: Create EK (RSA or ECC) */
     rc = wolfTPM2_CreateEK(&dev, &endorse,
@@ -227,7 +244,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
             nvAttributes, /* needs TPM_NT_EXTEND set */
             nvSize, /* must match nameAlg digest size */
             auth, authSz, /* the password to bind session with */
-            policyNv, (word32)sizeof(policyNv)
+            policyOr, nvSize
         );
     }
 
@@ -255,7 +272,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     /* 5. Satisfy policy for NV Extend (policy B) */
     rc = wolfTPM2_PolicyCommandCode(&dev, &tpmSession, TPM_CC_NV_Extend);
     if (rc == 0) {
-        rc = PolicyOrApply(&dev, &tpmSession);
+        rc = PolicyOrApply(&dev, &tpmSession, policy, 3, nvSize);
     }
     if (rc != 0) {
         printf("Failed to apply policy B\n");
@@ -280,7 +297,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     /* 8. Satisfy policy for NV Read (policy A) */
     rc = wolfTPM2_PolicyCommandCode(&dev, &tpmSession, TPM_CC_NV_Read);
     if (rc == 0) {
-        rc = PolicyOrApply(&dev, &tpmSession);
+        rc = PolicyOrApply(&dev, &tpmSession, policy, 3, nvSize);
     }
     if (rc != 0) {
         printf("Failed to apply policy A\n");
@@ -289,10 +306,10 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
 
     /* 9. Read NV extend digest */
     rc = wolfTPM2_NVRead(&dev, authHandle, nv.handle.hndl,
-        nvDigest, &nvDigestSz, 0);
+        nvDigest, &nvSize, 0);
     if (rc == 0) {
-        printf("NV Digest: %d\n", nvDigestSz);
-        TPM2_PrintBin(nvDigest, nvDigestSz);
+        printf("NV Digest: %d\n", nvSize);
+        TPM2_PrintBin(nvDigest, nvSize);
 
         /* Should be:
          * 0ad80f8e4450587760d9137df41c9374f657bafa621fe37d4d5c8cecf0bcce5e */
@@ -313,17 +330,17 @@ exit:
 /******************************************************************************/
 /* --- END TPM NVRAM Extend Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = NOT_COMPILED_IN;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_NVRAM_Extend_Example(NULL, argc, argv);
 #else
-    printf("NVRAM code not compiled in\n");
+    printf("NVRAM extend code not compiled in\n");
     (void)argc;
     (void)argv;
 #endif

@@ -7499,6 +7499,9 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
 
     /* policyDigestOld */
     if (rc == 0 && inSz > 0) {
+        /* old digest cannot be larger than digest size */
+        if (inSz > *digestSz)
+            inSz = *digestSz;
         rc = wc_HashUpdate(&hash_ctx, hashType, digest, inSz);
     }
     /* Command Code (optional) */
