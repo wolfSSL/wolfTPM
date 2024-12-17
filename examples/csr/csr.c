@@ -87,7 +87,7 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
 #ifdef WOLFTPM2_NO_HEAP
     /* single shot API for CSR generation */
     rc = wolfTPM2_CSR_Generate_ex(dev, key, subject, keyUsage,
-        CTC_FILETYPE_PEM, output, outputSz, sigType, makeSelfSignedCert,
+        ENCODING_TYPE_PEM, output, outputSz, sigType, makeSelfSignedCert,
         devId);
 #else
     rc = wolfTPM2_CSR_SetSubject(dev, csr, subject);
@@ -104,7 +104,7 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
         }
     }
     if (rc == 0) {
-        rc = wolfTPM2_CSR_MakeAndSign_ex(dev, csr, key, CTC_FILETYPE_PEM,
+        rc = wolfTPM2_CSR_MakeAndSign_ex(dev, csr, key, ENCODING_TYPE_PEM,
             output, outputSz, sigType, makeSelfSignedCert, devId);
     }
 #endif

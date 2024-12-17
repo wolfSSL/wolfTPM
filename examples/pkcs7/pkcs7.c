@@ -46,10 +46,14 @@
 
 /* The PKCS7 EX functions were added after v3.15.3 */
 #include <wolfssl/version.h>
-#if defined(LIBWOLFSSL_VERSION_HEX) && \
-    LIBWOLFSSL_VERSION_HEX > 0x03015003
+#if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX > 0x03015003
     #undef  ENABLE_PKCS7EX_EXAMPLE
     #define ENABLE_PKCS7EX_EXAMPLE
+#endif
+
+#if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x05007004
+    /* PKCS7 renamed to wc_PKCS7 */
+    #define wc_PKCS7 PKCS7
 #endif
 
 #ifndef MAX_PKCS7_SIZE

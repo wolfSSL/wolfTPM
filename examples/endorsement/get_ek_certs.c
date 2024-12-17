@@ -278,8 +278,13 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             /* Attempt to parse certificate */
             printf("Parsing certificate (%d bytes)\n", certSz);
+            #ifdef WOLFSSL_TEST_CERT
+            InitDecodedCert(&cert, certBuf, certSz, NULL);
+            rc = ParseCert(&cert, CERT_TYPE, NO_VERIFY, NULL);
+            #else
             wc_InitDecodedCert(&cert, certBuf, certSz, NULL);
             rc = wc_ParseCert(&cert, CERT_TYPE, NO_VERIFY, NULL);
+            #endif
             if (rc == 0) {
                 printf("\tSuccessfully parsed\n");
 
@@ -338,7 +343,11 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                 printf("Error parsing certificate! %s (%d)\n",
                     TPM2_GetRCString(rc), rc);
             }
+        #ifdef WOLFSSL_TEST_CERT
+            FreeDecodedCert(&cert);
+        #else
             wc_FreeDecodedCert(&cert);
+        #endif
 
         #ifndef WOLFCRYPT_ONLY
             if (rc == 0) {
