@@ -4564,13 +4564,6 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             XMEMCPY(in.write.data.buffer, &dataBuf[pos], towrite);
         if (!extend) {
             in.write.offset = offset+pos;
-            rc = TPM2_NV_Write(&in.write);
-        }
-        else {
-            rc = TPM2_NV_Extend(&in.extend);
-        }
-        if (rc != TPM_RC_SUCCESS) {
-            break;
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -4579,6 +4572,16 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             (word32)in.write.authHandle, (word32)in.write.nvIndex,
             in.write.offset, in.write.data.size, extend);
     #endif
+
+        if (!extend) {
+            rc = TPM2_NV_Write(&in.write);
+        }
+        else {
+            rc = TPM2_NV_Extend(&in.extend);
+        }
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
 
         pos += towrite;
         dataSz -= towrite;
