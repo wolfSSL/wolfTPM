@@ -2822,8 +2822,10 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     rc = wc_InitRsaKey(key, NULL);
     if (rc == 0) {
         idx = 0;
+    #ifdef HAVE_PKCS8
         /* skip PKCS8 header */
         (void)wc_GetPkcs8TraditionalOffset((byte*)der, &idx, derSz);
+    #endif
         rc = wc_RsaPrivateKeyDecode(der, &idx, key, derSz);
         if (rc == 0) {
             isPrivateKey = 1;
