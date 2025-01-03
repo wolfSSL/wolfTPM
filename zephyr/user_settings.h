@@ -1,4 +1,4 @@
-/* wolfssl_user_settings.h
+/* user_settings.h
  *
  * Copyright (C) 2006-2024 wolfSSL Inc.
  *
@@ -19,15 +19,33 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-#ifndef WOLFSSL_USER_SETTINGS_H
-#define WOLFSSL_USER_SETTINGS_H
+#ifndef USER_SETTINGS_H
+#define USER_SETTINGS_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#undef  WOLFSSL_ZEPHYR
-#define WOLFSSL_ZEPHYR
+/* WOLFTPM ZEPHYR SETTINGS */
+
+#undef WOLFTPM_USER_SETTINGS
+#define WOLFTPM_USER_SETTINGS
+
+/*
+#undef WOLFTPM_SWTPM
+#define WOLFTPM_SWTPM
+*/
+
+#undef WOLFTPM_EXAMPLE_HAL
+#define WOLFTPM_EXAMPLE_HAL
+
+#undef  WOLFTPM_ZEPHYR
+#define WOLFTPM_ZEPHYR
+
+/* WOLFSSL SETTINGS */
+
+#undef WOLFSSL_USER_SETTINGS
+#define WOLFSSL_USER_SETTINGS
 
 #undef  TFM_TIMING_RESISTANT
 #define TFM_TIMING_RESISTANT
@@ -132,4 +150,4 @@ extern "C" {
 }
 #endif
 
-#endif /* WOLFSSL_USER_SETTINGS_H */
+#endif /* USER_SETTINGS_H */
