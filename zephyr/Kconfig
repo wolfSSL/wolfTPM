@@ -1,0 +1,27 @@
+menuconfig WOLFTPM
+	bool "wolfTPM module support"
+	select WOLFSSL
+
+if WOLFTPM
+config WOLFTPM_SETTINGS_FILE
+	string "wolfTPM settings file"
+	help
+	  Use a specific wolfTPM settings file.
+
+config WOLFTPM_SFTP_DEFAULT_DIR
+	string "wolfTPM sftp default directory"
+	help
+	  Use a specific directory as the default wolfTPM sftp working directory.
+
+config WOLFTPM_DEBUG
+	bool "wolfTPM debug activation"
+	help
+	  Enable debugging activation for wolfTPM.
+
+config ZEPHYR_WOLFTPM_MODULE
+	bool
+	depends on WOLFTPM
+endif
+
+# Add relevant macros for tpm
+

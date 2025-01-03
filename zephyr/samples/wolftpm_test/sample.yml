@@ -1,0 +1,15 @@
+sample:
+  description: wolfTPM tests
+  name: wolfTPM tests
+common:
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "Zephyr wolfTPM tests passed"
+tests:
+  sample.lib.wolftpm_tests:
+    timeout: 200
+    platform_allow: qemu_x86
+    integration_platforms:
+      - qemu_x86

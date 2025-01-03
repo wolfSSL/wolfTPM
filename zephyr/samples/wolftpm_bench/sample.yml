@@ -1,0 +1,15 @@
+sample:
+  description: wolfTPM bench
+  name: wolfTPM bench
+common:
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "Zephyr wolfTPM bench complete"
+tests:
+  sample.lib.wolftpm_bench:
+    timeout: 200
+    platform_allow: qemu_x86
+    integration_platforms:
+      - qemu_x86
