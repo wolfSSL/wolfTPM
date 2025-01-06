@@ -88,6 +88,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_Infineon_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 #elif defined(WOLFSSL_ESPIDF)
 WOLFTPM_LOCAL int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
+#elif defined(WOLFTPM_MICROCHIP_HARMONY)
+WOLFTPM_LOCAL int TPM2_IoCb_MicrochipHarmony_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
 #endif /* __linux__ */
 
 #else /* SPI */
