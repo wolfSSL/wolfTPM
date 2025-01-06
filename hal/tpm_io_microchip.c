@@ -53,7 +53,7 @@
 #include "definitions.h"
 
 #ifdef WOLFTPM_I2C /* Microchip Harmony Hal I2C */
-    /* We are using the I2C bitbang library. */
+    /* We are using the I2C bit-bang library. */
     #include <i2cbb/i2c_bb.h>
     /* Use sys_time to implement delay. */
     #include "system/time/sys_time.h"
@@ -73,7 +73,7 @@
         return;
     }
 
-    /* Wait for time_ms using Micochip Harmony SYS_TIME API. */
+    /* Wait for time_ms using Microchip Harmony SYS_TIME API. */
     static void microchip_wait(uint32_t time_ms)
     {
         /* Microchip Harmony example from documentation.

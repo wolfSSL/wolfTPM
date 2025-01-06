@@ -149,7 +149,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     #elif defined(WOLFSSL_ESPIDF)
         ret = TPM2_IoCb_Espressif_I2C(ctx, isRead, addr, buf, size, userCtx);
     #elif defined(WOLFTPM_MICROCHIP_HARMONY)
-        /* Use MicrochipHarmony I2C */
+        /* Use Microchip Harmony I2C */
         ret = TPM2_IoCb_MicrochipHarmony_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
