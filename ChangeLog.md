@@ -1,5 +1,27 @@
 # Release Notes
 
+## wolfTPM Release 3.8.0 (Jan 7, 2025)
+
+**Summary**
+
+Fixes for session auth on key bind and password policy. Added NV extend example used with Bus_Protection_Guidance. New wolfTPM2_NVExtend wrapper and example. Added new NV policy write/read wrapper API's used with policy auth
+
+**Detail**
+
+* Fixed issue with auth session binding. (PR #389)
+* Fixed possible missing `wc_GetPkcs8TraditionalOffset`. (PR #392)
+* Fixed issue with `wolfTPM2_PolicyHash` where input digest could be too large. (PR #389)
+* Added example for NV extend based on the TCG "bus protection guidance". (PR #389)
+* Added support for building wolfTPM against older wolfCrypt (like v4.7.0) including CI test. (PR #390)
+* Added HAL IO support for Microchip I2C bit-bang (PR #340)
+* Created separate tool (./examples/management/tpmclear) for performing the TPM2_Clear (don't use args in wrap_test). (PR #391)
+* Switched `wolfTPM2_LoadSymmetricKey` to default to the `WOLFTPM2_WRAP_DIGEST` for hash algorithm and not default to SHA1 for some sizes. (PR #388)
+* Improved TPM NV write debug logging to show before. (PR #392)
+* Cleanup the `SensitiveToPrivate` function stack variables. (PR #388)
+* Cleanup comments on EK/SRK. (PR #388)
+* Various spellings, tabs, execute bit on .c and formatting. (PR #386, #388, #392)
+
+
 ## wolfTPM Release 3.6.0 (Nov 5, 2024)
 
 **Summary**

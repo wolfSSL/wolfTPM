@@ -64,6 +64,7 @@ examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
 examples/keygen/external_import
+examples/nvram/extend
 examples/nvram/store
 examples/nvram/read
 examples/nvram/counter
