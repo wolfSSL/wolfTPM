@@ -7891,7 +7891,6 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
         rc = cb(&cmd[2], IFX_FW_MAX_CHUNK_SZ, offset, cb_ctx);
         if (rc > 0 && rc <= IFX_FW_MAX_CHUNK_SZ) {
             chunk_sz = rc;
-            rc = 0;
         }
         else if (rc == 0) {
         #ifdef DEBUG_WOLFTPM

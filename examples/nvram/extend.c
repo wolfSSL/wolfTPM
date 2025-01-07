@@ -187,6 +187,10 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(policyOr, 0, sizeof(policyOr));
     rc = wolfTPM2_PolicyHash(hashAlg, policyOr, &nvSize,
         TPM_CC_PolicyOR, policyDigest, policyDigestSz);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("wolfTPM2_PolicyHash failed!\n");
+        goto exit;
+    }
     printf("PolicyOR A/B/C: %d\n", nvSize);
     TPM2_PrintBin(policyOr, nvSize);
 
@@ -246,6 +250,10 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
             auth, authSz, /* the password to bind session with */
             policyOr, nvSize
         );
+    }
+    if (rc != 0) {
+        printf("NV Create failed!\n");
+        goto exit;
     }
 
     /* Close session and unload endorsement */
