@@ -432,7 +432,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     #else
         void* pkey = NULL;
     #endif
-        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, pkey,
+        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, (WOLFTPM2_KEY*)pkey,
             ENCODING_TYPE_ASN1, der, &derSz);
         if (rc < 0) {
             printf("Failed to export TPM public key!\n");
