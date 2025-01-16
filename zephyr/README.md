@@ -14,8 +14,8 @@ It provides the following zephyr code.
     - Configuration and CMake files for wolfTPM as a Zephyr module
 - modules/lib/wolftpm/zephyr/samples/wolftpm_test
     - wolfTPM test application
-- modules/lib/wolftpm/zephyr/samples/wolftpm_bench
-    - wolfTPM benchmark application
+- modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
+    - wolfTPM test application
 
 ## How to setup as a Zephyr Module
 
@@ -58,7 +58,17 @@ possible by setting the `CMAKE_PREFIX_PATH` variable to the location of the
 zephyr sdk and building from the `zephyr` directory. For example:
 
 ```
-CMAKE_PREFIX_PATH=/path/to/zephyr-sdk-<VERSION> west build -p always -b qemu_x86 ../modules/lib/wolftpm/zephyr/samples/wolftpm_test/
+CMAKE_PREFIX_PATH=/path/to/zephyr-sdk-<VERSION> west build -p always -b qemu_x86 ../modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test/
+```
+
+### Build and Run wolfTPM wrap test Application
+
+build and execute `wolftpm_wrap_test`
+
+```
+cd [zephyrproject]
+west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
+west build -t run
 ```
 
 build and execute `wolftpm_test`
@@ -68,14 +78,3 @@ cd [zephyrproject]
 west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_test
 west build -t run
 ```
-
-### Build and Run wolfTPM Benchmark Application
-
-build and execute `wolftpm_bench`
-
-```
-cd [zephyrproject]
-west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_bench
-west build -t run
-```
-

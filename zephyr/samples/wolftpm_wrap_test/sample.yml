@@ -1,14 +1,14 @@
 sample:
-  description: wolfTPM bench
-  name: wolfTPM bench
+  description: wolfTPM wrap test
+  name: wolfTPM wrap test
 common:
   harness: console
   harness_config:
     type: one_line
     regex:
-      - "Zephyr wolfTPM bench complete"
+      - "Zephyr wolfTPM wrap test passed"
 tests:
-  sample.lib.wolftpm_bench:
+  sample.lib.wolftpm_wrap_tests:
     timeout: 200
     platform_allow: qemu_x86
     integration_platforms:

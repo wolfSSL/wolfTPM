@@ -6,8 +6,8 @@ if [ ! -d $WOLFTPM_SRC_DIR ]; then
     echo "Directory does not exist: $WOLFTPM_SRC_DIR"
     exit 1
 fi
-if [ ! -f $WOLFTPM_SRC_DIR/examples/bench/bench.c ]; then
-    echo "Missing source file: $WOLFTPM_SRC_DIR/examples/bench/bench.h"
+if [ ! -f $WOLFTPM_SRC_DIR/examples/wrap/wrap_test.c ]; then
+    echo "Missing source file: $WOLFTPM_SRC_DIR/examples/wrap/wrap_test.h"
     exit 1
 fi
 
@@ -27,9 +27,9 @@ if [ ! -d $ZEPHYR_SAMPLES_DIR ]; then
     echo "Zephyr samples/modules directory does not exist: $ZEPHYR_SAMPLES_DIR"
     exit 1
 fi
-ZEPHYR_WOLFTPM_DIR=$ZEPHYR_SAMPLES_DIR/wolftpm_bench
+ZEPHYR_WOLFTPM_DIR=$ZEPHYR_SAMPLES_DIR/wolftpm_wrap_test
 
-echo "wolfSSL directory:"
+echo "wolfTPM directory:"
 echo "  $ZEPHYR_WOLFTPM_DIR"
 rm -rf $ZEPHYR_WOLFTPM_DIR
 mkdir $ZEPHYR_WOLFTPM_DIR
@@ -42,8 +42,7 @@ echo "Copy Source Code ..."
 rm -rf $ZEPHYR_WOLFTPM_DIR/src
 mkdir $ZEPHYR_WOLFTPM_DIR/src
 
-cp -rf ${WOLFTPM_SRC_DIR}/examples/bench/bench.c $ZEPHYR_WOLFTPM_DIR/src/
-cp -rf ${WOLFTPM_SRC_DIR}/examples/bench/bench.h $ZEPHYR_WOLFTPM_DIR/src/
+cp -rf ${WOLFTPM_SRC_DIR}/examples/wrap/wrap_test.c $ZEPHYR_WOLFTPM_DIR/src/
+cp -rf ${WOLFTPM_SRC_DIR}/examples/wrap/wrap_test.h $ZEPHYR_WOLFTPM_DIR/src/
 
 echo "Done"
-

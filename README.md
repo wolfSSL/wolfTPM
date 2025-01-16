@@ -384,39 +384,6 @@ Encrypt/Decrypt test success
 
 Note: Key Generation is using existing template from hierarchy seed.
 
-Run using swtpm tpm simualtor:
-```
-TPM2 Benchmark using Wrapper API's
-        Use Parameter Encryption: NULL
-Loading SRK: Storage 0x81000200 (282 bytes)
-RNG                 35 KB took 1.010 seconds,   34.653 KB/s
-AES-128-CBC-enc      1 MB took 1.000 seconds,    1.046 MB/s
-AES-128-CBC-dec      1 MB took 1.038 seconds,    0.999 MB/s
-AES-256-CBC-enc      1 MB took 1.001 seconds,    1.275 MB/s
-AES-256-CBC-dec      1 MB took 1.061 seconds,    1.013 MB/s
-AES-128-CTR-enc      1 MB took 1.013 seconds,    1.059 MB/s
-AES-128-CTR-dec    889 KB took 1.001 seconds,  888.424 KB/s
-AES-256-CTR-enc      1 MB took 1.018 seconds,    1.234 MB/s
-AES-256-CTR-dec      1 MB took 1.016 seconds,    1.079 MB/s
-AES-128-CFB-enc      1 MB took 1.016 seconds,    1.056 MB/s
-AES-128-CFB-dec      1 MB took 1.015 seconds,    1.000 MB/s
-AES-256-CFB-enc      1 MB took 1.017 seconds,    0.999 MB/s
-AES-256-CFB-dec      1 MB took 1.020 seconds,    1.245 MB/s
-SHA1               324 KB took 1.016 seconds,  318.885 KB/s
-SHA256             274 KB took 27.871 seconds,    9.831 KB/s
-SHA384             358 KB took 1.001 seconds,  357.694 KB/s
-SHA512             347 KB took 1.696 seconds,  204.643 KB/s
-RSA     2048 key gen      351 ops took 15.016 sec, avg 42.780 ms, 23.375 ops/sec
-RSA     2048 Public      1083 ops took 1.001 sec, avg 0.924 ms, 1082.092 ops/sec
-RSA     2048 Private      495 ops took 1.001 sec, avg 2.022 ms, 494.589 ops/sec
-RSA     2048 Pub  OAEP   1129 ops took 1.001 sec, avg 0.887 ms, 1128.029 ops/sec
-RSA     2048 Priv OAEP    444 ops took 1.000 sec, avg 2.253 ms, 443.946 ops/sec
-ECC      256 key gen      217 ops took 1.000 sec, avg 4.608 ms, 216.997 ops/sec
-ECDSA    256 sign         624 ops took 1.000 sec, avg 1.603 ms, 623.991 ops/sec
-ECDSA    256 verify       528 ops took 1.001 sec, avg 1.895 ms, 527.650 ops/sec
-ECDHE    256 agree        372 ops took 1.002 sec, avg 2.694 ms, 371.197 ops/sec
-```
-
 Run on Infineon OPTIGA SLB9670 at 43MHz:
 
 ```
