@@ -385,6 +385,9 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                 printf("Endorsement Cert PEM\n");
                 puts(pem);
             }
+
+            XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            pem = NULL;
         #endif /* WOLFSSL_DER_TO_PEM */
         }
     #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
