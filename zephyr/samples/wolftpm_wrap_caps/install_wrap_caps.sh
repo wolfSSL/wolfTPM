@@ -6,8 +6,8 @@ if [ ! -d $WOLFTPM_SRC_DIR ]; then
     echo "Directory does not exist: $WOLFTPM_SRC_DIR"
     exit 1
 fi
-if [ ! -f $WOLFTPM_SRC_DIR/tests/unit_tests.c ]; then
-    echo "Missing source file: $WOLFTPM_SRC_DIR/tests/unit_tests.c"
+if [ ! -f $WOLFTPM_SRC_DIR/examples/wrap/caps.c ]; then
+    echo "Missing source file: $WOLFTPM_SRC_DIR/examples/wrap/caps.h"
     exit 1
 fi
 
@@ -27,7 +27,7 @@ if [ ! -d $ZEPHYR_SAMPLES_DIR ]; then
     echo "Zephyr samples/modules directory does not exist: $ZEPHYR_SAMPLES_DIR"
     exit 1
 fi
-ZEPHYR_WOLFTPM_DIR=$ZEPHYR_SAMPLES_DIR/wolftpm_test
+ZEPHYR_WOLFTPM_DIR=$ZEPHYR_SAMPLES_DIR/wolftpm_wrap_caps
 
 echo "wolfTPM directory:"
 echo "  $ZEPHYR_WOLFTPM_DIR"
@@ -42,7 +42,6 @@ echo "Copy Source Code ..."
 rm -rf $ZEPHYR_WOLFTPM_DIR/src
 mkdir $ZEPHYR_WOLFTPM_DIR/src
 
-cp -rf ${WOLFTPM_SRC_DIR}/tests/unit_tests.c $ZEPHYR_WOLFTPM_DIR/src/
+cp -rf ${WOLFTPM_SRC_DIR}/examples/wrap/caps.c $ZEPHYR_WOLFTPM_DIR/src/
 
 echo "Done"
-

@@ -12,7 +12,7 @@ It provides the following zephyr code.
     - wolfTPM library code
 - modules/lib/wolftpm/zephyr/
     - Configuration and CMake files for wolfTPM as a Zephyr module
-- modules/lib/wolftpm/zephyr/samples/wolftpm_test
+- modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_caps
     - wolfTPM test application
 - modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
     - wolfTPM test application
@@ -61,7 +61,7 @@ zephyr sdk and building from the `zephyr` directory. For example:
 CMAKE_PREFIX_PATH=/path/to/zephyr-sdk-<VERSION> west build -p always -b qemu_x86 ../modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test/
 ```
 
-### Build and Run wolfTPM wrap test Application
+### Build and Run wolfTPM Wrap Test and Capabilities Applications
 
 build and execute `wolftpm_wrap_test`
 
@@ -71,10 +71,10 @@ west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_t
 west build -t run
 ```
 
-build and execute `wolftpm_test`
+build and execute `wolftpm_wrap_caps`
 
 ```
 cd [zephyrproject]
-west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_test
+west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_caps
 west build -t run
 ```
