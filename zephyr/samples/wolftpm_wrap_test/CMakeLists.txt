@@ -8,6 +8,8 @@ target_sources(app PRIVATE ${app_sources})
 
 # Include header files
 target_include_directories(app PRIVATE
+    ${ZEPHYR_BASE}/include
+    ${ZEPHYR_BASE}/include/zephyr
     ${ZEPHYR_WOLFTPM_MODULE_DIR}/wolfssl
     ${ZEPHYR_WOLFTPM_MODULE_DIR}/zephyr
     ${ZEPHYR_WOLFTPM_MODULE_DIR}/hal

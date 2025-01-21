@@ -40,6 +40,8 @@ manifest:
       remote: wolftpm
 ```
 
+Note: woflTPM has dependencies with wolfSSL so you neeed to also need to add wolfSSL into the west.yml like shown above.
+
 Update west's modules:
 
 ```bash

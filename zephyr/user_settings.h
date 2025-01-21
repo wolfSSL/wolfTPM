@@ -36,6 +36,9 @@ extern "C" {
 #define WOLFTPM_SWTPM
 */
 
+#undef WOLF_CRYPT_SETTINGS_H
+#define WOLF_CRYPT_SETTINGS_H
+
 #undef WOLFTPM_EXAMPLE_HAL
 #define WOLFTPM_EXAMPLE_HAL
 
