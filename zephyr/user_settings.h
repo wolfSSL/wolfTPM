@@ -235,3 +235,4 @@ extern "C" {
 #endif
 
 #endif /* USER_SETTINGS_H */
+
