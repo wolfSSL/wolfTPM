@@ -18,28 +18,6 @@ if [ -n "$WSL_DISTRO_NAME" ]; then
     fi
 fi
 
-# Git hooks should come before autoreconf.
-if test -d .git; then
-    if [ -n "$no_links" ]; then
-        echo "Linux ln does not work on shared Windows file system in WSL."
-        if [ ! -e .git/hooks/pre-commit ]; then
-            echo "The pre-commit.sh file will not be copied to .git/hooks/pre-commit"
-            # shell scripts do not work on Windows; TODO create equivalent batch file
-            # cp ./pre-commit.sh .git/hooks/pre-commit || exit $?
-        fi
-        if [ ! -e .git/hooks/pre-push ]; then
-            echo "The pre-push.sh file will not be copied to .git/hooks/pre-commit"
-            # shell scripts do not work on Windows; TODO create equivalent batch file
-            # cp ./pre-push.sh .git/hooks/pre-push || exit $?
-        fi
-    else
-      if ! test -d .git/hooks; then
-        mkdir .git/hooks
-      fi
-      ln -s -f ../../pre-commit.sh .git/hooks/pre-commit
-    fi
-fi
-
 # if get an error about libtool not setup
 # " error: Libtool library used but 'LIBTOOL' is undefined
 #     The usual way to define 'LIBTOOL' is to add 'LT_INIT' "
@@ -63,10 +41,10 @@ fi
 
 
 # If this is a source checkout then call autoreconf with error as well
-if test -d .git; then
-  WARNINGS="all,error"
+if [ -e .git ]; then
+    export WARNINGS="all,error"
 else
-  WARNINGS="all"
+    export WARNINGS="all"
 fi
 
 autoreconf --install --force --verbose
