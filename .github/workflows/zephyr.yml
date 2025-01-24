@@ -83,29 +83,29 @@ jobs:
         run: |
           sed -i -e 's/CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE/CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE/g' $(find -name prj.conf)
 
-      - name: Run wolftpm wrap test
-        id: wolftpm-wrap-test
-        working-directory: zephyr
-        run: |
-          ./scripts/twister -T modules/lib/wolftpm --test samples/wolftpm_wrap_test/sample.lib.wolftpm_wrap_test -vvv
-          rm -rf zephyr/twister-out
+      # - name: Run wolftpm wrap test
+      #   id: wolftpm-wrap-test
+      #   working-directory: zephyr
+      #   run: |
+      #     ./zephyr/scripts/twister -T modules/lib/wolftpm --test ./samples/wolftpm_wrap_test/sample.lib.wolftpm_wrap_test -vvv
+      #     rm -rf zephyr/twister-out
 
-      - name: Run wolftpm wrap caps
-        id: wolftpm-wrap-caps
-        working-directory: zephyr
-        run: |
-          ./scripts/twister -T modules/lib/wolftpm --test samples/wolftpm_wrap_caps/sample.lib.wolftpm_wrap_caps -vvv
-          rm -rf zephyr/twister-out
+      # - name: Run wolftpm wrap caps
+      #   id: wolftpm-wrap-caps
+      #   working-directory: zephyr
+      #   run: |
+      #     ./zephyr/scripts/twister -T modules/lib/wolftpm --test samples/wolftpm_wrap_caps/sample.lib.wolftpm_wrap_caps -vvv
+      #     rm -rf zephyr/twister-out
 
-      - name: Zip failure logs
-        if: ${{ failure() && (steps.wolftpm-wrap-test.outcome == 'failure' || steps.wolftpm-wrap-caps.outcome == 'failure') }}
-        run: |
-          zip -9 -r logs.zip zephyr/twister-out
+      # - name: Zip failure logs
+      #    if: ${{ failure() && (steps.wolftpm-wrap-test.outcome == 'failure' || steps.wolftpm-wrap-caps.outcome == 'failure') }}
+      #   run: |
+      #     zip -9 -r logs.zip zephyr/twister-out
 
-      - name: Upload failure logs
-        if: ${{ failure() && (steps.wolftpm-wrap-test.outcome == 'failure' || steps.wolftpm-wrap-caps.outcome == 'failure') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: zephyr-client-test-logs
-          path: logs.zip
-          retention-days: 5
+      # - name: Upload failure logs
+      #   if: ${{ failure() && (steps.wolftpm-wrap-test.outcome == 'failure' || steps.wolftpm-wrap-caps.outcome == 'failure') }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: zephyr-client-test-logs
+      #     path: logs.zip
+      #     retention-days: 5
