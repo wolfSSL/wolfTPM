@@ -3,7 +3,7 @@ name: Zephyr wolftpm tests
 # START OF COMMON SECTION
 on:
   push:
-    branches: [ 'master', 'main', 'release/**' ]
+    branches: [ '*' ]
   pull_request:
     branches: [ '*' ]
 
@@ -16,16 +16,10 @@ jobs:
   run_test:
     name: Build and run
     strategy:
-      fail-fast: false
       matrix:
         config:
           - zephyr-ref: v3.4.0
             zephyr-sdk: 0.16.1
-          - zephyr-ref: v3.5.0
-            zephyr-sdk: 0.16.3
-          - zephyr-ref: v2.7.4
-            zephyr-sdk: 0.16.3
-    if: github.repository_owner == 'wolftpm'
     runs-on: ubuntu-22.04
     # This should be a safe limit for the tests to run.
     timeout-minutes: 25
@@ -58,9 +52,11 @@ jobs:
       - name: Update west.yml
         working-directory: zephyr/zephyr
         run: |
-          REF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
-          sed -e 's/remotes:/remotes:\n    \- name: wolftpm\n      url\-base: https:\/\/github.com\/${{ github.repository_owner }}/' -i west.yml
+          EF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
+          sed -e 's/remotes:/remotes:\n    \- name: wolfssl\n      url\-base: https:\/\/github.com\/wolfssl/' -i west.yml
+          sed -e "s/remotes:/remotes:\n    \- name: wolftpm\n      url\-base: https:\/\/github.com\/${{ github.repository_owner }}/" -i west.yml
           sed -e "s/projects:/projects:\n    \- name: wolftpm\n      path: modules\/lib\/wolftpm\n      remote: wolftpm\n      revision: $REF/" -i west.yml
+          sed -e 's/projects:/projects:\n    \- name: wolfssl\n      path: modules\/crypto\/wolfssl\n      remote: wolfssl\n      revision: master/' -i west.yml
 
       - name: Update west workspace
         working-directory: zephyr
@@ -93,7 +89,7 @@ jobs:
         run: |
           ./zephyr/scripts/twister -T modules/lib/wolftpm --test zephyr/samples/wolftpm_wrap_test/sample.lib.wolftpm_wrap_test -vvv
           rm -rf zephyr/twister-out
-          
+
       - name: Run wolftpm wrap caps
         id: wolftpm-wrap-caps
         working-directory: zephyr
