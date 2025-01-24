@@ -8,7 +8,7 @@ common:
     regex:
       - "Zephyr wolfTPM wrap caps passed"
 tests:
-  sample.lib.wolftpm_wrap_tests:
+  sample.lib.wolftpm_wrap_caps:
     timeout: 200
     platform_allow: qemu_x86
     integration_platforms:
