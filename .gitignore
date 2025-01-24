@@ -84,6 +84,7 @@ examples/boot/secret_unseal
 examples/firmware/ifx_fw_extract
 examples/firmware/ifx_fw_update
 examples/endorsement/get_ek_certs
+examples/endorsement/verify_ek_cert
 
 # Generated Cert Files
 certs/ca-*.pem
