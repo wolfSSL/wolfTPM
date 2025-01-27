@@ -55,7 +55,7 @@ jobs:
         run: west init ~/zephyrproject
 
       - name: Update west.yml
-        working-directory: ~/zephyrproject/zephyr
+        working-directory: zephyrproject/zephyr
         run: |
           REF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
           sed -e 's/remotes:/remotes:\n    \- name: wolfssl\n      url\-base: https:\/\/github.com\/wolfssl/' -i west.yml
