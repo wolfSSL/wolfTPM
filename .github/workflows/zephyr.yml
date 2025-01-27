@@ -57,7 +57,7 @@ jobs:
       - name: Update west.yml
         working-directory: zephyr/zephyr
         run: |
-          EF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
+          REF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
           sed -e 's/remotes:/remotes:\n    \- name: wolfssl\n      url\-base: https:\/\/github.com\/wolfssl/' -i west.yml
           sed -e "s/remotes:/remotes:\n    \- name: wolftpm\n      url\-base: https:\/\/github.com\/${{ github.repository_owner }}/" -i west.yml
           sed -e "s/projects:/projects:\n    \- name: wolftpm\n      path: modules\/lib\/wolftpm\n      remote: wolftpm\n      revision: $REF/" -i west.yml
