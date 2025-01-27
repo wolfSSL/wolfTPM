@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   run_test:
-    name: Build and run
+    name: Build
     strategy:
       matrix:
         config:
@@ -43,11 +43,16 @@ jobs:
             python3-ply python3-setuptools python-is-python3 qemu-kvm rsync socat srecord sudo \
             texinfo unzip wget ovmf xz-utils
 
+      - name: Create and activate virtual environment
+        run: |
+          python3 -m venv ~/zephyrproject/.venv
+          source ~/zephyrproject/.venv/bin/activate
+
       - name: Install west
         run: sudo pip install west
 
       - name: Init west workspace
-        run: west init --mr ${{ matrix.config.zephyr-ref }} zephyr
+        run: west init ~/zephyrproject
 
       - name: Update west.yml
         working-directory: zephyr/zephyr
@@ -59,15 +64,15 @@ jobs:
           sed -e 's/projects:/projects:\n    \- name: wolfssl\n      path: modules\/crypto\/wolfssl\n      remote: wolfssl\n      revision: master/' -i west.yml
 
       - name: Update west workspace
-        working-directory: zephyr
+        working-directory: ~/zephyrproject
         run: west update -n -o=--depth=1
 
       - name: Export zephyr
-        working-directory: zephyr
+        working-directory: ~/zephyrproject
         run: west zephyr-export
 
       - name: Install pip dependencies
-        working-directory: zephyr
+        working-directory: ~/zephyrproject
         run: sudo pip install -r zephyr/scripts/requirements.txt
 
       - name: Install zephyr SDK
@@ -84,11 +89,11 @@ jobs:
           sed -i -e 's/CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE/CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE/g' $(find -name prj.conf)
 
       - name: Build wolftpm wrap test
-        working-directory: zephyr
+        working-directory: ~/zephyrproject
         run: |
           west build -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
 
-      - name: Build wolftpm wrap test
-        working-directory: zephyr
+      - name: Build wolftpm wrap caps
+        working-directory: ~/zephyrproject
         run: |
           west build -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_caps
