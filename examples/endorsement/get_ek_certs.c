@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* This example shows how to decrypt a credential for Remote Attestation
- * and extract the secret for challenge response to an attestation server
+/* This example will list each of the Endorsement Key certificates and attempt
+ * to validate based on trusted peers in trusted_certs.h.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -385,6 +385,9 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                 printf("Endorsement Cert PEM\n");
                 puts(pem);
             }
+
+            XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            pem = NULL;
         #endif /* WOLFSSL_DER_TO_PEM */
         }
     #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
@@ -394,6 +397,11 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     }
 
 exit:
+
+    if (rc != 0) {
+        printf("Error getting EK certificates! %s (%d)\n",
+            TPM2_GetRCString(rc), rc);
+    }
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     #ifdef WOLFSSL_DER_TO_PEM

@@ -27,6 +27,7 @@
 #endif
 
 int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */
