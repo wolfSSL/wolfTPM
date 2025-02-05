@@ -36,13 +36,14 @@
 #include <examples/endorsement/endorsement.h>
 #include <hal/tpm_io.h>
 
+#ifndef HAVE_DO178
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #include <wolfssl/wolfcrypt/asn.h>
     #if !defined(WOLFCRYPT_ONLY)
     #include "trusted_certs.h"
     #endif
 #endif
-
+#endif /* !HAVE_DO178 */
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Endorsement certificate tool  -- */
 /******************************************************************************/
@@ -91,10 +92,12 @@ static void show_ek_public(const TPM2B_PUBLIC* pub)
     }
     else if (pub->publicArea.type == TPM_ALG_ECC) {
         const char* curveName = "NULL";
+#ifndef HAVE_DO178
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
         curveName = wc_ecc_get_name(
             TPM2_GetWolfCurve(pub->publicArea.parameters.eccDetail.curveID));
     #endif
+#endif /* !HAVE_DO178 */
         printf("\tCurveID %s (0x%x), size %d, unique X/Y size %d/%d\n",
             curveName, pub->publicArea.parameters.eccDetail.curveID,
             TPM2_GetCurveSize(pub->publicArea.parameters.eccDetail.curveID),
@@ -106,7 +109,7 @@ static void show_ek_public(const TPM2B_PUBLIC* pub)
                        pub->publicArea.unique.ecc.y.size);
     }
 }
-
+#ifndef HAVE_DO178
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
 static int compare_ek_public(const TPM2B_PUBLIC* ekpub,
     const TPM2B_PUBLIC* certpub)
@@ -140,6 +143,7 @@ static int compare_ek_public(const TPM2B_PUBLIC* ekpub,
     return rc;
 }
 #endif
+#endif /* !HAVE_DO178 */
 
 int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
 {
@@ -154,6 +158,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     uint32_t certSz;
     TPMT_PUBLIC publicTemplate;
     word32 nvIndex;
+#ifndef HAVE_DO178
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     #ifndef WOLFCRYPT_ONLY
     int i;
@@ -165,7 +170,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     word32 pemSz = 0;
     #endif
 #endif
-
+#endif /* !HAVE_DO178 */
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&handles, 0, sizeof(handles));
     XMEMSET(&nvPublic, 0, sizeof(nvPublic));
@@ -196,6 +201,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     rc = 0;
     printf("Found %d TCG handles\n", handles.count);
 
+#ifndef HAVE_DO178
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFCRYPT_ONLY) && \
     !defined(NO_ASN)
     /* load trusted certificates to cert manager */
@@ -223,7 +229,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         printf("Warning: Failed to setup a trusted certificate manager\n");
     }
 #endif
-
+#endif /* !HAVE_DO178 */
     for (nvIdx=0; nvIdx<(int)handles.count; nvIdx++) {
         nvIndex = handles.handle[nvIdx];
 
@@ -273,7 +279,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             /* Display EK public information */
             show_ek_public(&endorse.pub);
         }
-
+#ifndef HAVE_DO178
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
         if (rc == 0) {
             /* Attempt to parse certificate */
@@ -391,7 +397,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         #endif /* WOLFSSL_DER_TO_PEM */
         }
     #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
-
+#endif /* !HAVE_DO178 */
         wolfTPM2_UnloadHandle(&dev, &endorse.handle);
         XMEMSET(&endorse, 0, sizeof(endorse));
     }
@@ -403,6 +409,7 @@ exit:
             TPM2_GetRCString(rc), rc);
     }
 
+#ifndef HAVE_DO178
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     #ifdef WOLFSSL_DER_TO_PEM
     XFREE(pem, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -411,6 +418,7 @@ exit:
     wolfSSL_CertManagerFree(cm);
     #endif
 #endif
+#endif /* !HAVE_DO178 */
     wolfTPM2_UnloadHandle(&dev, &endorse.handle);
     wolfTPM2_Cleanup(&dev);
 

@@ -105,11 +105,6 @@ typedef struct WOLFTPM2_HMAC {
     word16 hmacKeyKeep:1;
 } WOLFTPM2_HMAC;
 
-#ifdef WOLFTPM2_CERT_GEN
-typedef struct WOLFTPM2_CSR {
-    Cert req;
-} WOLFTPM2_CSR;
-#endif
 
 /* buffer similar to TPM2B_MAX_BUFFER that can be used */
 typedef struct WOLFTPM2_BUFFER {
@@ -134,14 +129,6 @@ typedef struct WOLFTPM2_CAPS {
     word16 fwVerMajor;
     word16 fwVerMinor;
     word32 fwVerVendor;
-#ifndef HAVE_DO178
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
-    word32 keyGroupId;
-    word16 fwCounter;
-    word16 fwCounterSame;
-    byte   opMode;
-#endif
-#endif /* !HAVE_DO178 */
 
     /* bits */
     word16 fips140_2 : 1; /* using FIPS mode */
@@ -2995,195 +2982,6 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKe
 WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
 
 
-#ifdef WOLFTPM2_CERT_GEN
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation to set a
-        custom request extension oid and value usage for a WOLFTPM2_CSR structure.
-
-    \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct (not used)
-    \param csr pointer to a WOLFTPM2_CSR structure
-    \param critical If 0, the extension will not be marked critical, otherwise
-     it will be marked critical.
-    \param oid Dot separated oid as a string. For example "1.2.840.10045.3.1.7"
-    \param der The der encoding of the content of the extension.
-    \param derSz The size in bytes of the der encoding.
-
-    \sa wolfTPM2_CSR_SetSubject
-    \sa wolfTPM2_CSR_SetKeyUsage
-    \sa wolfTPM2_CSR_MakeAndSign
-    \sa wolfTPM2_CSR_MakeAndSign_ex
-*/
-WOLFTPM_API int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
-    int critical, const char *oid, const byte *der, word32 derSz);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation to set a
-        extended key usage or key usage for a WOLFTPM2_CSR structure.
-        Pass either extended key usage or key usage values.
-        Mixed string types are not supported, however you can call `wolfTPM2_CSR_SetKeyUsage`
-        twice (once for extended key usage strings and once for standard key usage strings).
-
-    \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct (not used)
-    \param csr pointer to a WOLFTPM2_CSR structure
-    \param keyUsage string list of comma separated key usage attributes.
-        Possible Extended Key Usage values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
-        Possible Key Usage values: digitalSignature, nonRepudiation, contentCommitment, keyEncipherment, dataEncipherment, keyAgreement, keyCertSign, cRLSign, encipherOnly, decipherOnly
-        Default: "serverAuth,clientAuth,codeSigning"
-
-    \sa wolfTPM2_CSR_SetSubject
-    \sa wolfTPM2_CSR_SetCustomExt
-    \sa wolfTPM2_CSR_MakeAndSign
-    \sa wolfTPM2_CSR_MakeAndSign_ex
-*/
-WOLFTPM_API int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
-    const char* keyUsage);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation to set a
-        subject for a WOLFTPM2_CSR structure.
-
-    \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct (not used)
-    \param csr pointer to a WOLFTPM2_CSR structure
-    \param subject distinguished name string using /CN= syntax.
-        Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"
-
-    \sa wolfTPM2_CSR_SetKeyUsage
-    \sa wolfTPM2_CSR_SetCustomExt
-    \sa wolfTPM2_CSR_MakeAndSign
-    \sa wolfTPM2_CSR_MakeAndSign_ex
-*/
-WOLFTPM_API int wolfTPM2_CSR_SetSubject(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
-    const char* subject);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation using a TPM based key (WOLFTPM2_KEY).
-        Uses a provided WOLFTPM2_CSR structure with subject and key usage already set.
-
-    \return Success: Positive integer (size of the output)
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param csr pointer to a WOLFTPM2_CSR structure
-    \param key WOLFTPM2_KEY structure
-    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
-    \param out destination buffer for CSR as ASN.1/DER or PEM
-    \param outSz destination buffer maximum size
-    \param sigType Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
-        See wolfCrypt "enum Ctc_SigType" for list of possible values.
-    \param selfSignCert If set to 1 (non-zero) then result will be a self signed certificate.
-        Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.
-    \param devId The device identifier used when registering the crypto callback. Use INVALID_DEVID (-2) to
-        automatically register the required crypto callback.
-
-    \sa wolfTPM2_CSR_SetSubject
-    \sa wolfTPM2_CSR_SetKeyUsage
-    \sa wolfTPM2_CSR_SetCustomExt
-    \sa wolfTPM2_CSR_MakeAndSign
-*/
-WOLFTPM_API int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
-    WOLFTPM2_KEY* key, int outFormat, byte* out, int outSz,
-    int sigType, int selfSignCert, int devId);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation using a TPM based key (WOLFTPM2_KEY).
-        Uses a provided WOLFTPM2_CSR structure with subject and key usage already set.
-
-    \return Success: Positive integer (size of the output)
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param csr pointer to a WOLFTPM2_CSR structure
-    \param key WOLFTPM2_KEY structure
-    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
-    \param out destination buffer for CSR as ASN.1/DER or PEM
-    \param outSz destination buffer maximum size
-
-    \sa wolfTPM2_CSR_SetSubject
-    \sa wolfTPM2_CSR_SetKeyUsage
-    \sa wolfTPM2_CSR_SetCustomExt
-    \sa wolfTPM2_CSR_MakeAndSign_ex
-*/
-WOLFTPM_API int wolfTPM2_CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
-    WOLFTPM2_KEY* key, int outFormat, byte* out, int outSz);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation using a TPM based key (WOLFTPM2_KEY).
-        Single shot API for outputting a CSR or self-signed cert based on TPM key.
-
-    \return Success: Positive integer (size of the output)
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param key pointer to a loaded WOLFTPM2_KEY structure
-    \param subject distinguished name string using /CN= syntax.
-        Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"
-    \param keyUsage string list of comma separated key usage attributes.
-        Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
-        Default: "serverAuth,clientAuth,codeSigning"
-    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
-    \param out destination buffer for CSR as ASN.1/DER or PEM
-    \param outSz destination buffer maximum size
-    \param sigType Use 0 to automatically select SHA2-256 based on keyType (CTC_SHA256wRSA or CTC_SHA256wECDSA).
-        See wolfCrypt "enum Ctc_SigType" for list of possible values.
-    \param selfSignCert If set to 1 (non-zero) then result will be a self signed certificate.
-        Zero (0) will generate a CSR (Certificate Signing Request) to be used by a CA.
-    \param devId The device identifier used when registering the crypto callback. Use INVALID_DEVID (-2) to
-        automatically register the required crypto callback.
-
-    \sa wolfTPM2_SetCryptoDevCb
-    \sa wolfTPM2_CSR_Generate
-*/
-WOLFTPM_API int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const char* subject, const char* keyUsage, int outFormat,
-    byte* out, int outSz, int sigType, int selfSignCert, int devId);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Helper for Certificate Signing Request (CSR) generation using a TPM based key (WOLFTPM2_KEY).
-        Single shot API for outputting a CSR or self-signed cert based on TPM key.
-
-    \return Success: Positive integer (size of the output)
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param key pointer to a loaded WOLFTPM2_KEY structure
-    \param subject distinguished name string using /CN= syntax.
-        Example: "/C=US/ST=Washington/L=Seattle/O=wolfSSL/OU=Development/CN=www.wolfssl.com/emailAddress=info@wolfssl.com"
-    \param keyUsage string list of comma separated key usage attributes.
-        Possible values: any, serverAuth, clientAuth, codeSigning, emailProtection, timeStamping and OCSPSigning
-        Default: "serverAuth,clientAuth,codeSigning"
-    \param outFormat CTC_FILETYPE_ASN1 or CTC_FILETYPE_PEM
-    \param out destination buffer for CSR as ASN.1/DER or PEM
-    \param outSz destination buffer maximum size
-
-    \sa wolfTPM2_SetCryptoDevCb
-    \sa wolfTPM2_CSR_Generate_ex
-*/
-WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const char* subject, const char* keyUsage, int outFormat,
-    byte* out, int outSz);
-
-#endif /* WOLFTPM2_CERT_GEN */
 
 
 /*!
@@ -3300,8 +3098,7 @@ WOLFTPM_API int wolfTPM2_ClearCryptoDevCb(WOLFTPM2_DEV* dev, int devId);
 
 #endif /* WOLFTPM_CRYPTOCB */
 
-#if defined(HAVE_PK_CALLBACKS) && !defined(WOLFTPM2_NO_WRAPPER) && \
-    !defined(WOLFCRYPT_ONLY)
+#if defined(HAVE_PK_CALLBACKS) && !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFCRYPT_ONLY)
 #ifndef NO_RSA
 WOLFTPM_API int wolfTPM2_PK_RsaSign(WOLFSSL* ssl,
     const unsigned char* in, unsigned int inSz,
@@ -3463,29 +3260,6 @@ WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
 */
 WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
 
-#ifdef WOLFTPM2_CERT_GEN
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Allocate and initialize a WOLFTPM2_CSR
-
-    \return pointer to newly initialized WOLFTPM2_CSR
-    \return NULL on any error
-
-    \sa wolfTPM2_FreeCSR
-*/
-WOLFTPM_API WOLFTPM2_CSR* wolfTPM2_NewCSR(void);
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Free a WOLFTPM2_CSR that was allocated with wolfTPM2_NewCSR
-
-    \return TPM_RC_SUCCESS: successful
-
-    \param csr pointer to a WOLFTPM2_CSR that was allocated by wolfTPM2_NewCSR
-
-    \sa wolfTPM2_NewCSR
-*/
-WOLFTPM_API int wolfTPM2_FreeCSR(WOLFTPM2_CSR* csr);
-#endif
 #endif /* !WOLFTPM2_NO_HEAP */
 
 /*!

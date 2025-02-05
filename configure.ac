@@ -116,6 +116,22 @@ AC_ARG_ENABLE([examples],
     [ ENABLED_EXAMPLES=yes ]
     )
 
+# Examples for DO-178 cert
+AC_ARG_ENABLE([cert-178],
+    [AS_HELP_STRING([--enable-cert-178],[Enable Examples (default: disabled)])],
+    [ ENABLED_CERT_178=$enableval ],
+    [ ENABLED_CERT_178=no ]
+    )
+if test "x$ENABLED_CERT_178" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DHAVE_DO178"
+fi
+
+# Disable default examples in cert build
+if test "x$ENABLED_CERT_178" = "xyes" && test "x$ENABLED_EXAMPLES" = "xyes"; then
+    ENABLED_EXAMPLES=no
+    ENABLED_WOLFCRYPT=no
+fi
 
 # Wrapper
 AC_ARG_ENABLE([wrapper],
@@ -437,6 +453,12 @@ AX_HARDEN_CC_COMPILER_FLAGS
 OPTION_FLAGS="$CFLAGS $CPPFLAGS $AM_CFLAGS"
 
 
+# Check if HAL is enabled (either EXAMPLE_HAL or MMIO)
+if test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"; then
+    BUILD_HAL_ENABLED="yes"
+else
+    BUILD_HAL_ENABLED="no"
+fi
 
 # The following AM_CONDITIONAL statements set flags for use in the Makefiles.
 AM_CONDITIONAL([HAVE_LIBWOLFSSL], [test "x$ENABLED_WOLFCRYPT" = "xyes"])
@@ -455,7 +477,11 @@ AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
-AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_CERT_178], [test "x$ENABLED_CERT_178" = "xyes"])
+AM_CONDITIONAL([NOT_BUILD_CERT_178], [test "x$ENABLED_CERT_178" != "xyes"])
+AM_CONDITIONAL([BUILD_HAL_CERT_178], [test "x$BUILD_HAL_ENABLED" = "xyes" -a "x$ENABLED_CERT_178" = "xyes"])
+AM_CONDITIONAL([BUILD_HAL], [test "x$BUILD_HAL_ENABLED" = "xyes" -a "x$ENABLED_CERT_178" != "xyes"])
+
 
 
 CREATE_HEX_VERSION

@@ -18,7 +18,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
-
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -61,6 +60,9 @@ static volatile int gWolfCryptRefCount = 0;
 /******************************************************************************/
 static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
+#ifdef HAVE_DO178
+    (void)ctx;
+#else /* HAVE_DO178 */
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
     (void)ctx;
 #else
@@ -84,11 +86,15 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
     }
     ctx->lockCount++;
 #endif
+#endif /* !HAVE_DO178 */
     return TPM_RC_SUCCESS;
 }
 
 static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 {
+#ifdef HAVE_DO178
+    (void)ctx;
+#else /* HAVE_DO178 */
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
     (void)ctx;
 #else
@@ -96,8 +102,8 @@ static void TPM2_ReleaseLock(TPM2_CTX* ctx)
     if (ctx->lockCount == 0) {
         wc_UnLockMutex(&ctx->hwLock);
     }
-
 #endif
+#endif /* !HAVE_DO178 */
 }
 
 static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
@@ -109,11 +115,15 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     int paramSz, encParamSz = 0;
     int i, authPos;
     int authTotalSzPos = 0;
+#ifndef HAVE_DO178
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     UINT32 handleValue1, handleValue2, handleValue3;
     int handlePos;
 #endif
-
+#else /* HAVE_DO178 */
+	(void)encParam;
+	(void)encParamSz;
+#endif /* !HAVE_DO178 */
     /* Skip the header and handles area */
     packet->pos = TPM2_HEADER_SIZE + (info->inHandleCnt * sizeof(TPM_HANDLE));
 
@@ -151,6 +161,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     (void)paramSz;
 #endif
 
+#ifndef HAVE_DO178
     /* Get Handle */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     handlePos = packet->pos;
@@ -160,7 +171,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     TPM2_Packet_ParseU32(packet, &handleValue3);
     packet->pos = handlePos;
 #endif
-
+#endif /* !HAVE_DO178 */
     for (i=0; i<info->authCnt; i++) {
         TPM2_AUTH_SESSION* session = &ctx->session[i];
         TPMS_AUTH_COMMAND authCmd;
@@ -192,11 +203,12 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         else if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
                  TPM2_IS_POLICY_SESSION(session->sessionHandle))
         {
+#ifndef HAVE_DO178
         #ifndef WOLFTPM2_NO_WOLFCRYPT
             TPM2B_NAME name1, name2, name3;
             TPM2B_DIGEST hash;
         #endif
-
+#endif /* !HAVE_DO178 */
             /* default is a HMAC output (using alg authHash) */
             authCmd.hmac.size = TPM2_GetHashDigestSize(session->authHash);
 
@@ -208,7 +220,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             if ((info->flags & (CMD_FLAG_DEC2 | CMD_FLAG_DEC4)) == 0) {
                 authCmd.sessionAttributes &= ~TPMA_SESSION_encrypt;
             }
-
+#ifndef HAVE_DO178
             /* Handle session request for encryption */
             if (encParam && authCmd.sessionAttributes & TPMA_SESSION_decrypt) {
                 /* Encrypt the first command parameter */
@@ -220,7 +232,6 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
             }
-
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
             rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
@@ -253,6 +264,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 return rc;
             }
         #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_HMAC */
+#endif /* !HAVE_DO178 */
         }
 
         /* Place session auth */
@@ -334,7 +346,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 XMEMCPY(session->nonceTPM.buffer, authRsp.nonce.buffer,
                     authRsp.nonce.size);
             }
-
+#ifndef HAVE_DO178
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
             if (authRsp.hmac.size > 0) {
                 TPM2B_DIGEST hash;
@@ -391,6 +403,11 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
             }
+#else /* HAVE_DO178 */
+            (void)decParam;
+            (void)decParamSz;
+            (void)cmdCode;
+#endif /* !HAVE_DO178 */
         }
     }
 
@@ -476,6 +493,7 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return TPM2_Packet_Parse(rc, packet);
 }
 
+#ifndef HAVE_DO178
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #ifdef HAVE_FIPS
 static void WolfFipsCb(int ok, int err, const char* hash)
@@ -513,6 +531,7 @@ static inline int TPM2_WolfCrypt_Init(void)
     return rc;
 }
 #endif
+#endif /* !HAVE_DO178 */
 
 /******************************************************************************/
 /* --- Public Functions -- */
@@ -619,11 +638,13 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
+#ifndef HAVE_DO178
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_WolfCrypt_Init();
     if (rc != 0)
         return rc;
 #endif
+#endif /* !HAVE_DO178 */
 
 #if defined(WOLFTPM_SWTPM)
     ctx->tcpCtx.fd = -1;
@@ -690,6 +711,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         TPM2_ReleaseLock(ctx);
     }
 
+#ifndef HAVE_DO178
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifdef WOLFTPM2_USE_WOLF_RNG
     if (ctx->rngInit) {
@@ -713,7 +735,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         wolfCrypt_Cleanup();
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
-
+#endif /* !HAVE_DO178 */
     return TPM_RC_SUCCESS;
 }
 
@@ -767,7 +789,7 @@ TPM_RC TPM2_Shutdown(Shutdown_In* in)
     return rc;
 }
 
-
+#ifndef HAVE_DO178
 TPM_RC TPM2_SelfTest(SelfTest_In* in)
 {
     TPM_RC rc;
@@ -853,6 +875,7 @@ TPM_RC TPM2_GetTestResult(GetTestResult_Out* out)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
 {
@@ -1053,6 +1076,7 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out)
 {
     TPM_RC rc;
@@ -1104,7 +1128,7 @@ TPM_RC TPM2_StirRandom(StirRandom_In* in)
     }
     return rc;
 }
-
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out)
 {
@@ -1394,7 +1418,7 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
     return rc;
 }
 
-
+#ifndef HAVE_DO178
 TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
 {
     TPM_RC rc;
@@ -1434,7 +1458,7 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
     }
     return rc;
 }
-
+#endif /* !HAVE_DO178 */
 TPM_RC TPM2_FlushContext(FlushContext_In* in)
 {
     TPM_RC rc;
@@ -1458,6 +1482,7 @@ TPM_RC TPM2_FlushContext(FlushContext_In* in)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
 {
     TPM_RC rc;
@@ -1492,7 +1517,7 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
     }
     return rc;
 }
-
+#endif /* !HAVE_DO178 */
 TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
 {
     TPM_RC rc;
@@ -1666,6 +1691,7 @@ TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
     ActivateCredential_Out* out)
 {
@@ -1954,6 +1980,7 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
 {
@@ -2059,6 +2086,7 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_ECDH_KeyGen(ECDH_KeyGen_In* in, ECDH_KeyGen_Out* out)
 {
     TPM_RC rc;
@@ -2246,6 +2274,7 @@ TPM_RC TPM2_ZGen_2Phase(ZGen_2Phase_In* in, ZGen_2Phase_Out* out)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 /* Deprecated version, use TPM2_EncryptDecrypt2 because it allows
     encryption of the input data */
@@ -2401,7 +2430,7 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
     }
     return rc;
 }
-
+#ifndef HAVE_DO178
 TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
 {
     TPM_RC rc;
@@ -2487,6 +2516,7 @@ TPM_RC TPM2_HMAC_Start(HMAC_Start_In* in, HMAC_Start_Out* out)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
     HashSequenceStart_Out* out)
@@ -2526,7 +2556,6 @@ TPM_RC TPM2_HashSequenceStart(HashSequenceStart_In* in,
     }
     return rc;
 }
-
 TPM_RC TPM2_SequenceUpdate(SequenceUpdate_In* in)
 {
     TPM_RC rc;
@@ -2611,6 +2640,7 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
     EventSequenceComplete_Out* out)
 {
@@ -3384,7 +3414,7 @@ TPM_RC TPM2_PCR_SetAuthValue(PCR_SetAuthValue_In* in)
     }
     return rc;
 }
-
+#endif /* !HAVE_DO178 */
 TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in)
 {
     TPM_RC rc;
@@ -3415,6 +3445,7 @@ TPM_RC TPM2_PCR_Reset(PCR_Reset_In* in)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
 {
     TPM_RC rc;
@@ -3625,6 +3656,7 @@ TPM_RC TPM2_PolicyOR(PolicyOR_In* in)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
 {
@@ -3664,6 +3696,7 @@ TPM_RC TPM2_PolicyPCR(PolicyPCR_In* in)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_PolicyLocality(PolicyLocality_In* in)
 {
     TPM_RC rc;
@@ -4226,7 +4259,9 @@ TPM_RC TPM2_ChangeEPS(ChangeEPS_In* in)
 {
     return TPM2_ChangeSeed(in, TPM_CC_ChangeEPS);
 }
+#endif /* !HAVE_DO178 */
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_Clear(Clear_In* in)
 {
     TPM_RC rc;
@@ -4254,6 +4289,7 @@ TPM_RC TPM2_Clear(Clear_In* in)
     }
     return rc;
 }
+
 
 TPM_RC TPM2_ClearControl(ClearControl_In* in)
 {
@@ -4913,6 +4949,7 @@ TPM_RC TPM2_NV_UndefineSpaceSpecial(NV_UndefineSpaceSpecial_In* in)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
 {
@@ -4968,6 +5005,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_NV_Write(NV_Write_In* in)
 {
     TPM_RC rc;
@@ -5037,6 +5075,7 @@ TPM_RC TPM2_NV_Increment(NV_Increment_In* in)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
 {
@@ -5075,6 +5114,7 @@ TPM_RC TPM2_NV_Extend(NV_Extend_In* in)
     return rc;
 }
 
+#ifndef HAVE_DO178
 TPM_RC TPM2_NV_SetBits(NV_SetBits_In* in)
 {
     TPM_RC rc;
@@ -5169,6 +5209,7 @@ TPM_RC TPM2_NV_GlobalWriteLock(NV_GlobalWriteLock_In* in)
     }
     return rc;
 }
+#endif /* !HAVE_DO178 */
 
 TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
 {
@@ -5211,7 +5252,7 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
     }
     return rc;
 }
-
+#ifndef HAVE_DO178
 TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in)
 {
     TPM_RC rc;
@@ -5242,6 +5283,7 @@ TPM_RC TPM2_NV_ReadLock(NV_ReadLock_In* in)
     }
     return rc;
 }
+
 
 TPM_RC TPM2_NV_ChangeAuth(NV_ChangeAuth_In* in)
 {
@@ -5329,7 +5371,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
     }
     return rc;
 }
-
+#endif /* !HAVE_DO178 */
 /******************************************************************************/
 /* --- END Standard TPM API's -- */
 /******************************************************************************/
@@ -5474,6 +5516,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
 }
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
+#ifndef HAVE_DO178
 /* GPIO Vendor Specific API's */
 #ifdef WOLFTPM_ST33
 int TPM2_GPIO_Config(GpioConfig_In* in)
@@ -5627,7 +5670,7 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
 /******************************************************************************/
 /* --- END Manufacture Specific TPM API's -- */
 /******************************************************************************/
-
+#endif /* !HAVE_DO178 */
 
 
 /******************************************************************************/
@@ -5650,7 +5693,7 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
     }
     return 0;
 }
-
+#ifndef HAVE_DO178
 TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -5671,6 +5714,7 @@ TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType)
     return TPM_ALG_ERROR;
 }
 
+
 int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -5690,6 +5734,7 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
     (void)hashAlg;
     return 0;
 }
+#endif /* !HAVE_DO178 */
 
 /* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for
  * RNG source */
@@ -5714,11 +5759,13 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 #endif
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
+#ifndef HAVE_DO178
     rc = TPM2_GetWolfRng(&rng);
     if (rc == 0) {
         /* Use wolfCrypt */
         rc = wc_RNG_GenerateBlock(rng, nonceBuf, nonceSz);
     }
+#endif /* !HAVE_DO178 */
 #else
     /* Call GetRandom directly, so a custom packet buffer can be used.
      * This won't conflict when being called from TPM2_CommandProcess. */
@@ -5756,10 +5803,9 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
         TPM2_ReleaseLock(ctx);
     }
 #endif
-
     return rc;
 }
-
+#ifndef HAVE_DO178
 /* Get name for object/handle */
 int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2B_NAME* name)
 {
@@ -5795,6 +5841,7 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
 #endif
     return TPM_RC_SUCCESS;
 }
+#endif /* !HAVE_DO178 */
 
 /* Caller must zeroize/memset(0) pcr (TPML_PCR_SELECTION) */
 void TPM2_SetupPCRSel(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg, int pcrIndex)
@@ -6207,6 +6254,7 @@ int TPM2_GetWolfCurve(int curve_id)
     return ret;
 }
 
+#ifndef HAVE_DO178
 #ifdef WOLFTPM2_USE_WOLF_RNG
 int TPM2_GetWolfRng(WC_RNG** rng)
 {
@@ -6250,7 +6298,7 @@ int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out)
     TPM2_Packet_ParseAttest(&packet, out);
     return TPM_RC_SUCCESS;
 }
-
+#endif /* !HAVE_DO178 */
 UINT16 TPM2_GetVendorID(void)
 {
     UINT16 vid = 0;
@@ -6260,10 +6308,11 @@ UINT16 TPM2_GetVendorID(void)
     }
     return vid;
 }
-
+#ifndef HAVE_DO178
 /* Stores nameAlg + the digest of nvPublic in buffer, total size in size */
 int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 {
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
     int hashSize, nameAlgSize;
@@ -6378,7 +6427,7 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
 
     return TPM_RC_SUCCESS;
 }
-
+#endif /* !HAVE_DO178 */
 /* This routine fills the first len bytes of the memory area pointed by mem
    with zeros. It ensures compiler optimizations doesn't skip it  */
 void TPM2_ForceZero(void* mem, word32 len)

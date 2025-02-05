@@ -19,9 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-#ifdef HAVE_CONFIG_H
     #include <config.h>
-#endif
 
 #include <wolftpm/tpm2_tis.h>
 
@@ -88,86 +86,6 @@ enum tpm_tis_status {
 #define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
 #define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
 
-#ifndef HAVE_DO178
-/* this option enables named semaphore protection on TIS commands for protected
-    concurrent process access */
-#ifdef WOLFTPM_TIS_LOCK
-    #ifdef __linux__
-        #include <semaphore.h>
-        #include <fcntl.h>
-        #include <sys/stat.h>
-        #include <errno.h>
-
-        #define SEM_NAME "/wolftpm"
-        #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
-        #define INITIAL_VALUE 1
-        #define TIMEOUT_SECONDS 10
-        static int gLockCount = 0;
-
-        static int TPM2_TIS_Lock(void)
-        {
-            int ret = 0;
-            sem_t *sem;
-            struct timespec timeoutTime;
-
-            if (gLockCount == 0) {
-                clock_gettime(CLOCK_REALTIME, &timeoutTime);
-                timeoutTime.tv_sec += TIMEOUT_SECONDS;
-
-                /* open semaphore and create if not found */
-                sem = sem_open(SEM_NAME, O_CREAT | O_RDWR, SEM_PERMS, INITIAL_VALUE);
-                if (sem == SEM_FAILED) {
-                #ifdef DEBUG_WOLFTPM
-                    printf("TPM2_TIS_Lock: Semaphore %s open failed! %d\n",
-                        SEM_NAME, errno);
-                #endif
-                    return BAD_MUTEX_E;
-                }
-
-                /* Try and decrement semaphore */
-                if (sem_timedwait(sem, &timeoutTime) != 0) {
-                #ifdef DEBUG_WOLFTPM
-                    printf("TPM2_TIS_Lock: Semaphore %s timeout! %d\n",
-                        SEM_NAME, errno);
-                #endif
-                    ret = WC_TIMEOUT_E;
-                }
-
-                sem_close(sem);
-            }
-            if (ret == 0) {
-                gLockCount++;
-            }
-
-            return ret;
-        }
-
-        static void TPM2_TIS_Unlock(void)
-        {
-            if (gLockCount > 0) {
-                gLockCount--;
-            }
-            if (gLockCount == 0) {
-                sem_t *sem = sem_open(SEM_NAME, O_RDWR);
-                if (sem == SEM_FAILED) {
-                #ifdef DEBUG_WOLFTPM
-                    printf("TPM2_TIS_Unlock: Semaphore %s open failed! %d\n",
-                        SEM_NAME, errno);
-                #endif
-                    return;
-                }
-
-                sem_post(sem); /* increment semaphore */
-                sem_close(sem);
-            }
-        }
-        #define TPM2_TIS_LOCK()   TPM2_TIS_Lock()
-        #define TPM2_TIS_UNLOCK() TPM2_TIS_Unlock()
-    #else
-        #error TPM TIS Locking not supported on this platform
-    #endif /* __linux__ */
-#endif /* WOLFTPM_TIS_LOCK */
-#endif /* !HAVE_DO178 */
 #ifndef TPM2_TIS_LOCK
 #define TPM2_TIS_LOCK() 0
 #endif
@@ -400,12 +318,10 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
     if (burstCount == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
         *burstCount = 32; /* fixed value */
     }
     else
-#endif
     {
         int timeout = TPM_TIMEOUT_TRIES;
         *burstCount = 0;
@@ -445,10 +361,6 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc != 0)
         return rc;
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Command: %d\n", packet->pos);
-    TPM2_PrintBin(packet->buf, packet->pos);
-#endif
 
     /* Make sure TPM is ready for command */
     rc = TPM2_TIS_Status(ctx, &status);
@@ -489,25 +401,17 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT,
                                              TPM_STS_DATA_EXPECT);
             if (rc != TPM_RC_SUCCESS) {
-            #ifdef DEBUG_WOLFTPM
-                printf("TPM2_TIS_SendCommand write expected more data!\n");
-            #endif
                 goto exit;
             }
         }
     }
 
-#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() != TPM_VENDOR_STM)
-#endif
     {
         /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,
                                         TPM_STS_VALID);
         if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_TIS_SendCommand status valid timeout!\n");
-        #endif
             goto exit;
         }
     }
@@ -527,9 +431,6 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_AVAIL,
                                          TPM_STS_DATA_AVAIL);
         if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_TIS_SendCommand read no data available!\n");
-        #endif
             goto exit;
         }
 
@@ -563,12 +464,6 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
     }
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    if (rspSz > 0) {
-        printf("Response: %d\n", rspSz);
-        TPM2_PrintBin(packet->buf, rspSz);
-    }
-#endif
 
     rc = TPM_RC_SUCCESS;
 

@@ -261,15 +261,6 @@ typedef enum {
     TPM_CC_NTC2_PreConfig           = CC_VEND + 0x0211,
     TPM_CC_NTC2_GetConfig           = CC_VEND + 0x0213,
 #endif
-#ifndef HAVE_DO178
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
-    TPM_CC_FieldUpgradeStartVendor    = CC_VEND + 0x12F,
-    TPM_CC_FieldUpgradeAbandonVendor  = CC_VEND + 0x130,
-    TPM_CC_FieldUpgradeManifestVendor = CC_VEND + 0x131,
-    TPM_CC_FieldUpgradeDataVendor     = CC_VEND + 0x132,
-    TPM_CC_FieldUpgradeFinalizeVendor = CC_VEND + 0x133,
-#endif
-#endif /* !HAVE_DO178 */
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -1836,12 +1827,6 @@ typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
     UINT16 xferSz, void* userCtx);
 #endif
 
-#ifndef HAVE_DO178
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WC_NO_RNG) && \
-    !defined(WOLFTPM2_USE_HW_RNG)
-    #define WOLFTPM2_USE_WOLF_RNG
-#endif
-#endif /* !HAVE_DO178 */
 
 #if MAX_RESPONSE_SIZE > MAX_COMMAND_SIZE
 #define XFER_MAX_SIZE MAX_RESPONSE_SIZE
@@ -1863,11 +1848,6 @@ typedef struct TPM2_CTX {
     wolfSSL_Mutex hwLock;
     int lockCount;
 #endif
-#ifndef HAVE_DO178
-    #ifdef WOLFTPM2_USE_WOLF_RNG
-    WC_RNG rng;
-    #endif
-#endif /* !HAVE_DO178 */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     /* TPM TIS Info */
@@ -1883,16 +1863,6 @@ typedef struct TPM2_CTX {
 
     byte rid;
     /* Informational Bits - use unsigned int for best compiler compatibility */
-#ifndef HAVE_DO178
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    #ifndef WOLFTPM_NO_LOCK
-    unsigned int hwLockInit:1;
-    #endif
-    #ifndef WC_NO_RNG
-    unsigned int rngInit:1;
-    #endif
-#endif
-#endif /* !HAVE_DO178 */
 } TPM2_CTX;
 
 
@@ -2977,8 +2947,7 @@ WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
 #endif /* ST33 Vendor Specific */
 
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
-    defined(WOLFTPM_AUTODETECT)
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || defined(WOLFTPM_AUTODETECT)
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 WOLFTPM_API int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
@@ -3780,11 +3749,6 @@ WOLFTPM_API int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int*
 */
 WOLFTPM_LOCAL int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2B_NAME* name);
 
-#ifndef HAVE_DO178
-#ifdef WOLFTPM2_USE_WOLF_RNG
-WOLFTPM_API int TPM2_GetWolfRng(WC_RNG** rng);
-#endif
-#endif /* !HAVE_DO178 */
 
 typedef enum {
     TPM_VENDOR_UNKNOWN = 0,
@@ -3821,72 +3785,9 @@ WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 WOLFTPM_LOCAL void TPM2_ForceZero(void* mem, word32 len);
 
 
-#ifdef DEBUG_WOLFTPM
-/*!
-    \ingroup TPM2_Proprietary
-    \brief Helper function to print a binary buffer in a formatted way
-    \note Requires DEBUG_WOLFTPM to be defined
-
-    \param buffer pointer to a buffer of BYTE type
-    \param length integer value of word32 type, containing the size of the buffer
-
-    _Example_
-    \code
-    BYTE buffer[] = {0x01,0x02,0x03,0x04};
-    length = sizeof(buffer);
-
-    TPM2_PrintBin(&buffer, length);
-    \endcode
-
-    \sa TPM2_PrintAuth
-    \sa TPM2_PrintPublicArea
-*/
-WOLFTPM_API void TPM2_PrintBin(const byte* buffer, word32 length);
-
-/*!
-    \ingroup TPM2_Proprietary
-    \brief Helper function to print a structure of TPMS_AUTH_COMMAND type in a human readable way
-    \note Requires DEBUG_WOLFTPM to be defined
-
-    \param authCmd pointer to a populated structure of TPMS_AUTH_COMMAND type
-
-    _Example_
-    \code
-    TPMS_AUTH_COMMAND authCmd; //for example, part of a TPM Authorization session
-
-    TPM2_PrintAuthCmd(&authCmd);
-    \endcode
-
-    \sa TPM2_PrintBin
-    \sa TPM2_PrintPublicArea
-*/
-WOLFTPM_API void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd);
-
-/*!
-    \ingroup TPM2_Proprietary
-    \brief Helper function to print a structure of TPM2B_PUBLIC type in a human readable way
-    \note Requires DEBUG_WOLFTPM to be defined
-
-    \param pub pointer to a populated structure of TPM2B_PUBLIC type
-
-    _Example_
-    \code
-    TPM2B_PUBLIC pub; //for example, part of the output of a successful TPM2_Create
-
-    TPM2_PrintPublicArea(&pub);
-    \endcode
-
-    \sa TPM2_PrintBin
-    \sa TPM2_PrintAuth
-    \sa TPM2_Create
-    \sa TPM2_ReadPublic
-*/
-WOLFTPM_API void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub);
-#else
 #define TPM2_PrintBin(b, l)
 #define TPM2_PrintAuth(b)
 #define TPM2_PrintPublicArea(b)
-#endif
 
 #ifdef __cplusplus
     }  /* extern "C" */

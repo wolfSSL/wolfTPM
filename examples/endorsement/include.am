@@ -18,6 +18,22 @@ if BUILD_EXAMPLES
   examples_endorsement_verify_ek_cert_DEPENDENCIES = src/libwolftpm.la
 endif
 
+if BUILD_CERT_178
+  noinst_HEADERS += \
+    examples/endorsement/endorsement.h \
+    examples/endorsement/trusted_certs.h \
+    examples/endorsement/trusted_certs_der.h
+
+  noinst_PROGRAMS += examples/endorsement/get_ek_certs
+  examples_endorsement_get_ek_certs_SOURCES      = examples/endorsement/get_ek_certs.c
+  examples_endorsement_get_ek_certs_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+  examples_endorsement_get_ek_certs_DEPENDENCIES = src/libwolftpm.la
+
+  noinst_PROGRAMS += examples/endorsement/verify_ek_cert
+  examples_endorsement_verify_ek_cert_SOURCES      = examples/endorsement/verify_ek_cert.c
+  examples_endorsement_verify_ek_cert_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+  examples_endorsement_verify_ek_cert_DEPENDENCIES = src/libwolftpm.la
+endif
 EXTRA_DIST+=examples/endorsement/README.md
 example_endorsementdir = $(exampledir)/endorsement
 dist_example_endorsement_DATA = \

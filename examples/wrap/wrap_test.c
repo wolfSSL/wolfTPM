@@ -76,7 +76,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
+#ifndef HAVE_DO178
     TPM2B_ECC_POINT pubPoint;
+#endif /* !HAVE_DO178*/
 #ifndef WOLFTPM_WINAPI
     word32 nvAttributes = 0;
 #endif
@@ -487,6 +489,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
 
+#ifndef HAVE_DO178
     /*------------------------------------------------------------------------*/
     /* ECC TESTS */
     /*------------------------------------------------------------------------*/
@@ -713,7 +716,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     printf("ECC Private Key RAW Loaded into TPM: Handle 0x%x\n",
         (word32)eccKey.handle.hndl);
-
+#endif /* !HAVE_DO178*/
     /* Use TPM Handle... */
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);

@@ -25,9 +25,7 @@
  * "STSAFE TPM RSA Intermediate CA 20" : RSA 4096-bit key with SHA2-384
  */
 
-#ifdef HAVE_CONFIG_H
     #include <config.h>
-#endif
 
 #include <wolftpm/tpm2_wrap.h>
 
@@ -49,26 +47,6 @@
 #define MAX_CERT_SZ 2048
 #endif
 
-#ifndef HAVE_DO178
-#ifdef WOLFTPM2_NO_WOLFCRYPT
-#define ASN_SEQUENCE         0x10
-#define ASN_CONSTRUCTED      0x20
-#define ASN_CONTEXT_SPECIFIC 0x80
-
-#define ASN_LONG_LENGTH  0x80 /* indicates additional length fields */
-
-#define ASN_INTEGER      0x02
-#define ASN_BIT_STRING   0x03
-#define ASN_OCTET_STRING 0x04
-#define ASN_TAG_NULL     0x05
-#define ASN_OBJECT_ID    0x06
-#endif
-
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(NO_RSA)
-#define RSA_BLOCK_TYPE_1 1
-#define RSA_BLOCK_TYPE_2 2
-#endif
-#endif /* !HAVE_DO178 */
 
 typedef struct DecodedX509 {
     word32 certBegin;
@@ -474,10 +452,6 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         }
         rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, cert, &certSz, 0);
         if (rc == 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("EK Data: %d\n", certSz);
-            TPM2_PrintBin(cert, certSz);
-        #endif
         }
     }
 

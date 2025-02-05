@@ -1,6 +1,12 @@
 # vim:ft=automake
 # All paths should be given relative to the root
 
+if BUILD_HAL_CERT_178
+    src_libwolftpm_la_SOURCES += hal/tpm_io.c \
+                                 hal/tpm_io_linux.c
+
+endif
+
 if BUILD_HAL
 src_libwolftpm_la_SOURCES += \
                     hal/tpm_io.c \

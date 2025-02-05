@@ -557,7 +557,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
     printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
-
+#ifndef WOLFTPM_NO_POLICY
     /* Policy Get Digest */
     XMEMSET(&cmdIn.policyGetDigest, 0, sizeof(cmdIn.policyGetDigest));
     cmdIn.policyGetDigest.policySession = sessionHandle;
@@ -571,7 +571,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         cmdOut.policyGetDigest.policyDigest.size);
     TPM2_PrintBin(cmdOut.policyGetDigest.policyDigest.buffer,
         cmdOut.policyGetDigest.policyDigest.size);
-
     /* Read PCR[0] SHA1 */
     pcrIndex = 0;
     XMEMSET(&cmdIn.pcrRead, 0, sizeof(cmdIn.pcrRead));
@@ -631,7 +630,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     }
     printf("TPM2_PolicyRestart: Done\n");
 
-
+#endif /* !WOLFTPM_NO_POLICY */
     /* Hashing */
     XMEMSET(&cmdIn.hashSeqStart, 0, sizeof(cmdIn.hashSeqStart));
     cmdIn.hashSeqStart.auth.size = sizeof(usageAuth)-1;
@@ -912,7 +911,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     rc = TPM2_HMAC_Start(&cmdIn.hmacStart, &cmdOut.hmacStart);
 #endif
 
-
+#ifndef WOLFTPM_NO_POLICY
     /* Allow object change auth */
     XMEMSET(&cmdIn.policyCC, 0, sizeof(cmdIn.policyCC));
     cmdIn.policyCC.policySession = sessionHandle;
@@ -924,7 +923,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("TPM2_PolicyCommandCode: success\n");
-
+#endif /* !WOLFTPM_NO_POLICY */
     /* Change Object Auth */
     XMEMSET(&cmdIn.objChgAuth, 0, sizeof(cmdIn.objChgAuth));
     cmdIn.objChgAuth.objectHandle = hmacKey.handle;
@@ -961,7 +960,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     /* Get a curve's parameters */
     XMEMSET(&cmdIn.eccParam, 0, sizeof(cmdIn.eccParam));
     cmdIn.eccParam.curveID = TPM_ECC_NIST_P256;
+#ifndef HAVE_DO178
     rc = TPM2_ECC_Parameters(&cmdIn.eccParam, &cmdOut.eccParam);
+#endif /* !HAVE_DO178*/
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_ECC_Parameters failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
@@ -1111,7 +1112,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     /* set session auth for ecc key */
     session[0].auth.size = sizeof(usageAuth)-1;
     XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
-
+#ifndef HAVE_DO178
     /* ECDH Key Gen (gen public point and shared secret) */
     XMEMSET(&cmdIn.ecdh, 0, sizeof(cmdIn.ecdh));
     cmdIn.ecdh.keyHandle = eccKey.handle;
@@ -1146,7 +1147,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         rc = -1; /* fail */
     }
     printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
-
+#endif /* !HAVE_DO178*/
     cmdIn.flushCtx.flushHandle = eccKey.handle;
     eccKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);

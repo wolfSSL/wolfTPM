@@ -218,7 +218,9 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_BUFFER cipher;
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
+#ifndef HAVE_DO178
     TPM2B_ECC_POINT pubPoint;
+#endif /* !HAVE_DO178*/
     double start;
     int count;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
@@ -421,7 +423,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
 
-
+#ifndef HAVE_DO178
     /* Create an ECC key for ECDSA */
     rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
@@ -481,9 +483,11 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         cipher.size = sizeof(cipher.buffer);
         rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
             cipher.buffer, &cipher.size);
+
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxDuration));
     bench_stats_asym_finish("ECDHE", 256, "agree", count, start);
+#endif /* !HAVE_DO178*/
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
