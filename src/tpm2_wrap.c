@@ -23,6 +23,12 @@
     #include <config.h>
 #endif
 
+/* wolfCrypt is not available
+ * in U-boot, so include hash.h */
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+    #include <hash.h>
+#endif
+
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
 
