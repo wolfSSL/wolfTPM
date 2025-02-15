@@ -25,7 +25,8 @@
 
 /* wolfCrypt is not available
  * in U-boot, so include hash.h */
-#ifdef WOLFTPM2_NO_WOLFCRYPT
+#if defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (!defined(__linux__) || !defined(__BOOT__))
     #include <hash.h>
 #endif
 

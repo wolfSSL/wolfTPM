@@ -249,17 +249,17 @@ make -j4
 
 3. Make dir for tpm from U-boot root.
 ```
-mkdir -p /tmp/mytpm1
+mkdir -p ./tmp/mytpm1
 ```
 
 4. In a first console invoke swtpm with:
 ```
-swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20
+swtpm socket --tpm2 --tpmstate dir=./tmp/mytpm1 --ctrl type=unixio,path=./tmp/mytpm1/swtpm-sock --log level=20
 ```
 
 5. In a second console invoke qemu-system-aarch64 with:
 ```
-qemu-system-aarch64 -machine virt -nographic -cpu cortex-a57 -bios u-boot.bin -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis-device,tpmdev=tpm0
+qemu-system-aarch64 -machine virt -nographic -cpu cortex-a57 -bios u-boot.bin -chardev socket,id=chrtpm,path=./tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis-device,tpmdev=tpm0
 ```
 
 5. Enable the TPM on U-Boot's command line with:

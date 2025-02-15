@@ -791,6 +791,23 @@ TPM_RC TPM2_SelfTest(SelfTest_In* in)
     return rc;
 }
 
+TPM_RC TPM2_SelfTestContinue(SelfTest_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(in, 0, sizeof(SelfTest_In));
+
+    in->continueTest = YES;
+
+    rc = TPM2_SelfTest(in);
+
+    return rc;
+}
+
 TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
     IncrementalSelfTest_Out* out)
 {

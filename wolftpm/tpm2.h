@@ -1915,8 +1915,10 @@ WOLFTPM_API TPM_RC TPM2_GetCapability(GetCapability_In* in,
 
 typedef struct {
     TPMI_YES_NO fullTest;
+    TPMI_YES_NO continueTest;
 } SelfTest_In;
 WOLFTPM_API TPM_RC TPM2_SelfTest(SelfTest_In* in);
+WOLFTPM_API TPM_RC TPM2_SelfTestContinue(SelfTest_In* in);
 
 typedef struct {
     TPML_ALG toTest;
