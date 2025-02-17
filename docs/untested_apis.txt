@@ -1,0 +1,73 @@
+# Public APIs Missing Test Coverage
+
+## Key Management APIs
+1. wolfTPM2_RsaKey_PubPemToTpm - No direct test coverage
+
+## Crypto Operation APIs
+2. wolfTPM2_ECDHEGenKey - No direct test coverage
+3. wolfTPM2_ECDHEGenZ - No direct test coverage
+
+## System Management APIs
+4. wolfTPM2_SetCommand - No direct test coverage
+
+## TPM2 Core APIs Missing Test Coverage
+
+## Policy APIs
+5. TPM2_PolicyPhysicalPresence - No direct test coverage
+6. TPM2_PolicyTemplate - No direct test coverage
+7. TPM2_PolicyAuthorizeNV - No direct test coverage
+
+## Hierarchy Management APIs
+8. TPM2_HierarchyControl - No direct test coverage
+9. TPM2_SetPrimaryPolicy - No direct test coverage
+10. TPM2_ChangePPS - No direct test coverage
+11. TPM2_ChangeEPS - No direct test coverage
+12. TPM2_ClearControl - No direct test coverage
+
+## System Management APIs
+13. TPM2_DictionaryAttackLockReset - No direct test coverage
+14. TPM2_DictionaryAttackParameters - No direct test coverage
+15. TPM2_PP_Commands - No direct test coverage
+16. TPM2_SetAlgorithmSet - No direct test coverage
+
+## Firmware Management APIs
+17. TPM2_FieldUpgradeStart - No direct test coverage
+18. TPM2_FieldUpgradeData - No direct test coverage
+19. TPM2_FirmwareRead - No direct test coverage
+
+## Context Management APIs
+20. TPM2_ContextSave - No direct test coverage
+21. TPM2_ContextLoad - No direct test coverage
+
+Notes:
+1. APIs marked as missing test coverage have no direct tests verifying their functionality and return code checking
+2. Some APIs may be indirectly tested through other functions but lack explicit test coverage
+3. This list excludes APIs that are tested through example files or unit tests
+4. Focus is on public APIs marked with WOLFTPM_API
+
+Removed from untested list due to having test coverage:
+- wolfTPM2_ImportEccPrivateKeySeed (tested via wolfTPM2_ImportEccPrivateKey)
+- wolfTPM2_RsaKey_WolfToTpm_ex (tested in tpm2_cryptocb.c)
+- wolfTPM2_DecodeRsaDer (tested in policy_sign.c)
+- wolfTPM2_EccKey_WolfToPubPoint (tested in tpm2_cryptocb.c)
+- wolfTPM2_DecodeEccDer (tested via wolfTPM2_ImportEccPrivateKey)
+- wolfTPM2_SetSessionHandle (tested via session management functions)
+- wolfTPM2_SetAuthHandle (tested in multiple example files)
+- wolfTPM2_NVCreateAuthPolicy (tested in nvram/extend.c)
+- wolfTPM2_NVWriteAuthPolicy (tested via NV policy functions)
+- wolfTPM2_NVReadAuthPolicy (tested via NV policy functions)
+- wolfTPM2_NVOpen (tested in multiple nvram examples)
+- wolfTPM2_Shutdown (tested in wrap/caps.c)
+- wolfTPM2_UnloadHandles (tested via key management functions)
+- wolfTPM2_UnloadHandles_AllTransient (tested via key management functions)
+- All CSR APIs (tested in C# wrapper)
+- TPM2_PolicyAuthValue (tested via wolfTPM2_PolicyAuthValue)
+- TPM2_PolicyPassword (tested via wolfTPM2_PolicyPassword)
+- TPM2_PolicyNvWritten (tested in policy examples)
+- TPM2_HierarchyChangeAuth (tested via hierarchy management functions)
+
+Notes:
+1. APIs marked as missing test coverage have no direct tests verifying their functionality and return code checking
+2. Some APIs may be indirectly tested through other functions but lack explicit test coverage
+3. This list excludes APIs that are tested through example files or unit tests
+4. Focus is on public APIs marked with WOLFTPM_API

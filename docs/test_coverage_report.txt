@@ -1,0 +1,177 @@
+# wolfTPM Test Coverage Report
+
+## TPM2 Core APIs Lacking Direct Tests
+
+### Policy APIs
+1. TPM2_PolicyPhysicalPresence
+   - No direct test coverage
+   - Not called by any higher-level functions
+   - No example usage found
+
+2. TPM2_PolicyTemplate
+   - No direct test coverage
+   - Not used in policy examples
+   - No indirect usage found
+
+3. TPM2_PolicyAuthorizeNV
+   - No direct test coverage
+   - Not used in NV or policy examples
+   - No indirect usage through wrapper functions
+
+### Hierarchy Management APIs
+1. TPM2_HierarchyControl
+   - No direct test coverage
+   - Not used in management examples
+   - Critical for TPM hierarchy management
+
+2. TPM2_SetPrimaryPolicy
+   - No direct test coverage
+   - Referenced in tpm2_wrap.c but not tested
+   - Important for TPM policy management
+
+3. TPM2_ChangePPS
+   - No direct test coverage
+   - Platform hierarchy management function
+   - No example usage found
+
+4. TPM2_ChangeEPS
+   - No direct test coverage
+   - Endorsement hierarchy management
+   - No example usage found
+
+5. TPM2_ClearControl
+   - No direct test coverage
+   - TPM state management function
+   - No example usage found
+
+### System Management APIs
+1. TPM2_DictionaryAttackLockReset
+   - No direct test coverage
+   - Security feature for TPM protection
+   - No example usage found
+
+2. TPM2_DictionaryAttackParameters
+   - No direct test coverage
+   - Security configuration function
+   - No example usage found
+
+3. TPM2_PP_Commands
+   - No direct test coverage
+   - Physical presence configuration
+   - No example usage found
+
+4. TPM2_SetAlgorithmSet
+   - No direct test coverage
+   - TPM algorithm management
+   - No example usage found
+
+### Firmware Management APIs
+1. TPM2_FieldUpgradeStart
+   - No direct test coverage
+   - Firmware update initialization
+   - No example usage found
+
+2. TPM2_FieldUpgradeData
+   - No direct test coverage
+   - Firmware update data transfer
+   - No example usage found
+
+3. TPM2_FirmwareRead
+   - No direct test coverage
+   - Firmware verification function
+   - No example usage found
+
+### Context Management APIs
+1. TPM2_ContextSave
+   - No direct test coverage
+   - Session/object context management
+   - No example usage found
+
+2. TPM2_ContextLoad
+   - No direct test coverage
+   - Session/object context restoration
+   - No example usage found
+
+## wolfTPM2 APIs Lacking Direct Tests
+
+### Key Management APIs
+1. wolfTPM2_RsaKey_PubPemToTpm
+   - No direct test coverage
+   - Public key import function
+   - No example usage found
+
+### Crypto Operation APIs
+1. wolfTPM2_ECDHEGenKey
+   - No direct test coverage
+   - ECDHE key generation
+   - No example usage found
+
+2. wolfTPM2_ECDHEGenZ
+   - No direct test coverage
+   - ECDHE shared secret generation
+   - No example usage found
+
+### System Management APIs
+1. wolfTPM2_SetCommand
+   - No direct test coverage
+   - Command configuration function
+   - No example usage found
+
+## Test Coverage Recommendations
+
+### High Priority
+1. Policy APIs
+   - Add unit tests for TPM2_PolicyPhysicalPresence
+   - Add unit tests for TPM2_PolicyTemplate
+   - Add unit tests for TPM2_PolicyAuthorizeNV
+   - Create policy example demonstrating usage
+
+2. Hierarchy Management
+   - Add unit tests for TPM2_HierarchyControl
+   - Add unit tests for TPM2_SetPrimaryPolicy
+   - Create management example showing hierarchy control
+
+3. System Management
+   - Add unit tests for dictionary attack functions
+   - Add unit tests for algorithm management
+   - Create example showing security configuration
+
+### Medium Priority
+1. Context Management
+   - Add unit tests for TPM2_ContextSave/Load
+   - Create example showing context management
+   - Add session persistence tests
+
+2. Crypto Operations
+   - Add unit tests for ECDHE functions
+   - Extend TLS examples to use ECDHE
+   - Add key import tests
+
+### Low Priority
+1. Firmware Management
+   - Add unit tests for firmware update functions
+   - Create firmware update example
+   - Add firmware read verification
+
+## Test Coverage Guidelines
+1. Each test should verify:
+   - Successful operation
+   - Error handling
+   - Return code checking
+   - Resource cleanup
+
+2. Example files should demonstrate:
+   - Real-world usage patterns
+   - Error recovery
+   - Complete workflows
+
+3. Test organization:
+   - Unit tests for individual functions
+   - Integration tests for workflows
+   - Examples for usage patterns
+
+4. Documentation:
+   - Test prerequisites
+   - Expected results
+   - Error conditions
+   - Cleanup requirements

@@ -1,0 +1,205 @@
+# Test Coverage Analysis
+
+## Test Files Analyzed:
+1. Unit Tests (tests/unit_tests.c)
+2. Integration Tests (examples/wrap/wrap_test.c)
+3. Example Files (examples/*)
+
+## Coverage Types:
+1. Direct test coverage (function called directly)
+2. Indirect test coverage (called by tested functions)
+3. Return code checking verification
+
+## Test Coverage Status:
+
+### Core TPM2 Functions:
+#### Tested in unit_tests.c:
+- TPM2_GetCapability (with return code check)
+- TPM2_PCR_Read (with return code check)
+- TPM2_PCR_Extend (with return code check)
+- TPM2_GetRandom (with return code check)
+- TPM2_Create (with return code check)
+- TPM2_Load (with return code check)
+- TPM2_StartAuthSession (with return code check)
+
+#### Tested in wrap_test.c:
+- TPM2_CreatePrimary (with return code check)
+- TPM2_Create (with return code check)
+- TPM2_Load (with return code check)
+- TPM2_RSA_Encrypt (with return code check)
+- TPM2_RSA_Decrypt (with return code check)
+- TPM2_Sign (with return code check)
+- TPM2_VerifySignature (with return code check)
+- TPM2_ECDH_KeyGen (with return code check)
+- TPM2_ECDH_ZGen (with return code check)
+- TPM2_NV_DefineSpace (with return code check)
+- TPM2_NV_Write (with return code check)
+- TPM2_NV_Read (with return code check)
+- TPM2_PCR_Read (with return code check)
+- TPM2_PCR_Extend (with return code check)
+
+#### Tested in keygen.c:
+- TPM2_CreatePrimary (with return code check)
+- TPM2_Create (with return code check)
+- TPM2_Load (with return code check)
+- wolfTPM2_CreateEK (with return code check)
+- wolfTPM2_CreateSRK (with return code check)
+- wolfTPM2_GetKeyTemplate_RSA (with return code check)
+- wolfTPM2_GetKeyTemplate_ECC (with return code check)
+- wolfTPM2_CreateKey (with return code check)
+- wolfTPM2_LoadKey (with return code check)
+
+#### Tested in store.c:
+- wolfTPM2_NVCreateAuth (with return code check)
+- wolfTPM2_NVWriteAuth (with return code check)
+- wolfTPM2_NVReadAuth (with return code check)
+- wolfTPM2_NVOpen (with return code check)
+
+#### Tested in extend.c:
+- TPM2_PCR_Extend (with return code check)
+- TPM2_PCR_Read (with return code check)
+- wolfTPM2_ExtendPCR (with return code check)
+- wolfTPM2_ReadPCR (with return code check)
+
+#### Tested in attestation examples:
+- TPM2_MakeCredential (with return code check)
+- TPM2_ActivateCredential (with return code check)
+- TPM2_Certify (with return code check)
+- TPM2_PolicyCommandCode (with return code check)
+- TPM2_PolicyOR (with return code check)
+- wolfTPM2_CreateEK (with return code check)
+- wolfTPM2_LoadKey (with return code check)
+- wolfTPM2_CreateAuthSession_EkPolicy (with return code check)
+- wolfTPM2_SetAuthSession (with return code check)
+- wolfTPM2_ReadPublicKey (with return code check)
+
+#### Tested in TLS examples:
+- wolfTPM2_CreatePrimaryKey (with return code check)
+- wolfTPM2_CreateKey (with return code check)
+- wolfTPM2_LoadKey (with return code check)
+- wolfTPM2_SignHash (with return code check)
+- wolfTPM2_VerifyHash (with return code check)
+- wolfTPM2_ECDHGenKey (with return code check)
+- wolfTPM2_ECDHGenZ (with return code check)
+- wolfTPM2_RsaEncrypt (with return code check)
+- wolfTPM2_RsaDecrypt (with return code check)
+- wolfTPM2_LoadRsaPublicKey (with return code check)
+- wolfTPM2_LoadRsaPrivateKey (with return code check)
+- wolfTPM2_LoadEccPublicKey (with return code check)
+- wolfTPM2_LoadEccPrivateKey (with return code check)
+
+#### Tested in PKCS7 examples:
+- wolfTPM2_SignHash (with return code check)
+- wolfTPM2_VerifyHash (with return code check)
+- wolfTPM2_LoadKey (with return code check)
+- wolfTPM2_CreateKey (with return code check)
+- wolfTPM2_ExportPublicKeyBuffer (with return code check)
+- wolfTPM2_ImportPrivateKey (with return code check)
+
+#### Tested in Timestamp examples:
+- TPM2_ReadClock (with return code check)
+- TPM2_GetTime (with return code check)
+- wolfTPM2_GetTime (with return code check)
+- wolfTPM2_CreateAndLoadAIK (with return code check)
+- wolfTPM2_StartSession (with return code check)
+
+#### Tested in GPIO examples:
+- TPM2_GPIO_Config (with return code check)
+- TPM2_NV_DefineSpace (with return code check)
+- TPM2_NV_Write (with return code check)
+- TPM2_NV_Read (with return code check)
+- wolfTPM2_NVCreateAuth (with return code check)
+- wolfTPM2_NVWriteAuth (with return code check)
+
+#### Tested in Secure Boot examples:
+- wolfTPM2_NVCreateAuth (with return code check)
+- wolfTPM2_NVWriteAuth (with return code check)
+- wolfTPM2_NVReadAuth (with return code check)
+- wolfTPM2_NVWriteLock (with return code check)
+- wolfTPM2_NVReadPublic (with return code check)
+- wolfTPM2_StartSession (with return code check)
+
+## Test Coverage Summary:
+1. Core TPM2 Functions:
+   - Most core TPM2 functions have direct test coverage
+   - Return code checking is consistently implemented
+   - Test coverage spans across unit tests and examples
+
+2. Wrapper Functions:
+   - Comprehensive coverage of key management functions
+   - Strong coverage of cryptographic operations
+   - Good coverage of session and policy management
+
+3. Test Coverage Patterns:
+   - Consistent error handling and return code checks
+   - Parameter validation testing
+   - Resource cleanup verification
+   - Session management verification
+
+4. Notable Test Coverage Areas:
+   - Key generation and management
+   - Cryptographic operations (sign/verify/encrypt/decrypt)
+   - NV storage operations
+   - PCR operations
+   - Session management
+   - GPIO configuration
+   - Time and timestamp operations
+   - Secure boot functionality
+   - TLS integration
+   - PKCS7 operations
+
+### Wrapper Functions:
+#### Tested in unit_tests.c:
+- wolfTPM2_Init (with return code check)
+- wolfTPM2_OpenExisting (with return code check)
+- wolfTPM2_GetCapabilities (with return code check)
+- wolfTPM2_ReadPublicKey (with return code check)
+- wolfTPM2_GetRandom (with return code check)
+- wolfTPM2_UnsetAuth (with return code check)
+- wolfTPM2_SetAuth (with return code check)
+- wolfTPM2_Cleanup (with return code check)
+- wolfTPM2_CreatePrimaryKey (with return code check)
+- wolfTPM2_LoadKey (with return code check)
+
+#### Tested in wrap_test.c:
+- wolfTPM2_Init (with return code check)
+- wolfTPM2_GetCapabilities (with return code check)
+- wolfTPM2_UnloadHandles_AllTransient (with return code check)
+- wolfTPM2_CreatePrimaryKey (with return code check)
+- wolfTPM2_CreateSRK (with return code check)
+- wolfTPM2_StartSession (with return code check)
+- wolfTPM2_SetAuthSession (with return code check)
+- wolfTPM2_CreateLoadedKey (with return code check)
+- wolfTPM2_CreateAndLoadKey (with return code check)
+- wolfTPM2_SignHashScheme (with return code check)
+- wolfTPM2_VerifyHashScheme (with return code check)
+- wolfTPM2_UnloadHandle (with return code check)
+- wolfTPM2_RsaEncrypt (with return code check)
+- wolfTPM2_RsaDecrypt (with return code check)
+- wolfTPM2_LoadEccPublicKey (with return code check)
+- wolfTPM2_LoadEccPrivateKey (with return code check)
+- wolfTPM2_ECDHGen (with return code check)
+- wolfTPM2_ECDHGenZ (with return code check)
+- wolfTPM2_EccKey_TpmToWolf (with return code check)
+- wolfTPM2_EccKey_WolfToTpm (with return code check)
+- wolfTPM2_ChangeAuthKey (with return code check)
+
+### Parameter Encryption Functions:
+#### Tested in unit_tests.c:
+- TPM2_KDFa (indirectly tested through session creation)
+
+#### Tested in wrap_test.c:
+- TPM2_KDFa (directly tested through parameter encryption)
+
+## Test Coverage Patterns:
+1. Function call with NULL argument checks
+2. Function call with invalid argument checks
+3. Function call with valid arguments
+4. Return code verification
+5. Cleanup after test
+
+## Notes:
+- Exclude WOLFTPM_LOCAL and static functions
+- Focus on public APIs only
+- Document test coverage patterns
+- Verify return code checking
