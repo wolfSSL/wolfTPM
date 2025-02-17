@@ -1085,6 +1085,8 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_LoadEccPrivateKey_ex
     \sa wolfTPM2_LoadPrivateKey
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import an ECC private key into the TPM with a custom seed
@@ -1425,6 +1427,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev,
 
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import a wolfcrypt RSA key into the TPM
@@ -1461,6 +1465,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm(WOLFTPM2_DEV* dev, RsaKey* wolfKey,
     \sa wolfTPM2_RsaKey_WolfToTpm
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import a wolfcrypt RSA key into the TPM under a specific parent key
@@ -1497,6 +1503,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_RsaKey_TpmToPem
     \sa wolfTPM2_RsaKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import a PEM format RSA public key into the TPM
@@ -1534,6 +1542,8 @@ WOLFTPM_API int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_ImportPrivateKeyBuffer
     \sa wolfTPM2_DecodeEccDer
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import DER RSA private or public key into TPM public and sensitive structures
@@ -1572,6 +1582,8 @@ WOLFTPM_API int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     \sa wolfTPM2_EccKey_WolfToTpm
     \sa wolfTPM2_EccKey_WolfToTpm_ex
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Extract an ECC TPM key and convert it to a wolfcrypt key
@@ -1606,6 +1618,8 @@ WOLFTPM_API int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKe
 
     \sa wolfTPM2_EccKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import a wolfcrypt ECC key into the TPM
@@ -1642,6 +1656,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
     \sa wolfTPM2_EccKey_WolfToTPM
     \sa wolfTPM2_EccKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import ECC wolfcrypt key into the TPM under a specific parent key
@@ -1677,6 +1693,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* pa
 
     \sa wolfTPM2_EccKey_TpmToWolf
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Extract the public point from a wolfcrypt ECC key for use with TPM
@@ -1712,6 +1730,8 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfK
     \sa wolfTPM2_ImportPrivateKeyBuffer
     \sa wolfTPM2_DecodeRsaDer
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Import DER ECC private or public key into TPM public and sensitive structures
@@ -1923,6 +1943,8 @@ WOLFTPM_API int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey,
     \sa wolfTPM2_ECDHEGenKey
     \sa wolfTPM2_ECDHEGenZ
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate an ECDH shared secret using a TPM key and external public point
@@ -1963,6 +1985,8 @@ WOLFTPM_API int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     \sa wolfTPM2_ECDHEGenKey
     \sa wolfTPM2_ECDHEGenZ
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate ECDH shared secret Z value using TPM key and external public point
@@ -2680,6 +2704,8 @@ WOLFTPM_API int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     \sa wolfTPM2_HmacStart
     \sa wolfTPM2_HMACFinish
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Update an HMAC operation with data
@@ -2738,6 +2764,8 @@ WOLFTPM_API int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     \sa wolfTPM2_EncryptDecrypt
     \sa TPM2_EncryptDecrypt2
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Load a symmetric key into the TPM
@@ -3263,6 +3291,8 @@ WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
     \sa wolfTPM2_CSR_MakeAndSign
     \sa wolfTPM2_CSR_MakeAndSign_ex
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Add a custom extension to a Certificate Signing Request (CSR)
@@ -3308,6 +3338,8 @@ WOLFTPM_API int wolfTPM2_CSR_SetCustomExt(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \sa wolfTPM2_CSR_MakeAndSign
     \sa wolfTPM2_CSR_MakeAndSign_ex
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set the Key Usage extension in a Certificate Signing Request (CSR)
@@ -3345,6 +3377,8 @@ WOLFTPM_API int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \sa wolfTPM2_CSR_MakeAndSign
     \sa wolfTPM2_CSR_MakeAndSign_ex
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set the Subject Name in a Certificate Signing Request (CSR)
@@ -3391,6 +3425,8 @@ WOLFTPM_API int wolfTPM2_CSR_SetSubject(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \sa wolfTPM2_CSR_SetCustomExt
     \sa wolfTPM2_CSR_MakeAndSign
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate and sign a Certificate Signing Request (CSR) with extended options
@@ -3470,6 +3506,8 @@ WOLFTPM_API int wolfTPM2_CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     \sa wolfTPM2_SetCryptoDevCb
     \sa wolfTPM2_CSR_Generate
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate a Certificate Signing Request (CSR) or self-signed certificate with extended options
@@ -3520,6 +3558,8 @@ WOLFTPM_API int wolfTPM2_CSR_Generate_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \sa wolfTPM2_SetCryptoDevCb
     \sa wolfTPM2_CSR_Generate_ex
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate a Certificate Signing Request (CSR) or self-signed certificate
@@ -3563,6 +3603,8 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     \sa TPM2_HierarchyChangeAuth
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set the platform hierarchy authentication value to random
@@ -3636,6 +3678,8 @@ typedef struct TpmCryptoDevCtx {
     \sa wolfTPM2_SetCryptoDevCb
     \sa wolfTPM2_ClearCryptoDevCb
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Reference crypto callback for TPM crypto offload
@@ -3670,6 +3714,8 @@ WOLFTPM_API int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx);
     \sa wolfTPM2_CryptoDevCb
     \sa wolfTPM2_ClearCryptoDevCb
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Register a crypto callback function and return assigned devId
@@ -3763,6 +3809,8 @@ WOLFTPM_API int wolfTPM_PK_SetCbCtx(WOLFSSL* ssl, void* userCtx);
 
     \sa wolfTPM2_Free
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_DEV
@@ -3785,6 +3833,8 @@ WOLFTPM_API WOLFTPM2_DEV* wolfTPM2_New(void);
 
     \sa wolfTPM2_New
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Cleanup and Free a WOLFTPM2_DEV that was allocated by wolfTPM2_New
@@ -3808,6 +3858,8 @@ WOLFTPM_API int wolfTPM2_Free(WOLFTPM2_DEV *dev);
 
     \sa wolfTPM2_FreeKeyBlob
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_KEYBLOB
@@ -3830,6 +3882,8 @@ WOLFTPM_API WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void);
 
     \sa wolfTPM2_NewKeyBlob
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Free a WOLFTPM2_KEYBLOB that was allocated with wolfTPM2_NewKeyBlob
@@ -3853,6 +3907,8 @@ WOLFTPM_API int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob);
 
     \sa wolfTPM2_FreePublicTemplate
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a TPMT_PUBLIC template
@@ -3875,6 +3931,8 @@ WOLFTPM_API TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void);
 
     \sa wolfTPM2_NewPublicTemplate
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Free a TPMT_PUBLIC template that was allocated with wolfTPM2_NewPublicTemplate
@@ -3899,6 +3957,8 @@ WOLFTPM_API int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate);
 
     \sa wolfTPM2_FreeKey
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_KEY
@@ -3921,6 +3981,8 @@ WOLFTPM_API WOLFTPM2_KEY* wolfTPM2_NewKey(void);
 
     \sa wolfTPM2_NewKey
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Free a WOLFTPM2_KEY that was allocated with wolfTPM2_NewKey
@@ -3945,6 +4007,8 @@ WOLFTPM_API int wolfTPM2_FreeKey(WOLFTPM2_KEY* key);
 
     \sa wolfTPM2_FreeSession
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_SESSION
@@ -3967,6 +4031,8 @@ WOLFTPM_API WOLFTPM2_SESSION* wolfTPM2_NewSession(void);
 
     \sa wolfTPM2_NewSession
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Free a WOLFTPM2_SESSION that was allocated with wolfTPM2_NewSession
@@ -3991,6 +4057,8 @@ WOLFTPM_API int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session);
 
     \sa wolfTPM2_FreeCSR
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Allocate and initialize a WOLFTPM2_CSR
@@ -4012,6 +4080,8 @@ WOLFTPM_API WOLFTPM2_CSR* wolfTPM2_NewCSR(void);
 
     \sa wolfTPM2_NewCSR
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Free a WOLFTPM2_CSR that was allocated with wolfTPM2_NewCSR
@@ -4167,6 +4237,8 @@ WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     \sa wolfTPM2_PolicyPCR
     \sa wolfTPM2_PolicyAuthorize
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Restart the policy digest for a policy session
@@ -4203,6 +4275,8 @@ WOLFTPM_API int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHand
     \sa wolfTPM2_PolicyAuthorize
     \sa wolfTPM2_PolicyRestart
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Get the current policy digest of a policy session
@@ -4365,6 +4439,8 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
 
     \sa wolfTPM2_PolicyPCRMake
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Create a policy hash using command code and input data
@@ -4408,6 +4484,8 @@ WOLFTPM_API int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
     \sa wolfTPM2_PolicyPCRMake
     \sa wolfTPM2_PolicyHash
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generate a policy authorization digest based on a public key
@@ -4449,6 +4527,8 @@ WOLFTPM_API int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
     \sa wolfTPM2_PolicyAuthValue
     \sa wolfTPM2_PolicyCommandCode
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set a password policy for a policy session
@@ -4485,6 +4565,8 @@ WOLFTPM_API int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_PolicyPassword
     \sa wolfTPM2_PolicyCommandCode
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set an auth value policy for a policy session
@@ -4520,6 +4602,8 @@ WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_PolicyPassword
     \sa wolfTPM2_PolicyAuthValue
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Set a command code policy for a policy session
@@ -4653,6 +4737,8 @@ typedef int (*wolfTPM2FwDataCb)(
     \sa wolfTPM2_FirmwareUpgrade
     \sa wolfTPM2_FirmwareUpgradeRecover
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Calculate hash of firmware manifest for upgrade
@@ -4697,6 +4783,8 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_FirmwareUpgradeHash
     \sa wolfTPM2_FirmwareUpgradeRecover
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
@@ -4736,6 +4824,8 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_FirmwareUpgrade
     \sa wolfTPM2_FirmwareUpgradeHash
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Recover from failed TPM firmware upgrade
@@ -4771,6 +4861,8 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_FirmwareUpgrade
     \sa wolfTPM2_FirmwareUpgradeRecover
 */
+
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Cancel ongoing TPM firmware upgrade
