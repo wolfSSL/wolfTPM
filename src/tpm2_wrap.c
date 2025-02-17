@@ -23,13 +23,6 @@
     #include <config.h>
 #endif
 
-/* wolfCrypt is not available
- * in U-boot, so include hash.h */
-#if defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    (!defined(__linux__) || !defined(__BOOT__))
-    #include <hash.h>
-#endif
-
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
 
@@ -8011,6 +8004,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
@@ -8027,6 +8021,7 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     }
     return rc;
 }
+#endif
 
 int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
