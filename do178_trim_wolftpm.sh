@@ -42,6 +42,7 @@ excluded_filenames=(
     [wolftpm/options.h]=''
     [src/config.h]=''
     [src/tpm2_linux.c]=''
+    [hal/tpm_io_linux.c]=''
 )
 
 declare -A ignore_unregen_filenames
