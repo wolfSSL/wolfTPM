@@ -71,10 +71,7 @@ typedef int64_t  INT64;
 #define NO 0
 #endif
 
-/* Debug build options */
-#if defined(WOLFTPM_DEBUG_VERBOSE) && !defined(DEBUG_WOLFTPM)
-    #define DEBUG_WOLFTPM
-#endif
+
 
 /* ---------------------------------------------------------------------------*/
 /* WOLFCRYPT */
@@ -112,9 +109,7 @@ typedef int64_t  INT64;
         #include <wolfssl/ssl.h> /* for wolfSSL_ERR_reason_error_string */
     #endif
 
-    #ifdef DEBUG_WOLFTPM
-        #include <stdio.h>
-    #endif
+
 
     #include <wolfssl/version.h>
     #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x03015004
