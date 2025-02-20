@@ -41,6 +41,11 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 static volatile int gWolfCryptRefCount = 0;
 #endif
 
+#ifdef HAVE_DO178
+    #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
+    #define TPM2_INTERNAL_CLEANUP(ctx)
+#else /* HAVE_DO178 */
+
 #ifdef WOLFTPM_LINUX_DEV
 #define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -54,7 +59,7 @@ static volatile int gWolfCryptRefCount = 0;
 #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #endif
-
+#endif /* !HAVE_DO178 */
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/

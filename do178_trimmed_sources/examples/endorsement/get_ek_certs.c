@@ -23,7 +23,9 @@
  * to validate based on trusted peers in trusted_certs.h.
  */
 
+#ifdef HAVE_CONFIG_H
     #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_wrap.h>
 

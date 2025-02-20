@@ -18,7 +18,9 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
+#ifdef HAVE_CONFIG_H
     #include <config.h>
+#endif
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
@@ -39,9 +41,8 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 static volatile int gWolfCryptRefCount = 0;
 #endif
 
-#define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
-#define TPM2_INTERNAL_CLEANUP(ctx)
-
+    #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
+    #define TPM2_INTERNAL_CLEANUP(ctx)
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/

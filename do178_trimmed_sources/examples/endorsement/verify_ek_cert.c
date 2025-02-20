@@ -25,7 +25,9 @@
  * "STSAFE TPM RSA Intermediate CA 20" : RSA 4096-bit key with SHA2-384
  */
 
+#ifdef HAVE_CONFIG_H
     #include <config.h>
+#endif
 
 #include <wolftpm/tpm2_wrap.h>
 
