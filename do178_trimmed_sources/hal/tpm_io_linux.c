@@ -40,6 +40,16 @@
 /* Included via tpm_io.c if WOLFTPM_INCLUDE_IO_FILE is defined */
 #ifdef WOLFTPM_INCLUDE_IO_FILE
 
+#if ! (defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI) )
+
+/* Use the max speed by default - see tpm2_types.h for chip specific max values */
+#ifndef TPM2_SPI_HZ
+    #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
+#endif
+
+
+
+#endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 
 /******************************************************************************/

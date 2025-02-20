@@ -257,10 +257,6 @@ typedef enum {
     TPM_CC_SetCommandSetLock        = CC_VEND + 0x030B,
     TPM_CC_GPIO_Config              = CC_VEND + 0x030F,
 #endif
-#ifdef WOLFTPM_NUVOTON
-    TPM_CC_NTC2_PreConfig           = CC_VEND + 0x0211,
-    TPM_CC_NTC2_GetConfig           = CC_VEND + 0x0213,
-#endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -1814,10 +1810,6 @@ struct wolfTPM_winContext {
 #endif /* WOLFTPM_WINAPI */
 
 /* make sure advanced IO is enabled for I2C */
-#ifdef WOLFTPM_I2C
-    #undef  WOLFTPM_ADV_IO
-    #define WOLFTPM_ADV_IO
-#endif
 
 #ifdef WOLFTPM_ADV_IO
 typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, INT32 isRead, UINT32 addr,
@@ -2961,11 +2953,7 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t 
 /* Vendor Specific GPIO */
 #ifdef WOLFTPM_ST33
 
-    #ifdef WOLFTPM_I2C
-        #define MAX_GPIO_COUNT 4
-    #else /* SPI variant */
         #define MAX_GPIO_COUNT 2
-    #endif
 
     /* ST33 variants can have different count of GPIO available:
      * - SPI variant - 0, 1 or 2
@@ -2984,11 +2972,6 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t 
     typedef enum {
         TPM_GPIO_PP = 0x00000000, /* GPIO A by default is a Physical Presence pin */
         TPM_GPIO_LP = 0x00000001, /* GPIO B can only be used as an input */
-    #ifdef WOLFTPM_I2C
-        /* Only the I2C variant of ST33 has GPIO C and D */
-        TPM_GPIO_C  = 0x00000002,
-        TPM_GPIO_D  = 0x00000003,
-    #endif
     } TPMI_GPIO_NAME_T;
     typedef UINT32 TPMI_GPIO_NAME;
 
@@ -3028,70 +3011,6 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t 
     } GpioConfig_In;
     WOLFTPM_API int TPM2_GPIO_Config(GpioConfig_In* in);
 
-#elif defined(WOLFTPM_NUVOTON)
-
-    #define MAX_GPIO_COUNT 2
-
-    /* NPCT7XX supports a maximum of 2 GPIO for user control */
-    /* Added in FW-US version 7.2.3.0 or later */
-    #ifndef TPM_GPIO_COUNT
-    #define TPM_GPIO_COUNT MAX_GPIO_COUNT
-    #endif
-
-    /* For portability */
-    #undef  TPM_GPIO_A
-    #define TPM_GPIO_A 3 /* NPCT75xx GPIO start at number 3 */
-
-    #define TPM_GPIO_NUM_MIN (TPM_GPIO_A)
-    #define TPM_GPIO_NUM_MAX (TPM_GPIO_A + TPM_GPIO_COUNT - 1)
-
-    /* GPIO configuration uses specific range of NV space */
-    #define TPM_NV_GPIO_SPACE     0x01C40003
-
-    /* Nuvoton GPIO Modes */
-    typedef enum {
-        TPM_GPIO_MODE_PUSHPULL   = 1,
-        TPM_GPIO_MODE_OPENDRAIN  = 2,
-        TPM_GPIO_MODE_PULLUP     = 3,
-        TPM_GPIO_MODE_UNCONFIG   = 4,
-        TPM_GPIO_MODE_DEFAULT    = TPM_GPIO_MODE_PUSHPULL,
-        TPM_GPIO_MODE_MAX        = TPM_GPIO_MODE_UNCONFIG,
-        TPM_GPIO_MODE_INPUT_MIN  = TPM_GPIO_MODE_PULLUP,
-        TPM_GPIO_MODE_INPUT_MAX  = TPM_GPIO_MODE_PULLUP
-    } TPMI_GPIO_MODE_T;
-    typedef UINT32 TPMI_GPIO_MODE;
-
-    typedef struct {
-        BYTE Base0;
-        BYTE Base1;
-        BYTE GpioAltCfg;
-        BYTE GpioInitValue;
-        BYTE GpioPullUp;
-        BYTE GpioPushPull;
-        BYTE Cfg_A;
-        BYTE Cfg_B;
-        BYTE Cfg_C;
-        BYTE Cfg_D;
-        BYTE Cfg_E;
-        BYTE Cfg_F;
-        BYTE Cfg_G;
-        BYTE Cfg_H;
-        BYTE Cfg_I;
-        BYTE Cfg_J;
-        BYTE isValid;
-        BYTE isLocked;
-    } CFG_STRUCT;
-
-    typedef struct {
-        TPMI_RH_PLATFORM authHandle;
-        CFG_STRUCT preConfig;
-    } NTC2_PreConfig_In;
-    WOLFTPM_API int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in);
-
-    typedef struct {
-        CFG_STRUCT preConfig;
-    } NTC2_GetConfig_Out;
-    WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
 #endif /* Vendor GPIO Commands */
 
 

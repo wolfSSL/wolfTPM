@@ -73,26 +73,6 @@ WOLFTPM_API int TPM2_IoCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
 #endif
 
 /* Platform support, in alphabetical order */
-#ifdef WOLFTPM_I2C
-
-#if defined(__linux__)
-WOLFTPM_LOCAL int TPM2_IoCb_Linux_I2C(TPM2_CTX* ctx, int isRead, word32 addr, byte* buf,
-    word16 size, void* userCtx);
-#elif defined(WOLFSSL_STM32_CUBEMX)
-WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
-    byte* buf, word16 size, void* userCtx);
-#elif defined(CY_USING_HAL)
-WOLFTPM_LOCAL int TPM2_IoCb_Infineon_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
-    byte* buf, word16 size, void* userCtx);
-#elif defined(WOLFSSL_ESPIDF)
-WOLFTPM_LOCAL int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
-    byte* buf, word16 size, void* userCtx);
-#elif defined(WOLFTPM_MICROCHIP_HARMONY)
-WOLFTPM_LOCAL int TPM2_IoCb_MicrochipHarmony_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
-    byte* buf, word16 size, void* userCtx);
-#endif /* __linux__ */
-
-#else /* SPI */
 
 #if defined(WOLFSSL_ATMEL)
 WOLFTPM_LOCAL int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
@@ -100,9 +80,6 @@ WOLFTPM_LOCAL int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rx
 #elif defined(__BAREBOX__)
 WOLFTPM_LOCAL int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
-#elif defined(__linux__)
-WOLFTPM_LOCAL int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-    word16 xferSz, void* userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
 WOLFTPM_LOCAL int TPM2_IoCb_STCubeMX_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
@@ -123,7 +100,6 @@ WOLFTPM_LOCAL int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte
     word16 xferSz, void* userCtx);
 #endif
 
-#endif /* WOLFTPM_I2C */
 
 #if defined(WOLFTPM_MMIO)
 /* requires WOLFTPM_ADV_IO */

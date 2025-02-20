@@ -50,19 +50,37 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 {
     int rc;
 
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+    Startup_In startupIn;
+#endif /* ! WOLFTPM_LINUX_DEV */
 
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
     rc = TPM2_Init_minimal(ctx);
     /* Using standard file I/O for the Linux TPM device */
     (void)ioCb;
     (void)userCtx;
     (void)timeoutTries;
+#else
+    rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
+#endif
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
 
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+    /* startup */
+    XMEMSET(&startupIn, 0, sizeof(Startup_In));
+    startupIn.startupType = TPM_SU_CLEAR;
+    rc = TPM2_Startup(&startupIn);
+    if (rc != TPM_RC_SUCCESS &&
+        rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
+        return rc;
+    }
+
+#endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
     return rc;
 }

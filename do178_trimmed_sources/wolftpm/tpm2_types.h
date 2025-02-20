@@ -277,18 +277,7 @@ typedef int64_t  INT64;
 
 
 /* Chip Specific Settings */
-#ifdef WOLFTPM_MICROCHIP
-    /* Microchip ATTPM20 */
-    /* Requires SPI wait states */
-    #ifndef WOLFTPM_CHECK_WAIT_STATE
-        #define WOLFTPM_CHECK_WAIT_STATE
-    #endif
-    /* Max: 36MHz (has issues so using 33MHz) */
-    #define TPM2_SPI_MAX_HZ_MICROCHIP 33000000
-    #ifndef TPM2_SPI_MAX_HZ
-        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_MICROCHIP
-    #endif
-#elif defined(WOLFTPM_ST33)
+#if   defined(WOLFTPM_ST33)
     /* ST ST33TPM20 modules */
     /* Requires wait state support */
     #ifndef WOLFTPM_CHECK_WAIT_STATE
@@ -299,30 +288,11 @@ typedef int64_t  INT64;
     #ifndef TPM2_SPI_MAX_HZ
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_ST
     #endif
-#elif defined(WOLFTPM_NUVOTON)
-    /* Nuvoton NPCT75x module */
-    /* Requires wait state support */
-    #ifndef WOLFTPM_CHECK_WAIT_STATE
-        #define WOLFTPM_CHECK_WAIT_STATE
-    #endif
-    #define TPM2_SPI_MAX_HZ_NUVOTON 43000000
-    #ifndef TPM2_SPI_MAX_HZ
-        /* Max: 43MHz */
-        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
-    #endif
 #else
     /* Infineon OPTIGA SLB9670/SLB9672/SLB9673 */
-    #ifdef WOLFTPM_SLB9670
-        /* Max: 43MHz */
-        #define TPM2_SPI_MAX_HZ_INFINEON 43000000
-    #elif !defined(WOLFTPM_AUTODETECT)
-        #ifdef WOLFTPM_I2C
-            #undef  WOLFTPM_SLB9673
-            #define WOLFTPM_SLB9673
-        #else
+    #if   !defined(WOLFTPM_AUTODETECT)
             #undef  WOLFTPM_SLB9672
             #define WOLFTPM_SLB9672
-        #endif
 
         /* Max: 33MHz */
         #define TPM2_SPI_MAX_HZ_INFINEON 33000000
@@ -435,16 +405,6 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 /* Optional delay between polling */
-#if defined(__linux__) && !defined(XTPM_WAIT)
-    /* Avoid excessive polling.
-     * For Infineon SLB9670 and SLB9672 adding 10us delay improves performance
-     * and prevents issue with rapid use at higher speeds */
-    #ifndef XTPM_WAIT_POLLING_US
-        #define XTPM_WAIT_POLLING_US 10 /* 0.01ms */
-    #endif
-    #include <unistd.h>
-    #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
-#endif
 #ifndef XTPM_WAIT
     #define XTPM_WAIT() /* just poll without delay by default */
 #endif
