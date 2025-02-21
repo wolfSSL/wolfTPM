@@ -6127,71 +6127,71 @@ TPM_ALG_ID TPM2_GetAlgId(const char* name)
     if (!name)
         return TPM_ALG_ERROR;
 
-    if (!strcmp(name, "RSA"))
+    if (!XSTRCMP(name, "RSA"))
         return TPM_ALG_RSA;
-    if (!strcmp(name, "SHA1"))
+    if (!XSTRCMP(name, "SHA1"))
         return TPM_ALG_SHA1;
-    if (!strcmp(name, "HMAC"))
+    if (!XSTRCMP(name, "HMAC"))
         return TPM_ALG_HMAC;
-    if (!strcmp(name, "AES"))
+    if (!XSTRCMP(name, "AES"))
         return TPM_ALG_AES;
-    if (!strcmp(name, "MGF1"))
+    if (!XSTRCMP(name, "MGF1"))
         return TPM_ALG_MGF1;
-    if (!strcmp(name, "KEYEDHASH"))
+    if (!XSTRCMP(name, "KEYEDHASH"))
         return TPM_ALG_KEYEDHASH;
-    if (!strcmp(name, "XOR"))
+    if (!XSTRCMP(name, "XOR"))
         return TPM_ALG_XOR;
-    if (!strcmp(name, "SHA256"))
+    if (!XSTRCMP(name, "SHA256"))
         return TPM_ALG_SHA256;
-    if (!strcmp(name, "SHA384"))
+    if (!XSTRCMP(name, "SHA384"))
         return TPM_ALG_SHA384;
-    if (!strcmp(name, "SHA512"))
+    if (!XSTRCMP(name, "SHA512"))
         return TPM_ALG_SHA512;
-    if (!strcmp(name, "NULL"))
+    if (!XSTRCMP(name, "NULL"))
         return TPM_ALG_NULL;
-    if (!strcmp(name, "SM3_256"))
+    if (!XSTRCMP(name, "SM3_256"))
         return TPM_ALG_SM3_256;
-    if (!strcmp(name, "SM4"))
+    if (!XSTRCMP(name, "SM4"))
         return TPM_ALG_SM4;
-    if (!strcmp(name, "RSASSA"))
+    if (!XSTRCMP(name, "RSASSA"))
         return TPM_ALG_RSASSA;
-    if (!strcmp(name, "RSAES"))
+    if (!XSTRCMP(name, "RSAES"))
         return TPM_ALG_RSAES;
-    if (!strcmp(name, "RSAPSS"))
+    if (!XSTRCMP(name, "RSAPSS"))
         return TPM_ALG_RSAPSS;
-    if (!strcmp(name, "OAEP"))
+    if (!XSTRCMP(name, "OAEP"))
         return TPM_ALG_OAEP;
-    if (!strcmp(name, "ECDSA"))
+    if (!XSTRCMP(name, "ECDSA"))
         return TPM_ALG_ECDSA;
-    if (!strcmp(name, "ECDH"))
+    if (!XSTRCMP(name, "ECDH"))
         return TPM_ALG_ECDH;
-    if (!strcmp(name, "ECDAA"))
+    if (!XSTRCMP(name, "ECDAA"))
         return TPM_ALG_ECDAA;
-    if (!strcmp(name, "SM2"))
+    if (!XSTRCMP(name, "SM2"))
         return TPM_ALG_SM2;
-    if (!strcmp(name, "ECSCHNORR"))
+    if (!XSTRCMP(name, "ECSCHNORR"))
         return TPM_ALG_ECSCHNORR;
-    if (!strcmp(name, "ECMQV"))
+    if (!XSTRCMP(name, "ECMQV"))
         return TPM_ALG_ECMQV;
-    if (!strcmp(name, "KDF1_SP800_56A"))
+    if (!XSTRCMP(name, "KDF1_SP800_56A"))
         return TPM_ALG_KDF1_SP800_56A;
-    if (!strcmp(name, "KDF2"))
+    if (!XSTRCMP(name, "KDF2"))
         return TPM_ALG_KDF2;
-    if (!strcmp(name, "KDF1_SP800_108"))
+    if (!XSTRCMP(name, "KDF1_SP800_108"))
         return TPM_ALG_KDF1_SP800_108;
-    if (!strcmp(name, "ECC"))
+    if (!XSTRCMP(name, "ECC"))
         return TPM_ALG_ECC;
-    if (!strcmp(name, "SYMCIPHER"))
+    if (!XSTRCMP(name, "SYMCIPHER"))
         return TPM_ALG_SYMCIPHER;
-    if (!strcmp(name, "AES-CTR"))
+    if (!XSTRCMP(name, "AES-CTR"))
         return TPM_ALG_CTR;
-    if (!strcmp(name, "AES-OFB"))
+    if (!XSTRCMP(name, "AES-OFB"))
         return TPM_ALG_OFB;
-    if (!strcmp(name, "AES-CBC"))
+    if (!XSTRCMP(name, "AES-CBC"))
         return TPM_ALG_CBC;
-    if (!strcmp(name, "AES-CFB"))
+    if (!XSTRCMP(name, "AES-CFB"))
         return TPM_ALG_CFB;
-    if (!strcmp(name, "AES-ECB"))
+    if (!XSTRCMP(name, "AES-ECB"))
         return TPM_ALG_ECB;
 
     return TPM_ALG_ERROR;
