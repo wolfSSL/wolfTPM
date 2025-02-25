@@ -49,7 +49,6 @@
 #define MAX_CERT_SZ 2048
 #endif
 
-#ifndef HAVE_DO178
 #ifdef WOLFTPM2_NO_WOLFCRYPT
 #define ASN_SEQUENCE         0x10
 #define ASN_CONSTRUCTED      0x20
@@ -68,7 +67,6 @@
 #define RSA_BLOCK_TYPE_1 1
 #define RSA_BLOCK_TYPE_2 2
 #endif
-#endif /* !HAVE_DO178 */
 
 typedef struct DecodedX509 {
     word32 certBegin;

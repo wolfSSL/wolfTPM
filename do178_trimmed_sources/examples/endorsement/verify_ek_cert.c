@@ -49,6 +49,24 @@
 #define MAX_CERT_SZ 2048
 #endif
 
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+#define ASN_SEQUENCE         0x10
+#define ASN_CONSTRUCTED      0x20
+#define ASN_CONTEXT_SPECIFIC 0x80
+
+#define ASN_LONG_LENGTH  0x80 /* indicates additional length fields */
+
+#define ASN_INTEGER      0x02
+#define ASN_BIT_STRING   0x03
+#define ASN_OCTET_STRING 0x04
+#define ASN_TAG_NULL     0x05
+#define ASN_OBJECT_ID    0x06
+#endif
+
+#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(NO_RSA)
+#define RSA_BLOCK_TYPE_1 1
+#define RSA_BLOCK_TYPE_2 2
+#endif
 
 typedef struct DecodedX509 {
     word32 certBegin;
