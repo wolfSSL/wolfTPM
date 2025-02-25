@@ -3209,9 +3209,6 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
         Setting the platform auth to random value is used to prevent application
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
-        Note: If the session isn’t used then the new password is not encrypted
-        in transit over the bus: “a session is required to protect the
-        new platform auth”
 
     \return Success: Positive integer (size of the output)
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
