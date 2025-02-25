@@ -5674,7 +5674,7 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 }
 
 /* performs a reset sequence */
-int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
+int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
 {
     int rc;
     Shutdown_In shutdownIn;
@@ -5685,17 +5685,20 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
     }
 
     /* shutdown */
-    XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
-    shutdownIn.shutdownType = TPM_SU_CLEAR;
-    rc = TPM2_Shutdown(&shutdownIn);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Shutdown failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-    #endif
+    if (doShutdown == 1) {
+        XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
+        shutdownIn.shutdownType = TPM_SU_CLEAR;
+        rc = TPM2_Shutdown(&shutdownIn);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Shutdown failed 0x%x: %s\n",
+                rc, TPM2_GetRCString(rc));
+        #endif
+        }
     }
 
     /* startup */
-    if (doStartup) {
+    if (doStartup == 1 && rc == TPM_RC_SUCCESS) {
         XMEMSET(&startupIn, 0, sizeof(startupIn));
         startupIn.startupType = TPM_SU_CLEAR;
         rc = TPM2_Startup(&startupIn);
@@ -5704,12 +5707,11 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
             printf("TPM2_Startup failed %d: %s\n",
                 rc, wolfTPM2_GetRCString(rc));
         #endif
-            return rc;
         }
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_Shutdown complete\n");
+    printf("wolfTPM2_Reset complete\n");
 #endif
 
     return rc;

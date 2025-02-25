@@ -206,7 +206,7 @@ Command size: 12
 	80 01 00 00 00 0c 00 00 01 45 00 00             | .........E..
 Response size: 10
 	80 01 00 00 00 0a 00 00 00 00                   | ..........
-wolfTPM2_Shutdown complete
+wolfTPM2_Reset complete
 Command size: 12
 	80 01 00 00 00 0c 00 00 01 45 00 00             | .........E..
 Response size: 10
@@ -260,11 +260,6 @@ swtpm socket --tpm2 --tpmstate dir=./tmp/mytpm1 --ctrl type=unixio,path=./tmp/my
 5. In a second console invoke qemu-system-aarch64 with:
 ```
 qemu-system-aarch64 -machine virt -nographic -cpu cortex-a57 -bios u-boot.bin -chardev socket,id=chrtpm,path=./tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis-device,tpmdev=tpm0
-```
-
-5. Enable the TPM on U-Boot's command line with:
-```
-tpm autostart
 ```
 
 To exit the QEMU you can do ctrl-A and then press X

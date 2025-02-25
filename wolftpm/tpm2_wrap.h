@@ -2540,8 +2540,11 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Helper function to shutdown or reset the TPM
-    \note If doStartup is set, then TPM2_Startup is performed right after TPM2_Shutdown
+    \brief Helper function to shutdown, startup or reset the TPM
+    \note The behavior depends on the doStartup and doShutdown flags:
+    \note - Both flags set to 1: Performs a full TPM restart (shutdown then startup)
+    \note - Only doStartup=1: Just starts up the TPM
+    \note - Only doShutdown=1: Just shuts down the TPM
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -2549,10 +2552,11 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
 
     \param dev pointer to a TPM2_DEV struct
     \param doStartup integer value, non-zero values represent "perform Startup after Shutdown"
+    \param doShutdown integer value, non-zero values represent "perform Shutdown"
 
     \sa wolfTPM2_Init
 */
-WOLFTPM_API int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup);
+WOLFTPM_API int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup);
 
 /*!
     \ingroup wolfTPM2_Wrappers
