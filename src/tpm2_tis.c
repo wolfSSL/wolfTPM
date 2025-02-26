@@ -399,13 +399,14 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 
     if (burstCount == NULL)
         return BAD_FUNC_ARG;
-
+#ifndef HAVE_DO178
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
         *burstCount = 32; /* fixed value */
     }
     else
 #endif
+#endif /* !HAVE_DO178 */
     {
         int timeout = TPM_TIMEOUT_TRIES;
         *burstCount = 0;
@@ -497,9 +498,11 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
     }
 
+#ifndef HAVE_DO178
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (TPM2_GetVendorID() != TPM_VENDOR_STM)
 #endif
+#endif /* !HAVE_DO178 */
     {
         /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,

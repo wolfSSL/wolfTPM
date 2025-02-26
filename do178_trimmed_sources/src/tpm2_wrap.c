@@ -79,7 +79,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
         return rc;
     }
-
+    rc = TPM_RC_SUCCESS;
 #endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
     return rc;

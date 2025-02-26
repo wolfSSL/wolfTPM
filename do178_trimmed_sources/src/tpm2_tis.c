@@ -308,11 +308,6 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 
     if (burstCount == NULL)
         return BAD_FUNC_ARG;
-
-    if (TPM2_GetVendorID() == TPM_VENDOR_STM) {
-        *burstCount = 32; /* fixed value */
-    }
-    else
     {
         int timeout = TPM_TIMEOUT_TRIES;
         *burstCount = 0;
@@ -397,7 +392,6 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         }
     }
 
-    if (TPM2_GetVendorID() != TPM_VENDOR_STM)
     {
         /* Wait for TPM_STS_DATA_EXPECT = 0 and TPM_STS_VALID = 1 */
         rc = TPM2_TIS_WaitForStatus(ctx, TPM_STS_DATA_EXPECT | TPM_STS_VALID,

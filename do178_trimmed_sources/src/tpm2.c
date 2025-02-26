@@ -37,9 +37,6 @@
 /******************************************************************************/
 
 static THREAD_LS_T TPM2_CTX* gActiveTPM;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-static volatile int gWolfCryptRefCount = 0;
-#endif
 
     #define INTERNAL_SEND_COMMAND      TPM2_TIS_SendCommand
     #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -2062,14 +2059,6 @@ const char* TPM2_GetRCString(int rc)
             default:
                 break;
         }
-    #ifndef WOLFTPM2_NO_WOLFCRYPT
-        #if !defined(WOLFCRYPT_ONLY) && (!defined(NO_WOLFSSL_SERVER) || !defined(NO_WOLFSSL_CLIENT))
-            /* include TLS error codes */
-            return wolfSSL_ERR_reason_error_string(rc);
-        #else
-            return wc_GetErrorString(rc);
-        #endif
-    #else
         switch (rc) {
             /* copy of the error code strings from wolfCrypt */
             TPM_RC_STR(BAD_FUNC_ARG,             "Bad function argument");
@@ -2083,7 +2072,6 @@ const char* TPM2_GetRCString(int rc)
             default:
                 break;
         }
-    #endif
     }
     else if (rc == TPM_RC_SUCCESS) {
         return "Success";
@@ -2334,31 +2322,6 @@ int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
 int TPM2_GetTpmCurve(int curve_id)
 {
     int ret = -1;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    switch (curve_id) {
-        case ECC_SECP192R1:
-            ret = TPM_ECC_NIST_P192;
-            break;
-        case ECC_SECP224R1:
-            ret = TPM_ECC_NIST_P224;
-            break;
-        case ECC_SECP256R1:
-            ret = TPM_ECC_NIST_P256;
-            break;
-        case ECC_SECP384R1:
-            ret = TPM_ECC_NIST_P384;
-            break;
-        case ECC_SECP521R1:
-            ret = TPM_ECC_NIST_P521;
-            break;
-        case ECC_BRAINPOOLP256R1:
-            ret = TPM_ECC_BN_P256;
-            break;
-        case TPM_ECC_BN_P638:
-        default:
-            ret = ECC_CURVE_OID_E;
-    }
-#endif
     (void)curve_id;
     return ret;
 }
@@ -2366,31 +2329,6 @@ int TPM2_GetTpmCurve(int curve_id)
 int TPM2_GetWolfCurve(int curve_id)
 {
     int ret = -1;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-    switch (curve_id) {
-        case TPM_ECC_NIST_P192:
-            ret = ECC_SECP192R1;
-            break;
-        case TPM_ECC_NIST_P224:
-            ret = ECC_SECP224R1;
-            break;
-        case TPM_ECC_NIST_P256:
-            ret = ECC_SECP256R1;
-            break;
-        case TPM_ECC_NIST_P384:
-            ret = ECC_SECP384R1;
-            break;
-        case TPM_ECC_NIST_P521:
-            ret = ECC_SECP521R1;
-            break;
-        case TPM_ECC_BN_P256:
-            ret = ECC_BRAINPOOLP256R1;
-            break;
-        case TPM_ECC_BN_P638:
-        default:
-            ret = ECC_CURVE_OID_E;
-    }
-#endif
     (void)curve_id;
     return ret;
 }

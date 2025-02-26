@@ -40,16 +40,11 @@
 
 #include "trusted_certs_der.h"
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-#include <wolfssl/wolfcrypt/asn.h>
-#include <wolfssl/wolfcrypt/rsa.h>
-#endif
 
 #ifndef MAX_CERT_SZ
 #define MAX_CERT_SZ 2048
 #endif
 
-#ifdef WOLFTPM2_NO_WOLFCRYPT
 #define ASN_SEQUENCE         0x10
 #define ASN_CONSTRUCTED      0x20
 #define ASN_CONTEXT_SPECIFIC 0x80
@@ -61,12 +56,9 @@
 #define ASN_OCTET_STRING 0x04
 #define ASN_TAG_NULL     0x05
 #define ASN_OBJECT_ID    0x06
-#endif
 
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(NO_RSA)
 #define RSA_BLOCK_TYPE_1 1
 #define RSA_BLOCK_TYPE_2 2
-#endif
 
 typedef struct DecodedX509 {
     word32 certBegin;
@@ -120,10 +112,6 @@ static void show_tpm_public(const char* desc, const TPM2B_PUBLIC* pub)
     }
     else if (pub->publicArea.type == TPM_ALG_ECC) {
         const char* curveName = "NULL";
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
-        curveName = wc_ecc_get_name(
-            TPM2_GetWolfCurve(pub->publicArea.parameters.eccDetail.curveID));
-    #endif
         printf("\tCurveID %s (0x%x), size %d, unique X/Y size %d/%d\n",
             curveName, pub->publicArea.parameters.eccDetail.curveID,
             TPM2_GetCurveSize(pub->publicArea.parameters.eccDetail.curveID),
