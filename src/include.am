@@ -9,9 +9,11 @@ src_libwolftpm_la_SOURCES      = \
                                 src/tpm2_packet.c \
                                 src/tpm2_tis.c \
                                 src/tpm2_wrap.c \
+                                src/tpm2_asn.c \
                                 src/tpm2_cryptocb.c
 
-if NOT_BUILD_CERT_178
+if BUILD_CERT_178
+else
 src_libwolftpm_la_SOURCES      += src/tpm2_param_enc.c
 endif
 
