@@ -29,15 +29,6 @@
 #ifndef WOLFTPM2_NO_WRAPPER
 
 /*!
-    \brief Decodes ASN.1 length with optional length checking
-    \param input Buffer containing ASN.1 data
-    \param inOutIdx Current position in buffer
-    \param len Decoded length value
-    \param maxIdx Maximum allowed index
-    \param check Flag to enable length validation
-    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
-*/
-/*!
     \ingroup ASN
     \brief Decodes ASN.1 length with optional length checking
     \param input Buffer containing ASN.1 data
@@ -86,14 +77,6 @@ WOLFTPM_API int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, in
 }
 
 /*!
-    \brief Decodes ASN.1 length with length checking enabled
-    \param input Buffer containing ASN.1 data
-    \param inOutIdx Current position in buffer
-    \param len Decoded length value
-    \param maxIdx Maximum allowed index
-    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
-*/
-/*!
     \ingroup ASN
     \brief Decodes ASN.1 length with length checking enabled
     \param input Buffer containing ASN.1 data
@@ -108,15 +91,6 @@ WOLFTPM_API int TPM2_ASN_GetLength(const uint8_t* input, word32* inOutIdx, int* 
     return TPM2_ASN_GetLength_ex(input, inOutIdx, len, maxIdx, 1);
 }
 
-/*!
-    \brief Decodes ASN.1 tag and length
-    \param input Buffer containing ASN.1 data
-    \param tag Expected ASN.1 tag value
-    \param inOutIdx Current position in buffer
-    \param len Decoded length value
-    \param maxIdx Maximum allowed index
-    \return Length on success, TPM_RC_VALUE on tag mismatch, TPM_RC_INSUFFICIENT on buffer error
-*/
 /*!
     \ingroup ASN
     \brief Decodes ASN.1 tag and length
@@ -149,15 +123,6 @@ static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, 
     return length;
 }
 
-/*!
-    \brief Decodes ASN.1 tag and validates length
-    \param input Buffer containing ASN.1 data
-    \param inputSz Size of input buffer
-    \param inOutIdx Current position in buffer
-    \param tag_len Decoded length value
-    \param tag Expected ASN.1 tag value
-    \return 0 on success, TPM_RC_INSUFFICIENT on buffer error, TPM_RC_VALUE on tag mismatch
-*/
 /*!
     \ingroup ASN
     \brief Decodes ASN.1 tag and validates length
