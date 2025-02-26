@@ -30,6 +30,7 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_asn.h>
 
 #include <stdio.h>
 
@@ -39,36 +40,6 @@
 #include <hal/tpm_io.h>
 
 #include "trusted_certs_der.h"
-
-
-#ifndef MAX_CERT_SZ
-#define MAX_CERT_SZ 2048
-#endif
-
-#define ASN_SEQUENCE         0x10
-#define ASN_CONSTRUCTED      0x20
-#define ASN_CONTEXT_SPECIFIC 0x80
-
-#define ASN_LONG_LENGTH  0x80 /* indicates additional length fields */
-
-#define ASN_INTEGER      0x02
-#define ASN_BIT_STRING   0x03
-#define ASN_OCTET_STRING 0x04
-#define ASN_TAG_NULL     0x05
-#define ASN_OBJECT_ID    0x06
-
-#define RSA_BLOCK_TYPE_1 1
-#define RSA_BLOCK_TYPE_2 2
-
-typedef struct DecodedX509 {
-    word32 certBegin;
-    byte*  cert;                /* pointer to start of cert         */
-    word32 certSz;
-    byte*  publicKey;           /* pointer to public key            */
-    word32 pubKeySz;
-    byte*  signature;           /* pointer to signature             */
-    word32 sigSz;               /* length of signature              */
-} DecodedX509;
 
 
 static void usage(void)
@@ -122,272 +93,6 @@ static void show_tpm_public(const char* desc, const TPM2B_PUBLIC* pub)
         dump_hex_bytes(pub->publicArea.unique.ecc.y.buffer,
                        pub->publicArea.unique.ecc.y.size);
     }
-}
-
-static int DecodeAsn1Tag(const uint8_t* input, int inputSz, int* inOutIdx,
-    int* tag_len, uint8_t tag)
-{
-    int rc = -1; /* default to fail case */
-    int tag_len_bytes = 1;
-
-    *tag_len = 0; /* reset tag length */
-    if (input[*inOutIdx] == tag) { /* check tag is expected */
-        (*inOutIdx)++; /* skip asn.1 tag */
-        if (input[*inOutIdx] & ASN_LONG_LENGTH) {
-            tag_len_bytes = (int)(input[*inOutIdx] & 0x7F);
-            if (tag_len_bytes > 4) {
-                return -1; /* too long */
-            }
-            (*inOutIdx)++; /* skip long length field */
-        }
-        while (tag_len_bytes--) {
-            *tag_len = (*tag_len << 8) | input[*inOutIdx];
-            (*inOutIdx)++; /* skip length */
-        }
-        if (*tag_len + *inOutIdx <= inputSz) { /* check length */
-            rc = 0;
-        }
-    }
-    return rc;
-}
-
-static int RsaDecodeSignature(uint8_t** pInput, int inputSz)
-{
-    int rc;
-    uint8_t* input = *pInput;
-    int idx = 0;
-    int tot_len, algo_len, digest_len = 0;
-
-    /* sequence - total size */
-    rc = DecodeAsn1Tag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    if (rc == 0) {
-        /* sequence - algoid */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &algo_len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += algo_len; /* skip algoid */
-
-        /* digest */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &digest_len, ASN_OCTET_STRING);
-    }
-    if (rc == 0) {
-        /* return digest buffer pointer */
-        *pInput = &input[idx];
-
-        rc = digest_len;
-    }
-    return rc;
-}
-
-static int DecodeX509Cert(uint8_t* input, int inputSz, DecodedX509* x509)
-{
-    int rc;
-    int idx = 0;
-    int tot_len, cert_len = 0, len, pubkey_len = 0, sig_len = 0;
-
-    /* sequence - total size */
-    rc = DecodeAsn1Tag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    if (rc == 0) {
-        x509->certBegin = idx;
-        x509->cert = &input[idx];
-
-        /* sequence - cert */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &cert_len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        x509->certSz = cert_len + (idx - x509->certBegin);
-        /* cert - version */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_CONTEXT_SPECIFIC | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        /* check version == 1 */
-        if (input[idx] != ASN_INTEGER && input[idx] != 1) {
-            rc = -1;
-        }
-    }
-    if (rc == 0) {
-        idx += len; /* skip version */
-
-        /* cert - serial */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len, ASN_INTEGER);
-    }
-    if (rc == 0) {
-        idx += len; /* skip serial */
-
-        /* cert - signature oid */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len; /* skip signature oid */
-
-        /* cert - issuer */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len; /* skip issuer */
-
-        /* cert - validity */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len; /* skip validity */
-
-        /* cert - subject */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len; /* skip subject */
-
-        /* cert - subject public key info */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        /* cert - subject public key alg oid */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len; /* skip alg oid */
-
-        /* cert - subject public key alg params */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &pubkey_len,
-            ASN_BIT_STRING);
-    }
-
-    if (rc == 0) {
-        /* skip leading zero for bit string */
-        if (input[idx] == 0x00) {
-            idx++;
-            pubkey_len--;
-        }
-        /* return pointer to public key */
-        x509->publicKey = &input[idx];
-        x509->pubKeySz = pubkey_len;
-    }
-    if (rc == 0) {
-        /* skip to start of signature */
-        idx =  x509->certBegin + x509->certSz;
-
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        /* signature oid */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len, ASN_OBJECT_ID);
-    }
-    if (rc == 0) {
-        idx += len; /* skip oid */
-        /* sig algo params */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &len, ASN_TAG_NULL);
-    }
-    if (rc == 0) {
-        idx += len; /* skip tag */
-
-        /* signature bit string */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &sig_len,
-            ASN_BIT_STRING);
-        }
-    if (rc == 0) {
-        /* skip leading zero for bit string */
-        if (input[idx] == 0x00) {
-            idx++;
-            sig_len--;
-        }
-
-        /* signature */
-        x509->sigSz = sig_len;
-        x509->signature = &input[idx];
-    }
-
-    return rc;
-}
-
-static int DecodeRsaPubKey(uint8_t* input, int inputSz, TPM2B_PUBLIC* pub)
-{
-    int rc;
-    int idx = 0;
-    int tot_len, mod_len = 0, exp_len = 0;
-
-    /* sequence - total size */
-    rc = DecodeAsn1Tag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
-    if (rc == 0) {
-        /* modulus */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &mod_len, ASN_INTEGER);
-    }
-    if (rc == 0) {
-        /* skip leading zero if exists */
-        if (input[idx] == 0x00) {
-            idx++;
-            mod_len--;
-        }
-        if (mod_len > (int)sizeof(pub->publicArea.unique.rsa.buffer)) {
-            rc = -1;
-        }
-    }
-    if (rc == 0) {
-        /* Populate Modulus */
-        pub->publicArea.parameters.rsaDetail.keyBits = mod_len * 8;
-        pub->publicArea.unique.rsa.size = mod_len;
-        XMEMCPY(pub->publicArea.unique.rsa.buffer, &input[idx], mod_len);
-    }
-    if (rc == 0) {
-        idx += mod_len; /* skip modulus */
-
-        /* exponent */
-        rc = DecodeAsn1Tag(input, inputSz, &idx, &exp_len, ASN_INTEGER);
-        /* skip leading zero if exists */
-        if (input[idx] == 0x00) {
-            idx++;
-            exp_len--;
-        }
-        if (exp_len >
-                (int)sizeof(pub->publicArea.parameters.rsaDetail.exponent)) {
-            rc = -1;
-        }
-    }
-    if (rc == 0) {
-        XMEMCPY(&pub->publicArea.parameters.rsaDetail.exponent, &input[idx],
-            exp_len);
-    }
-    return rc;
-}
-
-static int RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
-{
-    int rc = -1; /* default to error */
-    uint8_t* sig = *pSig;
-    int idx = 0;
-
-    /* RSA PKCSv1.5 unpad */
-    if (sig[idx++] == 0x00 && sig[idx++] == RSA_BLOCK_TYPE_1) {
-
-        /* skip padding 0xFF's */
-        while (idx < *sigSz) {
-            if (sig[idx] != 0xFF)
-                break;
-            idx++;
-        }
-
-        /* verify 0x00 after pad */
-        if (sig[idx++] == 0x00) {
-            /* success unpadding */
-            rc = 0;
-            *pSig = &sig[idx];
-            *sigSz -= idx;
-        }
-    }
-    return rc;
 }
 
 int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
@@ -479,10 +184,10 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
     if (rc == 0) {
         /* Parse device certificate and extract public key */
-        rc = DecodeX509Cert(cert, certSz, &ekX509);
+        rc = TPM2_ASN_DecodeX509Cert(cert, certSz, &ekX509);
         if (rc == 0) {
             /* Parse RSA Public Key Raw Modulus */
-            rc = DecodeRsaPubKey((uint8_t*)ekX509.publicKey, ekX509.pubKeySz,
+            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)ekX509.publicKey, ekX509.pubKeySz,
                 &ekPub);
         }
     }
@@ -518,11 +223,11 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
     if (rc == 0) {
         /* Parse and extract the issuer's public key modulus from certificate */
-        rc = DecodeX509Cert((uint8_t*)kSTSAFEIntCa20,
+        rc = TPM2_ASN_DecodeX509Cert((uint8_t*)kSTSAFEIntCa20,
             (int)sizeof(kSTSAFEIntCa20), &issuerX509);
         if (rc == 0) {
             /* Parse RSA Public Key Raw Modulus */
-            rc = DecodeRsaPubKey((uint8_t*)issuerX509.publicKey,
+            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)issuerX509.publicKey,
                 issuerX509.pubKeySz, &issuer.pub);
         }
     }
@@ -565,10 +270,10 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
     if (rc == 0) {
         sigDigest = sig;
-        rc = RsaUnpadPkcsv15(&sigDigest, &sigSz);
+        rc = TPM2_ASN_RsaUnpadPkcsv15(&sigDigest, &sigSz);
     }
     if (rc == 0) {
-        rc = RsaDecodeSignature(&sigDigest, sigSz);
+        rc = TPM2_ASN_RsaDecodeSignature(&sigDigest, sigSz);
         if (rc > 0) {
             sigDigestSz = rc;
             rc = 0;

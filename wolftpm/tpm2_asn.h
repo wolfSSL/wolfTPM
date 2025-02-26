@@ -40,15 +40,17 @@
 #endif
 
 /* ASN.1 Constants */
-#define ASN_SEQUENCE         0x10
-#define ASN_CONSTRUCTED      0x20
-#define ASN_CONTEXT_SPECIFIC 0x80
-#define ASN_LONG_LENGTH     0x80
-#define ASN_INTEGER         0x02
-#define ASN_BIT_STRING      0x03
-#define ASN_OCTET_STRING    0x04
-#define ASN_TAG_NULL        0x05
-#define ASN_OBJECT_ID       0x06
+enum {
+    TPM2_ASN_SEQUENCE         = 0x10,
+    TPM2_ASN_CONSTRUCTED      = 0x20,
+    TPM2_ASN_CONTEXT_SPECIFIC = 0x80,
+    TPM2_ASN_LONG_LENGTH      = 0x80,
+    TPM2_ASN_INTEGER          = 0x02,
+    TPM2_ASN_BIT_STRING       = 0x03,
+    TPM2_ASN_OCTET_STRING     = 0x04,
+    TPM2_ASN_TAG_NULL         = 0x05,
+    TPM2_ASN_OBJECT_ID        = 0x06
+};
 
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(NO_RSA)
 #define RSA_BLOCK_TYPE_1 1

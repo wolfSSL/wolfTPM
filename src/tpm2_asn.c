@@ -37,7 +37,7 @@ WOLFTPM_API int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz,
     *tag_len = 0;
     if (input[*inOutIdx] == tag) {
         (*inOutIdx)++;
-        if (input[*inOutIdx] & ASN_LONG_LENGTH) {
+        if (input[*inOutIdx] & TPM2_ASN_LONG_LENGTH) {
             tag_len_bytes = (int)(input[*inOutIdx] & 0x7F);
             if (tag_len_bytes > 4) {
                 return -1;
@@ -63,14 +63,14 @@ WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz)
     int tot_len, algo_len, digest_len = 0;
 
     rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
+        (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     if (rc == 0) {
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &algo_len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += algo_len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &digest_len, ASN_OCTET_STRING);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &digest_len, TPM2_ASN_OCTET_STRING);
     }
     if (rc == 0) {
         *pInput = &input[idx];
@@ -87,61 +87,61 @@ WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     int tot_len, cert_len = 0, len, pubkey_len = 0, sig_len = 0;
 
     rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
+        (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     if (rc == 0) {
         x509->certBegin = idx;
         x509->cert = &input[idx];
 
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &cert_len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         x509->certSz = cert_len + (idx - x509->certBegin);
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_CONTEXT_SPECIFIC | ASN_CONSTRUCTED));
+            (TPM2_ASN_CONTEXT_SPECIFIC | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
-        if (input[idx] != ASN_INTEGER || input[idx] != 1) {
+        if (input[idx] != TPM2_ASN_INTEGER || input[idx] != 1) {
             rc = -1;
         }
     }
     if (rc == 0) {
         idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, ASN_INTEGER);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_INTEGER);
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &pubkey_len,
-            ASN_BIT_STRING);
+            TPM2_ASN_BIT_STRING);
     }
     if (rc == 0) {
         if (input[idx] == 0x00) {
@@ -154,19 +154,19 @@ WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     if (rc == 0) {
         idx = x509->certBegin + x509->certSz;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (ASN_SEQUENCE | ASN_CONSTRUCTED));
+            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     }
     if (rc == 0) {
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, ASN_OBJECT_ID);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_OBJECT_ID);
     }
     if (rc == 0) {
         idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, ASN_TAG_NULL);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_TAG_NULL);
     }
     if (rc == 0) {
         idx += len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &sig_len,
-            ASN_BIT_STRING);
+            TPM2_ASN_BIT_STRING);
     }
     if (rc == 0) {
         if (input[idx] == 0x00) {
@@ -187,9 +187,9 @@ WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     int tot_len, mod_len = 0, exp_len = 0;
 
     rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &tot_len,
-        (ASN_SEQUENCE | ASN_CONSTRUCTED));
+        (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
     if (rc == 0) {
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &mod_len, ASN_INTEGER);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &mod_len, TPM2_ASN_INTEGER);
     }
     if (rc == 0) {
         if (input[idx] == 0x00) {
@@ -207,7 +207,7 @@ WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     }
     if (rc == 0) {
         idx += mod_len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &exp_len, ASN_INTEGER);
+        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &exp_len, TPM2_ASN_INTEGER);
         if (input[idx] == 0x00) {
             idx++;
             exp_len--;
