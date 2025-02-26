@@ -125,6 +125,10 @@ AC_ARG_ENABLE([cert-178],
 if test "x$ENABLED_CERT_178" = "xyes"
 then
     AM_CFLAGS="$AM_CFLAGS -DHAVE_DO178"
+    # Always disable wolfcrypt in cert-178 mode
+    ENABLED_WOLFCRYPT=no
+    # Explicitly set WOLFTPM2_NO_WOLFCRYPT flag
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WOLFCRYPT"
 fi
 
 # Disable default examples in cert build
