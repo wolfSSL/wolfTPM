@@ -25,12 +25,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
-#include <wolftpm/tpm2_linux.h>
-#include <wolftpm/tpm2_swtpm.h>
-#include <wolftpm/tpm2_winapi.h>
-#include <wolftpm/tpm2_param_enc.h>
 
-#include <hal/tpm_io.h>
 
 /******************************************************************************/
 /* --- Local Variables -- */

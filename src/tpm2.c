@@ -25,12 +25,15 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
+
+#ifndef HAVE_DO178
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_winapi.h>
 #include <wolftpm/tpm2_param_enc.h>
 
 #include <hal/tpm_io.h>
+#endif /* !HAVE_DO178 */
 
 /******************************************************************************/
 /* --- Local Variables -- */

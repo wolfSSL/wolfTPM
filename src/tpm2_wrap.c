@@ -24,14 +24,17 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#ifndef HAVE_DO178
 #include <wolftpm/tpm2_param_enc.h>
+#endif /* !HAVE_DO178 */
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
 /* For some struct to buffer conversions */
 #include <wolftpm/tpm2_packet.h>
+#ifndef HAVE_DO178
 #include <hal/tpm_io.h> /* for default IO callback */
-
+#endif /* !HAVE_DO178 */
 
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);

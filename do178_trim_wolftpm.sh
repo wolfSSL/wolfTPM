@@ -41,6 +41,7 @@ excluded_filenames=(
     [wolftpm/tpm2_winapi.h]=''
     [wolftpm/options.h]=''
     [src/config.h]=''
+    [src/tpm2_cryptocb.c]=''
     [src/tpm2_linux.c]=''
     [hal/tpm_io_linux.c]=''
     [hal/tpm_io.c]=''
