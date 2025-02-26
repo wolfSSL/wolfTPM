@@ -43,6 +43,8 @@ excluded_filenames=(
     [src/config.h]=''
     [src/tpm2_linux.c]=''
     [hal/tpm_io_linux.c]=''
+    [hal/tpm_io.c]=''
+    [hal/tpm_io.h]=''
 )
 
 declare -A ignore_unregen_filenames
@@ -74,6 +76,8 @@ excluded_defines=(
     [DEBUG_WOLFSSL]=''
     [DEBUG_WOLFSSL_VERBOSE]=''
     [WOLFSSL_DEBUG_MEMORY]=''
+    [WOLFTPM_DEBUG_TIMEOUT]=''
+    [WOLFTPM_DEBUG_IO]=''
 )
 
 function cleanup() {

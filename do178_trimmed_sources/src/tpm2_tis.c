@@ -116,10 +116,6 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     XMEMCPY(result, &rxBuf[TPM_TIS_HEADER_SZ], len);
 #endif
     TPM2_TIS_UNLOCK();
-#ifdef WOLFTPM_DEBUG_IO
-    printf("TIS Read addr %x, len %d\n", addr, len);
-    TPM2_PrintBin(result, len);
-#endif
     return rc;
 }
 
@@ -154,10 +150,6 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 #endif
     TPM2_TIS_UNLOCK();
-#ifdef WOLFTPM_DEBUG_IO
-    printf("TIS write addr %x, len %d\n", addr, len);
-    TPM2_PrintBin(value, len);
-#endif
     return rc;
 }
 
@@ -175,9 +167,6 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
         }
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
-#ifdef WOLFTPM_DEBUG_TIMEOUT
-    printf("TIS_StartupWait: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
-#endif
     if (timeout <= 0)
         return TPM_RC_TIMEOUT;
     return rc;
@@ -225,9 +214,6 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
             }
             XTPM_WAIT();
         } while (rc < 0 && --timeout > 0);
-#ifdef WOLFTPM_DEBUG_TIMEOUT
-        printf("TIS_RequestLocality: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
-#endif
         if (timeout <= 0)
             return TPM_RC_TIMEOUT;
     }
@@ -288,9 +274,6 @@ int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
             break;
         XTPM_WAIT();
     } while (rc == TPM_RC_SUCCESS && --timeout > 0);
-#ifdef WOLFTPM_DEBUG_TIMEOUT
-    printf("TIS_WaitForStatus: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
-#endif
     if (timeout <= 0)
         return TPM_RC_TIMEOUT;
     return rc;
@@ -322,9 +305,6 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
             XTPM_WAIT();
         } while (rc == TPM_RC_SUCCESS && --timeout > 0);
 
-    #ifdef WOLFTPM_DEBUG_TIMEOUT
-        printf("TIS_GetBurstCount: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
-    #endif
 
         if (*burstCount > MAX_SPI_FRAMESIZE)
             *burstCount = MAX_SPI_FRAMESIZE;
