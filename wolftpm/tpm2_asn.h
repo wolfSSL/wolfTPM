@@ -39,6 +39,12 @@
 #define MAX_CERT_SZ 2048
 #endif
 
+/* ASN Error Codes */
+#define TPM_RC_ASN_PARSE     (-201)  /* ASN parsing error */
+#define TPM_RC_INSUFFICIENT  (-202)  /* ASN insufficient data */
+#define TPM_RC_VALUE        (-203)  /* ASN value error (invalid tag) */
+#define TPM_RC_BUFFER       (-204)  /* ASN buffer error */
+
 /* ASN.1 Constants */
 enum {
     TPM2_ASN_SEQUENCE         = 0x10,
@@ -69,6 +75,10 @@ typedef struct DecodedX509 {
 } DecodedX509;
 
 /* ASN.1 Decoder Functions */
+WOLFTPM_API int TPM2_ASN_GetLength(const uint8_t* input, word32* inOutIdx, int* len,
+                           word32 maxIdx);
+WOLFTPM_API int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
+                           word32 maxIdx, int check);
 WOLFTPM_API int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz, int* inOutIdx, int* tag_len, uint8_t tag);
 WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz);
 WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz, DecodedX509* x509);

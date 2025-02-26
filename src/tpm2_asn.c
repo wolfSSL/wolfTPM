@@ -28,33 +28,165 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
+/*!
+    \brief Decodes ASN.1 length with optional length checking
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index
+    \param check Flag to enable length validation
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 length with optional length checking
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer, updated to new position
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index in buffer
+    \param check Flag to enable length validation
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
+WOLFTPM_API int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
+                           word32 maxIdx, int check)
+{
+    int     length = 0;
+    word32  idx = *inOutIdx;
+    byte    b;
+
+    *len = 0;    /* default length */
+
+    if ((idx + 1) > maxIdx) {
+        return TPM_RC_INSUFFICIENT;
+    }
+
+    b = input[idx++];
+    if (b >= TPM2_ASN_LONG_LENGTH) {
+        word32 bytes = b & 0x7F;
+        if ((idx + bytes) > maxIdx) {
+            return TPM_RC_INSUFFICIENT;
+        }
+        while (bytes--) {
+            b = input[idx++];
+            length = (length << 8) | b;
+        }
+    }
+    else
+        length = b;
+
+    if (check && (idx + length) > maxIdx) {
+        return TPM_RC_INSUFFICIENT;
+    }
+
+    *inOutIdx = idx;
+    if (length > 0)
+        *len = length;
+
+    return length;
+}
+
+/*!
+    \brief Decodes ASN.1 length with length checking enabled
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 length with length checking enabled
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer, updated to new position
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index in buffer
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
+WOLFTPM_API int TPM2_ASN_GetLength(const uint8_t* input, word32* inOutIdx, int* len,
+                           word32 maxIdx)
+{
+    return TPM2_ASN_GetLength_ex(input, inOutIdx, len, maxIdx, 1);
+}
+
+/*!
+    \brief Decodes ASN.1 tag and length
+    \param input Buffer containing ASN.1 data
+    \param tag Expected ASN.1 tag value
+    \param inOutIdx Current position in buffer
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index
+    \return Length on success, TPM_RC_VALUE on tag mismatch, TPM_RC_INSUFFICIENT on buffer error
+*/
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 tag and length
+    \param input Buffer containing ASN.1 data
+    \param tag Expected ASN.1 tag value
+    \param inOutIdx Current position in buffer, updated to new position
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index in buffer
+    \return Length on success, TPM_RC_VALUE on tag mismatch, TPM_RC_INSUFFICIENT on buffer error
+*/
+static int TPM2_ASN_GetHeader(const uint8_t* input, byte tag, word32* inOutIdx, int* len,
+                        word32 maxIdx)
+{
+    word32 idx = *inOutIdx;
+    byte   b;
+    int    length;
+
+    if ((idx + 1) > maxIdx)
+        return TPM_RC_INSUFFICIENT;
+
+    b = input[idx++];
+    if (b != tag)
+        return TPM_RC_VALUE;
+
+    if (TPM2_ASN_GetLength(input, &idx, &length, maxIdx) < 0)
+        return TPM_RC_VALUE;
+
+    *len      = length;
+    *inOutIdx = idx;
+    return length;
+}
+
+/*!
+    \brief Decodes ASN.1 tag and validates length
+    \param input Buffer containing ASN.1 data
+    \param inputSz Size of input buffer
+    \param inOutIdx Current position in buffer
+    \param tag_len Decoded length value
+    \param tag Expected ASN.1 tag value
+    \return 0 on success, TPM_RC_INSUFFICIENT on buffer error, TPM_RC_VALUE on tag mismatch
+*/
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 tag and validates length
+    \param input Buffer containing ASN.1 data
+    \param inputSz Size of input buffer
+    \param inOutIdx Current position in buffer, updated to new position
+    \param tag_len Decoded length value
+    \param tag Expected ASN.1 tag value
+    \return 0 on success, TPM_RC_INSUFFICIENT on buffer error, TPM_RC_VALUE on tag mismatch
+*/
 WOLFTPM_API int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz, 
     int* inOutIdx, int* tag_len, uint8_t tag)
 {
-    int rc = -1;
-    int tag_len_bytes = 1;
-
-    *tag_len = 0;
-    if (input[*inOutIdx] == tag) {
-        (*inOutIdx)++;
-        if (input[*inOutIdx] & TPM2_ASN_LONG_LENGTH) {
-            tag_len_bytes = (int)(input[*inOutIdx] & 0x7F);
-            if (tag_len_bytes > 4) {
-                return -1;
-            }
-            (*inOutIdx)++;
-        }
-        while (tag_len_bytes--) {
-            *tag_len = (*tag_len << 8) | input[*inOutIdx];
-            (*inOutIdx)++;
-        }
-        if (*tag_len + *inOutIdx <= inputSz) {
-            rc = 0;
-        }
+    word32 idx = *inOutIdx;
+    int rc = TPM2_ASN_GetHeader(input, tag, &idx, tag_len, inputSz);
+    if (rc >= 0) {
+        *inOutIdx = idx;
+        rc = 0;
     }
     return rc;
 }
 
+/*!
+    \ingroup ASN
+    \brief Decodes RSA signature from ASN.1 format
+    \param pInput Pointer to buffer containing ASN.1 encoded RSA signature
+    \param inputSz Size of input buffer
+    \return Size of decoded signature on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz)
 {
     int rc;
@@ -79,106 +211,145 @@ WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz)
     return rc;
 }
 
+/*!
+    \brief Decodes an X.509 certificate
+    \param input Buffer containing ASN.1 encoded X.509 certificate
+    \param inputSz Size of input buffer
+    \param x509 Structure to store decoded certificate data
+    \return 0 on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     DecodedX509* x509)
 {
     int rc;
-    int idx = 0;
+    word32 idx = 0;
     int tot_len, cert_len = 0, len, pubkey_len = 0, sig_len = 0;
 
-    rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &tot_len,
-        (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    if (rc == 0) {
-        x509->certBegin = idx;
-        x509->cert = &input[idx];
+    if (input == NULL || x509 == NULL)
+        return TPM_RC_VALUE;
 
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &cert_len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
+    /* Decode outer SEQUENCE */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &tot_len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    /* Store certificate location */
+    x509->certBegin = idx;
+    x509->cert = &input[idx];
+
+    /* Decode certificate SEQUENCE */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &cert_len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    x509->certSz = cert_len + (idx - x509->certBegin);
+
+    /* Decode version */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_CONTEXT_SPECIFIC | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    if (input[idx] != TPM2_ASN_INTEGER || input[idx] != 1)
+        return TPM_RC_VALUE;
+
+    idx += len;
+
+    /* Skip serial number */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_INTEGER, &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Skip algorithm identifier */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Skip issuer */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Skip validity */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Skip subject */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Skip subject public key info */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Get public key */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &pubkey_len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    if (input[idx] == 0x00) {
+        idx++;
+        pubkey_len--;
     }
-    if (rc == 0) {
-        x509->certSz = cert_len + (idx - x509->certBegin);
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_CONTEXT_SPECIFIC | TPM2_ASN_CONSTRUCTED));
+    x509->publicKey = &input[idx];
+    x509->pubKeySz = pubkey_len;
+
+    /* Get signature algorithm */
+    idx = x509->certBegin + x509->certSz;
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                           &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_OBJECT_ID, &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_TAG_NULL, &idx, &len, inputSz);
+    if (rc < 0)
+        return rc;
+    idx += len;
+
+    /* Get signature */
+    rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &sig_len, inputSz);
+    if (rc < 0)
+        return rc;
+
+    if (input[idx] == 0x00) {
+        idx++;
+        sig_len--;
     }
-    if (rc == 0) {
-        if (input[idx] != TPM2_ASN_INTEGER || input[idx] != 1) {
-            rc = -1;
-        }
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_INTEGER);
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &pubkey_len,
-            TPM2_ASN_BIT_STRING);
-    }
-    if (rc == 0) {
-        if (input[idx] == 0x00) {
-            idx++;
-            pubkey_len--;
-        }
-        x509->publicKey = &input[idx];
-        x509->pubKeySz = pubkey_len;
-    }
-    if (rc == 0) {
-        idx = x509->certBegin + x509->certSz;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len,
-            (TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED));
-    }
-    if (rc == 0) {
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_OBJECT_ID);
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &len, TPM2_ASN_TAG_NULL);
-    }
-    if (rc == 0) {
-        idx += len;
-        rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &sig_len,
-            TPM2_ASN_BIT_STRING);
-    }
-    if (rc == 0) {
-        if (input[idx] == 0x00) {
-            idx++;
-            sig_len--;
-        }
-        x509->sigSz = sig_len;
-        x509->signature = &input[idx];
-    }
-    return rc;
+    x509->sigSz = sig_len;
+    x509->signature = &input[idx];
+
+    return TPM_RC_SUCCESS;
 }
 
+/*!
+    \ingroup ASN
+    \brief Decodes RSA public key from ASN.1 format into TPM2B_PUBLIC structure
+    \param input Buffer containing ASN.1 encoded RSA public key
+    \param inputSz Size of input buffer
+    \param pub TPM2B_PUBLIC structure to store decoded key
+    \return 0 on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     TPM2B_PUBLIC* pub)
 {
@@ -223,6 +394,13 @@ WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     return rc;
 }
 
+/*!
+    \ingroup ASN
+    \brief Removes PKCS#1 v1.5 padding from RSA signature
+    \param pSig Pointer to buffer containing padded signature, updated to point to unpadded data
+    \param sigSz Size of signature buffer, updated with unpadded size
+    \return 0 on success, TPM_RC_VALUE on invalid padding
+*/
 WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
 {
     int rc = -1;

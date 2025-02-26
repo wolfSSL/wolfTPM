@@ -197,10 +197,16 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
     if (rc == 0) {
         /* Parse device certificate and extract public key */
         rc = TPM2_ASN_DecodeX509Cert(cert, certSz, &ekX509);
-        if (rc == 0) {
-            /* Parse RSA Public Key Raw Modulus */
-            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)ekX509.publicKey, ekX509.pubKeySz,
-                &ekPub);
+        if (rc < 0) {
+            printf("Failed to decode X509 certificate: %s\n", TPM2_GetRCString(rc));
+            goto exit;
+        }
+        /* Parse RSA Public Key Raw Modulus */
+        rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)ekX509.publicKey, ekX509.pubKeySz,
+            &ekPub);
+        if (rc < 0) {
+            printf("Failed to decode RSA public key: %s\n", TPM2_GetRCString(rc));
+            goto exit;
         }
     }
 
@@ -214,7 +220,8 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         {
             printf("Error: Generated EK public key does not match NV cert "
                    "public key!\n");
-            rc = -1;
+            rc = TPM_RC_VALUE;
+            goto exit;
         }
     }
 
@@ -237,10 +244,16 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         /* Parse and extract the issuer's public key modulus from certificate */
         rc = TPM2_ASN_DecodeX509Cert((uint8_t*)kSTSAFEIntCa20,
             (int)sizeof(kSTSAFEIntCa20), &issuerX509);
-        if (rc == 0) {
-            /* Parse RSA Public Key Raw Modulus */
-            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)issuerX509.publicKey,
-                issuerX509.pubKeySz, &issuer.pub);
+        if (rc < 0) {
+            printf("Failed to decode issuer X509 certificate: %s\n", TPM2_GetRCString(rc));
+            goto exit;
+        }
+        /* Parse RSA Public Key Raw Modulus */
+        rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)issuerX509.publicKey,
+            issuerX509.pubKeySz, &issuer.pub);
+        if (rc < 0) {
+            printf("Failed to decode issuer RSA public key: %s\n", TPM2_GetRCString(rc));
+            goto exit;
         }
     }
     if (rc == 0) {
@@ -283,13 +296,19 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
     if (rc == 0) {
         sigDigest = sig;
         rc = TPM2_ASN_RsaUnpadPkcsv15(&sigDigest, &sigSz);
+        if (rc < 0) {
+            printf("Failed to unpad PKCS#1 v1.5: %s\n", TPM2_GetRCString(rc));
+            goto exit;
+        }
     }
     if (rc == 0) {
         rc = TPM2_ASN_RsaDecodeSignature(&sigDigest, sigSz);
-        if (rc > 0) {
-            sigDigestSz = rc;
-            rc = 0;
+        if (rc < 0) {
+            printf("Failed to decode RSA signature: %s\n", TPM2_GetRCString(rc));
+            goto exit;
         }
+        sigDigestSz = rc;
+        rc = 0;
     }
     if (rc == 0) {
         printf("Expected Hash: %d\n", hashSz);
