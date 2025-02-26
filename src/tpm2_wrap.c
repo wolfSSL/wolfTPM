@@ -5676,7 +5676,7 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 /* performs a reset sequence */
 int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     Shutdown_In shutdownIn;
     Startup_In startupIn;
 
