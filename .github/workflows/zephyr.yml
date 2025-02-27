@@ -59,15 +59,15 @@ jobs:
           sed -e 's/projects:/projects:\n    \- name: wolfssl\n      path: modules\/crypto\/wolfssl\n      remote: wolfssl\n      revision: master/' -i west.yml
 
       - name: Update west workspace
-        working-directory: ~/zephyr
+        working-directory: zephyr
         run: west update -n -o=--depth=1
 
       - name: Export zephyr
-        working-directory: ~/zephyr
+        working-directory: zephyr
         run: west zephyr-export
 
       - name: Install pip dependencies
-        working-directory: ~/zephyr
+        working-directory: zephyr
         run: sudo pip install -r zephyr/scripts/requirements.txt
 
       - name: Install zephyr SDK
