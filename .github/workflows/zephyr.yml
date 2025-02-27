@@ -43,19 +43,14 @@ jobs:
             python3-ply python3-setuptools python-is-python3 qemu-kvm rsync socat srecord sudo \
             texinfo unzip wget ovmf xz-utils
 
-      - name: Create and activate virtual environment
-        run: |
-          python3 -m venv ~/zephyrproject/.venv
-          source ~/zephyrproject/.venv/bin/activate
-
       - name: Install west
         run: sudo pip install west
 
       - name: Init west workspace
-        run: west init ~/zephyrproject
+        run: west init --mr ${{ matrix.config.zephyr-ref }} zephyr
 
       - name: Update west.yml
-        working-directory: zephyrproject/zephyr
+        working-directory: zephyr/zephyr
         run: |
           REF=$(echo '${{ github.ref }}' | sed -e 's/\//\\\//g')
           sed -e 's/remotes:/remotes:\n    \- name: wolfssl\n      url\-base: https:\/\/github.com\/wolfssl/' -i west.yml
@@ -64,15 +59,15 @@ jobs:
           sed -e 's/projects:/projects:\n    \- name: wolfssl\n      path: modules\/crypto\/wolfssl\n      remote: wolfssl\n      revision: master/' -i west.yml
 
       - name: Update west workspace
-        working-directory: ~/zephyrproject
+        working-directory: ~/zephyr
         run: west update -n -o=--depth=1
 
       - name: Export zephyr
-        working-directory: ~/zephyrproject
+        working-directory: ~/zephyr
         run: west zephyr-export
 
       - name: Install pip dependencies
-        working-directory: ~/zephyrproject
+        working-directory: ~/zephyr
         run: sudo pip install -r zephyr/scripts/requirements.txt
 
       - name: Install zephyr SDK
@@ -82,18 +77,24 @@ jobs:
           cd zephyr-sdk-${{ matrix.config.zephyr-sdk }}
           ./setup.sh -h -c -t x86_64-zephyr-elf
 
-      - name: Fix options for 2.7.4
-        if: ${{ matrix.config.zephyr-ref == 'v2.7.4' }}
-        working-directory: zephyr/modules/lib/wolftpm
+      - name: Run wolftpm tests
+        id: wolftpm-test
+        working-directory: zephyr
         run: |
-          sed -i -e 's/CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE/CONFIG_MINIMAL_LIBC_MALLOC_ARENA_SIZE/g' $(find -name prj.conf)
+          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/tests/sample.lib.wolftpm_tests -vvv
+          rm -rf zephyr/twister-out
+          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/tests/sample.lib.wolftpm_nofs_tests -vvv
+          rm -rf zephyr/twister-out
 
-      - name: Build wolftpm wrap test
-        working-directory: ~/zephyrproject
+      - name: Zip failure logs
+        if: ${{ failure() && steps.wolftpm-test.outcome == 'failure' }}
         run: |
-          west build -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
+          zip -9 -r logs.zip zephyr/twister-out
 
-      - name: Build wolftpm wrap caps
-        working-directory: ~/zephyrproject
-        run: |
-          west build -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_caps
+      - name: Upload failure logs
+        if: ${{ failure() && steps.wolftpm-test.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyr-client-test-logs
+          path: logs.zip
+          retention-days: 5
