@@ -60,18 +60,10 @@ possible by setting the `CMAKE_PREFIX_PATH` variable to the location of the
 zephyr sdk and building from the `zephyr` directory. For example:
 
 ```
-CMAKE_PREFIX_PATH=/path/to/zephyr-sdk-<VERSION> west build -p always -b qemu_x86 ../modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test/
+CMAKE_PREFIX_PATH=/path/to/zephyr-sdk-<VERSION> west build -p always -b qemu_x86 ../modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_caps/
 ```
 
 ### Build and Run wolfTPM Wrap Test and Capabilities Applications
-
-build and execute `wolftpm_wrap_test`
-
-```
-cd [zephyrproject]
-west build -p auto -b qemu_x86 modules/lib/wolftpm/zephyr/samples/wolftpm_wrap_test
-west build -t run
-```
 
 build and execute `wolftpm_wrap_caps`
 
