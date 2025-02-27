@@ -81,7 +81,7 @@ jobs:
         id: wolftpm_wrap_caps
         working-directory: zephyr
         run: |
-          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test modules/lib/wolftpm/zephyr/samples/sample.lib.wolftpm_wrap_caps -vvv
+          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/sample.lib.wolftpm_wrap_caps -vvv
           rm -rf zephyr/twister-out
 
       - name: Zip failure logs

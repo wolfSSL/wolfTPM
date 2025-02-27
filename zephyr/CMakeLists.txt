@@ -5,6 +5,7 @@ if(CONFIG_WOLFTPM)
   FILE(GLOB wolftpm_sources
       ${ZEPHYR_CURRENT_MODULE_DIR}/src/*.c
       ${ZEPHYR_CURRENT_MODULE_DIR}/hal/*.c
+      ${ZEPHYR_CURRENT_MODULE_DIR}/examples/*.c
   )
   target_sources(app PRIVATE ${wolftpm_sources})
 
