@@ -77,22 +77,20 @@ jobs:
           cd zephyr-sdk-${{ matrix.config.zephyr-sdk }}
           ./setup.sh -h -c -t x86_64-zephyr-elf
 
-      - name: Run wolftpm tests
-        id: wolftpm-test
+      - name: Run wolftpm caps tests
+        id: wolftpm_wrap_caps
         working-directory: zephyr
         run: |
-          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/tests/sample.lib.wolftpm_tests -vvv
-          rm -rf zephyr/twister-out
-          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/tests/sample.lib.wolftpm_nofs_tests -vvv
+          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/sample.lib.wolftpm_wrap_caps -vvv
           rm -rf zephyr/twister-out
 
       - name: Zip failure logs
-        if: ${{ failure() && steps.wolftpm-test.outcome == 'failure' }}
+        if: ${{ failure() && steps.wolftpm_wrap_caps.outcome == 'failure' }}
         run: |
           zip -9 -r logs.zip zephyr/twister-out
 
       - name: Upload failure logs
-        if: ${{ failure() && steps.wolftpm-test.outcome == 'failure' }}
+        if: ${{ failure() && steps.wolftpm_wrap_caps.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: zephyr-client-test-logs
