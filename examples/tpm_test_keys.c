@@ -43,21 +43,8 @@
 #ifdef WOLFTPM_ZEPHYR
     #include <zephyr/fs/fs.h>
     #define XFILE struct fs_file_t*
-    #define XFOPEN(path, mode) ({ \
-        struct fs_file_t *f; \
-        fs_open(&f, path, FS_O_READ); \
-        f; \
-    })
-    #define XFCLOSE(fp) fs_close(fp)
-    #define XFSEEK(fp, offset, whence) fs_seek(fp, offset, whence)
-    #define XREWIND(fp) fs_seek(fp, 0, FS_SEEK_SET)
-    #define XFTELL(fp) ({ \
-        off_t pos; \
-        fs_tell(fp, &pos); \
-        pos; \
-    })
-    #define XFREAD(buffer, size, count, fp) fs_read(fp, buffer, size * count)
-    #define XFWRITE(buffer, size, count, fp) fs_write(fp, buffer, size * count)
+    /* Note: Other filesystem macros (XFOPEN, XFCLOSE etc) are already defined
+     * in wolfSSL's wc_port.h for Zephyr */
 #else
     #define XFILE FILE*
 #endif
