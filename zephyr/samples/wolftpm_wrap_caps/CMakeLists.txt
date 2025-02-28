@@ -12,6 +12,7 @@ target_include_directories(app PRIVATE
     ${ZEPHYR_BASE}/include
     ${ZEPHYR_BASE}/include/zephyr
     ${ZEPHYR_WOLFTPM_MODULE_DIR}
+    ${ZEPHYR_WOLFTPM_MODULE_DIR}/hal
     ${ZEPHYR_WOLFTPM_MODULE_DIR}/wolftpm
     ${ZEPHYR_WOLFTPM_MODULE_DIR}/examples/wrap
 )
