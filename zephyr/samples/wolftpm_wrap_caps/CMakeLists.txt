@@ -21,3 +21,4 @@ target_include_directories(app PRIVATE
 )
 add_definitions(-DWOLFTPM_USER_SETTINGS)
 add_definitions(-DWOLFSSL_USER_SETTINGS)
+add_definitions(-DWOLFTPM_ZEPHYR)

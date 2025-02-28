@@ -56,12 +56,6 @@ extern "C" {
 #undef  WOLFTPM_ZEPHYR
 #define WOLFTPM_ZEPHYR
 
-/* Zephyr doesn't have unistd.h, so we need to define an alternative for XSLEEP_MS */
-#define WOLFTPM_NO_UNISTD
-#if defined(XSLEEP_MS) && defined(WOLFTPM_NO_UNISTD)
-    #define XSLEEP_MS(ms) k_msleep(ms)
-#endif
-
 /* -- WOLFSSL SETTINGS -- */
 
 #undef WOLFSSL_USER_SETTINGS

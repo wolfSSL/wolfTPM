@@ -457,28 +457,30 @@ typedef int64_t  INT64;
 #endif
 
 /* sleep helper, used in firmware update */
-#ifndef XSLEEP_MS
-    #ifdef WIN32
-        #include <windows.h>
-        #define XSLEEP_MS(ms) Sleep(ms)
-    #elif defined(FREERTOS)
-        #define XSLEEP_MS(ms) vTaskDelay(ms)
-    #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
-        #include <time.h>
-        #define XSLEEP_MS(ms) ({ \
-            struct timespec ts; \
-            ts.tv_sec = ms / 1000; \
-            ts.tv_nsec = (ms % 1000) * 1000000; \
-            nanosleep(&ts, NULL); \
-        })
-    #else
-        #include <unistd.h>
-        #define XSLEEP_MS(ms) ({ \
-            if (ms >= 1000) \
-                sleep(ms / 1000); \
-            usleep((ms % 1000) * 1000); \
-        })
-    #endif
+#if defined(WOLFTPM_ZEPHYR)
+    /* For Zephyr, use k_sleep() instead of usleep() */
+    #include <zephyr/kernel.h>
+    #define XSLEEP_MS(ms) k_msleep(ms)
+#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    #include <time.h>
+    #define XSLEEP_MS(ms) ({ \
+        struct timespec ts; \
+        ts.tv_sec = ms / 1000; \
+        ts.tv_nsec = (ms % 1000) * 1000000; \
+        nanosleep(&ts, NULL); \
+    })
+#elif defined(WIN32)
+    #include <windows.h>
+    #define XSLEEP_MS(ms) Sleep(ms)
+#elif defined(FREERTOS)
+    #define XSLEEP_MS(ms) vTaskDelay(ms)
+#else
+    #include <unistd.h>
+    #define XSLEEP_MS(ms) ({ \
+        if (ms >= 1000) \
+            sleep(ms / 1000); \
+        usleep((ms % 1000) * 1000); \
+    })
 #endif
 
 #ifndef BUFFER_ALIGNMENT
