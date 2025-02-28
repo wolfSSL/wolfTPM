@@ -77,14 +77,11 @@ jobs:
           cd zephyr-sdk-${{ matrix.config.zephyr-sdk }}
           ./setup.sh -h -c -t x86_64-zephyr-elf
 
-      - name: Set ZEPHYR_BASE
-        run: export ZEPHYR_BASE=/home/runner/work/wolfTPM/wolfTPM/zephyr/modules/lib/wolftpm/zephyr
-
       - name: Run wolftpm caps tests
         id: wolftpm_wrap_caps
         working-directory: zephyr
         run: |
-          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/sample.lib.wolftpm_wrap_caps -vvv
+          ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/wolftpm-wrap-caps/sample.lib.wolftpm_wrap_caps -vvv
           rm -rf zephyr/twister-out
 
       - name: Zip failure logs
