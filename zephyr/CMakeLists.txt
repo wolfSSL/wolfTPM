@@ -4,10 +4,9 @@ if(CONFIG_WOLFTPM)
   zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR})
 
   FILE(GLOB wolftpm_sources
-      ${ZEPHYR_CURRENT_MODULE_DIR}/src/tpm2.c
-      ${ZEPHYR_CURRENT_MODULE_DIR}/src/tpm2_wrap.c
-      ${ZEPHYR_CURRENT_MODULE_DIR}/hal/tpm_io.c
-      ${ZEPHYR_CURRENT_MODULE_DIR}/examples/wrap/caps.c
+      ${ZEPHYR_CURRENT_MODULE_DIR}/src/*.c
+      ${ZEPHYR_CURRENT_MODULE_DIR}/hal/*.c
+      ${ZEPHYR_CURRENT_MODULE_DIR}/examples/*.c
   )
   target_sources(app PRIVATE ${wolftpm_sources})
 
@@ -16,4 +15,5 @@ if(CONFIG_WOLFTPM)
   endif()
 
   target_compile_definitions(app PUBLIC WOLFTPM_ZEPHYR)
+
 endif()
