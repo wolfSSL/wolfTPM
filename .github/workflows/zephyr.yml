@@ -1,0 +1,30 @@
+name: Zephyr Build Test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: zephyrprojectrtos/ci:latest
+      options: --user root
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        path: wolfTPM
+
+    - name: Initialize
+      working-directory: wolfTPM
+      run: |
+        west init -l .
+        west update
+
+    - name: Build and Test
+      working-directory: wolfTPM
+      run: |
+        ./zephyr/scripts/twister --testsuite-root modules/lib/wolftpm --test zephyr/samples/wolftpm_wrap_caps/sample.lib.wolftpm_wrap_caps -vvv
