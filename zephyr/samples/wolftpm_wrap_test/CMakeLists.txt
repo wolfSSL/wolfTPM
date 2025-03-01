@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.13.1)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(wolftpm_wrap_caps)
+project(wolftpm_wrap_test)
 
 # Include source code for wrap test
-target_sources(app PRIVATE ${ZEPHYR_WOLFTPM_MODULE_DIR}/examples/wrap/caps.c)
+target_sources(app PRIVATE ${ZEPHYR_WOLFTPM_MODULE_DIR}/examples/wrap/wrap_test.c)
 target_sources(app PRIVATE ${app_sources})
 
 # Include header files
