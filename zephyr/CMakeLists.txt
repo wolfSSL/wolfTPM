@@ -1,6 +1,13 @@
 if(CONFIG_WOLFTPM)
   zephyr_include_directories(${ZEPHYR_CURRENT_MODULE_DIR})
   zephyr_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/zephyr)
+  zephyr_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/hal)
+
+  # Add Zephyr system include paths
+  zephyr_include_directories(${ZEPHYR_BASE}/include)
+  zephyr_include_directories(${ZEPHYR_BASE}/include/zephyr)
+  zephyr_include_directories(${ZEPHYR_BASE}/include/posix)
+
   zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR})
   FILE(GLOB wolftpm_sources
       ${ZEPHYR_CURRENT_MODULE_DIR}/src/*.c

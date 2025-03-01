@@ -46,7 +46,11 @@ extern "C" {
 #endif
 
 /* Include Zephyr networking headers */
-#include <sys/socket.h>
+#ifdef WOLFTPM_ZEPHYR
+    #include <zephyr/posix/sys/socket.h>
+#else
+    #include <sys/socket.h>
+#endif
 
 /* -- WOLFTPM ZEPHYR SETTINGS -- */
 
