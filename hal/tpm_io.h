@@ -49,6 +49,7 @@
  * - Xilinx Zynq
  * - Barebox
  * - QNX
+ * - uboot
  * - Infineon Tri-Core
  * - Microchip MPLAB X Harmony (WOLFTPM_MICROCHIP_HARMONY)
  * Using custom IO Callback is always possible.
@@ -100,6 +101,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_Atmel_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rx
     word16 xferSz, void* userCtx);
 #elif defined(__BAREBOX__)
 WOLFTPM_LOCAL int TPM2_IoCb_Barebox_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
+#elif defined(__UBOOT__)
+WOLFTPM_LOCAL int TPM2_IoCb_Uboot_SPI(TPM2_CTX* ctx, const byte* txBuf,
     byte* rxBuf, word16 xferSz, void* userCtx);
 #elif defined(__linux__)
 WOLFTPM_LOCAL int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,

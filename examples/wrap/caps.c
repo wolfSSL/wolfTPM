@@ -130,7 +130,8 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
     TPM2_PCRs_Print();
 
 exit:
-    wolfTPM2_Shutdown(&dev, 0); /* 0=just shutdown, no startup */
+    /* Only doShutdown=1: Just shut down the TPM */
+    wolfTPM2_Reset(&dev, 1, 0);
 
     wolfTPM2_Cleanup(&dev);
 
