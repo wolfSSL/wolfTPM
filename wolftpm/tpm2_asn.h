@@ -29,6 +29,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_types.h>
 
+#ifndef WOLFTPM2_NO_ASN
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #ifdef __cplusplus
@@ -75,14 +76,72 @@ typedef struct DecodedX509 {
 } DecodedX509;
 
 /* ASN.1 Decoder Functions */
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 length with length checking enabled
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer, updated to new position
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index in buffer
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_GetLength(const uint8_t* input, word32* inOutIdx, int* len,
                            word32 maxIdx);
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 length with optional length checking
+    \param input Buffer containing ASN.1 data
+    \param inOutIdx Current position in buffer, updated to new position
+    \param len Decoded length value
+    \param maxIdx Maximum allowed index in buffer
+    \param check Flag to enable length validation
+    \return Length on success, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
                            word32 maxIdx, int check);
+/*!
+    \ingroup ASN
+    \brief Decodes ASN.1 tag and validates length
+    \param input Buffer containing ASN.1 data
+    \param inputSz Size of input buffer
+    \param inOutIdx Current position in buffer, updated to new position
+    \param tag_len Decoded length value
+    \param tag Expected ASN.1 tag value
+    \return 0 on success, TPM_RC_INSUFFICIENT on buffer error, TPM_RC_VALUE on tag mismatch
+*/
 WOLFTPM_API int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz, int* inOutIdx, int* tag_len, uint8_t tag);
+/*!
+    \ingroup ASN
+    \brief Decodes RSA signature from ASN.1 format
+    \param pInput Pointer to buffer containing ASN.1 encoded RSA signature
+    \param inputSz Size of input buffer
+    \return Size of decoded signature on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_RsaDecodeSignature(uint8_t** pInput, int inputSz);
+/*!
+    \brief Decodes an X.509 certificate
+    \param input Buffer containing ASN.1 encoded X.509 certificate
+    \param inputSz Size of input buffer
+    \param x509 Structure to store decoded certificate data
+    \return 0 on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz, DecodedX509* x509);
+/*!
+    \ingroup ASN
+    \brief Decodes RSA public key from ASN.1 format into TPM2B_PUBLIC structure
+    \param input Buffer containing ASN.1 encoded RSA public key
+    \param inputSz Size of input buffer
+    \param pub TPM2B_PUBLIC structure to store decoded key
+    \return 0 on success, TPM_RC_VALUE on invalid input, TPM_RC_INSUFFICIENT on buffer error
+*/
 WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz, TPM2B_PUBLIC* pub);
+/*!
+    \ingroup ASN
+    \brief Removes PKCS#1 v1.5 padding from RSA signature
+    \param pSig Pointer to buffer containing padded signature, updated to point to unpadded data
+    \param sigSz Size of signature buffer, updated with unpadded size
+    \return 0 on success, TPM_RC_VALUE on invalid padding
+*/
 WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz);
 
 #ifdef __cplusplus
@@ -90,5 +149,5 @@ WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz);
 #endif
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
-
+#endif /* !WOLFTPM2_NO_ASN */
 #endif /* WOLFTPM_TPM2_ASN_H */
