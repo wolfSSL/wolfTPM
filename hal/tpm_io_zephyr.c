@@ -1,6 +1,6 @@
-/* tpm_io_espressif.c
+/* tpm_io_zephyr.c
  *
- * Copyright (C) 2006-2024 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -19,17 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* This example shows IO interfaces for Microchip micro-controllers using
- * MPLAB X and Harmony
+/* This example shows IO interfaces for Zephyr-based micro-controllers
+ * using Zephyr's kernel and drivers
  */
-
-#ifdef HAVE_CONFIG_H
-    #include <config.h>
-#endif
-
-#include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_tis.h>
-#include "tpm_io.h"
 
 /*****************************************************************************/
 /* --- BEGIN IO Callback Logic -- */
