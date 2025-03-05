@@ -246,7 +246,11 @@ typedef int64_t  INT64;
     #define XFEOF      feof
 #endif
 #ifndef XREWIND /* used in tpm_test_keys.c */
-    #define XREWIND    rewind
+    #ifdef XFREWIND
+        #define XREWIND    XFREWIND
+    #else
+        #define XREWIND    rewind
+    #endif
 #endif
 
 /* enable way for customer to override printf */

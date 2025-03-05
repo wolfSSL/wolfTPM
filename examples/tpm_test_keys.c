@@ -49,8 +49,13 @@
     #define XFILE FILE*
 #endif
 
-#define RSA_FILENAME  "rsa_test_blob.raw"
-#define ECC_FILENAME  "ecc_test_blob.raw"
+#ifndef RSA_FILENAME
+    #define RSA_FILENAME  "rsa_test_blob.raw"
+#endif
+
+#ifndef ECC_FILENAME
+    #define ECC_FILENAME  "ecc_test_blob.raw"
+#endif
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
