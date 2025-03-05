@@ -26,7 +26,6 @@
 #include <wolftpm/tpm2_types.h>
 
 #ifndef WOLFTPM2_NO_ASN
-#ifndef WOLFTPM2_NO_WRAPPER
 
 #ifdef __cplusplus
     extern "C" {
@@ -144,6 +143,5 @@ WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz);
     }  /* extern "C" */
 #endif
 
-#endif /* !WOLFTPM2_NO_WRAPPER */
 #endif /* !WOLFTPM2_NO_ASN */
 #endif /* WOLFTPM_TPM2_ASN_H */

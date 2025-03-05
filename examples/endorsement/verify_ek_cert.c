@@ -33,7 +33,7 @@
 #include <wolftpm/tpm2_asn.h>
 
 #include <stdio.h>
-
+#ifndef WOLFTPM2_NO_ASN
 #ifndef WOLFTPM2_NO_WRAPPER
 
 #include <examples/endorsement/endorsement.h>
@@ -327,19 +327,20 @@ exit:
 /* --- END TPM2.0 Endorsement certificate tool  -- */
 /******************************************************************************/
 #endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_ASN */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
     int rc = -1;
 
-#ifndef WOLFTPM2_NO_WRAPPER
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
     rc = TPM2_EndorsementCertVerify_Example(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
     (void)argc;
     (void)argv;
-#endif /* !WOLFTPM2_NO_WRAPPER */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_ASN */
 
     return rc;
 }
