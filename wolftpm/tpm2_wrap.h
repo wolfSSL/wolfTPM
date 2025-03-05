@@ -2972,12 +2972,17 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
 
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION structure, to store the TPM session handle
+    \param endorseKey pointer to an empty WOLFTPM2_KEY structure, to store information about the new EK
+    \param alg can be only TPM_ALG_RSA or TPM_ALG_ECC, see Note above
+
     \sa wolfTPM2_CreateEK
     \sa wolfTPM2_CreateAuthSession_EkPolicy
     \sa wolfTPM2_SetAuthSession
 */
 WOLFTPM_API int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
-    WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg);
+    WOLFTPM2_KEY* endorseKey, TPM_ALG_ID alg);
 
 /*!
     \ingroup wolfTPM2_Wrappers

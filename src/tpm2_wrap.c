@@ -6482,9 +6482,9 @@ int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     /* Create endorsement key (EK) */
     rc = wolfTPM2_CreateEK(dev, endorseKey, alg);
     if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         printf("Creating EK failed, rc: %d", rc);
-        #endif
+    #endif
         return rc;
     }
 
@@ -6494,22 +6494,22 @@ int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     /* Create and set policy session */
     rc = wolfTPM2_CreateAuthSession_EkPolicy(dev, tpmSession);
     if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         printf("Creating EK policy session failed, rc: %d", rc);
-        #endif
+    #endif
         return rc;
     }
 
     rc = wolfTPM2_SetAuthSession(dev, 0, tpmSession, 0);
     if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
+    #ifdef DEBUG_WOLFTPM
         printf("Setting EK policy session failed, rc: %d", rc);
-        #endif
+    #endif
         return rc;
     }
-    #ifdef DEBUG_WOLFTPM
+#ifdef DEBUG_WOLFTPM
     printf("Leaving wolfTPM2_GetEK(), rc = %d", rc);
-    #endif
+#endif
 
     return rc;
 }

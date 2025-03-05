@@ -649,7 +649,7 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
 {
     int rc = 0;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY ekKey;
+    WOLFTPM2_KEY endorseKey;
     WOLFTPM2_SESSION tpmSession;
 
     /* Initialize the TPM2 device */
@@ -657,23 +657,30 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
     AssertIntEQ(rc, 0);
 
     /* Clear key and session buffers */
-    XMEMSET(&ekKey, 0, sizeof(ekKey));
+    XMEMSET(&endorseKey, 0, sizeof(endorseKey));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     /* Test invalid algorithm */
     if (alg == TPM_ALG_NULL) {
-        rc = wolfTPM2_GetEK(&dev, &tpmSession, &ekKey, TPM_ALG_NULL);
+        rc = wolfTPM2_GetEK(&dev, &tpmSession, &endorseKey, TPM_ALG_NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
     /* Test valid RSA / ECC EK */
     else {
-        rc = wolfTPM2_GetEK(&dev, &tpmSession, &ekKey, alg);
+        rc = wolfTPM2_GetEK(&dev, &tpmSession, &endorseKey, alg);
         AssertIntEQ(rc, 0);
     }
 
     /* Cleanup */
+    if (rc == 0 && alg != TPM_ALG_NULL) {
+        /* Flush the EK */
+        FlushContext_In in;
+        in.flushHandle = endorseKey.handle.hndl;
+        rc = TPM2_FlushContext(&in);
+        AssertIntEQ(rc, 0);
+    }
+
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
     wolfTPM2_Cleanup(&dev);
 
     if (alg == TPM_ALG_NULL) {
