@@ -671,15 +671,7 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
         AssertIntEQ(rc, 0);
     }
 
-    /* Cleanup */
-    if (rc == 0 && alg != TPM_ALG_NULL) {
-        /* Flush the EK */
-        FlushContext_In in;
-        in.flushHandle = endorseKey.handle.hndl;
-        rc = TPM2_FlushContext(&in);
-        AssertIntEQ(rc, 0);
-    }
-
+    wolfTPM2_UnloadHandle(&dev, &endorseKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 
@@ -703,9 +695,6 @@ int unit_tests(int argc, char *argv[])
 
 #ifndef WOLFTPM2_NO_WRAPPER
     test_wolfTPM2_Init();
-    test_wolfTPM2_GetEK(TPM_ALG_NULL);
-    test_wolfTPM2_GetEK(TPM_ALG_RSA);
-    test_wolfTPM2_GetEK(TPM_ALG_ECC);
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
@@ -720,6 +709,9 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
+    test_wolfTPM2_GetEK(TPM_ALG_NULL);
+    test_wolfTPM2_GetEK(TPM_ALG_RSA);
+    test_wolfTPM2_GetEK(TPM_ALG_ECC);
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */
