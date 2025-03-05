@@ -2976,7 +2976,8 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
     \sa wolfTPM2_CreateAuthSession_EkPolicy
     \sa wolfTPM2_SetAuthSession
 */
-WOLFTPM_API int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg);
+WOLFTPM_API int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg);
 
 /*!
     \ingroup wolfTPM2_Wrappers

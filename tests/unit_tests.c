@@ -650,28 +650,30 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
     int rc = 0;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY ekKey;
+    WOLFTPM2_SESSION tpmSession;
 
     /* Initialize the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
+    /* Clear key and session buffers */
     XMEMSET(&ekKey, 0, sizeof(ekKey));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     /* Test invalid algorithm */
     if (alg == TPM_ALG_NULL) {
-        rc = wolfTPM2_GetEK(&dev, &ekKey, TPM_ALG_NULL);
+        rc = wolfTPM2_GetEK(&dev, &tpmSession, &ekKey, TPM_ALG_NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
-    /* Test valid RSA EK */
-    else if (alg == TPM_ALG_RSA) {
-        rc = wolfTPM2_GetEK(&dev, &ekKey, alg);
+    /* Test valid RSA / ECC EK */
+    else {
+        rc = wolfTPM2_GetEK(&dev, &tpmSession, &ekKey, alg);
         AssertIntEQ(rc, 0);
     }
-    /* Test valid ECC EK */
-    else if (alg == TPM_ALG_ECC) {
-        rc = wolfTPM2_GetEK(&dev, &ekKey, alg);
-        AssertIntEQ(rc, 0);
-    }
+
+    /* Cleanup */
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
     wolfTPM2_Cleanup(&dev);
 
     if (alg == TPM_ALG_NULL) {
@@ -694,6 +696,9 @@ int unit_tests(int argc, char *argv[])
 
 #ifndef WOLFTPM2_NO_WRAPPER
     test_wolfTPM2_Init();
+    test_wolfTPM2_GetEK(TPM_ALG_NULL);
+    test_wolfTPM2_GetEK(TPM_ALG_RSA);
+    test_wolfTPM2_GetEK(TPM_ALG_ECC);
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
@@ -708,9 +713,6 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
-    test_wolfTPM2_GetEK(TPM_ALG_NULL);
-    test_wolfTPM2_GetEK(TPM_ALG_RSA);
-    test_wolfTPM2_GetEK(TPM_ALG_ECC);
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */
