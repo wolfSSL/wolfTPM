@@ -2972,6 +2972,20 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
 
+    \sa wolfTPM2_CreateEK
+    \sa wolfTPM2_CreateAuthSession_EkPolicy
+    \sa wolfTPM2_SetAuthSession
+*/
+WOLFTPM_API int wolfTPM2_GetEK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Generates a new TPM Endorsement key, based on the user selected algorithm, RSA or ECC
+    \note Although only RSA and ECC can be used for EK, symmetric keys can be created and used by the TPM
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
     \param dev pointer to a TPM2_DEV struct
     \param ekKey pointer to an empty WOLFTPM2_KEY structure, to store information about the new EK
     \param alg can be only TPM_ALG_RSA or TPM_ALG_ECC, see Note above

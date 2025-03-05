@@ -6474,6 +6474,51 @@ int wolfTPM2_CreateEK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ekKey, TPM_ALG_ID alg)
     return rc;
 }
 
+int wolfTPM2_GetEK(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pEndorseKey,
+    TPM_ALG_ID alg)
+{
+    int rc;
+    WOLFTPM2_SESSION tpmSession;
+
+    #ifdef DEBUG_WOLFTPM
+        printf("Entering wolfTPM2_GetEK()");
+    #endif
+
+    /* Create endorsement key (EK) */
+    rc = wolfTPM2_CreateEK(pDev, pEndorseKey, alg);
+    if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Creating EK failed, rc: %d", rc);
+        #endif
+        return rc;
+    }
+
+    /* EK requires Policy auth, not Password */
+    pEndorseKey->handle.policyAuth = 1;
+
+    /* Create and set policy session */
+    rc = wolfTPM2_CreateAuthSession_EkPolicy(pDev, &tpmSession);
+    if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Creating EK policy session failed, rc: %d", rc);
+        #endif
+        return rc;
+    }
+
+    rc = wolfTPM2_SetAuthSession(pDev, 0, &tpmSession, 0);
+    if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Setting EK policy session failed, rc: %d", rc);
+        #endif
+        return rc;
+    }
+    #ifdef DEBUG_WOLFTPM
+        printf("Leaving wolfTPM2_GetEK(), rc = %d", rc);
+    #endif
+
+    return rc;
+}
+
 int wolfTPM2_CreateSRK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* srkKey, TPM_ALG_ID alg,
     const byte* auth, int authSz)
 {

@@ -645,6 +645,42 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         TPM2_GetAlgName(alg), rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
+{
+    int rc = 0;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY ekKey;
+
+    /* Initialize the TPM2 device */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&ekKey, 0, sizeof(ekKey));
+
+    /* Test invalid algorithm */
+    if (alg == TPM_ALG_NULL) {
+        rc = wolfTPM2_GetEK(&dev, &ekKey, TPM_ALG_NULL);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+    /* Test valid RSA EK */
+    else if (alg == TPM_ALG_RSA) {
+        rc = wolfTPM2_GetEK(&dev, &ekKey, alg);
+        AssertIntEQ(rc, 0);
+    }
+    /* Test valid ECC EK */
+    else if (alg == TPM_ALG_ECC) {
+        rc = wolfTPM2_GetEK(&dev, &ekKey, alg);
+        AssertIntEQ(rc, 0);
+    }
+    wolfTPM2_Cleanup(&dev);
+
+    if (alg == TPM_ALG_NULL) {
+        rc = 0; /* Expected failure with TPM_ALG_NULL */
+    }
+    printf("Test TPM Wrapper:\tGetEK %s:\t%s\n",
+        TPM2_GetAlgName(alg), rc == 0 ? "Passed" : "Failed");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -672,6 +708,9 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
+    test_wolfTPM2_GetEK(TPM_ALG_NULL);
+    test_wolfTPM2_GetEK(TPM_ALG_RSA);
+    test_wolfTPM2_GetEK(TPM_ALG_ECC);
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */
