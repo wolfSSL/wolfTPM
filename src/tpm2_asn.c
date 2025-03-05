@@ -19,7 +19,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-#ifndef WOLFTPM2_NO_ASN
 #ifdef HAVE_CONFIG_H
     #include <config.h>
 #endif
@@ -27,6 +26,7 @@
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_asn.h>
 
+#ifndef WOLFTPM2_NO_ASN
 #ifndef WOLFTPM2_NO_WRAPPER
 
 int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,

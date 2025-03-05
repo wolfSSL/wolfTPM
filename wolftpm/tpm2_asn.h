@@ -22,10 +22,6 @@
 #ifndef WOLFTPM_TPM2_ASN_H
 #define WOLFTPM_TPM2_ASN_H
 
-#ifdef HAVE_CONFIG_H
-    #include <config.h>
-#endif
-
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_types.h>
 
