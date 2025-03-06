@@ -79,6 +79,15 @@ check_function_exists("gettimeofday" HAVE_GETTIMEOFDAY)
 # * wait state
 # * small stack
 
+# Provisioning
+set(WOLFTPM_PROVISIONING "yes" CACHE STRING
+    "Enable support for Provisioning Initial Device Identity (IDevID) and Attestation Identity Keys (default: enabled)")
+set_property(CACHE WOLFTPM_PROVISIONING
+    PROPERTY STRINGS "yes;no;verbose")
+if(WOLFTPM_PROVISIONING)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_PROVISIONING")
+endif()
 
 # Enable Debugging
 set(WOLFTPM_DEBUG "no" CACHE STRING
