@@ -277,13 +277,7 @@ WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
             csr = NULL;
         }
         if (csr) {
-            /* Set version to 2 for self-signed certificates, 0 for regular CSRs per RFC2986 */
-            if (csr->req.selfSigned) {
-                csr->req.version = 2;
-            }
-            else {
-                csr->req.version = 0;
-            }
+            csr->req.version = 0; /* per RFC2986 : CSR version should be 0 */
         }
     }
     return csr;
@@ -7184,6 +7178,14 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 
     if (dev == NULL || key == NULL || csr == NULL || out == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* Set version to 2 for self-signed certificates, 0 for regular CSRs per RFC2986 */
+    if (selfSignCert) {
+        csr->req.version = 2;
+    }
+    else {
+        csr->req.version = 0;
     }
 
     rc = CSR_KeySetup(dev, csr, key, &csrKey, sigType, devId);
