@@ -2966,7 +2966,7 @@ WOLFTPM_API int wolfTPM2_GetNvAttributesTemplate(TPM_HANDLE auth, word32* nvAttr
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Generates a new TPM Endorsement key, based on the user selected algorithm, RSA or ECC
+    \brief Sets the TPM Endorsement key up by creating the key and loading it into the TPM
     \note Although only RSA and ECC can be used for EK, symmetric keys can be created and used by the TPM
 
     \return TPM_RC_SUCCESS: successful

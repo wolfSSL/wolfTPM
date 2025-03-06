@@ -656,10 +656,6 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
-    /* Clear key and session buffers */
-    XMEMSET(&endorseKey, 0, sizeof(endorseKey));
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-
     /* Test invalid algorithm */
     if (alg == TPM_ALG_NULL) {
         rc = wolfTPM2_GetEK(&dev, &tpmSession, &endorseKey, TPM_ALG_NULL);
@@ -671,8 +667,6 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
         AssertIntEQ(rc, 0);
     }
 
-    wolfTPM2_UnloadHandle(&dev, &endorseKey.handle);
-    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 
     if (alg == TPM_ALG_NULL) {
