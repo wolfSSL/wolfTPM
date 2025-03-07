@@ -46,6 +46,34 @@ static int mStop = 0;
     double benchStart;
 #endif
 
+/* CA Certificate path defines with defaults */
+#ifndef CA_RSA_CERT_PATH
+    #define CA_RSA_CERT_PATH "./certs/ca-rsa-cert.pem"
+#endif
+#ifndef WOLF_CA_RSA_CERT_PATH
+    #define WOLF_CA_RSA_CERT_PATH "./certs/wolf-ca-rsa-cert.pem"
+#endif
+#ifndef CA_ECC_CERT_PATH
+    #define CA_ECC_CERT_PATH "./certs/ca-ecc-cert.pem"
+#endif
+#ifndef WOLF_CA_ECC_CERT_PATH
+    #define WOLF_CA_ECC_CERT_PATH "./certs/wolf-ca-ecc-cert.pem"
+#endif
+
+/* Server Certificate path defines with defaults */
+#ifndef SERVER_RSA_CERT_PATH
+    #define SERVER_RSA_CERT_PATH "./certs/server-rsa-cert.pem"
+#endif
+#ifndef TPM_RSA_CERT_PATH
+    #define TPM_RSA_CERT_PATH "./certs/tpm-rsa-cert.pem"
+#endif
+#ifndef SERVER_ECC_CERT_PATH
+    #define SERVER_ECC_CERT_PATH "./certs/server-ecc-cert.pem"
+#endif
+#ifndef TPM_ECC_CERT_PATH
+    #define TPM_ECC_CERT_PATH "./certs/tpm-ecc-cert.pem"
+#endif
+
 /*
  * Generating the Server Certificate
  *
@@ -380,14 +408,14 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     /* Load CA Certificates */
     if (!useECC) {
     #ifndef NO_RSA
-        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-rsa-cert.pem",
+        if (wolfSSL_CTX_load_verify_locations(ctx, CA_RSA_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
-            printf("Error loading ca-rsa-cert.pem cert\n");
+            printf("Error loading %s cert\n", CA_RSA_CERT_PATH);
             goto exit;
         }
-        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-rsa-cert.pem",
+        if (wolfSSL_CTX_load_verify_locations(ctx, WOLF_CA_RSA_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
-            printf("Error loading wolf-ca-rsa-cert.pem cert\n");
+            printf("Error loading %s cert\n", WOLF_CA_RSA_CERT_PATH);
             goto exit;
         }
     #else
@@ -398,16 +426,16 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
     else {
     #ifdef HAVE_ECC
-        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/ca-ecc-cert.pem",
+        if (wolfSSL_CTX_load_verify_locations(ctx, CA_ECC_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
-            printf("Error loading ca-ecc-cert.pem cert\n");
+            printf("Error loading %s cert\n", CA_ECC_CERT_PATH);
         #ifndef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
             goto exit;
         #endif
         }
-        if (wolfSSL_CTX_load_verify_locations(ctx, "./certs/wolf-ca-ecc-cert.pem",
+        if (wolfSSL_CTX_load_verify_locations(ctx, WOLF_CA_ECC_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
-            printf("Error loading wolf-ca-ecc-cert.pem cert\n");
+            printf("Error loading %s cert\n", WOLF_CA_ECC_CERT_PATH);
             goto exit;
         }
     #else
@@ -461,14 +489,18 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
                                                 WOLFSSL_FILETYPE_ASN1);
         #endif
         #else
-        const char* useCert = "./certs/server-rsa-cert.pem";
+        const char* useCert = SERVER_RSA_CERT_PATH;
         if (useSelfSign) {
-            useCert = "./certs/tpm-rsa-cert.pem";
+            useCert = TPM_RSA_CERT_PATH;
         }
         rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
         #endif
         if (rc != WOLFSSL_SUCCESS) {
+        #ifndef NO_FILESYSTEM
+            printf("Error loading RSA client cert: %s\n", useCert);
+        #else
             printf("Error loading RSA client cert\n");
+        #endif
             goto exit;
         }
 #else
@@ -496,14 +528,18 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
                                                 WOLFSSL_FILETYPE_ASN1);
         #endif
     #else
-        const char* useCert = "./certs/server-ecc-cert.pem";
+        const char* useCert = SERVER_ECC_CERT_PATH;
         if (useSelfSign) {
-            useCert = "./certs/tpm-ecc-cert.pem";
+            useCert = TPM_ECC_CERT_PATH;
         }
         rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
     #endif
         if (rc != WOLFSSL_SUCCESS) {
+        #ifndef NO_FILESYSTEM
+            printf("Error loading ECC client cert: %s\n", useCert);
+        #else
             printf("Error loading ECC client cert\n");
+        #endif
             goto exit;
         }
 #else
@@ -649,7 +685,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 
 exit:
-
+    mStop = 0; /* Reset the stop flag for if example is compiled into a demo */
     if (rc != 0) {
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
