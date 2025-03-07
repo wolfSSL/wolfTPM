@@ -685,7 +685,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     }
 
 exit:
-
+    mStop = 0; /* Reset the stop flag for if example is compiled into a demo */
     if (rc != 0) {
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfTPM2_GetRCString(rc));
     }
