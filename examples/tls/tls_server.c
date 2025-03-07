@@ -496,7 +496,11 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
         #endif
         if (rc != WOLFSSL_SUCCESS) {
+        #ifndef NO_FILESYSTEM
             printf("Error loading RSA client cert: %s\n", useCert);
+        #else
+            printf("Error loading RSA client cert\n");
+        #endif
             goto exit;
         }
 #else
@@ -531,7 +535,11 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         rc = wolfSSL_CTX_use_certificate_file(ctx, useCert, WOLFSSL_FILETYPE_PEM);
     #endif
         if (rc != WOLFSSL_SUCCESS) {
+        #ifndef NO_FILESYSTEM
             printf("Error loading ECC client cert: %s\n", useCert);
+        #else
+            printf("Error loading ECC client cert\n");
+        #endif
             goto exit;
         }
 #else
