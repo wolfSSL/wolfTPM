@@ -33,8 +33,14 @@
     #include <wolftpm/options.h>
 #endif
 
-#ifdef __cplusplus
-    extern "C" {
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    #ifndef WOLFSSL_USER_SETTINGS
+        #include <wolfssl/options.h>
+    #endif
+#else
+    #ifdef WOLFTPM_USER_SETTINGS
+        #include "user_settings.h"
+    #endif
 #endif
 
 #ifdef WOLFTPM_WINAPI
@@ -42,6 +48,10 @@
         #include <winsock2.h>
     #endif
     #include <windows.h>
+#endif
+
+#ifdef __cplusplus
+    extern "C" {
 #endif
 
 /* ---------------------------------------------------------------------------*/
@@ -81,9 +91,6 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    #ifndef WOLFSSL_USER_SETTINGS
-        #include <wolfssl/options.h>
-    #endif
     /* enforce NO_THREAD_LS within wolfTPM */
     #ifdef NO_THREAD_LS
         #undef HAVE_THREAD_LS
@@ -141,10 +148,6 @@ typedef int64_t  INT64;
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
-
-    #ifdef WOLFTPM_USER_SETTINGS
-        #include "user_settings.h"
-    #endif
 
     typedef uint8_t  byte;
     typedef uint16_t word16;
@@ -690,11 +693,9 @@ typedef int64_t  INT64;
     #define WOLFTPM2_PEM_DECODE
 #endif
 
-/* Firmware upgrade requires wolfCrypt for hashing.
- * Supported only for Infineon SLB9672/SLB9673 */
-#if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM2_NO_WOLFCRYPT) || \
-     (!defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)))
+/* Firmware upgrade supported only for Infineon SLB9672/SLB9673 */
+#if defined(WOLFTPM_FIRMWARE_UPGRADE) && (!defined(WOLFTPM_AUTODETECT) && \
+    (!defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)))
     #undef WOLFTPM_FIRMWARE_UPGRADE
 #endif
 

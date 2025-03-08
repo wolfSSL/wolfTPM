@@ -53,6 +53,8 @@
 
 #if defined(WOLFTPM_MMIO)
 #include "tpm_io_mmio.c"
+#elif defined(__UBOOT__)
+#include "hal/tpm_io_uboot.c"
 #elif defined(__linux__)
 #include "hal/tpm_io_linux.c"
 #elif defined(WOLFSSL_STM32_CUBEMX)
@@ -78,8 +80,10 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-
-#if defined(__linux__)
+    
+#if defined(__UBOOT__)
+    ret = TPM2_IoCb_Uboot_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(__linux__)
     ret = TPM2_IoCb_Linux_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFSSL_STM32_CUBEMX)
     ret = TPM2_IoCb_STCubeMX_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
