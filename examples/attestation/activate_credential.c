@@ -112,22 +112,19 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
     /* Load key, required to unwrap credential */
     if (endorseKey) {
-        rc = wolfTPM2_CreateEK(&dev, &endorse, TPM_ALG_RSA);
-        if (rc != 0) goto exit;
+        rc = wolfTPM2_GetEK(&dev, &tpmSession, &endorse, TPM_ALG_RSA);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_GetEK failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
         printf("EK loaded\n");
-        /* Endorsement Key requires authorization with Policy */
-        endorse.handle.policyAuth = 1;
-        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
-        if (rc != 0) goto exit;
-        /* Set the created Policy Session for use in next operation */
-        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
-        if (rc != 0) goto exit;
 
         primary = &endorse;
     }
     else {
         rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
-        if (rc != 0) goto exit;
+        if (rc != TPM_RC_SUCCESS) goto exit;
         printf("SRK loaded\n");
         wolfTPM2_SetAuthHandle(&dev, 0, &storage.handle);
 
@@ -147,22 +144,22 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     printf("AK loaded at 0x%x\n", (word32)akKey.handle.hndl);
 
     rc = wolfTPM2_UnsetAuth(&dev, 0);
-    if (rc != 0) goto exit;
+    if (rc != TPM_RC_SUCCESS) goto exit;
 
     if (endorseKey) {
         /* Fresh policy session for EK auth */
         rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
-        if (rc != 0) goto exit;
+        if (rc != TPM_RC_SUCCESS) goto exit;
         /* Set the created Policy Session for use in next operation */
         rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession, 0);
-        if (rc != 0) goto exit;
+        if (rc != TPM_RC_SUCCESS) goto exit;
         /* Set the name for the endorsement handle */
         rc = wolfTPM2_SetAuthHandleName(&dev, 1, &endorse.handle);
-        if (rc != 0) goto exit;
+        if (rc != TPM_RC_SUCCESS) goto exit;
     }
     else {
         rc = wolfTPM2_SetAuthHandle(&dev, 1, &storage.handle);
-        if (rc != 0) goto exit;
+        if (rc != TPM_RC_SUCCESS) goto exit;
     }
 
     /* Prepare the auth password for the Attestation Key */

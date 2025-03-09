@@ -667,6 +667,8 @@ static void test_wolfTPM2_GetEK(TPM_ALG_ID alg)
         AssertIntEQ(rc, 0);
     }
 
+    wolfTPM2_UnloadHandle(&dev, &endorseKey.handle);
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 
     if (alg == TPM_ALG_NULL) {
