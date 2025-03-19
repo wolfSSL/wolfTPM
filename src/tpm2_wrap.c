@@ -1871,7 +1871,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, auth,
             createIn.inSensitive.sensitive.userAuth.size);
     }
-    XMEMCPY(&createIn.inPublic.publicArea, publicTemplate, sizeof(TPMT_PUBLIC));
+    wolfTPM2_CopyPubT(&createIn.inPublic.publicArea, publicTemplate);
 
 #if 0
     /* Optional creation nonce */
