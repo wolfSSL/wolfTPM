@@ -1,0 +1,17 @@
+menuconfig WOLFTPM
+	bool "wolfTPM module support"
+	select WOLFSSL
+
+if WOLFTPM
+config WOLFTPM_DEBUG
+	bool "wolfTPM debug activation"
+	help
+	  Enable debugging activation for wolfTPM.
+
+config ZEPHYR_WOLFTPM_MODULE
+	bool
+	depends on WOLFTPM
+endif
+
+# Add relevant macros for tpm
+

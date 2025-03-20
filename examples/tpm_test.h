@@ -52,6 +52,19 @@
 
 #define TPM2_DEMO_PCR_INDEX             16
 
+#ifndef PEM_FILE_AK
+    #define PEM_FILE_AK "ak.pem"
+#endif
+#ifndef PEM_FILE_EK
+    #define PEM_FILE_EK "ek.pem"
+#endif
+#ifndef PEM_FILE_SRK
+    #define PEM_FILE_SRK "srk.pem"
+#endif
+#ifndef PEM_FILE_KEY
+    #define PEM_FILE_KEY "key.pem"
+#endif
+
 static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
 static const char gAiKeyAuth[] =      "ThisIsMyAiKeyAuth";
 static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
@@ -60,10 +73,10 @@ static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
 static const char gXorAuth[] =        "ThisIsMyXorAuth";
 
-static const char pemFileAk[] = "ak.pem";
-static const char pemFileEk[] = "ek.pem";
-static const char pemFileSrk[] = "srk.pem";
-static const char pemFileKey[] = "key.pem";
+static const char pemFileAk[] = PEM_FILE_AK;
+static const char pemFileEk[] = PEM_FILE_EK;
+static const char pemFileSrk[] = PEM_FILE_SRK;
+static const char pemFileKey[] = PEM_FILE_KEY;
 
 /* Default Test PCR */
 /* PCR16 is for DEBUG purposes, thus safe to use */
