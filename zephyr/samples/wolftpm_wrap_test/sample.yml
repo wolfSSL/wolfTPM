@@ -1,0 +1,15 @@
+sample:
+  description: wolfTPM wrap test
+  name: wolfTPM wrap test
+common:
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "wolfTPM wrapper test completed successfully"
+tests:
+  sample.lib.wolftpm_wrap_test:
+    timeout: 200
+    platform_allow: qemu_x86
+    integration_platforms:
+      - qemu_x86

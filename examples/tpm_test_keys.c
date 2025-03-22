@@ -40,8 +40,22 @@
 
 #include <stdio.h>
 
-#define RSA_FILENAME  "rsa_test_blob.raw"
-#define ECC_FILENAME  "ecc_test_blob.raw"
+#ifdef WOLFTPM_ZEPHYR
+    #include <zephyr/fs/fs.h>
+    #define XFILE struct fs_file_t*
+    /* Note: Other filesystem macros (XFOPEN, XFCLOSE etc) are already defined
+     * in wolfSSL's wc_port.h for Zephyr */
+#else
+    #define XFILE FILE*
+#endif
+
+#ifndef RSA_FILENAME
+    #define RSA_FILENAME  "rsa_test_blob.raw"
+#endif
+
+#ifndef ECC_FILENAME
+    #define ECC_FILENAME  "ecc_test_blob.raw"
+#endif
 
 #ifndef WOLFTPM2_NO_WRAPPER
 

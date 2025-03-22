@@ -1,0 +1,15 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+EXTRA_DIST+= zephyr/CMakeLists.txt
+EXTRA_DIST+= zephyr/Kconfig
+EXTRA_DIST+= zephyr/module.yml
+EXTRA_DIST+= zephyr/README.md
+EXTRA_DIST+= zephyr/user_settings.h
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_caps/CMakeLists.txt
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_caps/prj.conf
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_caps/sample.yml
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_test/CMakeLists.txt
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_test/prj.conf
+EXTRA_DIST+= zephyr/samples/wolftpm_wrap_test/sample.yml
