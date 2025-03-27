@@ -30,21 +30,57 @@
 
 #define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
 
-/* Endianess Helpers */
-#ifdef LITTLE_ENDIAN_ORDER
-    #define cpu_to_be16(d) ByteReverseWord16(d)
-    #define cpu_to_be32(d) ByteReverseWord32(d)
-    #define cpu_to_be64(d) ByteReverseWord64(d)
-    #define be16_to_cpu(d) ByteReverseWord16(d)
-    #define be32_to_cpu(d) ByteReverseWord32(d)
-    #define be64_to_cpu(d) ByteReverseWord64(d)
-#else
-    #define cpu_to_be16(d) (d)
-    #define cpu_to_be32(d) (d)
-    #define cpu_to_be64(d) (d)
-    #define be16_to_cpu(d) (d)
-    #define be32_to_cpu(d) (d)
-    #define be64_to_cpu(d) (d)
+/* Endianess Helpers
+ * Check if byte-order functions are already defined by the system:
+ * U-boot defines these functions, so we need to check if they are
+ * already defined.
+ */
+#ifndef cpu_to_be16
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define cpu_to_be16(d) ByteReverseWord16(d)
+    #else
+        #define cpu_to_be16(d) (d)
+    #endif
+#endif
+
+#ifndef cpu_to_be32
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define cpu_to_be32(d) ByteReverseWord32(d)
+    #else
+        #define cpu_to_be32(d) (d)
+    #endif
+#endif
+
+#ifndef cpu_to_be64
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define cpu_to_be64(d) ByteReverseWord64(d)
+    #else
+        #define cpu_to_be64(d) (d)
+    #endif
+#endif
+
+#ifndef be16_to_cpu
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define be16_to_cpu(d) ByteReverseWord16(d)
+    #else
+        #define be16_to_cpu(d) (d)
+    #endif
+#endif
+
+#ifndef be32_to_cpu
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define be32_to_cpu(d) ByteReverseWord32(d)
+    #else
+        #define be32_to_cpu(d) (d)
+    #endif
+#endif
+
+#ifndef be64_to_cpu
+    #ifdef LITTLE_ENDIAN_ORDER
+        #define be64_to_cpu(d) ByteReverseWord64(d)
+    #else
+        #define be64_to_cpu(d) (d)
+    #endif
 #endif
 
 /* For reference here is the TPM2 header (not used) */
