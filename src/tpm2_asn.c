@@ -157,7 +157,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     }
 
     /* Store certificate location */
-    if (rc == 0) {
+    if (rc >= 0) {
         x509->certBegin = idx;
         x509->cert = &input[idx];
 
@@ -166,7 +166,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &cert_len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         x509->certSz = cert_len + (idx - x509->certBegin);
 
         /* Decode version */
@@ -174,21 +174,21 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         /* check version == 1 */
-        if (input[idx] != TPM2_ASN_INTEGER || input[idx] != 1) {
+        if (input[idx] != TPM2_ASN_INTEGER && input[idx] != 1) {
             rc = TPM_RC_VALUE;
         }
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip version */
 
         /* Skip serial number */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_INTEGER, &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip serial */
 
         /* Skip algorithm identifier */
@@ -196,7 +196,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip signature oid */
 
         /* Skip issuer */
@@ -204,7 +204,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip issuer */
 
         /* Skip validity */
@@ -212,7 +212,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip validity */
 
         /* Skip subject */
@@ -220,22 +220,24 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip subject */
-
-        /* Skip subject public key info */
+        /* subject public key info */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
     }
-
-    if (rc == 0) {
-        idx += len; /* skip subject public key info */
-
+    if (rc >= 0) {
+        /* cert - subject public key alg oid */
+        rc = TPM2_ASN_GetHeader(input, TPM2_ASN_SEQUENCE | TPM2_ASN_CONSTRUCTED,
+                               &idx, &len, inputSz);
+    }
+    if (rc >= 0) {
+        idx += len; /* skip alg oid */
         /* Get public key */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &pubkey_len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         /* skip leading zero for bit string */
         if (input[idx] == 0x00) {
             idx++;
@@ -250,25 +252,26 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
                                &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
+        /* signature oid */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_OBJECT_ID, &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip oid */
 
         /* Skip signature algorithm parameters */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_TAG_NULL, &idx, &len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         idx += len; /* skip tag */
 
         /* Get signature */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_BIT_STRING, &idx, &sig_len, inputSz);
     }
 
-    if (rc == 0) {
+    if (rc >= 0) {
         /* skip leading zero for bit string */
         if (input[idx] == 0x00) {
             idx++;
