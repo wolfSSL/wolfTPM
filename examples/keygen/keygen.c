@@ -58,7 +58,7 @@ static void usage(void)
     printf("* -unique=[value]\n");
     printf("\t* Used for the KDF of the create\n");
     printf("* -auth=pass: Use custom password for key authentication\n");
-    printf("\t* If not specified, no password is used\n");
+    printf("\t* If not specified, default key auth is used\n");
 
     printf("Example usage:\n");
     printf("\t* RSA, default template\n");
