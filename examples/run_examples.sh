@@ -251,6 +251,8 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     ./examples/keygen/keyload ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keyload endorsement ecc failed! $RESULT" && exit 1
+
+    # TODO: Add tests for -auth= keygen when used in example
 fi
 
 
