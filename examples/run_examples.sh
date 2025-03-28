@@ -238,13 +238,39 @@ rm -f keyedhashblob.bin
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     # KeyGen under Endorsement
-    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    # Test default behavior (no password) for regular key
+    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh -t >> $TPMPWD/run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa (no auth) failed! $RESULT" && exit 1
     ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa failed! $RESULT" && exit 1
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa (no auth) failed! $RESULT" && exit 1
 
+    # Test custom password for regular key
+    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh -t -auth=custompass >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa (custom auth) failed! $RESULT" && exit 1
+    ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa (custom auth) failed! $RESULT" && exit 1
+
+    # Test AIK with default password (backward compatibility)
+    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa (AIK default auth) failed! $RESULT" && exit 1
+    ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa (AIK default auth) failed! $RESULT" && exit 1
+
+    # Test AIK with custom password
+    ./examples/keygen/keygen rsakeyblobeh.bin -rsa -eh -auth=custompass >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen endorsement rsa (AIK custom auth) failed! $RESULT" && exit 1
+    ./examples/keygen/keyload rsakeyblobeh.bin -rsa -eh >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload endorsement rsa (AIK custom auth) failed! $RESULT" && exit 1
+
+    # ECC endorsement tests
     ./examples/keygen/keygen ecckeyblobeh.bin -ecc -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen endorsement ecc failed! $RESULT" && exit 1

@@ -43,7 +43,7 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor] [-eh] [-pem]\n");
+    printf("./examples/keygen/keygen [keyblob.bin] [-ecc/-rsa/-sym] [-t] [-aes/xor] [-eh] [-pem] [-auth=pass]\n");
     printf("* -pem: Store the primary and child public keys as PEM formatted files\n");
     printf("\t child public key filename: ak.pem or key.pem\n");
     printf("\t primary public key filename: ek.pem or srk.pem\n");
@@ -57,6 +57,8 @@ static void usage(void)
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -unique=[value]\n");
     printf("\t* Used for the KDF of the create\n");
+    printf("* -auth=pass: Use custom password for key authentication\n");
+    printf("\t* If not specified, no password is used\n");
 
     printf("Example usage:\n");
     printf("\t* RSA, default template\n");
@@ -118,6 +120,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int bAIK = 1;
     int keyBits = 256;
     const char* uniqueStr = NULL;
+    const char* authStr = NULL;
     const char *outputFile = "keyblob.bin";
     const char *ekPubFile = "ek.pub";
     const char *srkPubFile = "srk.pub";
@@ -175,6 +178,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
             uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
+        }
+        else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
+            authStr = argv[argc-1] + XSTRLEN("-auth=");
         }
         else if (argv[argc-1][0] != '-') {
             outputFile = argv[argc-1];
@@ -292,9 +298,15 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
 
         /* set session for authorization key */
-        auth.size = (int)sizeof(gAiKeyAuth)-1;
-        XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
-
+        if (authStr != NULL) {
+            /* Use provided custom auth */
+            auth.size = (int)XSTRLEN(authStr);
+            XMEMCPY(auth.buffer, authStr, auth.size);
+        }
+        else {
+            auth.size = (int)sizeof(gAiKeyAuth)-1;
+            XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
+        }
     }
     else {
         if (alg == TPM_ALG_RSA) {
@@ -326,8 +338,15 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
 
         /* set session for authorization key */
-        auth.size = (int)sizeof(gKeyAuth)-1;
-        XMEMCPY(auth.buffer, gKeyAuth, auth.size);
+        if (authStr != NULL) {
+            /* Use provided custom auth key */
+            auth.size = (int)XSTRLEN(authStr);
+            XMEMCPY(auth.buffer, authStr, auth.size);
+        }
+        else {
+            auth.size = (int)sizeof(gKeyAuth)-1;
+            XMEMCPY(auth.buffer, gKeyAuth, auth.size);
+        }
     }
     if (rc != 0) goto exit;
 
