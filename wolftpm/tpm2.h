@@ -3559,6 +3559,26 @@ WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 
 /*!
     \ingroup TPM2_Proprietary
+    \brief Translates a TPM algorithm name to its TPM algorithm ID
+
+    \return a TPM algorithm ID
+    \return TPM_ALG_ERROR if invalid algorithm name
+
+    \param name a pointer to a string constant specifying a valid TPM algorithm
+    name
+
+    _Example_
+    \code
+    TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
+    if (alg == TPM_ALG_ERROR) {
+        //TPM2_GetAlgId failed
+    }
+    \endcode
+*/
+WOLFTPM_API TPM_ALG_ID TPM2_GetAlgId(const char* name);
+
+/*!
+    \ingroup TPM2_Proprietary
     \brief Determine the size in bytes of any TPM ECC Curve
 
     \return 0 in case of invalid curve type

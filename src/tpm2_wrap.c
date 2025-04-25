@@ -5672,10 +5672,10 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     return rc;
 }
 
-/* performs a reset sequence */
-int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
+/* performs a reset, shutdown, or startup sequence */
+int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     Shutdown_In shutdownIn;
     Startup_In startupIn;
 
@@ -5684,17 +5684,20 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
     }
 
     /* shutdown */
-    XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
-    shutdownIn.shutdownType = TPM_SU_CLEAR;
-    rc = TPM2_Shutdown(&shutdownIn);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Shutdown failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-    #endif
+    if (doShutdown == 1) {
+        XMEMSET(&shutdownIn, 0, sizeof(shutdownIn));
+        shutdownIn.shutdownType = TPM_SU_CLEAR;
+        rc = TPM2_Shutdown(&shutdownIn);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Shutdown failed 0x%x: %s\n",
+                rc, TPM2_GetRCString(rc));
+        #endif
+        }
     }
 
     /* startup */
-    if (doStartup) {
+    if (doStartup == 1 && rc == TPM_RC_SUCCESS) {
         XMEMSET(&startupIn, 0, sizeof(startupIn));
         startupIn.startupType = TPM_SU_CLEAR;
         rc = TPM2_Startup(&startupIn);
@@ -5703,15 +5706,20 @@ int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
             printf("TPM2_Startup failed %d: %s\n",
                 rc, wolfTPM2_GetRCString(rc));
         #endif
-            return rc;
         }
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_Shutdown complete\n");
+    printf("wolfTPM2_Reset complete\n");
 #endif
 
     return rc;
+}
+
+/* performs a shutdown or reset sequence */
+int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup)
+{
+    return wolfTPM2_Reset(dev, 1, doStartup);
 }
 
 int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
@@ -5739,24 +5747,27 @@ int wolfTPM2_UnloadHandles_AllTransient(WOLFTPM2_DEV* dev)
     return wolfTPM2_UnloadHandles(dev, TRANSIENT_FIRST, MAX_HANDLE_NUM);
 }
 
-
-int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
+int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+    TPMI_RH_HIERARCHY_AUTH authHandle)
 {
     int rc = 0;
     HierarchyChangeAuth_In in;
+#ifdef DEBUG_WOLFTPM
+    const char* desc = NULL;
+#endif
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
 
     XMEMSET(&in, 0, sizeof(in));
-    in.authHandle = TPM_RH_PLATFORM;
+    in.authHandle = authHandle;
 
     /* use parameter encryption if session supplied */
-    if (session != NULL) {
-        rc = wolfTPM2_SetAuthSession(dev, 1, session, (TPMA_SESSION_decrypt |
-            TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
-    }
+        if (session != NULL) {
+            rc = wolfTPM2_SetAuthSession(dev, 1, session, (TPMA_SESSION_decrypt |
+                TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+        }
     if (rc == 0) {
         /* TPM 2.0 PCR's are typically SHA-1 and SHA2-256 */
         in.newAuth.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
@@ -5771,21 +5782,38 @@ int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
         rc = TPM2_HierarchyChangeAuth(&in);
     }
 #ifdef DEBUG_WOLFTPM
+    switch (authHandle) {
+        case TPM_RH_LOCKOUT:
+            desc = "Lockout"; break;
+        case TPM_RH_ENDORSEMENT:
+            desc = "Endrosement"; break;
+        case TPM_RH_OWNER:
+            desc = "Owner"; break;
+        case TPM_RH_PLATFORM:
+            desc = "Platform"; break;
+        default:
+            break;
+    }
+
     if (rc == 0) {
-        printf("Platform auth set to %d bytes of random\n", in.newAuth.size);
+        printf("%s auth set to %d bytes of random\n", desc, in.newAuth.size);
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("\tAuth Sz %d\n", in.newAuth.size);
             TPM2_PrintBin(in.newAuth.buffer, in.newAuth.size);
         #endif
-    }
-    else {
-        printf("Error %d setting platform auth! %s\n",
-            rc, wolfTPM2_GetRCString(rc));
+    } else {
+        printf("Error %d setting %s auth! %s\n",
+            rc, wolfTPM2_GetRCString(rc), desc);
     }
 #endif
     /* ensure the random secret is not left in stack */
     TPM2_ForceZero(in.newAuth.buffer, in.newAuth.size);
     return rc;
+}
+
+int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session)
+{
+    return wolfTPM2_ChangeHierarchyAuth(dev, session, TPM_RH_PLATFORM);
 }
 
 /******************************************************************************/
@@ -8017,6 +8045,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return rc;
 }
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
@@ -8033,6 +8062,7 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     }
     return rc;
 }
+#endif
 
 int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
