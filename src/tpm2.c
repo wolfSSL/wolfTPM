@@ -42,6 +42,11 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 static volatile int gWolfCryptRefCount = 0;
 #endif
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
+    !defined(SINGLE_THREADED)
+static wolfSSL_Mutex gHwLock WOLFSSL_MUTEX_INITIALIZER_CLAUSE(gHwLock);
+#endif
+
 #ifdef WOLFTPM_LINUX_DEV
 #define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -61,43 +66,24 @@ static volatile int gWolfCryptRefCount = 0;
 /******************************************************************************/
 static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
-    (void)ctx;
-#else
-    int ret;
-
-    if (!ctx->hwLockInit) {
-        if (wc_InitMutex(&ctx->hwLock) != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM Mutex Init failed\n");
-        #endif
-            return TPM_RC_FAILURE;
-        }
-        ctx->hwLockInit = 1;
-        ctx->lockCount = 0;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
+    !defined(SINGLE_THREADED)
+    int ret = wc_LockMutex(&gHwLock);
+    if (ret != 0) {
+        return TPM_RC_FAILURE;
     }
-
-    if (ctx->lockCount == 0) {
-        ret = wc_LockMutex(&ctx->hwLock);
-        if (ret != 0)
-            return TPM_RC_FAILURE;
-    }
-    ctx->lockCount++;
 #endif
+    (void)ctx;
     return TPM_RC_SUCCESS;
 }
 
 static void TPM2_ReleaseLock(TPM2_CTX* ctx)
 {
-#if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(WOLFTPM_NO_LOCK)
-    (void)ctx;
-#else
-    ctx->lockCount--;
-    if (ctx->lockCount == 0) {
-        wc_UnLockMutex(&ctx->hwLock);
-    }
-
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
+    !defined(SINGLE_THREADED)
+    wc_UnLockMutex(&gHwLock);
 #endif
+    (void)ctx;
 }
 
 static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
@@ -507,6 +493,9 @@ static inline int TPM2_WolfCrypt_Init(void)
         if (rc == 0)
             rc = wc_SetSeed_Cb(wc_GenerateSeed);
     #endif
+    #ifndef WOLFSSL_MUTEX_INITIALIZER
+        wc_InitMutex(&gHwMutex);
+    #endif
     }
     gWolfCryptRefCount++;
 
@@ -697,19 +686,16 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         wc_FreeRng(&ctx->rng);
     }
     #endif
-    #ifndef WOLFTPM_NO_LOCK
-    if (ctx->hwLockInit) {
-        ctx->hwLockInit = 0;
-        wc_FreeMutex(&ctx->hwLock);
-    }
-    #endif
 
     /* track wolf initialize reference count in wolfTPM. wolfCrypt does not
-        properly track reference count in v4.1 or older releases */
+     * properly track reference count in v4.1 or older releases */
     gWolfCryptRefCount--;
     if (gWolfCryptRefCount < 0)
         gWolfCryptRefCount = 0;
     if (gWolfCryptRefCount == 0) {
+    #ifndef WOLFSSL_MUTEX_INITIALIZER
+        wc_FreeMutex(&gHwMutex);
+    #endif
         wolfCrypt_Cleanup();
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
