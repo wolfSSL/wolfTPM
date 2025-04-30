@@ -5764,10 +5764,10 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     in.authHandle = authHandle;
 
     /* use parameter encryption if session supplied */
-        if (session != NULL) {
-            rc = wolfTPM2_SetAuthSession(dev, 1, session, (TPMA_SESSION_decrypt |
-                TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
-        }
+    if (session != NULL) {
+        rc = wolfTPM2_SetAuthSession(dev, 1, session, (TPMA_SESSION_decrypt |
+            TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
+    }
     if (rc == 0) {
         /* TPM 2.0 PCR's are typically SHA-1 and SHA2-256 */
         in.newAuth.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
@@ -5782,18 +5782,7 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         rc = TPM2_HierarchyChangeAuth(&in);
     }
 #ifdef DEBUG_WOLFTPM
-    switch (authHandle) {
-        case TPM_RH_LOCKOUT:
-            desc = "Lockout"; break;
-        case TPM_RH_ENDORSEMENT:
-            desc = "Endrosement"; break;
-        case TPM_RH_OWNER:
-            desc = "Owner"; break;
-        case TPM_RH_PLATFORM:
-            desc = "Platform"; break;
-        default:
-            break;
-    }
+    desc = TPM2_GetHierarchyDesc(authHandle);
 
     if (rc == 0) {
         printf("%s auth set to %d bytes of random\n", desc, in.newAuth.size);

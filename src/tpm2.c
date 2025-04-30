@@ -6197,6 +6197,24 @@ TPM_ALG_ID TPM2_GetAlgId(const char* name)
     return TPM_ALG_ERROR;
 }
 
+#ifdef DEBUG_WOLFTPM
+const char* TPM2_GetHierarchyDesc(TPMI_RH_HIERARCHY_AUTH authHandle)
+{
+    switch (authHandle) {
+        case TPM_RH_LOCKOUT:
+            return "Lockout";
+        case TPM_RH_ENDORSEMENT:
+            return "Endorsement";
+        case TPM_RH_OWNER:
+            return "Owner";
+        case TPM_RH_PLATFORM:
+            return "Platform";
+        default:
+            return "Unknown";
+    }
+}
+#endif /* DEBUG_WOLFTPM */
+
 int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
 {
     switch (curveID) {

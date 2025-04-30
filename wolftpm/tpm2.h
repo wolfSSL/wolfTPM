@@ -3577,6 +3577,26 @@ WOLFTPM_API const char* TPM2_GetAlgName(TPM_ALG_ID alg);
 */
 WOLFTPM_API TPM_ALG_ID TPM2_GetAlgId(const char* name);
 
+#ifdef DEBUG_WOLFTPM
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Get readable string for TPM 2.0 hierarchy
+
+    \return pointer to a string constant
+
+    \param authHandle value of type TPMI_RH_HIERARCHY_AUTH specifying a valid
+    TPM 2.0 hierarchy
+
+    _Example_
+    \code
+    TPMI_RH_HIERARCHY_AUTH authHandle = TPM_RH_OWNER;
+
+    printf("\tHierarchy: %s\n", TPM2_GetHierarchyDesc(authHandle));
+    \endcode
+*/
+WOLFTPM_API const char* TPM2_GetHierarchyDesc(TPMI_RH_HIERARCHY_AUTH authHandle);
+#endif
+
 /*!
     \ingroup TPM2_Proprietary
     \brief Determine the size in bytes of any TPM ECC Curve
