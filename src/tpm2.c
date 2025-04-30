@@ -493,8 +493,9 @@ static inline int TPM2_WolfCrypt_Init(void)
         if (rc == 0)
             rc = wc_SetSeed_Cb(wc_GenerateSeed);
     #endif
-    #ifndef WOLFSSL_MUTEX_INITIALIZER
-        wc_InitMutex(&gHwMutex);
+    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+        !defined(WOLFSSL_MUTEX_INITIALIZER)
+        wc_InitMutex(&gHwLock);
     #endif
     }
     gWolfCryptRefCount++;
@@ -693,8 +694,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     if (gWolfCryptRefCount < 0)
         gWolfCryptRefCount = 0;
     if (gWolfCryptRefCount == 0) {
-    #ifndef WOLFSSL_MUTEX_INITIALIZER
-        wc_FreeMutex(&gHwMutex);
+    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+        !defined(WOLFSSL_MUTEX_INITIALIZER)
+        wc_FreeMutex(&gHwLock);
     #endif
         wolfCrypt_Cleanup();
     }
