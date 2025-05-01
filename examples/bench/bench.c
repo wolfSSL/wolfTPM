@@ -147,6 +147,8 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
     bench_stats_sym_finish(desc, count, inSz, start);
 
 exit:
+    if (rc)
+        wolfTPM2_UnloadHandle(dev, &hash.handle);
     return rc;
 }
 
