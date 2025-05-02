@@ -37,7 +37,14 @@
 /* --- Local Variables -- */
 /******************************************************************************/
 
+
+#ifdef WOLFTPM_NO_ACTIVE_THREAD_LS
+/* if using gHwLock and want to use a shared active TPM2_CTX between threads */
+static TPM2_CTX* gActiveTPM;
+#else
 static THREAD_LS_T TPM2_CTX* gActiveTPM;
+#endif
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
 #endif
