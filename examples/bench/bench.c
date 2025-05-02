@@ -147,6 +147,7 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
     bench_stats_sym_finish(desc, count, inSz, start);
 
 exit:
+    wolfTPM2_UnloadHandle(dev, &hash.handle);
     return rc;
 }
 
@@ -185,7 +186,6 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     bench_stats_sym_finish(desc, count, inOutSz, start);
 
 exit:
-
     wolfTPM2_UnloadHandle(dev, &aesKey.handle);
     return rc;
 }
@@ -489,14 +489,15 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
 exit:
-
     if (rc != 0) {
         printf("Failure 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 
+    /* Cleanup all handles */
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 
     wolfTPM2_Cleanup(&dev);
 
