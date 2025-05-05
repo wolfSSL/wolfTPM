@@ -1855,10 +1855,6 @@ typedef struct TPM2_CTX {
     struct wolfTPM_winContext winCtx;
 #endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-#ifndef WOLFTPM_NO_LOCK
-    wolfSSL_Mutex hwLock;
-    int lockCount;
-#endif
     #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG rng;
     #endif
@@ -1878,9 +1874,6 @@ typedef struct TPM2_CTX {
     byte rid;
     /* Informational Bits - use unsigned int for best compiler compatibility */
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    #ifndef WOLFTPM_NO_LOCK
-    unsigned int hwLockInit:1;
-    #endif
     #ifndef WC_NO_RNG
     unsigned int rngInit:1;
     #endif

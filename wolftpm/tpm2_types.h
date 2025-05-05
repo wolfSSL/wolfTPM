@@ -234,6 +234,20 @@ typedef int64_t  INT64;
     #endif
 #endif
 
+/* if using older wolfSSL that does not have the pthread mutex initializer */
+#ifndef WOLFSSL_MUTEX_INITIALIZER
+    #if defined(WOLFSSL_PTHREADS)
+        #define WOLFSSL_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+    #endif
+#endif
+#ifndef WOLFSSL_MUTEX_INITIALIZER_CLAUSE
+    #ifdef WOLFSSL_MUTEX_INITIALIZER
+        #define WOLFSSL_MUTEX_INITIALIZER_CLAUSE(lockname) = WOLFSSL_MUTEX_INITIALIZER
+    #else
+        #define WOLFSSL_MUTEX_INITIALIZER_CLAUSE(lockname) /* null expansion */
+    #endif
+#endif
+
 #ifndef WOLFTPM_CUSTOM_TYPES
     #include <stdlib.h>
 
