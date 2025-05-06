@@ -357,6 +357,12 @@ static void test_TPM2_KDFa(void)
         rc >= 0 ? "Passed" : "Failed");
 }
 
+static void test_GetAlgId(void)
+{
+    TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
+    AssertIntEQ(alg, TPM_ALG_SHA256);
+}
+
 static void test_wolfTPM2_CSR(void)
 {
 #if defined(WOLFTPM2_CERT_GEN) && !defined(WOLFTPM2_NO_HEAP) && \
@@ -663,6 +669,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetRandom();
     test_TPM2_PCRSel();
     test_TPM2_KDFa();
+    test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \

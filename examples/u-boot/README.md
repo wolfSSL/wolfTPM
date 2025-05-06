@@ -121,12 +121,32 @@ No USB controllers found
 Net:   eth0: virtio-net#32
 
 Hit any key to stop autoboot:  0
-=> tpm help
-tpm - Issue a TPMv1.x command
+=> tpm2 help
+tpm2 - Issue a TPMv2.x command
 
 Usage:
-tpm cmd args...
+tpm2 <command> [<arguments>]
+
+device [num device]
+    Show all devices or set the specified device
+info
+    Show information about the TPM.
 ```
 
-7. Exiting the QEMU:
+7. Example commands:
+
+```
+=> tpm2 info
+tpm_tis@0 v2.0: VendorID 0x1014, DeviceID 0x0001, RevisionID 0x01 [open]
+=> tpm2 startup TPM2_SU_CLEAR
+=> tpm2 get_capability 0x6 0x20e 0x200 1
+Capabilities read from TPM:
+Property 0x6a2e45a9: 0x6c3646a9
+=> tpm2 pcr_read 10 0x100000
+PCR #10 sha256 32 byte content (20 known updates):
+ 20 25 73 0a 00 56 61 6c 75 65 3a 0a 00 23 23 20
+ 4f 75 74 20 6f 66 20 6d 65 6d 6f 72 79 0a 00 23
+```
+
+8. Exiting the QEMU:
 Press Ctrl-A followed by X
