@@ -5792,7 +5792,7 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         #endif
     } else {
         printf("Error %d setting %s auth! %s\n",
-            rc, wolfTPM2_GetRCString(rc), desc);
+            rc, desc, wolfTPM2_GetRCString(rc));
     }
 #endif
     /* ensure the random secret is not left in stack */

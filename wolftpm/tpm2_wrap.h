@@ -2607,6 +2607,7 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
     \param doShutdown integer value, non-zero values represent "perform Shutdown"
 
     \sa wolfTPM2_Init
+    \sa wolfTPM2_Reset
 */
 WOLFTPM_API int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup);
 
@@ -2623,6 +2624,7 @@ WOLFTPM_API int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
     \param doStartup integer value, non-zero values represent "perform Startup after Shutdown"
 
     \sa wolfTPM2_Init
+    \sa wolfTPM2_Shutdown
 */
 WOLFTPM_API int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup);
 
@@ -3282,7 +3284,7 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Helper to set the platform heirarchy authentication value to random.
+    \brief Helper to set the platform hierarchy authentication value to random.
         Setting the platform auth to random value is used to prevent application
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
@@ -3301,7 +3303,7 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Helper to set the heirarchy authentication value to random.
+    \brief Helper to set the hierarchy authentication value to random.
         Setting the platform auth to random value is used to prevent application
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
@@ -3312,7 +3314,7 @@ WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION*
 
     \param dev pointer to a TPM2_DEV struct
     \param session the current session, a session is required to protect the new platform auth
-    \param authHandle the auth heirarchy (example: TPM_RH_PLATFORM or TPM_RH_LOCKOUT)
+    \param authHandle the auth hierarchy (example: TPM_RH_PLATFORM or TPM_RH_LOCKOUT)
 
     \sa TPM2_HierarchyChangeAuth
     \sa wolfTPM2_ChangePlatformAuth

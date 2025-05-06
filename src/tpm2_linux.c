@@ -34,7 +34,7 @@
 #include <config.h>
 #include <tpm-common.h>
 
-/* supresses waring for now */
+/* import u-boot function helper to get device */
 extern int tcg2_platform_get_tpm2(struct udevice **dev);
 
 /* Use the U-Boot TPM device and TIS layer */

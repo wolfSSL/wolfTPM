@@ -1010,7 +1010,7 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &ekKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
-    /* Only doShutdown=1: Just shut down the TPM */
+    /* Only doShutdown=1: Just shutdown the TPM */
     wolfTPM2_Reset(&dev, 1, 0);
 
     wolfTPM2_Cleanup(&dev);
