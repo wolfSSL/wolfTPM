@@ -90,18 +90,43 @@ make -j4
 
 3. Create TPM directory:
 ```
-mkdir -p ./tmp/mytpm1
+mkdir -p /tmp/mytpm1
 ```
 
 4. Start swtpm (in first terminal):
 ```
-swtpm socket --tpm2 --tpmstate dir=./tmp/mytpm1 --ctrl type=unixio,path=./tmp/mytpm1/swtpm-sock --log level=20
+swtpm socket --tpm2 --tpmstate dir=/tmp/mytpm1 --ctrl type=unixio,path=/tmp/mytpm1/swtpm-sock --log level=20
 ```
 
 5. Start QEMU (in second terminal):
 ```
-qemu-system-aarch64 -machine virt -nographic -cpu cortex-a57 -bios u-boot.bin -chardev socket,id=chrtpm,path=./tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis-device,tpmdev=tpm0
+qemu-system-aarch64 -machine virt -nographic -cpu cortex-a57 -bios u-boot.bin -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis-device,tpmdev=tpm0
 ```
 
-6. Exiting the QEMU:
+6. Example output:
+
+```
+U-Boot 2025.07-rc1-ge15cbf232ddf-dirty (May 06 2025 - 16:25:56 -0700)
+
+DRAM:  128 MiB
+using memory 0x46658000-0x47698000 for malloc()
+Core:  52 devices, 15 uclasses, devicetree: board
+Flash: 64 MiB
+Loading Environment from Flash... *** Warning - bad CRC, using default environment
+
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   eth0: virtio-net#32
+
+Hit any key to stop autoboot:  0
+=> tpm help
+tpm - Issue a TPMv1.x command
+
+Usage:
+tpm cmd args...
+```
+
+7. Exiting the QEMU:
 Press Ctrl-A followed by X
