@@ -28,6 +28,61 @@
 #ifdef WOLFTPM_LINUX_DEV
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_packet.h>
+
+#if defined(__UBOOT__)
+
+#include <config.h>
+#include <tpm-common.h>
+
+/* import u-boot function helper to get device */
+extern int tcg2_platform_get_tpm2(struct udevice **dev);
+
+/* Use the U-Boot TPM device and TIS layer */
+int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    int rc;
+    struct udevice *dev;
+    size_t rspSz = 0;
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    printf("Command size: %d\n", packet->pos);
+    TPM2_PrintBin(packet->buf, packet->pos);
+#endif
+
+    /* Get the TPM2 U-boot device */
+    rc = tcg2_platform_get_tpm2(&dev);
+    if (rc != 0 || dev == NULL) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to find TPM2 U-boot device: %d\n", rc);
+    #endif
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        /* Transfer the device data using tpm_xfer */
+        rspSz = packet->size;
+        rc = tpm_xfer(dev, packet->buf, packet->pos, packet->buf, &rspSz);
+        if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("tpm_xfer failed with error: %d\n", rc);
+        #endif
+            rc = TPM_RC_FAILURE;
+        }
+    }
+
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    if (rspSz > 0) {
+        printf("Response size: %d\n", (int)rspSz);
+        TPM2_PrintBin(packet->buf, rspSz);
+    }
+#endif
+
+    (void)ctx;
+
+    return rc;
+}
+
+#else /* __linux__ */
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -125,4 +180,5 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     return rc;
 }
-#endif
+#endif /* __UBOOT__ __linux__ */
+#endif /* WOLFTPM_LINUX_DEV */

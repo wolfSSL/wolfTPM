@@ -2592,6 +2592,27 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Helper function to shutdown, startup or reset the TPM
+    \note The behavior depends on the doStartup and doShutdown flags:
+    \note - Both flags set to 1: Performs a full TPM restart (shutdown then startup)
+    \note - Only doStartup=1: Just starts up the TPM
+    \note - Only doShutdown=1: Just shuts down the TPM
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param doStartup integer value, non-zero values represent "perform Startup after Shutdown"
+    \param doShutdown integer value, non-zero values represent "perform Shutdown"
+
+    \sa wolfTPM2_Init
+    \sa wolfTPM2_Reset
+*/
+WOLFTPM_API int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Helper function to shutdown or reset the TPM
     \note If doStartup is set, then TPM2_Startup is performed right after TPM2_Shutdown
 
@@ -2603,6 +2624,7 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
     \param doStartup integer value, non-zero values represent "perform Startup after Shutdown"
 
     \sa wolfTPM2_Init
+    \sa wolfTPM2_Shutdown
 */
 WOLFTPM_API int wolfTPM2_Shutdown(WOLFTPM2_DEV* dev, int doStartup);
 
@@ -3262,7 +3284,7 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Helper to set the platform heirarchy authentication value to random.
+    \brief Helper to set the platform hierarchy authentication value to random.
         Setting the platform auth to random value is used to prevent application
         from being able to use platform hierarchy. This is defined in section 10
         of the TCG PC Client Platform specification.
@@ -3275,10 +3297,30 @@ WOLFTPM_API int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     \param session the current session, a session is required to protect the new platform auth
 
     \sa TPM2_HierarchyChangeAuth
+    \sa wolfTPM2_ChangeHierarchyAuth
 */
 WOLFTPM_API int wolfTPM2_ChangePlatformAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Helper to set the hierarchy authentication value to random.
+        Setting the platform auth to random value is used to prevent application
+        from being able to use platform hierarchy. This is defined in section 10
+        of the TCG PC Client Platform specification.
 
+    \return Success: Positive integer (size of the output)
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session the current session, a session is required to protect the new platform auth
+    \param authHandle the auth hierarchy (example: TPM_RH_PLATFORM or TPM_RH_LOCKOUT)
+
+    \sa TPM2_HierarchyChangeAuth
+    \sa wolfTPM2_ChangePlatformAuth
+*/
+WOLFTPM_API int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+    TPMI_RH_HIERARCHY_AUTH authHandle);
 
 /* moved to tpm.h native code. macros here for backwards compatibility */
 #define wolfTPM2_SetupPCRSel  TPM2_SetupPCRSel

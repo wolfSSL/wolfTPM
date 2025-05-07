@@ -6117,6 +6117,99 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
     return "Unknown";
 }
 
+TPM_ALG_ID TPM2_GetAlgId(const char* name)
+{
+    if (!name)
+        return TPM_ALG_ERROR;
+
+    if (!XSTRCMP(name, "RSA"))
+        return TPM_ALG_RSA;
+    if (!XSTRCMP(name, "SHA1"))
+        return TPM_ALG_SHA1;
+    if (!XSTRCMP(name, "HMAC"))
+        return TPM_ALG_HMAC;
+    if (!XSTRCMP(name, "AES"))
+        return TPM_ALG_AES;
+    if (!XSTRCMP(name, "MGF1"))
+        return TPM_ALG_MGF1;
+    if (!XSTRCMP(name, "KEYEDHASH"))
+        return TPM_ALG_KEYEDHASH;
+    if (!XSTRCMP(name, "XOR"))
+        return TPM_ALG_XOR;
+    if (!XSTRCMP(name, "SHA256"))
+        return TPM_ALG_SHA256;
+    if (!XSTRCMP(name, "SHA384"))
+        return TPM_ALG_SHA384;
+    if (!XSTRCMP(name, "SHA512"))
+        return TPM_ALG_SHA512;
+    if (!XSTRCMP(name, "NULL"))
+        return TPM_ALG_NULL;
+    if (!XSTRCMP(name, "SM3_256"))
+        return TPM_ALG_SM3_256;
+    if (!XSTRCMP(name, "SM4"))
+        return TPM_ALG_SM4;
+    if (!XSTRCMP(name, "RSASSA"))
+        return TPM_ALG_RSASSA;
+    if (!XSTRCMP(name, "RSAES"))
+        return TPM_ALG_RSAES;
+    if (!XSTRCMP(name, "RSAPSS"))
+        return TPM_ALG_RSAPSS;
+    if (!XSTRCMP(name, "OAEP"))
+        return TPM_ALG_OAEP;
+    if (!XSTRCMP(name, "ECDSA"))
+        return TPM_ALG_ECDSA;
+    if (!XSTRCMP(name, "ECDH"))
+        return TPM_ALG_ECDH;
+    if (!XSTRCMP(name, "ECDAA"))
+        return TPM_ALG_ECDAA;
+    if (!XSTRCMP(name, "SM2"))
+        return TPM_ALG_SM2;
+    if (!XSTRCMP(name, "ECSCHNORR"))
+        return TPM_ALG_ECSCHNORR;
+    if (!XSTRCMP(name, "ECMQV"))
+        return TPM_ALG_ECMQV;
+    if (!XSTRCMP(name, "KDF1_SP800_56A"))
+        return TPM_ALG_KDF1_SP800_56A;
+    if (!XSTRCMP(name, "KDF2"))
+        return TPM_ALG_KDF2;
+    if (!XSTRCMP(name, "KDF1_SP800_108"))
+        return TPM_ALG_KDF1_SP800_108;
+    if (!XSTRCMP(name, "ECC"))
+        return TPM_ALG_ECC;
+    if (!XSTRCMP(name, "SYMCIPHER"))
+        return TPM_ALG_SYMCIPHER;
+    if (!XSTRCMP(name, "AES-CTR"))
+        return TPM_ALG_CTR;
+    if (!XSTRCMP(name, "AES-OFB"))
+        return TPM_ALG_OFB;
+    if (!XSTRCMP(name, "AES-CBC"))
+        return TPM_ALG_CBC;
+    if (!XSTRCMP(name, "AES-CFB"))
+        return TPM_ALG_CFB;
+    if (!XSTRCMP(name, "AES-ECB"))
+        return TPM_ALG_ECB;
+
+    return TPM_ALG_ERROR;
+}
+
+#ifdef DEBUG_WOLFTPM
+const char* TPM2_GetHierarchyDesc(TPMI_RH_HIERARCHY_AUTH authHandle)
+{
+    switch (authHandle) {
+        case TPM_RH_LOCKOUT:
+            return "Lockout";
+        case TPM_RH_ENDORSEMENT:
+            return "Endorsement";
+        case TPM_RH_OWNER:
+            return "Owner";
+        case TPM_RH_PLATFORM:
+            return "Platform";
+        default:
+            return "Unknown";
+    }
+}
+#endif /* DEBUG_WOLFTPM */
+
 int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
 {
     switch (curveID) {
