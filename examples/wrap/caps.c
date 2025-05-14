@@ -129,6 +129,8 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
     /* Print the available PCR's */
     TPM2_PCRs_Print();
 
+    printf("wolfTPM caps read successfully\n");
+
 exit:
     /* Only doShutdown=1: Just shutdown the TPM */
     wolfTPM2_Reset(&dev, 1, 0);

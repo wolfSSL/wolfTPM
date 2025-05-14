@@ -36,6 +36,28 @@
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>
 
+/* Output file path defines with defaults */
+#ifndef OUTPUT_FILE
+    #define OUTPUT_FILE "keyblob.bin"
+#endif
+#ifndef EK_PUB_FILE
+    #define EK_PUB_FILE "ek.pub"
+#endif
+#ifndef SRK_PUB_FILE
+    #define SRK_PUB_FILE "srk.pub"
+#endif
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
+    #ifndef AK_NAME_FILE
+        #define AK_NAME_FILE "ak.name"
+    #endif
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
+        /* PEM_FILE is NULL by default, but can be overridden */
+        #ifndef PEM_FILE
+            #define PEM_FILE NULL
+        #endif
+    #endif
+#endif
 
 /******************************************************************************/
 /* --- BEGIN TPM Keygen Example -- */
@@ -121,14 +143,14 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int keyBits = 256;
     const char* uniqueStr = NULL;
     const char* authStr = NULL;
-    const char *outputFile = "keyblob.bin";
-    const char *ekPubFile = "ek.pub";
-    const char *srkPubFile = "srk.pub";
+    const char *outputFile = OUTPUT_FILE;
+    const char *ekPubFile = EK_PUB_FILE;
+    const char *srkPubFile = SRK_PUB_FILE;
     const char *pubFilename = NULL;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
-    const char *nameFile = "ak.name"; /* Name Digest for attestation purposes */
+    const char *nameFile = AK_NAME_FILE; /* Name Digest for attestation purposes */
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
-    const char *pemFilename = NULL;
+    const char *pemFilename = PEM_FILE;
     #endif
 #endif
     const char* symMode = "aesctr";
