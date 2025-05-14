@@ -217,7 +217,9 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         /* Decode the byte stream into a publicArea structure ready for use */
         rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
             (word32)sizeof(pubAreaBuffer), &pubAreaSize);
-        if (rc != TPM_RC_SUCCESS) return rc;
+        if (rc != TPM_RC_SUCCESS) {
+            goto exit;
+        }
     #ifdef DEBUG_WOLFTPM
         TPM2_PrintPublicArea(&key->pub);
     #endif

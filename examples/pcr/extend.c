@@ -158,10 +158,11 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         wc_HashInit(&dig, hashType);
         while (!XFEOF(fp)) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
-            if (len) {
+            if (len > 0) {
                 wc_HashUpdate(&dig, hashType, dataBuffer, (int)len);
             }
         }
+        XFCLOSE(fp);
         wc_HashFinal(&dig, hashType, hash);
 
         XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,

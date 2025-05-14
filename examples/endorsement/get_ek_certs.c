@@ -90,10 +90,12 @@ static void show_ek_public(const TPM2B_PUBLIC* pub)
                        pub->publicArea.unique.rsa.size);
     }
     else if (pub->publicArea.type == TPM_ALG_ECC) {
-        const char* curveName = "NULL";
+        const char* curveName;
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
         curveName = wc_ecc_get_name(
             TPM2_GetWolfCurve(pub->publicArea.parameters.eccDetail.curveID));
+    #else
+        curveName = "NULL";
     #endif
         printf("\tCurveID %s (0x%x), size %d, unique X/Y size %d/%d\n",
             curveName, pub->publicArea.parameters.eccDetail.curveID,

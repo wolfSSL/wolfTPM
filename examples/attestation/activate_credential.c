@@ -183,8 +183,10 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         dataSize = (int)XFREAD((BYTE*)&activCredIn.credentialBlob, 1,
                                 sizeof(activCredIn.credentialBlob), fp);
         if (dataSize > 0) {
-            dataSize += (int)XFREAD((BYTE*)&activCredIn.secret, 1,
-                                     sizeof(activCredIn.secret), fp);
+            int secSize = (int)XFREAD((BYTE*)&activCredIn.secret, 1,
+                                       sizeof(activCredIn.secret), fp);
+            if (secSize > 0)
+                dataSize += secSize;
         }
         XFCLOSE(fp);
     }
