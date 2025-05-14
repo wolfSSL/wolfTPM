@@ -36,6 +36,10 @@
     /* TODO: HACKY for win32 */
     #undef SOCKET_INVALID
     #define SOCKET_INVALID 0xFFFFFFFF
+#elif defined(WOLFTPM_ZEPHYR)
+    #include <zephyr/net/socket.h>
+
+    #define SOCKET_T int
 #else
     #include <sys/types.h>
     #include <sys/socket.h>

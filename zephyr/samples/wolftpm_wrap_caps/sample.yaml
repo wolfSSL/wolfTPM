@@ -1,0 +1,15 @@
+sample:
+  description: wolfTPM wrap caps
+  name: wolfTPM wrap caps
+common:
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "wolfTPM caps read successfully"
+tests:
+  sample.lib.wolftpm_wrap_caps:
+    timeout: 200
+    platform_allow: qemu_x86
+    integration_platforms:
+      - qemu_x86

@@ -52,6 +52,19 @@
 
 #define TPM2_DEMO_PCR_INDEX             16
 
+#ifndef PEM_FILE_AK
+    #define PEM_FILE_AK "ak.pem"
+#endif
+#ifndef PEM_FILE_EK
+    #define PEM_FILE_EK "ek.pem"
+#endif
+#ifndef PEM_FILE_SRK
+    #define PEM_FILE_SRK "srk.pem"
+#endif
+#ifndef PEM_FILE_KEY
+    #define PEM_FILE_KEY "key.pem"
+#endif
+
 static const char gStorageKeyAuth[] = "ThisIsMyStorageKeyAuth";
 static const char gAiKeyAuth[] =      "ThisIsMyAiKeyAuth";
 static const char gKeyAuth[] =        "ThisIsMyKeyAuth";
@@ -60,10 +73,10 @@ static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
 static const char gXorAuth[] =        "ThisIsMyXorAuth";
 
-static const char pemFileAk[] = "ak.pem";
-static const char pemFileEk[] = "ek.pem";
-static const char pemFileSrk[] = "srk.pem";
-static const char pemFileKey[] = "key.pem";
+static const char pemFileAk[] = PEM_FILE_AK;
+static const char pemFileEk[] = PEM_FILE_EK;
+static const char pemFileSrk[] = PEM_FILE_SRK;
+static const char pemFileKey[] = PEM_FILE_KEY;
 
 /* Default Test PCR */
 /* PCR16 is for DEBUG purposes, thus safe to use */
@@ -100,6 +113,8 @@ static const char pemFileKey[] = "key.pem";
         #include <time.h>
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
         #include "system/time/sys_time.h"
+#elif defined(WOLFTPM_ZEPHYR)
+        #include <zephyr/kernel.h>
 #else
         #include <sys/time.h>
 #endif
@@ -119,6 +134,9 @@ static const char pemFileKey[] = "key.pem";
             SYS_TIME_CounterSet(0);
         return (double)(SYS_TIME_Counter64Get()) /
                (double)SYS_TIME_FrequencyGet();
+    #elif defined(WOLFTPM_ZEPHYR)
+        (void)reset;
+        return (double)k_uptime_get() / 1000.0;
     #else
         struct timeval tv;
         gettimeofday(&tv, 0);

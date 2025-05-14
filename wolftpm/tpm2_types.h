@@ -263,7 +263,11 @@ typedef int64_t  INT64;
     #define XFEOF      feof
 #endif
 #ifndef XREWIND /* used in tpm_test_keys.c */
-    #define XREWIND    rewind
+    #ifdef XFREWIND
+        #define XREWIND    XFREWIND
+    #else
+        #define XREWIND    rewind
+    #endif
 #endif
 
 /* enable way for customer to override printf */
@@ -475,11 +479,10 @@ typedef int64_t  INT64;
 
 /* sleep helper, used in firmware update */
 #ifndef XSLEEP_MS
-    #ifdef WIN32
-        #include <windows.h>
-        #define XSLEEP_MS(ms) Sleep(ms)
-    #elif defined(FREERTOS)
-        #define XSLEEP_MS(ms) vTaskDelay(ms)
+    #if defined(WOLFTPM_ZEPHYR)
+        /* For Zephyr, use k_sleep() instead of usleep() */
+        #include <zephyr/kernel.h>
+        #define XSLEEP_MS(ms) k_msleep(ms)
     #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #include <time.h>
         #define XSLEEP_MS(ms) ({ \
@@ -488,6 +491,11 @@ typedef int64_t  INT64;
             ts.tv_nsec = (ms % 1000) * 1000000; \
             nanosleep(&ts, NULL); \
         })
+    #elif defined(WIN32)
+        #include <windows.h>
+        #define XSLEEP_MS(ms) Sleep(ms)
+    #elif defined(FREERTOS)
+        #define XSLEEP_MS(ms) vTaskDelay(ms)
     #else
         #include <unistd.h>
         #define XSLEEP_MS(ms) ({ \

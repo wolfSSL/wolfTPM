@@ -73,6 +73,8 @@
 #include "hal/tpm_io_microchip.c"
 #elif defined(WOLFSSL_ESPIDF)
 #include "hal/tpm_io_espressif.c"
+#elif defined(WOLFSSL_ZEPHYR)
+#include "hal/tpm_io_zephyr.c"
 #endif
 
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
@@ -155,6 +157,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     #elif defined(WOLFTPM_MICROCHIP_HARMONY)
         /* Use Microchip Harmony I2C */
         ret = TPM2_IoCb_MicrochipHarmony_I2C(ctx, isRead, addr, buf, size, userCtx);
+    #elif defined(WOLFSSL_ZEPHYR)
+        ret = TPM2_IoCb_Zephyr_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");

@@ -43,7 +43,12 @@
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_packet.h>
 
+#ifdef WOLFTPM_ZEPHYR
+#include <zephyr/posix/unistd.h>
+#include <zephyr/net/socket.h>
+#elif defined(HAVE_UNISTD_H)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
@@ -126,10 +131,54 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = TPM_RC_FAILURE;
+    int s;
+    int fd = -1;
+
+    /* Zephyr doesnt support getaddrinfo;
+     * so we need to use Zephyr's socket API
+     */
+#ifdef WOLFTPM_ZEPHYR
+    struct zsock_addrinfo hints;
+    struct zsock_addrinfo *result, *rp;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    s = zsock_getaddrinfo(host, port, &hints, &result);
+    if (s != 0) {
+        // Handle error
+        return rc;
+    }
+
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        fd = zsock_socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0)
+            continue;
+        if (zsock_connect(fd, rp->ai_addr, rp->ai_addrlen) < 0) {
+            zsock_close(fd);
+        } else {
+            break;
+        }
+    }
+    zsock_freeaddrinfo(result);
+
+    if (rp != NULL) {
+        ctx->tcpCtx.fd = fd;
+        rc = TPM_RC_SUCCESS;
+    }
+    #ifdef DEBUG_WOLFTPM
+    else {
+        printf("Failed to connect to %s %s\n", host, port);
+    }
+    #endif
+#else /* !WOLFTPM_ZEPHYR */
     struct addrinfo hints;
     struct addrinfo *result, *rp;
-    int s;
-    int fd;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -167,6 +216,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         printf("Failed to connect to %s %s\n", host, port);
     }
     #endif
+#endif /* WOLFTPM_ZEPHYR */
 
     return rc;
 }

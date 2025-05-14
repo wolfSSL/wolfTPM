@@ -1,0 +1,27 @@
+menuconfig WOLFTPM
+	bool "wolfTPM module support"
+	select WOLFSSL
+
+if WOLFTPM
+config WOLFTPM_DEBUG
+	bool "wolfTPM debug activation"
+	help
+	  Enable debugging activation for wolfTPM.
+
+config WOLFTPM_I2C
+	bool "wolfTPM I2C support"
+	help
+		Enables the I2C HAL and Advanced IO
+
+config WOLFTPM_SPI
+	bool "wolfTPM SPI support"
+	help
+		Enables the SPI HAL (default)
+
+config ZEPHYR_WOLFTPM_MODULE
+	bool
+	depends on WOLFTPM
+endif
+
+# Add relevant macros for tpm
+

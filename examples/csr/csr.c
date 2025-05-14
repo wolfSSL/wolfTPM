@@ -38,12 +38,25 @@
 #include <wolfssl/wolfcrypt/asn_public.h>
 
 #ifndef NO_RSA
-static const char* gClientCsrRsaFile = "./certs/tpm-rsa-cert.csr";
-static const char* gClientCertRsaFile = "./certs/tpm-rsa-cert.pem";
+#ifndef RSA_CERT_CSR
+    #define RSA_CERT_CSR "./certs/tpm-rsa-cert.csr"
 #endif
+#ifndef RSA_CERT_PEM
+    #define RSA_CERT_PEM "./certs/tpm-rsa-cert.pem"
+#endif
+static const char* gClientCsrRsaFile = RSA_CERT_CSR;
+static const char* gClientCertRsaFile = RSA_CERT_PEM;
+#endif
+
 #ifdef HAVE_ECC
-static const char* gClientCsrEccFile = "./certs/tpm-ecc-cert.csr";
-static const char* gClientCertEccFile = "./certs/tpm-ecc-cert.pem";
+#ifndef ECC_CERT_CSR
+    #define ECC_CERT_CSR "./certs/tpm-ecc-cert.csr"
+#endif
+#ifndef ECC_CERT_PEM
+    #define ECC_CERT_PEM "./certs/tpm-ecc-cert.pem"
+#endif
+static const char* gClientCsrEccFile = ECC_CERT_CSR;
+static const char* gClientCertEccFile = ECC_CERT_PEM;
 #endif
 
 #ifndef MAX_PEM_SIZE

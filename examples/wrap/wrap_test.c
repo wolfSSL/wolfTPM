@@ -997,6 +997,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 #endif
 
+    printf("wolfTPM wrapper test completed successfully\n");
+
 exit:
 
     if (rc != 0) {

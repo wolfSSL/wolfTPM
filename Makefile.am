@@ -42,6 +42,7 @@ include docs/include.am
 include wrapper/include.am
 include hal/include.am
 include cmake/include.am
+include zephyr/include.am
 
 EXTRA_DIST+= .cyignore
 EXTRA_DIST+= README.md
