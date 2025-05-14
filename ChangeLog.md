@@ -1,5 +1,46 @@
 # Release Notes
 
+## wolfTPM Release 3.9.0 (May 14, 2025)
+
+**Summary**
+
+Added Zephyr Project support, U-Boot bootloader support, improved thread safety with mutex protection, and various bug fixes. Added support for optional authentication password in keygen and improved ASN.1 certificate parsing.
+
+**Detail**
+
+* Added Zephyr Project Port support (PR #395)
+  - Added support for Zephyr RTOS integration
+  - Added example for Zephyr TPM usage
+* Added U-Boot bootloader support (PR #398)
+  - Added support for Das U-Boot bootloader integration
+  - Added documentation for U-Boot usage
+* Improved thread safety and mutex protection (PR #410)
+  - Added global mutex for concurrent thread usage
+  - Added support for pthread static mutex with older wolfSSL versions
+  - Added build option `WOLFTPM_NO_ACTIVE_THREAD_LS` to remove thread local on `gActiveTPM`
+* Added keygen optional authentication password support (PR #409)
+  - Added `-auth=<yourpassword>` option to keygen
+  - Added test cases for AIK and default key generation
+* Improved ASN.1 certificate parsing (PR #404, #408)
+  - Added `WOLFTPM2_NO_ASN` build option
+  - Refactored ASN.1 parsing for RSA certificates
+  - Fixed ASN.1 certificate parsing issues
+* Added EK Certificate Verification with TPM only (PR #394)
+  - Added support for verifying EK certificates without wolfCrypt
+  - Added example for ST33KTPM2X
+* Fixed various issues:
+  - Fixed possible handle leak in bench example (PR #412)
+  - Fixed issue with `wolfTPM2_Init_ex` handling of TPM_RC_INITIALIZE (PR #401)
+  - Fixed CSR version handling (PR #406)
+  - Fixed location for TPM simulator `/tmp` (PR #398)
+  - Fixed spelling and debug issues (PR #398)
+  - Fixed run_examples.sh run.out location variable (PR #401)
+* Added new API `TPM2_GetHierarchyDesc` for getting hierarchy descriptions (PR #410)
+* Added test case for `TPM2_GetAlgId` (PR #398)
+* Added missing doxygen documentation for public APIs (PR #401)
+* Cleanups for autogen.sh and build system improvements (PR #396)
+
+
 ## wolfTPM Release 3.8.0 (Jan 7, 2025)
 
 **Summary**
