@@ -1,6 +1,6 @@
 /* tpm_io.c
  *
- * Copyright (C) 2006-2024 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -82,7 +82,7 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-    
+
 #if defined(__UBOOT__)
     ret = TPM2_IoCb_Uboot_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__linux__)

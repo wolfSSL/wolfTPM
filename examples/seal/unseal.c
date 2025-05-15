@@ -1,6 +1,6 @@
 /* unseal.c
  *
- * Copyright (C) 2006-2024 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -175,8 +175,8 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
                 goto exit;
             }
         }
-        printf("Stored unsealed data to file = %s\n", filename);
         XFCLOSE(fp);
+        printf("Stored unsealed data to file = %s\n", filename);
     }
 #else
     printf("Unable to store unsealed data to a file. Enable wolfcrypt support.\n");

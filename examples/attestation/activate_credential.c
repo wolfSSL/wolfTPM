@@ -1,6 +1,6 @@
 /* activate_credential.c
  *
- * Copyright (C) 2006-2024 wolfSSL Inc.
+ * Copyright (C) 2006-2025 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -183,8 +183,10 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
         dataSize = (int)XFREAD((BYTE*)&activCredIn.credentialBlob, 1,
                                 sizeof(activCredIn.credentialBlob), fp);
         if (dataSize > 0) {
-            dataSize += (int)XFREAD((BYTE*)&activCredIn.secret, 1,
-                                     sizeof(activCredIn.secret), fp);
+            int secSize = (int)XFREAD((BYTE*)&activCredIn.secret, 1,
+                                       sizeof(activCredIn.secret), fp);
+            if (secSize > 0)
+                dataSize += secSize;
         }
         XFCLOSE(fp);
     }

@@ -1,6 +1,6 @@
 # CMakeList.txt
 #
-# Copyright (C) 2006-2024 wolfSSL Inc.
+# Copyright (C) 2006-2025 wolfSSL Inc.
 #
 # This file is part of wolfSSL. (formerly known as CyaSSL)
 #
@@ -21,7 +21,7 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-project(wolfTPM VERSION 3.8.0 LANGUAGES C)
+project(wolfTPM VERSION 3.9.0 LANGUAGES C)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(WOLFTPM_DEFINITIONS)
@@ -252,7 +252,7 @@ file(REMOVE ${OPTION_FILE})
 file(APPEND ${OPTION_FILE} "/* wolftpm options.h\n")
 file(APPEND ${OPTION_FILE} " * generated from cmake configure options\n")
 file(APPEND ${OPTION_FILE} " *\n")
-file(APPEND ${OPTION_FILE} " * Copyright (C) 2006-2024 wolfSSL Inc.\n")
+file(APPEND ${OPTION_FILE} " * Copyright (C) 2006-2025 wolfSSL Inc.\n")
 file(APPEND ${OPTION_FILE} " *\n")
 file(APPEND ${OPTION_FILE} " * This file is part of wolfSSL.\n")
 file(APPEND ${OPTION_FILE} " *\n")
