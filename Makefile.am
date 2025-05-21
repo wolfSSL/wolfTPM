@@ -25,6 +25,9 @@ dist_doc_DATA =
 @INC_AMINCLUDE@
 DISTCLEANFILES+= aminclude.am
 
+# make sure we pass the correct flags to distcheck
+AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm
+
 exampledir = $(docdir)/example
 dist_example_DATA=
 

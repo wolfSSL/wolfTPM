@@ -31,6 +31,7 @@ jobs:
       run: |
         make
         sudo make install
+        sudo ldconfig
 
 # setup ibmswtpm2
     - uses: actions/checkout@master
@@ -55,9 +56,13 @@ jobs:
         make check
         WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
     - name: make install
-      run: sudo make install
+      run: |
+        sudo make install
+        sudo ldconfig
     - name: make dist
       run: make dist
+    - name: make distcheck
+      run: make distcheck
 
 # build and test CSharp wrapper
     - name: Install mono
@@ -174,7 +179,7 @@ jobs:
         make check
         WOLFSSL_PATH=./wolfssl WOLFCRYPT_RSA=0 ./examples/run_examples.sh
 
-# test with default configure (no AES CFB, no PKCS7, no crpyto cb, no cert gen)
+# test with default configure (no AES CFB, no PKCS7, no crypto cb, no cert gen)
     - name: wolfssl default configure
       working-directory: ./wolfssl
       run: |
@@ -234,4 +239,5 @@ jobs:
         path: |
           run.out
           test-suite.log
+          wolftpm-*/_build/sub/test-suite.log
         retention-days: 5

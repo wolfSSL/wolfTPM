@@ -1,5 +1,13 @@
 # Release Notes
 
+## wolfTPM Release 3.9.1 (May 21, 2025)
+
+* Post release fixes (PR #415)
+  - Fixed commercial release bundle (missing `tpm2_asn.h`).
+  - Fixed wolfTPM DLL revision (was not updated in v3.9.0).
+  - Added `make distcheck` to GitHub CI.
+
+
 ## wolfTPM Release 3.9.0 (May 14, 2025)
 
 **Summary**
