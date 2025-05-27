@@ -37,21 +37,24 @@
 /* --- Local Variables -- */
 /******************************************************************************/
 
-
-#ifdef WOLFTPM_NO_ACTIVE_THREAD_LS
-/* if using gHwLock and want to use a shared active TPM2_CTX between threads */
-static TPM2_CTX* gActiveTPM;
-#else
-static THREAD_LS_T TPM2_CTX* gActiveTPM;
-#endif
-
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
 #endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
     !defined(SINGLE_THREADED)
+/* if a mutex lock is supported, then don't use thread local on gActiveTPM */
+#undef  WOLFTPM_NO_ACTIVE_THREAD_LS
+#define WOLFTPM_NO_ACTIVE_THREAD_LS
+
 static wolfSSL_Mutex gHwLock WOLFSSL_MUTEX_INITIALIZER_CLAUSE(gHwLock);
+#endif
+
+#ifdef WOLFTPM_NO_ACTIVE_THREAD_LS
+/* if using gHwLock and want to use a shared active TPM2_CTX between threads */
+static TPM2_CTX* gActiveTPM;
+#else
+static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #endif
 
 #ifdef WOLFTPM_LINUX_DEV
