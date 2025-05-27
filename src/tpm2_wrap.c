@@ -1592,7 +1592,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         authSesIn.symmetric.algorithm = TPM_ALG_NULL;
     }
     authSesIn.nonceCaller.size = hashDigestSz;
-    rc = TPM2_GetNonce(authSesIn.nonceCaller.buffer,
+    rc = TPM2_GetNonceNoLock(authSesIn.nonceCaller.buffer,
                        authSesIn.nonceCaller.size);
     if (rc < 0) {
     #ifdef DEBUG_WOLFTPM
@@ -1604,7 +1604,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     if (authSesIn.tpmKey != TPM_RH_NULL) {
         /* Generate random salt */
         session->salt.size = hashDigestSz;
-        rc = TPM2_GetNonce(session->salt.buffer, session->salt.size);
+        rc = TPM2_GetNonceNoLock(session->salt.buffer, session->salt.size);
         if (rc != 0) {
             return rc;
         }
@@ -2481,6 +2481,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg, TPMA_OBJECT attributes,
     byte* seed, word32 seedSz)
 {
+    int rc = 0;
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
     word32 digestSz;
@@ -2544,11 +2545,13 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     else {
         /* assign random seed */
         sens.sensitiveArea.seedValue.size = digestSz;
-        TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+        rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
             sens.sensitiveArea.seedValue.size);
     }
-
-    return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
+    if (rc == 0) {
+        rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
+    }
+    return rc;
 }
 int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEYBLOB* keyBlob, const byte* rsaPub,
@@ -2633,6 +2636,7 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     const byte* eccPriv, word32 eccPrivSz,
     TPMA_OBJECT attributes, byte* seed, word32 seedSz)
 {
+    int rc = 0;
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
     word32 digestSz;
@@ -2696,11 +2700,14 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     else {
         /* assign random seed */
         sens.sensitiveArea.seedValue.size = digestSz;
-        TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+        rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
             sens.sensitiveArea.seedValue.size);
     }
 
-    return wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
+    if (rc == 0) {
+        rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
+    }
+    return rc;
 }
 
 int wolfTPM2_ImportEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
@@ -3234,13 +3241,14 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         else {
             /* assign random seed */
             sens.sensitiveArea.seedValue.size = digestSz;
-            TPM2_GetNonce(sens.sensitiveArea.seedValue.buffer,
+            rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
                 sens.sensitiveArea.seedValue.size);
         }
 
-
-        /* Import Private Key */
-        rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, pub, &sens);
+        if (rc == 0) {
+            /* Import Private Key */
+            rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, pub, &sens);
+        }
     }
 
 #ifdef WOLFTPM2_PEM_DECODE
@@ -5776,7 +5784,7 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         }
     }
     if (rc == 0) {
-        rc = TPM2_GetNonce(in.newAuth.buffer, in.newAuth.size);
+        rc = TPM2_GetNonceNoLock(in.newAuth.buffer, in.newAuth.size);
     }
     if (rc == 0) {
         rc = TPM2_HierarchyChangeAuth(&in);
