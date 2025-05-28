@@ -5467,6 +5467,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
                 size = packet.size - 26;
             XMEMCPY(info, &packet.buf[25], size);
         }
+        TPM2_ReleaseLock(ctx);
     }
     return rc;
 }
