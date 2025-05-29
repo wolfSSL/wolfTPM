@@ -397,7 +397,8 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WOLFTPM2_NO_ASN)
 static void test_wolfTPM2_EccSignVerifyDig(const byte* digest, int digestSz,
     TPM_ECC_CURVE curve, TPMI_ALG_HASH hashAlg)
 {
@@ -829,7 +830,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
-    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+        !defined(WOLFTPM2_NO_ASN)
     test_wolfTPM2_EccSignVerify();
     #endif
 #endif /* !WOLFTPM2_NO_WRAPPER */
