@@ -378,7 +378,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     generate_port
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
     echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
-    ./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem &> $TPMPWD/run.out &
+    ./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem >> $TPMPWD/run.out 2>&1 &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> $TPMPWD/run.out 2>&1

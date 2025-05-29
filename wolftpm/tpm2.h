@@ -3434,7 +3434,9 @@ WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
 /*!
     \ingroup TPM2_Proprietary
     \brief Generate a fresh nonce of random numbers
-    \note Can use the TPM random number generator if WOLFTPM2_USE_HW_RNG is defined
+    \note Can use the TPM random number generator if WOLFTPM2_USE_HW_RNG is defined.
+        To force use of the TPM's RNG use WOLFTPM2_USE_HW_RNG. Please make sure you
+        have parameter encryption enabled to protect the RNG data over the bus.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (TPM IO issue or wolfcrypt configuration)
@@ -3455,6 +3457,9 @@ WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
     \endcode
 */
 WOLFTPM_API int TPM2_GetNonce(byte* nonceBuf, int nonceSz);
+
+/* Internal API for getting nonce without taking lock */
+WOLFTPM_LOCAL int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz);
 
 /*!
     \ingroup TPM2_Proprietary

@@ -37,21 +37,24 @@
 /* --- Local Variables -- */
 /******************************************************************************/
 
-
-#ifdef WOLFTPM_NO_ACTIVE_THREAD_LS
-/* if using gHwLock and want to use a shared active TPM2_CTX between threads */
-static TPM2_CTX* gActiveTPM;
-#else
-static THREAD_LS_T TPM2_CTX* gActiveTPM;
-#endif
-
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
 #endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK) && \
     !defined(SINGLE_THREADED)
+/* if a mutex lock is supported, then don't use thread local on gActiveTPM */
+#undef  WOLFTPM_NO_ACTIVE_THREAD_LS
+#define WOLFTPM_NO_ACTIVE_THREAD_LS
+
 static wolfSSL_Mutex gHwLock WOLFSSL_MUTEX_INITIALIZER_CLAUSE(gHwLock);
+#endif
+
+#ifdef WOLFTPM_NO_ACTIVE_THREAD_LS
+/* if using gHwLock and want to use a shared active TPM2_CTX between threads */
+static TPM2_CTX* gActiveTPM;
+#else
+static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #endif
 
 #ifdef WOLFTPM_LINUX_DEV
@@ -160,7 +163,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
         if (session->sessionHandle != TPM_RS_PW) {
             /* Generate fresh nonce */
-            rc = TPM2_GetNonce(session->nonceCaller.buffer,
+            rc = TPM2_GetNonceNoLock(session->nonceCaller.buffer,
                 session->nonceCaller.size);
             if (rc != TPM_RC_SUCCESS) {
                 return rc;
@@ -5464,6 +5467,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
                 size = packet.size - 26;
             XMEMCPY(info, &packet.buf[25], size);
         }
+        TPM2_ReleaseLock(ctx);
     }
     return rc;
 }
@@ -5686,9 +5690,7 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
     return 0;
 }
 
-/* Can optionally define WOLFTPM2_USE_HW_RNG to force using TPM hardware for
- * RNG source */
-int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
+int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
 {
     int rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
@@ -5717,40 +5719,54 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 #else
     /* Call GetRandom directly, so a custom packet buffer can be used.
      * This won't conflict when being called from TPM2_CommandProcess. */
-    rc = TPM2_AcquireLock(ctx);
-    if (rc == TPM_RC_SUCCESS) {
-        while (randSz < nonceSz) {
-            UINT16 inSz = nonceSz - randSz, outSz = 0;
-            if (inSz > MAX_RNG_REQ_SIZE) {
-                inSz = MAX_RNG_REQ_SIZE;
-            }
-
-            TPM2_Packet_InitBuf(&packet, buffer, (int)sizeof(buffer));
-            TPM2_Packet_AppendU16(&packet, inSz);
-            TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetRandom);
-            rc = TPM2_SendCommand(ctx, &packet);
-        #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("TPM2_GetNonce (%d bytes at %d): %d (%s)\n",
-                inSz, randSz, rc, TPM2_GetRCString(rc));
-        #endif
-            if (rc != TPM_RC_SUCCESS) {
-                break;
-            }
-
-            TPM2_Packet_ParseU16(&packet, &outSz);
-            if (outSz > MAX_RNG_REQ_SIZE) {
-            #ifdef DEBUG_WOLFTPM
-                printf("TPM2_GetNonce out size error\n");
-            #endif
-                rc = BAD_FUNC_ARG;
-                break;
-            }
-            TPM2_Packet_ParseBytes(&packet, &nonceBuf[randSz], outSz);
-            randSz += outSz;
+    while (randSz < nonceSz) {
+        UINT16 inSz = nonceSz - randSz, outSz = 0;
+        if (inSz > MAX_RNG_REQ_SIZE) {
+            inSz = MAX_RNG_REQ_SIZE;
         }
-        TPM2_ReleaseLock(ctx);
+
+        TPM2_Packet_InitBuf(&packet, buffer, (int)sizeof(buffer));
+        TPM2_Packet_AppendU16(&packet, inSz);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetRandom);
+        rc = TPM2_SendCommand(ctx, &packet);
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("TPM2_GetNonce (%d bytes at %d): %d (%s)\n",
+            inSz, randSz, rc, TPM2_GetRCString(rc));
+    #endif
+        if (rc != TPM_RC_SUCCESS) {
+            break;
+        }
+
+        TPM2_Packet_ParseU16(&packet, &outSz);
+        if (outSz > MAX_RNG_REQ_SIZE) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_GetNonce out size error\n");
+        #endif
+            rc = BAD_FUNC_ARG;
+            break;
+        }
+        TPM2_Packet_ParseBytes(&packet, &nonceBuf[randSz], outSz);
+        randSz += outSz;
     }
 #endif
+
+    return rc;
+}
+
+int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_GetNonceNoLock(nonceBuf, nonceSz);
+        TPM2_ReleaseLock(ctx);
+    }
 
     return rc;
 }

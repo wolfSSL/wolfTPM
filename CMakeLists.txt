@@ -79,11 +79,41 @@ check_function_exists("gettimeofday" HAVE_GETTIMEOFDAY)
 # * wait state
 # * small stack
 
+# Single threaded
+set(WOLFTPM_SINGLE_THREADED "no" CACHE STRING
+    "Enable wolfTPM single threaded (default: disabled)")
+set_property(CACHE WOLFTPM_SINGLE_THREADED
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_SINGLE_THREADED)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DSINGLE_THREADED")
+endif()
+
+# Mutex locking
+set(WOLFTPM_NO_LOCK "no" CACHE STRING
+    "Enable thread mutex locking (default: enabled)")
+set_property(CACHE WOLFTPM_NO_LOCK
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_NO_LOCK)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_NO_LOCK")
+endif()
+
+# Active TPM - Thread local storage
+set(WOLFTPM_NO_ACTIVE_THREAD_LS "no" CACHE STRING
+    "Disable active TPM thread local storage (default: disabled)")
+set_property(CACHE WOLFTPM_NO_ACTIVE_THREAD_LS
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_NO_ACTIVE_THREAD_LS)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_NO_ACTIVE_THREAD_LS")
+endif()
+
 # Provisioning
 set(WOLFTPM_PROVISIONING "yes" CACHE STRING
     "Enable support for Provisioning Initial Device Identity (IDevID) and Attestation Identity Keys (default: enabled)")
 set_property(CACHE WOLFTPM_PROVISIONING
-    PROPERTY STRINGS "yes;no;verbose")
+    PROPERTY STRINGS "yes;no")
 if(WOLFTPM_PROVISIONING)
     list(APPEND WOLFTPM_DEFINITIONS
         "-DWOLFTPM_PROVISIONING")
