@@ -3774,8 +3774,22 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&signIn, 0, sizeof(signIn));
     signIn.keyHandle = key->handle.hndl;
-    signIn.digest.size = digestSz;
-    XMEMCPY(signIn.digest.buffer, digest, signIn.digest.size);
+    signIn.digest.size = TPM2_GetHashDigestSize(hashAlg);
+    if (signIn.digest.size <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    /* truncate if too large */
+    if (signIn.digest.size > curveSize) {
+        signIn.digest.size = curveSize;
+    }
+    /* if digest provided is smaller than key size then zero pad leading */
+    if (signIn.digest.size > digestSz) {
+        XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz], digest,
+            digestSz);
+    }
+    else {
+        XMEMCPY(signIn.digest.buffer, digest, digestSz);
+    }
     signIn.inScheme.scheme = sigAlg;
     signIn.inScheme.details.any.hashAlg = hashAlg;
     signIn.validation.tag = TPM_ST_HASHCHECK;
