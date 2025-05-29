@@ -3932,8 +3932,6 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&verifySigIn, 0, sizeof(verifySigIn));
     verifySigIn.keyHandle = key->handle.hndl;
-
-
     verifySigIn.digest.size = TPM2_GetHashDigestSize(hashAlg);
     if (verifySigIn.digest.size <= 0) {
         return BAD_FUNC_ARG;
