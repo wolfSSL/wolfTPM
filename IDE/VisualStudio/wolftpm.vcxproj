@@ -36,6 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\tpm2.c" />
+    <ClCompile Include="..\..\src\tpm2_asn.c" />
     <ClCompile Include="..\..\src\tpm2_cryptocb.c" />
     <ClCompile Include="..\..\src\tpm2_packet.c" />
     <ClCompile Include="..\..\src\tpm2_param_enc.c" />

@@ -139,6 +139,10 @@ WOLFTPM_API int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz, TPM2B_PUBL
 */
 WOLFTPM_API int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz);
 
+
+WOLFTPM_LOCAL byte* TPM2_ASN_TrimZeros(byte* in, word32* len);
+
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
