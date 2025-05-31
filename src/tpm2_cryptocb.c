@@ -24,23 +24,9 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_asn.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER)
-
-#if defined(HAVE_ECC) && (defined(WOLFTPM_CRYPTOCB) || \
-   (defined(HAVE_PK_CALLBACKS) && !defined(WOLFCRYPT_ONLY)))
-/* Helper to trim leading zeros when not required  */
-static byte* wolfTPM2_ASNTrimZeros(byte* in, word32* len)
-{
-    word32 idx = 0;
-    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
-        idx++;
-        in++;
-    }
-    *len -= idx;
-    return in;
-}
-#endif
 
 #ifdef WOLFTPM_CRYPTOCB
 
@@ -272,8 +258,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rLen = sLen = rsLen / 2;
                 r = &sigRS[0];
                 s = &sigRS[rLen];
-                r = wolfTPM2_ASNTrimZeros(r, &rLen);
-                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+                r = TPM2_ASN_TrimZeros(r, &rLen);
+                s = TPM2_ASN_TrimZeros(s, &sLen);
 
                 /* Encode ECDSA Header */
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
@@ -1134,8 +1120,8 @@ int wolfTPM2_PK_EccSign(WOLFSSL* ssl,
                 rLen = sLen = rsLen / 2;
                 r = &sigRS[0];
                 s = &sigRS[rLen];
-                r = wolfTPM2_ASNTrimZeros(r, &rLen);
-                s = wolfTPM2_ASNTrimZeros(s, &sLen);
+                r = TPM2_ASN_TrimZeros(r, &rLen);
+                s = TPM2_ASN_TrimZeros(s, &sLen);
 
                 /* Encode ECDSA Header */
                 ret = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outSz);

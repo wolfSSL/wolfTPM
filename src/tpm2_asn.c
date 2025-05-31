@@ -27,6 +27,18 @@
 
 #ifndef WOLFTPM2_NO_ASN
 
+/* Helper to trim leading zeros when not required  */
+byte* TPM2_ASN_TrimZeros(byte* in, word32* len)
+{
+    word32 idx = 0;
+    while (idx+1 < *len && in[idx] == 0 && (in[idx+1] & 0x80) == 0) {
+        idx++;
+        in++;
+    }
+    *len -= idx;
+    return in;
+}
+
 int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
                            word32 maxIdx, int check)
 {

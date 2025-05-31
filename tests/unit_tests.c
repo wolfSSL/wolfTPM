@@ -28,6 +28,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
+#include <wolftpm/tpm2_asn.h>
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -100,7 +101,8 @@ static void test_wolfTPM2_Init(void)
     AssertIntNE(rc, 0);
     /* Test second argument, TPM2 IO Callbacks */
     rc = wolfTPM2_Init(&dev, NULL, NULL);
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || defined(WOLFTPM_WINAPI)
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+    defined(WOLFTPM_WINAPI)
     /* Custom IO Callbacks are not needed for Linux TIS driver */
     AssertIntEQ(rc, 0);
 #else
@@ -275,11 +277,12 @@ static void test_TPM2_PCRSel(void)
 
     /* Test bad case - invalid PCR */
     XMEMSET(&pcr, 0, sizeof(pcr));
-    pcrArray[0] = PCR_SELECT_MAX+1;
+    pcrArray[0] = PCR_LAST+1;
     TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA256, pcrArray, 1);
     if (pcr.count != 0) {
         rc = BAD_FUNC_ARG;
     }
+    AssertIntEQ(rc, 0);
 
     /* Test bad case - too many hash algorithms */
     XMEMSET(&pcr, 0, sizeof(pcr));
@@ -294,6 +297,7 @@ static void test_TPM2_PCRSel(void)
     if (pcr.count != HASH_COUNT) {
         rc = BAD_FUNC_ARG;
     }
+    AssertIntEQ(rc, 0);
 
     printf("Test TPM Wrapper:\tPCR Select Array:\t%s\n",
         rc == 0 ? "Passed" : "Failed");
@@ -345,7 +349,8 @@ static void test_TPM2_KDFa(void)
         0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
 #endif
 
-    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key, keyIn.size);
+    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key,
+        keyIn.size);
 #ifdef WOLFTPM2_NO_WOLFCRYPT
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else
@@ -395,6 +400,172 @@ static void test_wolfTPM2_CSR(void)
         rc == 0 ? "Passed" : "Failed");
 #endif
 }
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WOLFTPM2_NO_ASN)
+static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* storageKey, const byte* digest, int digestSz,
+    TPM_ECC_CURVE curve, TPMI_ALG_HASH hashAlg)
+{
+    int rc;
+    int verifyRes = 0;
+    WOLFTPM2_KEY eccKey;
+    TPMT_PUBLIC publicTemplate;
+    byte sigRs[MAX_ECC_BYTES*2];
+    word32 sigRsSz = (word32)sizeof(sigRs);
+    byte sig[ECC_MAX_SIG_SIZE];
+    word32 sigSz;
+    byte *r, *s;
+    word32 rLen, sLen;
+    ecc_key wolfKey;
+    int curveSize = TPM2_GetCurveSize(curve);
+
+    /* -- Use TPM key to sign and verify with wolfCrypt -- */
+    /* Create ECC key for signing */
+    rc = wolfTPM2_GetKeyTemplate_ECC_ex(&publicTemplate, hashAlg,
+        (TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+         TPMA_OBJECT_sign | TPMA_OBJECT_noDA),
+         curve, TPM_ALG_ECDSA, hashAlg);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_CreateAndLoadKey(dev, &eccKey, &storageKey->handle,
+        &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    if ((rc & TPM_RC_HASH) == TPM_RC_HASH) {
+        printf("Hash type not supported... Skipping\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+
+    /* Sign with TPM */
+    rc = wolfTPM2_SignHashScheme(dev, &eccKey, digest, digestSz,
+        sigRs, (int*)&sigRsSz, TPM_ALG_ECDSA, hashAlg);
+    AssertIntEQ(rc, 0);
+
+    /* Make sure leading zero's not required are trimmed */
+    rLen = sLen = sigRsSz / 2;
+    r = &sigRs[0];
+    s = &sigRs[rLen];
+    r = TPM2_ASN_TrimZeros(r, &rLen);
+    s = TPM2_ASN_TrimZeros(s, &sLen);
+
+    /* Encode ECDSA Header */
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, sig, &sigSz);
+    AssertIntEQ(rc, 0);
+
+    /* Initialize wolfCrypt ECC key */
+    rc = wc_ecc_init(&wolfKey);
+    AssertIntEQ(rc, 0);
+
+    /* Convert TPM key to wolfCrypt key for verification */
+    rc = wolfTPM2_EccKey_TpmToWolf(dev, &eccKey, &wolfKey);
+    AssertIntEQ(rc, 0);
+
+    /* Verify TPM signature with wolfCrypt */
+    rc = wc_ecc_verify_hash(sig, sigSz, digest, digestSz, &verifyRes, &wolfKey);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(verifyRes, 1); /* 1 indicates successful verification */
+
+    /* Cleanup first wolfCrypt key */
+    wc_ecc_free(&wolfKey);
+    wolfTPM2_UnloadHandle(dev, &eccKey.handle);
+
+
+    /* -- Use wolfCrypt key to sign and verify with TPM -- */
+    /* Initialize new wolfCrypt ECC key */
+    rc = wc_ecc_init(&wolfKey);
+    AssertIntEQ(rc, 0);
+
+    /* Generate new ECC key with wolfCrypt */
+    rc = wc_ecc_make_key(wolfTPM2_GetRng(dev), curveSize, &wolfKey);
+    AssertIntEQ(rc, 0);
+
+    /* Sign with wolfCrypt */
+    sigSz = (word32)sizeof(sig);
+    rc = wc_ecc_sign_hash(digest, digestSz, sig, &sigSz, wolfTPM2_GetRng(dev),
+        &wolfKey);
+    AssertIntEQ(rc, 0);
+
+    /* Decode ECDSA Header */
+    r = sigRs;
+    s = &sigRs[MAX_ECC_BYTES];
+    rLen = sLen = MAX_ECC_BYTES;
+    rc = wc_ecc_sig_to_rs(sig,
+        sigSz, r, &rLen, s, &sLen);
+    AssertIntEQ(rc, 0);
+
+    /* Convert wolfCrypt key to TPM key for verification */
+    rc = wolfTPM2_EccKey_WolfToTpm(dev, &wolfKey, &eccKey);
+    AssertIntEQ(rc, 0);
+
+    /* combine R and S at key size (zero pad leading) */
+    XMEMCPY(&sigRs[curveSize-rLen], r, rLen);
+    XMEMSET(&sigRs[0], 0, curveSize-rLen);
+    XMEMCPY(&sigRs[curveSize + (curveSize-sLen)], s, sLen);
+    XMEMSET(&sigRs[curveSize], 0, curveSize-sLen);
+
+    /* Verify wolfCrypt signature with TPM */
+    rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sigRs, curveSize*2,
+        digest, digestSz, TPM_ALG_ECDSA, hashAlg);
+    AssertIntEQ(rc, 0);
+
+    /* Cleanup */
+    wc_ecc_free(&wolfKey);
+    wolfTPM2_UnloadHandle(dev, &eccKey.handle);
+
+    printf("Test TPM Wrapper:\t"
+        "Sign/Verify (DigSz=%d, CurveSz=%d, Hash=%s):"
+        "\t%s\n",
+        digestSz, TPM2_GetCurveSize(curve), TPM2_GetAlgName(hashAlg),
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test with smaller, same and larger digest sizes using different ECC curves.
+ * Interop sign and verify with wolfCrypt and TPM */
+static void test_wolfTPM2_EccSignVerify(void)
+{
+    int rc, i;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storageKey;
+
+    /* Initialize TPM */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Create storage key */
+    rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC,
+            (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+    AssertIntEQ(rc, 0);
+
+
+    for (i = 0; i < (int)sizeof(digest); i++) {
+        digest[i] = (byte)i;
+    }
+
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 20,
+        TPM_ECC_NIST_P256, TPM_ALG_SHA256);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 32,
+        TPM_ECC_NIST_P256, TPM_ALG_SHA256);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 48,
+        TPM_ECC_NIST_P256, TPM_ALG_SHA256);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 64,
+        TPM_ECC_NIST_P256, TPM_ALG_SHA256);
+
+#if (defined(HAVE_ECC384) || defined(HAVE_ALL_CURVES)) && ECC_MIN_KEY_SZ <= 384
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 20,
+        TPM_ECC_NIST_P384, TPM_ALG_SHA384);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 32,
+        TPM_ECC_NIST_P384, TPM_ALG_SHA384);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 48,
+        TPM_ECC_NIST_P384, TPM_ALG_SHA384);
+    test_wolfTPM2_EccSignVerifyDig(&dev, &storageKey, digest, 64,
+        TPM_ECC_NIST_P384, TPM_ALG_SHA384);
+#endif
+
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+    wolfTPM2_Cleanup(&dev);
+}
+#endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
     !defined(NO_RSA)
@@ -479,7 +650,8 @@ static void test_wolfTPM2_PCRPolicy(void)
         digest, &digestSz, NULL, 0);
     AssertIntEQ(rc, 0);
 
-    AssertIntEQ(XMEMCMP(digest, expectedPolicyAuth, sizeof(expectedPolicyAuth)), 0);
+    AssertIntEQ(XMEMCMP(digest, expectedPolicyAuth, sizeof(expectedPolicyAuth)),
+        0);
 
     rc = wolfTPM2_ResetPCR(&dev, pcrIndex);
     AssertIntEQ(rc, 0);
@@ -679,6 +851,10 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+        !defined(WOLFTPM2_NO_ASN)
+    test_wolfTPM2_EccSignVerify();
+    #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #endif /* !WOLFTPM2_NO_WRAPPER */

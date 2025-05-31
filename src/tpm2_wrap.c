@@ -3756,7 +3756,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     int sigOutSz = 0;
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL ||
-                                                            sigSz == NULL) {
+                                                                sigSz == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -3772,10 +3772,24 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
+    /* verify input cannot exceed buffer */
+    if (digestSz > (int)sizeof(signIn.digest.buffer))
+        digestSz = (int)sizeof(signIn.digest.buffer);
+
     XMEMSET(&signIn, 0, sizeof(signIn));
     signIn.keyHandle = key->handle.hndl;
-    signIn.digest.size = digestSz;
-    XMEMCPY(signIn.digest.buffer, digest, signIn.digest.size);
+    signIn.digest.size = TPM2_GetHashDigestSize(hashAlg);
+    if (signIn.digest.size <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    /* if digest provided is smaller than key size then zero pad leading */
+    if (digestSz < signIn.digest.size) {
+        XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz], digest,
+            digestSz);
+    }
+    else {
+        XMEMCPY(signIn.digest.buffer, digest, digestSz);
+    }
     signIn.inScheme.scheme = sigAlg;
     signIn.inScheme.details.any.hashAlg = hashAlg;
     signIn.validation.tag = TPM_ST_HASHCHECK;
@@ -3918,8 +3932,18 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&verifySigIn, 0, sizeof(verifySigIn));
     verifySigIn.keyHandle = key->handle.hndl;
-    verifySigIn.digest.size = digestSz;
-    XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
+    verifySigIn.digest.size = TPM2_GetHashDigestSize(hashAlg);
+    if (verifySigIn.digest.size <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    /* if digest provided is smaller than key size then zero pad leading */
+    if (digestSz < verifySigIn.digest.size) {
+        XMEMCPY(&verifySigIn.digest.buffer[verifySigIn.digest.size - digestSz],
+            digest, digestSz);
+    }
+    else {
+        XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
+    }
     verifySigIn.signature.sigAlg = sigAlg;
     verifySigIn.signature.signature.any.hashAlg = hashAlg;
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
