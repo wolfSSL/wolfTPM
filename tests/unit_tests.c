@@ -429,6 +429,10 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
     rc = wolfTPM2_CreateAndLoadKey(dev, &eccKey, &storageKey->handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    if ((rc & TPM_RC_HASH) == TPM_RC_HASH) {
+        printf("Hash type not supported... Skipping\n");
+        return;
+    }
     AssertIntEQ(rc, 0);
 
     /* Sign with TPM */
