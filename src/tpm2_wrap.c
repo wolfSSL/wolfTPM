@@ -481,7 +481,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     /* Decode the byte stream into a publicArea structure ready for use */
     rc = TPM2_ParsePublic(&key->pub, pubAreaBuffer,
-        (word32)sizeof(pubAreaBuffer), &pubAreaSize);
+        (word32)(sizeof(UINT16) + key->pub.size), &pubAreaSize);
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }

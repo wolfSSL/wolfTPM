@@ -6465,13 +6465,6 @@ int TPM2_ParsePublic(TPM2B_PUBLIC* pub, byte* buf, word32 size, int* sizeUsed)
     if (buf == NULL || pub == NULL || sizeUsed == NULL)
         return BAD_FUNC_ARG;
 
-    if (size < sizeof(TPM2B_PUBLIC)) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
-    #endif
-        return TPM_RC_FAILURE;
-    }
-
     /* Prepare temporary buffer */
     packet.buf = buf;
     packet.pos = 0;
