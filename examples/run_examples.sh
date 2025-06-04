@@ -493,17 +493,9 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 fi
 
 if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
-    ./examples/keygen/keygen keyblob.bin -rsa >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
-    ./examples/attestation/make_credential >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "make_credential failed! $RESULT" && exit 1
-    ./examples/attestation/activate_credential >> $TPMPWD/run.out 2>&1
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "activate_credential failed! $RESULT" && exit 1
+    rm -f keyblob.bin
 
-    # Endorsement hierarchy
+    # Endorsement hierarchy (assumes keyblob.bin for key)
     ./examples/keygen/keygen keyblob.bin -rsa -eh >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "keygen rsa endorsement failed! $RESULT" && exit 1
@@ -514,10 +506,21 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "activate_credential endorsement failed! $RESULT" && exit 1
 
+    ./examples/keygen/keygen keyblob.bin -rsa >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen rsa failed! $RESULT" && exit 1
+    ./examples/attestation/make_credential >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "make_credential failed! $RESULT" && exit 1
+    ./examples/attestation/activate_credential >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "activate_credential failed! $RESULT" && exit 1
+
     rm -f cred.blob
     rm -f ek.pub
     rm -f srk.pub
     rm -f ak.name
+    # Keeping keyblob.bin for tests later
 fi
 
 # PCR Quote Tests

@@ -49,8 +49,8 @@ static void usage(void)
     printf("Notes:\n");
     printf("\tName digest is loaded from \"ak.name\" file\n");
     printf("\tPublic key is loaded from a file containing TPM2B_PUBLIC\n");
-    printf("\t\"tek.pub\" for EK pub");
-    printf("\t\"tsrk.pub\" for SRK pub");
+    printf("\t\"ek.pub\" for EK pub\n");
+    printf("\t\"srk.pub\" for SRK pub\n");
     printf("\tOutput is stored in \"cred.blob\"\n");
     printf("Demo usage without parameters, uses SRK pub\n");
 }
