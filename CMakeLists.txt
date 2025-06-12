@@ -104,7 +104,7 @@ set(WOLFTPM_NO_ACTIVE_THREAD_LS "no" CACHE STRING
     "Disable active TPM thread local storage (default: disabled)")
 set_property(CACHE WOLFTPM_NO_ACTIVE_THREAD_LS
     PROPERTY STRINGS "yes;no")
-if(NOT WOLFTPM_NO_ACTIVE_THREAD_LS)
+if(WOLFTPM_NO_ACTIVE_THREAD_LS)
     list(APPEND WOLFTPM_DEFINITIONS
         "-DWOLFTPM_NO_ACTIVE_THREAD_LS")
 endif()
