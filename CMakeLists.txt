@@ -67,6 +67,7 @@ include(CheckFunctionExists)
 check_function_exists("gethostbyname" HAVE_GETHOSTBYNAME)
 check_function_exists("getaddrinfo" HAVE_GETADDRINFO)
 check_function_exists("gettimeofday" HAVE_GETTIMEOFDAY)
+check_function_exists("getpid" HAVE_GETPID)
 
 
 
