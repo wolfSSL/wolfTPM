@@ -153,6 +153,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 case RSA_PRIVATE_DECRYPT:
                 {
                     /* private operations */
+                    if (tlsCtx->rsaKey == NULL) {
+                        /* TPM key not setup, fallback to software */
+                        rc = exit_rc;
+                        break;
+                    }
                     rc = wolfTPM2_RsaDecrypt(tlsCtx->dev, tlsCtx->rsaKey,
                         TPM_ALG_NULL, /* no padding */
                         info->pk.rsa.in, info->pk.rsa.inLen,
@@ -236,6 +241,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte sigRS[MAX_ECC_BYTES*2];
             word32 rsLen = sizeof(sigRS), keySz;
             word32 inlen = info->pk.eccsign.inlen;
+
+            if (tlsCtx->eccKey == NULL) {
+                /* TPM key not setup, fallback to software */
+                return exit_rc;
+            }
 
             /* get key size from wolf signing key */
             keySz = wc_ecc_size(info->pk.eccsign.key);
