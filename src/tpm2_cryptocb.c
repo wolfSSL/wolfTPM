@@ -120,6 +120,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         #endif
                 rc = exit_rc;
         }
+        else if (info->pk.type == WC_PK_TYPE_RSA_GET_SIZE) {
+            if (tlsCtx->rsaKey != NULL) {
+                *info->pk.rsa_get_size.keySize =
+                    tlsCtx->rsaKey->pub.publicArea.parameters.rsaDetail.keyBits
+                        / 8;
+                rc = 0;
+            }
+        }
         else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {
                 case RSA_PUBLIC_ENCRYPT:
