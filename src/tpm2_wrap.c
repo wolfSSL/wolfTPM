@@ -5630,18 +5630,22 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         return BAD_FUNC_ARG;
     }
 
-    /* Capture usage auth */
-    if (usageAuthSz > sizeof(hmac->hash.handle.auth.buffer))
-        usageAuthSz = sizeof(hmac->hash.handle.auth.buffer);
-    hmac->hash.handle.auth.size = usageAuthSz;
-    XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
+    if (usageAuth != NULL) {
+        /* Capture usage auth */
+        if (usageAuthSz > sizeof(hmac->hash.handle.auth.buffer))
+            usageAuthSz = sizeof(hmac->hash.handle.auth.buffer);
+        hmac->hash.handle.auth.size = usageAuthSz;
+        XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
+    }
 
-    if (!hmac->hmacKeyLoaded || hmac->key.handle.hndl == TPM_RH_NULL) {
-        /* Load Keyed Hash Key */
-        rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg, keyBuf,
-            keySz, usageAuth, usageAuthSz);
-        if (rc != 0) {
-            return rc;
+    if (!hmac->hmacKeyLoaded) {
+        if (hmac->key.handle.hndl == TPM_RH_NULL) {
+            /* Load Keyed Hash Key */
+            rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg,
+                keyBuf, keySz, usageAuth, usageAuthSz);
+            if (rc != 0) {
+                return rc;
+            }
         }
         hmac->hmacKeyLoaded = 1;
     }
