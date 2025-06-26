@@ -5639,7 +5639,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     }
 
     if (!hmac->hmacKeyLoaded) {
-        if (hmac->key.handle.hndl == TPM_RH_NULL) {
+        if (hmac->key.handle.hndl == 0 || hmac->key.handle.hndl == TPM_RH_NULL){
             /* Load Keyed Hash Key */
             rc = wolfTPM2_LoadKeyedHashKey(dev, &hmac->key, parent, hashAlg,
                 keyBuf, keySz, usageAuth, usageAuthSz);
