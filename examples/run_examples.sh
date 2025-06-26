@@ -136,6 +136,38 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     [ $RESULT -ne 0 ] && echo -e "wrap_test (AES param enc) failed! $RESULT" && exit 1
 fi
 
+# HMAC tests
+echo -e "HMAC tests"
+./examples/wrap/hmac >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hmac test failed! $RESULT" && exit 1
+./examples/wrap/hmac -ecc >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hmac test (ECC SRK) failed! $RESULT" && exit 1
+./examples/wrap/hmac -rsa >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hmac test (RSA SRK) failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/wrap/hmac -aes >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "hmac test (AES param enc) failed! $RESULT" && exit 1
+fi
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/wrap/hmac -xor >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "hmac test (XOR param enc) failed! $RESULT" && exit 1
+fi
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/wrap/hmac -rsa -aes >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "hmac test (RSA SRK + AES param enc) failed! $RESULT" && exit 1
+fi
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/wrap/hmac -ecc -xor >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "hmac test (ECC SRK + XOR param enc) failed! $RESULT" && exit 1
+fi
+
 
 # Key Generation Tests
 echo -e "Key Generation Tests"

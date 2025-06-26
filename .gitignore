@@ -39,6 +39,7 @@ build/
 
 examples/wrap/wrap_test
 examples/wrap/caps
+examples/wrap/hmac
 examples/native/native_test
 examples/bench/bench
 examples/csr/csr

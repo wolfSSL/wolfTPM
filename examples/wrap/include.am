@@ -3,8 +3,10 @@
 
 if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/wrap/wrap_test \
-                   examples/wrap/caps
+                   examples/wrap/caps \
+                   examples/wrap/hmac
 noinst_HEADERS  += examples/wrap/wrap_test.h
+
 examples_wrap_wrap_test_SOURCES      = examples/wrap/wrap_test.c
 examples_wrap_wrap_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_wrap_wrap_test_DEPENDENCIES = src/libwolftpm.la
@@ -12,11 +14,18 @@ examples_wrap_wrap_test_DEPENDENCIES = src/libwolftpm.la
 examples_wrap_caps_SOURCES      = examples/wrap/caps.c
 examples_wrap_caps_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_wrap_caps_DEPENDENCIES = src/libwolftpm.la
+
+examples_wrap_hmac_SOURCES      = examples/wrap/hmac.c \
+                                  examples/tpm_test_keys.c
+examples_wrap_hmac_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_wrap_hmac_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_wrapdir = $(exampledir)/wrap
 dist_example_wrap_DATA = examples/wrap/wrap_test.c \
-                         examples/wrap/caps.c
+                         examples/wrap/caps.c \
+                         examples/wrap/hmac.c
 
 DISTCLEANFILES+= examples/wrap/.libs/wrap_test \
-                 examples/wrap/.libs/caps
+                 examples/wrap/.libs/caps \
+                 examples/wrap/.libs/hmac
