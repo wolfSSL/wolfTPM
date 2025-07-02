@@ -1,74 +1,78 @@
 # wolfTPM with Software Simulator (SWTPM) support
 
-wolfTPM is to be able to interface with software TPM (SW TPM) interfaces defined by section D.3 of [TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code.pdf)
+wolfTPM is to be able to use Software TPM (SW TPM) defined by section D.3 of [TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code](https://trustedcomputinggroup.org/wp-content/uploads/TPM-Rev-2.0-Part-4-Supporting-Routines-01.38-code.pdf)
 
-The SWTPM interface is not compatible with TIS or devtpm (/dev/tpm0). Transport is a socket connection by default, but can also be a UART.
+Software TPM implementations tested:
+* [Official TCG Reference](https://github.com/TrustedComputingGroup/TPM): Reference code from the specification maintained by TCG [build steps](#tcg-tpm)
+* [IBM / Ken Goldman](https://github.com/kgoldman/ibmswtpm2): Fork of reference code maintained by IBM [build steps](#ibmswtpm2)
+* [Microsoft](https://github.com/microsoft/ms-tpm-20-ref): Fork of reference code maintained by Microsoft (93% identical to official TCG) [build steps](#ms-tpm-20-ref)
+* [Stefan Berger](https://github.com/stefanberger/swtpm): Uses libtpms front end interfaces. [build steps](#swtpm)
+
+The software TPM transport is a socket connection by default, but we also support a UART.
 
 This implementation only uses the TPM command interface typically on port 2321. It does not support the Platform interface typically on port 2322.
 
-Software TPM implementations tested:
-* https://github.com/kgoldman/ibmswtpm2 or https://sourceforge.net/projects/ibmswtpm2/files/
-* https://github.com/microsoft/ms-tpm-20-ref
-* https://github.com/stefanberger/swtpm
+## wolfTPM SWTPM support
 
-## Building SW TPM support
-
-By default a socket transport will be used.
+To enable the socket transport for SWTPM use `--enable-swtpm`. By default all software TPM simulators use TCP port 2321.
 
 ```sh
 ./configure --enable-swtpm
 make
 ```
 
-### Build SW TPM with UART transport
+Note: It is not possible to enable more than one transport interface at a time. If building with SWTPM socket interface the built-in TIS and devtpm (/dev/tpm0) interfaces are not available.
+
+Build Options:
+
+* `WOLFTPM_SWTPM`: Use socket transport (no TIS layer)
+* `TPM2_SWTPM_HOST`: The socket host (default is localhost)
+* `TPM2_SWTPM_PORT`: The socket port (default is 2321)
+
+## Using a SWTPM
+
+### SWTPM Power Up and Startup
+
+The TCG TPM and Microsoft ms-tpm-20-ref implementations require sending power up and startup commands on the platform interface before the command interface is enabled. You can use these commands to issue the required power up and startup:
 
 ```sh
-./configure --enable-swtpm=uart
+echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322
+echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322
+```
+
+### TCG TPM
+
+```sh
+clone git@github.com:TrustedComputingGroup/TPM.git
+cd TPM
+cd TPMCmd
+./bootstrap
+./configure
 make
 ```
 
-## Build Options
+Run with: `./Simulator/src/tpm2-simulator`
 
-* `WOLFTPM_SWTPM`: Use socket transport (no TIS layer)
-* `TPM2_SWTPM_HOST`: The serial device to use (default=/dev/ttyS0)
-* `TPM2_SWTPM_PORT`: The baud rate (default=115200)
-* `WOLFTPM_SWTPM_UART`: Use UART transport (no TIS layer)
-
-## SWTPM simulator setup
-
-### Xilinx UART
-
-Alternatively for raw API calls with Xilinx
-
-```sh
-./cofnigure --enable-swtpm=uartns550
-make
-```
-
-## Build Options
-
-* `WOLFTPM_SWTPM`: Use socket transport (no TIS layer)
-* `TPM2_SWTPM_PORT`: Used as the default baud rate (default=115200)
-* `TPM2_SWTPM_HOST`: The device to connect with (default=XPAR_MB0_AXI_UART16550_2_DEVICE_ID)
-* `WOLFTPM_SWTPM_UARTNS550`: Use Xilinx UART transport (no TIS layer)
+Run power on and self test. See [SWTPM Power Up and Startup](#swtpm-power-up-and-startup).
 
 ### ibmswtpm2
 
-Checkout and Build
+Build steps:
+
 ```sh
 git clone https://github.com/kgoldman/ibmswtpm2.git
 cd ibmswtpm2/src/
 make
 ```
 
-Running:
-```sh
-./tpm_server -rm
-```
+Run with: `./tpm_server`
 
-The rm switch is optional and remove the cache file NVChip. Alternately you can `rm NVChip`
+Note: You can use the `-rm` switch to remove the cache file NVChip. Alternatively you can delete the NVChip file (`rm NVChip`)
+
 
 ### ms-tpm-20-ref
+
+Build steps:
 
 ```sh
 git clone https://github.com/microsoft/ms-tpm-20-ref
@@ -76,15 +80,12 @@ cd ms-tpm-20-ref/TPMCmd
 ./bootstrap
 ./configure
 make
-./Simulator/src/tpm2-simulator
 ```
 
-In another terminal power on ms-tpm-20-ref and start NV
+Run with: `./Simulator/src/tpm2-simulator`
 
-```sh
-echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322 | exit
-echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322 | exit
-```
+Run power on and self test. See [SWTPM Power Up and Startup](#swtpm-power-up-and-startup).
+
 
 ### swtpm
 
@@ -125,16 +126,6 @@ mkdir -p /tmp/myvtpm
 swtpm socket --tpmstate dir=/tmp/myvtpm --tpm2 --ctrl type=tcp,port=2322 --server type=tcp,port=2321 --flags not-need-init
 ```
 
-## Running examples
-
-```sh
-./examples/pcr/extend
-./examples/wrap/wrap_test
-```
-
-See `README.md` for more examples
-
-
 ### swtpm with QEMU
 
 This demonstrates using wolfTPM in QEMU to communicate using the linux
@@ -145,7 +136,7 @@ method to build. You may need to consult the instructions for
 and
 [swtpm](https://github.com/stefanberger/swtpm/wiki#compile-and-install-on-linux)
 
-```
+```sh
 PREFIX=$PWD/inst
 git clone git@github.com:stefanberger/libtpms.git
 cd libtpms/
@@ -163,7 +154,7 @@ You can setup a basic linux installation. Other installation bases can
 be used. This step will take some time to install the base linux
 system.
 
-```
+```sh
 # download mini install image
 curl -O http://archive.ubuntu.com/ubuntu/dists/bionic-updates/main/installer-amd64/current/images/netboot/mini.iso
 # create qemu image file
@@ -183,7 +174,7 @@ qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
 Once a base system is installed it's ready to start the qemu and build
 wolfSSL and wolfTPM in the qemu instance.
 
-```
+```sh
 # start swtpm again
 $PREFIX/bin/swtpm socket --tpm2 --tpmstate dir=$PREFIX/mytpm \
   --ctrl type=unixio,path=$PREFIX/mytpm/swtpm-sock --log level=20 &
@@ -196,7 +187,7 @@ qemu-system-x86_64 -m 1024 -boot d -bios bios-256k.bin -boot menu=on \
 
 To build checkout and build wolfTPM, in the QEMU terminal
 
-```
+```sh
 sudo apt install automake libtool gcc git make
 
 # get and build wolfSSL
@@ -219,3 +210,14 @@ popd
 
 You can now run the examples such as `sudo ./examples/wrap/wrap`
 within QEMU. Using `sudo` maybe required for access to `/dev/tpm0`.
+
+
+## Running examples
+
+```sh
+./examples/wrap/caps
+./examples/pcr/extend
+./examples/wrap/wrap_test
+```
+
+See [examples/README.md](../examples/README.md) for additional example usage.
