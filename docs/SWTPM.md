@@ -4,9 +4,9 @@ wolfTPM is to be able to use Software TPM (SW TPM) defined by section D.3 of [TP
 
 Software TPM implementations tested:
 * [Official TCG Reference](https://github.com/TrustedComputingGroup/TPM): Reference code from the specification maintained by TCG [build steps](#tcg-tpm)
-* [IBM / Ken Goldman](https://github.com/kgoldman/ibmswtpm2): Fork of reference code maintained by IBM [build steps](#ibmswtpm2)
-* [Microsoft](https://github.com/microsoft/ms-tpm-20-ref): Fork of reference code maintained by Microsoft (93% identical to official TCG) [build steps](#ms-tpm-20-ref)
-* [Stefan Berger](https://github.com/stefanberger/swtpm): Uses libtpms front end interfaces. [build steps](#swtpm)
+* [IBM (ibmswtpm2) / Ken Goldman](https://github.com/kgoldman/ibmswtpm2): Fork of reference code maintained by IBM (93% identical to official TCG) [build steps](#ibmswtpm2)
+* [Microsoft - ms-tpm-20-ref](https://github.com/microsoft/ms-tpm-20-ref): Fork of reference code maintained by Microsoft (100% identical to official TCG) [build steps](#ms-tpm-20-ref)
+* [libtpms/swtpm - Stefan Berger](https://github.com/stefanberger/swtpm): Uses libtpms front end interfaces. [build steps](#swtpm)
 
 The software TPM transport is a socket connection by default, but we also support a UART.
 
