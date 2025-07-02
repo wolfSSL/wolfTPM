@@ -12,13 +12,6 @@ The software TPM transport is a socket connection by default, but we also suppor
 
 This implementation only uses the TPM command interface typically on port 2321. It does not support the Platform interface typically on port 2322.
 
-Some software TPM implementations require sending power up and startup commands on the platform interface before the command interface is enabled. You can use these commands to issue the required power up and startup:
-
-```sh
-echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322
-echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322
-```
-
 ## wolfTPM SWTPM support
 
 To enable the socket transport for SWTPM use `--enable-swtpm`. By default all software TPM simulators use TCP port 2321.
@@ -36,8 +29,16 @@ Build Options:
 * `TPM2_SWTPM_HOST`: The socket host (default is localhost)
 * `TPM2_SWTPM_PORT`: The socket port (default is 2321)
 
-
 ## Using a SWTPM
+
+### SWTPM Power Up and Startup
+
+The TCG TPM and Microsoft ms-tpm-20-ref implementations require sending power up and startup commands on the platform interface before the command interface is enabled. You can use these commands to issue the required power up and startup:
+
+```sh
+echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322
+echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322
+```
 
 ### TCG TPM
 
@@ -52,13 +53,7 @@ make
 
 Run with: `./Simulator/src/tpm2-simulator`
 
-To use the TPM on port 2321 you must first connect to the platform server on port 2322 and send the power on and startup commands. An easy way to do this is using:
-
-```sh
-echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322
-echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322
-```
-
+Run power on and self test. See [SWTPM Power Up and Startup](#swtpm-power-up-and-startup).
 
 ### ibmswtpm2
 
@@ -71,7 +66,7 @@ make
 
 Run with: `./tpm_server`
 
-Note: You can use the `-rm` switch to remove the cache file NVChip. Alternately you can delete the NVChip file (`rm NVChip`)
+Note: You can use the `-rm` switch to remove the cache file NVChip. Alternatively you can delete the NVChip file (`rm NVChip`)
 
 
 ### ms-tpm-20-ref
@@ -86,12 +81,7 @@ make
 
 Run with: `./Simulator/src/tpm2-simulator`
 
-To use the TPM on port 2321 you must first connect to the platform server on port 2322 and send the power on and startup commands. An easy way to do this is using:
-
-```sh
-echo -ne "\x00\x00\x00\x01" | nc 127.0.0.1 2322
-echo -ne "\x00\x00\x00\x0B" | nc 127.0.0.1 2322
-```
+Run power on and self test. See [SWTPM Power Up and Startup](#swtpm-power-up-and-startup).
 
 
 ### swtpm
