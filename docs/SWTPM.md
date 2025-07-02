@@ -57,7 +57,8 @@ Run power on and self test. See [SWTPM Power Up and Startup](#swtpm-power-up-and
 
 ### ibmswtpm2
 
-Checkout and Build
+Build steps:
+
 ```sh
 git clone https://github.com/kgoldman/ibmswtpm2.git
 cd ibmswtpm2/src/
@@ -70,6 +71,8 @@ Note: You can use the `-rm` switch to remove the cache file NVChip. Alternativel
 
 
 ### ms-tpm-20-ref
+
+Build steps:
 
 ```sh
 git clone https://github.com/microsoft/ms-tpm-20-ref
@@ -217,4 +220,4 @@ within QEMU. Using `sudo` maybe required for access to `/dev/tpm0`.
 ./examples/wrap/wrap_test
 ```
 
-See [examples/README.md](/examples/README.md) for additional example usage.
+See [examples/README.md](../examples/README.md) for additional example usage.
