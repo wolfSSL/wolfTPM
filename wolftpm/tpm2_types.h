@@ -654,7 +654,39 @@ typedef int64_t  INT64;
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
 #ifndef HASH_COUNT
-#define HASH_COUNT (2) /* SHA1 and SHA256 */
+    /* Calculate hash count based on wolfCrypt enables */
+    #ifndef NO_SHA
+        #define HASH_COUNT_SHA1 1
+    #else
+        #define HASH_COUNT_SHA1 0
+    #endif
+
+    #ifndef NO_SHA256
+        #define HASH_COUNT_SHA256 1
+    #else
+        #define HASH_COUNT_SHA256 0
+    #endif
+
+    #ifdef WOLFSSL_SHA384
+        #define HASH_COUNT_SHA384 1
+    #else
+        #define HASH_COUNT_SHA384 0
+    #endif
+
+    #ifdef WOLFSSL_SHA512
+        #define HASH_COUNT_SHA512 1
+    #else
+        #define HASH_COUNT_SHA512 0
+    #endif
+
+    #ifdef WOLFSSL_SHA3
+        #define HASH_COUNT_SHA3 1
+    #else
+        #define HASH_COUNT_SHA3 0
+    #endif
+
+    #define HASH_COUNT (HASH_COUNT_SHA1 + HASH_COUNT_SHA256 + \
+                        HASH_COUNT_SHA384 + HASH_COUNT_SHA512 + HASH_COUNT_SHA3)
 #endif
 #ifndef MAX_CAP_ALGS
 #define MAX_CAP_ALGS (MAX_CAP_DATA / sizeof(TPMS_ALG_PROPERTY))
