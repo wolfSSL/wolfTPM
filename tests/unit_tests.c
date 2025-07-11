@@ -294,6 +294,12 @@ static void test_TPM2_PCRSel(void)
     TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA384, pcrArray, 1);
     pcrArray[0] = 4;
     TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA512, pcrArray, 1);
+    pcrArray[0] = 5;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA3_256, pcrArray, 1);
+    pcrArray[0] = 6;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA3_384, pcrArray, 1);
+    pcrArray[0] = 7;
+    TPM2_SetupPCRSelArray(&pcr, TPM_ALG_SHA3_512, pcrArray, 1);
     if (pcr.count != HASH_COUNT) {
         rc = BAD_FUNC_ARG;
     }
