@@ -6328,6 +6328,9 @@ int TPM2_GetWolfRng(WC_RNG** rng)
             printf("wc_InitRng_ex failed %d: %s\n",
                 (int)rc, wc_GetErrorString(rc));
         #endif
+            if (rng) {
+                *rng = NULL;
+            }
             return rc;
         }
         ctx->rngInit = 1;
