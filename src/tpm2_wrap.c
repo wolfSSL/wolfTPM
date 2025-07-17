@@ -985,8 +985,8 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             TPM2_PrintBin(handle->name.name, handle->name.size);
         #endif
             session->policyAuth = handle->policyAuth;
-            if ((word32)handle->auth.size + authDigestSz >
-                    sizeof(session->auth.buffer)) {
+            if (authDigestSz <= 0 ||
+                (handle->auth.size + authDigestSz) > (int)sizeof(session->auth.buffer)) {
                 return BUFFER_E;
             }
             session->auth.size = authDigestSz + handle->auth.size;
@@ -1037,7 +1037,8 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
             else if (handle->policyAuth) {
                 /* HMAC + policy auth value */
                 int authDigestSz = TPM2_GetHashDigestSize(session->authHash);
-                if ((authDigestSz + handle->auth.size) > (int)sizeof(session->auth.buffer)) {
+                if (authDigestSz <= 0 ||
+                    (authDigestSz + handle->auth.size) > (int)sizeof(session->auth.buffer)) {
                     return BUFFER_E;
                 }
                 session->auth.size = (UINT16)(authDigestSz + handle->auth.size);
@@ -1243,8 +1244,8 @@ static int TPM2_KDFe(
     hashType = (enum wc_HashType)ret;
 
     hLen = TPM2_GetHashDigestSize(hashAlg);
-    if ((hLen <= 0) || (hLen > WC_MAX_DIGEST_SIZE))
-        return NOT_COMPILED_IN;
+    if ((hLen <= 0) || (hLen > (int)sizeof(hash)))
+        return BUFFER_E;
 
     /* get label length if provided, including null termination */
     if (label != NULL) {
@@ -1401,11 +1402,11 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     if (rc == 0) {
         /* set size encryption key */
         int hashDigestSz = TPM2_GetHashDigestSize(publicArea->nameAlg);
-        if (hashDigestSz > 0) {
+        if (hashDigestSz > 0 && hashDigestSz <= (int)sizeof(data->buffer)) {
             data->size = (UINT16)hashDigestSz;
         }
         else {
-            rc = NOT_COMPILED_IN;
+            rc = BUFFER_E;
         }
     }
     if (rc == 0) {
@@ -1484,11 +1485,11 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     if (rc == 0 && data->size == 0) {
         /* Generate random value to exchange for encryption */
         int hashDigestSz = TPM2_GetHashDigestSize(publicArea->nameAlg);
-        if (hashDigestSz > 0) {
+        if (hashDigestSz > 0 && hashDigestSz <= (int)sizeof(data->buffer)) {
             data->size = (UINT16)hashDigestSz;
         }
         else {
-            rc = NOT_COMPILED_IN;
+            rc = BUFFER_E;
         }
     }
     if (rc == 0) {
@@ -1588,8 +1589,9 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
 
     authSesIn.authHash = authHash;
     hashDigestSz = TPM2_GetHashDigestSize(authHash);
-    if (hashDigestSz <= 0) {
-        return NOT_COMPILED_IN;
+    if (hashDigestSz <= 0 ||
+        hashDigestSz > (int)sizeof(authSesIn.nonceCaller.buffer)) {
+        return BUFFER_E;
     }
 
     /* set session auth for key */
@@ -1760,13 +1762,31 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
-        /* truncate if longer than name size */
-        if (nameAlgDigestSz > 0 && authSz > nameAlgDigestSz)
-            authSz = nameAlgDigestSz;
-        XMEMCPY(createPriIn.inSensitive.sensitive.userAuth.buffer, auth, authSz);
-        /* make sure auth is same size as nameAlg digest size */
-        if (nameAlgDigestSz > 0 && authSz < nameAlgDigestSz)
-            authSz = nameAlgDigestSz;
+        /* Ensure auth size matches the name algorithm digest size */
+        if (nameAlgDigestSz > 0) {
+            /* Truncate if auth is longer than digest size */
+            if (authSz > nameAlgDigestSz) {
+                authSz = nameAlgDigestSz;
+            }
+
+            /* Copy auth data to buffer */
+            XMEMCPY(createPriIn.inSensitive.sensitive.userAuth.buffer, auth, authSz);
+
+            /* Pad with zeros if auth is shorter than digest size */
+            if (authSz < nameAlgDigestSz) {
+                XMEMSET(createPriIn.inSensitive.sensitive.userAuth.buffer + authSz,
+                        0, nameAlgDigestSz - authSz);
+                authSz = nameAlgDigestSz;
+            }
+        }
+        else {
+            /* Fallback: copy auth as-is if digest size is invalid */
+            if (authSz > (int)sizeof(createPriIn.inSensitive.sensitive.userAuth.buffer)) {
+                return BUFFER_E;
+            }
+            XMEMCPY(createPriIn.inSensitive.sensitive.userAuth.buffer, auth, authSz);
+        }
+
         createPriIn.inSensitive.sensitive.userAuth.size = authSz;
     }
     XMEMCPY(&createPriIn.inPublic.publicArea, publicTemplate,
@@ -2205,11 +2225,11 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         nameAlg = parentKey->pub.publicArea.nameAlg;
     }
     digestSz = TPM2_GetHashDigestSize(nameAlg);
-    if (digestSz == 0) {
+    if (digestSz <= 0) {
     #ifdef DEBUG_WOLFTPM
         printf("SensitiveToPrivate: Invalid name algorithm %d\n", nameAlg);
     #endif
-        return TPM_RC_FAILURE;
+        return BAD_FUNC_ARG;
     }
 
     /* Use outer wrap (Integrity then Encrypt) */
@@ -2594,7 +2614,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     #ifdef DEBUG_WOLFTPM
         printf("Import RSA name alg size invalid! %d\n", digestSz);
     #endif
-        return BAD_FUNC_ARG;
+        return BUFFER_E;
     }
     if (seed != NULL) {
         /* use custom seed */
@@ -2754,11 +2774,12 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
 
     /* Use Seed */
     digestSz = (word32)TPM2_GetHashDigestSize(pub.publicArea.nameAlg);
-    if (digestSz == 0 || digestSz > sizeof(sens.sensitiveArea.seedValue.buffer)) {
+    if (digestSz == 0 ||
+        digestSz > sizeof(sens.sensitiveArea.seedValue.buffer)) {
     #ifdef DEBUG_WOLFTPM
         printf("Import ECC name alg size invalid! %d\n", digestSz);
     #endif
-        return BAD_FUNC_ARG;
+        return BUFFER_E;
     }
     if (seed != NULL) {
         /* use custom seed */
@@ -3310,7 +3331,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
             printf("Import %s name alg size invalid! %d\n",
                 TPM2_GetAlgName((TPM_ALG_ID)keyType), digestSz);
         #endif
-            return BAD_FUNC_ARG;
+            return BUFFER_E;
         }
         if (seed != NULL) {
             /* use custom seed */
@@ -3876,7 +3897,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     signIn.digest.size = (UINT16)TPM2_GetHashDigestSize(hashAlg);
     if (signIn.digest.size == 0 ||
         signIn.digest.size > sizeof(signIn.digest.buffer)) {
-        return BAD_FUNC_ARG;
+        return BUFFER_E;
     }
     /* if digest provided is smaller than key size then zero pad leading */
     if (digestSz < signIn.digest.size) {
@@ -4031,7 +4052,7 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     verifySigIn.digest.size = (UINT16)TPM2_GetHashDigestSize(hashAlg);
     if (verifySigIn.digest.size == 0 ||
         verifySigIn.digest.size > sizeof(verifySigIn.digest.buffer)) {
-        return BAD_FUNC_ARG;
+        return BUFFER_E;
     }
     /* if digest provided is smaller than key size then zero pad leading */
     if (digestSz < verifySigIn.digest.size) {
@@ -5391,6 +5412,10 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
         }
         if (rc == 0) {
             word32 uniqueSz = TPM2_GetHashDigestSize(hashAlg);
+            if (uniqueSz == 0 || uniqueSz > sizeof(unique->buffer)) {
+                rc = BUFFER_E;
+            }
+        if (rc == 0) {
             rc = wolfTPM2_HashFinish(dev, &hash, unique->buffer, &uniqueSz);
             unique->size = uniqueSz;
         }
@@ -5451,6 +5476,10 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
 
     hashAlg = WOLFTPM2_WRAP_DIGEST;
     hashAlgDigSz = TPM2_GetHashDigestSize(hashAlg);
+    if (hashAlgDigSz <= 0 ||
+        hashAlgDigSz > (int)sizeof(loadExtIn.inPrivate.sensitiveArea.seedValue.buffer)) {
+        return BUFFER_E;
+    }
 
     /* Setup load command */
     XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
@@ -7550,7 +7579,7 @@ int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
     if (auth != NULL && authSz >= 0) {
         int authDigestSz = TPM2_GetHashDigestSize(tpmSession->authHash);
-        if (authDigestSz < 0 ||
+        if (authDigestSz <= 0 ||
             (authSz + authDigestSz) > (int)sizeof(tpmSession->handle.auth.buffer)) {
             return BUFFER_E;
         }
