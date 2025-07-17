@@ -4364,7 +4364,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
 
-    if (*outSz > rsaEncOut.outData.size) {
+    if (*outSz < rsaEncOut.outData.size) {
         return BUFFER_E;
     }
     *outSz = rsaEncOut.outData.size;
@@ -4419,7 +4419,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return rc;
     }
 
-    if (*msgSz > rsaDecOut.message.size) {
+    if (*msgSz < rsaDecOut.message.size) {
         return BUFFER_E;
     }
     *msgSz = rsaDecOut.message.size;
