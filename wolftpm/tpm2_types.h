@@ -172,6 +172,7 @@ typedef int64_t  INT64;
     #define XFREE(p, h, t)    free(p)
     #endif
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
+    #define XMEMMOVE(d,s,l)   memmove((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
@@ -428,10 +429,10 @@ typedef int64_t  INT64;
 #define MAX_SYM_BLOCK_SIZE 20
 #endif
 #ifndef MAX_SYM_KEY_BYTES
-#define MAX_SYM_KEY_BYTES 256
+#define MAX_SYM_KEY_BYTES 32
 #endif
 #ifndef LABEL_MAX_BUFFER
-#define LABEL_MAX_BUFFER 128
+#define LABEL_MAX_BUFFER 48
 #endif
 #ifndef MAX_RSA_KEY_BITS
 #define MAX_RSA_KEY_BITS 2048
@@ -444,11 +445,11 @@ typedef int64_t  INT64;
 #define MAX_ECC_KEY_BITS 521
 #endif
 #ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES (((MAX_ECC_KEY_BITS+7)/8)*2)
+#define MAX_ECC_KEY_BYTES ((MAX_ECC_KEY_BITS+7)/8)
 #endif
 
 #ifndef MAX_AES_KEY_BITS
-#define MAX_AES_KEY_BITS 128
+#define MAX_AES_KEY_BITS 256
 #endif
 #ifndef MAX_AES_BLOCK_SIZE_BYTES
 #define MAX_AES_BLOCK_SIZE_BYTES 16
