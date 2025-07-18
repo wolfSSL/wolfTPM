@@ -139,6 +139,16 @@ jobs:
     - name: make debug io
       run: make
 
+# build with clang address sanitizer
+    - name: configure clang asan
+      run: ./configure --enable-swtpm CC=clang CFLAGS="-fsanitize=address -fno-omit-frame-pointer -g"
+    - name: make clang asan
+      run: make
+    - name: make check clang asan
+      run: |
+        make check
+        ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
+
 # build pedantic
     - name: configure pedantic
       run: ./configure CFLAGS="-Wpedantic"
@@ -229,6 +239,16 @@ jobs:
         make
         make check
         WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh
+
+# test with symmetric encryption
+    - name: configure symmetric
+      run: ./configure --enable-swtpm CFLAGS="-DWOLFTPM_USE_SYMMETRIC"
+    - name: make symmetric
+      run: make
+    - name: make check symmetric
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
 
 # capture logs on failure
     - name: Upload failure logs

@@ -172,6 +172,7 @@ typedef int64_t  INT64;
     #define XFREE(p, h, t)    free(p)
     #endif
     #define XMEMCPY(d,s,l)    memcpy((d),(s),(l))
+    #define XMEMMOVE(d,s,l)   memmove((d),(s),(l))
     #define XMEMSET(b,c,l)    memset((b),(c),(l))
     #define XMEMCMP(s1,s2,n)  memcmp((s1),(s2),(n))
     #define XSTRLEN(s1)       strlen((s1))
@@ -375,6 +376,18 @@ typedef int64_t  INT64;
     #define WOLFTPM_PERFORM_SELFTEST
 #endif
 
+/* Chip defaults */
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    #ifndef MAX_RSA_KEY_BITS
+        #define MAX_RSA_KEY_BITS 4096
+    #endif
+    #ifndef MAX_ECC_KEY_BITS
+        #define MAX_ECC_KEY_BITS 384
+    #endif
+    #ifndef HASH_COUNT
+        #define HASH_COUNT 3
+    #endif
+#endif
 
 
 /* ---------------------------------------------------------------------------*/
@@ -386,10 +399,6 @@ typedef int64_t  INT64;
 #define TPM_SHA256_DIGEST_SIZE 32
 #define TPM_SHA384_DIGEST_SIZE 48
 #define TPM_SHA512_DIGEST_SIZE 64
-
-#ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES     66
-#endif
 
 #ifndef TPM_MAX_BLOCK_SIZE
 #define TPM_MAX_BLOCK_SIZE     128
@@ -428,15 +437,18 @@ typedef int64_t  INT64;
 #define MAX_SYM_BLOCK_SIZE 20
 #endif
 #ifndef MAX_SYM_KEY_BYTES
-#define MAX_SYM_KEY_BYTES 256
+#define MAX_SYM_KEY_BYTES 32
 #endif
 #ifndef LABEL_MAX_BUFFER
-#define LABEL_MAX_BUFFER 128
+/* the TCG specification defines a label size not exceed 32 bytes */
+#define LABEL_MAX_BUFFER 32
 #endif
+
 #ifndef MAX_RSA_KEY_BITS
 #define MAX_RSA_KEY_BITS 2048
 #endif
 #ifndef MAX_RSA_KEY_BYTES
+/* the TCG specification defines an RSA key as two max values */
 #define MAX_RSA_KEY_BYTES (((MAX_RSA_KEY_BITS+7)/8)*2)
 #endif
 
@@ -444,11 +456,11 @@ typedef int64_t  INT64;
 #define MAX_ECC_KEY_BITS 521
 #endif
 #ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES (((MAX_ECC_KEY_BITS+7)/8)*2)
+#define MAX_ECC_KEY_BYTES ((MAX_ECC_KEY_BITS+7)/8)
 #endif
 
 #ifndef MAX_AES_KEY_BITS
-#define MAX_AES_KEY_BITS 128
+#define MAX_AES_KEY_BITS 256
 #endif
 #ifndef MAX_AES_BLOCK_SIZE_BYTES
 #define MAX_AES_BLOCK_SIZE_BYTES 16
@@ -654,39 +666,50 @@ typedef int64_t  INT64;
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
 #ifndef HASH_COUNT
-    /* Calculate hash count based on wolfCrypt enables */
-    #ifndef NO_SHA
-        #define HASH_COUNT_SHA1 1
-    #else
-        #define HASH_COUNT_SHA1 0
-    #endif
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+        /* Calculate hash count based on wolfCrypt enables */
+        #ifndef NO_SHA
+            #define HASH_COUNT_SHA1 1
+        #else
+            #define HASH_COUNT_SHA1 0
+        #endif
 
-    #ifndef NO_SHA256
-        #define HASH_COUNT_SHA256 1
-    #else
-        #define HASH_COUNT_SHA256 0
-    #endif
+        #ifndef NO_SHA256
+            #define HASH_COUNT_SHA256 1
+        #else
+            #define HASH_COUNT_SHA256 0
+        #endif
 
-    #ifdef WOLFSSL_SHA384
-        #define HASH_COUNT_SHA384 1
-    #else
-        #define HASH_COUNT_SHA384 0
-    #endif
+        #ifdef WOLFSSL_SHA384
+            #define HASH_COUNT_SHA384 1
+        #else
+            #define HASH_COUNT_SHA384 0
+        #endif
 
-    #ifdef WOLFSSL_SHA512
-        #define HASH_COUNT_SHA512 1
-    #else
-        #define HASH_COUNT_SHA512 0
-    #endif
+        #ifdef WOLFSSL_SHA512
+            #define HASH_COUNT_SHA512 1
+        #else
+            #define HASH_COUNT_SHA512 0
+        #endif
 
-    #ifdef WOLFSSL_SHA3
-        #define HASH_COUNT_SHA3 1
-    #else
-        #define HASH_COUNT_SHA3 0
-    #endif
+        #ifdef WOLFSSL_SHA3
+            #define HASH_COUNT_SHA3 1
+        #else
+            #define HASH_COUNT_SHA3 0
+        #endif
 
-    #define HASH_COUNT (HASH_COUNT_SHA1 + HASH_COUNT_SHA256 + \
-                        HASH_COUNT_SHA384 + HASH_COUNT_SHA512 + HASH_COUNT_SHA3)
+        #define HASH_COUNT (HASH_COUNT_SHA1 + HASH_COUNT_SHA256 + \
+                            HASH_COUNT_SHA384 + HASH_COUNT_SHA512 + \
+                            HASH_COUNT_SHA3)
+        /* make sure hash count is at least 2 */
+        #if HASH_COUNT < 2
+            #undef  HASH_COUNT
+            #define HASH_COUNT 2
+        #endif
+    #else
+        /* default to 2 for non-wolfCrypt builds */
+        #define HASH_COUNT 2
+    #endif
 #endif
 #ifndef MAX_CAP_ALGS
 #define MAX_CAP_ALGS (MAX_CAP_DATA / sizeof(TPMS_ALG_PROPERTY))

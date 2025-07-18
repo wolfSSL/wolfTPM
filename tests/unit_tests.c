@@ -504,9 +504,9 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     /* combine R and S at key size (zero pad leading) */
-    XMEMCPY(&sigRs[curveSize-rLen], r, rLen);
+    XMEMMOVE(&sigRs[curveSize-rLen], r, rLen);
     XMEMSET(&sigRs[0], 0, curveSize-rLen);
-    XMEMCPY(&sigRs[curveSize + (curveSize-sLen)], s, sLen);
+    XMEMMOVE(&sigRs[curveSize + (curveSize-sLen)], s, sLen);
     XMEMSET(&sigRs[curveSize], 0, curveSize-sLen);
 
     /* Verify wolfCrypt signature with TPM */
