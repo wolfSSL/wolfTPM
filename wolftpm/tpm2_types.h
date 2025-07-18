@@ -376,6 +376,18 @@ typedef int64_t  INT64;
     #define WOLFTPM_PERFORM_SELFTEST
 #endif
 
+/* Chip defaults */
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    #ifndef MAX_RSA_KEY_BITS
+        #define MAX_RSA_KEY_BITS 4096
+    #endif
+    #ifndef MAX_ECC_KEY_BITS
+        #define MAX_ECC_KEY_BITS 384
+    #endif
+    #ifndef HASH_COUNT
+        #define HASH_COUNT 3
+    #endif
+#endif
 
 
 /* ---------------------------------------------------------------------------*/
@@ -387,10 +399,6 @@ typedef int64_t  INT64;
 #define TPM_SHA256_DIGEST_SIZE 32
 #define TPM_SHA384_DIGEST_SIZE 48
 #define TPM_SHA512_DIGEST_SIZE 64
-
-#ifndef MAX_ECC_KEY_BYTES
-#define MAX_ECC_KEY_BYTES     66
-#endif
 
 #ifndef TPM_MAX_BLOCK_SIZE
 #define TPM_MAX_BLOCK_SIZE     128
@@ -432,12 +440,15 @@ typedef int64_t  INT64;
 #define MAX_SYM_KEY_BYTES 32
 #endif
 #ifndef LABEL_MAX_BUFFER
-#define LABEL_MAX_BUFFER 48
+/* the TCG specification defines a label size not exceed 32 bytes */
+#define LABEL_MAX_BUFFER 32
 #endif
+
 #ifndef MAX_RSA_KEY_BITS
 #define MAX_RSA_KEY_BITS 2048
 #endif
 #ifndef MAX_RSA_KEY_BYTES
+/* the TCG specification defines an RSA key as two max values */
 #define MAX_RSA_KEY_BYTES (((MAX_RSA_KEY_BITS+7)/8)*2)
 #endif
 

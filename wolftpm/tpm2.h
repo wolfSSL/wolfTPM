@@ -72,8 +72,8 @@ typedef UINT32 TPM_GENERATED;
 #define TPM_SPEC_YEAR         2016
 #define TPM_SPEC_DAY_OF_YEAR  273
 
-#define TPM_GENERATED_VALUE   0xff544347
-
+#define TPM_GENERATED_VALUE   0xff544347U
+#define TPM_MAX_DERIVATION_BITS 8192U
 
 typedef enum {
     TPM_ALG_ERROR           = 0x0000,
