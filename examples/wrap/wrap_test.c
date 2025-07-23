@@ -451,24 +451,27 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&testKey, 0, sizeof(testKey));
     rc = wolfTPM2_CreateRsaKeyBlob(&dev, &storageKey, &wolfRsaPrivKey,
         &testKey);
-    wc_FreeRsaKey(&wolfRsaPrivKey);
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
+    wc_FreeRsaKey(&wolfRsaPrivKey); /* free wolf key */
+
+    if (rc == 0) {
+        printf("RSA Private Key Blob created (private = %d bytes)\n",
+            testKey.priv.size);
+
+        rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
+        if (rc != 0) goto exit;
+        printf("RSA Private Key Loaded into TPM: Handle 0x%x\n",
+            (word32)rsaKey.handle.hndl);
+
+        /* Use TPM Handle... */
+
+        rc = wolfTPM2_UnloadHandle(&dev, &testKey.handle);
+        if (rc != 0) goto exit;
+    }
+    else if (rc != NOT_COMPILED_IN) {
         /* NOT_COMPILED_IN here likely means that AES-CFB is not enabled for
          * encrypting secrets */
         goto exit;
     }
-    printf("RSA Private Key Blob created (private = %d bytes)\n",
-        testKey.priv.size);
-
-    rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
-    if (rc != 0) goto exit;
-    printf("RSA Private Key Loaded into TPM: Handle 0x%x\n",
-        (word32)rsaKey.handle.hndl);
-
-    /* Use TPM Handle... */
-
-    rc = wolfTPM2_UnloadHandle(&dev, &testKey.handle);
-    if (rc != 0) goto exit;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !NO_ASN */
 
     /* Load raw RSA private key into TPM */
@@ -691,24 +694,26 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(&testKey, 0, sizeof(testKey));
     rc = wolfTPM2_CreateEccKeyBlob(&dev, &storageKey, &wolfEccPrivKey,
         &testKey);
-    wc_ecc_free(&wolfEccPrivKey);
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
+    wc_ecc_free(&wolfEccPrivKey); /* free wolf key */
+    if (rc == 0) {
+        printf("ECC Private Key Blob created (private = %d bytes)\n",
+            testKey.priv.size);
+        rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
+        if (rc != 0) goto exit;
+        printf("ECC Private Key Loaded into TPM: Handle 0x%x\n",
+            (word32)testKey.handle.hndl);
+
+        /* Use TPM Handle... */
+
+        rc = wolfTPM2_UnloadHandle(&dev, &testKey.handle);
+        if (rc != 0) goto exit;
+    }
+    else if (rc != NOT_COMPILED_IN) {
         /* NOT_COMPILED_IN here likely means the WOLFSSL_PUBLIC_MP is enabled
          * exposing the mp_ math API's or AES CFB is not enabled.
          * Both are needed for encrypting secrets */
         goto exit;
     }
-    printf("ECC Private Key Blob created (private = %d bytes)\n",
-        testKey.priv.size);
-    rc = wolfTPM2_LoadKey(&dev, &testKey, &storageKey.handle);
-    if (rc != 0) goto exit;
-    printf("ECC Private Key Loaded into TPM: Handle 0x%x\n",
-        (word32)testKey.handle.hndl);
-
-    /* Use TPM Handle... */
-
-    rc = wolfTPM2_UnloadHandle(&dev, &testKey.handle);
-    if (rc != 0) goto exit;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !NO_ASN */
 
     /* Load raw ECC private key into TPM */
