@@ -220,23 +220,24 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     key->handle.hndl == TPM_RH_NULL
                 ) {
                     TPMT_PUBLIC publicTemplate;
-                    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+                    TPMI_ALG_HASH hashAlg;
 
-                    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+                    if (curve_id == TPM_ECC_NIST_P521)
+                        hashAlg = TPM_ALG_SHA512;
+                    else if (curve_id == TPM_ECC_NIST_P384)
+                        hashAlg = TPM_ALG_SHA384;
+                    else
+                        hashAlg = TPM_ALG_SHA256;
+
+                    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+                    rc = wolfTPM2_GetKeyTemplate_ECC_ex(&publicTemplate, hashAlg,
                         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                        curve_id, TPM_ALG_ECDSA);
+                        curve_id, TPM_ALG_ECDSA, hashAlg);
                     if (rc == 0) {
-                        if (curve_id == TPM_ECC_NIST_P521)
-                            publicTemplate.nameAlg = TPM_ALG_SHA512;
-                        else if (curve_id == TPM_ECC_NIST_P384)
-                            publicTemplate.nameAlg = TPM_ALG_SHA384;
-                        else
-                            publicTemplate.nameAlg = TPM_ALG_SHA256;
-
                         if (tlsCtx->ecdsaKey != NULL) {
                             /* Use create key and load key directly instead to make
-                            * sure the private portion is populated */
+                             * sure the private portion is populated */
                             rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->ecdsaKey,
                                 &tlsCtx->storageKey->handle, &publicTemplate,
                                 (byte*)key->handle.auth.buffer,

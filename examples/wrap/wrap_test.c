@@ -124,6 +124,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
 
+    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     XMEMSET(&publicKey, 0, sizeof(publicKey));
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -172,11 +174,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /* Setup the wolf crypto device callback */
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
 #ifndef NO_RSA
-    XMEMSET(&rsaKey, 0, sizeof(rsaKey));
     tpmCtx.rsaKey = &rsaKey;
 #endif
 #ifdef HAVE_ECC
-    XMEMSET(&eccKey, 0, sizeof(eccKey));
     tpmCtx.eccKey = &eccKey;
 #endif
     tpmCtx.storageKey = &storageKey;
