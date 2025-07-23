@@ -1425,6 +1425,27 @@ WOLFTPM_API int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Create an encrypted RSA key blob from a wolfCrypt key under a specific parent key
+    \note Creates an encrypted version of the key in WOLFTPM2_KEYBLOB format, but does not load the key into the TPM. Use wolfTPM2_LoadKey() to load the key.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param wolfKey pointer to a struct of RsaKey type, holding a wolfcrypt key
+    \param tpmKey pointer to an empty struct of WOLFTPM2_KEYBLOB type, to hold the encrypted key blob
+
+    \sa wolfTPM2_LoadKey
+    \sa wolfTPM2_RsaKey_WolfToTpm_ex
+    \sa wolfTPM2_CreateEccKeyBlob
+*/
+WOLFTPM_API int wolfTPM2_CreateRsaKeyBlob(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
+    RsaKey* wolfKey, WOLFTPM2_KEYBLOB* tpmKey);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Import a PEM format public key from a file into the TPM
 
     \return TPM_RC_SUCCESS: successful
@@ -1519,6 +1540,27 @@ WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
 */
 WOLFTPM_API int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     ecc_key* wolfKey, WOLFTPM2_KEY* tpmKey);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Create an encrypted ECC key blob from a wolfCrypt key under a specific parent key
+    \note Creates an encrypted version of the key in WOLFTPM2_KEYBLOB format, but does not load the key into the TPM. Use wolfTPM2_LoadKey() to load the key.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parentKey pointer to a WOLFTPM2_KEY struct, pointing to a Primary Key or TPM Hierarchy
+    \param wolfKey pointer to a struct of ecc_key type, holding a wolfcrypt key
+    \param tpmKey pointer to an empty struct of WOLFTPM2_KEYBLOB type, to hold the encrypted key blob
+
+    \sa wolfTPM2_LoadKey
+    \sa wolfTPM2_EccKey_WolfToTpm_ex
+    \sa wolfTPM2_CreateRsaKeyBlob
+*/
+WOLFTPM_API int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
+    ecc_key* wolfKey, WOLFTPM2_KEYBLOB* tpmKey);
 
 /*!
     \ingroup wolfTPM2_Wrappers
