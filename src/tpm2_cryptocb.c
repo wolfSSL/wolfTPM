@@ -180,11 +180,15 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             int curve_id;
             WOLFTPM2_KEY* key;
 
+        #ifdef WOLFTPM2_USE_SW_ECDHE
+            if (tlsCtx->ecdhKey == NULL) {
+                return exit_rc;
+            }
+        #endif
+
             if (   tlsCtx->eccKey   == NULL
                 && tlsCtx->ecdsaKey == NULL
-            #ifndef WOLFTPM2_USE_SW_ECDHE
                 && tlsCtx->ecdhKey  == NULL
-            #endif
             ) {
             #ifdef DEBUG_WOLFTPM
                 printf("No crypto callback key pointer set!\n");
