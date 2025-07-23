@@ -3345,9 +3345,10 @@ typedef struct TpmCryptoDevCtx {
     #endif
 #endif
 #ifdef HAVE_ECC
-    WOLFTPM2_KEY* eccKey;  /* ECDSA */
+    WOLFTPM2_KEY* eccKey;       /* ECDSA - public only */
+    WOLFTPM2_KEYBLOB* ecdsaKey; /* ECDSA - retain encrypted private portion from keygen */
     #ifndef WOLFTPM2_USE_SW_ECDHE
-    WOLFTPM2_KEY* ecdhKey; /* ECDH */
+    WOLFTPM2_KEY* ecdhKey;      /* ECDH */
     #endif
 #endif
     WOLFTPM2_KEY* storageKey;

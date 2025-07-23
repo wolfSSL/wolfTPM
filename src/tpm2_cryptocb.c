@@ -177,11 +177,20 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
     #endif /* !NO_RSA */
     #ifdef HAVE_ECC
         if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
-        #ifdef WOLFTPM2_USE_SW_ECDHE
-            rc = exit_rc;
-        #else
             int curve_id;
             WOLFTPM2_KEY* key;
+
+            if (   tlsCtx->eccKey   == NULL
+                && tlsCtx->ecdsaKey == NULL
+            #ifndef WOLFTPM2_USE_SW_ECDHE
+                && tlsCtx->ecdhKey  == NULL
+            #endif
+            ) {
+            #ifdef DEBUG_WOLFTPM
+                printf("No crypto callback key pointer set!\n");
+            #endif
+                return BAD_FUNC_ARG;
+            }
 
             /* Make sure an ECDH key has been set and curve is supported */
             curve_id = info->pk.eckg.curveId;
@@ -189,16 +198,20 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 curve_id = info->pk.eckg.key->dp->id; /* use dp */
             }
             rc = TPM2_GetTpmCurve(curve_id);
-            if (rc < 0 || (tlsCtx->ecdhKey == NULL && tlsCtx->eccKey == NULL)) {
+            if (rc < 0) {
                 return exit_rc;
             }
             curve_id = rc;
             rc = 0;
 
             /* If ecdhKey is NULL then it is a signing key */
-            if (tlsCtx->ecdhKey == NULL) {
+        #ifndef WOLFTPM2_USE_SW_ECDHE
+            if (tlsCtx->ecdhKey == NULL)
+        #endif
+            {
                 /* Create an ECC key for ECDSA - if one isn't already created */
-                key = tlsCtx->eccKey;
+                key = (tlsCtx->ecdsaKey != NULL) ?
+                    (WOLFTPM2_KEY*)tlsCtx->ecdsaKey : tlsCtx->eccKey;
                 if (key->handle.hndl == 0 ||
                     key->handle.hndl == TPM_RH_NULL
                 ) {
@@ -210,47 +223,72 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                         curve_id, TPM_ALG_ECDSA);
                     if (rc == 0) {
-                        publicTemplate.nameAlg = TPM_ALG_SHA256; /* make sure its SHA256 */
-                        rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, key,
-                            &tlsCtx->storageKey->handle, &publicTemplate,
-                            (byte*)key->handle.auth.buffer,
-                            key->handle.auth.size);
+                        if (curve_id == TPM_ECC_NIST_P521)
+                            publicTemplate.nameAlg = TPM_ALG_SHA512;
+                        else if (curve_id == TPM_ECC_NIST_P384)
+                            publicTemplate.nameAlg = TPM_ALG_SHA384;
+                        else
+                            publicTemplate.nameAlg = TPM_ALG_SHA256;
+
+                        if (tlsCtx->ecdsaKey != NULL) {
+                            /* Use create key and load key directly instead to make
+                            * sure the private portion is populated */
+                            rc = wolfTPM2_CreateKey(tlsCtx->dev, tlsCtx->ecdsaKey,
+                                &tlsCtx->storageKey->handle, &publicTemplate,
+                                (byte*)key->handle.auth.buffer,
+                                key->handle.auth.size);
+                            if (rc == TPM_RC_SUCCESS) {
+                                rc = wolfTPM2_LoadKey(tlsCtx->dev, tlsCtx->ecdsaKey,
+                                    &tlsCtx->storageKey->handle);
+                            }
+                        }
+                        else {
+                            /* Create and load key - encrypted private is not exported */
+                            rc = wolfTPM2_CreateAndLoadKey(tlsCtx->dev, tlsCtx->eccKey,
+                                &tlsCtx->storageKey->handle, &publicTemplate,
+                                (byte*)key->handle.auth.buffer,
+                                key->handle.auth.size);
+                        }
                     }
                 }
             }
+        #ifndef WOLFTPM2_USE_SW_ECDHE
             else {
                 /* Generate ephemeral key - if one isn't already created */
                 key = tlsCtx->ecdhKey;
                 if (key->handle.hndl == 0 ||
                     key->handle.hndl == TPM_RH_NULL) {
-                    rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, key, curve_id,
-                        NULL, 0 /* no auth for ephemeral key */
+                    rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey,
+                        curve_id, NULL, 0 /* no auth for ephemeral key */
                     );
                 }
             }
+        #endif
+
             if (rc == 0) {
                 /* Export public key info to wolf ecc_key */
                 rc = wolfTPM2_EccKey_TpmToWolf(tlsCtx->dev, key,
                     info->pk.eckg.key);
                 if (rc != 0) {
                     /* if failure, release key */
-                    wolfTPM2_UnloadHandle(tlsCtx->dev, &tlsCtx->ecdhKey->handle);
+                    wolfTPM2_UnloadHandle(tlsCtx->dev, &key->handle);
                 }
             }
             else if (rc & TPM_RC_CURVE) {
                 /* if the curve is not supported on TPM, then fall-back to software */
                 rc = exit_rc;
-                /* Make sure ECDHE key indicates nothing loaded */
+                /* Make sure key indicates nothing loaded */
                 key->handle.hndl = TPM_RH_NULL;
             }
-        #endif /* WOLFTPM2_USE_SW_ECDHE */
         }
         else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
             byte sigRS[MAX_ECC_BYTES*2];
             word32 rsLen = sizeof(sigRS), keySz;
             word32 inlen = info->pk.eccsign.inlen;
+            WOLFTPM2_KEY* key = (tlsCtx->ecdsaKey != NULL) ?
+                    (WOLFTPM2_KEY*)tlsCtx->ecdsaKey : tlsCtx->eccKey;
 
-            if (tlsCtx->eccKey == NULL) {
+            if (key == NULL) {
                 /* TPM key not setup, fallback to software */
                 return exit_rc;
             }
@@ -260,13 +298,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             if (keySz == 0) {
                 /* if not populated fallback to key size for TPM key */
                 keySz = TPM2_GetCurveSize(
-                   tlsCtx->eccKey->pub.publicArea.parameters.eccDetail.curveID);
+                    key->pub.publicArea.parameters.eccDetail.curveID);
             }
             /* truncate input to match key size */
             if (inlen > keySz)
                 inlen = keySz;
 
-            rc = wolfTPM2_SignHash(tlsCtx->dev, tlsCtx->eccKey,
+            rc = wolfTPM2_SignHash(tlsCtx->dev, key,
                 info->pk.eccsign.in, inlen, sigRS, (int*)&rsLen);
             if (rc == 0) {
                 byte *r, *s;
@@ -335,8 +373,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             TPM2B_ECC_POINT pubPoint;
 
             /* Make sure an ECDH key has been set */
-            if (tlsCtx->ecdhKey == NULL || tlsCtx->eccKey == NULL ||
-                    tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL) {
+            if (tlsCtx->ecdhKey == NULL ||
+                tlsCtx->ecdhKey->handle.hndl == TPM_RH_NULL ||
+                tlsCtx->ecdhKey->handle.hndl == 0) {
                 return exit_rc;
             }
 
