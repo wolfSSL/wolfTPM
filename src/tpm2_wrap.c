@@ -2951,11 +2951,15 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             rc = wc_RsaPublicKeyDecode(der, &idx, key, derSz);
         }
         if (rc == 0) {
-            if (isPrivateKey)
+            if (isPrivateKey) {
+                PRIVATE_KEY_UNLOCK();
                 rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz,
                     p, &pSz, q, &qSz);
-            else
+                PRIVATE_KEY_LOCK();
+            }
+            else {
                 rc = wc_RsaFlattenPublicKey(key, (byte*)&e, &eSz, n, &nSz);
+            }
         }
         if (rc == 0 && nSz > sizeof(pub->publicArea.unique.rsa.buffer))
             rc = BUFFER_E;
@@ -3046,11 +3050,15 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
         if (rc == 0) {
             curveId = TPM2_GetTpmCurve(key->dp->id);
 
-            if (isPrivateKey)
+            if (isPrivateKey) {
+                PRIVATE_KEY_UNLOCK();
                 rc = wc_ecc_export_private_raw(key, qx, &qxSz, qy, &qySz,
                     d, &dSz);
-            else
+                PRIVATE_KEY_LOCK();
+            }
+            else {
                 rc = wc_ecc_export_public_raw(key, qx, &qxSz, qy, &qySz);
+            }
         }
         if (rc == 0 && qxSz > sizeof(pub->publicArea.unique.ecc.x.buffer))
             rc = BUFFER_E;
@@ -3416,8 +3424,10 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
         rc = wc_RsaPrivateKeyDecode(input, &idx, key, inSz);
 
     if (rc == 0) {
+        PRIVATE_KEY_UNLOCK();
         rc = wc_RsaExportKey(key, (byte*)&e, &eSz, n, &nSz, d, &dSz, p, &pSz, q,
             &qSz);
+        PRIVATE_KEY_LOCK();
     }
 
     if (rc == 0) {
@@ -3498,6 +3508,51 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load public key portion into wolf RsaKey */
     rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
+
+    return rc;
+}
+
+int wolfTPM2_CreateRsaKeyBlob(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
+    RsaKey* wolfKey, WOLFTPM2_KEYBLOB* tpmKey)
+{
+    int rc;
+    word32  exponent;
+    byte    e[sizeof(exponent)];
+    byte    n[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    byte    d[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    byte    p[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    byte    q[WOLFTPM2_WRAP_RSA_KEY_BITS / 8];
+    word32  eSz = sizeof(e);
+    word32  nSz = sizeof(n);
+    word32  dSz = sizeof(d);
+    word32  pSz = sizeof(p);
+    word32  qSz = sizeof(q);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL || parentKey == NULL ||
+        wolfKey->type != RSA_PRIVATE) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(e, 0, sizeof(e));
+    XMEMSET(n, 0, sizeof(n));
+    XMEMSET(d, 0, sizeof(d));
+    XMEMSET(p, 0, sizeof(p));
+    XMEMSET(q, 0, sizeof(q));
+
+    /* export the raw private and public RSA as unsigned binary */
+    PRIVATE_KEY_UNLOCK();
+    rc = wc_RsaExportKey(wolfKey, e, &eSz, n, &nSz,
+        d, &dSz, p, &pSz, q, &qSz);
+    PRIVATE_KEY_LOCK();
+    if (rc == 0) {
+        exponent = wolfTPM2_RsaKey_Exponent(e, eSz);
+
+        rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, tpmKey, n, nSz,
+            exponent, q, qSz, TPM_ALG_NULL, TPM_ALG_NULL);
+    }
+
+    /* not used */
+    (void)p;
 
     return rc;
 }
@@ -3652,6 +3707,81 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 }
 #endif /* HAVE_ECC_KEY_IMPORT */
 #ifdef HAVE_ECC_KEY_EXPORT
+int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
+    ecc_key* wolfKey, WOLFTPM2_KEYBLOB* tpmKey)
+{
+    int rc, curve_id = 0;
+    byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
+    word32  qxSz = sizeof(qx);
+    word32  qySz = sizeof(qy);
+    word32  dSz = sizeof(d);
+
+    if (dev == NULL || tpmKey == NULL || wolfKey == NULL || parentKey == NULL ||
+        wolfKey->type == ECC_PUBLICKEY) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(tpmKey, 0, sizeof(*tpmKey));
+    XMEMSET(qx, 0, sizeof(qx));
+    XMEMSET(qy, 0, sizeof(qy));
+    XMEMSET(d, 0, sizeof(d));
+
+    if (wolfKey->dp)
+        curve_id = wolfKey->dp->id;
+
+    rc = TPM2_GetTpmCurve(curve_id);
+    if (rc < 0)
+        return rc;
+    curve_id = rc;
+    rc = 0;
+
+    if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
+        /* compute public point without modifying incoming wolf key */
+        int keySz = wc_ecc_size(wolfKey);
+        ecc_point* point = wc_ecc_new_point();
+        if (point == NULL) {
+            rc = MEMORY_E;
+        }
+        if (rc == 0) {
+        #ifdef ECC_TIMING_RESISTANT
+            rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
+        #else
+            rc = wc_ecc_make_pub(wolfKey, point);
+        #endif
+            if (rc == 0)
+                rc = wc_export_int(point->x, qx, &qxSz, keySz,
+                    WC_TYPE_UNSIGNED_BIN);
+            if (rc == 0)
+                rc = wc_export_int(point->y, qy, &qySz, keySz,
+                    WC_TYPE_UNSIGNED_BIN);
+            if (rc == 0) {
+                PRIVATE_KEY_UNLOCK();
+                rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
+                PRIVATE_KEY_LOCK();
+            }
+            wc_ecc_del_point(point);
+        }
+    }
+    else {
+        /* export the raw private/public ECC portions */
+        PRIVATE_KEY_UNLOCK();
+        rc = wc_ecc_export_private_raw(wolfKey,
+            qx, &qxSz,
+            qy, &qySz,
+            d, &dSz);
+        PRIVATE_KEY_LOCK();
+    }
+
+    if (rc == 0) {
+        rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, tpmKey, curve_id,
+            qx, qxSz, qy, qySz, d, dSz);
+    }
+
+    return rc;
+}
+
 int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     ecc_key* wolfKey, WOLFTPM2_KEY* tpmKey)
 {
@@ -3702,17 +3832,22 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
                 if (rc == 0)
                     rc = wc_export_int(point->y, qy, &qySz, keySz,
                         WC_TYPE_UNSIGNED_BIN);
-                if (rc == 0)
+                if (rc == 0) {
+                    PRIVATE_KEY_UNLOCK();
                     rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
+                    PRIVATE_KEY_LOCK();
+                }
                 wc_ecc_del_point(point);
             }
         }
         else {
             /* export the raw private/public ECC portions */
+            PRIVATE_KEY_UNLOCK();
             rc = wc_ecc_export_private_raw(wolfKey,
                 qx, &qxSz,
                 qy, &qySz,
                 d, &dSz);
+            PRIVATE_KEY_LOCK();
         }
 
         if (rc == 0) {

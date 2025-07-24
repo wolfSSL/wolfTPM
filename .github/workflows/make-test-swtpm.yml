@@ -161,6 +161,26 @@ jobs:
     - name: make not provisioning
       run: make
 
+# test with symmetric encryption
+    - name: configure symmetric
+      run: ./configure --enable-swtpm CFLAGS="-DWOLFTPM_USE_SYMMETRIC"
+    - name: make symmetric
+      run: make
+    - name: make check symmetric
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
+
+# test with software ecdhe
+    - name: configure swecdhe
+      run: ./configure --enable-swtpm CFLAGS="-DWOLFTPM2_USE_SW_ECDHE"
+    - name: make swecdhe
+      run: make
+    - name: make check swecdhe
+      run: |
+        make check
+        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
+
 # test without ECC
     - name: wolfssl no ECC
       working-directory: ./wolfssl
@@ -239,16 +259,6 @@ jobs:
         make
         make check
         WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh
-
-# test with symmetric encryption
-    - name: configure symmetric
-      run: ./configure --enable-swtpm CFLAGS="-DWOLFTPM_USE_SYMMETRIC"
-    - name: make symmetric
-      run: make
-    - name: make check symmetric
-      run: |
-        make check
-        WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh
 
 # capture logs on failure
     - name: Upload failure logs
