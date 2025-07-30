@@ -1,5 +1,61 @@
 # Release Notes
 
+## wolfTPM Release 3.9.2 (July 30, 2025)
+
+**Summary**
+
+This release includes a security fix for possible buffer overflow in RSA key export functionality. It also adds new key wrapping API's to support exporting the encrypted private key along with crypto callback improvements. Fixes to support TPM2 signing/verification with smaller digest input sizes. Addition of a new HMAC example. Switch to GPLv3.
+
+**Vulnerabilities**
+
+[Medium CVE-2025-7844]: wolfTPM library wrapper function `wolfTPM2_RsaKey_TpmToWolf` copies external data to a fixed-size stack buffer without length validation potentially causing stack-based buffer overflow
+
+Exporting a TPM based RSA key larger than 2048 bits from the TPM could overrun a stack buffer if the default `MAX_RSA_KEY_BITS=2048` is used. If your TPM 2.0 module supports RSA key sizes larger than 2048 bit and your applications supports creating or importing an RSA private or public key larger than 2048 bits and your application calls `wolfTPM2_RsaKey_TpmToWolf` on that key, then a stack buffer could be overrun. If the `MAX_RSA_KEY_BITS` build-time macro is set correctly (RSA bits match what TPM hardware is capable of) for the hardware target, then a stack overrun is not possible.
+
+Fixed in PR #427 (https://github.com/wolfSSL/wolfTPM/pull/427)
+
+**Detail**
+
+* Improvements for key creation and exporting encrypted private key (PR #428)
+  - Added helpers for importing external private keys and creating encrypted key blobs (see `wolfTPM2_CreateRsaKeyBlob` and `wolfTPM2_CreateEccKeyBlob`)
+  - Added support for crypto callback key generation that exports encrypted private portion (see `TpmCryptoDevCtx.ecdsaKey`)
+  - Added a few missing FIPS unlock/lock on private key access (required with wolfCrypt FIPS)
+  - Improved crypto callback key generation hash algorithm selection
+  - Fixed `WOLFTPM2_USE_SW_ECDHE` build option and added CI tests
+  - Cleaned up the user_settings.h logic between wolfTPM and wolfSSL.
+* Fixed buffer overrun and security issues (PR #427)
+  - Fixed possible buffer overrun issues with RSA key export where wolfCrypt max key size doesn't match TPM support (see CVE-2025-7844)
+  - Fixed RSA encrypt/decrypt buffer size check logic
+  - Fixed `TPM2_GetWolfRng` to ensure NULL is set on RNG init error
+  - Added better defaults for SLB9672/SLB9673
+  - Fixed LABEL_MAX_BUFFER and removed duplicate `MAX_ECC_KEY_BYTES`
+  - Implemented address sanitizer CI test
+* Improved the detection of maximum HASH_COUNT (PR #426 and #427)
+* Enhanced HMAC support with persistent keys (PR #422)
+  - Added example for HMAC with persistent key (see `examples/wrap/hmac`)
+* Improved crypto callback functionality (PR #421)
+  - Added support for crypto callback `WC_PK_TYPE_RSA_GET_SIZE`
+  - Fixed crypto callback fallback to software when no TPM key is setup
+  - Fixed for WC_RNG change to add `pid_t` and added detection of `HAVE_GETPID`
+* Enhanced thread safety and CMake support (PR #417, #420)
+  - Fixed missing `TPM2_ReleaseLock` in `TPM2_GetProductInfo`
+  - Refactored `TPM2_GetNonce` to support non-locking version for internal use
+  - Improved CMake support for single threading, mutex locking and active thread local storage
+  - Fixed CMake logic for `WOLFTPM_NO_ACTIVE_THREAD_LS`
+  - Improved `gActiveTPM` detection for needing thread local
+* Improved TPM signing and verification (PR #418)
+  - Fixed logic for signing with input digest smaller than key size
+  - Improved input digest size logic for TPM2_Sign and TPM2_Verify
+  - Added test case with interop for signing
+  - Exposed `TPM2_ASN_TrimZeros`
+* Enhanced parsing and testing (PR #419)
+  - Fixed `TPM2_ParsePublic` size argument
+* Improved documentation (PR #424, #425)
+  - Added TCG TPM to the SWTPM documentation
+* Fixed build system issues (PR #423)
+  - Fixed bug in configure.ac which breaks in Alpine
+
+
 ## wolfTPM Release 3.9.1 (May 21, 2025)
 
 * Post release fixes (PR #415)
