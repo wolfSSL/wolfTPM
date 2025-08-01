@@ -6,7 +6,7 @@
  *
  * wolfTPM is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
  *
  * wolfTPM is distributed in the hope that it will be useful,
@@ -34,8 +34,8 @@
 extern "C" {
 #endif
 
-#define LIBWOLFTPM_VERSION_STRING "3.9.1"
-#define LIBWOLFTPM_VERSION_HEX 0x03009001
+#define LIBWOLFTPM_VERSION_STRING "3.9.2"
+#define LIBWOLFTPM_VERSION_HEX 0x03009002
 
 #ifdef __cplusplus
 }
