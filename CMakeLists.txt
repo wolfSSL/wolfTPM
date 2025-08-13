@@ -91,8 +91,13 @@ if(WOLFTPM_SINGLE_THREADED)
 endif()
 
 # Mutex locking
-set(WOLFTPM_NO_LOCK "no" CACHE STRING
-    "Enable thread mutex locking (default: enabled)")
+if(WOLFTPM_SINGLE_THREADED)
+    set(_WOLFTPM_NO_LOCK_DEFAULT "no")
+else()
+    set(_WOLFTPM_NO_LOCK_DEFAULT "yes")
+endif()
+set(WOLFTPM_NO_LOCK "${_WOLFTPM_NO_LOCK_DEFAULT}" CACHE STRING
+    "Disable thread mutex locking (default: ${_WOLFTPM_NO_LOCK_DEFAULT})")
 set_property(CACHE WOLFTPM_NO_LOCK
     PROPERTY STRINGS "yes;no")
 if(NOT WOLFTPM_NO_LOCK)
