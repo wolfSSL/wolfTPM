@@ -322,6 +322,32 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
     return 0;
 }
 
+static inline int SocketWaitData(SockIoCbCtx* sockIoCtx, int timeout_sec)
+{
+    int res;
+    struct timeval timeout;
+    fd_set fds, errfds;
+    FD_ZERO(&fds);
+    FD_ZERO(&errfds);
+    FD_SET(sockIoCtx->fd, &fds);
+    FD_SET(sockIoCtx->fd, &errfds);
+    timeout.tv_sec = timeout_sec;
+    timeout.tv_usec = 0;
+    res = select(sockIoCtx->fd + 1, &fds, NULL, &errfds, &timeout);
+    if (res == 0) {
+        return 0; /* timeout */
+    }
+    else if (res > 0) {
+        if (FD_ISSET(sockIoCtx->fd, &fds)) {
+            return 1; /* ready to read */
+        }
+        else if (FD_ISSET(sockIoCtx->fd, &errfds)) {
+            return -1; /* error */
+        }
+    }
+    return 0; /* select failed */
+}
+
 static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 {
     if (sockIoCtx->fd != -1) {
@@ -343,6 +369,7 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 
     int SetupSocketAndListen(SockIoCbCtx* sockIoCtx, word32 port);
     int SocketWaitClient(SockIoCbCtx* sockIoCtx);
+    int SocketWaitData(SockIoCbCtx* sockIoCtx, int timeout_sec);
 #endif /* !WOLFSSL_USER_IO */
 
 /******************************************************************************/
