@@ -672,9 +672,17 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
             }
         }
 
+        if (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
         /* Bidirectional shutdown */
-        while (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
-            printf("Shutdown not complete\n");
+            if (SocketWaitData(&sockIoCtx, 2 /* seconds */) == 1) {
+                int ret = wolfSSL_shutdown(ssl);
+                if (ret == WOLFSSL_SUCCESS) {
+                    printf("Bidirectional shutdown complete\n");
+                }
+                else if (ret != WOLFSSL_SHUTDOWN_NOT_DONE) {
+                    fprintf(stderr, "Bidirectional shutdown failed\n");
+                }
+            }
         }
 
         wolfSSL_free(ssl);
@@ -691,11 +699,6 @@ exit:
     }
 
     if (ssl != NULL) {
-        /* Bidirectional shutdown */
-        while (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
-            printf("Shutdown not complete\n");
-        }
-
         wolfSSL_free(ssl);
     }
     wolfSSL_CTX_free(ctx);

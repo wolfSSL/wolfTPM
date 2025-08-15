@@ -120,6 +120,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         #endif
                 rc = exit_rc;
         }
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX > 0x05006000
         else if (info->pk.type == WC_PK_TYPE_RSA_GET_SIZE) {
             if (tlsCtx->rsaKey != NULL) {
                 *info->pk.rsa_get_size.keySize =
@@ -128,6 +129,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rc = 0;
             }
         }
+    #endif
         else if (info->pk.type == WC_PK_TYPE_RSA) {
             switch (info->pk.rsa.type) {
                 case RSA_PUBLIC_ENCRYPT:
