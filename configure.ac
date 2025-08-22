@@ -264,12 +264,13 @@ fi
 
 
 # STM ST33 Support
-AC_ARG_ENABLE([st33],,
+AC_ARG_ENABLE([st33],
+    [AS_HELP_STRING([--enable-st33],[Enable ST ST33 TPM Support (default: disabled)])],
     [ ENABLED_ST33=$enableval ],
     [ ENABLED_ST33=no ]
     )
 AC_ARG_ENABLE([st],
-    [AS_HELP_STRING([--enable-st],[Enable ST ST33 TPM Support (default: disabled)])],
+    [AS_HELP_STRING([--enable-st],[Enable ST TPM Support (default: disabled)])],
     [ ENABLED_ST=$enableval ],
     [ ENABLED_ST=no ]
     )
@@ -307,7 +308,7 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NUVOTON"
 fi
 
-# Infineon SLB9670/SLB9672
+# Infineon SLB9670/SLB9672/SLB9673
 AC_ARG_ENABLE([infineon],
     [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)])],
     [ ENABLED_INFINEON=$enableval ],
@@ -319,7 +320,13 @@ then
     then
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9670"
     else
-        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9672"
+        if test "x$ENABLED_INFINEON" = "xslb9673"
+        then
+            enable_i2c=yes
+            AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9673"
+        else
+            AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9672"
+        fi
     fi
 fi
 
@@ -375,7 +382,8 @@ AC_ARG_ENABLE([autodetect],
 if test "x$ENABLED_AUTODETECT" = "xtest"
 then
     # If a module hasn't been selected then enable auto-detection
-    if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_ST33" = "xno" && test "x$ENABLED_NUVOTON" = "xno"
+    if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_MICROCHIP" = "xno" && \
+       test "x$ENABLED_ST" = "xno" && test "x$ENABLED_ST33" = "xno" && test "x$ENABLED_NUVOTON" = "xno"
     then
         ENABLED_AUTODETECT=yes
     fi
