@@ -264,7 +264,7 @@ fi
 
 
 # STM ST33 Support
-AC_ARG_ENABLE([st33],,
+AC_ARG_ENABLE([st33],
     [ ENABLED_ST33=$enableval ],
     [ ENABLED_ST33=no ]
     )
