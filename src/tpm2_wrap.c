@@ -4275,7 +4275,7 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 {
     int hashAlg = TPM_ALG_NULL;
 
-    /* detect hash algithm based on digest size*/
+    /* detect hash algorithm based on digest size */
     if (digestSz >= TPM_SHA512_DIGEST_SIZE)
         hashAlg = TPM_ALG_SHA512;
     else if (digestSz >= TPM_SHA384_DIGEST_SIZE)
