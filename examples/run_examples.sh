@@ -422,7 +422,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     [ $RESULT -ne 0 ] && echo -e "tpm tls client $1 $2 failed! $RESULT" && exit 1
 }
 
-run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversion]
+run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversion] [extraargs]
     echo -e "TLS test (TPM as server) $1 $2 $3"
     generate_port
 
@@ -433,8 +433,8 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
     sleep 0.1
 
-    echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
-    ./examples/client/client -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem >> $TPMPWD/run.out 2>&1
+    echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4"
+    ./examples/client/client -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
     popd >> $TPMPWD/run.out 2>&1
@@ -480,6 +480,8 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
             run_tpm_tls_server "ecc" "-aes" "3"
             run_tpm_tls_server "ecc" "" "4"
             run_tpm_tls_server "ecc" "-aes" "4"
+            run_tpm_tls_server "ecc" "" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
+            run_tpm_tls_server "ecc" "-aes" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
         fi
 
         # TLS client/server ECC TLS v1.2 and v1.3 PK callbacks
@@ -493,6 +495,8 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
             run_tpm_tls_server "ecc" "-pk -aes" "3"
             run_tpm_tls_server "ecc" "-pk" "4"
             run_tpm_tls_server "ecc" "-pk -aes" "4"
+            run_tpm_tls_server "ecc" "-pk" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
+            run_tpm_tls_server "ecc" "-pk -aes" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
         fi
     fi
 fi

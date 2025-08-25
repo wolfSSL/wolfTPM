@@ -4273,8 +4273,18 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
+    int hashAlg = TPM_ALG_NULL;
+
+    /* detect hash algorithm based on digest size */
+    if (digestSz >= TPM_SHA512_DIGEST_SIZE)
+        hashAlg = TPM_ALG_SHA512;
+    else if (digestSz >= TPM_SHA384_DIGEST_SIZE)
+        hashAlg = TPM_ALG_SHA384;
+    else
+        hashAlg = TPM_ALG_SHA256;
+
     return wolfTPM2_VerifyHashTicket(dev, key, sig, sigSz, digest, digestSz,
-        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, NULL);
+        TPM_ALG_NULL, hashAlg, NULL);
 }
 
 /* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
