@@ -182,6 +182,12 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             int curve_id;
             WOLFTPM2_KEY* key;
 
+        #ifdef WOLFTPM2_USE_SW_ECDHE
+            if (tlsCtx->ecdhKey == NULL) {
+                return exit_rc;
+            }
+        #endif
+
             if (   tlsCtx->eccKey   == NULL
                 && tlsCtx->ecdsaKey == NULL
                 && tlsCtx->ecdhKey  == NULL
@@ -262,13 +268,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
         #ifndef WOLFTPM2_USE_SW_ECDHE
             else {
-                key = tlsCtx->ecdhKey;
-                if (key == NULL) {
-                    /* fallback to software crypto */
-                    return exit_rc;
-                }
-
                 /* Generate ephemeral key - if one isn't already created */
+                key = tlsCtx->ecdhKey;
                 if (key->handle.hndl == 0 ||
                     key->handle.hndl == TPM_RH_NULL) {
                     rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey,
