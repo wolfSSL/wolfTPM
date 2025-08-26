@@ -4132,7 +4132,7 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             sigAlg = TPM_ALG_ECDSA;
         }
         if (hashAlg == 0 || hashAlg == TPM_ALG_NULL) {
-            /* determine hash type based on cuve */
+            /* determine hash type based on curve */
             int curve_id = pub->parameters.eccDetail.curveID;
             if (curve_id == TPM_ECC_NIST_P521)
                 hashAlg = TPM_ALG_SHA512;
