@@ -4132,11 +4132,13 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             sigAlg = TPM_ALG_ECDSA;
         }
         if (hashAlg == 0 || hashAlg == TPM_ALG_NULL) {
-            if (digestSz == 64)
+            /* determine hash type based on cuve */
+            int curve_id = pub->parameters.eccDetail.curveID;
+            if (curve_id == TPM_ECC_NIST_P521)
                 hashAlg = TPM_ALG_SHA512;
-            else if (digestSz == 48)
+            else if (curve_id == TPM_ECC_NIST_P384)
                 hashAlg = TPM_ALG_SHA384;
-            else if (digestSz == 32)
+            else
                 hashAlg = TPM_ALG_SHA256;
         }
     }
@@ -4273,12 +4275,16 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
+    int curve_id = 0;
     int hashAlg = TPM_ALG_NULL;
 
-    /* detect hash algorithm based on digest size */
-    if (digestSz >= TPM_SHA512_DIGEST_SIZE)
+    /* detect hash algorithm based on key curve */
+    if (key != NULL) {
+        curve_id = key->pub.publicArea.parameters.eccDetail.curveID;
+    }
+    if (curve_id == TPM_ECC_NIST_P521)
         hashAlg = TPM_ALG_SHA512;
-    else if (digestSz >= TPM_SHA384_DIGEST_SIZE)
+    else if (curve_id == TPM_ECC_NIST_P384)
         hashAlg = TPM_ALG_SHA384;
     else
         hashAlg = TPM_ALG_SHA256;
