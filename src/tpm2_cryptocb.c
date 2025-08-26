@@ -193,9 +193,10 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 && tlsCtx->ecdhKey  == NULL
             ) {
             #ifdef DEBUG_WOLFTPM
-                printf("No crypto callback key pointer set!\n");
+                printf("No crypto callback TPM key set, "
+                       "fallback to software crypto\n");
             #endif
-                return BAD_FUNC_ARG;
+                return exit_rc;
             }
 
             /* Make sure an ECDH key has been set and curve is supported */
@@ -205,6 +206,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
             rc = TPM2_GetTpmCurve(curve_id);
             if (rc < 0) {
+                /* curve not available, so fallback to sw crypto */
                 return exit_rc;
             }
             curve_id = rc;
@@ -215,9 +217,14 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             if (tlsCtx->ecdhKey == NULL)
         #endif
             {
-                /* Create an ECC key for ECDSA - if one isn't already created */
                 key = (tlsCtx->ecdsaKey != NULL) ?
                     (WOLFTPM2_KEY*)tlsCtx->ecdsaKey : tlsCtx->eccKey;
+                if (key == NULL) {
+                    /* fallback to software crypto */
+                    return exit_rc;
+                }
+
+                /* Create an ECC key for ECDSA - if one isn't already created */
                 if (key->handle.hndl == 0 ||
                     key->handle.hndl == TPM_RH_NULL
                 ) {
