@@ -91,12 +91,22 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #include <errno.h>
 #include <string.h>
 
-
+/* TPM Device Path Configuration:
+ * - /dev/tpm0: TPM raw device (default)
+ * - /dev/tpmrm0: TPM resource manager (requires kernel 5.12+)
+ *                Enabled with WOLFTPM_USE_TPMRM
+ */
 #ifndef TPM2_LINUX_DEV
-#define TPM2_LINUX_DEV "/dev/tpm0"
+#ifdef WOLFTPM_USE_TPMRM
+    #define TPM2_LINUX_DEV "/dev/tpmrm0"
+#else
+    #define TPM2_LINUX_DEV "/dev/tpm0"
+#endif
 #endif
 
+#ifndef TPM2_LINUX_DEV_POLL_TIMEOUT
 #define TPM2_LINUX_DEV_POLL_TIMEOUT -1 /* Infinite time for poll events */
+#endif
 
 /* Linux kernels older than v4.20 (before December 2018) do not support
  * partial reads. The only way to receive a complete response is to read
@@ -111,7 +121,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     int fd;
     int rc_poll, nfds = 1; /* Polling single TPM dev file */
     struct pollfd fds;
-    size_t rspSz = 0;
+    int rspSz = 0;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command size: %d\n", packet->pos);
@@ -127,47 +137,55 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             /* Wait for response to be available */
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
             if (rc_poll > 0 && fds.revents == POLLIN) {
-                rspSz = read(fd, packet->buf, packet->size);
+                ssize_t ret = read(fd, packet->buf, packet->size);
                 /* The caller parses the TPM_Packet for correctness */
-                if (rspSz >= TPM2_HEADER_SIZE) {
+                if (ret >= TPM2_HEADER_SIZE) {
                     /* Enough bytes for a TPM response */
+                    rspSz = (int)ret;
                     rc = TPM_RC_SUCCESS;
                 }
-                #ifdef DEBUG_WOLFTPM
                 else if (rspSz == 0) {
-                    printf("Received EOF instead of TPM response.\n");
-                }
-                else
-                {
-                    printf("Failed to read from TPM device %d, got errno %d"
-                        " = %s\n", fd, errno, strerror(errno));
-                }
+                #ifdef DEBUG_WOLFTPM
+                    printf("Received EOF(0) from %s: errno %d = %s\n",
+                        TPM2_LINUX_DEV, errno, strerror(errno));
                 #endif
+                }
+                else {
+                #ifdef DEBUG_WOLFTPM
+                    printf("Failed to read from %s: errno %d = %s\n",
+                        TPM2_LINUX_DEV, errno, strerror(errno));
+                #endif
+                    rc = TPM_RC_FAILURE;
+                }
             }
-        #ifdef WOLFTPM_DEBUG_VERBOSE
             else {
-                printf("Failed to get a response from fd %d, got errno %d ="
-                    "%s\n", fd, errno, strerror(errno));
+            #ifdef DEBUG_WOLFTPM
+                printf("Failed poll on %s: errno %d = %s\n",
+                    TPM2_LINUX_DEV, errno, strerror(errno));
+            #endif
+                rc = TPM_RC_FAILURE;
             }
-        #endif
         }
-        #ifdef WOLFTPM_DEBUG_VERBOSE
         else {
-            printf("Failed to send the TPM command to fd %d, got errno %d ="
-                "%s\n", fd, errno, strerror(errno));
-        }
+        #ifdef DEBUG_WOLFTPM
+            printf("Failed write to %s: errno %d = %s\n",
+                TPM2_LINUX_DEV, errno, strerror(errno));
         #endif
+            rc = TPM_RC_FAILURE;
+        }
 
         close(fd);
     }
-#ifdef DEBUG_WOLFTPM
     else if (fd == -1 && errno == EACCES) {
-        printf("Permission denied. Use sudo or change the user group.\n");
+        printf("Permission denied on %s\n"
+            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV);
     }
     else {
-        perror("Failed to open device");
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to open %s: errno %d = %s\n",
+            TPM2_LINUX_DEV, errno, strerror(errno));
+    #endif
     }
-#endif
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
