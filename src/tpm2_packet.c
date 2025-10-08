@@ -955,6 +955,13 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
         TPM2_Packet_ParseU16(packet, NULL);     /* tag */
         TPM2_Packet_ParseU32(packet, &respSz);  /* response size */
         TPM2_Packet_ParseU32(packet, &tmpRc);   /* response code */
+        if (respSz > (UINT32)packet->size) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Response size %d is greater than packet buffer size %d\n",
+                respSz, packet->size);
+        #endif
+            return TPM_RC_FAILURE;
+        }
         packet->size = respSz;
         rc = tmpRc;
     }
