@@ -118,7 +118,6 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc = TPM_RC_FAILURE;
-    int fd;
     int rc_poll, nfds = 1; /* Polling single TPM dev file */
     struct pollfd fds;
     int rspSz = 0;
@@ -128,16 +127,17 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
-    fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
-    if (fd >= 0) {
+    if (ctx->fd < 0)
+        ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
+    if (ctx->fd >= 0) {
         /* Send the TPM command */
-        if (write(fd, packet->buf, packet->pos) == packet->pos) {
-            fds.fd = fd;
+        if (write(ctx->fd, packet->buf, packet->pos) == packet->pos) {
+            fds.fd = ctx->fd;
             fds.events = POLLIN;
             /* Wait for response to be available */
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
             if (rc_poll > 0 && fds.revents == POLLIN) {
-                ssize_t ret = read(fd, packet->buf, packet->size);
+                ssize_t ret = read(ctx->fd, packet->buf, packet->size);
                 /* The caller parses the TPM_Packet for correctness */
                 if (ret >= TPM2_HEADER_SIZE) {
                     /* Enough bytes for a TPM response */
@@ -173,10 +173,8 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         #endif
             rc = TPM_RC_FAILURE;
         }
-
-        close(fd);
     }
-    else if (fd == -1 && errno == EACCES) {
+    else if (ctx->fd == -1 && errno == EACCES) {
         printf("Permission denied on %s\n"
             "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV);
     }
@@ -193,9 +191,6 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         TPM2_PrintBin(packet->buf, rspSz);
     }
 #endif
-
-    (void)ctx;
-
     return rc;
 }
 #endif /* __UBOOT__ __linux__ */

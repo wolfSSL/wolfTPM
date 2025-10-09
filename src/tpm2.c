@@ -645,6 +645,10 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return rc;
 #endif
 
+#ifdef WOLFTPM_LINUX_DEV
+    ctx->fd = -1;
+#endif
+
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
 
@@ -711,6 +715,11 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         wolfCrypt_Cleanup();
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+#ifdef WOLFTPM_LINUX_DEV
+    if (ctx->fd >= 0)
+        close(ctx->fd);
+#endif
 
     return TPM_RC_SUCCESS;
 }
