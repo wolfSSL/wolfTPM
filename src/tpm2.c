@@ -716,6 +716,11 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+#ifdef WOLFTPM_LINUX_DEV
+    if (ctx->fd >= 0)
+        close(ctx->fd);
+#endif
+
     return TPM_RC_SUCCESS;
 }
 
