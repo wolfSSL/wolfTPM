@@ -5483,9 +5483,16 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
              */
 
             /* start of product info starts at byte 26 */
-            if (size > packet.size - 26)
-                size = packet.size - 26;
-            XMEMCPY(info, &packet.buf[25], size);
+            if (packet.size <= 26) {
+                rc = TPM_RC_SIZE;
+            }
+            else if (size > 0) {
+                size_t payloadSz = (size_t)(packet.size - 26);
+                if (payloadSz > (size_t)size) {
+                    payloadSz = (size_t)size;
+                }
+                XMEMCPY(info, &packet.buf[25], payloadSz);
+            }
         }
         TPM2_ReleaseLock(ctx);
     }
