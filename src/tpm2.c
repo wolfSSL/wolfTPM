@@ -332,9 +332,20 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            if (authRsp.hmac.size > 0) {
+            if (TPM2_IS_HMAC_SESSION(session->sessionHandle) ||
+                TPM2_IS_POLICY_SESSION(session->sessionHandle))
+            {
+                UINT16 expectedHmacSz = TPM2_GetHashDigestSize(session->authHash);
                 TPM2B_DIGEST hash;
                 TPM2B_AUTH hmac;
+
+                if (expectedHmacSz == 0 || authRsp.hmac.size != expectedHmacSz) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("Response HMAC size mismatch! expected=%u got=%u\n",
+                        expectedHmacSz, authRsp.hmac.size);
+                #endif
+                    return TPM_RC_HMAC;
+                }
 
                 /* calculate "rpHash" hash for command code and parameters */
                 rc = TPM2_CalcRpHash(session->authHash, cmdCode, param, paramSz,
@@ -5472,9 +5483,16 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
              */
 
             /* start of product info starts at byte 26 */
-            if (size > packet.size - 26)
-                size = packet.size - 26;
-            XMEMCPY(info, &packet.buf[25], size);
+            if (packet.size <= 26) {
+                rc = TPM_RC_SIZE;
+            }
+            else if (size > 0) {
+                size_t payloadSz = (size_t)(packet.size - 26);
+                if (payloadSz > (size_t)size) {
+                    payloadSz = (size_t)size;
+                }
+                XMEMCPY(info, &packet.buf[25], payloadSz);
+            }
         }
         TPM2_ReleaseLock(ctx);
     }
