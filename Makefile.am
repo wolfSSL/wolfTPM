@@ -26,7 +26,9 @@ dist_doc_DATA =
 DISTCLEANFILES+= aminclude.am
 
 # make sure we pass the correct flags to distcheck
-AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm
+# SWTPM_PORT can be set via --with-swtpm-port during configure
+# Use @SWTPM_PORT@ substitution from configure.ac
+AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm @DISTCHECK_SWTPM_PORT_FLAG@
 
 exampledir = $(docdir)/example
 dist_example_DATA=

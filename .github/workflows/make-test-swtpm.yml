@@ -133,10 +133,9 @@ jobs:
             needs_install: true
 
           # Old wolfSSL (v4.7.0)
+          # Builds latest wolfSSL for examples/client/client and examples/server/server
+          # Builds old wolfSSL (v4.7.0) for linking wolfTPM against older shared library
           - name: old-wolfssl
-            wolfssl_config: --enable-wolftpm
-            wolfssl_cflags: "-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN"
-            wolfssl_ref: v4.7.0-stable
             test_command: "make check && WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh"
             needs_install: true
 
@@ -162,6 +161,24 @@ jobs:
           else
             ./configure $WOLFSSL_CONFIG
           fi
+          make
+          sudo make install
+          sudo ldconfig
+
+      # For old-wolfssl test: checkout and build old wolfSSL for linking
+      - name: Checkout old wolfSSL
+        if: matrix.name == 'old-wolfssl'
+        uses: actions/checkout@master
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl-old
+          ref: v4.7.0-stable
+      - name: Setup old wolfSSL for linking
+        if: matrix.name == 'old-wolfssl'
+        working-directory: ./wolfssl-old
+        run: |
+          ./autogen.sh
+          CFLAGS="-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN" ./configure --enable-wolftpm
           make
           sudo make install
           sudo ldconfig
@@ -202,14 +219,9 @@ jobs:
           WOLFTPM_CONFIG="${{ matrix.wolftpm_config || '--enable-swtpm' }}"
           WOLFTPM_CFLAGS="${{ matrix.wolftpm_cflags || '' }}"
           WOLFTPM_CC="${{ matrix.wolftpm_cc || '' }}"
-          # Add TPM port to CFLAGS if SWTPM is needed (as string)
+          # Add TPM port to configure if SWTPM is needed
           if [ -n "$TPM_PORT" ]; then
-            PORT_DEF='-DTPM2_SWTPM_PORT="'$TPM_PORT'"'
-            if [ -n "$WOLFTPM_CFLAGS" ]; then
-              WOLFTPM_CFLAGS="$WOLFTPM_CFLAGS $PORT_DEF"
-            else
-              WOLFTPM_CFLAGS="$PORT_DEF"
-            fi
+            WOLFTPM_CONFIG="$WOLFTPM_CONFIG --with-swtpm-port=$TPM_PORT"
           fi
           if [ -n "$WOLFTPM_CC" ]; then
             if [ -n "$WOLFTPM_CFLAGS" ]; then

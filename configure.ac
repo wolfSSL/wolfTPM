@@ -231,6 +231,17 @@ AC_ARG_ENABLE([swtpm],
     [ ENABLED_SWTPM=no ]
     )
 
+# SWTPM port configuration
+SWTPM_PORT="2321"
+AC_ARG_WITH([swtpm-port],
+    [AS_HELP_STRING([--with-swtpm-port=PORT],[Set SWTPM socket port (default: 2321)])],
+    [
+        if test "x$withval" != "xno" && test "x$withval" != "xyes"; then
+            SWTPM_PORT="$withval"
+        fi
+    ]
+)
+
 if test "x$ENABLED_SWTPM" = "xyes"
 then
     if test "x$ENABLED_DEVTPM" = "xyes"
@@ -239,7 +250,20 @@ then
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
+    AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=\"$SWTPM_PORT\""
+
+    # Set distcheck flag if port is not default (only when SWTPM is enabled)
+    if test "x$SWTPM_PORT" != "x2321"; then
+        DISTCHECK_SWTPM_PORT_FLAG="--with-swtpm-port=$SWTPM_PORT"
+    else
+        DISTCHECK_SWTPM_PORT_FLAG=""
+    fi
+else
+    DISTCHECK_SWTPM_PORT_FLAG=""
 fi
+
+AC_SUBST([SWTPM_PORT])
+AC_SUBST([DISTCHECK_SWTPM_PORT_FLAG])
 
 # Windows TBS device Support
 AC_ARG_ENABLE([wintbs],,
@@ -579,6 +603,9 @@ echo "   * Advanced IO:               $ENABLED_ADVIO"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"
+if test "x$ENABLED_SWTPM" = "xyes"; then
+    echo "   * SWTPM Port:                 $SWTPM_PORT"
+fi
 echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 
