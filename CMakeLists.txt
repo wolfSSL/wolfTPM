@@ -183,6 +183,38 @@ else()
         " ${INTERFACE_OPTS}")
 endif("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
 
+# TPM Module Selection
+set(WOLFTPM_MODULE "auto" CACHE STRING
+    "Select TPM hardware module (default: auto)")
+set_property(CACHE WOLFTPM_MODULE
+    PROPERTY STRINGS "auto;microchip;attpm20;mchp;st33;nuvoton;npct75x;slb9670;slb9672;slb9673")
+
+message("TPM MODULE ${WOLFTPM_MODULE}")
+
+if("${WOLFTPM_MODULE}" STREQUAL "auto")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_AUTODETECT")
+elseif("${WOLFTPM_MODULE}" STREQUAL "microchip" OR
+       "${WOLFTPM_MODULE}" STREQUAL "attpm20" OR
+       "${WOLFTPM_MODULE}" STREQUAL "mchp")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_MICROCHIP")
+elseif("${WOLFTPM_MODULE}" STREQUAL "st33")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_ST33")
+elseif("${WOLFTPM_MODULE}" STREQUAL "nuvoton" OR
+       "${WOLFTPM_MODULE}" STREQUAL "npct75x")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_NUVOTON")
+elseif("${WOLFTPM_MODULE}" STREQUAL "slb9670")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SLB9670")
+elseif("${WOLFTPM_MODULE}" STREQUAL "slb9672")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SLB9672")
+elseif("${WOLFTPM_MODULE}" STREQUAL "slb9673")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SLB9673")
+else()
+    get_property(MODULE_OPTS CACHE WOLFTPM_MODULE
+        PROPERTY STRINGS)
+    message(FATAL_ERROR "\"${WOLFTPM_MODULE}\" is not a known WOLFTPM_MODULE:"
+        " ${MODULE_OPTS}")
+endif()
+
 # Examples
 set(WOLFTPM_EXAMPLES "yes" CACHE BOOL
     "Build examples")
