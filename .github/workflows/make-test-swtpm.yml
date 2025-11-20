@@ -167,23 +167,24 @@ jobs:
           sudo ldconfig
 
       - name: Setup ibmswtpm2
-        if: matrix.needs_swtpm != false
+        if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         uses: actions/checkout@master
         with:
           repository: kgoldman/ibmswtpm2
           path: ibmswtpm2
 
       - name: Generate TPM port
-        if: matrix.needs_swtpm != false
+        if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         run: |
-          # Generate random port in high range (32768-65535)
-          TPM_PORT=$((32768 + RANDOM % 32768))
+          # Generate deterministic port from matrix name (base 40000, spacing 2 for port+1)
+          MATRIX_HASH=$(echo -n "${{ matrix.name }}" | cksum | cut -d' ' -f1)
+          TPM_PORT=$((40000 + (MATRIX_HASH % 1000) * 2))
           echo "TPM_PORT=$TPM_PORT" >> $GITHUB_ENV
           echo "TPM2_SWTPM_PORT=$TPM_PORT" >> $GITHUB_ENV
-          echo "Generated TPM port: $TPM_PORT"
+          echo "Generated TPM port: $TPM_PORT (matrix: ${{ matrix.name }})"
 
       - name: Start TPM simulator
-        if: matrix.needs_swtpm != false
+        if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         working-directory: ./ibmswtpm2/src
         run: |
           make

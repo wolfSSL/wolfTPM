@@ -140,7 +140,7 @@ endif()
 set(WOLFTPM_INTERFACE "auto" CACHE STRING
     "Select interface to TPM")
 set_property(CACHE WOLFTPM_INTERFACE
-    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM")
+    PROPERTY STRINGS "auto;SWTPM;WINAPI;DEVTPM;SPI;I2C;MMIO")
 
 # automatically set
 message("INTERFACE ${WOLFTPM_INTERFACE}")
@@ -173,12 +173,24 @@ elseif("${WOLFTPM_INTERFACE}" STREQUAL "DEVTPM")
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_WINAPI")
     target_link_libraries(wolftpm PRIVATE tbs)
+
+elseif("${WOLFTPM_INTERFACE}" STREQUAL "SPI")
+    # SPI interface
+
+elseif("${WOLFTPM_INTERFACE}" STREQUAL "I2C")
+    # I2C interface - requires I2C (ADV_IO will be enabled automatically in ADV_IO section)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_I2C")
+
+elseif("${WOLFTPM_INTERFACE}" STREQUAL "MMIO")
+    # MMIO interface - requires MMIO (ADV_IO will be enabled automatically in ADV_IO section)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_MMIO")
+
 else()
     get_property(INTERFACE_OPTS CACHE WOLFTPM_INTERFACE
         PROPERTY STRINGS)
     message(FATAL_ERROR "\"${WOLFTPM_INTERFACE}\" is not known WOLFTPM_INTERFACE:"
         " ${INTERFACE_OPTS}")
-endif("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
+endif()
 
 # TPM Module Selection
 set(WOLFTPM_MODULE "auto" CACHE STRING
@@ -221,21 +233,28 @@ if(NOT WOLFTPM_WRAPPER)
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WRAPPER")
 endif()
 
-# I2C Support
+# I2C Support (for backward compatibility - use WOLFTPM_INTERFACE=I2C for new code)
 set(WOLFTPM_I2C "no" CACHE STRING
-    "Enable I2C TPM Support (default: disabled)")
+    "Enable I2C TPM Support (default: disabled, use WOLFTPM_INTERFACE=I2C for new code)")
 set_property(CACHE WOLFTPM_I2C
     PROPERTY STRINGS "yes;no")
-if(WOLFTPM_I2C)
+
+# Handle I2C option for backward compatibility
+# If interface is not SPI or I2C, and I2C is explicitly enabled, set interface to I2C
+if(WOLFTPM_I2C OR "${WOLFTPM_INTERFACE}" STREQUAL "I2C")
+    # Backward compatibility: if I2C is enabled and interface is not SPI/I2C, enable I2C definition
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_I2C")
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_ADV_IO")
 endif()
 
-# MMIO Support
+# MMIO Support (deprecated - use WOLFTPM_INTERFACE=MMIO for new code)
 set(WOLFTPM_MMIO "no" CACHE STRING
-    "Enable built-in MMIO callbacks (default: disabled)")
+    "Enable built-in MMIO callbacks (deprecated: use WOLFTPM_INTERFACE=MMIO for new code)")
 set_property(CACHE WOLFTPM_MMIO
     PROPERTY STRINGS "yes;no")
-if(WOLFTPM_MMIO)
+# Handle MMIO option for backward compatibility
+# If interface is MMIO or MMIO is explicitly enabled, set MMIO definition
+if(WOLFTPM_MMIO OR "${WOLFTPM_INTERFACE}" STREQUAL "MMIO")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_MMIO")
 endif()
 
@@ -244,7 +263,10 @@ set(WOLFTPM_ADVIO "no" CACHE STRING
     "Enable Advanced IO (default: disabled)")
 set_property(CACHE WOLFTPM_ADVIO
     PROPERTY STRINGS "yes;no")
-if(WOLFTPM_ADVIO OR WOLFTPM_I2C OR WOLFTPM_MMIO)
+# ADV_IO is automatically enabled for I2C or MMIO interfaces
+if(WOLFTPM_ADVIO OR WOLFTPM_I2C OR WOLFTPM_MMIO OR
+   "${WOLFTPM_INTERFACE}" STREQUAL "I2C" OR
+   "${WOLFTPM_INTERFACE}" STREQUAL "MMIO")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_ADV_IO")
 endif()
 
@@ -253,15 +275,12 @@ set(WOLFTPM_CHECK_WAIT_STATE "auto" CACHE STRING
     "Enable TIS / SPI Check Wait State support (default: auto - depends on chip)")
 set_property(CACHE WOLFTPM_CHECK_WAIT_STATE
     PROPERTY STRINGS "yes;no;auto")
-# Auto-enable for certain modules
+# Check wait state is required for all TPM except Infineon
 if("${WOLFTPM_CHECK_WAIT_STATE}" STREQUAL "auto")
-    if("${WOLFTPM_MODULE}" STREQUAL "auto" OR
-       "${WOLFTPM_MODULE}" STREQUAL "microchip" OR
-       "${WOLFTPM_MODULE}" STREQUAL "attpm20" OR
-       "${WOLFTPM_MODULE}" STREQUAL "mchp" OR
-       "${WOLFTPM_MODULE}" STREQUAL "st33" OR
-       "${WOLFTPM_MODULE}" STREQUAL "nuvoton" OR
-       "${WOLFTPM_MODULE}" STREQUAL "npct75x")
+    if(NOT "${WOLFTPM_MODULE}" STREQUAL "infineon" AND
+        NOT "${WOLFTPM_MODULE}" STREQUAL "slb9670" AND
+        NOT "${WOLFTPM_MODULE}" STREQUAL "slb9672" AND
+        NOT "${WOLFTPM_MODULE}" STREQUAL "slb9673")
         set(WOLFTPM_CHECK_WAIT_STATE_ENABLED ON)
     else()
         set(WOLFTPM_CHECK_WAIT_STATE_ENABLED OFF)
@@ -305,7 +324,7 @@ set(WOLFTPM_HAL "yes" CACHE STRING
     "Enable example HAL interfaces (default: enabled)")
 set_property(CACHE WOLFTPM_HAL
     PROPERTY STRINGS "yes;no")
-if(WOLFTPM_HAL OR WOLFTPM_MMIO)
+if(WOLFTPM_HAL OR WOLFTPM_MMIO OR "${WOLFTPM_INTERFACE}" STREQUAL "MMIO")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_EXAMPLE_HAL")
 endif()
 
