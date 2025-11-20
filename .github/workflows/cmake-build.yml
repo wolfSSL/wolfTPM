@@ -10,6 +10,68 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # Default configuration
+          - name: "Default"
+            options: "-DWOLFTPM_INTERFACE=SWTPM"
+          # Test different TPM modules
+          - name: "Module Auto"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=auto"
+          - name: "Module ST33"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=st33"
+          - name: "Module Microchip"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=microchip"
+          - name: "Module Nuvoton"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=nuvoton"
+          - name: "Module SLB9670"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=slb9670"
+          - name: "Module SLB9672"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=slb9672"
+          - name: "Module SLB9673"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=slb9673"
+          # Test wrapper disabled
+          - name: "No Wrapper"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_WRAPPER=no"
+          # Test I2C support (enables ADV_IO automatically)
+          - name: "I2C Enabled"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_I2C=yes"
+          # Test Advanced IO
+          - name: "Advanced IO"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_ADVIO=yes"
+          # Test MMIO (enables ADV_IO automatically)
+          - name: "MMIO Enabled"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MMIO=yes"
+          # Test Check Wait State
+          - name: "Check Wait State Enabled"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_CHECK_WAIT_STATE=yes"
+          - name: "Check Wait State Disabled"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_CHECK_WAIT_STATE=no"
+          # Test TIS Lock
+          - name: "TIS Lock Enabled"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_TIS_LOCK=yes"
+          # Test Small Stack
+          - name: "Small Stack"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_SMALL_STACK=yes"
+          # Test HAL disabled
+          - name: "No HAL"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_HAL=no"
+          # Test Firmware disabled
+          - name: "No Firmware"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_FIRMWARE=no"
+          # Test Debug modes
+          - name: "Debug Verbose"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_DEBUG=verbose"
+          - name: "Debug IO"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_DEBUG=io"
+          # Test Examples disabled
+          - name: "No Examples"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_EXAMPLES=no"
+          # Test combination of options
+          - name: "Combined Options"
+            options: "-DWOLFTPM_INTERFACE=SWTPM -DWOLFTPM_MODULE=st33 -DWOLFTPM_I2C=yes -DWOLFTPM_ADVIO=yes -DWOLFTPM_CHECK_WAIT_STATE=yes"
 
     steps:
 #pull wolfTPM
@@ -38,10 +100,10 @@ jobs:
         cmake --install .
 
 #build wolftpm
-    - name: Build wolfTPM
+    - name: Build wolfTPM (${{ matrix.config.name }})
       run: |
         mkdir build
         cd build
-        cmake -DWOLFTPM_INTERFACE=SWTPM -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" -DWITH_WOLFSSL="$GITHUB_WORKSPACE/install" ..
+        cmake ${{ matrix.config.options }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" -DWITH_WOLFSSL="$GITHUB_WORKSPACE/install" ..
         cmake --build .
         cmake --install .

@@ -72,13 +72,7 @@ check_function_exists("getpid" HAVE_GETPID)
 
 
 # TODO
-# * wrapper
-# * wolfcrypt
-# * I2C
-# * Advanced IO
-# * Device specific (ST33, ATTPM20, NPCT, SLB, automatic)
-# * wait state
-# * small stack
+# * (All major options have been implemented)
 
 # Single threaded
 set(WOLFTPM_SINGLE_THREADED "no" CACHE STRING
@@ -129,14 +123,17 @@ endif()
 set(WOLFTPM_DEBUG "no" CACHE STRING
     "Enables option for debug (default: disabled)")
 set_property(CACHE WOLFTPM_DEBUG
-    PROPERTY STRINGS "yes;no;verbose")
+    PROPERTY STRINGS "yes;no;verbose;io")
 if(WOLFTPM_DEBUG)
     list(APPEND WOLFTPM_DEFINITIONS
         "-DDEBUG_WOLFTPM"
         "-DDEBUG")
-    if("${WOLFTPM_DEBUG}" STREQUAL "verbose")
+    if("${WOLFTPM_DEBUG}" STREQUAL "verbose" OR "${WOLFTPM_DEBUG}" STREQUAL "io")
         list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_DEBUG_VERBOSE")
-    endif("${WOLFTPM_DEBUG}" STREQUAL "verbose")
+    endif()
+    if("${WOLFTPM_DEBUG}" STREQUAL "io")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_DEBUG_IO")
+    endif()
 endif()
 
 # Device Interface
@@ -213,6 +210,112 @@ else()
         PROPERTY STRINGS)
     message(FATAL_ERROR "\"${WOLFTPM_MODULE}\" is not a known WOLFTPM_MODULE:"
         " ${MODULE_OPTS}")
+endif()
+
+# Wrapper
+set(WOLFTPM_WRAPPER "yes" CACHE STRING
+    "Enable wrapper code (default: enabled)")
+set_property(CACHE WOLFTPM_WRAPPER
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_WRAPPER)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WRAPPER")
+endif()
+
+# I2C Support
+set(WOLFTPM_I2C "no" CACHE STRING
+    "Enable I2C TPM Support (default: disabled)")
+set_property(CACHE WOLFTPM_I2C
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_I2C)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_I2C")
+endif()
+
+# MMIO Support
+set(WOLFTPM_MMIO "no" CACHE STRING
+    "Enable built-in MMIO callbacks (default: disabled)")
+set_property(CACHE WOLFTPM_MMIO
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_MMIO)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_MMIO")
+endif()
+
+# Advanced IO
+set(WOLFTPM_ADVIO "no" CACHE STRING
+    "Enable Advanced IO (default: disabled)")
+set_property(CACHE WOLFTPM_ADVIO
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_ADVIO OR WOLFTPM_I2C OR WOLFTPM_MMIO)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_ADV_IO")
+endif()
+
+# TIS / SPI Check Wait State support
+set(WOLFTPM_CHECK_WAIT_STATE "auto" CACHE STRING
+    "Enable TIS / SPI Check Wait State support (default: auto - depends on chip)")
+set_property(CACHE WOLFTPM_CHECK_WAIT_STATE
+    PROPERTY STRINGS "yes;no;auto")
+# Auto-enable for certain modules
+if("${WOLFTPM_CHECK_WAIT_STATE}" STREQUAL "auto")
+    if("${WOLFTPM_MODULE}" STREQUAL "auto" OR
+       "${WOLFTPM_MODULE}" STREQUAL "microchip" OR
+       "${WOLFTPM_MODULE}" STREQUAL "attpm20" OR
+       "${WOLFTPM_MODULE}" STREQUAL "mchp" OR
+       "${WOLFTPM_MODULE}" STREQUAL "st33" OR
+       "${WOLFTPM_MODULE}" STREQUAL "nuvoton" OR
+       "${WOLFTPM_MODULE}" STREQUAL "npct75x")
+        set(WOLFTPM_CHECK_WAIT_STATE_ENABLED ON)
+    else()
+        set(WOLFTPM_CHECK_WAIT_STATE_ENABLED OFF)
+    endif()
+elseif(WOLFTPM_CHECK_WAIT_STATE)
+    set(WOLFTPM_CHECK_WAIT_STATE_ENABLED ON)
+else()
+    set(WOLFTPM_CHECK_WAIT_STATE_ENABLED OFF)
+endif()
+if(WOLFTPM_CHECK_WAIT_STATE_ENABLED)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_CHECK_WAIT_STATE")
+endif()
+
+# TIS Layer Named Semaphore locking
+set(WOLFTPM_TIS_LOCK "no" CACHE STRING
+    "TIS Layer Named Semaphore locking for concurrent access between processes (default: disabled)")
+set_property(CACHE WOLFTPM_TIS_LOCK
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_TIS_LOCK)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_TIS_LOCK")
+endif()
+
+# Small Stack
+set(WOLFTPM_SMALL_STACK "no" CACHE STRING
+    "Enable Small Stack Usage (default: disabled)")
+set_property(CACHE WOLFTPM_SMALL_STACK
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_SMALL_STACK)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SMALL_STACK")
+    list(APPEND WOLFTPM_DEFINITIONS "-DMAX_COMMAND_SIZE=1024")
+    list(APPEND WOLFTPM_DEFINITIONS "-DMAX_RESPONSE_SIZE=1350")
+    list(APPEND WOLFTPM_DEFINITIONS "-DMAX_DIGEST_BUFFER=896")
+    # If wolfCrypt is disabled, set MAX_SESSION_NUM=1
+    if(NOT WITH_WOLFSSL AND NOT WITH_WOLFSSL_TREE AND NOT WOLFSSL_FOUND AND NOT wolfssl_FOUND)
+        list(APPEND WOLFTPM_DEFINITIONS "-DMAX_SESSION_NUM=1")
+    endif()
+endif()
+
+# Example HAL
+set(WOLFTPM_HAL "yes" CACHE STRING
+    "Enable example HAL interfaces (default: enabled)")
+set_property(CACHE WOLFTPM_HAL
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_HAL OR WOLFTPM_MMIO)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_EXAMPLE_HAL")
+endif()
+
+# Firmware Upgrade
+set(WOLFTPM_FIRMWARE "yes" CACHE STRING
+    "Enable support for TPM firmware upgrades (default: enabled)")
+set_property(CACHE WOLFTPM_FIRMWARE
+    PROPERTY STRINGS "yes;no")
+if(WOLFTPM_FIRMWARE)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_FIRMWARE_UPGRADE")
 endif()
 
 # Examples
