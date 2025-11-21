@@ -138,6 +138,10 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
         if (rc == 0) {
             byte encHash[WC_MAX_DIGEST_SIZE + WC_MAX_ENCODED_DIG_ASN_SZ];
             word32 idx = 0;
+        #ifdef HAVE_PKCS8
+            /* skip PKCS8 header */
+            (void)wc_GetPkcs8TraditionalOffset((byte*)buf, &idx, bufSz);
+        #endif
             rc = wc_RsaPrivateKeyDecode(buf, &idx, &key.rsa, (word32)bufSz);
             if (rc == 0) {
                 rc = wolfTPM2_DecodeRsaDer(buf, (word32)bufSz, &authPubKey->pub, NULL, 0);
