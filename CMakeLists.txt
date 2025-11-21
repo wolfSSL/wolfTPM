@@ -123,8 +123,8 @@ endif()
 set(WOLFTPM_DEBUG "no" CACHE STRING
     "Enables option for debug (default: disabled)")
 set_property(CACHE WOLFTPM_DEBUG
-    PROPERTY STRINGS "yes;no;verbose;io")
-if(WOLFTPM_DEBUG)
+    PROPERTY STRINGS "no;yes;verbose;io")
+if(NOT "${WOLFTPM_DEBUG}" STREQUAL "no")
     list(APPEND WOLFTPM_DEFINITIONS
         "-DDEBUG_WOLFTPM"
         "-DDEBUG")
@@ -477,7 +477,7 @@ message("Generating config header...")
 set(WOLFTPM_CONFIG_H "yes" CACHE STRING
 "Enable generation of config.h and define HAVE_CONFIG_H (default: enabled)")
 set_property(CACHE WOLFTPM_DEBUG
-    PROPERTY STRINGS "yes;no")
+    PROPERTY STRINGS "yes;no;verbose;io")
 if(WOLFTPM_CONFIG_H)
     add_definitions("-DHAVE_CONFIG_H")
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.in"

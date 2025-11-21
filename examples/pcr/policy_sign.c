@@ -140,7 +140,7 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             word32 idx = 0;
         #ifdef HAVE_PKCS8
             /* skip PKCS8 header */
-            (void)wc_GetPkcs8TraditionalOffset((byte*)buf, &idx, bufSz);
+            (void)wc_GetPkcs8TraditionalOffset((byte*)buf, &idx, (word32)bufSz);
         #endif
             rc = wc_RsaPrivateKeyDecode(buf, &idx, &key.rsa, (word32)bufSz);
             if (rc == 0) {
