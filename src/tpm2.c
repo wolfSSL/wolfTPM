@@ -5746,6 +5746,7 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
 #else
     /* Call GetRandom directly, so a custom packet buffer can be used.
      * This won't conflict when being called from TPM2_CommandProcess. */
+    rc = 0; /* default to success */
     while (randSz < nonceSz) {
         UINT16 inSz = nonceSz - randSz, outSz = 0;
         if (inSz > MAX_RNG_REQ_SIZE) {

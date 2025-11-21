@@ -192,12 +192,18 @@ jobs:
           repository: wolfssl/wolfssl
           path: wolfssl-old
           ref: v4.7.0-stable
+      - name: Apply wolfssl-v4.7.0.patch to old wolfSSL
+        if: matrix.name == 'old-wolfssl'
+        working-directory: ./wolfssl-old
+        run: |
+          git apply ../.github/workflows/wolfssl-v4.7.0.patch
       - name: Setup old wolfSSL for linking
         if: matrix.name == 'old-wolfssl'
         working-directory: ./wolfssl-old
         run: |
           ./autogen.sh
-          ./configure --enable-wolftpm --disable-examples --enable-cryptonly CFLAGS="-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN"
+          ./configure --enable-wolftpm --disable-examples CFLAGS="-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN -DNO_WRITEV"
+
           make
           sudo make install
           sudo ldconfig
