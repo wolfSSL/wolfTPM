@@ -233,8 +233,11 @@ int main(int argc, char *argv[])
     (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673))
     rc = TPM2_IFX_Firmware_Update(NULL, argc, argv);
 #else
-    printf("Support for firmware upgrade not compiled in! "
+    printf("Support for firmware upgrade not compiled in!\n"
         "See --enable-firmware or WOLFTPM_FIRMWARE_UPGRADE\n");
+    printf("This tool is for the Infineon SLB9672 or SLB9673 TPMs only\n"
+        "\t--enable-infineon=slb9672 (WOLFTPM_SLB9672)\n"
+        "\t--enable-infineon=slb9673 --enable-i2c (WOLFTPM_SLB9673)\n");
     (void)argc;
     (void)argv;
 #endif
