@@ -116,3 +116,14 @@ merge-clean:
 	@find ./ | $(GREP) \.OTHER | xargs rm -f
 	@find ./ | $(GREP) \.BASE | xargs rm -f
 	@find ./ | $(GREP) \~$$ | xargs rm -f
+
+cppcheck:
+	@if test "x@CPPCHECK@" = "xno"; then \
+		echo "Error: cppcheck not found. Please install cppcheck."; \
+		exit 1; \
+	fi
+	@CPPCHECK@ -f --enable=warning \
+		--enable=portability --check-level=exhaustive \
+		--suppress=invalidPrintfArgType_sint \
+		--error-exitcode=89 --std=c89 \
+		-I wolftpm src/ hal/ examples

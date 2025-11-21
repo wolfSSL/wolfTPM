@@ -466,6 +466,10 @@ fi
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
 
+# Check for cppcheck (optional, for make cppcheck target)
+AC_CHECK_PROG([CPPCHECK], [cppcheck], [cppcheck], [no])
+AM_CONDITIONAL([HAVE_CPPCHECK], [test "x$CPPCHECK" != "xno"])
+
 OPTION_FLAGS="$CFLAGS $CPPFLAGS $AM_CFLAGS"
 
 
@@ -494,6 +498,7 @@ CREATE_HEX_VERSION
 AC_SUBST([AM_CPPFLAGS])
 AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
+AC_SUBST([CPPCHECK])
 
 # FINAL
 AC_CONFIG_FILES([Makefile])
