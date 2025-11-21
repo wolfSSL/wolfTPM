@@ -1,0 +1,19 @@
+diff --git a/src/tls13.c b/src/tls13.c
+index b2fd50f2f..bcc912890 100644
+--- a/src/tls13.c
++++ b/src/tls13.c
+@@ -421,6 +421,14 @@ static int DeriveKey(WOLFSSL* ssl, byte* output, int outputLen,
+         outputLen = hashSz;
+     if (includeMsgs)
+         hashOutSz = hashSz;
++    else {
++        /* Appease static analyzers by making sure hash is cleared, since it is
++         * passed into expand key label where older wc_Tls13_HKDF_Expand_Label
++         * will unconditionally try to call a memcpy on it, however length will
++         * always be 0. */
++        XMEMSET(hash, 0, sizeof(hash));
++        hashOutSz = 0;
++    }
+ 
+     return HKDF_Expand_Label(output, outputLen, secret, hashSz,
+                              protocol, protocolLen, label, labelLen,

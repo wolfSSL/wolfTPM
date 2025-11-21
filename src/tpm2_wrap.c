@@ -2167,6 +2167,7 @@ int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Encode public into buffer */
     XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&data, 0, sizeof(data));
     packet.buf = data.buffer;
     packet.size = sizeof(data.buffer);
     TPM2_Packet_AppendPublicArea(&packet, (TPMT_PUBLIC*)&pub->publicArea);
@@ -7551,12 +7552,10 @@ int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         rc = wc_SetKeyUsage(&csr->req, keyUsage);
     }
 #else
-    if (keyUsage != NULL) {
-    #ifdef DEBUG_WOLFTPM
-        printf("CSR_Generate key usage supplied, but not available\n");
-    #endif
-        rc = NOT_COMPILED_IN;
-    }
+#ifdef DEBUG_WOLFTPM
+    printf("CSR_Generate key usage supplied, but not available\n");
+#endif
+    rc = NOT_COMPILED_IN;
 #endif
     (void)dev; /* not used */
     return rc;

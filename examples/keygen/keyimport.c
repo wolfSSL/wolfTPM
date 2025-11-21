@@ -149,7 +149,9 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
     printf("\tAlgorithm: %s\n", TPM2_GetAlgName(alg));
     printf("\tSRK: %s\n", TPM2_GetAlgName(srkAlg));
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
-    printf("\tpassword: %s\n", password);
+    if (password != NULL) {
+        printf("\tpassword: %s\n", password);
+    }
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {

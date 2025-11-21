@@ -26,7 +26,9 @@ dist_doc_DATA =
 DISTCLEANFILES+= aminclude.am
 
 # make sure we pass the correct flags to distcheck
-AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm
+# SWTPM_PORT can be set via --with-swtpm-port during configure
+# Use @SWTPM_PORT@ substitution from configure.ac
+AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm @DISTCHECK_SWTPM_PORT_FLAG@
 
 exampledir = $(docdir)/example
 dist_example_DATA=
@@ -114,3 +116,14 @@ merge-clean:
 	@find ./ | $(GREP) \.OTHER | xargs rm -f
 	@find ./ | $(GREP) \.BASE | xargs rm -f
 	@find ./ | $(GREP) \~$$ | xargs rm -f
+
+cppcheck:
+	@if test "x@CPPCHECK@" = "xno"; then \
+		echo "Error: cppcheck not found. Please install cppcheck."; \
+		exit 1; \
+	fi
+	@CPPCHECK@ -f --enable=warning \
+		--enable=portability --check-level=exhaustive \
+		--suppress=invalidPrintfArgType_sint \
+		--error-exitcode=89 --std=c89 \
+		-I wolftpm src/ hal/ examples

@@ -149,10 +149,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     /* Prepare the hash from user file or predefined value */
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT)
-    if (filename) {
-        fp = XFOPEN(filename, "rb");
-    }
-    if (filename && fp != XBADFILE) {
+    fp = XFOPEN(filename, "rb");
+    if (fp != XBADFILE) {
         rc = TPM2_GetHashType(alg);
         hashType = (enum wc_HashType)rc;
         wc_HashInit(&dig, hashType);
