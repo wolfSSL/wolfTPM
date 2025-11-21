@@ -694,7 +694,7 @@ int main(int argc, char* argv[])
     (void)argc;
     (void)argv;
 
-    printf("TPM Wrapper or PK//Crypto callback or TLS support not compiled in\n");
+    printf("TPM Wrapper or PK/Crypto callback or TLS support not compiled in\n");
     printf("Build wolfssl with ./configure --enable-wolftpm\n");
 #endif
 

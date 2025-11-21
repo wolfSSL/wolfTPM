@@ -1465,6 +1465,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
             goto exit;
         }
     }
+
+    printf("Native test passed\n");
+
 exit:
 
     /* Close session */

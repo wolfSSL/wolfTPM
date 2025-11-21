@@ -54,6 +54,25 @@ jobs:
             wolftpm_config: --enable-swtpm --enable-smallstack
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
+          # Infineon SLB9670
+          - name: slb9670
+            wolftpm_config: --enable-infineon=slb9670
+          # Infineon SLB9672
+          - name: slb9672
+            wolftpm_config: --enable-infineon=slb9672
+          # Infineon SLB9673
+          - name: slb9673
+            wolftpm_config: --enable-infineon=slb9673 --enable-i2c
+          # STMicro ST33KTPM2
+          - name: st33ktpm2
+            wolftpm_config: --enable-st33
+          # Microchip
+          - name: microchip
+            wolftpm_config: --enable-microchip
+          # Nuvoton
+          - name: nuvoton
+            wolftpm_config: --enable-nuvoton
+
           # TIS lock
           - name: tislock
             wolftpm_config: --enable-tislock
@@ -121,7 +140,7 @@ jobs:
 
           # Default configure (no AES CFB, no PKCS7, no crypto cb, no cert gen)
           - name: default-configure
-            wolfssl_config: --enable-wolftpm
+            wolfssl_config: ""
             wolfssl_cflags: "-DWOLFSSL_PUBLIC_MP"
             test_command: "make check && WOLFSSL_PATH=./wolfssl WOLFCRYPT_DEFAULT=1 ./examples/run_examples.sh"
             needs_install: true
@@ -157,7 +176,7 @@ jobs:
           WOLFSSL_CONFIG="${{ matrix.wolfssl_config || '--enable-wolftpm --enable-pkcallbacks' }}"
           WOLFSSL_CFLAGS="${{ matrix.wolfssl_cflags || '' }}"
           if [ -n "$WOLFSSL_CFLAGS" ]; then
-            CFLAGS="$WOLFSSL_CFLAGS" ./configure $WOLFSSL_CONFIG
+            ./configure $WOLFSSL_CONFIG CFLAGS="$WOLFSSL_CFLAGS"
           else
             ./configure $WOLFSSL_CONFIG
           fi
