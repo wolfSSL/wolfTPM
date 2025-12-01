@@ -528,8 +528,8 @@ int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
     }
 
     /* specify auth password for storage key */
-    if (authSz > (int)sizeof(key->handle.auth.size)) {
-        authSz = (int)sizeof(key->handle.auth.size); /* truncate */
+    if (authSz > (int)sizeof(key->handle.auth.buffer)) {
+        authSz = (int)sizeof(key->handle.auth.buffer); /* truncate */
     }
     key->handle.auth.size = (UINT16)authSz;
     if (auth != NULL) {

@@ -903,8 +903,13 @@ namespace wolfTPM
 
         const string DLLNAME = "wolftpm";
 
-        public const int MAX_KEYBLOB_BYTES = 1024;
+        /* These "max" buffer sizes are used for testing only and may be larger
+         * depending on actual platform. */
+        /* Temporary buffer large enough for key blob public+private parts */
+        public const int MAX_KEYBLOB_BYTES = 2048; /* MAX_CONTEXT_SIZE */
+        /* Temporary buffer large enough for test CSR's */
         public const int MAX_TPM_BUFFER = 2048;
+
         public const int INVALID_DEVID = -2;
         private IntPtr device = IntPtr.Zero;
 
