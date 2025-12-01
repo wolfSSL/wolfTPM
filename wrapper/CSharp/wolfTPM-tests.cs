@@ -127,6 +127,8 @@ namespace tpm_csharp_test
             Template template = new Template();
             byte[] blob_buffer = new byte[Device.MAX_KEYBLOB_BYTES];
 
+            Console.WriteLine("Generating {0} key", algorithm);
+
             if (algorithm == "RSA")
             {
                 rc = template.GetKeyTemplate_RSA((ulong)(
@@ -158,6 +160,7 @@ namespace tpm_csharp_test
             rc = blob.GetKeyBlobAsBuffer(blob_buffer);
             if (rc > 0)
             {
+                Console.WriteLine("Key Blob Size: {0} bytes", rc);
                 Array.Resize(ref blob_buffer, rc);
                 if (algorithm == "RSA")
                 {
@@ -190,6 +193,8 @@ namespace tpm_csharp_test
             KeyBlob blob = new KeyBlob();
             byte[] blob_buffer;
 
+            Console.WriteLine("Loading {0} key", algorithm);
+
             if (algorithm == "RSA")
             {
                 blob_buffer = generatedRSA;
@@ -212,6 +217,28 @@ namespace tpm_csharp_test
 
             rc = blob.SetKeyAuthPassword("ThisIsMyKeyAuth");
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+            /* Use key to make sure authentication works */
+            if (algorithm == "RSA") {
+                const int RsaKeySz = 256;
+                const int HashDigestSz = 32;
+                byte[] sig = new byte[RsaKeySz];
+                byte[] digest = new byte[HashDigestSz];
+
+                /* Perform RSA sign / verify - PKCSv1.5 (SSA) padding */
+                for (int i=0; i<digest.Length; i++)  {
+                    digest[i] = 0x11;
+                }
+                rc = device.SignHashScheme(blob, digest, sig,
+                    TPM2_Alg.RSASSA, TPM2_Alg.SHA256);
+                Assert.AreEqual(RsaKeySz, rc);
+
+                rc = device.VerifyHashScheme(blob, sig, digest,
+                    TPM2_Alg.RSASSA, TPM2_Alg.SHA256);
+                Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
+
+                Console.WriteLine("RSA Sign/Verify Success");
+            }
 
             rc = device.UnloadHandle(blob);
             Assert.AreEqual((int)Status.TPM_RC_SUCCESS, rc);
