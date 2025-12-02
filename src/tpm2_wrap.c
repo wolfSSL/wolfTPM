@@ -75,12 +75,12 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #endif
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
+    DEBUG_PRINTF("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
         ctx->caps,
         ctx->did_vid >> 16,
         ctx->did_vid & 0xFFFF,
@@ -95,12 +95,12 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (rc != TPM_RC_SUCCESS &&
         rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Startup pass\n");
+    DEBUG_PRINTF("TPM2_Startup pass\n");
 #endif
     rc = TPM_RC_SUCCESS;
 
@@ -111,12 +111,12 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_SelfTest(&selfTest);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_SelfTest pass\n");
+    DEBUG_PRINTF("TPM2_SelfTest pass\n");
 #endif
 #endif /* WOLFTPM_MICROCHIP || WOLFTPM_PERFORM_SELFTEST */
 #endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
@@ -336,7 +336,7 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
 
     if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
 #ifdef DEBUG_WOLFTPM
-        printf("Sanity check for publicArea size failed\n");
+        DEBUG_PRINTF("Sanity check for publicArea size failed\n");
 #endif
         return BUFFER_E;
     }
@@ -367,7 +367,7 @@ int wolfTPM2_GetKeyBlobAsBuffer(byte *buffer, word32 bufferSz,
     sz += sizeof(UINT16) + key->priv.size;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Get KeyBlob: %d bytes\n", (int)sz);
+    DEBUG_PRINTF("Get KeyBlob: %d bytes\n", (int)sz);
     TPM2_PrintBin(buffer, sz);
 #endif
 
@@ -394,7 +394,7 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
 
     if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
 #ifdef DEBUG_WOLFTPM
-        printf("Sanity check for publicArea size failed\n");
+        DEBUG_PRINTF("Sanity check for publicArea size failed\n");
 #endif
         return BUFFER_E;
     }
@@ -427,10 +427,10 @@ int wolfTPM2_GetKeyBlobAsSeparateBuffers(byte* pubBuffer, word32* pubBufferSz,
     *privBufferSz += sizeof(UINT16) + key->priv.size;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Get KeyBlob public: %d bytes\n", (int)*pubBufferSz);
+    DEBUG_PRINTF("Get KeyBlob public: %d bytes\n", (int)*pubBufferSz);
     TPM2_PrintBin(pubBuffer, *pubBufferSz);
 
-    printf("Get KeyBlob private: %d bytes\n", (int)*privBufferSz);
+    DEBUG_PRINTF("Get KeyBlob private: %d bytes\n", (int)*privBufferSz);
     TPM2_PrintBin(privBuffer, *privBufferSz);
 #endif
 
@@ -453,13 +453,13 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     XMEMSET(key, 0, sizeof(WOLFTPM2_KEYBLOB));
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Set KeyBlob: %d bytes\n", (int)bufferSz);
+    DEBUG_PRINTF("Set KeyBlob: %d bytes\n", (int)bufferSz);
     TPM2_PrintBin(buffer, bufferSz);
 #endif
 
     if (bufferSz < done_reading + sizeof(key->pub.size)) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n", bufferSz);
+        DEBUG_PRINTF("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -470,7 +470,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + sizeof(UINT16) + key->pub.size) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n", bufferSz);
+        DEBUG_PRINTF("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -488,7 +488,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + sizeof(key->priv.size)) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n", bufferSz);
+        DEBUG_PRINTF("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -499,7 +499,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (bufferSz < done_reading + key->priv.size) {
 #ifdef DEBUG_WOLFTPM
-        printf("Buffer size check failed (%d)\n", bufferSz);
+        DEBUG_PRINTF("Buffer size check failed (%d)\n", bufferSz);
 #endif
         return BUFFER_E;
     }
@@ -509,7 +509,7 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
 
     if (done_reading != bufferSz) {
 #ifdef DEBUG_WOLFTPM
-        printf("Extra data left in buffer (%d!=%d)\n",
+        DEBUG_PRINTF("Extra data left in buffer (%d!=%d)\n",
             bufferSz, (word32)done_reading);
 #endif
         return BUFFER_E;
@@ -554,7 +554,7 @@ int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -590,19 +590,19 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
 #ifdef WOLFTPM_WINAPI
     if (rc == (int)TPM_E_COMMAND_BLOCKED) { /* 0x80280400 */
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SelfTest not allowed on Windows TBS (err 0x%x)\n", rc);
+        DEBUG_PRINTF("TPM2_SelfTest not allowed on Windows TBS (err 0x%x)\n", rc);
     #endif
         rc = TPM_RC_SUCCESS; /* report success */
     }
 #endif
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
     #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_SelfTest pass\n");
+    DEBUG_PRINTF("TPM2_SelfTest pass\n");
 #endif
 
     return rc;
@@ -737,7 +737,7 @@ static int tpm2_ifx_cap_vendor_get(WOLFTPM2_CAPS* cap, uint32_t property,
     }
     else {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability vendor prop 0x%x failed 0x%x: %s\n",
+        DEBUG_PRINTF("TPM2_GetCapability vendor prop 0x%x failed 0x%x: %s\n",
             property, rc, TPM2_GetRCString(rc));
     #endif
     }
@@ -767,8 +767,8 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability manufacture failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_GetCapability manufacture failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -785,8 +785,8 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability modes failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_GetCapability modes failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -812,7 +812,7 @@ static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap)
         }
         if (rc_ifx != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("Error getting Infineon vendor capabilities 0x%x: %s\n",
+            DEBUG_PRINTF("Error getting Infineon vendor capabilities 0x%x: %s\n",
                 rc_ifx, TPM2_GetRCString(rc_ifx));
         #endif
         }
@@ -847,7 +847,7 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     rc = TPM2_GetCapability(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetCapability handles failed 0x%x: %s\n", rc,
+        DEBUG_PRINTF("TPM2_GetCapability handles failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
         return rc;
@@ -858,9 +858,9 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     }
     handles = &out.capabilityData.data.handles;
 #ifdef DEBUG_WOLFTPM
-    printf("Handles Cap: Start 0x%x, Count %d\n", handle, handles->count);
+    DEBUG_PRINTF("Handles Cap: Start 0x%x, Count %d\n", handle, handles->count);
     for (i=0; i<handles->count; i++) {
-        printf("\tHandle 0x%x\n", handles->handle[i]);
+        DEBUG_PRINTF("\tHandle 0x%x\n", handles->handle[i]);
     }
 #endif
     return handles->count;
@@ -1158,7 +1158,7 @@ int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
                                TPM_SE_POLICY, TPM_ALG_NULL);
     if (rc == TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+        DEBUG_PRINTF("TPM2_StartAuthSession: sessionHandle 0x%x\n",
                 (word32)tpmSession->handle.hndl);
         #endif
         /* Provide Endorsement Auth using PolicySecret */
@@ -1168,7 +1168,7 @@ int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
         rc = TPM2_PolicySecret(&policySecretIn, &policySecretOut);
         #ifdef DEBUG_WOLFTPM
         if (rc == TPM_RC_SUCCESS) {
-            printf("policySecret applied on session\n");
+            DEBUG_PRINTF("policySecret applied on session\n");
         }
         #endif
     }
@@ -1197,7 +1197,7 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         rc = TPM2_Shutdown(&shutdownIn);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Shutdown failed %d: %s\n",
+            DEBUG_PRINTF("TPM2_Shutdown failed %d: %s\n",
                 rc, wolfTPM2_GetRCString(rc));
         #endif
             /* finish cleanup and return error */
@@ -1546,7 +1546,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("Encrypt secret: Alg %s, Label %s\n",
+    DEBUG_PRINTF("Encrypt secret: Alg %s, Label %s\n",
         TPM2_GetAlgName(tpmKey->pub.publicArea.type), label);
 #endif
 
@@ -1568,7 +1568,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Encrypt Secret %d: %d bytes\n", rc, data->size);
+    DEBUG_PRINTF("Encrypt Secret %d: %d bytes\n", rc, data->size);
     TPM2_PrintBin(data->buffer, data->size);
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
@@ -1644,7 +1644,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
                        authSesIn.nonceCaller.size);
     if (rc < 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -1662,7 +1662,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             &authSesIn.encryptedSalt, "SECRET");
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("Building encrypted salt failed %d: %s!\n", rc,
+            DEBUG_PRINTF("Building encrypted salt failed %d: %s!\n", rc,
                 wolfTPM2_GetRCString(rc));
         #endif
             return rc;
@@ -1672,7 +1672,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     rc = TPM2_StartAuthSession(&authSesIn, &authSesOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_StartAuthSession failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_StartAuthSession failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -1705,7 +1705,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             session->handle.auth.buffer, session->handle.auth.size);
         if (rc != hashDigestSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("KDFa ATH Gen Error %d\n", rc);
+            DEBUG_PRINTF("KDFa ATH Gen Error %d\n", rc);
         #endif
             return TPM_RC_FAILURE;
         }
@@ -1713,7 +1713,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Session Key %d\n", session->handle.auth.size);
+    DEBUG_PRINTF("Session Key %d\n", session->handle.auth.size);
     TPM2_PrintBin(session->handle.auth.buffer, session->handle.auth.size);
 #endif
 
@@ -1738,7 +1738,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         session->nonceTPM.size);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_StartAuthSession: handle 0x%x, algorithm %s\n",
+    DEBUG_PRINTF("TPM2_StartAuthSession: handle 0x%x, algorithm %s\n",
         (word32)session->handle.hndl,
         TPM2_GetAlgName(authSesIn.symmetric.algorithm));
 #endif
@@ -1801,7 +1801,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     rc = TPM2_CreatePrimary(&createPriIn, &createPriOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_CreatePrimary: failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_CreatePrimary: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -1834,7 +1834,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
         createPriOut.creationTicket.digest.size);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
+    DEBUG_PRINTF("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
         (word32)pkey->handle.hndl, pkey->pub.size);
 #endif
 
@@ -1887,7 +1887,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_ObjectChangeAuth(&changeIn, &changeOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_ObjectChangeAuth failed %d: %s\n", rc,
                 wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -1907,7 +1907,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -1916,7 +1916,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     wolfTPM2_CopyName(&key->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_ChangeAuthKey: Key Handle 0x%x\n",
+    DEBUG_PRINTF("wolfTPM2_ChangeAuthKey: Key Handle 0x%x\n",
         (word32)key->handle.hndl);
 #endif
 
@@ -1964,13 +1964,13 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Create key: pub %d, priv %d\n",
+    DEBUG_PRINTF("TPM2_Create key: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
@@ -2006,7 +2006,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -2014,7 +2014,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyName(&keyBlob->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Load Key Handle 0x%x\n", (word32)keyBlob->handle.hndl);
+    DEBUG_PRINTF("TPM2_Load Key Handle 0x%x\n", (word32)keyBlob->handle.hndl);
 #endif
 
     return rc;
@@ -2078,14 +2078,14 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_CreateLoaded(&createLoadedIn, &createLoadedOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_CreateLoaded key failed %d: %s\n",
+        DEBUG_PRINTF("TPM2_CreateLoaded key failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_CreateLoaded key: pub %d, priv %d\n",
+    DEBUG_PRINTF("TPM2_CreateLoaded key: pub %d, priv %d\n",
         createLoadedOut.outPublic.size, createLoadedOut.outPrivate.size);
     TPM2_PrintPublicArea(&createLoadedOut.outPublic);
 #endif
@@ -2121,7 +2121,7 @@ int wolfTPM2_LoadPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_LoadExternal: failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_LoadExternal: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -2133,7 +2133,7 @@ int wolfTPM2_LoadPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     wolfTPM2_CopyPub(&key->pub, &loadExtIn.inPublic);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_LoadExternal: 0x%x\n", (word32)loadExtOut.objectHandle);
+    DEBUG_PRINTF("TPM2_LoadExternal: 0x%x\n", (word32)loadExtOut.objectHandle);
 #endif
 
     return rc;
@@ -2242,7 +2242,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     digestSz = TPM2_GetHashDigestSize(nameAlg);
     if (digestSz <= 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("SensitiveToPrivate: Invalid name algorithm %d\n", nameAlg);
+        DEBUG_PRINTF("SensitiveToPrivate: Invalid name algorithm %d\n", nameAlg);
     #endif
         return BAD_FUNC_ARG;
     }
@@ -2306,7 +2306,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
             NULL, symKey.buffer, symKey.size);
         if (rc != symKey.size) {
         #ifdef DEBUG_WOLFTPM
-            printf("KDFa STORAGE Gen Error %d\n", rc);
+            DEBUG_PRINTF("KDFa STORAGE Gen Error %d\n", rc);
         #endif
             return TPM_RC_FAILURE;
         }
@@ -2325,7 +2325,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         }
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("SensitiveToPrivate AES error %d!\n", rc);
+            DEBUG_PRINTF("SensitiveToPrivate AES error %d!\n", rc);
         #endif
             return rc;
         }
@@ -2336,7 +2336,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
                     hmacKey.buffer, hmacKey.size);
         if (rc != hmacKey.size) {
         #ifdef DEBUG_WOLFTPM
-            printf("KDFa INTEGRITY Gen Error %d\n", rc);
+            DEBUG_PRINTF("KDFa INTEGRITY Gen Error %d\n", rc);
         #endif
             return rc;
         }
@@ -2363,7 +2363,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         }
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("SensitiveToPrivate HMAC error %d!\n", rc);
+            DEBUG_PRINTF("SensitiveToPrivate HMAC error %d!\n", rc);
         #endif
             return rc;
         }
@@ -2434,7 +2434,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = wolfTPM2_ComputeName(pub, &name);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_ComputeName: failed %d: %s\n", rc,
+        DEBUG_PRINTF("wolfTPM2_ComputeName: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -2446,7 +2446,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         "DUPLICATE");
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_EncryptSecret: failed %d: %s\n", rc,
+        DEBUG_PRINTF("wolfTPM2_EncryptSecret: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -2458,7 +2458,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         &symSeed);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_SensitiveToPrivate: failed %d: %s\n", rc,
+        DEBUG_PRINTF("wolfTPM2_SensitiveToPrivate: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -2466,7 +2466,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = TPM2_Import(&importIn, &importOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Import: failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_Import: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -2535,7 +2535,7 @@ int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
        public exponent less than 2^16 + 1. */
     if (exponent < 7) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM based RSA with exponent %u not allowed! Using soft RSA\n",
+        DEBUG_PRINTF("TPM based RSA with exponent %u not allowed! Using soft RSA\n",
             exponent);
     #endif
         return TPM_RC_KEY;
@@ -2627,7 +2627,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     if (digestSz == 0 ||
         digestSz > sizeof(sens.sensitiveArea.seedValue.buffer)) {
     #ifdef DEBUG_WOLFTPM
-        printf("Import RSA name alg size invalid! %d\n", digestSz);
+        DEBUG_PRINTF("Import RSA name alg size invalid! %d\n", digestSz);
     #endif
         return BUFFER_E;
     }
@@ -2635,7 +2635,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
         /* use custom seed */
         if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("Import RSA seed size invalid! %d != %d\n",
+            DEBUG_PRINTF("Import RSA seed size invalid! %d != %d\n",
                 seedSz, digestSz);
         #endif
             return BAD_FUNC_ARG;
@@ -2792,7 +2792,7 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     if (digestSz == 0 ||
         digestSz > sizeof(sens.sensitiveArea.seedValue.buffer)) {
     #ifdef DEBUG_WOLFTPM
-        printf("Import ECC name alg size invalid! %d\n", digestSz);
+        DEBUG_PRINTF("Import ECC name alg size invalid! %d\n", digestSz);
     #endif
         return BUFFER_E;
     }
@@ -2800,7 +2800,7 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
         /* use custom seed */
         if (seedSz != digestSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("Import ECC seed size invalid! %d != %d\n",
+            DEBUG_PRINTF("Import ECC seed size invalid! %d != %d\n",
                 seedSz, digestSz);
         #endif
             return BAD_FUNC_ARG;
@@ -2878,7 +2878,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_ReadPublic(&readPubIn, &readPubOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_ReadPublic failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -2890,7 +2890,7 @@ int wolfTPM2_ReadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     wolfTPM2_CopyPub(&key->pub, &readPubOut.outPublic);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
+    DEBUG_PRINTF("TPM2_ReadPublic Handle 0x%x: pub %d, name %d, qualifiedName %d\n",
         (word32)readPubIn.objectHandle,
         readPubOut.outPublic.size, readPubOut.name.size,
         readPubOut.qualifiedName.size);
@@ -3184,7 +3184,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     }
     else {
     #ifdef DEBUG_WOLFTPM
-        printf("Invalid tpmKey type!\n");
+        DEBUG_PRINTF("Invalid tpmKey type!\n");
     #endif
         rc = BAD_FUNC_ARG;
     }
@@ -3354,7 +3354,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         if (digestSz == 0 ||
             digestSz > sizeof(sens.sensitiveArea.seedValue.buffer)) {
         #ifdef DEBUG_WOLFTPM
-            printf("Import %s name alg size invalid! %d\n",
+            DEBUG_PRINTF("Import %s name alg size invalid! %d\n",
                 TPM2_GetAlgName((TPM_ALG_ID)keyType), digestSz);
         #endif
             return BUFFER_E;
@@ -3363,7 +3363,7 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
             /* use custom seed */
             if (seedSz != digestSz) {
             #ifdef DEBUG_WOLFTPM
-                printf("Import %s seed size invalid! %d != %d\n",
+                DEBUG_PRINTF("Import %s seed size invalid! %d != %d\n",
                     TPM2_GetAlgName(keyType), seedSz, digestSz);
             #endif
                 return BAD_FUNC_ARG;
@@ -3943,22 +3943,22 @@ int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     #ifdef WOLFTPM_WINAPI
         if (rc == (int)TPM_E_COMMAND_BLOCKED) { /* 0x80280400 */
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_EvictControl (storing key to NV) not allowed on "
+            DEBUG_PRINTF("TPM2_EvictControl (storing key to NV) not allowed on "
                    "Windows TBS (err 0x%x)\n", rc);
         #endif
-            rc = TPM_RC_COMMAND_CODE;
+            rc = TPM_RC_NV_UNAVAILABLE;
         }
     #endif
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_EvictControl failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
+    DEBUG_PRINTF("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
         (word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
@@ -3995,14 +3995,14 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     rc = TPM2_EvictControl(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_EvictControl failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_EvictControl failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
+    DEBUG_PRINTF("TPM2_EvictControl Auth 0x%x, Key 0x%x, Persistent 0x%x\n",
         (word32)in.auth, (word32)in.objectHandle, (word32)in.persistentHandle);
 #endif
 
@@ -4067,7 +4067,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_Sign(&signIn, &signOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Sign failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Sign failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -4078,7 +4078,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                    signOut.signature.signature.ecdsa.signatureS.size;
         if (sigOutSz > *sigSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Sign: ECC result truncated %d -> %d\n",
+            DEBUG_PRINTF("TPM2_Sign: ECC result truncated %d -> %d\n",
                 sigOutSz, *sigSz);
         #endif
             sigOutSz = *sigSz;
@@ -4095,7 +4095,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         sigOutSz = signOut.signature.signature.rsassa.sig.size;
         if (sigOutSz > *sigSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Sign: RSA result truncated %d -> %d\n",
+            DEBUG_PRINTF("TPM2_Sign: RSA result truncated %d -> %d\n",
                 sigOutSz, *sigSz);
         #endif
             sigOutSz = *sigSz;
@@ -4105,7 +4105,7 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     *sigSz = sigOutSz;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Sign: %s %d\n",
+    DEBUG_PRINTF("TPM2_Sign: %s %d\n",
         TPM2_GetAlgName(signIn.inScheme.scheme), *sigSz);
 #endif
 
@@ -4240,7 +4240,7 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_VerifySignature(&verifySigIn, &verifySigOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_VerifySignature failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_VerifySignature failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
     }
@@ -4251,7 +4251,8 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                 sizeof(TPMT_TK_VERIFIED));
         }
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_VerifySignature: Tag %d\n", verifySigOut.validation.tag);
+        DEBUG_PRINTF("TPM2_VerifySignature: Tag %d\n",
+            verifySigOut.validation.tag);
     #endif
     }
     return rc;
@@ -4353,7 +4354,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     rc = TPM2_ECDH_KeyGen(&ecdhIn, &ecdhOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_ECDH_KeyGen failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_ECDH_KeyGen failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4369,7 +4370,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     XMEMCPY(out, ecdhOut.zPoint.point.x.buffer, *outSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
+    DEBUG_PRINTF("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         ecdhOut.zPoint.size,
         ecdhOut.pubPoint.size);
 #endif
@@ -4407,7 +4408,7 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     rc = TPM2_ECDH_ZGen(&ecdhZIn, &ecdhZOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_ECDH_ZGen failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_ECDH_ZGen failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4420,7 +4421,7 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     XMEMCPY(out, ecdhZOut.outPoint.point.x.buffer, *outSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+    DEBUG_PRINTF("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
 #endif
 
     return rc;
@@ -4444,7 +4445,7 @@ int wolfTPM2_ECDHEGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id)
     rc = TPM2_EC_Ephemeral(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_EC_Ephemeral failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_EC_Ephemeral failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4497,7 +4498,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     rc = TPM2_ZGen_2Phase(&inZGen2Ph, &outZGen2Ph);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_ZGen_2Phase failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_ZGen_2Phase failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4510,7 +4511,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     XMEMCPY(out, outZGen2Ph.outZ2.point.x.buffer, *outSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
+    DEBUG_PRINTF("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
 #endif
 
     return rc;
@@ -4553,7 +4554,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_RSA_Encrypt(&rsaEncIn, &rsaEncOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_RSA_Encrypt failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_RSA_Encrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4566,7 +4567,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(out, rsaEncOut.outData.buffer, *outSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
+    DEBUG_PRINTF("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
 #endif
 
     return rc;
@@ -4608,7 +4609,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_RSA_Decrypt(&rsaDecIn, &rsaDecOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_RSA_Decrypt failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_RSA_Decrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4621,7 +4622,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(msg, rsaDecOut.message.buffer, *msgSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_RSA_Decrypt: %d\n", rsaDecOut.message.size);
+    DEBUG_PRINTF("TPM2_RSA_Decrypt: %d\n", rsaDecOut.message.size);
 #endif
 
     return rc;
@@ -4660,7 +4661,7 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     rc = TPM2_PCR_Read(&pcrReadIn, &pcrReadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_PCR_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -4670,7 +4671,7 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
         XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digestLen);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
+    DEBUG_PRINTF("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
         pcrIndex, digestLen, (int)pcrReadOut.pcrUpdateCounter);
     TPM2_PrintBin(digest, digestLen);
 #endif
@@ -4704,12 +4705,12 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     rc = TPM2_PCR_Extend(&pcrExtend);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_PCR_Extend failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_PCR_Extend failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
     #endif
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_PCR_Extend: Index %d, Digest Sz %d\n", pcrIndex, digestLen);
+    DEBUG_PRINTF("TPM2_PCR_Extend: Index %d, Digest Sz %d\n", pcrIndex, digestLen);
 #endif
 
     return rc;
@@ -4734,14 +4735,14 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     rc = TPM2_FlushContext(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_FlushContext failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_FlushContext failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_FlushContext: Closed handle 0x%x\n", (word32)handle->hndl);
+    DEBUG_PRINTF("TPM2_FlushContext: Closed handle 0x%x\n", (word32)handle->hndl);
 #endif
 
     handle->hndl = TPM_RH_NULL;
@@ -4796,12 +4797,12 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (rc == TPM_RC_NV_DEFINED) {
         alreadyExists = 1;
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_DefineSpace: handle already exists\n");
+        DEBUG_PRINTF("TPM2_NV_DefineSpace: handle already exists\n");
     #endif
     }
     else if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_DefineSpace failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_NV_DefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -4816,7 +4817,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         rc = rctmp;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
+    DEBUG_PRINTF("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
         (word32)in.authHandle,
         (word32)in.publicInfo.nvPublic.nvIndex,
         (word32)in.publicInfo.nvPublic.attributes,
@@ -4896,7 +4897,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
+            DEBUG_PRINTF("wolfTPM2_NVWriteData: Setting NV index name failed\n");
         #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -4913,7 +4914,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
+        DEBUG_PRINTF("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
             "Extend %d\n",
             (word32)in.write.authHandle, (word32)in.write.nvIndex,
             in.write.offset, in.write.data.size, extend);
@@ -4935,7 +4936,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_NVWriteData failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_NVWriteData failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     }
 #endif
@@ -5022,7 +5023,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("Setting NV index name failed\n");
+            DEBUG_PRINTF("Setting NV index name failed\n");
         #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -5045,7 +5046,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_Read: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
+        DEBUG_PRINTF("TPM2_NV_Read: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
             (word32)in.authHandle, (word32)in.nvIndex, in.offset,
             out.data.size);
     #endif
@@ -5062,7 +5063,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_NV_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_NV_Read failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 #endif
 
@@ -5101,7 +5102,7 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
     }
     else {
     #ifdef DEBUG_WOLFTPM
-        printf("NV public read of handle 0x%x failed %d: %s\n",
+        DEBUG_PRINTF("NV public read of handle 0x%x failed %d: %s\n",
             handle, rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -5112,7 +5113,7 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
     rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, (word32*)len, 0);
 
 #ifdef DEBUG_WOLFTPM
-    printf("NV public read certificate 0x%x (%u bytes)\n",
+    DEBUG_PRINTF("NV public read certificate 0x%x (%u bytes)\n",
         handle, *len);
     TPM2_PrintBin(buffer, *len);
 #endif
@@ -5155,7 +5156,7 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Failed to open (read) NV\n");
+        DEBUG_PRINTF("Failed to open (read) NV\n");
     #endif
         return rc;
     }
@@ -5192,14 +5193,14 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     rc = TPM2_NV_ReadPublic(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_NV_ReadPublic failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
+    DEBUG_PRINTF("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         out.nvPublic.size,
         (word32)out.nvPublic.nvPublic.nvIndex,
@@ -5237,7 +5238,7 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Setting NV index name failed\n");
+        DEBUG_PRINTF("Setting NV index name failed\n");
     #endif
         return rc;
     }
@@ -5247,14 +5248,14 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     in.nvIndex = nv->handle.hndl;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_NV_Increment: Auth 0x%x, Idx 0x%x\n",
+    DEBUG_PRINTF("TPM2_NV_Increment: Auth 0x%x, Idx 0x%x\n",
         (word32)in.authHandle, (word32)in.nvIndex);
 #endif
 
     rc = TPM2_NV_Increment(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_Increment failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_NV_Increment failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -5285,7 +5286,7 @@ int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("Setting NV index name failed\n");
+        DEBUG_PRINTF("Setting NV index name failed\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -5319,14 +5320,14 @@ int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     rc = TPM2_NV_UndefineSpace(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_UndefineSpace failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_NV_UndefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_NV_UndefineSpace: Auth 0x%x, Idx 0x%x\n",
+    DEBUG_PRINTF("TPM2_NV_UndefineSpace: Auth 0x%x, Idx 0x%x\n",
         (word32)in.authHandle, (word32)in.nvIndex);
 #endif
 
@@ -5377,7 +5378,7 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         rc = TPM2_GetRandom(&in, &out);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_GetRandom failed 0x%x: %s\n", rc,
+            DEBUG_PRINTF("TPM2_GetRandom failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
         #endif
             break;
@@ -5386,7 +5387,7 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         sz = out.randomBytes.size; /* use actual returned size */
         if (sz > MAX_RNG_REQ_SIZE) {
         #ifdef DEBUG_WOLFTPM
-            printf("wolfTPM2_GetRandom out size error\n");
+            DEBUG_PRINTF("wolfTPM2_GetRandom out size error\n");
         #endif
             rc = BAD_FUNC_ARG;
             break;
@@ -5412,14 +5413,14 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     rc = TPM2_Clear(&in);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Clear failed %d: %s\n", rc,
+        DEBUG_PRINTF("TPM2_Clear failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Clear Auth 0x%x\n", (word32)in.authHandle);
+    DEBUG_PRINTF("TPM2_Clear Auth 0x%x\n", (word32)in.authHandle);
 #endif
 
     return rc;
@@ -5453,7 +5454,7 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     rc = TPM2_HashSequenceStart(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_HashSequenceStart failed 0x%x: %s\n", rc,
+        DEBUG_PRINTF("TPM2_HashSequenceStart failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
         return rc;
@@ -5463,7 +5464,7 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     hash->handle.hndl = out.sequenceHandle;
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_HashStart: Handle 0x%x\n",
+    DEBUG_PRINTF("wolfTPM2_HashStart: Handle 0x%x\n",
         (word32)out.sequenceHandle);
 #endif
 
@@ -5498,7 +5499,7 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         rc = TPM2_SequenceUpdate(&in);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_SequenceUpdate failed 0x%x: %s\n", rc,
+            DEBUG_PRINTF("TPM2_SequenceUpdate failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
         #endif
             return rc;
@@ -5507,7 +5508,7 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_HashUpdate: Handle 0x%x, DataSz %d\n",
+    DEBUG_PRINTF("wolfTPM2_HashUpdate: Handle 0x%x, DataSz %d\n",
         (word32)in.sequenceHandle, dataSz);
 #endif
 
@@ -5539,7 +5540,7 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
 
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SequenceComplete failed 0x%x: %s: Handle 0x%x\n", rc,
+        DEBUG_PRINTF("TPM2_SequenceComplete failed 0x%x: %s: Handle 0x%x\n", rc,
             TPM2_GetRCString(rc), (word32)in.sequenceHandle);
     #endif
         return rc;
@@ -5551,7 +5552,7 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     XMEMCPY(digest, out.result.buffer, *digestSz);
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_HashFinish: Handle 0x%x, DigestSz %d\n",
+    DEBUG_PRINTF("wolfTPM2_HashFinish: Handle 0x%x, DigestSz %d\n",
         (word32)in.sequenceHandle, *digestSz);
 #endif
 
@@ -5704,7 +5705,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
         wolfTPM2_CopyPub(&key->pub, &loadExtIn.inPublic);
 
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_LoadSymmetricKey: 0x%x\n",
+        DEBUG_PRINTF("wolfTPM2_LoadSymmetricKey: 0x%x\n",
             (word32)loadExtOut.objectHandle);
     #endif
         return rc;
@@ -5714,7 +5715,7 @@ exit:
 
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_LoadExternal: failed %d: %s\n",
+        DEBUG_PRINTF("TPM2_LoadExternal: failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
@@ -5780,7 +5781,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
+        DEBUG_PRINTF("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
         return rc;
@@ -5822,7 +5823,7 @@ int wolfTPM2_EncryptDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_EncryptDecrypt: 0x%x: %s, %d bytes\n",
+    DEBUG_PRINTF("wolfTPM2_EncryptDecrypt: 0x%x: %s, %d bytes\n",
         rc, TPM2_GetRCString(rc), inOutSz);
 #endif
 
@@ -5848,7 +5849,7 @@ int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode, int enableFlag)
         rc = TPM2_SetCommandSet(&in);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
+            DEBUG_PRINTF("TPM2_SetCommandSet failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
         #endif
         }
@@ -5917,13 +5918,13 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
+    DEBUG_PRINTF("TPM2_Create key: pub %d, priv %d\n", createOut.outPublic.size,
         createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
@@ -5939,7 +5940,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = TPM2_Load(&loadIn, &loadOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -5949,7 +5950,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     wolfTPM2_CopyName(&key->handle.name, &loadOut.name);
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_LoadKeyedHashKey Key Handle 0x%x\n",
+    DEBUG_PRINTF("wolfTPM2_LoadKeyedHashKey Key Handle 0x%x\n",
         (word32)key->handle.hndl);
 #endif
 
@@ -5999,7 +6000,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     rc = TPM2_HMAC_Start(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_HMAC_Start failed 0x%x: %s\n", rc,
+        DEBUG_PRINTF("TPM2_HMAC_Start failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
         return rc;
@@ -6009,7 +6010,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     hmac->hash.handle.hndl = out.sequenceHandle;
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_HmacStart: Handle 0x%x\n",
+    DEBUG_PRINTF("wolfTPM2_HmacStart: Handle 0x%x\n",
         (word32)out.sequenceHandle);
 #endif
 
@@ -6064,7 +6065,7 @@ int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
         rc = TPM2_Shutdown(&shutdownIn);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Shutdown failed 0x%x: %s\n",
+            DEBUG_PRINTF("TPM2_Shutdown failed 0x%x: %s\n",
                 rc, TPM2_GetRCString(rc));
         #endif
         }
@@ -6077,14 +6078,14 @@ int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
         rc = TPM2_Startup(&startupIn);
         if (rc != TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Startup failed %d: %s\n",
+            DEBUG_PRINTF("TPM2_Startup failed %d: %s\n",
                 rc, wolfTPM2_GetRCString(rc));
         #endif
         }
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_Reset complete\n");
+    DEBUG_PRINTF("wolfTPM2_Reset complete\n");
 #endif
 
     return rc;
@@ -6159,13 +6160,13 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     desc = TPM2_GetHierarchyDesc(authHandle);
 
     if (rc == 0) {
-        printf("%s auth set to %d bytes of random\n", desc, in.newAuth.size);
+        DEBUG_PRINTF("%s auth set to %d bytes of random\n", desc, in.newAuth.size);
         #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("\tAuth Sz %d\n", in.newAuth.size);
+            DEBUG_PRINTF("\tAuth Sz %d\n", in.newAuth.size);
             TPM2_PrintBin(in.newAuth.buffer, in.newAuth.size);
         #endif
     } else {
-        printf("Error %d setting %s auth! %s\n",
+        DEBUG_PRINTF("Error %d setting %s auth! %s\n",
             rc, desc, wolfTPM2_GetRCString(rc));
     }
 #endif
@@ -6943,7 +6944,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     /* Seal size is limited to TCG defined MAX_SYM_DATA, which is 128 bytes */
     if (sealSize < 0 || sealSize > MAX_SYM_DATA) {
 #ifdef DEBUG_WOLFTPM
-        printf("Seal size %d should not be larger than %d bytes\n",
+        DEBUG_PRINTF("Seal size %d should not be larger than %d bytes\n",
             sealSize, MAX_SYM_DATA);
 #endif
         return BAD_FUNC_ARG;
@@ -6981,14 +6982,14 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     rc = TPM2_Create(&createIn, &createOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("wolfTPM2_CreateKeySeal failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_CreateKeySeal failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 
 #ifdef DEBUG_WOLFTPM
-    printf("wolfTPM2_CreateKeySeal generated key with: pub %d, priv %d\n",
+    DEBUG_PRINTF("wolfTPM2_CreateKeySeal generated key with: pub %d, priv %d\n",
         createOut.outPublic.size, createOut.outPrivate.size);
     TPM2_PrintPublicArea(&createOut.outPublic);
 #endif
@@ -7031,7 +7032,7 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
     rc = TPM2_GetTime(&getTimeCmd, getTimeOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetTime failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("TPM2_GetTime failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
     }
 
@@ -7363,7 +7364,7 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
         }
     #else
         #ifdef DEBUG_WOLFTPM
-        printf("CSR_MakeAndSign PEM not supported\n")
+        DEBUG_PRINTF("CSR_MakeAndSign PEM not supported\n")
         #endif
         rc = NOT_COMPILED_IN;
     #endif
@@ -7443,7 +7444,7 @@ static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
     }
     else {
     #ifdef DEBUG_WOLFTPM
-        printf("CSR_KeySetup invalid input key\n");
+        DEBUG_PRINTF("CSR_KeySetup invalid input key\n");
     #endif
         rc = BAD_FUNC_ARG;
     }
@@ -7553,7 +7554,7 @@ int wolfTPM2_CSR_SetKeyUsage(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     }
 #else
 #ifdef DEBUG_WOLFTPM
-    printf("CSR_Generate key usage supplied, but not available\n");
+    DEBUG_PRINTF("CSR_Generate key usage supplied, but not available\n");
 #endif
     rc = NOT_COMPILED_IN;
 #endif
@@ -7838,7 +7839,7 @@ int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("PolicyAuthorize failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        DEBUG_PRINTF("PolicyAuthorize failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     }
 #endif
     return rc;
@@ -7884,12 +7885,12 @@ int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
-        printf("wolfTPM2_PCRGetDigest failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_PCRGetDigest failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     }
     #ifdef WOLFTPM_DEBUG_VERBOSE
     else {
-        printf("wolfTPM2_PCRGetDigest: %d\n", *pcrDigestSz);
+        DEBUG_PRINTF("wolfTPM2_PCRGetDigest: %d\n", *pcrDigestSz);
         TPM2_PrintBin(pcrDigest, *pcrDigestSz);
     }
     #endif
@@ -7950,12 +7951,12 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
-        printf("wolfTPM2_PolicyHash failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_PolicyHash failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     }
     #ifdef WOLFTPM_DEBUG_VERBOSE
     else {
-        printf("wolfTPM2_PolicyHash: %d\n", *digestSz);
+        DEBUG_PRINTF("wolfTPM2_PolicyHash: %d\n", *digestSz);
         TPM2_PrintBin(digest, *digestSz);
     }
     #endif
@@ -7999,12 +8000,12 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
-        printf("wolfTPM2_PolicyPCRMake failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_PolicyPCRMake failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     }
     #ifdef WOLFTPM_DEBUG_VERBOSE
     else {
-        printf("wolfTPM2_PolicyPCRMake: %d\n", *digestSz);
+        DEBUG_PRINTF("wolfTPM2_PolicyPCRMake: %d\n", *digestSz);
         TPM2_PrintBin(digest, *digestSz);
     }
     #endif
@@ -8047,12 +8048,12 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
-        printf("wolfTPM2_PolicyAuthorizeMake failed %d: %s\n",
+        DEBUG_PRINTF("wolfTPM2_PolicyAuthorizeMake failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     }
     #ifdef WOLFTPM_DEBUG_VERBOSE
     else {
-        printf("wolfTPM2_PolicyAuthorizeMake: %d\n", *digestSz);
+        DEBUG_PRINTF("wolfTPM2_PolicyAuthorizeMake: %d\n", *digestSz);
         TPM2_PrintBin(digest, *digestSz);
     }
     #endif
@@ -8092,13 +8093,13 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     rc = TPM2_GetProductInfo(serialNum, (uint16_t)sizeof(serialNum));
     if (rc != 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetProductInfo failed %d: %s\n",
+        DEBUG_PRINTF("TPM2_GetProductInfo failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM Serial Number (%d bytes)\n", (int)sizeof(serialNum));
+    DEBUG_PRINTF("TPM Serial Number (%d bytes)\n", (int)sizeof(serialNum));
     TPM2_PrintBin(serialNum, sizeof(serialNum));
 #endif
 
@@ -8129,7 +8130,7 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     handle->auth.size = 16;
     XMEMCPY(handle->auth.buffer, &digest[16], 16);
 #ifdef DEBUG_WOLFTPM
-    printf("Handle 0x%x, Auth %d\n", handle->hndl, handle->auth.size);
+    DEBUG_PRINTF("Handle 0x%x, Auth %d\n", handle->hndl, handle->auth.size);
     TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
 #endif
 
@@ -8189,7 +8190,7 @@ static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
 
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Enable firmware start policy failed 0x%x: %s\n",
+        DEBUG_PRINTF("Enable firmware start policy failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8242,7 +8243,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware upgrade start failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware upgrade start failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8271,7 +8272,7 @@ static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
             state = 0;
         }
     #ifdef DEBUG_WOLFTPM
-        printf("Firmware manifest chunk %u offset (%u / %u), state %d\n",
+        DEBUG_PRINTF("Firmware manifest chunk %u offset (%u / %u), state %d\n",
             chunk_sz, offset, manifest_sz, state);
     #endif
 
@@ -8288,7 +8289,7 @@ static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware upgrade manifest failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware upgrade manifest failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8314,19 +8315,19 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
         }
         else if (rc == 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("Firmware data done\n");
+            DEBUG_PRINTF("Firmware data done\n");
         #endif
             break;
         }
         else {
         #ifdef DEBUG_WOLFTPM
-            printf("Firmware data callback error! %d\n", rc);
+            DEBUG_PRINTF("Firmware data callback error! %d\n", rc);
         #endif
             break;
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("Firmware data chunk offset %u\n", offset);
+        DEBUG_PRINTF("Firmware data chunk offset %u\n", offset);
     #endif
 
         val16 = be16_to_cpu(chunk_sz);
@@ -8351,7 +8352,7 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
     }
 #ifdef DEBUG_WOLFTPM
     else {
-        printf("Firmware upgrade data failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware upgrade data failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8373,7 +8374,7 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
         cmd, sizeof(cmd));
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware finalize failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware finalize failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8394,7 +8395,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         if (caps.opMode == 0x03) {
             /* firmware update is done, just needs finalized and TPM reset */
         #ifdef DEBUG_WOLFTPM
-            printf("Firmware update done, finalizing\n");
+            DEBUG_PRINTF("Firmware update done, finalizing\n");
         #endif
             return tpm2_ifx_firmware_final(dev);
         }
@@ -8417,7 +8418,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware update failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware update failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
@@ -8473,7 +8474,7 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
         cmd, sizeof(cmd));
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware abandon failed 0x%x: %s\n",
+        DEBUG_PRINTF("Firmware abandon failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
