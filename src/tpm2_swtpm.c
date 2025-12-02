@@ -62,7 +62,7 @@
 #define TPM2_SWTPM_HOST         "localhost"
 #endif
 #ifndef TPM2_SWTPM_PORT
-#define TPM2_SWTPM_PORT         "2321"
+#define TPM2_SWTPM_PORT         2321
 #endif
 
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
@@ -268,7 +268,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 
     if (ctx->tcpCtx.fd < 0) {
-        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, TPM2_SWTPM_PORT);
+        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, XSTRINGIFY(TPM2_SWTPM_PORT));
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE

@@ -1,5 +1,50 @@
 # Release Notes
 
+## wolfTPM Release 3.10.0 (Dec 4, 2025)
+
+**Summary**
+
+This release includes important bug fixes for password handling, hash algorithm selection, and TLS shutdown. Enhanced CMake support with TPM module selection. Improved Linux TPM resource manager handling. Security improvements for HMAC validation and payload length checks. Various build system improvements and test enhancements.
+
+**Detail**
+
+* Fixes for minor Coverity reports (PR #441)
+* Fixed critical bug in password handling (PR #439)
+  - Fixed `wolfTPM2_SetKeyAuthPassword` that was truncating password to 2 bytes (bug introduced in PR #427 and release v3.9.2)
+  - Added test to catch this and verified no other similar issues exist
+* Added Espressif HAL SPI support (PR #386)
+* Enhanced CMake support and TPM module selection (PR #438)
+  - Added CMake support for choosing a TPM module
+  - Finished CMake options to sync with configure
+  - Further improvements to CMake interfaces and test scripts
+* Security improvements for TPM response validation (PR #437)
+  - Validate `TPM2_GetProductInfo` payload length to avoid signed underflow and out-of-bounds access
+  - Enforce TPM response HMAC length checks to reject zero-length or mismatched response HMACs for authenticated sessions
+* Added Linux TPM Resource Manager support (PR #435, #434)
+  - Added persistent access to `/dev/tpmrmX` (enabled with `WOLFTPM_USE_TPMRM`)
+  - Fixed TPM Linux `read()` error return code handling
+* Fixed crypto callback and hash algorithm selection (PR #433)
+  - Fixed crypto callback to return CRYPTOCB_UNAVAILABLE when a TPM key is not set
+  - Fixed to use curve type to determine hash type not digest size
+* Improved signature verification hash detection (PR #432)
+  - Fixed `TPM2_VerifySignature` to detect correct hash algorithm
+  - Added more test cases for signature verification
+* Improved TLS bidirectional shutdown (PR #431)
+  - Improved the TLS bidirectional shutdown
+  - Fixed for missing `WC_PK_TYPE_RSA_GET_SIZE` in older releases
+* Fixed CMake lock options (PR #430)
+  - Fixed backward yes/no logic of `WOLFTPM_NO_LOCK_DEFAULT`
+  - Fixed if check statement of `WOLFTPM_NO_LOCK`
+  - Updated default logic for `WOLFTPM_NO_LOCK` depending on state of `WOLFTPM_SINGLE_THREADED`
+* Build system and testing improvements
+  - Added new `make cppcheck` option with fixes for cppcheck
+  - Fixed issue with possible use of uninitialized `rc` in `TPM2_GetNonceNoLock`
+  - Fixed for build and testing with `--enable-infineon=9670` with additional build tests
+  - Support for swtpm port arguments
+  - Split up the make tests into matrix (improve test time)
+* Various spelling fixes and code cleanup
+
+
 ## wolfTPM Release 3.9.2 (July 30, 2025)
 
 **Summary**
