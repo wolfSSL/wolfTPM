@@ -37,13 +37,6 @@
 /* --- Local Variables -- */
 /******************************************************************************/
 
-#if defined(WOLFTPM_SWTPM_UARTNS550)
-    /* having this as static and as thread local storage causes run time issues
-     * with Xilinx FSBL use */
-    TPM2_CTX* gActiveTPM;
-#else
-    static THREAD_LS_T TPM2_CTX* gActiveTPM;
-#endif
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 static volatile int gWolfCryptRefCount = 0;
 #endif
