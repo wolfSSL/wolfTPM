@@ -423,7 +423,13 @@ typedef int64_t  INT64;
 /* ---------------------------------------------------------------------------*/
 
 #ifndef MAX_SPI_FRAMESIZE
-#define MAX_SPI_FRAMESIZE 64
+    #if defined(WOLFSSL_ESPIDF)
+        /* ESP32 has a firm limit of 64 for burst + header. */
+        #define MAX_SPI_FRAMESIZE 60
+        #define ESP_SPI_ADDITIONAL_FRAME_BUFFER 4
+    #else
+        #define MAX_SPI_FRAMESIZE 64
+    #endif
 #endif
 
 #ifndef TPM_STARTUP_TEST_TRIES

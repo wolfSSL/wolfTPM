@@ -442,13 +442,17 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 #else /* If not I2C, it must be SPI  */
 /*---------------------------------------------------------------------------*/
 
+/* Note: If an error is encountered during SPI transfer:
+ *    TPM2_StartAuthSession failed 0x903: TPM_RC_SESSION_MEMORY
+ * Try hardware reset of the TPM device.  */
+
 #define SPI_CLOCK_MHZ (10 * 1000 * 1000) /* 10MHz, but tested up to 22MHz */
 
 /* If failures are encountered, try hardware reset of TPM device. */
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
-    /* NOTE: on esp, 64 byte limit includes data and header!!! */
-    #define SPI_MAX_TRANSFER 64
-
+    #ifndef ESP_SPI_MAX_TRANSFER
+        #define ESP_SPI_MAX_TRANSFER_SIZE MAX_SPI_FRAMESIZE + 4
+    #endif
     /* FSPI (HOST_SPI2) on esp32-s3-wroom */
     #ifndef PIN_NUM_MISO
         #define PIN_NUM_MISO 13
@@ -463,7 +467,9 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         #define PIN_NUM_CS   10
     #endif
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
-    #define SPI_MAX_TRANSFER 1024
+    #ifndef ESP_SPI_MAX_TRANSFER
+        #define ESP_SPI_MAX_TRANSFER_SIZE 1024
+    #endif
     #ifndef PIN_NUM_MISO
         #define PIN_NUM_MISO 2
     #endif
@@ -481,7 +487,9 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         #define PIN_NUM_SPICS_IO -1
     #endif
 #else
-    #define SPI_MAX_TRANSFER 64
+    #ifndef ESP_SPI_MAX_TRANSFER
+        #define ESP_SPI_MAX_TRANSFER_SIZE MAX_SPI_FRAMESIZE
+    #endif
     #ifndef PIN_NUM_MISO
         #error PIN_NUM_MISO undefined
     #endif
@@ -514,7 +522,8 @@ static struct TPM_DATA {
 
 static int _is_initialized_spi =    0;
 
-static int esp_spi_master_init() {
+static int esp_spi_master_init(void)
+{
     /* SPI bus & device configuration */
     const spi_bus_config_t bus_cfg = {
         .miso_io_num = PIN_NUM_MISO,
@@ -522,7 +531,7 @@ static int esp_spi_master_init() {
         .sclk_io_num = PIN_NUM_CLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = SPI_MAX_TRANSFER
+        .max_transfer_sz = ESP_SPI_MAX_TRANSFER_SIZE
     };
     const spi_device_interface_config_t dev_cfg = {
         .clock_speed_hz = SPI_CLOCK_MHZ,
@@ -532,6 +541,7 @@ static int esp_spi_master_init() {
         .pre_cb = NULL,
         .post_cb = NULL,
     };
+    esp_err_t ret;
 
     /* Initializing CS pin */
     esp_rom_gpio_pad_select_gpio(PIN_NUM_CS);
@@ -539,7 +549,6 @@ static int esp_spi_master_init() {
     gpio_set_level(PIN_NUM_CS, 1);
 
     /* Initialize the SPI bus and device */
-    esp_err_t ret;
     ret = spi_bus_initialize(SPI2_HOST, &bus_cfg, 0);
     ESP_ERROR_CHECK(ret);
 
@@ -558,7 +567,7 @@ static int esp_spi_master_init() {
 }
 
 /* Aquire SPI bus and keep pulling CS */
-static int tpm_spi_acquire()
+static int tpm_spi_acquire(void)
 {
     int ret;
     gpio_set_level(tpm_data->cs_pin, 0);
@@ -567,18 +576,21 @@ static int tpm_spi_acquire()
 }
 
 /* Release SPI bus and CS */
-int tpm_spi_release ()
+int tpm_spi_release (void)
 {
     gpio_set_level(tpm_data->cs_pin, 1);
     spi_device_release_bus(tpm_data->spi);
     return 0;
 }
 
-int tpm_spi_raw_transfer (const byte *data_out, byte *data_in, size_t cnt) {
+int tpm_spi_raw_transfer (const byte *data_out, byte *data_in, size_t cnt)
+{
+    spi_transaction_t t;
+    esp_err_t ret;
 
     /* Maximum transfer size is 64 byte because we don't use DMA. */
-    if (cnt > SPI_MAX_TRANSFER) {
-        ESP_LOGE(TAG, "tpm_io_espressif: cnt %d\n", cnt);
+    if (cnt > MAX_SPI_FRAMESIZE + ESP_SPI_ADDITIONAL_FRAME_BUFFER) {
+        ESP_LOGE(TAG, "tpm_io_espressif: cnt %d larger than framesize\n", cnt);
         return -1;
     }
 
@@ -588,14 +600,13 @@ int tpm_spi_raw_transfer (const byte *data_out, byte *data_in, size_t cnt) {
     }
 
     /* Setup transaction */
-    spi_transaction_t t;
     memset(&t, 0, sizeof(t));
     t.length = cnt*8;
     t.tx_buffer = data_out;
     t.rx_buffer = data_in;
 
     /* Transmit */
-    esp_err_t ret = spi_device_polling_transmit(tpm_data->spi, &t);
+    ret = spi_device_polling_transmit(tpm_data->spi, &t);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "spi_transmit returned error %d\n", ret);
         return -1;
@@ -605,11 +616,14 @@ int tpm_spi_raw_transfer (const byte *data_out, byte *data_in, size_t cnt) {
 } /* tpm_spi_raw_transfer */
 
 int TPM2_IoCb_Espressif_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
-                            word16 xferSz, void* userCtx) {
+                            word16 xferSz, void* userCtx)
+{
+    (void)ctx;
     int ret = TPM_RC_FAILURE;
 
-    if (_is_initialized_spi)
+    if (_is_initialized_spi) {
         ret = ESP_OK;
+    }
     else {
         ret = esp_spi_master_init(); /* ESP return code, not TPM */
         ESP_LOGV(TAG, "HAL: Initializing SPI %d", ret);
@@ -625,7 +639,6 @@ int TPM2_IoCb_Espressif_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         ret = TPM_RC_FAILURE;
     }
 
-    (void)ctx;
     return ret;
 } /* TPM2_IoCb_Espressif_SPI */
 

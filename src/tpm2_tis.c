@@ -26,13 +26,6 @@
 #include <wolftpm/tpm2_tis.h>
 
 /******************************************************************************/
-#ifdef WOLFSSL_ESPIDF
-    #define TAG "tpm2_tls"
-    /* ESP32 has a firm limit of 64 for burst + header. */
-    #define BURST_MAX 60
-#endif
-
-/******************************************************************************/
 /* --- BEGIN TPM Interface Specification (TIS) Layer */
 /******************************************************************************/
 
@@ -436,15 +429,6 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
         if (timeout <= 0)
             return TPM_RC_TIMEOUT;
     }
-
-#if defined(WOLFSSL_ESPIDF)
-    /* ESP32 has a firm limit of 64 for burst + header. */
-    if (*burstCount > BURST_MAX) {
-        ESP_LOGW(TAG, "Reset burst count from %d to %d", *burstCount,
-                                                          BURST_MAX);
-        *burstCount = BURST_MAX;
-    }
-#endif
 
     return rc;
 }
