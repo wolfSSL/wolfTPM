@@ -98,6 +98,8 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
         goto exit_badargs;
     }
 
+    XMEMSET(&primary, 0, sizeof(primary));
+
     printf("Demo how to create a credential challenge for remote attestation\n");
     printf("Credential will be stored in %s\n", output);
 

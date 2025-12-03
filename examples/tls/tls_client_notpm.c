@@ -287,7 +287,18 @@ exit:
         printf("Failure %d (0x%x): %s\n", rc, rc, wolfSSL_ERR_reason_error_string(rc));
     }
 
-    wolfSSL_shutdown(ssl);
+    if (wolfSSL_shutdown(ssl) == WOLFSSL_SHUTDOWN_NOT_DONE) {
+        /* Bidirectional shutdown */
+        if (SocketWaitData(&sockIoCtx, 2 /* seconds */) == 1) {
+            int ret = wolfSSL_shutdown(ssl);
+            if (ret == WOLFSSL_SUCCESS) {
+                printf("Bidirectional shutdown complete\n");
+            }
+            else if (ret != WOLFSSL_SHUTDOWN_NOT_DONE) {
+                fprintf(stderr, "Bidirectional shutdown failed\n");
+            }
+        }
+    }
 
     CloseAndCleanupSocket(&sockIoCtx);
     wolfSSL_free(ssl);

@@ -149,10 +149,13 @@ int writeKeyBlob(const char* filename,
          * save space */
         rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
             &pubAreaSize, &key->pub);
-        if (rc != TPM_RC_SUCCESS)
+        if (rc != TPM_RC_SUCCESS) {
+            XFCLOSE(fp);
             return rc;
+        }
         if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
             printf("writeKeyBlob: Sanity check for publicArea size failed\n");
+            XFCLOSE(fp);
             return BUFFER_E;
         }
     #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -204,10 +207,13 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             goto exit;
         }
         fileSz -= bytes_read;
-
+        if (key->pub.size > sizeof(UINT16) + sizeof(pubAreaBuffer)) {
+            printf("Public key size is too large\n");
+            rc = BUFFER_E; goto exit;
+        }
         bytes_read = XFREAD(pubAreaBuffer, 1,
             sizeof(UINT16) + key->pub.size, fp);
-        if (bytes_read != sizeof(UINT16) + key->pub.size) {
+        if (bytes_read != (sizeof(UINT16) + key->pub.size)) {
             printf("Read %zu, expected public blob %zu bytes\n",
                 bytes_read, sizeof(UINT16) + key->pub.size);
             goto exit;

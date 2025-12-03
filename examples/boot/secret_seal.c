@@ -185,7 +185,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
             wc_FreeRng(&rng);
         }
     }
-    if (rc != 0 || secretSz == 0) {
+    if (rc != 0 || secretSz <= 0) {
         printf("Error getting secret\n");
         goto exit;
     }

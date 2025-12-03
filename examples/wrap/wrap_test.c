@@ -939,7 +939,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         printf("Encrypt/Decrypt test failed, result not as expected!\n");
         goto exit;
     }
-    if (rc != 0) goto exit;
 #else
     (void)aesIv;
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */

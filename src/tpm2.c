@@ -429,8 +429,10 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Is auth session required for this TPM command? */
     if (tag == TPM_ST_SESSIONS) {
         /* Is there at least one auth session present? */
-        if (info->authCnt < 1 || ctx->session == NULL)
+        if (info->authCnt < 1 || ctx->session == NULL) {
+            packet->pos = cmdSz; /* restore */
             return TPM_RC_AUTH_MISSING;
+        }
 
     #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Found %d auth sessions\n", info->authCnt);
