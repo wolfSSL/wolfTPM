@@ -465,13 +465,13 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
     #define SPI_MAX_TRANSFER 1024
     #ifndef PIN_NUM_MISO
-        #define PIN_NUM_MISO 2 /* orange */
+        #define PIN_NUM_MISO 2
     #endif
     #ifndef PIN_NUM_MOSI
-        #define PIN_NUM_MOSI 7 /* yellow */
+        #define PIN_NUM_MOSI 7
     #endif
     #ifndef PIN_NUM_CLK
-        #define PIN_NUM_CLK  6  /* gray */
+        #define PIN_NUM_CLK  6
     #endif
     #ifndef PIN_NUM_CS
         /* Set to 10 on ESP32-C6 despite documentation that states 16
