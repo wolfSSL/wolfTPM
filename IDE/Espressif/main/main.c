@@ -55,6 +55,9 @@
     #define WOLFTPM_MAIN_TEST_ITERATIONS 1
 #endif
 
+/* I2C tested with 35840 stack, SPI with 45840 on ESP32-C6 */
+#define MIN_TPM_TEST_STACK_SIZE 45840
+
 static const char* const TAG = "wolfTPM main";
 
 void app_main(void)
@@ -62,6 +65,20 @@ void app_main(void)
     char mydata[1024];
     int tests = WOLFTPM_MAIN_TEST_ITERATIONS;
     esp_err_t ret = 0;
+#ifdef CONFIG_MAIN_TASK_STACK_SIZE
+    if (CONFIG_MAIN_TASK_STACK_SIZE < MIN_TPM_TEST_STACK_SIZE) {
+        ESP_LOGE(TAG, "Stack may be too small!");
+    }
+#else
+    ESP_LOGE(TAG, "No CONFIG_MAIN_TASK_STACK_SIZE defined?");
+#endif
+#ifdef CONFIG_ESP_MAIN_TASK_STACK_SIZE
+    if (CONFIG_ESP_MAIN_TASK_STACK_SIZE < MIN_TPM_TEST_STACK_SIZE) {
+        ESP_LOGE(TAG, "Stack may be too small!");
+    }
+#else
+    ESP_LOGE(TAG, "No CONFIG_ESP_MAIN_TASK_STACK_SIZE defined?");
+#endif
 
 #ifdef LIBWOLFTPM_VERSION_STRING
     ESP_LOGI(TAG, "Hello wolfTPM version %s!", LIBWOLFTPM_VERSION_STRING);

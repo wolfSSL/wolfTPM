@@ -25,7 +25,6 @@
 
 #include <wolftpm/tpm2_tis.h>
 
-
 /******************************************************************************/
 /* --- BEGIN TPM Interface Specification (TIS) Layer */
 /******************************************************************************/
@@ -405,6 +404,7 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
     }
     else
 #endif
+
     {
         int timeout = TPM_TIMEOUT_TRIES;
         *burstCount = 0;
