@@ -933,7 +933,6 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
         printf("Encrypt/Decrypt: Is not a supported feature due to export controls\n");
-        rc = TPM_RC_SUCCESS; /* clear error code */
     }
     else {
         printf("Encrypt/Decrypt test failed, result not as expected!\n");

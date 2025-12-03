@@ -1682,6 +1682,9 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* key is bindAuthValue || salt */
     XMEMSET(&keyIn, 0, sizeof(keyIn));
     if (bind && bind->auth.size > 0) {
+        if (bind->auth.size > (UINT16)sizeof(bind->auth.buffer)) {
+            return BUFFER_E;
+        }
         if ((keyIn.size + bind->auth.size) > (UINT16)sizeof(keyIn.buffer)) {
             return BUFFER_E;
         }
@@ -1690,6 +1693,9 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         keyIn.size += bind->auth.size;
     }
     if (session->salt.size > 0) {
+        if (session->salt.size > (UINT16)sizeof(session->salt.buffer)) {
+            return BUFFER_E;
+        }
         if ((keyIn.size + session->salt.size) > (UINT16)sizeof(keyIn.buffer)) {
             return BUFFER_E;
         }
@@ -3690,12 +3696,14 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load public key */
     qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
-    if (qxSz > sizeof(qx)) {
+    if (qxSz > sizeof(qx) ||
+        qxSz > sizeof(tpmKey->pub.publicArea.unique.ecc.x.buffer)) {
         return BUFFER_E;
     }
     XMEMCPY(qx, tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
     qySz = tpmKey->pub.publicArea.unique.ecc.y.size;
-    if (qySz > sizeof(qy)) {
+    if (qySz > sizeof(qy) ||
+        qySz > sizeof(tpmKey->pub.publicArea.unique.ecc.y.buffer)) {
         return BUFFER_E;
     }
     XMEMCPY(qy, tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
