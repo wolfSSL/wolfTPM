@@ -237,8 +237,10 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
     XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], value, len);
-    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + len - 1], 0,
-        sizeof(txBuf) - TPM_TIS_HEADER_SZ - len);
+    if (len < MAX_SPI_FRAMESIZE) {
+        XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + len], 0,
+            sizeof(txBuf) - TPM_TIS_HEADER_SZ - len);
+    }
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
