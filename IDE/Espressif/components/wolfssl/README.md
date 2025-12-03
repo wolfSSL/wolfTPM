@@ -13,8 +13,8 @@ Copy the entire [components/wolfssl](https://github.com/wolfSSL/wolfssl/tree/mas
 ## Managed Component
 
 To use a managed component, delete this `[project]/components/wolfssl` directory and use
-the Espressif MAnaged Component install.
+the Espressif Managed Component install.
 
-See blog for mo information:
+See blog for more information:
 
 https://www.wolfssl.com/wolfssl-now-available-in-espressif-component-registry/
