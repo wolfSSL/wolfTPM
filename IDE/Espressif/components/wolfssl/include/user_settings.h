@@ -55,6 +55,10 @@
     #define WOLFSSL_SHA3
 #endif
 
+#define WOLFTPM_ADV_IO
+#define WOLFTPM_EXAMPLE_HAL
+#define WOLFTPM_INCLUDE_IO_FILE
+
 /*
  * ONE of these Espressif chip families will be detected from sdkconfig:
  *
@@ -146,7 +150,7 @@
 #else
     #define HAVE_ECC
     #define HAVE_CURVE25519
-    #define CURVE25519_SMALL
+    /* #define CURVE25519_SMALL */
 #endif
 
 #define HAVE_ED25519
@@ -643,7 +647,7 @@ Turn on timer debugging (used when CPU cycles not available)
 
 /* Choices are I2C or SPI*/
 /* WOLFTPM_I2C or not; when not defined, assumes SPI. */
-#define WOLFTPM_I2C
+/* #define WOLFTPM_I2C */
 
 /* Enable the wolfTPM example HAL in tpm_io.h */
 #define WOLFTPM_EXAMPLE_HAL
@@ -652,8 +656,10 @@ Turn on timer debugging (used when CPU cycles not available)
 #define WOLFTPM_INCLUDE_IO_FILE
 
 /* The default TPM_TIMEOUT_TRIES is 1,000,000 but can be overridden.
- * A value of 10000 is much more appropriate for the ESP32: */
-#define TPM_TIMEOUT_TRIES 10000
+ * A value of 10000 is much more appropriate for the ESP32.
+ * The extra long delay is for TPM2_CreatePrimary: Endorsement operations,
+ * which can take up to 60 seconds */
+#define TPM_TIMEOUT_TRIES 300000
 
 /* If not defined here, TPM_I2C_TRIES is set to a default value of 10 */
 /* #define TPM_I2C_TRIES 10 */

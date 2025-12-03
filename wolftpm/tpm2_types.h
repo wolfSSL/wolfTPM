@@ -493,6 +493,8 @@ typedef int64_t  INT64;
     #endif
     #include <unistd.h>
     #define XTPM_WAIT() usleep(XTPM_WAIT_POLLING_US);
+#elif defined(WOLFSSL_ESPIDF)
+    #define XTPM_WAIT() vTaskDelay(pdMS_TO_TICKS(1))
 #endif
 #ifndef XTPM_WAIT
     #define XTPM_WAIT() /* just poll without delay by default */
@@ -504,6 +506,8 @@ typedef int64_t  INT64;
         /* For Zephyr, use k_sleep() instead of usleep() */
         #include <zephyr/kernel.h>
         #define XSLEEP_MS(ms) k_msleep(ms)
+    #elif defined(WOLFSSL_ESPIDF)
+        #define XSLEEP_MS(ms) vTaskDelay(pdMS_TO_TICKS(ms))
     #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #include <time.h>
         #define XSLEEP_MS(ms) ({ \

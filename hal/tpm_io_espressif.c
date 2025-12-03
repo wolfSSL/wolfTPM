@@ -42,6 +42,8 @@
 
 /* Espressif */
 #include "sdkconfig.h"
+#include <driver/gpio.h>
+#include <driver/spi_master.h>
 
 #define TAG "TPM_IO"
 
@@ -165,7 +167,7 @@
     #define TPM_I2C_TRIES           10
 #endif
 
-static int _is_initialized_i2c =    FALSE;
+static int _is_initialized_i2c =    0;
 
 #ifdef DEBUG_WOLFSSL_VERBOSE
 static esp_err_t show_binary(byte* theVar, size_t dataSz) {
@@ -238,7 +240,7 @@ static esp_err_t i2c_master_delete(void)
 {
     ESP_LOGI(TAG, "i2c_master_delete");
     ESP_ERROR_CHECK(i2c_driver_delete(I2C_MASTER_NUM));
-    _is_initialized_i2c = FALSE;
+    _is_initialized_i2c = 0;
     return ESP_OK;
 }
 
@@ -438,20 +440,196 @@ int TPM2_IoCb_Espressif_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 /* end WOLFTPM_I2C */
 
 #else /* If not I2C, it must be SPI  */
-    /* TODO implement SPI */
+/*---------------------------------------------------------------------------*/
 
-    #ifndef TPM2_SPI_HZ
-        /* Use the max speed by default
-         * See tpm2_types.h for chip specific max values */
-        #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
-    #endif
-    #ifdef WOLFTPM_CHECK_WAIT_STATE
-        #error SPI check wait state logic not supported
-    #endif
+#define SPI_CLOCK_MHZ (10 * 1000 * 1000) /* 10MHz, but tested up to 22MHz */
 
-    #error TPM2 SPI support on this platform not supported yet
+/* If failures are encountered, try hardware reset of TPM device. */
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+    /* NOTE: on esp, 64 byte limit includes data and header!!! */
+    #define SPI_MAX_TRANSFER 64
+
+    /* FSPI (HOST_SPI2) on esp32-s3-wroom */
+    #ifndef PIN_NUM_MISO
+        #define PIN_NUM_MISO 13
+    #endif
+    #ifndef PIN_NUM_MOSI
+        #define PIN_NUM_MOSI 11
+    #endif
+    #ifndef PIN_NUM_CLK
+        #define PIN_NUM_CLK  12
+    #endif
+    #ifndef PIN_NUM_CS
+        #define PIN_NUM_CS   10
+    #endif
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+    #define SPI_MAX_TRANSFER 1024
+    #ifndef PIN_NUM_MISO
+        #define PIN_NUM_MISO 2 /* orange */
+    #endif
+    #ifndef PIN_NUM_MOSI
+        #define PIN_NUM_MOSI 7 /* yellow */
+    #endif
+    #ifndef PIN_NUM_CLK
+        #define PIN_NUM_CLK  6  /* gray */
+    #endif
+    #ifndef PIN_NUM_CS
+        /* Set to 10 on ESP32-C6 despite documentation that states 16
+         * Tested on ESP32-C6-DevKitC-1 */
+        #define PIN_NUM_CS   10
+        /* Allow software control */
+        #define PIN_NUM_SPICS_IO -1
+    #endif
+#else
+    #define SPI_MAX_TRANSFER 64
+    #ifndef PIN_NUM_MISO
+        #error PIN_NUM_MISO undefined
+    #endif
+    #ifndef PIN_NUM_MOSI
+        #error PIN_NUM_MOSI undefined
+    #endif
+    #ifndef PIN_NUM_CLK
+        #error PIN_NUM_CLK undefined
+    #endif
+    #ifndef PIN_NUM_CS
+        #error PIN_NUM_CS undefined
+    #endif
 #endif
 
+/* Set spi_device_interface_config_t.spics_io_num = PIN_NUM_SPICS_IO
+ *     to -1 to let software control.
+ *     to CS Pin = PIN_NUM_CS for hardware control.
+ * See tpm_spi_acquire() and tpm_spi_release()
+ * Software control still requires CS pin  */
+#ifndef PIN_NUM_SPICS_IO
+    #define PIN_NUM_SPICS_IO PIN_NUM_CS
+#endif
+
+/* TPM data storing SPI handles & timeouts */
+static struct TPM_DATA {
+    spi_device_handle_t spi;
+    gpio_num_t cs_pin;
+    int64_t timeout_expiry;
+} *tpm_data;
+
+static int _is_initialized_spi =    0;
+
+static int esp_spi_master_init() {
+    /* SPI bus & device configuration */
+    const spi_bus_config_t bus_cfg = {
+        .miso_io_num = PIN_NUM_MISO,
+        .mosi_io_num = PIN_NUM_MOSI,
+        .sclk_io_num = PIN_NUM_CLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = SPI_MAX_TRANSFER
+    };
+    const spi_device_interface_config_t dev_cfg = {
+        .clock_speed_hz = SPI_CLOCK_MHZ,
+        .mode = 0,
+        .spics_io_num = PIN_NUM_SPICS_IO, /* -1 for SW or PIN_NUM_CS */
+        .queue_size = 1,
+        .pre_cb = NULL,
+        .post_cb = NULL,
+    };
+
+    /* Initializing CS pin */
+    esp_rom_gpio_pad_select_gpio(PIN_NUM_CS);
+    gpio_set_direction(PIN_NUM_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_NUM_CS, 1);
+
+    /* Initialize the SPI bus and device */
+    esp_err_t ret;
+    ret = spi_bus_initialize(SPI2_HOST, &bus_cfg, 0);
+    ESP_ERROR_CHECK(ret);
+
+    /* Attach the device to the SPI bus */
+    spi_device_handle_t spi;
+    ret = spi_bus_add_device(SPI2_HOST, &dev_cfg, &spi);
+    ESP_ERROR_CHECK(ret);
+
+    tpm_data = malloc(sizeof(struct TPM_DATA));
+    tpm_data->spi = spi;
+    tpm_data->cs_pin = PIN_NUM_CS;
+    tpm_data->timeout_expiry = 0;
+
+    _is_initialized_spi = TRUE;
+    return 0;
+}
+
+/* Aquire SPI bus and keep pulling CS */
+static int tpm_spi_acquire()
+{
+    int ret;
+    gpio_set_level(tpm_data->cs_pin, 0);
+    ret = spi_device_acquire_bus(tpm_data->spi, portMAX_DELAY);
+    return ret;
+}
+
+/* Release SPI bus and CS */
+int tpm_spi_release ()
+{
+    gpio_set_level(tpm_data->cs_pin, 1);
+    spi_device_release_bus(tpm_data->spi);
+    return 0;
+}
+
+int tpm_spi_raw_transfer (const byte *data_out, byte *data_in, size_t cnt) {
+
+    /* Maximum transfer size is 64 byte because we don't use DMA. */
+    if (cnt > SPI_MAX_TRANSFER) {
+        ESP_LOGE(TAG, "tpm_io_espressif: cnt %d\n", cnt);
+        return -1;
+    }
+
+    /* At least one of the buffers has to be set. */
+    if (data_out == NULL && data_in == NULL) {
+        return -1;
+    }
+
+    /* Setup transaction */
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = cnt*8;
+    t.tx_buffer = data_out;
+    t.rx_buffer = data_in;
+
+    /* Transmit */
+    esp_err_t ret = spi_device_polling_transmit(tpm_data->spi, &t);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "spi_transmit returned error %d\n", ret);
+        return -1;
+    }
+
+    return 0;
+} /* tpm_spi_raw_transfer */
+
+int TPM2_IoCb_Espressif_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
+                            word16 xferSz, void* userCtx) {
+    int ret = TPM_RC_FAILURE;
+
+    if (_is_initialized_spi)
+        ret = ESP_OK;
+    else {
+        ret = esp_spi_master_init(); /* ESP return code, not TPM */
+        ESP_LOGV(TAG, "HAL: Initializing SPI %d", ret);
+    }
+
+    if (ret == ESP_OK) {
+        tpm_spi_acquire();
+        ret = tpm_spi_raw_transfer(txBuf, rxBuf, xferSz);
+        tpm_spi_release();
+    }
+    else {
+        ESP_LOGE(TAG, "SPI Failed to initialize. Error: %d", ret);
+        ret = TPM_RC_FAILURE;
+    }
+
+    (void)ctx;
+    return ret;
+} /* TPM2_IoCb_Espressif_SPI */
+
+#endif /* Espressif SPI */
 #endif /* WOLFSSL_ESPIDF */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 
