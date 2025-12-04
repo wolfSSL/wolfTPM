@@ -170,12 +170,13 @@ int TPM2_Unseal_Example(void* userCtx, int argc, char *argv[])
         fp = XFOPEN(filename, "wb");
         if (fp != XBADFILE) {
             len = XFWRITE(cmdOut_unseal.outData.buffer, 1, cmdOut_unseal.outData.size, fp);
+            XFCLOSE(fp);
+
             if (len != cmdOut_unseal.outData.size) {
                 printf("Error while writing the unsealed data to a file.\n");
                 goto exit;
             }
         }
-        XFCLOSE(fp);
         printf("Stored unsealed data to file = %s\n", filename);
     }
 #else

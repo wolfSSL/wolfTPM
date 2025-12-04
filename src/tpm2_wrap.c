@@ -1682,6 +1682,9 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* key is bindAuthValue || salt */
     XMEMSET(&keyIn, 0, sizeof(keyIn));
     if (bind && bind->auth.size > 0) {
+        if (bind->auth.size > (UINT16)sizeof(bind->auth.buffer)) {
+            return BUFFER_E;
+        }
         if ((keyIn.size + bind->auth.size) > (UINT16)sizeof(keyIn.buffer)) {
             return BUFFER_E;
         }
@@ -1690,7 +1693,10 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         keyIn.size += bind->auth.size;
     }
     if (session->salt.size > 0) {
-        if (keyIn.size + session->salt.size > sizeof(keyIn.buffer)) {
+        if (session->salt.size > (UINT16)sizeof(session->salt.buffer)) {
+            return BUFFER_E;
+        }
+        if ((keyIn.size + session->salt.size) > (UINT16)sizeof(keyIn.buffer)) {
             return BUFFER_E;
         }
         XMEMCPY(&keyIn.buffer[keyIn.size], session->salt.buffer,
@@ -1754,6 +1760,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     int rc;
     CreatePrimary_In  createPriIn;
     CreatePrimary_Out createPriOut;
+    TPMT_TK_CREATION* ticket;
 
     if (dev == NULL || pkey == NULL || publicTemplate == NULL)
         return BAD_FUNC_ARG;
@@ -1819,19 +1826,17 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
         pkey->creationHash.size = sizeof(pkey->creationHash.buffer);
     }
     XMEMCPY(pkey->creationHash.buffer, createPriOut.creationHash.buffer,
-        createPriOut.creationHash.size);
+        pkey->creationHash.size);
 
-    pkey->creationTicket.tag = createPriOut.creationTicket.tag;
-    pkey->creationTicket.hierarchy = createPriOut.creationTicket.hierarchy;
-    pkey->creationTicket.digest.size = createPriOut.creationTicket.digest.size;
-    if (pkey->creationTicket.digest.size >
-            sizeof(pkey->creationTicket.digest.buffer)) {
-        pkey->creationTicket.digest.size =
-            sizeof(pkey->creationTicket.digest.buffer);
+    ticket = &pkey->creationTicket;
+    ticket->tag = createPriOut.creationTicket.tag;
+    ticket->hierarchy = createPriOut.creationTicket.hierarchy;
+    ticket->digest.size = createPriOut.creationTicket.digest.size;
+    if (ticket->digest.size > sizeof(ticket->digest.buffer)) {
+        ticket->digest.size = sizeof(ticket->digest.buffer);
     }
-    XMEMCPY(pkey->creationTicket.digest.buffer,
-        createPriOut.creationTicket.digest.buffer,
-        createPriOut.creationTicket.digest.size);
+    XMEMCPY(ticket->digest.buffer, createPriOut.creationTicket.digest.buffer,
+            ticket->digest.size);
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_CreatePrimary: 0x%x (%d bytes)\n",
@@ -1880,8 +1885,8 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (auth) {
         if (authSz > (int)sizeof(changeIn.newAuth.buffer))
             authSz = (int)sizeof(changeIn.newAuth.buffer);
-        changeIn.newAuth.size = authSz;
-        XMEMCPY(changeIn.newAuth.buffer, auth, changeIn.newAuth.size);
+        changeIn.newAuth.size = (UINT16)authSz;
+        XMEMCPY(changeIn.newAuth.buffer, auth, authSz);
     }
 
     rc = TPM2_ObjectChangeAuth(&changeIn, &changeOut);
@@ -3691,12 +3696,14 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load public key */
     qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
-    if (qxSz > sizeof(qx)) {
+    if (qxSz > sizeof(qx) ||
+        qxSz > sizeof(tpmKey->pub.publicArea.unique.ecc.x.buffer)) {
         return BUFFER_E;
     }
     XMEMCPY(qx, tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
     qySz = tpmKey->pub.publicArea.unique.ecc.y.size;
-    if (qySz > sizeof(qy)) {
+    if (qySz > sizeof(qy) ||
+        qySz > sizeof(tpmKey->pub.publicArea.unique.ecc.y.buffer)) {
         return BUFFER_E;
     }
     XMEMCPY(qy, tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
@@ -4593,8 +4600,8 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (inSz > (int)sizeof(rsaDecIn.cipherText.buffer)) {
         inSz = (int)sizeof(rsaDecIn.cipherText.buffer); /* truncate */
     }
-    rsaDecIn.cipherText.size = inSz;
-    XMEMCPY(rsaDecIn.cipherText.buffer, in, rsaDecIn.cipherText.size);
+    rsaDecIn.cipherText.size = (UINT16)inSz;
+    XMEMCPY(rsaDecIn.cipherText.buffer, in, inSz);
     /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaDecIn.inScheme.scheme = padScheme;
     rsaDecIn.inScheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
@@ -5707,7 +5714,6 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
         printf("wolfTPM2_LoadSymmetricKey: 0x%x\n",
             (word32)loadExtOut.objectHandle);
     #endif
-        return rc;
     }
 
 exit:
@@ -5717,7 +5723,6 @@ exit:
         printf("TPM2_LoadExternal: failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
     }
 
     return rc;

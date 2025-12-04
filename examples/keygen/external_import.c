@@ -131,6 +131,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     key2 = wolfTPM2_NewKeyBlob();
     rsaKey3 = wolfTPM2_NewKeyBlob();
 #endif
+    XMEMSET(&storage, 0, sizeof(storage));
     primary = &storage;
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
