@@ -2097,6 +2097,48 @@ WOLFTPM_API int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* 
 WOLFTPM_API int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz);
 
+/* Flags for wolfTPM2_NVWriteData */
+#define NW_WRITE_FLAG_NONE        0x00
+#define NW_WRITE_FLAG_EXTEND      0x01
+#define NW_WRITE_FLAG_AUTH_CUSTOM 0x02
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Stores user data to a NV Index at a given offset. Supports policy sessions with PCR authentication, extend operations, and regular writes.
+    \note User data size should be less or equal to the NV Index maxSize specified using wolfTPM2_CreateAuth
+    \note This is a general-purpose function that can be used for regular writes (when tpmSession is NULL and flags is NW_WRITE_FLAG_NONE), extend operations (when flags includes NW_WRITE_FLAG_EXTEND), or policy-based writes (when tpmSession is provided)
+    \note For policy sessions, PCR policy is recomputed for each write iteration to handle large data writes
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession. Can be NULL for regular authentication
+    \param pcrAlg the hash algorithm to use with PCR policy (TPM_ALG_NULL if not using PCR authentication)
+    \param pcrArray array of PCR Indexes to use when creating the policy. Can be NULL if not using PCR authentication
+    \param pcrArraySz the number of PCR Indexes in the pcrArray. Should be 0 if not using PCR authentication
+    \param nv pointer to a populated structure of WOLFTPM2_NV type
+    \param nvIndex integer value, holding an existing NV Index Handle value
+    \param dataBuf pointer to a byte buffer, containing the user data to be written to the TPM's NVRAM
+    \param dataSz integer value, specifying the size of the user data buffer, in bytes
+    \param offset integer value of word32 type, specifying the offset from the NV Index memory start, can be zero
+    \param flags bit flags for controlling write behavior. Flags can be combined using bitwise OR:
+        NW_WRITE_FLAG_NONE (0x00) for regular write,
+        NW_WRITE_FLAG_EXTEND (0x01) for extend operation
+        NW_WRITE_FLAG_AUTH_CUSTOM (0x02) to skip setting auth (it must be done manually prior to calling)
+
+    \sa wolfTPM2_NVWriteAuth
+    \sa wolfTPM2_NVWriteAuthPolicy
+    \sa wolfTPM2_NVExtend
+    \sa wolfTPM2_NVReadAuth
+    \sa wolfTPM2_NVCreateAuth
+    \sa wolfTPM2_NVDeleteAuth
+*/
+WOLFTPM_API int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset, word32 flags);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Reads user data from a NV Index, starting at the given offset
