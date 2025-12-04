@@ -3,7 +3,7 @@
 # All right reserved.
 
 AC_COPYRIGHT([Copyright (C) 2014-2025 wolfSSL Inc.])
-AC_INIT([wolftpm],[3.9.2],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_INIT([wolftpm],[3.10.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -28,7 +28,7 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=16:7:0
+WOLFTPM_LIBRARY_VERSION=16:8:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -250,7 +250,7 @@ then
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
-    AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=\"$SWTPM_PORT\""
+    AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=$SWTPM_PORT"
 
     # Set distcheck flag if port is not default (only when SWTPM is enabled)
     if test "x$SWTPM_PORT" != "x2321"; then

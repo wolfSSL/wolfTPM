@@ -288,6 +288,11 @@ typedef int64_t  INT64;
     #define WOLFTPM_NO_LOCK
 #endif
 
+/* Helper to convert macro to string */
+#ifndef XSTRINGIFY
+#define XSTRINGIFY(s) STRINGIFY(s)
+#define STRINGIFY(s)  #s
+#endif
 
 /* ---------------------------------------------------------------------------*/
 /* TPM HARDWARE TYPE */
