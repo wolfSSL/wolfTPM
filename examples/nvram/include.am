@@ -33,6 +33,12 @@ examples_nvram_extend_SOURCES      = examples/nvram/extend.c \
                                      examples/tpm_test_keys.c
 examples_nvram_extend_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_nvram_extend_DEPENDENCIES = src/libwolftpm.la
+
+noinst_PROGRAMS += examples/nvram/nvauth
+examples_nvram_nvauth_SOURCES      = examples/nvram/nvauth.c \
+                                     examples/tpm_test_keys.c
+examples_nvram_nvauth_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_nvram_nvauth_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_nvramdir = $(exampledir)/nvram
@@ -41,10 +47,12 @@ dist_example_nvram_DATA = \
   examples/nvram/read.c \
   examples/nvram/counter.c \
   examples/nvram/policy_nv.c \
-  examples/nvram/extend.c
+  examples/nvram/extend.c \
+  examples/nvram/nvauth.c
 
 DISTCLEANFILES+= examples/nvram/.libs/store \
                  examples/nvram/.libs/read \
                  examples/nvram/.libs/counter \
                  examples/nvram/.libs/policy_nv \
-                 examples/nvram/.libs/extend
+                 examples/nvram/.libs/extend \
+                 examples/nvram/.libs/nvauth
