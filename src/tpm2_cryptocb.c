@@ -328,8 +328,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rLen = sLen = rsLen / 2;
                 r = &sigRS[0];
                 s = &sigRS[rLen];
-                r = TPM2_ASN_TrimZeros(r, &rLen);
-                s = TPM2_ASN_TrimZeros(s, &sLen);
 
                 /* Encode ECDSA Header */
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
