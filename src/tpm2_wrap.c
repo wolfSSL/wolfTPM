@@ -4084,7 +4084,9 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
         /* Assemble R and S into signature (R then S) */
         sigOutSz = curveSize * 2;
-        if (sigOutSz > *sigSz) {
+        if (sigOutSz > *sigSz ||
+            curveSize > ecdsa->signatureR.size ||
+            curveSize > ecdsa->signatureS.size) {
         #ifdef DEBUG_WOLFTPM
             printf("TPM2_Sign: ECC result buffer too small %d -> %d\n",
                 sigOutSz, *sigSz);

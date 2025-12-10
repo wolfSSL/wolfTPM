@@ -418,7 +418,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
 {
     int rc;
     int verifyRes = 0;
-    WOLFTPM2_KEY eccKey;
+    WOLFTPM2_KEYBLOB eccKey;
     TPMT_PUBLIC publicTemplate;
     byte sigRs[MAX_ECC_BYTES*2];
     word32 sigRsSz = (word32)sizeof(sigRs);
@@ -434,7 +434,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
     tpmCtx.dev = dev;
-    tpmCtx.eccKey = &eccKey;
+    tpmCtx.ecdsaKey = &eccKey;
     tpmCtx.storageKey = storageKey;
 
     if (flags & FLAGS_USE_CRYPTO_CB) {
@@ -451,8 +451,14 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
          TPMA_OBJECT_sign | TPMA_OBJECT_noDA),
          curve, TPM_ALG_ECDSA, hashAlg);
     AssertIntEQ(rc, 0);
-    rc = wolfTPM2_CreateAndLoadKey(dev, &eccKey, &storageKey->handle,
+
+    /* Use create key and load key directly instead to make
+     * sure the private portion is populated */
+    rc = wolfTPM2_CreateKey(dev, &eccKey, &storageKey->handle,
         &publicTemplate, (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = wolfTPM2_LoadKey(dev, &eccKey, &storageKey->handle);
+    }
     if ((rc & TPM_RC_HASH) == TPM_RC_HASH) {
         printf("Hash type not supported... Skipping\n");
         return;
@@ -464,7 +470,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     /* Sign with TPM */
-    rc = wolfTPM2_SignHashScheme(dev, &eccKey, digest, digestSz,
+    rc = wolfTPM2_SignHashScheme(dev, (WOLFTPM2_KEY*)&eccKey, digest, digestSz,
         sigRs, (int*)&sigRsSz, TPM_ALG_ECDSA, hashAlg);
     AssertIntEQ(rc, 0);
 
@@ -483,7 +489,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     /* Convert TPM key to wolfCrypt key for verification */
-    rc = wolfTPM2_EccKey_TpmToWolf(dev, &eccKey, &wolfKey);
+    rc = wolfTPM2_EccKey_TpmToWolf(dev, (WOLFTPM2_KEY*)&eccKey, &wolfKey);
     AssertIntEQ(rc, 0);
 
     /* Verify TPM signature with wolfCrypt */
@@ -494,7 +500,9 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     /* Cleanup first wolfCrypt key */
     wc_ecc_free(&wolfKey);
     wolfTPM2_UnloadHandle(dev, &eccKey.handle);
-
+#ifdef WOLF_CRYPTO_CB
+    tpmCtx.ecdsaKey = NULL; /* create new one */
+#endif
 
     /* -- Use wolfCrypt key to sign and verify with TPM -- */
     /* Initialize new wolfCrypt ECC key */
@@ -516,12 +524,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     r = sigRs;
     s = &sigRs[MAX_ECC_BYTES];
     rLen = sLen = MAX_ECC_BYTES;
-    rc = wc_ecc_sig_to_rs(sig,
-        sigSz, r, &rLen, s, &sLen);
+    rc = wc_ecc_sig_to_rs(sig, sigSz, r, &rLen, s, &sLen);
     AssertIntEQ(rc, 0);
 
     /* Convert wolfCrypt key to TPM key for verification */
-    rc = wolfTPM2_EccKey_WolfToTpm(dev, &wolfKey, &eccKey);
+    rc = wolfTPM2_EccKey_WolfToTpm(dev, &wolfKey, (WOLFTPM2_KEY*)&eccKey);
     AssertIntEQ(rc, 0);
 
     /* combine R and S at key size (zero pad leading) */
@@ -531,8 +538,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     XMEMSET(&sigRs[curveSize], 0, curveSize-sLen);
 
     /* Verify wolfCrypt signature with TPM */
-    rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sigRs, curveSize*2,
-        digest, digestSz, TPM_ALG_ECDSA, hashAlg);
+    rc = wolfTPM2_VerifyHashScheme(dev, (WOLFTPM2_KEY*)&eccKey, sigRs,
+        curveSize*2, digest, digestSz, TPM_ALG_ECDSA, hashAlg);
     AssertIntEQ(rc, 0);
 
     /* Cleanup */
@@ -551,7 +558,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     }
 }
 
-static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey, int flags)
+static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* storageKey, int flags)
 {
     int i;
     byte digest[TPM_MAX_DIGEST_SIZE];
