@@ -1,0 +1,56 @@
+name: Coverity Scan master branch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 1-5'
+
+jobs:
+  coverity:
+    if: github.repository_owner == 'wolfssl'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: master
+
+    - uses: actions/checkout@master
+      with:
+        repository: wolfssl/wolfssl
+        path: wolfssl
+    - name: wolfssl autogen
+      working-directory: ./wolfssl
+      run: ./autogen.sh
+    - name: wolfssl configure
+      working-directory: ./wolfssl
+      run: ./configure --enable-wolftpm
+    - name: wolfssl make
+      working-directory: ./wolfssl
+      run: make
+    - name: wolfssl make install
+      working-directory: ./wolfssl
+      run: sudo make install
+
+    - name: Configure wolfTPM M-F
+      run: |
+        ./autogen.sh
+        ./configure
+
+    - name: Check secrets
+      env:
+        token_var: ${{ secrets.COVERITY_SCAN_TOKEN_WOLFTPM }}
+        email_var: ${{ secrets.COVERITY_SCAN_EMAIL }}
+      run: |
+        token_len=${#token_var}
+        echo "$token_len"
+        email_len=${#email_var}
+        echo "$email_len"
+
+    - uses: vapier/coverity-scan-action@v1
+      with:
+        build_language: 'cxx'
+        project: "wolfTPM"
+        token: ${{ secrets.COVERITY_SCAN_TOKEN_WOLFTPM }}
+        email: ${{ secrets.COVERITY_SCAN_EMAIL }}
+        command: "make"
