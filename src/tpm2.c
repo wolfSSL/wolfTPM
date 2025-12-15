@@ -6111,6 +6111,12 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
             return "SHA384";
         case TPM_ALG_SHA512:
             return "SHA512";
+        case TPM_ALG_SHA3_256:
+            return "SHA3_256";
+        case TPM_ALG_SHA3_384:
+            return "SHA3_384";
+        case TPM_ALG_SHA3_512:
+            return "SHA3_512";
         case TPM_ALG_NULL:
             return "NULL";
         case TPM_ALG_SM3_256:

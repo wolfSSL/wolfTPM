@@ -4080,32 +4080,37 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        TPMS_SIGNATURE_ECDSA* ecdsa = &signOut.signature.signature.ecdsa;
+
         /* Assemble R and S into signature (R then S) */
-        sigOutSz = signOut.signature.signature.ecdsa.signatureR.size +
-                   signOut.signature.signature.ecdsa.signatureS.size;
-        if (sigOutSz > *sigSz) {
+        sigOutSz = curveSize * 2;
+        if (sigOutSz > *sigSz ||
+            curveSize > ecdsa->signatureR.size ||
+            curveSize > ecdsa->signatureS.size) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Sign: ECC result truncated %d -> %d\n",
+            printf("TPM2_Sign: ECC result buffer too small %d -> %d\n",
                 sigOutSz, *sigSz);
         #endif
-            sigOutSz = *sigSz;
+            return BUFFER_E;
         }
-        XMEMCPY(sig,
-                signOut.signature.signature.ecdsa.signatureR.buffer,
-                signOut.signature.signature.ecdsa.signatureR.size);
-        XMEMCPY(sig + signOut.signature.signature.ecdsa.signatureR.size,
-                signOut.signature.signature.ecdsa.signatureS.buffer,
-                signOut.signature.signature.ecdsa.signatureS.size);
+        XMEMCPY(sig, ecdsa->signatureR.buffer,
+            ecdsa->signatureR.size);
+        XMEMSET(sig + ecdsa->signatureR.size, 0,
+            curveSize - ecdsa->signatureR.size);
+        XMEMCPY(sig + curveSize, ecdsa->signatureS.buffer,
+            ecdsa->signatureS.size);
+        XMEMSET(sig + curveSize + ecdsa->signatureS.size, 0,
+            curveSize - ecdsa->signatureS.size);
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
         sigOutSz = signOut.signature.signature.rsassa.sig.size;
         if (sigOutSz > *sigSz) {
         #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Sign: RSA result truncated %d -> %d\n",
+            printf("TPM2_Sign: RSA result buffer too small %d -> %d\n",
                 sigOutSz, *sigSz);
         #endif
-            sigOutSz = *sigSz;
+            return BUFFER_E;
         }
         XMEMCPY(sig, signOut.signature.signature.rsassa.sig.buffer, sigOutSz);
     }
@@ -7368,7 +7373,7 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
         }
     #else
         #ifdef DEBUG_WOLFTPM
-        printf("CSR_MakeAndSign PEM not supported\n")
+        printf("CSR_MakeAndSign PEM not supported\n");
         #endif
         rc = NOT_COMPILED_IN;
     #endif

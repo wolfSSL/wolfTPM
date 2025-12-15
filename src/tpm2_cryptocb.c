@@ -328,8 +328,6 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 rLen = sLen = rsLen / 2;
                 r = &sigRS[0];
                 s = &sigRS[rLen];
-                r = TPM2_ASN_TrimZeros(r, &rLen);
-                s = TPM2_ASN_TrimZeros(s, &sLen);
 
                 /* Encode ECDSA Header */
                 rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen,
@@ -355,9 +353,9 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 if (rc == 0) {
                     /* combine R and S at key size (zero pad leading) */
                     word32 keySz = wc_ecc_size(info->pk.eccverify.key);
-                    XMEMCPY(&sigRS[keySz-rLen], r, rLen);
+                    XMEMMOVE(&sigRS[keySz-rLen], r, rLen);
                     XMEMSET(&sigRS[0], 0, keySz-rLen);
-                    XMEMCPY(&sigRS[keySz + (keySz-sLen)], s, sLen);
+                    XMEMMOVE(&sigRS[keySz + (keySz-sLen)], s, sLen);
                     XMEMSET(&sigRS[keySz], 0, keySz-sLen);
                     rc = wolfTPM2_VerifyHash(tlsCtx->dev, &eccPub,
                         sigRS, keySz*2,
