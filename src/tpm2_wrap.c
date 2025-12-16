@@ -4761,6 +4761,33 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     return TPM_RC_SUCCESS;
 }
 
+
+/******************************************************************************/
+/* --- Begin Wrapper NV Functions-- */
+/******************************************************************************/
+
+static int wolfTPM2_NVComputeName(WOLFTPM2_DEV* dev, word32 nvIndex,
+    TPM2B_NAME* name, TPMA_NV* attributes)
+{
+    int rc;
+    TPMS_NV_PUBLIC nvPublic;
+
+    /* Read the NV Index publicArea to have up to date NV Index Name */
+    rc = wolfTPM2_NVReadPublic(dev, nvIndex, &nvPublic);
+    if (rc == TPM_RC_SUCCESS) {
+        if (attributes != NULL) {
+            *attributes = nvPublic.attributes;
+        }
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+        /* Compute NV Index name in case of parameter encryption */
+        rc = TPM2_HashNvPublic(&nvPublic, (byte*)&name->name, &name->size);
+    #else
+        (void)name; /* not used */
+    #endif
+    }
+    return rc;
+}
+
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
 /* authPolicy and authPolicySz are optional policy digest */
@@ -4862,9 +4889,9 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
         maxSize, auth, authSz);
 }
 
-static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz, WOLFTPM2_NV* nv,
-    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset, int extend)
+    word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset, word32 flags)
 {
     int rc = TPM_RC_SUCCESS;
     word32 pos = 0, towrite;
@@ -4886,7 +4913,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
          * Name changes on each iteration for policy session.
          * If this is the first write to NV then the NV_WRITTEN bit will get
          * set and name needs re-computed */
-        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+        rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name, NULL);
         if (rc != 0)
             break;
         /* For policy session recompute PCR for each iteration */
@@ -4902,16 +4929,18 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
         }
 
-        /* Necessary, because NVWrite has two handles, second is NV Index
-         * If policy session Name will update via nonceTPM each iteration */
-        rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-        rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-        if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
-        #endif
-            rc = TPM_RC_FAILURE;
-            break;
+        if (!(flags & NW_WRITE_FLAG_AUTH_CUSTOM)) {
+            /* Necessary, because NVWrite has two handles, second is NV Index
+            * If policy session Name will update via nonceTPM each iteration */
+            rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
+            rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
+            if (rc != TPM_RC_SUCCESS) {
+            #ifdef DEBUG_WOLFTPM
+                printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
+            #endif
+                rc = TPM_RC_FAILURE;
+                break;
+            }
         }
 
         XMEMSET(&in, 0, sizeof(in));
@@ -4920,7 +4949,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         in.write.data.size = towrite;
         if (dataBuf)
             XMEMCPY(in.write.data.buffer, &dataBuf[pos], towrite);
-        if (!extend) {
+        if (!(flags & NW_WRITE_FLAG_EXTEND)) {
             in.write.offset = offset+pos;
         }
 
@@ -4928,10 +4957,10 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         printf("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
             "Extend %d\n",
             (word32)in.write.authHandle, (word32)in.write.nvIndex,
-            in.write.offset, in.write.data.size, extend);
+            in.write.offset, in.write.data.size, flags & NW_WRITE_FLAG_EXTEND);
     #endif
 
-        if (!extend) {
+        if (!(flags & NW_WRITE_FLAG_EXTEND)) {
             rc = TPM2_NV_Write(&in.write);
         }
         else {
@@ -4959,7 +4988,7 @@ int wolfTPM2_NVExtend(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz)
 {
     return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
-        nv, nvIndex, dataBuf, dataSz, 0, 1);
+        nv, nvIndex, dataBuf, dataSz, 0, NW_WRITE_FLAG_EXTEND);
 }
 
 int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
@@ -4967,14 +4996,14 @@ int wolfTPM2_NVWriteAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
     return wolfTPM2_NVWriteData(dev, tpmSession, pcrAlg, pcrArray, pcrArraySz,
-        nv, nvIndex, dataBuf, dataSz, offset, 0);
+        nv, nvIndex, dataBuf, dataSz, offset, NW_WRITE_FLAG_NONE);
 }
 
 int wolfTPM2_NVWriteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv,
     word32 nvIndex, byte* dataBuf, word32 dataSz, word32 offset)
 {
     return wolfTPM2_NVWriteData(dev, NULL, TPM_ALG_NULL, NULL, 0,
-        nv, nvIndex, dataBuf, dataSz, offset, 0);
+        nv, nvIndex, dataBuf, dataSz, offset, NW_WRITE_FLAG_NONE);
 }
 
 /* older API kept for compatibility, recommend using wolfTPM2_NVWriteAuth */
@@ -5011,7 +5040,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
          * Name changes on each iteration for policy session. */
         if (!nv->handle.nameLoaded || (tpmSession != NULL
                          && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
-            rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+            rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name, NULL);
             if (rc != 0)
                 break;
         }
@@ -5146,8 +5175,7 @@ int wolfTPM2_NVRead(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
 int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     const byte* auth, word32 authSz)
 {
-    int rc = TPM_RC_SUCCESS;
-    TPMS_NV_PUBLIC nvPublic;
+    int rc;
 
     if (dev == NULL || nv == NULL || authSz > sizeof(nv->handle.auth.buffer)) {
         return BAD_FUNC_ARG;
@@ -5163,27 +5191,12 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
         XMEMCPY(nv->handle.auth.buffer, auth, nv->handle.auth.size);
     }
 
-    /* Read the NV Index publicArea to have up to date NV Index Name */
-    rc = wolfTPM2_NVReadPublic(dev, nv->handle.hndl, &nvPublic);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Failed to open (read) NV\n");
-    #endif
-        return rc;
-    }
-
     /* Compute NV Index name in case of parameter encryption */
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    rc = TPM2_HashNvPublic(&nvPublic, (byte*)&nv->handle.name.name,
-                           &nv->handle.name.size);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
+    rc = wolfTPM2_NVComputeName(dev, nvIndex, &nv->handle.name, &nv->attributes);
+    if (rc == TPM_RC_SUCCESS) {
+        /* flag that the NV was "opened" and name was loaded */
+        nv->handle.nameLoaded = 1;
     }
-#endif
-
-    /* flag that the NV was "opened" and name was loaded */
-    nv->handle.nameLoaded = 1;
-    nv->attributes = nvPublic.attributes;
 
     return rc;
 }
@@ -5354,6 +5367,11 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     parent.hndl = authHandle;
     return wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
 }
+
+/******************************************************************************/
+/* --- END Wrapper NV Functions-- */
+/******************************************************************************/
+
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
