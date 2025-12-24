@@ -4306,6 +4306,637 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         TPM_ALG_NULL, hashAlg, NULL);
 }
 
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Wrapper Functions - TPM 2.0 v185 */
+
+int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
+{
+    int rc;
+    SignSequenceStart_In signSeqStartIn;
+    SignSequenceStart_Out signSeqStartOut;
+
+    if (dev == NULL || key == NULL || sequenceHandle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (contextSz > (int)sizeof(signSeqStartIn.context.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&signSeqStartIn, 0, sizeof(signSeqStartIn));
+    signSeqStartIn.keyHandle = key->handle.hndl;
+    signSeqStartIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(signSeqStartIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&signSeqStartOut, 0, sizeof(signSeqStartOut));
+    rc = TPM2_SignSequenceStart(&signSeqStartIn, &signSeqStartOut);
+    if (rc == TPM_RC_SUCCESS) {
+        *sequenceHandle = signSeqStartOut.sequenceHandle;
+    }
+
+    return rc;
+}
+
+int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz)
+{
+    int rc;
+    SequenceUpdate_In seqUpdateIn;
+
+    if (dev == NULL || data == NULL || dataSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
+    seqUpdateIn.sequenceHandle = sequenceHandle;
+    seqUpdateIn.buffer.size = (UINT16)dataSz;
+    XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
+
+    rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    return rc;
+}
+
+int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    byte* sig, int* sigSz)
+{
+    int rc;
+    SignSequenceComplete_In signSeqCompleteIn;
+    SignSequenceComplete_Out signSeqCompleteOut;
+
+    if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&signSeqCompleteIn, 0, sizeof(signSeqCompleteIn));
+    signSeqCompleteIn.sequenceHandle = sequenceHandle;
+    signSeqCompleteIn.keyHandle = key->handle.hndl;
+    signSeqCompleteIn.buffer.size = (UINT16)dataSz;
+    if (data != NULL && dataSz > 0) {
+        XMEMCPY(signSeqCompleteIn.buffer.buffer, data, dataSz);
+    }
+
+    XMEMSET(&signSeqCompleteOut, 0, sizeof(signSeqCompleteOut));
+    rc = TPM2_SignSequenceComplete(&signSeqCompleteIn, &signSeqCompleteOut);
+    if (rc == TPM_RC_SUCCESS) {
+        /* Extract signature based on algorithm */
+        if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDSA ||
+            signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDAA) {
+            int rSz = signSeqCompleteOut.signature.signature.ecdsa.signatureR.size;
+            int sSz = signSeqCompleteOut.signature.signature.ecdsa.signatureS.size;
+            if (*sigSz >= (rSz + sSz)) {
+                XMEMCPY(sig, signSeqCompleteOut.signature.signature.ecdsa.signatureR.buffer, rSz);
+                XMEMCPY(sig + rSz, signSeqCompleteOut.signature.signature.ecdsa.signatureS.buffer, sSz);
+                *sigSz = rSz + sSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSASSA ||
+                 signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSAPSS) {
+            int sigOutSz = signSeqCompleteOut.signature.signature.rsassa.sig.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signSeqCompleteOut.signature.signature.rsassa.sig.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#ifdef WOLFTPM_V185
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_44 ||
+                 signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_65 ||
+                 signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_87) {
+            /* ML-DSA signature is a variable-length buffer */
+            int sigOutSz = signSeqCompleteOut.signature.signature.mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signSeqCompleteOut.signature.signature.mldsa.signature.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#endif /* HAVE_DILITHIUM */
+#endif /* WOLFTPM_V185 */
+        else {
+            /* Unknown algorithm */
+            rc = BUFFER_E;
+        }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
+{
+    int rc;
+    VerifySequenceStart_In verifySeqStartIn;
+    VerifySequenceStart_Out verifySeqStartOut;
+
+    if (dev == NULL || key == NULL || sequenceHandle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (contextSz > (int)sizeof(verifySeqStartIn.context.buffer)) {
+        return BUFFER_E;
+    }
+
+    XMEMSET(&verifySeqStartIn, 0, sizeof(verifySeqStartIn));
+    verifySeqStartIn.keyHandle = key->handle.hndl;
+    verifySeqStartIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(verifySeqStartIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&verifySeqStartOut, 0, sizeof(verifySeqStartOut));
+    rc = TPM2_VerifySequenceStart(&verifySeqStartIn, &verifySeqStartOut);
+    if (rc == TPM_RC_SUCCESS) {
+        *sequenceHandle = verifySeqStartOut.sequenceHandle;
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz)
+{
+    int rc;
+    SequenceUpdate_In seqUpdateIn;
+
+    if (dev == NULL || data == NULL || dataSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
+    seqUpdateIn.sequenceHandle = sequenceHandle;
+    seqUpdateIn.buffer.size = (UINT16)dataSz;
+    XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
+
+    rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    VerifySequenceComplete_In verifySeqCompleteIn;
+    VerifySequenceComplete_Out verifySeqCompleteOut;
+    TPMT_SIGNATURE signature;
+
+    if (dev == NULL || key == NULL || sig == NULL || sigSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(verifySeqCompleteIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    XMEMSET(&verifySeqCompleteIn, 0, sizeof(verifySeqCompleteIn));
+    verifySeqCompleteIn.sequenceHandle = sequenceHandle;
+    verifySeqCompleteIn.keyHandle = key->handle.hndl;
+    verifySeqCompleteIn.buffer.size = (UINT16)dataSz;
+    if (data != NULL && dataSz > 0) {
+        XMEMCPY(verifySeqCompleteIn.buffer.buffer, data, dataSz);
+    }
+
+    /* Build signature structure from raw signature */
+    /* For PQ algorithms, we need to determine the signature format from the key */
+    XMEMSET(&signature, 0, sizeof(signature));
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        /* ECC signature: R then S */
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
+            return BAD_FUNC_ARG;
+        }
+        signature.sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_ECDSA;
+        }
+        signature.signature.ecdsa.hash = 
+            key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
+        signature.signature.ecdsa.signatureR.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureR.buffer, sig, curveSize);
+        signature.signature.ecdsa.signatureS.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureS.buffer, sig + curveSize, curveSize);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        /* RSA signature */
+        signature.sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_RSASSA;
+        }
+        signature.signature.rsassa.hash = 
+            key->pub.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg;
+        if (sigSz > (int)sizeof(signature.signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.rsassa.sig.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
+    }
+#ifdef WOLFTPM_V185
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
+    else {
+        /* For ML-DSA try to detect from signature */
+        TPMI_ALG_SIG_SCHEME scheme = TPM_ALG_NULL;
+        
+        /* Try to get scheme from key if available */
+        if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
+            /* KEYEDHASH keys may have ML-DSA scheme */
+            /* The scheme is in keyedHashDetail.scheme.scheme */
+            scheme = key->pub.publicArea.parameters.keyedHashDetail.scheme.scheme;
+        }
+        
+        /* Check if it's an ML-DSA algorithm from key scheme */
+        if (scheme == TPM_ALG_ML_DSA_44 || scheme == TPM_ALG_ML_DSA_65 ||
+            scheme == TPM_ALG_ML_DSA_87) {
+            signature.sigAlg = scheme;
+            /* ML-DSA signatures use SHA3-256, SHA3-384, or SHA3-512 typically */
+            /* Default to SHA3-256 if not specified */
+            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+                return BUFFER_E;
+            }
+            signature.signature.mldsa.signature.size = (UINT16)sigSz;
+            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        }
+        /* Fallback: detect ML-DSA from signature size if scheme not available */
+        else if (sigSz >= 2000 && sigSz <= 5000) {
+            /* Likely ML-DSA signature - determine variant from size */
+            /* ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
+            if (sigSz <= 3000) {
+                scheme = TPM_ALG_ML_DSA_44;
+            }
+            else if (sigSz <= 4000) {
+                scheme = TPM_ALG_ML_DSA_65;
+            }
+            else {
+                scheme = TPM_ALG_ML_DSA_87;
+            }
+            signature.sigAlg = scheme;
+            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+                return BUFFER_E;
+            }
+            signature.signature.mldsa.signature.size = (UINT16)sigSz;
+            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        }
+        else {
+            /* Unknown key type and signature doesn't match known formats */
+            return BAD_FUNC_ARG;
+        }
+    }
+#endif /* HAVE_DILITHIUM */
+#else
+    else {
+        /* For PQ algorithms or unknown types, return error */
+        return BAD_FUNC_ARG;
+    }
+#endif /* WOLFTPM_V185 */
+    verifySeqCompleteIn.signature = signature;
+
+    XMEMSET(&verifySeqCompleteOut, 0, sizeof(verifySeqCompleteOut));
+    rc = TPM2_VerifySequenceComplete(&verifySeqCompleteIn, &verifySeqCompleteOut);
+    if (rc == TPM_RC_SUCCESS && validation != NULL) {
+        XMEMCPY(validation, &verifySeqCompleteOut.validation, sizeof(TPMT_TK_VERIFIED));
+    }
+
+    return rc;
+}
+
+int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* context, int contextSz,
+    byte* sig, int* sigSz)
+{
+    int rc;
+    SignDigest_In signDigestIn;
+    SignDigest_Out signDigestOut;
+
+    if (dev == NULL || key == NULL || digest == NULL || sig == NULL || sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (digestSz > (int)sizeof(signDigestIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+
+    if (contextSz > (int)sizeof(signDigestIn.context.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&signDigestIn, 0, sizeof(signDigestIn));
+    signDigestIn.keyHandle = key->handle.hndl;
+    signDigestIn.digest.size = (UINT16)digestSz;
+    XMEMCPY(signDigestIn.digest.buffer, digest, digestSz);
+    signDigestIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(signDigestIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&signDigestOut, 0, sizeof(signDigestOut));
+    rc = TPM2_SignDigest(&signDigestIn, &signDigestOut);
+    if (rc == TPM_RC_SUCCESS) {
+        /* Extract signature based on algorithm */
+        if (signDigestOut.signature.sigAlg == TPM_ALG_ECDSA ||
+            signDigestOut.signature.sigAlg == TPM_ALG_ECDAA) {
+            int rSz = signDigestOut.signature.signature.ecdsa.signatureR.size;
+            int sSz = signDigestOut.signature.signature.ecdsa.signatureS.size;
+            if (*sigSz >= (rSz + sSz)) {
+                XMEMCPY(sig, signDigestOut.signature.signature.ecdsa.signatureR.buffer, rSz);
+                XMEMCPY(sig + rSz, signDigestOut.signature.signature.ecdsa.signatureS.buffer, sSz);
+                *sigSz = rSz + sSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_RSASSA ||
+                 signDigestOut.signature.sigAlg == TPM_ALG_RSAPSS) {
+            int sigOutSz = signDigestOut.signature.signature.rsassa.sig.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signDigestOut.signature.signature.rsassa.sig.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#ifdef WOLFTPM_V185
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_44 ||
+                 signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_65 ||
+                 signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_87) {
+            /* ML-DSA signature is a variable-length buffer */
+            int sigOutSz = signDigestOut.signature.signature.mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signDigestOut.signature.signature.mldsa.signature.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#endif /* HAVE_DILITHIUM */
+#endif /* WOLFTPM_V185 */
+        else {
+            /* Unknown algorithm */
+            rc = BUFFER_E;
+        }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* sig, int sigSz,
+    const byte* context, int contextSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    VerifyDigestSignature_In verifyDigestSigIn;
+    VerifyDigestSignature_Out verifyDigestSigOut;
+    TPMT_SIGNATURE signature;
+
+    if (dev == NULL || key == NULL || digest == NULL || sig == NULL || sigSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (digestSz > (int)sizeof(verifyDigestSigIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+
+    if (contextSz > (int)sizeof(verifyDigestSigIn.context.buffer)) {
+        return BUFFER_E;
+    }
+
+    XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
+    verifyDigestSigIn.keyHandle = key->handle.hndl;
+    verifyDigestSigIn.digest.size = (UINT16)digestSz;
+    XMEMCPY(verifyDigestSigIn.digest.buffer, digest, digestSz);
+
+    /* Build signature structure from raw signature */
+    /* For PQ algorithms, we need to determine the signature format from the key */
+    XMEMSET(&signature, 0, sizeof(signature));
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        /* ECC signature: R then S */
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
+            return BAD_FUNC_ARG;
+        }
+        signature.sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_ECDSA;
+        }
+        signature.signature.ecdsa.hash = 
+            key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
+        signature.signature.ecdsa.signatureR.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureR.buffer, sig, curveSize);
+        signature.signature.ecdsa.signatureS.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureS.buffer, sig + curveSize, curveSize);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        /* RSA signature */
+        signature.sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_RSASSA;
+        }
+        signature.signature.rsassa.hash = 
+            key->pub.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg;
+        if (sigSz > (int)sizeof(signature.signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.rsassa.sig.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
+    }
+#ifdef WOLFTPM_V185
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
+    else {
+        /* For ML-DSA and other PQ algorithms, try to detect from signature */
+        /* ML-DSA signatures are large: ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
+        /* First, check if key has a scheme that indicates ML-DSA */
+        TPMI_ALG_SIG_SCHEME scheme = TPM_ALG_NULL;
+        
+        /* Try to get scheme from key if available */
+        if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
+            /* KEYEDHASH keys may have ML-DSA scheme */
+            /* The scheme is in keyedHashDetail.scheme.scheme */
+            scheme = key->pub.publicArea.parameters.keyedHashDetail.scheme.scheme;
+        }
+        
+        /* Check if it's an ML-DSA algorithm from key scheme */
+        if (scheme == TPM_ALG_ML_DSA_44 || scheme == TPM_ALG_ML_DSA_65 ||
+            scheme == TPM_ALG_ML_DSA_87) {
+            signature.sigAlg = scheme;
+            /* ML-DSA signatures use SHA3-256, SHA3-384, or SHA3-512 typically */
+            /* Default to SHA3-256 if not specified */
+            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+                return BUFFER_E;
+            }
+            signature.signature.mldsa.signature.size = (UINT16)sigSz;
+            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        }
+        /* Fallback: detect ML-DSA from signature size if scheme not available */
+        else if (sigSz >= 2000 && sigSz <= 5000) {
+            /* Likely ML-DSA signature - determine variant from size */
+            /* ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
+            if (sigSz <= 3000) {
+                scheme = TPM_ALG_ML_DSA_44;
+            }
+            else if (sigSz <= 4000) {
+                scheme = TPM_ALG_ML_DSA_65;
+            }
+            else {
+                scheme = TPM_ALG_ML_DSA_87;
+            }
+            signature.sigAlg = scheme;
+            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+                return BUFFER_E;
+            }
+            signature.signature.mldsa.signature.size = (UINT16)sigSz;
+            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        }
+        else {
+            /* Unknown key type and signature doesn't match known formats */
+            return BAD_FUNC_ARG;
+        }
+    }
+#endif /* HAVE_DILITHIUM */
+#else
+    else {
+        /* For PQ algorithms or unknown types, return error */
+        return BAD_FUNC_ARG;
+    }
+#endif /* WOLFTPM_V185 */
+    verifyDigestSigIn.signature = signature;
+
+    verifyDigestSigIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(verifyDigestSigIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&verifyDigestSigOut, 0, sizeof(verifyDigestSigOut));
+    rc = TPM2_VerifyDigestSignature(&verifyDigestSigIn, &verifyDigestSigOut);
+    if (rc == TPM_RC_SUCCESS && validation != NULL) {
+        XMEMCPY(validation, &verifyDigestSigOut.validation, sizeof(TPMT_TK_VERIFIED));
+    }
+
+    return rc;
+}
+
+int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    byte* ciphertext, int* ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
+{
+    int rc;
+    Encapsulate_In encapsulateIn;
+    Encapsulate_Out encapsulateOut;
+
+    if (dev == NULL || key == NULL || ciphertext == NULL || ciphertextSz == NULL ||
+        sharedSecret == NULL || sharedSecretSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&encapsulateIn, 0, sizeof(encapsulateIn));
+    encapsulateIn.keyHandle = key->handle.hndl;
+
+    XMEMSET(&encapsulateOut, 0, sizeof(encapsulateOut));
+    rc = TPM2_Encapsulate(&encapsulateIn, &encapsulateOut);
+    if (rc == TPM_RC_SUCCESS) {
+        if (*ciphertextSz >= (int)encapsulateOut.ciphertext.size) {
+            XMEMCPY(ciphertext, encapsulateOut.ciphertext.buffer, encapsulateOut.ciphertext.size);
+            *ciphertextSz = encapsulateOut.ciphertext.size;
+        }
+        else {
+            rc = BUFFER_E;
+        }
+
+        if (rc == TPM_RC_SUCCESS) {
+            if (*sharedSecretSz >= (int)encapsulateOut.sharedSecret.size) {
+                XMEMCPY(sharedSecret, encapsulateOut.sharedSecret.buffer, encapsulateOut.sharedSecret.size);
+                *sharedSecretSz = encapsulateOut.sharedSecret.size;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* ciphertext, int ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
+{
+    int rc;
+    Decapsulate_In decapsulateIn;
+    Decapsulate_Out decapsulateOut;
+
+    if (dev == NULL || key == NULL || ciphertext == NULL || ciphertextSz <= 0 ||
+        sharedSecret == NULL || sharedSecretSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (ciphertextSz > (int)sizeof(decapsulateIn.ciphertext.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&decapsulateIn, 0, sizeof(decapsulateIn));
+    decapsulateIn.keyHandle = key->handle.hndl;
+    decapsulateIn.ciphertext.size = (UINT16)ciphertextSz;
+    XMEMCPY(decapsulateIn.ciphertext.buffer, ciphertext, ciphertextSz);
+
+    XMEMSET(&decapsulateOut, 0, sizeof(decapsulateOut));
+    rc = TPM2_Decapsulate(&decapsulateIn, &decapsulateOut);
+    if (rc == TPM_RC_SUCCESS) {
+        if (*sharedSecretSz >= (int)decapsulateOut.sharedSecret.size) {
+            XMEMCPY(sharedSecret, decapsulateOut.sharedSecret.buffer, decapsulateOut.sharedSecret.size);
+            *sharedSecretSz = decapsulateOut.sharedSecret.size;
+        }
+        else {
+            rc = BUFFER_E;
+        }
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_V185 */
+
 /* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
 int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     const byte* auth, int authSz)
