@@ -428,8 +428,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     word32 rLen, sLen;
     ecc_key wolfKey;
     int curveSize = TPM2_GetCurveSize(curve);
+    int tpmDevId = -2; /* INVALID_DEVID */
 #ifdef WOLF_CRYPTO_CB
-    int tpmDevId = INVALID_DEVID;
     TpmCryptoDevCtx tpmCtx;
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -553,9 +553,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
         (flags & FLAGS_USE_CRYPTO_CB) ? "Crypto CB" : "",
         rc == 0 ? "Passed" : "Failed");
 
+#ifdef WOLFTPM_CRYPTOCB
     if (flags & FLAGS_USE_CRYPTO_CB) {
         wolfTPM2_ClearCryptoDevCb(dev, tpmDevId);
     }
+#endif
 }
 
 static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
@@ -884,7 +886,6 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
 }
 
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
 /* Test ML-DSA Sign Sequence (Start, Update, Complete) */
@@ -1010,7 +1011,6 @@ static void test_wolfTPM2_MLDSA_VerifyDigestSignature(WOLFTPM2_DEV* dev,
     printf("Test TPM Wrapper:\tML-DSA Verify Digest:\t%s\n",
         rc == 0 ? "Passed" : "Failed");
 }
-#endif /* HAVE_DILITHIUM */
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
@@ -1114,13 +1114,11 @@ static void test_wolfTPM2_PQC(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY storageKey;
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     WOLFTPM2_KEY mldsaKey;
     byte sig[5000];
     int sigSz = (int)sizeof(sig);
     byte digest[32];
     int digestSz = 32;
-#endif
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
@@ -1136,7 +1134,6 @@ static void test_wolfTPM2_PQC(void)
         (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
     AssertIntEQ(rc, 0);
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     /* Note: ML-DSA key creation would need proper TPM 2.0 v185 support */
     /* For now, tests will gracefully skip if not supported */
     printf("Testing ML-DSA functions (will skip if not supported by TPM)...\n");
@@ -1166,7 +1163,6 @@ static void test_wolfTPM2_PQC(void)
         test_wolfTPM2_MLDSA_VerifyDigestSignature(&dev, &mldsaKey,
             digest, digestSz, sig, sigSz);
     }
-#endif
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \

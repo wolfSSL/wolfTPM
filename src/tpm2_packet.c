@@ -812,7 +812,6 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_AppendBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     case TPM_ALG_ML_DSA_44:
     case TPM_ALG_ML_DSA_65:
     case TPM_ALG_ML_DSA_87:
@@ -821,7 +820,6 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_AppendBytes(packet, sig->signature.mldsa.signature.buffer,
             sig->signature.mldsa.signature.size);
         break;
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
     default:
         break;
@@ -860,7 +858,6 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_ParseBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     case TPM_ALG_ML_DSA_44:
     case TPM_ALG_ML_DSA_65:
     case TPM_ALG_ML_DSA_87:
@@ -869,7 +866,6 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_ParseBytes(packet, sig->signature.mldsa.signature.buffer,
             sig->signature.mldsa.signature.size);
         break;
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
     default:
         break;

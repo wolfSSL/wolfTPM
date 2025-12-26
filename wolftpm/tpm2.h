@@ -901,25 +901,16 @@ typedef struct TPM2B_IV {
 
 #ifdef WOLFTPM_V185
 /* Post-Quantum Cryptography (PQC) Types */
-#ifndef MAX_SIGNATURE_CTX_SIZE
-#define MAX_SIGNATURE_CTX_SIZE 1024
-#endif
 typedef struct TPM2B_SIGNATURE_CTX {
     UINT16 size;
     BYTE buffer[MAX_SIGNATURE_CTX_SIZE];
 } TPM2B_SIGNATURE_CTX;
 
-#ifndef MAX_KEM_CIPHERTEXT_SIZE
-#define MAX_KEM_CIPHERTEXT_SIZE 2048
-#endif
 typedef struct TPM2B_KEM_CIPHERTEXT {
     UINT16 size;
     BYTE buffer[MAX_KEM_CIPHERTEXT_SIZE];
 } TPM2B_KEM_CIPHERTEXT;
 
-#ifndef MAX_SHARED_SECRET_SIZE
-#define MAX_SHARED_SECRET_SIZE 64
-#endif
 typedef struct TPM2B_SHARED_SECRET {
     UINT16 size;
     BYTE buffer[MAX_SHARED_SECRET_SIZE];
@@ -1418,14 +1409,11 @@ typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDSA;
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
 /* ML-DSA (Dilithium) Signature Structure */
-/* Only defined if wolfCrypt supports Dilithium (HAVE_DILITHIUM from settings.h) */
 typedef struct TPMS_SIGNATURE_ML_DSA {
     TPMI_ALG_HASH hash;
     TPM2B_MAX_BUFFER signature;  /* ML-DSA signature is variable length */
 } TPMS_SIGNATURE_ML_DSA;
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
 
 typedef union TPMU_SIGNATURE {
@@ -1436,9 +1424,7 @@ typedef union TPMU_SIGNATURE {
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     TPMS_SIGNATURE_ML_DSA mldsa;
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
 } TPMU_SIGNATURE;
 

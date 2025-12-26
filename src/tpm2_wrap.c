@@ -4423,7 +4423,6 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
             }
         }
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
         else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_44 ||
                  signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_65 ||
                  signSeqCompleteOut.signature.sigAlg == TPM_ALG_ML_DSA_87) {
@@ -4437,7 +4436,6 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
                 rc = BUFFER_E;
             }
         }
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
         else {
             /* Unknown algorithm */
@@ -4564,7 +4562,6 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     else {
         /* For ML-DSA try to detect from signature */
         TPMI_ALG_SIG_SCHEME scheme = TPM_ALG_NULL;
@@ -4615,7 +4612,6 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
             return BAD_FUNC_ARG;
         }
     }
-#endif /* HAVE_DILITHIUM */
 #else
     else {
         /* For PQ algorithms or unknown types, return error */
@@ -4694,7 +4690,6 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             }
         }
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
         else if (signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_44 ||
                  signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_65 ||
                  signDigestOut.signature.sigAlg == TPM_ALG_ML_DSA_87) {
@@ -4708,7 +4703,6 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                 rc = BUFFER_E;
             }
         }
-#endif /* HAVE_DILITHIUM */
 #endif /* WOLFTPM_V185 */
         else {
             /* Unknown algorithm */
@@ -4781,7 +4775,6 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_DILITHIUM)
     else {
         /* For ML-DSA and other PQ algorithms, try to detect from signature */
         /* ML-DSA signatures are large: ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
@@ -4834,7 +4827,6 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             return BAD_FUNC_ARG;
         }
     }
-#endif /* HAVE_DILITHIUM */
 #else
     else {
         /* For PQ algorithms or unknown types, return error */
