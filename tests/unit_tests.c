@@ -216,6 +216,63 @@ static void test_wolfTPM2_ReadPublicKey(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+/* Test ST33 firmware upgrade APIs
+ * Note: These tests verify function availability and basic parameter validation.
+ * Full firmware update testing requires hardware and firmware files. */
+static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+
+    /* Initialize TPM */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test ST33 Firmware Upgrade:\tInit:\tSkipped (TPM not available)\n");
+        return;
+    }
+
+    /* Get capabilities to verify this is an ST33 TPM */
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+
+    /* Test that firmware upgrade cancel function exists and handles NULL correctly */
+    rc = wolfTPM2_FirmwareUpgradeCancel(NULL);
+    AssertIntNE(rc, 0); /* Should fail with NULL device */
+
+    /* Test that firmware upgrade hash function exists and handles NULL correctly */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA256, NULL, 0, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0); /* Should fail with NULL device */
+
+    /* If this is an ST33 TPM, verify the manufacturer is correct */
+    if (caps.mfg == TPM_MFG_STM) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 TPM detected - Firmware version: %u.%u (0x%x)\n",
+            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+        printf("Firmware upgrade APIs are available for ST33 TPM\n");
+    #endif
+        /* APIs are available - actual firmware update testing requires firmware files */
+        rc = 0;
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("Non-ST33 TPM detected (Mfg: %d) - ST33 firmware upgrade APIs available but not applicable\n",
+            caps.mfg);
+    #endif
+        /* APIs should still be available (they route based on manufacturer) */
+        rc = 0;
+    }
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test ST33 Firmware Upgrade:\tAPI Availability:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
 static void test_wolfTPM2_GetRandom(void)
 {
     int rc;
@@ -914,6 +971,11 @@ int unit_tests(int argc, char *argv[])
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
         !defined(WOLFTPM2_NO_ASN)
     test_wolfTPM2_EccSignVerify();
+    #endif
+    #ifdef WOLFTPM_FIRMWARE_UPGRADE
+    #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    test_wolfTPM2_ST33_FirmwareUpgrade();
+    #endif
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();

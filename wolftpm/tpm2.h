@@ -273,6 +273,16 @@ typedef enum {
     TPM_CC_FieldUpgradeDataVendor     = CC_VEND + 0x132,
     TPM_CC_FieldUpgradeFinalizeVendor = CC_VEND + 0x133,
 #endif
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    /* ST33 Firmware Update Vendor Command Codes
+     * Note: These codes need to be verified against ST33 datasheet/example code
+     * Placeholder values using 0x031X range - update when actual codes are confirmed */
+    TPM_CC_FieldUpgradeStartVendor_ST33    = CC_VEND + 0x0310,
+    TPM_CC_FieldUpgradeAbandonVendor_ST33  = CC_VEND + 0x0311,
+    TPM_CC_FieldUpgradeManifestVendor_ST33 = CC_VEND + 0x0312,
+    TPM_CC_FieldUpgradeDataVendor_ST33     = CC_VEND + 0x0313,
+    TPM_CC_FieldUpgradeFinalizeVendor_ST33 = CC_VEND + 0x0314,
+#endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;
 
@@ -2978,6 +2988,14 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
     uint8_t* data, uint32_t size);
 WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+WOLFTPM_API int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+    uint8_t* data, uint32_t size);
+WOLFTPM_API int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 
 #endif /* Infineon SLB Vendor Specific */
 

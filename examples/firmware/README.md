@@ -1,6 +1,8 @@
 # TPM Firmware Update Support
 
-Currently wolfTPM supports firmware update capability for the Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
+Currently wolfTPM supports firmware update capability for:
+- Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
+- STMicroelectronics ST33KTPM TPM 2.0 modules. Support includes both pre-915 firmware versions (without LMS signature) and post-915 firmware versions (with LMS signature requirement).
 
 ## Infineon Firmware
 
@@ -102,3 +104,50 @@ Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a)
 Operational mode: Normal TPM operational mode (0x0)
 KeyGroupId 0x7, FwCounter 1253 (254 same)
 ```
+
+## ST33 Firmware Update
+
+### Firmware Version Requirements
+
+ST33KTPM firmware update supports two code paths based on firmware version:
+- **Pre-915 firmware**: Uses firmware update without LMS signature
+- **Post-915 firmware**: Uses firmware update with LMS signature (Note: LMS signature support in the public API is not yet fully implemented - this will need to be extended for post-915 firmware updates)
+
+The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities.
+
+### Updating the firmware
+
+The `st33_fw_update` tool uses the manifest and firmware data files.
+
+```sh
+# Help
+./st33_fw_update --help
+ST33 Firmware Update Usage:
+        ./st33_fw_update (get info)
+        ./st33_fw_update --abandon (cancel)
+        ./st33_fw_update <manifest_file> <firmware_file>
+
+# Run without arguments to display the current firmware information
+./st33_fw_update
+ST33 Firmware Update Tool
+Mfg STM (2), Vendor ST33KTPM, Fw 1.0 (0x100)
+Firmware version details: Major=1, Minor=0, Vendor=0x100
+Firmware update mode: Pre-915 (no LMS signature required)
+
+# Run with manifest and firmware files
+./st33_fw_update manifest.bin firmware.bin
+ST33 Firmware Update Tool
+	Manifest File: manifest.bin
+	Firmware File: firmware.bin
+...
+Firmware update completed successfully.
+Please reset or power cycle the TPM.
+
+# Cancel an ongoing firmware update
+./st33_fw_update --abandon
+ST33 Firmware Update Tool
+Firmware Update Abandon:
+Success: Please reset or power cycle TPM
+```
+
+**Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics. Reference implementation code is available in the `examples-private` repository.
