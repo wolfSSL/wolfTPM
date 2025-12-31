@@ -2989,6 +2989,8 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeStart(TPM_HANDLE sessionHandle,
 WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
+#endif /* Infineon SLB Vendor Specific */
+
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 WOLFTPM_API int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
@@ -2996,8 +2998,6 @@ WOLFTPM_API int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
 WOLFTPM_API int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size);
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
-
-#endif /* Infineon SLB Vendor Specific */
 
 
 /* Vendor Specific GPIO */

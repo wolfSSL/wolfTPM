@@ -189,6 +189,7 @@ make install
 --enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
 --enable-smallstack     Enable options to reduce stack usage
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
+--enable-firmware       Enable firmware upgrade support for Infineon SLB9672/SLB9673 and ST ST33 (default: disabled) - WOLFTPM_FIRMWARE_UPGRADE
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
 --enable-infineon       Enable Infineon SLB9670/SLB9672/SLB9673 TPM Support (default: disabled) - WOLFTPM_SLB9670 / WOLFTPM_SLB9672
@@ -234,9 +235,11 @@ Build wolfTPM:
 
 ```bash
 ./autogen.sh
-./configure --enable-st33 [--enable-i2c]
+./configure --enable-st33 [--enable-i2c] [--enable-firmware]
 make
 ```
+
+Note: The `--enable-firmware` option enables firmware upgrade support for ST33 TPMs. This adds the `st33_fw_update` example tool for performing firmware updates.
 
 ### Building Microchip ATTPM20
 
@@ -902,6 +905,31 @@ Connection: close
 </body>
 </html>
 ```
+
+### ST33 Firmware Update Example
+
+The firmware update example allows updating firmware on STMicro ST33 TPMs. Build with `--enable-st33 --enable-firmware` to enable this example.
+
+```bash
+# Display firmware information
+./examples/firmware/st33_fw_update
+
+# Cancel any in-progress firmware update
+./examples/firmware/st33_fw_update --abandon
+
+# Perform firmware update (requires manifest and firmware files)
+./examples/firmware/st33_fw_update <manifest_file> <firmware_file>
+```
+
+Example output:
+```
+ST33 Firmware Update Tool
+Mfg STM  (2), Vendor ST33KTPM2XI2C, Fw 9.256 (0x0)
+Firmware version details: Major=9, Minor=256, Vendor=0x0
+Firmware update mode: Pre-915 (no LMS signature required)
+```
+
+Note: Firmware versions >= 915 require LMS signature support, which is not yet implemented in the current API.
 
 ## Device Identity and Attestation Keys
 

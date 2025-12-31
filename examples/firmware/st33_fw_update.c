@@ -88,6 +88,9 @@ static void TPM2_ST33_PrintInfo(WOLFTPM2_CAPS* caps)
     }
 }
 
+/* Forward declaration */
+int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[]);
+
 int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
 {
     int rc;

@@ -8397,6 +8397,16 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
 #if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
      defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
 
+/* Forward declarations for vendor-specific firmware functions */
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx,
+    uint8_t* lms_signature, uint32_t lms_signature_sz);
+static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
+#endif
+
 int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,

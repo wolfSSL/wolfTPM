@@ -485,8 +485,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     word32 rLen, sLen;
     ecc_key wolfKey;
     int curveSize = TPM2_GetCurveSize(curve);
-#ifdef WOLF_CRYPTO_CB
     int tpmDevId = INVALID_DEVID;
+#ifdef WOLF_CRYPTO_CB
     TpmCryptoDevCtx tpmCtx;
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -610,9 +610,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
         (flags & FLAGS_USE_CRYPTO_CB) ? "Crypto CB" : "",
         rc == 0 ? "Passed" : "Failed");
 
+#ifdef WOLF_CRYPTO_CB
     if (flags & FLAGS_USE_CRYPTO_CB) {
         wolfTPM2_ClearCryptoDevCb(dev, tpmDevId);
     }
+#endif
 }
 
 static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
