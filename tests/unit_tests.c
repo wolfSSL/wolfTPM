@@ -226,6 +226,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
+    int lms_state = 0; /* 0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED */
 
     /* Initialize TPM */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
@@ -238,6 +239,27 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
 
+    /* Test three-state detection */
+    if (caps.mfg == TPM_MFG_STM) {
+        if (caps.fwVerMinor < 256) {
+            lms_state = 0;  /* LMS_UNSUPPORTED */
+        }
+        else if (caps.fwVerMinor < 915) {
+            lms_state = 1;  /* LMS_CAPABLE */
+        }
+        else {
+            lms_state = 2;  /* LMS_REQUIRED */
+        }
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 TPM detected - Firmware version: %u.%u (0x%x)\n",
+            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+        printf("LMS state: %d (0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED)\n", lms_state);
+        printf("Firmware upgrade APIs are available for ST33 TPM\n");
+    #else
+        (void)lms_state; /* Suppress unused variable warning when !DEBUG_WOLFTPM */
+    #endif
+    }
+
     /* Test that firmware upgrade cancel function exists and handles NULL correctly */
     rc = wolfTPM2_FirmwareUpgradeCancel(NULL);
     AssertIntNE(rc, 0); /* Should fail with NULL device */
@@ -246,13 +268,18 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA256, NULL, 0, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0); /* Should fail with NULL device */
 
+    /* Test that firmware upgrade with LMS function exists and handles NULL correctly */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0); /* Should fail with NULL device */
+
+    /* Test that firmware upgrade with LMS rejects NULL signature */
+    if (caps.mfg == TPM_MFG_STM) {
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, NULL, 0);
+        AssertIntNE(rc, 0); /* Should fail with NULL signature */
+    }
+
     /* If this is an ST33 TPM, verify the manufacturer is correct */
     if (caps.mfg == TPM_MFG_STM) {
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 TPM detected - Firmware version: %u.%u (0x%x)\n",
-            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
-        printf("Firmware upgrade APIs are available for ST33 TPM\n");
-    #endif
         /* APIs are available - actual firmware update testing requires firmware files */
         rc = 0;
     }

@@ -275,13 +275,13 @@ typedef enum {
 #endif
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     /* ST33 Firmware Update Vendor Command Codes
-     * Note: These codes need to be verified against ST33 datasheet/example code
-     * Placeholder values using 0x031X range - update when actual codes are confirmed */
-    TPM_CC_FieldUpgradeStartVendor_ST33    = CC_VEND + 0x0310,
-    TPM_CC_FieldUpgradeAbandonVendor_ST33  = CC_VEND + 0x0311,
-    TPM_CC_FieldUpgradeManifestVendor_ST33 = CC_VEND + 0x0312,
-    TPM_CC_FieldUpgradeDataVendor_ST33     = CC_VEND + 0x0313,
-    TPM_CC_FieldUpgradeFinalizeVendor_ST33 = CC_VEND + 0x0314,
+     * Verified from ST reference implementation (TPM_FU_STM_KTPM_LMS.c):
+     * - Start: 0x2000030C, Data: 0x2000030D
+     * Note: Abandon still uses placeholder - may need verification */
+    TPM_CC_FieldUpgradeStartVendor_ST33    = CC_VEND + 0x030C,
+    TPM_CC_FieldUpgradeAbandonVendor_ST33  = CC_VEND + 0x030E, /* Abandon/cancel */
+    TPM_CC_FieldUpgradeDataVendor_ST33     = CC_VEND + 0x030D,
+    TPM_CC_FieldUpgradeFinalizeVendor_ST33 = CC_VEND + 0x030F, /* Finalize if needed */
 #endif
 } TPM_CC_T;
 typedef UINT32 TPM_CC;

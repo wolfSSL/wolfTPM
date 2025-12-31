@@ -93,9 +93,17 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     startupIn.startupType = TPM_SU_CLEAR;
     rc = TPM2_Startup(&startupIn);
     if (rc != TPM_RC_SUCCESS &&
-        rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
+        rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ &&
+        rc != TPM_RC_UPGRADE /* TPM_RC_UPGRADE = In firmware upgrade mode */ ) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+    /* Return upgrade status so caller can handle appropriately */
+    if (rc == TPM_RC_UPGRADE) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_Startup: TPM is in firmware upgrade mode\n");
     #endif
         return rc;
     }
@@ -8407,6 +8415,13 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
 static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
 #endif
 
+/* Forward declaration for LMS firmware upgrade hash function */
+int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx,
+    uint8_t* lms_signature, uint32_t lms_signature_sz);
+
 int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
@@ -8425,7 +8440,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     if (caps.mfg == TPM_MFG_STM) {
         /* Route to ST33 firmware update implementation
          * Note: For post-915 firmware with LMS signature, NULL is passed here.
-         * Extended API would be needed for LMS signature support. */
+         * Use wolfTPM2_FirmwareUpgradeHashWithLMS() for LMS signature support. */
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
             manifest, manifest_sz,
@@ -8478,6 +8493,44 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return TPM_RC_COMMAND_CODE;
 }
 
+int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx,
+    uint8_t* lms_signature, uint32_t lms_signature_sz)
+{
+    int rc;
+    WOLFTPM2_CAPS caps;
+
+    /* Validate LMS signature is provided */
+    if (lms_signature == NULL || lms_signature_sz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Get capabilities to determine manufacturer */
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (caps.mfg == TPM_MFG_STM) {
+        /* Route to ST33 firmware update implementation with LMS signature */
+        return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
+            manifest_hash, manifest_hash_sz,
+            manifest, manifest_sz,
+            cb, cb_ctx,
+            lms_signature, lms_signature_sz);
+    }
+#endif
+
+    /* Unsupported manufacturer or LMS not supported */
+#ifdef DEBUG_WOLFTPM
+    printf("Firmware update with LMS not supported for manufacturer %d\n", caps.mfg);
+#endif
+    return TPM_RC_COMMAND_CODE;
+}
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
@@ -8492,6 +8545,30 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
         rc = wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
             manifest_hash, (uint32_t)sizeof(manifest_hash),
             manifest, manifest_sz, cb, cb_ctx);
+    }
+    return rc;
+}
+
+int wolfTPM2_FirmwareUpgradeWithLMS(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx,
+    uint8_t* lms_signature, uint32_t lms_signature_sz)
+{
+    int rc;
+    uint8_t manifest_hash[TPM_SHA384_DIGEST_SIZE];
+
+    /* Validate LMS signature is provided */
+    if (lms_signature == NULL || lms_signature_sz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* hash the manifest */
+    rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
+    if (rc == 0) {
+        rc = wolfTPM2_FirmwareUpgradeHashWithLMS(dev, TPM_ALG_SHA384,
+            manifest_hash, (uint32_t)sizeof(manifest_hash),
+            manifest, manifest_sz, cb, cb_ctx,
+            lms_signature, lms_signature_sz);
     }
     return rc;
 }
@@ -8563,97 +8640,44 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 
 /* Maximum size of firmware chunks for ST33 */
-#define ST33_FW_MAX_CHUNK_SZ 1024
+#define ST33_FW_MAX_CHUNK_SZ 2048  /* Must be large enough for firmware blobs */
 
-/* ST33 Firmware version threshold for LMS signature support
- * Pre-915: Uses firmware update without LMS signature
- * Post-915: Uses firmware update with LMS signature */
-#define ST33_FW_VERSION_LMS_THRESHOLD 915
+/* ST33 Firmware version thresholds for LMS signature support
+ * Three-state model:
+ * < 256:  Old ST33G hardware - cannot do LMS (LMS_UNSUPPORTED)
+ * 256-914: New ST33K hardware - LMS optional, CAN DO BOTH (LMS_CAPABLE)
+ * >= 915: New ST33K hardware - LMS required (LMS_REQUIRED) */
+#define ST33_FW_VERSION_LMS_CAPABILITY 256  /* ST33KTPM2X birth version - hardware generation threshold */
+#define ST33_FW_VERSION_LMS_REQUIRED   915  /* ST policy enforcement threshold */
 
-/* Setup the policy to enable firmware upgrade start (if required) */
-static int tpm2_st33_firmware_enable_policy(WOLFTPM2_DEV* dev)
+/* Note: ST33 uses password auth (TPM_RS_PW) for firmware update, not policy.
+ * The tpm2_st33_firmware_enable_policy function was removed as it's not needed
+ * per the ST reference implementation behavior. */
+
+/* Start firmware upgrade process (non-LMS)
+ * ST33 sends the full manifest (blob0) directly in FieldUpgradeStart command.
+ * For non-LMS ST33KTPM: blob0 = 177 bytes
+ * ST reference implementation uses password auth (TPM_RS_PW), not policy */
+static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz)
 {
     int rc;
-    SetPrimaryPolicy_In policy;
-    WOLFTPM2_SESSION tpmSession;
 
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-    XMEMSET(&policy, 0, sizeof(policy));
+    (void)dev;
 
-    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
+    /* ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart.
+     * This matches the ST reference implementation behavior. */
+    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
+
     if (rc == TPM_RC_SUCCESS) {
-        rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
-            TPM_CC_FieldUpgradeStartVendor_ST33);
-        if (rc == TPM_RC_SUCCESS) {
-            word32 policySz = (word32)sizeof(policy.authPolicy.buffer);
-            rc = wolfTPM2_GetPolicyDigest(dev, tpmSession.handle.hndl,
-                policy.authPolicy.buffer, &policySz);
-            policy.authPolicy.size = policySz;
-        }
-        wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
-    }
-    if (rc == TPM_RC_SUCCESS) {
-        policy.authHandle = TPM_RH_PLATFORM;
-        policy.hashAlg = TPM_ALG_SHA256;
-        rc = TPM2_SetPrimaryPolicy(&policy);
-    }
+        /* delay to give the TPM time to switch modes */
+        XSLEEP_MS(300);
 
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Enable firmware start policy failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    }
-#endif
-    return rc;
-}
-
-/* Start firmware upgrade process (pre-915, without LMS signature) */
-static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz)
-{
-    int rc;
-    WOLFTPM2_SESSION tpmSession;
-
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-
-    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
-    if (rc == TPM_RC_SUCCESS) {
-        rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
-            TPM_CC_FieldUpgradeStartVendor_ST33);
-        if (rc == TPM_RC_SUCCESS) {
-            /* build command for manifest header
-             * Note: Packet format may need adjustment based on ST33 spec
-             * Following pattern similar to Infineon */
-            uint16_t val16;
-            /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
-            uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
-            cmd[0] = 0x01; /* type */
-            val16 = be16_to_cpu(manifest_hash_sz + 2);
-            XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
-            val16 = be16_to_cpu(hashAlg);
-            XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
-            XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
-
-            rc = TPM2_ST33_FieldUpgradeStart(tpmSession.handle.hndl,
-                cmd, 1 + 2 + 2 + manifest_hash_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            /* delay to give the TPM time to switch modes */
-            XSLEEP_MS(300);
-            /* it is not required to release session handle,
-             * since TPM reset into firmware upgrade mode */
-
-        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-            !defined(WOLFTPM_WINAPI)
-            /* Do chip startup and request locality again */
-            rc = TPM2_ChipStartup(&dev->ctx, 10);
-        #endif
-        }
-        else {
-            wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
-        }
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
@@ -8664,60 +8688,31 @@ static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return rc;
 }
 
-/* Start firmware upgrade process with LMS signature (post-915) */
-static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
-    uint8_t* lms_signature, uint32_t lms_signature_sz)
+/* Start firmware upgrade process with LMS signature
+ * ST33 sends the full manifest (blob0) directly in FieldUpgradeStart command.
+ * For LMS ST33KTPM: blob0 = 2697 bytes (includes embedded LMS signature)
+ * ST reference implementation uses password auth (TPM_RS_PW), not policy */
+static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz)
 {
     int rc;
-    WOLFTPM2_SESSION tpmSession;
 
-    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    (void)dev;
 
-    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
+    /* ST33 LMS: The manifest (blob0) already contains the embedded
+     * LMS signature. Send the full manifest directly.
+     * Uses password auth (TPM_RS_PW) like ST reference implementation. */
+    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
+
     if (rc == TPM_RC_SUCCESS) {
-        rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
-            TPM_CC_FieldUpgradeStartVendor_ST33);
-        if (rc == TPM_RC_SUCCESS) {
-            /* build command for manifest header with LMS signature
-             * Note: Packet format may need adjustment based on ST33 LMS spec
-             * Format likely includes: type, hash alg, manifest hash, LMS signature */
-            uint16_t val16;
-            uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE + 1024]; /* room for LMS sig */
-            uint32_t cmd_sz = 0;
-            
-            cmd[0] = 0x01; /* type */
-            cmd_sz = 1;
-            
-            val16 = be16_to_cpu(hashAlg);
-            XMEMCPY(&cmd[cmd_sz], &val16, sizeof(val16));
-            cmd_sz += sizeof(val16);
-            
-            XMEMCPY(&cmd[cmd_sz], manifest_hash, manifest_hash_sz);
-            cmd_sz += manifest_hash_sz;
-            
-            if (lms_signature != NULL && lms_signature_sz > 0) {
-                XMEMCPY(&cmd[cmd_sz], lms_signature, lms_signature_sz);
-                cmd_sz += lms_signature_sz;
-            }
+        /* delay to give the TPM time to switch modes */
+        XSLEEP_MS(300);
 
-            rc = TPM2_ST33_FieldUpgradeStart(tpmSession.handle.hndl,
-                cmd, cmd_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            /* delay to give the TPM time to switch modes */
-            XSLEEP_MS(300);
-
-        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-            !defined(WOLFTPM_WINAPI)
-            /* Do chip startup and request locality again */
-            rc = TPM2_ChipStartup(&dev->ctx, 10);
-        #endif
-        }
-        else {
-            wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
-        }
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
@@ -8728,162 +8723,111 @@ static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return rc;
 }
 
-/* Send firmware manifest (pre-915) */
-static int tpm2_st33_firmware_manifest(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz)
-{
-    int rc = TPM_RC_FAILURE;
-    uint32_t offset, chunk_sz;
-    uint8_t state; /* 1=start, 2=more, 0=done */
+/* Note: ST33 sends full manifest (blob0) directly in the FieldUpgradeStart command.
+ * The separate manifest functions (tpm2_st33_firmware_manifest,
+ * tpm2_st33_firmware_manifest_lms) were removed as they don't match
+ * the ST reference implementation behavior. */
 
-    (void)dev;
-    for (offset = 0; offset < manifest_sz; offset += chunk_sz) {
-        /* max cmd: type (1) + chunk sz (2) + max chunk (1024) */
-        uint8_t cmd[1 + 2 + ST33_FW_MAX_CHUNK_SZ];
-        uint16_t val16;
-
-        chunk_sz = manifest_sz - offset;
-        if (chunk_sz > ST33_FW_MAX_CHUNK_SZ) {
-            chunk_sz = ST33_FW_MAX_CHUNK_SZ;
-            state = (offset == 0) ? 1 : 2;
-        }
-        else {
-            state = 0;
-        }
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 Firmware manifest chunk %u offset (%u / %u), state %d\n",
-            chunk_sz, offset, manifest_sz, state);
-    #endif
-
-        cmd[0] = state;
-        val16 = be16_to_cpu(chunk_sz);
-        XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* chunk size */
-        XMEMCPY(&cmd[3], &manifest[offset], chunk_sz);
-
-        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeManifestVendor_ST33,
-            cmd, 1 + 2 + chunk_sz);
-        if (rc != TPM_RC_SUCCESS) {
-            break;
-        }
-    }
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware upgrade manifest failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    }
-#endif
-    return rc;
-}
-
-/* Send firmware manifest with LMS signature (post-915) */
-static int tpm2_st33_firmware_manifest_lms(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz,
-    uint8_t* lms_signature, uint32_t lms_signature_sz)
-{
-    int rc = TPM_RC_FAILURE;
-    uint32_t offset, chunk_sz;
-    uint8_t state; /* 1=start, 2=more, 0=done */
-
-    (void)dev;
-    
-    /* First send manifest data */
-    for (offset = 0; offset < manifest_sz; offset += chunk_sz) {
-        uint8_t cmd[1 + 2 + ST33_FW_MAX_CHUNK_SZ];
-        uint16_t val16;
-
-        chunk_sz = manifest_sz - offset;
-        if (chunk_sz > ST33_FW_MAX_CHUNK_SZ) {
-            chunk_sz = ST33_FW_MAX_CHUNK_SZ;
-            state = (offset == 0) ? 1 : 2;
-        }
-        else {
-            state = 0;
-        }
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 Firmware manifest chunk %u offset (%u / %u), state %d\n",
-            chunk_sz, offset, manifest_sz, state);
-    #endif
-
-        cmd[0] = state;
-        val16 = be16_to_cpu(chunk_sz);
-        XMEMCPY(&cmd[1], &val16, sizeof(val16));
-        XMEMCPY(&cmd[3], &manifest[offset], chunk_sz);
-
-        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeManifestVendor_ST33,
-            cmd, 1 + 2 + chunk_sz);
-        if (rc != TPM_RC_SUCCESS) {
-            break;
-        }
-    }
-    
-    /* If manifest sent successfully and LMS signature provided, send signature */
-    if (rc == TPM_RC_SUCCESS && lms_signature != NULL && lms_signature_sz > 0) {
-        /* Note: LMS signature format may need adjustment based on ST33 spec
-         * This may need to be sent as part of manifest or as separate command */
-        /* For now, assume it's appended or handled differently - 
-         * actual implementation should follow ST33 example code */
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 LMS signature size: %u (implementation may need adjustment)\n",
-            lms_signature_sz);
-    #endif
-    }
-    
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware upgrade manifest (LMS) failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    }
-#endif
-    return rc;
-}
-
-/* Send firmware data in chunks */
+/* Send firmware data as blobs per ST reference implementation
+ * Firmware data format (after blob0/manifest):
+ * - Byte 0: blob type
+ * - Bytes 1-2: blob data length (big-endian)
+ * - Bytes 3+: blob data
+ * Each blob is sent complete to the TPM via FieldUpgradeData command */
 static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
     wolfTPM2FwDataCb cb, void* cb_ctx)
 {
     int rc;
-    uint32_t offset, chunk_sz;
-    uint8_t cmd[2 + ST33_FW_MAX_CHUNK_SZ];
-    uint16_t val16;
+    uint32_t offset = 0;
+    uint8_t blob_header[3];
+    uint8_t* blob_buf = NULL;
+    uint32_t blob_len;
+    uint32_t blob_total;
 
     (void)dev;
-    for (offset = 0; ; offset += chunk_sz) {
-        XMEMSET(cmd, 0, sizeof(cmd));
 
-        /* get chunk */
-        rc = cb(&cmd[2], ST33_FW_MAX_CHUNK_SZ, offset, cb_ctx);
-        if (rc > 0 && rc <= ST33_FW_MAX_CHUNK_SZ) {
-            chunk_sz = rc;
-        }
-        else if (rc == 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("ST33 Firmware data done\n");
-        #endif
+    /* Allocate buffer for largest possible blob */
+    blob_buf = (uint8_t*)XMALLOC(ST33_FW_MAX_CHUNK_SZ + 3, NULL,
+        DYNAMIC_TYPE_TMP_BUFFER);
+    if (blob_buf == NULL) {
+        return MEMORY_E;
+    }
+
+    for (;;) {
+        /* Read blob header: type (1 byte) + length (2 bytes big-endian) */
+        rc = cb(blob_header, 3, offset, cb_ctx);
+        if (rc < 3) {
+            /* End of data or error */
+            if (rc == 0 || blob_header[0] == 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("ST33 Firmware data done\n");
+            #endif
+                rc = TPM_RC_SUCCESS;
+            }
+            else {
+            #ifdef DEBUG_WOLFTPM
+                printf("ST33 Firmware data read error at offset %u\n", offset);
+            #endif
+                rc = BUFFER_E;
+            }
             break;
         }
-        else {
+
+        /* Check for end marker (type byte = 0) */
+        if (blob_header[0] == 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("ST33 Firmware data callback error! %d\n", rc);
+            printf("ST33 Firmware data end marker at offset %u\n", offset);
         #endif
+            rc = TPM_RC_SUCCESS;
+            break;
+        }
+
+        /* Parse blob length from bytes 1-2 (big-endian) */
+        blob_len = ((uint32_t)blob_header[1] << 8) | blob_header[2];
+        blob_total = blob_len + 3; /* total blob size including header */
+
+        if (blob_total > ST33_FW_MAX_CHUNK_SZ + 3) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Blob too large: %u bytes at offset %u\n",
+                blob_total, offset);
+        #endif
+            rc = BUFFER_E;
             break;
         }
 
     #ifdef DEBUG_WOLFTPM
-        printf("ST33 Firmware data chunk offset %u\n", offset);
+        printf("ST33 Firmware blob offset %u, type 0x%02x, len %u\n",
+            offset, blob_header[0], blob_len);
     #endif
 
-        val16 = be16_to_cpu(chunk_sz);
-        XMEMCPY(&cmd[0], &val16, sizeof(val16)); /* chunk size */
-
-        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
-            cmd, 2 + chunk_sz);
-        if (rc != TPM_RC_SUCCESS) {
+        /* Read complete blob (header + data) */
+        rc = cb(blob_buf, blob_total, offset, cb_ctx);
+        if (rc != (int)blob_total) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Failed to read blob data at offset %u\n", offset);
+        #endif
+            rc = BUFFER_E;
             break;
         }
+
+        /* Send blob to TPM - blob is sent as-is per ST reference */
+        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
+            blob_buf, blob_total);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 FieldUpgradeData failed at offset %u: 0x%x\n",
+                offset, rc);
+        #endif
+            break;
+        }
+
+        offset += blob_total;
     }
 
+    XFREE(blob_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+
     if (rc == TPM_RC_SUCCESS) {
-        /* Give the TPM time to start the new firmware */
+        /* Give the TPM time to process */
         XSLEEP_MS(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
@@ -8902,27 +8846,9 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
 }
 
 /* Finalize firmware upgrade */
-static int tpm2_st33_firmware_final(WOLFTPM2_DEV* dev)
-{
-    int rc;
-    uint8_t cmd[2];
-    uint16_t val16;
-
-    (void)dev;
-
-    val16 = 0;
-    XMEMCPY(&cmd[0], &val16, sizeof(val16)); /* data size */
-
-    rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeFinalizeVendor_ST33,
-        cmd, sizeof(cmd));
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware finalize failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    }
-#endif
-    return rc;
-}
+/* Note: ST33 doesn't require a finalize command - the firmware update
+ * is complete after all blobs are sent. The TPM will automatically
+ * apply the update on next reset/power cycle. Finalize function removed. */
 
 /* Main ST33 firmware upgrade function with version detection */
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
@@ -8933,7 +8859,6 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
 {
     int rc;
     WOLFTPM2_CAPS caps;
-    int use_lms = 0;
 
     /* Get capabilities to check firmware version */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
@@ -8945,65 +8870,103 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         return rc;
     }
 
-    /* Check if LMS signature is required based on firmware version
-     * Note: Using fwVerMinor - may need adjustment if threshold uses different field */
+    /* Three-state LMS detection:
+     * < 256:  Old ST33G hardware - cannot do LMS (LMS_UNSUPPORTED)
+     * 256-914: New ST33K hardware - LMS optional, CAN DO BOTH (LMS_CAPABLE)
+     * >= 915: New ST33K hardware - LMS required (LMS_REQUIRED)
+     */
+    int lms_state;
+    if (caps.fwVerMinor < ST33_FW_VERSION_LMS_CAPABILITY) {
+        lms_state = 0;  /* LMS_UNSUPPORTED - old ST33G hardware */
+    }
+    else if (caps.fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
+        lms_state = 1;  /* LMS_CAPABLE - new ST33K hardware, optional LMS */
+    }
+    else {
+        lms_state = 2;  /* LMS_REQUIRED - new ST33K hardware, mandatory LMS */
+    }
+
     #ifdef DEBUG_WOLFTPM
         printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
             caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+        if (lms_state == 0) {
+            printf("ST33 LMS state: LMS_UNSUPPORTED (old ST33G hardware, fwVerMinor < %d)\n",
+                ST33_FW_VERSION_LMS_CAPABILITY);
+        }
+        else if (lms_state == 1) {
+            printf("ST33 LMS state: LMS_CAPABLE (new ST33K hardware, fwVerMinor %d-%d)\n",
+                ST33_FW_VERSION_LMS_CAPABILITY, ST33_FW_VERSION_LMS_REQUIRED - 1);
+        }
+        else {
+            printf("ST33 LMS state: LMS_REQUIRED (new ST33K hardware, fwVerMinor >= %d)\n",
+                ST33_FW_VERSION_LMS_REQUIRED);
+        }
     #endif
-    
-    if (caps.fwVerMinor >= ST33_FW_VERSION_LMS_THRESHOLD) {
-        use_lms = 1;
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 Using LMS signature path (fwVerMinor >= %d)\n",
-            ST33_FW_VERSION_LMS_THRESHOLD);
-    #endif
+
+    /* Unused parameters - ST33 sends full manifest directly, not hash */
+    (void)hashAlg;
+    (void)manifest_hash;
+    (void)manifest_hash_sz;
+
+    if (lms_state == 0) {
+        /* LMS_UNSUPPORTED (state 0, < 256):
+         * - Reject LMS signatures (return BAD_FUNC_ARG if provided)
+         * - Use non-LMS path only
+         * - Old ST33G hardware lacks LMS crypto engine */
+        if (lms_signature != NULL && lms_signature_sz > 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Error: LMS signature provided but hardware does not support LMS\n");
+        #endif
+            return BAD_FUNC_ARG;
+        }
+
+        /* ST33 uses password auth (TPM_RS_PW), not policy.
+         * Sends full manifest (blob0) directly in start command. */
+        rc = tpm2_st33_firmware_start(dev, manifest, manifest_sz);
+    }
+    else if (lms_state == 1) {
+        /* LMS_CAPABLE (state 1, 256-914):
+         * - KEY: Can do both paths based on signature presence
+         * - If lms_signature != NULL && lms_signature_sz > 0: Use LMS path
+         * - If lms_signature == NULL || lms_signature_sz == 0: Use non-LMS path
+         * - This enables 9.256 devices to test PQC signatures while maintaining backward compatibility */
+        if (lms_signature != NULL && lms_signature_sz > 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Using LMS signature path (LMS_CAPABLE device with signature provided)\n");
+        #endif
+            /* LMS manifest (blob0=2697 bytes) includes embedded signature */
+            rc = tpm2_st33_firmware_start_lms(dev, manifest, manifest_sz);
+        }
+        else {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Using non-LMS path (LMS_CAPABLE device without signature)\n");
+        #endif
+            /* Non-LMS manifest (blob0=177 bytes) */
+            rc = tpm2_st33_firmware_start(dev, manifest, manifest_sz);
+        }
     }
     else {
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 Using non-LMS path (fwVerMinor < %d)\n",
-            ST33_FW_VERSION_LMS_THRESHOLD);
-    #endif
-    }
-
-    if (use_lms) {
-        /* Post-915: Use LMS signature path */
+        /* LMS_REQUIRED (state 2, >= 915):
+         * - Require LMS signature (return BAD_FUNC_ARG if missing)
+         * - Use LMS path only
+         * - ST policy mandates LMS for firmware updates */
         if (lms_signature == NULL || lms_signature_sz == 0) {
         #ifdef DEBUG_WOLFTPM
             printf("ST33 Error: LMS signature required but not provided\n");
         #endif
             return BAD_FUNC_ARG;
         }
-        
-        rc = tpm2_st33_firmware_enable_policy(dev);
-        if (rc == TPM_RC_SUCCESS) {
-            rc = tpm2_st33_firmware_start_lms(dev, hashAlg,
-                manifest_hash, manifest_hash_sz,
-                lms_signature, lms_signature_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            rc = tpm2_st33_firmware_manifest_lms(dev, manifest, manifest_sz,
-                lms_signature, lms_signature_sz);
-        }
-    }
-    else {
-        /* Pre-915: Use non-LMS path */
-        rc = tpm2_st33_firmware_enable_policy(dev);
-        if (rc == TPM_RC_SUCCESS) {
-            rc = tpm2_st33_firmware_start(dev, hashAlg,
-                manifest_hash, manifest_hash_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            rc = tpm2_st33_firmware_manifest(dev, manifest, manifest_sz);
-        }
+
+        /* LMS manifest (blob0=2697 bytes) includes embedded signature */
+        rc = tpm2_st33_firmware_start_lms(dev, manifest, manifest_sz);
     }
     
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
     }
-    if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_st33_firmware_final(dev);
-    }
+    /* Note: ST33 doesn't require a finalize command - the firmware update
+     * is complete after all blobs are sent. The TPM will automatically
+     * apply the update on next reset/power cycle. */
     
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {

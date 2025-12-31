@@ -38,23 +38,106 @@
 /* --- BEGIN ST33 TPM2.0 Firmware Update tool  -- */
 /******************************************************************************/
 
+/* Manifest sizes per ST33 firmware format */
+#define ST33_BLOB0_SIZE_NON_LMS  177   /* Non-LMS manifest size */
+#define ST33_BLOB0_SIZE_LMS      2697  /* LMS manifest size (includes embedded signature) */
+
 static void usage(void)
 {
     printf("ST33 Firmware Update Usage:\n");
     printf("\t./st33_fw_update (get info)\n");
     printf("\t./st33_fw_update --abandon (cancel)\n");
-    printf("\t./st33_fw_update <manifest_file> <firmware_file>\n");
-    printf("\nNote: For firmware versions >= 915, LMS signature support is required.\n");
-    printf("      The current API does not support LMS signature - this will need\n");
-    printf("      to be extended for post-915 firmware updates.\n");
+    printf("\t./st33_fw_update <firmware.fi> [--lms]\n");
+    printf("\nOptions:\n");
+    printf("      --lms: Use LMS format (2697 byte manifest with embedded signature)\n");
+    printf("             Default is non-LMS format (177 byte manifest)\n");
+    printf("\nNote: LMS signature support:\n");
+    printf("      - Firmware < 256: Old ST33G hardware - LMS not supported\n");
+    printf("      - Firmware 256-914: New ST33K hardware - LMS optional\n");
+    printf("      - Firmware >= 915: New ST33K hardware - LMS required\n");
+    printf("\nFirmware file format:\n");
+    printf("      - Non-LMS (.fi V1): First 177 bytes = manifest, rest = firmware data\n");
+    printf("      - LMS (.fi V2): First 2697 bytes = manifest (with LMS sig), rest = firmware\n");
 }
 
 typedef struct {
-    byte*  manifest_buf;
-    byte*  firmware_buf;
+    byte*  fi_buf;         /* Full .fi file buffer */
+    byte*  manifest_buf;   /* Points into fi_buf */
+    byte*  firmware_buf;   /* Points into fi_buf */
+    size_t fi_bufSz;
     size_t manifest_bufSz;
     size_t firmware_bufSz;
+    int    use_lms;        /* 1 = LMS format, 0 = non-LMS format */
+    int    in_upgrade_mode; /* 1 = continuing from upgrade mode */
 } fw_info_t;
+
+/* Send firmware data blobs directly - used when continuing from upgrade mode */
+static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo)
+{
+    int rc;
+    uint32_t offset = 0;
+    uint8_t blob_header[3];
+    uint8_t* blob_buf = NULL;
+    uint32_t blob_len;
+    uint32_t blob_total;
+    int blob_count = 0;
+
+    /* Allocate buffer for largest possible blob */
+    blob_buf = (uint8_t*)XMALLOC(2048 + 3, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (blob_buf == NULL) {
+        return MEMORY_E;
+    }
+
+    while (offset < fwinfo->firmware_bufSz) {
+        /* Read blob header: type (1 byte) + length (2 bytes big-endian) */
+        if (offset + 3 > fwinfo->firmware_bufSz) {
+            rc = TPM_RC_SUCCESS; /* End of data */
+            break;
+        }
+        XMEMCPY(blob_header, &fwinfo->firmware_buf[offset], 3);
+
+        /* Check for end marker (type byte = 0) */
+        if (blob_header[0] == 0) {
+            rc = TPM_RC_SUCCESS;
+            break;
+        }
+
+        /* Parse blob length from bytes 1-2 (big-endian) */
+        blob_len = ((uint32_t)blob_header[1] << 8) | blob_header[2];
+        blob_total = blob_len + 3;
+
+        if (offset + blob_total > fwinfo->firmware_bufSz) {
+            printf("Error: Incomplete blob at offset %u\n", offset);
+            rc = BUFFER_E;
+            break;
+        }
+
+        /* Copy complete blob (header + data) */
+        XMEMCPY(blob_buf, &fwinfo->firmware_buf[offset], blob_total);
+
+        /* Send blob to TPM */
+        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
+            blob_buf, blob_total);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("FieldUpgradeData failed at blob %d, offset %u: 0x%x\n",
+                blob_count, offset, rc);
+            break;
+        }
+
+        blob_count++;
+        offset += blob_total;
+
+        /* Progress indication */
+        if (blob_count % 100 == 0) {
+            printf("  Sent %d blobs, %u/%zu bytes...\n", blob_count, offset,
+                fwinfo->firmware_bufSz);
+        }
+    }
+
+    printf("Sent %d firmware blobs, %u bytes total\n", blob_count, offset);
+    XFREE(blob_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    return rc;
+}
 
 static int TPM2_ST33_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     uint32_t offset, void* cb_ctx)
@@ -79,12 +162,16 @@ static void TPM2_ST33_PrintInfo(WOLFTPM2_CAPS* caps)
         caps->fwVerMinor, caps->fwVerVendor);
     printf("Firmware version details: Major=%u, Minor=%u, Vendor=0x%x\n",
         caps->fwVerMajor, caps->fwVerMinor, caps->fwVerVendor);
-    if (caps->fwVerMinor < 915) {
-        printf("Firmware update mode: Pre-915 (no LMS signature required)\n");
+    if (caps->fwVerMinor < 256) {
+        printf("Hardware: ST33G (LMS unsupported)\n");
+    }
+    else if (caps->fwVerMinor < 915) {
+        printf("Hardware: ST33K (LMS capable, optional)\n");
+        printf("Firmware update: Can use LMS or non-LMS\n");
     }
     else {
-        printf("Firmware update mode: Post-915 (LMS signature required)\n");
-        printf("Warning: LMS signature support not yet implemented in this API\n");
+        printf("Hardware: ST33K (LMS required)\n");
+        printf("Firmware update: LMS signature mandatory\n");
     }
 }
 
@@ -96,10 +183,12 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-    const char* manifest_file = NULL;
-    const char* firmware_file = NULL;
+    const char* fi_file = NULL;
     fw_info_t fwinfo;
     int abandon = 0;
+    int lms_state = 0; /* 0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED */
+    int i;
+    size_t blob0_size;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
 
@@ -114,21 +203,54 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
             abandon = 1;
         }
         else {
-            manifest_file = argv[1];
-            if (argc >= 3) {
-                firmware_file = argv[2];
+            fi_file = argv[1];
+            /* Parse optional --lms flag */
+            for (i = 2; i < argc; i++) {
+                if (XSTRCMP(argv[i], "--lms") == 0) {
+                    fwinfo.use_lms = 1;
+                }
             }
         }
     }
 
     printf("ST33 Firmware Update Tool\n");
-    if (manifest_file != NULL)
-        printf("\tManifest File: %s\n", manifest_file);
-    if (firmware_file != NULL)
-        printf("\tFirmware File: %s\n", firmware_file);
+    if (fi_file != NULL) {
+        printf("\tFirmware File: %s\n", fi_file);
+        printf("\tFormat: %s\n", fwinfo.use_lms ? "LMS (V2)" : "Non-LMS (V1)");
+    }
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
-    if (rc != TPM_RC_SUCCESS) {
+    if (rc == TPM_RC_UPGRADE) {
+        /* TPM is in firmware upgrade mode */
+        printf("TPM is in firmware upgrade mode\n");
+        if (abandon) {
+            uint8_t cmd[2] = {0, 0}; /* data size = 0 */
+            printf("Firmware Update Abandon:\n");
+            /* Call cancel command directly - can't use wolfTPM2_FirmwareUpgradeCancel
+             * because GetCapabilities also fails in upgrade mode */
+            rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor_ST33,
+                cmd, sizeof(cmd));
+            if (rc != 0) {
+                printf("Abandon failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+                printf("Power cycle TPM to reset\n");
+            }
+            else {
+                printf("Success: Please reset or power cycle TPM\n");
+            }
+            wolfTPM2_Cleanup(&dev);
+            return rc;
+        }
+        if (fi_file != NULL) {
+            /* Continue firmware update - TPM already in upgrade mode */
+            printf("Continuing firmware update...\n");
+            fwinfo.in_upgrade_mode = 1;
+            /* Skip to firmware data loading, the start was already done */
+            goto load_firmware;
+        }
+        printf("Use --abandon to cancel firmware upgrade, or power cycle TPM\n");
+        goto exit;
+    }
+    else if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
@@ -150,6 +272,17 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+    /* Detect three-state: LMS_UNSUPPORTED, LMS_CAPABLE, or LMS_REQUIRED */
+    if (caps.fwVerMinor < 256) {
+        lms_state = 0;  /* LMS_UNSUPPORTED - old ST33G hardware */
+    }
+    else if (caps.fwVerMinor < 915) {
+        lms_state = 1;  /* LMS_CAPABLE - new ST33K hardware, optional LMS */
+    }
+    else {
+        lms_state = 2;  /* LMS_REQUIRED - new ST33K hardware, mandatory LMS */
+    }
+
     if (abandon) {
         printf("Firmware Update Abandon:\n");
         rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
@@ -162,29 +295,81 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         return rc;
     }
 
-    if (manifest_file == NULL || firmware_file == NULL) {
+    if (fi_file == NULL) {
         if (argc > 1) {
-            printf("Manifest file or firmware file arguments missing!\n");
+            printf("Firmware file argument missing!\n");
         }
         goto exit;
     }
 
-    /* Check firmware version and warn about LMS signature requirement */
-    if (caps.fwVerMinor >= 915) {
-        printf("\nWarning: Firmware version >= 915 requires LMS signature.\n");
-        printf("Current API implementation does not support LMS signature.\n");
-        printf("Firmware update may fail for post-915 firmware.\n\n");
+    /* Handle LMS signature requirements based on three-state model */
+    /* Skip this check if in upgrade mode since we can't get capabilities */
+    if (!fwinfo.in_upgrade_mode) {
+        if (lms_state == 0) {
+            /* LMS_UNSUPPORTED: Reject LMS format, use non-LMS only */
+            if (fwinfo.use_lms) {
+                printf("\nError: LMS format specified but hardware does not support LMS.\n");
+                printf("This device (fwVerMinor < 256) cannot use LMS signatures.\n");
+                rc = BAD_FUNC_ARG;
+                goto exit;
+            }
+        }
+        else if (lms_state == 2) {
+            /* LMS_REQUIRED: Require LMS format, error if missing */
+            if (!fwinfo.use_lms) {
+                printf("\nError: Firmware version >= 915 requires LMS format.\n");
+                printf("Please use --lms option with LMS firmware file.\n");
+                rc = BAD_FUNC_ARG;
+                goto exit;
+            }
+        }
+        /* For lms_state == 1 (LMS_CAPABLE), both paths are valid */
     }
 
-    /* load manifest and data files */
-    rc = loadFile(manifest_file,
-        &fwinfo.manifest_buf, &fwinfo.manifest_bufSz);
-    if (rc == 0) {
-        rc = loadFile(firmware_file,
-            &fwinfo.firmware_buf, &fwinfo.firmware_bufSz);
+load_firmware:
+    /* Determine blob0 (manifest) size based on format */
+    blob0_size = fwinfo.use_lms ? ST33_BLOB0_SIZE_LMS : ST33_BLOB0_SIZE_NON_LMS;
+
+    /* Load the complete .fi file */
+    rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
+    if (rc != 0) {
+        printf("Failed to load firmware file: %s\n", fi_file);
+        goto exit;
     }
-    if (rc == 0) {
-        printf("Firmware Update:\n");
+
+    /* Validate file size */
+    if (fwinfo.fi_bufSz <= blob0_size) {
+        printf("Error: Firmware file too small. Expected > %zu bytes, got %zu bytes.\n",
+            blob0_size, fwinfo.fi_bufSz);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
+
+    /* Split .fi file into manifest (blob0) and firmware data */
+    fwinfo.manifest_buf = fwinfo.fi_buf;
+    fwinfo.manifest_bufSz = blob0_size;
+    fwinfo.firmware_buf = fwinfo.fi_buf + blob0_size;
+    fwinfo.firmware_bufSz = fwinfo.fi_bufSz - blob0_size;
+
+    printf("Firmware Update:\n");
+    printf("\tTotal file size: %zu bytes\n", fwinfo.fi_bufSz);
+    printf("\tManifest (blob0): %zu bytes\n", fwinfo.manifest_bufSz);
+    printf("\tFirmware data: %zu bytes\n", fwinfo.firmware_bufSz);
+
+    if (fwinfo.in_upgrade_mode) {
+        /* Continuing from upgrade mode - just send firmware data */
+        printf("Sending firmware data (TPM already in upgrade mode)...\n");
+        rc = TPM2_ST33_SendFirmwareData(&fwinfo);
+    }
+    else if (fwinfo.use_lms) {
+        /* LMS path - manifest contains embedded LMS signature */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev,
+            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
+            TPM2_ST33_FwData_Cb, &fwinfo,
+            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz);
+    }
+    else {
+        /* Non-LMS path */
         rc = wolfTPM2_FirmwareUpgrade(&dev,
             fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
             TPM2_ST33_FwData_Cb, &fwinfo);
@@ -192,10 +377,14 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     if (rc == 0) {
         printf("\nFirmware update completed successfully.\n");
         printf("Please reset or power cycle the TPM.\n");
-        /* Get updated capabilities */
+        /* Get updated capabilities - may fail if still in special mode */
         rc = wolfTPM2_GetCapabilities(&dev, &caps);
         if (rc == 0) {
             TPM2_ST33_PrintInfo(&caps);
+        }
+        else {
+            printf("Power cycle TPM to complete update.\n");
+            rc = 0; /* Update was successful, just need power cycle */
         }
     }
 
@@ -206,8 +395,8 @@ exit:
             rc, TPM2_GetRCString(rc));
     }
 
-    XFREE(fwinfo.firmware_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-    XFREE(fwinfo.manifest_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    /* Only free the main fi_buf - manifest_buf and firmware_buf point into it */
+    XFREE(fwinfo.fi_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     wolfTPM2_Cleanup(&dev);
 
     return rc;

@@ -5679,6 +5679,19 @@ int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
             TPM_CC_FieldUpgradeStartVendor_ST33);
 
+    #ifdef DEBUG_WOLFTPM
+        {
+            int i;
+            printf("ST33 FieldUpgradeStart packet (%d bytes):\n", packet.pos);
+            for (i = 0; i < packet.pos; i++) {
+                printf("%02x ", packet.buf[i]);
+                if ((i + 1) % 16 == 0) printf("\n");
+            }
+            printf("\n");
+            printf("ST reference expects header: 80 02 00 00 00 cc 20 00 03 0c 40 00 00 0c 00 00 00 09 40 00 00 09 00 00 00 00 00\n");
+        }
+    #endif
+
         rc = TPM2_SendCommand(ctx, &packet);
 
         TPM2_ReleaseLock(ctx);

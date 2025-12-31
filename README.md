@@ -910,6 +910,11 @@ Connection: close
 
 The firmware update example allows updating firmware on STMicro ST33 TPMs. Build with `--enable-st33 --enable-firmware` to enable this example.
 
+LMS (Leighton-Micali Signature) support is available based on firmware version:
+- **Firmware < 256**: Old ST33G hardware - LMS not supported, non-LMS path only
+- **Firmware 256-914**: New ST33K hardware - LMS optional, can use both LMS and non-LMS paths
+- **Firmware >= 915**: New ST33K hardware - LMS required, LMS path only
+
 ```bash
 # Display firmware information
 ./examples/firmware/st33_fw_update
@@ -917,19 +922,21 @@ The firmware update example allows updating firmware on STMicro ST33 TPMs. Build
 # Cancel any in-progress firmware update
 ./examples/firmware/st33_fw_update --abandon
 
-# Perform firmware update (requires manifest and firmware files)
+# Perform firmware update without LMS (for LMS_CAPABLE devices or LMS_UNSUPPORTED devices)
 ./examples/firmware/st33_fw_update <manifest_file> <firmware_file>
+
+# Perform firmware update with LMS (for LMS_CAPABLE or LMS_REQUIRED devices)
+./examples/firmware/st33_fw_update <manifest_file> <firmware_file> --lms-signature <sig_file>
 ```
 
 Example output:
 ```
 ST33 Firmware Update Tool
-Mfg STM  (2), Vendor ST33KTPM2XI2C, Fw 9.256 (0x0)
-Firmware version details: Major=9, Minor=256, Vendor=0x0
-Firmware update mode: Pre-915 (no LMS signature required)
+Mfg STM  (2), Vendor ST33KTPM2XI2C, Fw 9.512 (0x0)
+Firmware version details: Major=9, Minor=512, Vendor=0x0
+Hardware: ST33K (LMS capable, optional)
+Firmware update: Can use LMS or non-LMS
 ```
-
-Note: Firmware versions >= 915 require LMS signature support, which is not yet implemented in the current API.
 
 ## Device Identity and Attestation Keys
 

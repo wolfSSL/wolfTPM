@@ -109,11 +109,24 @@ KeyGroupId 0x7, FwCounter 1253 (254 same)
 
 ### Firmware Version Requirements
 
-ST33KTPM firmware update supports two code paths based on firmware version:
-- **Pre-915 firmware**: Uses firmware update without LMS signature
-- **Post-915 firmware**: Uses firmware update with LMS signature (Note: LMS signature support in the public API is not yet fully implemented - this will need to be extended for post-915 firmware updates)
+ST33KTPM firmware update supports a three-state model based on firmware version:
 
-The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities.
+- **LMS_UNSUPPORTED (< 256)**: Old ST33G hardware - cannot do LMS
+  - Non-LMS path only
+  - LMS signatures are rejected
+
+- **LMS_CAPABLE (256-914)**: New ST33K hardware - LMS optional, can do both paths
+  - Can use LMS path if LMS signature is provided
+  - Can use non-LMS path if LMS signature is not provided
+  - This enables devices like 9.256 to test PQC signatures while maintaining backward compatibility
+
+- **LMS_REQUIRED (>= 915)**: New ST33K hardware - LMS mandatory
+  - LMS path only
+  - LMS signature is required
+
+The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities. The version thresholds are:
+- **256**: Hardware generation threshold (ST33KTPM2X birth version)
+- **915**: ST policy enforcement threshold
 
 ### Updating the firmware
 
@@ -125,17 +138,27 @@ The `st33_fw_update` tool uses the manifest and firmware data files.
 ST33 Firmware Update Usage:
         ./st33_fw_update (get info)
         ./st33_fw_update --abandon (cancel)
-        ./st33_fw_update <manifest_file> <firmware_file>
+        ./st33_fw_update <manifest_file> <firmware_file> [--lms-signature <sig_file>]
 
 # Run without arguments to display the current firmware information
 ./st33_fw_update
 ST33 Firmware Update Tool
-Mfg STM (2), Vendor ST33KTPM, Fw 1.0 (0x100)
-Firmware version details: Major=1, Minor=0, Vendor=0x100
-Firmware update mode: Pre-915 (no LMS signature required)
+Mfg STM (2), Vendor ST33KTPM, Fw 9.256 (0x9100)
+Firmware version details: Major=9, Minor=256, Vendor=0x9100
+Hardware: ST33K (LMS capable, optional)
+Firmware update: Can use LMS or non-LMS
 
-# Run with manifest and firmware files
+# Run with manifest and firmware files (non-LMS path for LMS_CAPABLE device)
 ./st33_fw_update manifest.bin firmware.bin
+ST33 Firmware Update Tool
+	Manifest File: manifest.bin
+	Firmware File: firmware.bin
+...
+Firmware update completed successfully.
+Please reset or power cycle the TPM.
+
+# Run with LMS signature (LMS path for LMS_CAPABLE or LMS_REQUIRED device)
+./st33_fw_update manifest.bin firmware.bin --lms-signature sig.bin
 ST33 Firmware Update Tool
 	Manifest File: manifest.bin
 	Firmware File: firmware.bin
