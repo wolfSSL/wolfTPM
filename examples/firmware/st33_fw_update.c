@@ -51,10 +51,9 @@ static void usage(void)
     printf("\nOptions:\n");
     printf("      --lms: Use LMS format (2697 byte manifest with embedded signature)\n");
     printf("             Default is non-LMS format (177 byte manifest)\n");
-    printf("\nNote: LMS signature support:\n");
-    printf("      - Firmware < 256: Old ST33G hardware - LMS not supported\n");
-    printf("      - Firmware 256-914: New ST33K hardware - LMS optional\n");
-    printf("      - Firmware >= 915: New ST33K hardware - LMS required\n");
+    printf("\nNote: LMS format requirements:\n");
+    printf("      - Firmware < 512: Non-LMS format required (legacy firmware, e.g., 9.257)\n");
+    printf("      - Firmware >= 512: LMS format required (modern firmware, e.g., 9.512)\n");
     printf("\nFirmware file format:\n");
     printf("      - Non-LMS (.fi V1): First 177 bytes = manifest, rest = firmware data\n");
     printf("      - LMS (.fi V2): First 2697 bytes = manifest (with LMS sig), rest = firmware\n");
@@ -162,16 +161,13 @@ static void TPM2_ST33_PrintInfo(WOLFTPM2_CAPS* caps)
         caps->fwVerMinor, caps->fwVerVendor);
     printf("Firmware version details: Major=%u, Minor=%u, Vendor=0x%x\n",
         caps->fwVerMajor, caps->fwVerMinor, caps->fwVerVendor);
-    if (caps->fwVerMinor < 256) {
-        printf("Hardware: ST33G (LMS unsupported)\n");
-    }
-    else if (caps->fwVerMinor < 915) {
-        printf("Hardware: ST33K (LMS capable, optional)\n");
-        printf("Firmware update: Can use LMS or non-LMS\n");
+    if (caps->fwVerMinor < 512) {
+        printf("Hardware: ST33K (legacy firmware, Generation 1)\n");
+        printf("Firmware update: Non-LMS format required\n");
     }
     else {
-        printf("Hardware: ST33K (LMS required)\n");
-        printf("Firmware update: LMS signature mandatory\n");
+        printf("Hardware: ST33K (modern firmware, Generation 2)\n");
+        printf("Firmware update: LMS format required\n");
     }
 }
 
@@ -272,15 +268,21 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Detect three-state: LMS_UNSUPPORTED, LMS_CAPABLE, or LMS_REQUIRED */
-    if (caps.fwVerMinor < 256) {
-        lms_state = 0;  /* LMS_UNSUPPORTED - old ST33G hardware */
-    }
-    else if (caps.fwVerMinor < 915) {
-        lms_state = 1;  /* LMS_CAPABLE - new ST33K hardware, optional LMS */
+    /* Simplified two-state model matching ST reference implementation:
+     * < 512:  Non-LMS path only (legacy firmware, e.g., 9.257)
+     * >= 512: LMS path only (modern firmware, LMS required, e.g., 9.512)
+     * 
+     * Version breakdown:
+     * - 9.257 (0x0101): Legacy ECC-only firmware (Generation 1)
+     * - 9.512 (0x0200): First modern firmware with LMS mandatory (Generation 2)
+     * 
+     * This matches ST's reference tools which use separate implementations
+     * for pre-512 (Generation 1) vs post-512 (Generation 2) firmware. */
+    if (caps.fwVerMinor < 512) {
+        lms_state = 0;  /* Non-LMS path only (legacy firmware, Generation 1) */
     }
     else {
-        lms_state = 2;  /* LMS_REQUIRED - new ST33K hardware, mandatory LMS */
+        lms_state = 1;  /* LMS path only (modern firmware, LMS required, Generation 2) */
     }
 
     if (abandon) {
@@ -302,28 +304,27 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Handle LMS signature requirements based on three-state model */
+    /* Handle LMS signature requirements based on two-state model */
     /* Skip this check if in upgrade mode since we can't get capabilities */
     if (!fwinfo.in_upgrade_mode) {
         if (lms_state == 0) {
-            /* LMS_UNSUPPORTED: Reject LMS format, use non-LMS only */
+            /* Legacy firmware (< 512, e.g., 9.257): Reject LMS format, use non-LMS only */
             if (fwinfo.use_lms) {
-                printf("\nError: LMS format specified but hardware does not support LMS.\n");
-                printf("This device (fwVerMinor < 256) cannot use LMS signatures.\n");
+                printf("\nError: LMS format specified but firmware version < 512 requires non-LMS.\n");
+                printf("This device (fwVerMinor < 512, Generation 1) must use non-LMS firmware format.\n");
                 rc = BAD_FUNC_ARG;
                 goto exit;
             }
         }
-        else if (lms_state == 2) {
-            /* LMS_REQUIRED: Require LMS format, error if missing */
+        else {
+            /* Modern firmware (>= 512, e.g., 9.512): Require LMS format, error if missing */
             if (!fwinfo.use_lms) {
-                printf("\nError: Firmware version >= 915 requires LMS format.\n");
+                printf("\nError: Firmware version >= 512 requires LMS format.\n");
                 printf("Please use --lms option with LMS firmware file.\n");
                 rc = BAD_FUNC_ARG;
                 goto exit;
             }
         }
-        /* For lms_state == 1 (LMS_CAPABLE), both paths are valid */
     }
 
 load_firmware:

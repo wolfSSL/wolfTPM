@@ -4,9 +4,64 @@
 # 
 # Basic tests (no firmware files needed)
 # ./examples/firmware/test_st33_firmware.sh
-
+#
 # With firmware files (optional)
 # LMS_FW_FILE=/path/to/lms.fi NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh
+#
+# Run only LMS tests:
+# LMS_FW_FILE=/path/to/lms.fi ./examples/firmware/test_st33_firmware.sh --lms
+#
+# Run only non-LMS tests:
+# NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh --no-lms
+#
+# Note: Firmware files must be provided via environment variables.
+
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --lms      Run only LMS firmware update tests (requires LMS_FW_FILE)"
+    echo "  --no-lms   Run only non-LMS firmware update tests (requires NON_LMS_FW_FILE)"
+    echo "  --help, -h       Show this help message"
+    echo ""
+    echo "Environment variables:"
+    echo "  LMS_FW_FILE      Path to LMS firmware file (.fi V2 format)"
+    echo "  NON_LMS_FW_FILE  Path to non-LMS firmware file (.fi V1 format)"
+    echo ""
+    echo "If neither --lms nor --no-lms is specified, both tests will run"
+    echo "if both firmware files are provided (backward compatible behavior)."
+}
+
+# Parse command-line arguments
+TEST_LMS_ONLY=0
+TEST_NON_LMS_ONLY=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --lms)
+            TEST_LMS_ONLY=1
+            ;;
+        --no-lms)
+            TEST_NON_LMS_ONLY=1
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option: $arg"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check for conflicting flags
+if [ $TEST_LMS_ONLY -eq 1 ] && [ $TEST_NON_LMS_ONLY -eq 1 ]; then
+    echo "Error: --lms and --no-lms cannot be used together"
+    usage
+    exit 1
+fi
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -139,9 +194,9 @@ else
 fi
 echo ""
 
-# Test 5: Verify three-state LMS detection
+# Test 5: Verify firmware version detection
 echo "---------------------------------------------------"
-echo "Test: LMS capability detection (three-state model)"
+echo "Test: Firmware version detection (two-state model)"
 echo "---------------------------------------------------"
 STATE=$($FW_UPDATE_TOOL 2>&1 | grep -E "Hardware: ST33")
 if [ -n "$STATE" ]; then
@@ -164,75 +219,112 @@ echo "  LMS_FW_FILE - Path to LMS firmware file (optional)"
 echo "  NON_LMS_FW_FILE - Path to non-LMS firmware file (optional)"
 echo ""
 
-if [ -n "$LMS_FW_FILE" ] && [ -f "$LMS_FW_FILE" ]; then
-    echo "LMS firmware file found: $LMS_FW_FILE"
-    LMS_SIZE=$(stat -c%s "$LMS_FW_FILE" 2>/dev/null || stat -f%z "$LMS_FW_FILE" 2>/dev/null)
-    echo "  Size: $LMS_SIZE bytes"
-    echo ""
+# Determine which tests to run based on flags
+RUN_LMS_TEST=0
+RUN_NON_LMS_TEST=0
 
-    # Test LMS firmware update
-    echo "---------------------------------------------------"
-    echo "Test: LMS Firmware Update (V2 format)"
-    echo "---------------------------------------------------"
-    echo "Running: $FW_UPDATE_TOOL $LMS_FW_FILE --lms"
-    echo ""
-
-    $FW_UPDATE_TOOL "$LMS_FW_FILE" --lms
-    rc=$?
-    echo ""
-
-    if [ $rc -eq 0 ]; then
-        echo "✓ PASSED: LMS firmware update completed successfully"
-        ((TESTS_PASSED++))
-    else
-        echo "✗ FAILED: LMS firmware update failed (rc=$rc)"
-        ((TESTS_FAILED++))
-    fi
-    echo ""
-elif [ -n "$LMS_FW_FILE" ]; then
-    echo "LMS firmware file not found: $LMS_FW_FILE"
-    echo "Skipping LMS firmware update test"
-    echo ""
+if [ $TEST_LMS_ONLY -eq 1 ]; then
+    RUN_LMS_TEST=1
+elif [ $TEST_NON_LMS_ONLY -eq 1 ]; then
+    RUN_NON_LMS_TEST=1
 else
-    echo "LMS_FW_FILE not set - skipping LMS firmware update test"
-    echo "  (Set LMS_FW_FILE environment variable to test LMS firmware updates)"
-    echo ""
+    # Backward compatible: run both if files are provided
+    RUN_LMS_TEST=1
+    RUN_NON_LMS_TEST=1
 fi
 
-if [ -n "$NON_LMS_FW_FILE" ] && [ -f "$NON_LMS_FW_FILE" ]; then
-    echo "Non-LMS firmware file found: $NON_LMS_FW_FILE"
-    NON_LMS_SIZE=$(stat -c%s "$NON_LMS_FW_FILE" 2>/dev/null || stat -f%z "$NON_LMS_FW_FILE" 2>/dev/null)
-    echo "  Size: $NON_LMS_SIZE bytes"
-    echo ""
+# Test LMS firmware update (if enabled)
+if [ $RUN_LMS_TEST -eq 1 ]; then
+    if [ -n "$LMS_FW_FILE" ] && [ -f "$LMS_FW_FILE" ]; then
+        echo "LMS firmware file found: $LMS_FW_FILE"
+        LMS_SIZE=$(stat -c%s "$LMS_FW_FILE" 2>/dev/null || stat -f%z "$LMS_FW_FILE" 2>/dev/null)
+        echo "  Size: $LMS_SIZE bytes"
+        echo ""
 
-    # Test non-LMS firmware update
-    echo "---------------------------------------------------"
-    echo "Test: Non-LMS Firmware Update (V1 format)"
-    echo "---------------------------------------------------"
-    echo "Running: $FW_UPDATE_TOOL $NON_LMS_FW_FILE"
-    echo ""
+        # Test LMS firmware update
+        echo "---------------------------------------------------"
+        echo "Test: LMS Firmware Update (V2 format)"
+        echo "---------------------------------------------------"
+        echo "Running: $FW_UPDATE_TOOL $LMS_FW_FILE --lms"
+        echo ""
 
-    $FW_UPDATE_TOOL "$NON_LMS_FW_FILE"
-    rc=$?
-    echo ""
+        $FW_UPDATE_TOOL "$LMS_FW_FILE" --lms
+        rc=$?
+        echo ""
 
-    if [ $rc -eq 0 ]; then
-        echo "✓ PASSED: Non-LMS firmware update completed successfully"
-        ((TESTS_PASSED++))
+        if [ $rc -eq 0 ]; then
+            echo "✓ PASSED: LMS firmware update completed successfully"
+            ((TESTS_PASSED++))
+        else
+            echo "✗ FAILED: LMS firmware update failed (rc=$rc)"
+            echo "  Error: TPM rejected the firmware update"
+            ((TESTS_FAILED++))
+        fi
+        echo ""
+    elif [ -n "$LMS_FW_FILE" ]; then
+        echo "LMS firmware file not found: $LMS_FW_FILE"
+        echo "Skipping LMS firmware update test"
+        echo ""
     else
-        echo "Note: Non-LMS firmware update returned rc=$rc"
-        echo "  (This may be expected if LMS is required for this firmware version)"
-        ((TESTS_PASSED++))  # Count as passed since we're just testing the path
+        if [ $TEST_LMS_ONLY -eq 1 ]; then
+            echo "ERROR: --lms specified but LMS_FW_FILE not set"
+            echo "  Set LMS_FW_FILE environment variable to test LMS firmware updates"
+            echo "  Example: export LMS_FW_FILE=/path/to/ST33KTPM2X_FAC_00090200_V2.fi"
+            ((TESTS_FAILED++))
+        else
+            echo "LMS_FW_FILE not set - skipping LMS firmware update test"
+            echo "  (Set LMS_FW_FILE environment variable to test LMS firmware updates)"
+            echo "  Example: export LMS_FW_FILE=/path/to/ST33KTPM2X_FAC_00090200_V2.fi"
+        fi
+        echo ""
     fi
-    echo ""
-elif [ -n "$NON_LMS_FW_FILE" ]; then
-    echo "Non-LMS firmware file not found: $NON_LMS_FW_FILE"
-    echo "Skipping non-LMS firmware update test"
-    echo ""
-else
-    echo "NON_LMS_FW_FILE not set - skipping non-LMS firmware update test"
-    echo "  (Set NON_LMS_FW_FILE environment variable to test non-LMS firmware updates)"
-    echo ""
+fi
+
+# Test non-LMS firmware update (if enabled)
+if [ $RUN_NON_LMS_TEST -eq 1 ]; then
+    if [ -n "$NON_LMS_FW_FILE" ] && [ -f "$NON_LMS_FW_FILE" ]; then
+        echo "Non-LMS firmware file found: $NON_LMS_FW_FILE"
+        NON_LMS_SIZE=$(stat -c%s "$NON_LMS_FW_FILE" 2>/dev/null || stat -f%z "$NON_LMS_FW_FILE" 2>/dev/null)
+        echo "  Size: $NON_LMS_SIZE bytes"
+        echo ""
+
+        # Test non-LMS firmware update
+        echo "---------------------------------------------------"
+        echo "Test: Non-LMS Firmware Update (V1 format)"
+        echo "---------------------------------------------------"
+        echo "Running: $FW_UPDATE_TOOL $NON_LMS_FW_FILE"
+        echo ""
+
+        $FW_UPDATE_TOOL "$NON_LMS_FW_FILE"
+        rc=$?
+        echo ""
+
+        if [ $rc -eq 0 ]; then
+            echo "✓ PASSED: Non-LMS firmware update completed successfully"
+            ((TESTS_PASSED++))
+        else
+            echo "✗ FAILED: Non-LMS firmware update failed (rc=$rc)"
+            echo "  Error: TPM rejected the firmware update"
+            ((TESTS_FAILED++))
+        fi
+        echo ""
+    elif [ -n "$NON_LMS_FW_FILE" ]; then
+        echo "Non-LMS firmware file not found: $NON_LMS_FW_FILE"
+        echo "Skipping non-LMS firmware update test"
+        echo ""
+    else
+        if [ $TEST_NON_LMS_ONLY -eq 1 ]; then
+            echo "ERROR: --no-lms specified but NON_LMS_FW_FILE not set"
+            echo "  Set NON_LMS_FW_FILE environment variable to test non-LMS firmware updates"
+            echo "  Example: export NON_LMS_FW_FILE=/path/to/TPM_ST33KTPM2X_00090200_V1.fi"
+            ((TESTS_FAILED++))
+        else
+            echo "NON_LMS_FW_FILE not set - skipping non-LMS firmware update test"
+            echo "  (Set NON_LMS_FW_FILE environment variable to test non-LMS firmware updates)"
+            echo "  Example: export NON_LMS_FW_FILE=/path/to/TPM_ST33KTPM2X_00090200_V1.fi"
+        fi
+        echo ""
+    fi
 fi
 
 # Final verification - TPM still working

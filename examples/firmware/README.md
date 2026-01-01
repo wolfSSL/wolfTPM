@@ -2,7 +2,7 @@
 
 Currently wolfTPM supports firmware update capability for:
 - Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
-- STMicroelectronics ST33KTPM TPM 2.0 modules. Support includes both pre-915 firmware versions (without LMS signature) and post-915 firmware versions (with LMS signature requirement).
+- STMicroelectronics ST33KTPM TPM 2.0 modules. Support includes both Generation 1 firmware versions (< 512, without LMS signature) and Generation 2 firmware versions (>= 512, with LMS signature requirement).
 
 ## Infineon Firmware
 
@@ -109,24 +109,26 @@ KeyGroupId 0x7, FwCounter 1253 (254 same)
 
 ### Firmware Version Requirements
 
-ST33KTPM firmware update supports a three-state model based on firmware version:
+ST33KTPM firmware update uses a simplified two-state model matching ST's reference implementation:
 
-- **LMS_UNSUPPORTED (< 256)**: Old ST33G hardware - cannot do LMS
+- **Legacy firmware (< 512, e.g., 9.257)**: Non-LMS format required
   - Non-LMS path only
-  - LMS signatures are rejected
+  - LMS format is rejected
+  - Generation 1 firmware (ECC-only)
 
-- **LMS_CAPABLE (256-914)**: New ST33K hardware - LMS optional, can do both paths
-  - Can use LMS path if LMS signature is provided
-  - Can use non-LMS path if LMS signature is not provided
-  - This enables devices like 9.256 to test PQC signatures while maintaining backward compatibility
-
-- **LMS_REQUIRED (>= 915)**: New ST33K hardware - LMS mandatory
+- **Modern firmware (>= 512, e.g., 9.512)**: LMS format required
   - LMS path only
-  - LMS signature is required
+  - LMS signature is required (embedded in manifest)
+  - Generation 2 firmware (LMS mandatory)
 
-The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities. The version thresholds are:
-- **256**: Hardware generation threshold (ST33KTPM2X birth version)
-- **915**: ST policy enforcement threshold
+The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities. The version threshold is:
+- **512 (0x0200)**: ST policy enforcement threshold - Generation 2 starts here, LMS becomes mandatory
+
+Version breakdown:
+- **9.257 (0x0101)**: Legacy ECC-only firmware (Generation 1)
+- **9.512 (0x0200)**: First modern firmware with LMS mandatory requirement (Generation 2)
+
+This simplified model matches ST's reference implementation behavior, which uses separate tools for Generation 1 (< 512) vs Generation 2 (>= 512) firmware.
 
 ### Updating the firmware
 
@@ -136,32 +138,62 @@ The `st33_fw_update` tool uses the manifest and firmware data files.
 # Help
 ./st33_fw_update --help
 ST33 Firmware Update Usage:
-        ./st33_fw_update (get info)
-        ./st33_fw_update --abandon (cancel)
-        ./st33_fw_update <manifest_file> <firmware_file> [--lms-signature <sig_file>]
+	./st33_fw_update (get info)
+	./st33_fw_update --abandon (cancel)
+	./st33_fw_update <firmware.fi> [--lms]
+
+Options:
+      --lms: Use LMS format (2697 byte manifest with embedded signature)
+             Default is non-LMS format (177 byte manifest)
+
+Note: LMS format requirements:
+      - Firmware < 512: Non-LMS format required (legacy firmware, e.g., 9.257)
+      - Firmware >= 512: LMS format required (modern firmware, e.g., 9.512)
 
 # Run without arguments to display the current firmware information
 ./st33_fw_update
 ST33 Firmware Update Tool
-Mfg STM (2), Vendor ST33KTPM, Fw 9.256 (0x9100)
-Firmware version details: Major=9, Minor=256, Vendor=0x9100
-Hardware: ST33K (LMS capable, optional)
-Firmware update: Can use LMS or non-LMS
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
 
-# Run with manifest and firmware files (non-LMS path for LMS_CAPABLE device)
-./st33_fw_update manifest.bin firmware.bin
+# Run with non-LMS firmware file (for legacy firmware < 512)
+./st33_fw_update TPM_ST33KTPM2X_00090200_V1.fi
 ST33 Firmware Update Tool
-	Manifest File: manifest.bin
-	Firmware File: firmware.bin
+	Firmware File: TPM_ST33KTPM2X_00090200_V1.fi
+	Format: Non-LMS (V1)
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
+Firmware Update:
+	Total file size: 364290 bytes
+	Manifest (blob0): 177 bytes
+	Firmware data: 364113 bytes
 ...
 Firmware update completed successfully.
 Please reset or power cycle the TPM.
 
-# Run with LMS signature (LMS path for LMS_CAPABLE or LMS_REQUIRED device)
-./st33_fw_update manifest.bin firmware.bin --lms-signature sig.bin
+# Run with LMS firmware file (for modern firmware >= 512)
+./st33_fw_update ST33KTPM2X_FAC_00090200_V2.fi --lms
 ST33 Firmware Update Tool
-	Manifest File: manifest.bin
-	Firmware File: firmware.bin
+	Firmware File: ST33KTPM2X_FAC_00090200_V2.fi
+	Format: LMS (V2)
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3 
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
+Firmware version details: Major=9, Minor=512, Vendor=0x0
+Hardware: ST33K (modern firmware, Generation 2)
+Firmware update: LMS format required
+Firmware Update:
+	Total file size: 360092 bytes
+	Manifest (blob0): 2697 bytes
+	Firmware data: 357395 bytes
 ...
 Firmware update completed successfully.
 Please reset or power cycle the TPM.
@@ -169,8 +201,37 @@ Please reset or power cycle the TPM.
 # Cancel an ongoing firmware update
 ./st33_fw_update --abandon
 ST33 Firmware Update Tool
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
 Firmware Update Abandon:
 Success: Please reset or power cycle TPM
 ```
 
 **Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics. Reference implementation code is available in the `examples-private` repository.
+
+### Testing Firmware Updates
+
+The `test_st33_firmware.sh` script can be used to test firmware update functionality:
+
+```sh
+# Basic functionality tests (no firmware files needed)
+./examples/firmware/test_st33_firmware.sh
+
+# Test non-LMS firmware update only
+NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh --no-lms
+
+# Test LMS firmware update only
+LMS_FW_FILE=/path/to/lms.fi ./examples/firmware/test_st33_firmware.sh --lms
+
+# Test both (backward compatible, runs both if both files are provided)
+LMS_FW_FILE=/path/to/lms.fi NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh
+
+# Show help
+./examples/firmware/test_st33_firmware.sh --help
+```
+
+**Note**: Use `--lms` or `--no-lms` flags to test a specific update path. When neither flag is specified, the script will attempt to run both tests if both firmware files are provided (backward compatible behavior).
