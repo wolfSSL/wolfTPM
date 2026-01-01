@@ -5688,7 +5688,9 @@ int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
                 if ((i + 1) % 16 == 0) printf("\n");
             }
             printf("\n");
-            printf("ST reference expects header: 80 02 00 00 00 cc 20 00 03 0c 40 00 00 0c 00 00 00 09 40 00 00 09 00 00 00 00 00\n");
+            printf("ST reference expects header: "
+                   "80 02 00 00 00 cc 20 00 03 0c 40 00 00 0c 00 00 00 09 "
+                   "40 00 00 09 00 00 00 00 00\n");
         }
     #endif
 

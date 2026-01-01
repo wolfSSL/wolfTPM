@@ -218,15 +218,14 @@ static void test_wolfTPM2_ReadPublicKey(void)
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
-/* Test ST33 firmware upgrade APIs
- * Note: These tests verify function availability and basic parameter validation.
- * Full firmware update testing requires hardware and firmware files. */
+/* Test ST33 firmware upgrade APIs (function availability and
+ * parameter validation) */
 static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-    int lms_state = 0; /* 0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED */
+    int lms_state = 0; /* 0=non-LMS (< 512), 1=LMS required (>= 512) */
 
     /* Initialize TPM */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
@@ -235,62 +234,47 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
         return;
     }
 
-    /* Get capabilities to verify this is an ST33 TPM */
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
 
-    /* Test three-state detection */
+    /* Test two-state version detection (< 512 non-LMS, >= 512 LMS) */
     if (caps.mfg == TPM_MFG_STM) {
-        if (caps.fwVerMinor < 256) {
-            lms_state = 0;  /* LMS_UNSUPPORTED */
-        }
-        else if (caps.fwVerMinor < 915) {
-            lms_state = 1;  /* LMS_CAPABLE */
-        }
-        else {
-            lms_state = 2;  /* LMS_REQUIRED */
-        }
+        lms_state = (caps.fwVerMinor >= 512) ? 1 : 0;
     #ifdef DEBUG_WOLFTPM
-        printf("ST33 TPM detected - Firmware version: %u.%u (0x%x)\n",
-            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
-        printf("LMS state: %d (0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED)\n", lms_state);
-        printf("Firmware upgrade APIs are available for ST33 TPM\n");
+        printf("ST33 TPM - Firmware: %u.%u (0x%x), LMS required: %s\n",
+            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor,
+            lms_state ? "yes" : "no");
     #else
-        (void)lms_state; /* Suppress unused variable warning when !DEBUG_WOLFTPM */
+        (void)lms_state;
     #endif
     }
 
-    /* Test that firmware upgrade cancel function exists and handles NULL correctly */
+    /* Test NULL parameter handling */
     rc = wolfTPM2_FirmwareUpgradeCancel(NULL);
-    AssertIntNE(rc, 0); /* Should fail with NULL device */
+    AssertIntNE(rc, 0);
 
-    /* Test that firmware upgrade hash function exists and handles NULL correctly */
-    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA256, NULL, 0, NULL, 0, NULL, NULL);
-    AssertIntNE(rc, 0); /* Should fail with NULL device */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA256, NULL, 0, NULL,
+        0, NULL, NULL);
+    AssertIntNE(rc, 0);
 
-    /* Test that firmware upgrade with LMS function exists and handles NULL correctly */
     rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
-    AssertIntNE(rc, 0); /* Should fail with NULL device */
+    AssertIntNE(rc, 0);
 
-    /* Test that firmware upgrade with LMS rejects NULL signature */
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+#endif
+
     if (caps.mfg == TPM_MFG_STM) {
-        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, NULL, 0);
-        AssertIntNE(rc, 0); /* Should fail with NULL signature */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, 
+            NULL, 0);
+        AssertIntNE(rc, 0);
     }
 
-    /* If this is an ST33 TPM, verify the manufacturer is correct */
-    if (caps.mfg == TPM_MFG_STM) {
-        /* APIs are available - actual firmware update testing requires firmware files */
-        rc = 0;
-    }
-    else {
-    #ifdef DEBUG_WOLFTPM
-        printf("Non-ST33 TPM detected (Mfg: %d) - ST33 firmware upgrade APIs available but not applicable\n",
-            caps.mfg);
-    #endif
-        /* APIs should still be available (they route based on manufacturer) */
-        rc = 0;
-    }
+    rc = 0;
 
     wolfTPM2_Cleanup(&dev);
 

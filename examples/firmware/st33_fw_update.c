@@ -268,16 +268,8 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Simplified two-state model matching ST reference implementation:
-     * < 512:  Non-LMS path only (legacy firmware, e.g., 9.257)
-     * >= 512: LMS path only (modern firmware, LMS required, e.g., 9.512)
-     * 
-     * Version breakdown:
-     * - 9.257 (0x0101): Legacy ECC-only firmware (Generation 1)
-     * - 9.512 (0x0200): First modern firmware with LMS mandatory (Generation 2)
-     * 
-     * This matches ST's reference tools which use separate implementations
-     * for pre-512 (Generation 1) vs post-512 (Generation 2) firmware. */
+    /* Two-state model: < 512 requires non-LMS (legacy firmware, e.g., 9.257),
+     * >= 512 requires LMS (modern firmware, LMS required, e.g., 9.512) */
     if (caps.fwVerMinor < 512) {
         lms_state = 0;  /* Non-LMS path only (legacy firmware, Generation 1) */
     }
@@ -304,20 +296,21 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Handle LMS signature requirements based on two-state model */
-    /* Skip this check if in upgrade mode since we can't get capabilities */
+    /* Handle LMS signature requirements (skip check in upgrade mode) */
     if (!fwinfo.in_upgrade_mode) {
         if (lms_state == 0) {
-            /* Legacy firmware (< 512, e.g., 9.257): Reject LMS format, use non-LMS only */
+            /* Legacy firmware (< 512): reject LMS format */
             if (fwinfo.use_lms) {
-                printf("\nError: LMS format specified but firmware version < 512 requires non-LMS.\n");
-                printf("This device (fwVerMinor < 512, Generation 1) must use non-LMS firmware format.\n");
+                printf("\nError: LMS format specified but firmware "
+                       "version < 512 requires non-LMS.\n");
+                printf("This device (fwVerMinor < 512) must use "
+                       "non-LMS firmware format.\n");
                 rc = BAD_FUNC_ARG;
                 goto exit;
             }
         }
         else {
-            /* Modern firmware (>= 512, e.g., 9.512): Require LMS format, error if missing */
+            /* Modern firmware (>= 512): require LMS format */
             if (!fwinfo.use_lms) {
                 printf("\nError: Firmware version >= 512 requires LMS format.\n");
                 printf("Please use --lms option with LMS firmware file.\n");

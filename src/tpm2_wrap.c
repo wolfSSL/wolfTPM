@@ -8438,9 +8438,8 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (caps.mfg == TPM_MFG_STM) {
-        /* Route to ST33 firmware update implementation
-         * Note: For firmware >= 512 (Generation 2) with LMS signature, NULL is passed here.
-         * Use wolfTPM2_FirmwareUpgradeHashWithLMS() for LMS signature support. */
+        /* Route to ST33 firmware update 
+         * (for LMS use wolfTPM2_FirmwareUpgradeHashWithLMS) */
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
             manifest, manifest_sz,
@@ -8642,27 +8641,15 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 /* Maximum size of firmware chunks for ST33 */
 #define ST33_FW_MAX_CHUNK_SZ 2048  /* Must be large enough for firmware blobs */
 
-/* ST33 Firmware version thresholds for LMS signature support
- * Simplified model matching ST reference implementation behavior:
- * < 512:  Non-LMS path only (legacy firmware)
- * >= 512: LMS path only (modern firmware, LMS required)
- * 
- * Version breakdown:
- * - 9.257 (0x0101): Legacy ECC-only firmware
- * - 9.512 (0x0200): First modern firmware with LMS mandatory requirement
- * 
- * The cutoff is at Minor version 512 (0x0200), not 915. Version 9.512
- * is the "Generation 2" firmware that introduced LMS as mandatory. */
-#define ST33_FW_VERSION_LMS_REQUIRED   512  /* ST policy enforcement threshold - Generation 2 starts here */
+/* ST33 firmware version threshold for LMS requirement:
+ * < 512: Non-LMS format required (legacy, e.g., 9.257)
+ * >= 512: LMS format required (modern, e.g., 9.512) */
+#define ST33_FW_VERSION_LMS_REQUIRED   512
 
-/* Note: ST33 uses password auth (TPM_RS_PW) for firmware update, not policy.
- * The tpm2_st33_firmware_enable_policy function was removed as it's not needed
- * per the ST reference implementation behavior. */
+/* ST33 uses password auth (TPM_RS_PW) for firmware update, not policy */
 
-/* Start firmware upgrade process (non-LMS)
- * ST33 sends the full manifest (blob0) directly in FieldUpgradeStart command.
- * For non-LMS ST33KTPM: blob0 = 177 bytes
- * ST reference implementation uses password auth (TPM_RS_PW), not policy */
+/* Start firmware upgrade (non-LMS): sends manifest (blob0=177 bytes) 
+ * via FieldUpgradeStart */
 static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz)
 {
@@ -8693,10 +8680,7 @@ static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-/* Start firmware upgrade process with LMS signature
- * ST33 sends the full manifest (blob0) directly in FieldUpgradeStart command.
- * For LMS ST33KTPM: blob0 = 2697 bytes (includes embedded LMS signature)
- * ST reference implementation uses password auth (TPM_RS_PW), not policy */
+/* Start firmware upgrade (LMS): sends manifest (blob0=2697 bytes with embedded signature) via FieldUpgradeStart */
 static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz)
 {
@@ -8728,10 +8712,7 @@ static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-/* Note: ST33 sends full manifest (blob0) directly in the FieldUpgradeStart command.
- * The separate manifest functions (tpm2_st33_firmware_manifest,
- * tpm2_st33_firmware_manifest_lms) were removed as they don't match
- * the ST reference implementation behavior. */
+/* ST33 sends full manifest (blob0) directly in FieldUpgradeStart */
 
 /* Send firmware data as blobs per ST reference implementation
  * Firmware data format (after blob0/manifest):
@@ -8850,10 +8831,6 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-/* Finalize firmware upgrade */
-/* Note: ST33 doesn't require a finalize command - the firmware update
- * is complete after all blobs are sent. The TPM will automatically
- * apply the update on next reset/power cycle. Finalize function removed. */
 
 /* Main ST33 firmware upgrade function with version detection */
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
@@ -8875,16 +8852,7 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         return rc;
     }
 
-    /* Simplified two-state model matching ST reference implementation:
-     * < 512:  Non-LMS path only (legacy firmware, e.g., 9.257)
-     * >= 512: LMS path only (modern firmware, LMS required, e.g., 9.512)
-     * 
-     * Version breakdown:
-     * - 9.257 (0x0101): Legacy ECC-only firmware (Generation 1)
-     * - 9.512 (0x0200): First modern firmware with LMS mandatory (Generation 2)
-     * 
-     * This matches ST's reference tools which use separate implementations
-     * for Generation 1 (< 512) vs Generation 2 (>= 512) firmware. */
+    /* Two-state model: < 512 requires non-LMS, >= 512 requires LMS */
     
     #ifdef DEBUG_WOLFTPM
         printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
@@ -8905,10 +8873,7 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     (void)manifest_hash_sz;
 
     if (caps.fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
-        /* Legacy firmware (< 512, e.g., 9.257): Non-LMS path only
-         * - Reject LMS signatures (return BAD_FUNC_ARG if provided)
-         * - Use non-LMS path only
-         * - Matches ST reference tool behavior for Generation 1 firmware */
+        /* Legacy firmware (< 512): non-LMS only */
         if (lms_signature != NULL && lms_signature_sz > 0) {
         #ifdef DEBUG_WOLFTPM
             printf("ST33 Error: LMS signature provided but firmware version < %d requires non-LMS\n",
@@ -8917,16 +8882,11 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
             return BAD_FUNC_ARG;
         }
 
-        /* ST33 uses password auth (TPM_RS_PW), not policy.
-         * Sends full manifest (blob0=177 bytes) directly in start command. */
+        /* Send manifest (blob0=177 bytes) via password auth */
         rc = tpm2_st33_firmware_start(dev, manifest, manifest_sz);
     }
     else {
-        /* Modern firmware (>= 512, e.g., 9.512): LMS path only
-         * - Require LMS signature (return BAD_FUNC_ARG if missing)
-         * - Use LMS path only
-         * - ST policy mandates LMS for firmware updates >= 512 (Generation 2)
-         * - Matches ST reference tool behavior for Generation 2 firmware */
+        /* Modern firmware (>= 512): LMS required */
         if (lms_signature == NULL || lms_signature_sz == 0) {
         #ifdef DEBUG_WOLFTPM
             printf("ST33 Error: LMS signature required for firmware version >= %d\n",
