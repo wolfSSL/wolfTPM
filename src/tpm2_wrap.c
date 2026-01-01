@@ -32,6 +32,22 @@
 #include <wolftpm/tpm2_packet.h>
 #include <hal/tpm_io.h> /* for default IO callback */
 
+/* Headers for firmware sleep function (needed for pedantic compliance) */
+#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+     defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+#if defined(WOLFTPM_ZEPHYR)
+    #include <zephyr/kernel.h>
+#elif defined(WOLFSSL_ESPIDF)
+    /* ESP-IDF headers included via tpm2_types.h */
+#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    #include <time.h>
+#elif defined(WIN32)
+    #include <windows.h>
+#elif !defined(FREERTOS)
+    #include <unistd.h>
+#endif
+#endif
+
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
 static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in);
@@ -8163,14 +8179,43 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 /******************************************************************************/
 
 
-
-
-
 /******************************************************************************/
 /* --- BEGIN Firmware Upgrade Support -- */
 /******************************************************************************/
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
+
+/* Helper function to avoid -Wpedantic warning from XSLEEP_MS statement expression.
+ * This function is shared by both Infineon and ST33 firmware update code.
+ * Uses platform-specific sleep functions directly to avoid statement expressions.
+ * Headers for these functions are already included via tpm2_types.h.
+ * Defined early so it's available to both Infineon and ST33 code. */
+#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+     defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+static void tpm2_firmware_sleep_ms(uint32_t ms)
+{
+#if defined(WOLFTPM_ZEPHYR)
+    k_msleep(ms);
+#elif defined(WOLFSSL_ESPIDF)
+    vTaskDelay(pdMS_TO_TICKS(ms));
+#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (ms % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+#elif defined(WIN32)
+    Sleep(ms);
+#elif defined(FREERTOS)
+    vTaskDelay(ms);
+#else
+    /* Default POSIX: use sleep/usleep (unistd.h included via tpm2_types.h) */
+    if (ms >= 1000)
+        sleep(ms / 1000);
+    usleep((ms % 1000) * 1000);
+#endif
+}
+#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 || WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
 
 /* Maximum size of firmware chunks */
@@ -8244,7 +8289,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         }
         if (rc == TPM_RC_SUCCESS) {
             /* delay to give the TPM time to switch modes */
-            XSLEEP_MS(300);
+            tpm2_firmware_sleep_ms(300);
             /* it is not required to release session handle,
              * since TPM reset into firmware upgrade mode */
 
@@ -8359,7 +8404,7 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
 
     if (rc == TPM_RC_SUCCESS) {
         /* Give the TPM time to start the new firmware */
-        XSLEEP_MS(300);
+        tpm2_firmware_sleep_ms(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8414,13 +8459,6 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     uint8_t* lms_signature, uint32_t lms_signature_sz);
 static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
 #endif
-
-/* Forward declaration for LMS firmware upgrade hash function */
-int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
-    uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz);
 
 int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
@@ -8521,6 +8559,15 @@ int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
             cb, cb_ctx,
             lms_signature, lms_signature_sz);
     }
+#else
+    /* Suppress unused parameter warnings when ST33 is not enabled */
+    (void)hashAlg;
+    (void)manifest_hash;
+    (void)manifest_hash_sz;
+    (void)manifest;
+    (void)manifest_sz;
+    (void)cb;
+    (void)cb_ctx;
 #endif
 
     /* Unsupported manufacturer or LMS not supported */
@@ -8663,7 +8710,7 @@ static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
 
     if (rc == TPM_RC_SUCCESS) {
         /* delay to give the TPM time to switch modes */
-        XSLEEP_MS(300);
+        tpm2_firmware_sleep_ms(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8695,7 +8742,7 @@ static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
 
     if (rc == TPM_RC_SUCCESS) {
         /* delay to give the TPM time to switch modes */
-        XSLEEP_MS(300);
+        tpm2_firmware_sleep_ms(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8814,7 +8861,7 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
 
     if (rc == TPM_RC_SUCCESS) {
         /* Give the TPM time to process */
-        XSLEEP_MS(300);
+        tpm2_firmware_sleep_ms(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)

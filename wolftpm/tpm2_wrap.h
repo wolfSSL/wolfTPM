@@ -4156,6 +4156,38 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Perform TPM firmware upgrade with pre-computed hash and LMS signature
+    \note For ST33KTPM devices with firmware version >= 512, LMS signature required
+    \note This function accepts pre-computed manifest hash (no wolfCrypt needed)
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param hashAlg hash algorithm used (TPM_ALG_SHA384 or TPM_ALG_SHA512)
+    \param manifest_hash pre-computed manifest hash
+    \param manifest_hash_sz size of manifest hash
+    \param manifest pointer to firmware manifest data
+    \param manifest_sz size of firmware manifest
+    \param cb callback function for firmware data access
+    \param cb_ctx context pointer passed to callback
+    \param lms_signature pointer to LMS signature data
+    \param lms_signature_sz size of LMS signature
+
+    \sa wolfTPM2_FirmwareUpgradeHash
+    \sa wolfTPM2_FirmwareUpgradeWithLMS
+*/
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev,
+    TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx,
+    uint8_t* lms_signature, uint32_t lms_signature_sz);
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
     \note Upgrades TPM firmware using provided manifest and data callback
 
@@ -4202,6 +4234,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeWithLMS(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx,
     uint8_t* lms_signature, uint32_t lms_signature_sz);
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!
     \ingroup wolfTPM2_Wrappers

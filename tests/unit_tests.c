@@ -226,6 +226,10 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
     int lms_state = 0; /* 0=non-LMS (< 512), 1=LMS required (>= 512) */
+    uint8_t dummy_sig[1] = {0};
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    uint8_t dummy_manifest[10] = {0};
+#endif
 
     /* Initialize TPM */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
@@ -249,30 +253,98 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     #endif
     }
 
-    /* Test NULL parameter handling */
+    /* ===== Test NULL dev parameter handling ===== */
+
+    /* wolfTPM2_FirmwareUpgradeCancel - NULL dev */
     rc = wolfTPM2_FirmwareUpgradeCancel(NULL);
     AssertIntNE(rc, 0);
 
-    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA256, NULL, 0, NULL,
+    /* wolfTPM2_FirmwareUpgradeHash - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA384, NULL, 0, NULL,
         0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-    rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(NULL, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeRecover - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-    rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
+    /* wolfTPM2_FirmwareUpgradeWithLMS - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
     AssertIntNE(rc, 0);
-#endif
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+    /* ===== Test NULL/invalid parameter combinations ===== */
+
+    /* wolfTPM2_FirmwareUpgradeHash - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgradeHash(&dev, TPM_ALG_SHA384, NULL, 0, NULL,
+        0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, NULL lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, zero-length lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, dummy_sig, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeRecover - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgradeRecover(&dev, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeCancel - valid dev (may succeed or fail 
+     * depending on TPM state) */
+    rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
+    /* Note: This may return success or error depending on TPM state - 
+     * just verify it doesn't crash */
+    (void)rc;
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* wolfTPM2_FirmwareUpgrade - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgrade(&dev, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgrade - valid dev, NULL callback */
+    rc = wolfTPM2_FirmwareUpgrade(&dev, dummy_manifest, sizeof(dummy_manifest),
+        NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, NULL lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, zero-length lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
+        dummy_sig, 0);
+    AssertIntNE(rc, 0);
+
+    /* Test ST33-specific path if we have an ST33 TPM */
     if (caps.mfg == TPM_MFG_STM) {
-        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, 
-            NULL, 0);
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+         * but NULL manifest */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
+            dummy_sig, sizeof(dummy_sig));
+        AssertIntNE(rc, 0);
+
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+         * but NULL callback */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, dummy_manifest,
+            sizeof(dummy_manifest), NULL, NULL, dummy_sig, sizeof(dummy_sig));
         AssertIntNE(rc, 0);
     }
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     rc = 0;
 
