@@ -9,12 +9,23 @@ EXTRA_DIST += examples/firmware/ifx_fw_extract.c
 
 if BUILD_EXAMPLES
 if BUILD_INFINEON
+if BUILD_FIRMWARE
 noinst_PROGRAMS += examples/firmware/ifx_fw_update
 noinst_HEADERS  += examples/firmware/ifx_fw_update.h
 examples_firmware_ifx_fw_update_SOURCES      = examples/firmware/ifx_fw_update.c \
                                                examples/tpm_test_keys.c
 examples_firmware_ifx_fw_update_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_firmware_ifx_fw_update_DEPENDENCIES = src/libwolftpm.la
+endif
+endif
+if BUILD_ST33
+if BUILD_FIRMWARE
+noinst_PROGRAMS += examples/firmware/st33_fw_update
+examples_firmware_st33_fw_update_SOURCES     = examples/firmware/st33_fw_update.c \
+                                               examples/tpm_test_keys.c
+examples_firmware_st33_fw_update_LDADD       = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_firmware_st33_fw_update_DEPENDENCIES = src/libwolftpm.la
+endif
 endif
 endif
 

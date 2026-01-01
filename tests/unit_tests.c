@@ -216,6 +216,146 @@ static void test_wolfTPM2_ReadPublicKey(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+/* Test ST33 firmware upgrade APIs (function availability and
+ * parameter validation) */
+static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    int lms_state = 0; /* 0=non-LMS (< 512), 1=LMS required (>= 512) */
+    uint8_t dummy_sig[1] = {0};
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    uint8_t dummy_manifest[10] = {0};
+#endif
+
+    /* Initialize TPM */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test ST33 Firmware Upgrade:\tInit:\tSkipped (TPM not available)\n");
+        return;
+    }
+
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+
+    /* Test two-state version detection (< 512 non-LMS, >= 512 LMS) */
+    if (caps.mfg == TPM_MFG_STM) {
+        lms_state = (caps.fwVerMinor >= 512) ? 1 : 0;
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 TPM - Firmware: %u.%u (0x%x), LMS required: %s\n",
+            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor,
+            lms_state ? "yes" : "no");
+    #else
+        (void)lms_state;
+    #endif
+    }
+
+    /* ===== Test NULL dev parameter handling ===== */
+
+    /* wolfTPM2_FirmwareUpgradeCancel - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeCancel(NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHash - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA384, NULL, 0, NULL,
+        0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(NULL, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeRecover - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* wolfTPM2_FirmwareUpgrade - NULL dev */
+    rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeWithLMS - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+    /* ===== Test NULL/invalid parameter combinations ===== */
+
+    /* wolfTPM2_FirmwareUpgradeHash - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgradeHash(&dev, TPM_ALG_SHA384, NULL, 0, NULL,
+        0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, NULL lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, zero-length lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
+        NULL, 0, NULL, NULL, dummy_sig, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeRecover - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgradeRecover(&dev, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeCancel - valid dev (may succeed or fail 
+     * depending on TPM state) */
+    rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
+    /* Note: This may return success or error depending on TPM state - 
+     * just verify it doesn't crash */
+    (void)rc;
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* wolfTPM2_FirmwareUpgrade - valid dev, NULL manifest */
+    rc = wolfTPM2_FirmwareUpgrade(&dev, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgrade - valid dev, NULL callback */
+    rc = wolfTPM2_FirmwareUpgrade(&dev, dummy_manifest, sizeof(dummy_manifest),
+        NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, NULL lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, NULL, 0);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, zero-length lms_signature */
+    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
+        dummy_sig, 0);
+    AssertIntNE(rc, 0);
+
+    /* Test ST33-specific path if we have an ST33 TPM */
+    if (caps.mfg == TPM_MFG_STM) {
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+         * but NULL manifest */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
+            dummy_sig, sizeof(dummy_sig));
+        AssertIntNE(rc, 0);
+
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+         * but NULL callback */
+        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, dummy_manifest,
+            sizeof(dummy_manifest), NULL, NULL, dummy_sig, sizeof(dummy_sig));
+        AssertIntNE(rc, 0);
+    }
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+    rc = 0;
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test ST33 Firmware Upgrade:\tAPI Availability:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
 static void test_wolfTPM2_GetRandom(void)
 {
     int rc;
@@ -428,8 +568,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     word32 rLen, sLen;
     ecc_key wolfKey;
     int curveSize = TPM2_GetCurveSize(curve);
-#ifdef WOLF_CRYPTO_CB
     int tpmDevId = INVALID_DEVID;
+#ifdef WOLF_CRYPTO_CB
     TpmCryptoDevCtx tpmCtx;
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -553,9 +693,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
         (flags & FLAGS_USE_CRYPTO_CB) ? "Crypto CB" : "",
         rc == 0 ? "Passed" : "Failed");
 
+#ifdef WOLF_CRYPTO_CB
     if (flags & FLAGS_USE_CRYPTO_CB) {
         wolfTPM2_ClearCryptoDevCb(dev, tpmDevId);
     }
+#endif
 }
 
 static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
@@ -914,6 +1056,11 @@ int unit_tests(int argc, char *argv[])
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
         !defined(WOLFTPM2_NO_ASN)
     test_wolfTPM2_EccSignVerify();
+    #endif
+    #ifdef WOLFTPM_FIRMWARE_UPGRADE
+    #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    test_wolfTPM2_ST33_FirmwareUpgrade();
+    #endif
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();

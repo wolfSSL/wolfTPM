@@ -5650,6 +5650,74 @@ int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
     return rc;
 }
 #endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+/* ST33 Firmware Update Vendor Command Functions */
+int TPM2_ST33_FieldUpgradeStart(TPM_HANDLE sessionHandle,
+    uint8_t* data, uint32_t size)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPMS_AUTH_COMMAND session;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        int tmpSz = 0;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, TPM_RH_PLATFORM);
+
+        XMEMSET(&session, 0, sizeof(session));
+        session.sessionHandle = sessionHandle;
+
+        TPM2_Packet_MarkU32(&packet, &tmpSz);
+        TPM2_Packet_AppendAuthCmd(&packet, &session);
+        TPM2_Packet_PlaceU32(&packet, tmpSz);
+
+        TPM2_Packet_AppendBytes(&packet, data, size);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_FieldUpgradeStartVendor_ST33);
+
+    #ifdef DEBUG_WOLFTPM
+        {
+            int i;
+            printf("ST33 FieldUpgradeStart packet (%d bytes):\n", packet.pos);
+            for (i = 0; i < packet.pos; i++) {
+                printf("%02x ", packet.buf[i]);
+                if ((i + 1) % 16 == 0) printf("\n");
+            }
+            printf("\n");
+            printf("ST reference expects header: "
+                   "80 02 00 00 00 cc 20 00 03 0c 40 00 00 0c 00 00 00 09 "
+                   "40 00 00 09 00 00 00 00 00\n");
+        }
+    #endif
+
+        rc = TPM2_SendCommand(ctx, &packet);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t size)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendBytes(&packet, data, size);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, cc);
+        rc = TPM2_SendCommand(ctx, &packet);
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
 /******************************************************************************/
