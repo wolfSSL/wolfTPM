@@ -42,7 +42,9 @@ static void wolfTPM2_CopyPub(TPM2B_PUBLIC* out, const TPM2B_PUBLIC* in);
 static void wolfTPM2_CopyPriv(TPM2B_PRIVATE* out, const TPM2B_PRIVATE* in);
 static void wolfTPM2_CopyEccParam(TPM2B_ECC_PARAMETER* out, const TPM2B_ECC_PARAMETER* in);
 static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* keyBlob);
+#ifndef WOLFTPM_NO_NV
 static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in);
+#endif
 
 /******************************************************************************/
 /* --- BEGIN Wrapper Device Functions -- */
@@ -1146,6 +1148,7 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
 }
 
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
                                         WOLFTPM2_SESSION* tpmSession)
 {
@@ -1174,6 +1177,7 @@ int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
     }
     return rc;
 }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 {
@@ -3715,6 +3719,48 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 }
 #endif /* HAVE_ECC_KEY_IMPORT */
 #ifdef HAVE_ECC_KEY_EXPORT
+
+/* Helper function to export ECC private key components from wolfCrypt ecc_key.
+ * Handles both ECC_PRIVATEKEY_ONLY (computes public point) and full private key.
+ * Used by wolfTPM2_CreateEccKeyBlob and wolfTPM2_EccKey_WolfToTpm_ex. */
+static int wolfTPM2_ExportEccPrivateKey(ecc_key* wolfKey,
+    byte* qx, word32* qxSz, byte* qy, word32* qySz, byte* d, word32* dSz)
+{
+    int rc = 0;
+
+    if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
+        /* compute public point without modifying incoming wolf key */
+        int keySz = wc_ecc_size(wolfKey);
+        ecc_point* point = wc_ecc_new_point();
+        if (point == NULL) {
+            return MEMORY_E;
+        }
+    #ifdef ECC_TIMING_RESISTANT
+        rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
+    #else
+        rc = wc_ecc_make_pub(wolfKey, point);
+    #endif
+        if (rc == 0)
+            rc = wc_export_int(point->x, qx, qxSz, keySz, WC_TYPE_UNSIGNED_BIN);
+        if (rc == 0)
+            rc = wc_export_int(point->y, qy, qySz, keySz, WC_TYPE_UNSIGNED_BIN);
+        if (rc == 0) {
+            PRIVATE_KEY_UNLOCK();
+            rc = wc_ecc_export_private_only(wolfKey, d, dSz);
+            PRIVATE_KEY_LOCK();
+        }
+        wc_ecc_del_point(point);
+    }
+    else {
+        /* export the raw private/public ECC portions */
+        PRIVATE_KEY_UNLOCK();
+        rc = wc_ecc_export_private_raw(wolfKey, qx, qxSz, qy, qySz, d, dSz);
+        PRIVATE_KEY_LOCK();
+    }
+
+    return rc;
+}
+
 int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     ecc_key* wolfKey, WOLFTPM2_KEYBLOB* tpmKey)
 {
@@ -3743,45 +3789,8 @@ int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (rc < 0)
         return rc;
     curve_id = rc;
-    rc = 0;
 
-    if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
-        /* compute public point without modifying incoming wolf key */
-        int keySz = wc_ecc_size(wolfKey);
-        ecc_point* point = wc_ecc_new_point();
-        if (point == NULL) {
-            rc = MEMORY_E;
-        }
-        if (rc == 0) {
-        #ifdef ECC_TIMING_RESISTANT
-            rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
-        #else
-            rc = wc_ecc_make_pub(wolfKey, point);
-        #endif
-            if (rc == 0)
-                rc = wc_export_int(point->x, qx, &qxSz, keySz,
-                    WC_TYPE_UNSIGNED_BIN);
-            if (rc == 0)
-                rc = wc_export_int(point->y, qy, &qySz, keySz,
-                    WC_TYPE_UNSIGNED_BIN);
-            if (rc == 0) {
-                PRIVATE_KEY_UNLOCK();
-                rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
-                PRIVATE_KEY_LOCK();
-            }
-            wc_ecc_del_point(point);
-        }
-    }
-    else {
-        /* export the raw private/public ECC portions */
-        PRIVATE_KEY_UNLOCK();
-        rc = wc_ecc_export_private_raw(wolfKey,
-            qx, &qxSz,
-            qy, &qySz,
-            d, &dSz);
-        PRIVATE_KEY_LOCK();
-    }
-
+    rc = wolfTPM2_ExportEccPrivateKey(wolfKey, qx, &qxSz, qy, &qySz, d, &dSz);
     if (rc == 0) {
         rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, tpmKey, curve_id,
             qx, qxSz, qy, qySz, d, dSz);
@@ -3813,7 +3822,6 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     if (rc < 0)
         return rc;
     curve_id = rc;
-    rc = 0;
 
     if (parentKey && wolfKey->type != ECC_PUBLICKEY) {
         byte    d[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
@@ -3821,43 +3829,8 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
 
         XMEMSET(d, 0, sizeof(d));
 
-        if (wolfKey->type == ECC_PRIVATEKEY_ONLY) {
-            /* compute public point without modifying incoming wolf key */
-            int keySz = wc_ecc_size(wolfKey);
-            ecc_point* point = wc_ecc_new_point();
-            if (point == NULL) {
-                rc = MEMORY_E;
-            }
-            if (rc == 0) {
-            #ifdef ECC_TIMING_RESISTANT
-                rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
-            #else
-                rc = wc_ecc_make_pub(wolfKey, point);
-            #endif
-                if (rc == 0)
-                    rc = wc_export_int(point->x, qx, &qxSz, keySz,
-                        WC_TYPE_UNSIGNED_BIN);
-                if (rc == 0)
-                    rc = wc_export_int(point->y, qy, &qySz, keySz,
-                        WC_TYPE_UNSIGNED_BIN);
-                if (rc == 0) {
-                    PRIVATE_KEY_UNLOCK();
-                    rc = wc_ecc_export_private_only(wolfKey, d, &dSz);
-                    PRIVATE_KEY_LOCK();
-                }
-                wc_ecc_del_point(point);
-            }
-        }
-        else {
-            /* export the raw private/public ECC portions */
-            PRIVATE_KEY_UNLOCK();
-            rc = wc_ecc_export_private_raw(wolfKey,
-                qx, &qxSz,
-                qy, &qySz,
-                d, &dSz);
-            PRIVATE_KEY_LOCK();
-        }
-
+        rc = wolfTPM2_ExportEccPrivateKey(wolfKey, qx, &qxSz, qy, &qySz,
+            d, &dSz);
         if (rc == 0) {
             rc = wolfTPM2_LoadEccPrivateKey(dev, parentKey, tpmKey, curve_id,
                 qx, qxSz, qy, qySz, d, dSz);
@@ -3909,6 +3882,7 @@ int wolfTPM2_EccKey_WolfToPubPoint(WOLFTPM2_DEV* dev, ecc_key* wolfKey,
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 
+#ifndef WOLFTPM_NO_NV
 /* primaryHandle must be owner or platform hierarchy */
 /* Owner    Persistent Handle Range: 0x81000000 to 0x817FFFFF */
 /* Platform Persistent Handle Range: 0x81800000 to 0x81FFFFFF */
@@ -4018,6 +3992,7 @@ int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 
     return rc;
 }
+#endif /* !WOLFTPM_NO_NV */
 
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
@@ -4634,6 +4609,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
 {
     int rc;
@@ -4644,6 +4620,7 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
     (void)dev;
     return rc;
 }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 /* TODO: Version that can read up to 8 PCR's at a time */
 int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
@@ -4756,6 +4733,7 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
     return TPM_RC_SUCCESS;
 }
 
+#ifndef WOLFTPM_NO_NV
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
 /* authPolicy and authPolicySz are optional policy digest */
@@ -4871,6 +4849,12 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (dev == NULL || nv == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
     }
+#ifdef WOLFTPM_NO_PCR_POLICY
+    (void)tpmSession;
+    (void)pcrAlg;
+    (void)pcrArray;
+    (void)pcrArraySz;
+#endif
 
     while (dataSz > 0) {
         towrite = dataSz;
@@ -4884,6 +4868,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
         if (rc != 0)
             break;
+    #ifndef WOLFTPM_NO_PCR_POLICY
         /* For policy session recompute PCR for each iteration */
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
@@ -4896,6 +4881,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             /* Set policy session while saving nonceTPM */
             wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
         }
+    #endif /* !WOLFTPM_NO_PCR_POLICY */
 
         /* Necessary, because NVWrite has two handles, second is NV Index
          * If policy session Name will update via nonceTPM each iteration */
@@ -4995,6 +4981,11 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     if (dev == NULL || nv == NULL || pDataSz == NULL || dataBuf == NULL) {
         return BAD_FUNC_ARG;
     }
+#ifdef WOLFTPM_NO_PCR_POLICY
+    (void)pcrAlg;
+    (void)pcrArray;
+    (void)pcrArraySz;
+#endif
 
     dataSz = *pDataSz;
     while (dataSz > 0) {
@@ -5010,6 +5001,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             if (rc != 0)
                 break;
         }
+    #ifndef WOLFTPM_NO_PCR_POLICY
         /* For policy session recompute PCR for each iteration */
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {
@@ -5022,6 +5014,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             /* Set policy session while saving nonceTPM */
             wolfTPM2_SetSessionHandle(dev, 0, tpmSession);
         }
+    #endif /* !WOLFTPM_NO_PCR_POLICY */
 
         /* Necessary, because NVWrite has two handles, second is NV Index
          * If policy session Name will update via nonceTPM each iteration */
@@ -5349,6 +5342,7 @@ int wolfTPM2_NVDelete(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     parent.hndl = authHandle;
     return wolfTPM2_NVDeleteAuth(dev, &parent, nvIndex);
 }
+#endif /* !WOLFTPM_NO_NV */
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev)
@@ -7009,6 +7003,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     return rc;
 }
 
+#ifndef WOLFTPM_NO_ATTESTATION
 int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
 {
     int rc;
@@ -7042,6 +7037,7 @@ int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut)
 
     return rc;
 }
+#endif /* !WOLFTPM_NO_ATTESTATION */
 
 static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in)
 {
@@ -7227,6 +7223,7 @@ static void wolfTPM2_CopyKeyFromBlob(WOLFTPM2_KEY* key, const WOLFTPM2_KEYBLOB* 
     }
 }
 
+#ifndef WOLFTPM_NO_NV
 static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
 {
     if (out != NULL && in != NULL) {
@@ -7245,6 +7242,7 @@ static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
         out->nvIndex = in->nvIndex;
     }
 }
+#endif /* !WOLFTPM_NO_NV */
 
 /******************************************************************************/
 /* --- END Utility Functions -- */
@@ -7661,6 +7659,7 @@ int wolfTPM2_CSR_Generate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 /* --- BEGIN Policy Support -- */
 /******************************************************************************/
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 int wolfTPM2_PolicyRestart(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle)
 {
     int rc;
@@ -8066,6 +8065,7 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 }
 
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 /******************************************************************************/
 /* --- END Policy Support -- */

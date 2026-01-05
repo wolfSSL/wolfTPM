@@ -2,6 +2,7 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
+if BUILD_NV
 noinst_HEADERS += examples/nvram/nvram.h
 
 noinst_PROGRAMS += examples/nvram/store
@@ -22,6 +23,7 @@ examples_nvram_counter_SOURCES      = examples/nvram/counter.c \
 examples_nvram_counter_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_nvram_counter_DEPENDENCIES = src/libwolftpm.la
 
+if BUILD_PCR_POLICY
 noinst_PROGRAMS += examples/nvram/policy_nv
 examples_nvram_policy_nv_SOURCES      = examples/nvram/policy_nv.c \
                                         examples/tpm_test_keys.c
@@ -33,7 +35,9 @@ examples_nvram_extend_SOURCES      = examples/nvram/extend.c \
                                      examples/tpm_test_keys.c
 examples_nvram_extend_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_nvram_extend_DEPENDENCIES = src/libwolftpm.la
-endif
+endif BUILD_PCR_POLICY
+endif BUILD_NV
+endif BUILD_EXAMPLES
 
 example_nvramdir = $(exampledir)/nvram
 dist_example_nvram_DATA = \

@@ -194,9 +194,11 @@ exit:
 }
 
 
-/* Perform XOR encryption over the first parameter of a TPM packet */
-static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
-    TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
+/* Internal helper for XOR encryption/decryption. The only difference between
+ * encrypt and decrypt is the nonce order passed to TPM2_KDFa. */
+static int TPM2_ParamXOR_Internal(TPM2_AUTH_SESSION *session,
+    TPM2B_AUTH* sessKey, TPM2B_AUTH* bindKey,
+    TPM2B_NONCE* nonce1, TPM2B_NONCE* nonce2,
     BYTE *paramData, UINT32 paramSz)
 {
     int rc = TPM_RC_FAILURE;
@@ -216,10 +218,10 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
         keyIn.size += bindKey->size;
     }
 
-    /* Generate XOR Mask stream matching paramater size */
+    /* Generate XOR Mask stream matching parameter size */
     XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
     rc = TPM2_KDFa(session->authHash, &keyIn, "XOR",
-        nonceCaller, nonceTPM, mask.buffer, paramSz);
+        nonce1, nonce2, mask.buffer, paramSz);
     if ((UINT32)rc != paramSz) {
     #ifdef DEBUG_WOLFTPM
         printf("KDFa XOR Gen Error %d\n", rc);
@@ -232,10 +234,17 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
         paramData[i] = paramData[i] ^ mask.buffer[i];
     }
 
-    /* Data size matched and data encryption completed at this point */
-    rc = TPM_RC_SUCCESS;
+    return TPM_RC_SUCCESS;
+}
 
-    return rc;
+/* Perform XOR encryption over the first parameter of a TPM packet */
+static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
+    TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
+    BYTE *paramData, UINT32 paramSz)
+{
+    /* For encryption: nonceCaller first, then nonceTPM */
+    return TPM2_ParamXOR_Internal(session, sessKey, bindKey,
+        nonceCaller, nonceTPM, paramData, paramSz);
 }
 
 /* Perform XOR decryption over the first parameter of a TPM packet */
@@ -243,42 +252,9 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
     BYTE *paramData, UINT32 paramSz)
 {
-    int rc = TPM_RC_FAILURE;
-    TPM2B_DATA keyIn;
-    TPM2B_MAX_BUFFER mask;
-    UINT32 i;
-
-    if (paramSz > sizeof(mask.buffer)) {
-        return BUFFER_E;
-    }
-
-    /* Build HMAC key input */
-    XMEMCPY(keyIn.buffer, sessKey->buffer, sessKey->size);
-    keyIn.size = sessKey->size;
-    if (bindKey != NULL) {
-        XMEMCPY(&keyIn.buffer[keyIn.size], bindKey->buffer, bindKey->size);
-        keyIn.size += bindKey->size;
-    }
-
-    /* Generate XOR Mask stream matching paramater size */
-    XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
-    rc = TPM2_KDFa(session->authHash, &keyIn, "XOR",
-        nonceTPM, nonceCaller, mask.buffer, paramSz);
-    if ((UINT32)rc != paramSz) {
-    #ifdef DEBUG_WOLFTPM
-        printf("KDFa XOR Gen Error %d\n", rc);
-    #endif
-        return TPM_RC_FAILURE;
-    }
-
-    /* Perform XOR */
-    for (i = 0; i < paramSz; i++) {
-        paramData[i] = paramData[i] ^ mask.buffer[i];
-    }
-    /* Data size matched and data encryption completed at this point */
-    rc = TPM_RC_SUCCESS;
-
-    return rc;
+    /* For decryption: nonceTPM first, then nonceCaller */
+    return TPM2_ParamXOR_Internal(session, sessKey, bindKey,
+        nonceTPM, nonceCaller, paramData, paramSz);
 }
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)

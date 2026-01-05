@@ -575,6 +575,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
     WOLFTPM2_HANDLE* bind, TPM_SE sesType, int encDecAlg);
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Creates a TPM session with Policy Secret to satisfy the default EK policy
@@ -592,6 +593,7 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
                                                     WOLFTPM2_SESSION* tpmSession);
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1924,6 +1926,7 @@ WOLFTPM_API int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
     int pcrIndex, int hashAlg, byte* digest, int* pDigestLen);
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Reset a PCR register to its default value
@@ -1940,6 +1943,7 @@ WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
     \sa wolfTPM2_ExtendPCR
 */
 WOLFTPM_API int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex);
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1961,6 +1965,7 @@ WOLFTPM_API int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex);
 WOLFTPM_API int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     const byte* digest, int digestLen);
 
+#ifndef WOLFTPM_NO_NV
 /* Newer API's that use WOLFTPM2_NV context and support auth */
 
 /*!
@@ -2335,6 +2340,7 @@ WOLFTPM_API int wolfTPM2_NVStoreKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
 */
 WOLFTPM_API int wolfTPM2_NVDeleteKey(WOLFTPM2_DEV* dev, TPM_HANDLE primaryHandle,
     WOLFTPM2_KEY* key);
+#endif /* !WOLFTPM_NO_NV */
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -3106,7 +3112,9 @@ WOLFTPM_API int wolfTPM2_CreateAndLoadAIK(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* aikKe
     \sa wolfTPM2_GetKeyTemplate_RSA_EK
     \sa wolfTPM2_GetKeyTemplate_ECC_EK
 */
+#ifndef WOLFTPM_NO_ATTESTATION
 WOLFTPM_API int wolfTPM2_GetTime(WOLFTPM2_KEY* aikKey, GetTime_Out* getTimeOut);
+#endif /* !WOLFTPM_NO_ATTESTATION */
 
 
 #ifdef WOLFTPM2_CERT_GEN
@@ -3768,6 +3776,7 @@ WOLFTPM_API int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key,
     byte *buffer, word32 bufferSz);
 
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 /*!
     \ingroup wolfTPM2_Wrappers
 
@@ -4032,6 +4041,7 @@ WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* tpmSession, TPM_CC cc);
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 
 /* Pre-provisioned IAK and IDevID key/cert from TPM vendor */

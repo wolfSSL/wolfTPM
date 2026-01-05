@@ -2,20 +2,11 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-noinst_PROGRAMS += examples/pcr/quote \
-                   examples/pcr/read_pcr \
-                   examples/pcr/extend \
-                   examples/pcr/policy \
-                   examples/pcr/policy_sign \
-                   examples/pcr/reset
-
 noinst_HEADERS  += examples/pcr/quote.h \
                    examples/pcr/pcr.h
 
-examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
-                                  examples/tpm_test_keys.c
-examples_pcr_quote_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
-examples_pcr_quote_DEPENDENCIES = src/libwolftpm.la
+noinst_PROGRAMS += examples/pcr/read_pcr \
+                   examples/pcr/extend
 
 examples_pcr_read_pcr_SOURCES      = examples/pcr/read_pcr.c
 examples_pcr_read_pcr_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
@@ -24,6 +15,11 @@ examples_pcr_read_pcr_DEPENDENCIES = src/libwolftpm.la
 examples_pcr_extend_SOURCES      = examples/pcr/extend.c
 examples_pcr_extend_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_extend_DEPENDENCIES = src/libwolftpm.la
+
+if BUILD_PCR_POLICY
+noinst_PROGRAMS += examples/pcr/reset \
+                   examples/pcr/policy \
+                   examples/pcr/policy_sign
 
 examples_pcr_reset_SOURCES      = examples/pcr/reset.c
 examples_pcr_reset_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
@@ -38,7 +34,16 @@ examples_pcr_policy_sign_SOURCES      = examples/pcr/policy_sign.c \
                                         examples/tpm_test_keys.c
 examples_pcr_policy_sign_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pcr_policy_sign_DEPENDENCIES = src/libwolftpm.la
-endif
+
+if BUILD_ATTESTATION
+noinst_PROGRAMS += examples/pcr/quote
+examples_pcr_quote_SOURCES      = examples/pcr/quote.c \
+                                  examples/tpm_test_keys.c
+examples_pcr_quote_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_pcr_quote_DEPENDENCIES = src/libwolftpm.la
+endif BUILD_ATTESTATION
+endif BUILD_PCR_POLICY
+endif BUILD_EXAMPLES
 
 example_pcrdir = $(exampledir)/pcr
 dist_example_pcr_DATA = \

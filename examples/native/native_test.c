@@ -77,9 +77,11 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         StirRandom_In stirRand;
         GetCapability_In cap;
         IncrementalSelfTest_In incSelfTest;
+    #ifndef WOLFTPM_NO_PCR_POLICY
         PCR_Read_In pcrRead;
         PCR_Extend_In pcrExtend;
         PCR_Reset_In pcrReset;
+    #endif
         CreatePrimary_In createPri;
         Create_In create;
         CreateLoaded_In createLoaded;
@@ -90,19 +92,23 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         LoadExternal_In loadExt;
         FlushContext_In flushCtx;
         Unseal_In unseal;
+    #ifndef WOLFTPM_NO_PCR_POLICY
         PolicyGetDigest_In policyGetDigest;
         PolicyPCR_In policyPCR;
         PolicyRestart_In policyRestart;
         PolicyCommandCode_In policyCC;
+    #endif
         Clear_In clear;
         HashSequenceStart_In hashSeqStart;
         SequenceUpdate_In seqUpdate;
         SequenceComplete_In seqComp;
         MakeCredential_In makeCred;
         ObjectChangeAuth_In objChgAuth;
+    #ifndef WOLFTPM_NO_NV
         NV_ReadPublic_In nvReadPub;
         NV_DefineSpace_In nvDefine;
         NV_UndefineSpace_In nvUndefine;
+    #endif
         RSA_Encrypt_In rsaEnc;
         RSA_Decrypt_In rsaDec;
         Sign_In sign;
@@ -111,7 +117,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECDH_KeyGen_In ecdh;
         ECDH_ZGen_In ecdhZ;
         EncryptDecrypt2_In encDec;
+    #ifndef WOLFTPM_NO_ATTESTATION
         CertifyCreation_In certifyCreation;
+    #endif
         HMAC_In hmac;
         HMAC_Start_In hmacStart;
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
@@ -128,7 +136,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         GetTestResult_Out tr;
         IncrementalSelfTest_Out incSelfTest;
         ReadClock_Out readClock;
+    #ifndef WOLFTPM_NO_PCR_POLICY
         PCR_Read_Out pcrRead;
+    #endif
         CreatePrimary_Out createPri;
         Create_Out create;
         CreateLoaded_Out createLoaded;
@@ -137,12 +147,16 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         Load_Out load;
         LoadExternal_Out loadExt;
         Unseal_Out unseal;
+    #ifndef WOLFTPM_NO_PCR_POLICY
         PolicyGetDigest_Out policyGetDigest;
+    #endif
         HashSequenceStart_Out hashSeqStart;
         SequenceComplete_Out seqComp;
         MakeCredential_Out makeCred;
         ObjectChangeAuth_Out objChgAuth;
+    #ifndef WOLFTPM_NO_NV
         NV_ReadPublic_Out nvReadPub;
+    #endif
         RSA_Encrypt_Out rsaEnc;
         RSA_Decrypt_Out rsaDec;
         Sign_Out sign;
@@ -151,7 +165,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECDH_KeyGen_Out ecdh;
         ECDH_ZGen_Out ecdhZ;
         EncryptDecrypt2_Out encDec;
+    #ifndef WOLFTPM_NO_ATTESTATION
         CertifyCreation_Out certifyCreation;
+    #endif
         HMAC_Out hmac;
         HMAC_Start_Out hmacStart;
         byte maxOutput[MAX_RESPONSE_SIZE];
@@ -162,7 +178,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     TPML_TAGGED_TPM_PROPERTY* tpmProp;
     TPM_HANDLE handle = TPM_RH_NULL;
     TPM_HANDLE sessionHandle = TPM_RH_NULL;
-#ifndef WOLFTPM_WINAPI
+#if !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_NO_NV)
     TPMI_RH_NV_INDEX nvIndex;
 #endif
     TPM2B_PUBLIC_KEY_RSA message;
@@ -420,6 +436,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     printf("TPM2_ReadClock: success\n");
 
 
+#ifndef WOLFTPM_NO_PCR_POLICY
     /* PCR Read */
     for (i=0; i<pcrCount; i++) {
         pcrIndex = i;
@@ -513,6 +530,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
                       cmdOut.pcrRead.pcrValues.digests[0].size);
     }
 #endif /* !WOLFTPM_WINAPI */
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
     /* Start Auth Session */
     XMEMSET(&cmdIn.authSes, 0, sizeof(cmdIn.authSes));
@@ -558,6 +576,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
     printf("TPM2_StartAuthSession: sessionHandle 0x%x\n", (word32)sessionHandle);
 
+#ifndef WOLFTPM_NO_PCR_POLICY
     /* Policy Get Digest */
     XMEMSET(&cmdIn.policyGetDigest, 0, sizeof(cmdIn.policyGetDigest));
     cmdIn.policyGetDigest.policySession = sessionHandle;
@@ -630,6 +649,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("TPM2_PolicyRestart: Done\n");
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 
     /* Hashing */
@@ -913,6 +933,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #endif
 
 
+#ifndef WOLFTPM_NO_PCR_POLICY
     /* Allow object change auth */
     XMEMSET(&cmdIn.policyCC, 0, sizeof(cmdIn.policyCC));
     cmdIn.policyCC.policySession = sessionHandle;
@@ -924,6 +945,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("TPM2_PolicyCommandCode: success\n");
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
     /* Change Object Auth */
     XMEMSET(&cmdIn.objChgAuth, 0, sizeof(cmdIn.objChgAuth));
@@ -1251,6 +1273,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         printf("RSA Encrypt/Decrypt test passed\n");
     }
 
+#ifndef WOLFTPM_NO_ATTESTATION
     /* Use the RSA key for Encrypt/Decrypt to unit test certifyCreation */
     cmdIn.certifyCreation.signHandle = rsaKey.handle;
     cmdIn.certifyCreation.objectHandle = rsaKey.handle;
@@ -1272,12 +1295,14 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     else {
         printf("TPM2_CertifyCreation test passed\n");
     }
+#endif /* !WOLFTPM_NO_ATTESTATION */
 
     cmdIn.flushCtx.flushHandle = rsaKey.handle;
     rsaKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
 #ifndef WOLFTPM_WINAPI
+#ifndef WOLFTPM_NO_NV
 
     /* NVRAM Access */
 
@@ -1333,7 +1358,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-#endif
+#endif /* !WOLFTPM_NO_NV */
+#endif /* !WOLFTPM_WINAPI */
 
 
     /* Example for Encrypt/Decrypt */
