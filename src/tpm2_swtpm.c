@@ -52,9 +52,10 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
-#ifdef HAVE_NETDB_H
+#include <sys/socket.h>
 #include <netdb.h>
-#endif
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include <wolftpm/tpm2_socket.h>
 

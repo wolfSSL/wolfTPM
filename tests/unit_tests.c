@@ -787,6 +787,121 @@ static void test_wolfTPM2_thread_local_storage(void)
 #endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
 }
 
+#ifdef WOLFTPM_SPDM
+/* Test SPDM functions per TCG TPM 2.0 Library Spec v1.84
+ * Note: AC_GetCapability (0x194) and AC_Send (0x195) are DEPRECATED per TCG */
+static void test_wolfTPM2_SPDM_Functions(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    TPM_HANDLE acHandles[16];
+    word32 handleCount = 0;
+    word32 i;
+
+    printf("Test TPM Wrapper:\tSPDM Functions:\t");
+
+    /* Initialize device */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Failed (Init failed: 0x%x)\n", rc);
+        return;
+    }
+
+    /* Test 1: Parameter validation for GetACHandles */
+    rc = wolfTPM2_GetACHandles(NULL, acHandles, &handleCount, 16);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_GetACHandles(&dev, NULL, &handleCount, 16);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_GetACHandles(&dev, acHandles, NULL, 16);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_GetACHandles(&dev, acHandles, &handleCount, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test 2: Discover AC handles (may return 0 if TPM doesn't support AC) */
+    handleCount = 0;
+    rc = wolfTPM2_GetACHandles(&dev, acHandles, &handleCount, 16);
+    /* Success even if no handles found */
+    if (rc == TPM_RC_SUCCESS && handleCount > 0) {
+        /* Verify handles are in AC range */
+        for (i = 0; i < handleCount; i++) {
+            AssertTrue(TPM2_IS_AC_HANDLE(acHandles[i]));
+        }
+    }
+
+    /* Test 3: PolicyTransportSPDM parameter validation */
+    {
+        TPM2B_NAME reqKeyName, tpmKeyName;
+        WOLFTPM2_SESSION policySession;
+        TPM_HANDLE sessionHandle = 0;
+
+        XMEMSET(&reqKeyName, 0, sizeof(reqKeyName));
+        XMEMSET(&tpmKeyName, 0, sizeof(tpmKeyName));
+
+        /* Create a policy session for testing */
+        rc = wolfTPM2_StartSession(&dev, &policySession, NULL, NULL,
+                                   TPM_SE_POLICY, TPM_ALG_NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            sessionHandle = policySession.handle.hndl;
+
+            /* Parameter validation */
+            rc = wolfTPM2_PolicyTransportSPDM(NULL, sessionHandle, NULL, NULL);
+            AssertIntEQ(rc, BAD_FUNC_ARG);
+
+            /* Test with NULL key names (both optional) */
+            rc = wolfTPM2_PolicyTransportSPDM(&dev, sessionHandle, NULL, NULL);
+            /* May succeed or fail depending on TPM state */
+            if (rc != TPM_RC_SUCCESS && rc != TPM_RC_VALUE) {
+                /* TPM_RC_VALUE means PolicyTransportSPDM already executed */
+                /* Other errors are acceptable for testing */
+            }
+
+            /* Test with key names */
+            reqKeyName.size = 2;  /* Minimum size (hashAlg) */
+            reqKeyName.name[0] = 0x00;
+            reqKeyName.name[1] = 0x0B;  /* TPM_ALG_SHA256 */
+            tpmKeyName.size = 2;
+            tpmKeyName.name[0] = 0x00;
+            tpmKeyName.name[1] = 0x0B;  /* TPM_ALG_SHA256 */
+
+            /* Try again (may fail if already executed) */
+            rc = wolfTPM2_PolicyTransportSPDM(&dev, sessionHandle, &reqKeyName,
+                &tpmKeyName);
+            /* TPM_RC_VALUE is expected if already executed */
+            if (rc != TPM_RC_SUCCESS && rc != TPM_RC_VALUE) {
+                /* Other errors may occur (TPM_RC_HASH, TPM_RC_SIZE) */
+            }
+
+            wolfTPM2_UnloadHandle(&dev, &policySession.handle);
+        }
+    }
+
+    /* Test 4: GetCapability_SPDMSessionInfo parameter validation */
+    {
+        TPML_SPDM_SESSION_INFO spdmSessionInfo;
+
+        XMEMSET(&spdmSessionInfo, 0, sizeof(spdmSessionInfo));
+
+        /* Parameter validation */
+        rc = wolfTPM2_GetCapability_SPDMSessionInfo(NULL, &spdmSessionInfo);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_GetCapability_SPDMSessionInfo(&dev, NULL);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+
+        /* Test GetCapability with SPDM session info */
+        rc = wolfTPM2_GetCapability_SPDMSessionInfo(&dev, &spdmSessionInfo);
+        /* May succeed (returns empty list if ! SPDM session) or ret error */
+        if (rc == TPM_RC_SUCCESS) {
+            /* Verify count is reasonable */
+            AssertTrue(spdmSessionInfo.count <= MAX_SPDM_SESS_INFO);
+        }
+    }
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Passed\n");
+}
+#endif /* WOLFTPM_SPDM */
+
 /* Test creating key and exporting keyblob as buffer,
  * importing and loading key. */
 static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
@@ -917,6 +1032,9 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
+#ifdef WOLFTPM_SPDM
+    test_wolfTPM2_SPDM_Functions();
+#endif
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

@@ -972,6 +972,92 @@ int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
     return cmdSz;
 }
 
+#ifdef WOLFTPM_SPDM
+void TPM2_Packet_AppendSPDMSessionInfo(TPM2_Packet* packet, 
+    TPMS_SPDM_SESSION_INFO* info)
+{
+    if (packet == NULL || info == NULL)
+        return;
+
+    /* Marshal reqKeyName (TPM2B_NAME): size (UINT16) + name data */
+    TPM2_Packet_AppendU16(packet, info->reqKeyName.size);
+    if (info->reqKeyName.size > 0) {
+        TPM2_Packet_AppendBytes(packet, info->reqKeyName.name, 
+            info->reqKeyName.size);
+    }
+
+    /* Marshal tpmKeyName (TPM2B_NAME): size (UINT16) + name data */
+    TPM2_Packet_AppendU16(packet, info->tpmKeyName.size);
+    if (info->tpmKeyName.size > 0) {
+        TPM2_Packet_AppendBytes(packet, info->tpmKeyName.name, 
+            info->tpmKeyName.size);
+    }
+}
+
+void TPM2_Packet_ParseSPDMSessionInfo(TPM2_Packet* packet,
+    TPMS_SPDM_SESSION_INFO* info)
+{
+    if (packet == NULL || info == NULL)
+        return;
+
+    /* Unmarshal reqKeyName (TPM2B_NAME): size (UINT16) + name data */
+    TPM2_Packet_ParseU16(packet, &info->reqKeyName.size);
+    if (info->reqKeyName.size > sizeof(info->reqKeyName.name))
+        info->reqKeyName.size = sizeof(info->reqKeyName.name);
+    if (info->reqKeyName.size > 0) {
+        TPM2_Packet_ParseBytes(packet, info->reqKeyName.name,
+            info->reqKeyName.size);
+    }
+
+    /* Unmarshal tpmKeyName (TPM2B_NAME): size (UINT16) + name data */
+    TPM2_Packet_ParseU16(packet, &info->tpmKeyName.size);
+    if (info->tpmKeyName.size > sizeof(info->tpmKeyName.name))
+        info->tpmKeyName.size = sizeof(info->tpmKeyName.name);
+    if (info->tpmKeyName.size > 0) {
+        TPM2_Packet_ParseBytes(packet, info->tpmKeyName.name,
+            info->tpmKeyName.size);
+    }
+}
+
+void TPM2_Packet_AppendSPDMSessionInfoList(TPM2_Packet* packet,
+    TPML_SPDM_SESSION_INFO* list)
+{
+    int i;
+
+    if (packet == NULL || list == NULL)
+        return;
+
+    /* Marshal count (UINT32) */
+    TPM2_Packet_AppendU32(packet, list->count);
+
+    /* Marshal array of TPMS_SPDM_SESSION_INFO */
+    if (list->count > MAX_SPDM_SESS_INFO)
+        list->count = MAX_SPDM_SESS_INFO;
+    for (i = 0; i < (int)list->count; i++) {
+        TPM2_Packet_AppendSPDMSessionInfo(packet, &list->spdmSessionInfo[i]);
+    }
+}
+
+void TPM2_Packet_ParseSPDMSessionInfoList(TPM2_Packet* packet, 
+    TPML_SPDM_SESSION_INFO* list)
+{
+    int i;
+
+    if (packet == NULL || list == NULL)
+        return;
+
+    /* Unmarshal count (UINT32) */
+    TPM2_Packet_ParseU32(packet, &list->count);
+
+    /* Unmarshal array of TPMS_SPDM_SESSION_INFO */
+    if (list->count > MAX_SPDM_SESS_INFO)
+        list->count = MAX_SPDM_SESS_INFO;
+    for (i = 0; i < (int)list->count; i++) {
+        TPM2_Packet_ParseSPDMSessionInfo(packet, &list->spdmSessionInfo[i]);
+    }
+}
+#endif /* WOLFTPM_SPDM */
+
 /******************************************************************************/
 /* --- END TPM Packet Assembly / Parsing -- */
 /******************************************************************************/
