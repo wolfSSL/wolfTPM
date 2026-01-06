@@ -66,6 +66,9 @@ jobs:
           # STMicro ST33KTPM2
           - name: st33ktpm2
             wolftpm_config: --enable-st33
+          # SPDM AC Support
+          - name: spdm-ac
+            wolftpm_config: --enable-spdm --enable-swtpm
           # Microchip
           - name: microchip
             wolftpm_config: --enable-microchip
@@ -294,6 +297,10 @@ jobs:
           name: wolftpm-test-logs-${{ matrix.name }}
           path: |
             run.out
+            test-suite.log
+            wolftpm-*/_build/sub/test-suite.log
+          retention-days: 5
+
             test-suite.log
             wolftpm-*/_build/sub/test-suite.log
           retention-days: 5

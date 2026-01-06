@@ -22,6 +22,7 @@ AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 AC_CONFIG_MACRO_DIR([m4])
 
+
 AM_INIT_AUTOMAKE([1.11 -Wall -Werror -Wno-portability foreign tar-ustar subdir-objects no-define color-tests])
 
 AC_ARG_PROGRAM
@@ -462,6 +463,58 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PROVISIONING"
 fi
 
+# SPDM Authenticated Controller (AC) Support (TCG v1.84)
+AC_ARG_ENABLE([spdm],
+    [AS_HELP_STRING([--enable-spdm],[Enable SPDM Authenticated Controller (AC) support per TCG TPM 2.0 Library Spec v1.84 (default: disabled)])],
+    [ ENABLED_SPDM=$enableval ],
+    [ ENABLED_SPDM=no ]
+    )
+
+# Check for TCG v1.84 support (TPM_SPEC_VERSION >= 138)
+AC_MSG_CHECKING([for TCG TPM 2.0 Library Spec v1.84 support])
+AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([[
+        #include <wolftpm/tpm2.h>
+    ]], [[
+        #if TPM_SPEC_VERSION < 138
+        #error "TPM_SPEC_VERSION must be >= 138 for v1.84 support"
+        #endif
+    ]])],
+    [AC_MSG_RESULT([yes (TPM_SPEC_VERSION >= 138)])],
+    [AC_MSG_RESULT([no])
+     if test "x$ENABLED_SPDM" = "xyes"
+     then
+         AC_MSG_WARN([SPDM support requires TCG v1.84 (TPM_SPEC_VERSION >= 138). Disabling SPDM support.])
+         ENABLED_SPDM=no
+     fi
+    ]
+)
+
+if test "x$ENABLED_SPDM" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SPDM"
+    AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM Authenticated Controller support])
+    
+    # Optional libspdm integration
+    AC_ARG_WITH([libspdm],
+        [AS_HELP_STRING([--with-libspdm=PATH],[Path to libspdm installation for integration testing (optional)])],
+        [
+            if test "x$withval" != "xno" && test "x$withval" != "xyes"
+            then
+                LIBSPDM_PATH="$withval"
+                if test -d "${LIBSPDM_PATH}/include" && test -d "${LIBSPDM_PATH}/lib"
+                then
+                    CPPFLAGS="$CPPFLAGS -I${LIBSPDM_PATH}/include"
+                    LDFLAGS="$LDFLAGS -L${LIBSPDM_PATH}/lib"
+                    AC_DEFINE([WOLFTPM_WITH_LIBSPDM], [1], [Enable libspdm integration])
+                    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WITH_LIBSPDM"
+                else
+                    AC_MSG_WARN([libspdm path not found: ${LIBSPDM_PATH}])
+                fi
+            fi
+        ]
+    )
+fi
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
@@ -492,6 +545,7 @@ AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_SPDM], [test "x$ENABLED_SPDM" = "xyes"])
 
 
 CREATE_HEX_VERSION
@@ -621,3 +675,4 @@ echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
+echo "   * SPDM AC Support:           $ENABLED_SPDM"
