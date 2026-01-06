@@ -119,6 +119,36 @@ if(WOLFTPM_PROVISIONING)
         "-DWOLFTPM_PROVISIONING")
 endif()
 
+# NV Storage
+set(WOLFTPM_NV "yes" CACHE STRING
+    "Enable NV storage commands (default: enabled)")
+set_property(CACHE WOLFTPM_NV
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_NV)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_NO_NV")
+endif()
+
+# PCR and Policy
+set(WOLFTPM_PCR_POLICY "yes" CACHE STRING
+    "Enable extended PCR and Policy commands (default: enabled)")
+set_property(CACHE WOLFTPM_PCR_POLICY
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_PCR_POLICY)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_NO_PCR_POLICY")
+endif()
+
+# Attestation commands (Quote, Certify, GetTime, etc.)
+set(WOLFTPM_ATTESTATION "yes" CACHE STRING
+    "Enable attestation commands Quote/Certify/GetTime (default: enabled)")
+set_property(CACHE WOLFTPM_ATTESTATION
+    PROPERTY STRINGS "yes;no")
+if(NOT WOLFTPM_ATTESTATION)
+    list(APPEND WOLFTPM_DEFINITIONS
+        "-DWOLFTPM_NO_ATTESTATION")
+endif()
+
 # Enable Debugging
 set(WOLFTPM_DEBUG "no" CACHE STRING
     "Enables option for debug (default: disabled)")

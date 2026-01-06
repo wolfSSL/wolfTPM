@@ -68,7 +68,9 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_BUFFER cipher;
+#ifndef WOLFTPM_NO_NV
     int keepKey = 0;
+#endif
 
     const char* hmacTestKey =
         "\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
@@ -99,9 +101,11 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+    #ifndef WOLFTPM_NO_NV
         else if (XSTRCMP(argv[argc-1], "-keep") == 0) {
             keepKey = 1;
         }
+    #endif
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
@@ -158,6 +162,7 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
             (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
         if (rc != 0) goto exit;
 
+    #ifndef WOLFTPM_NO_NV
         printf("Storing HMAC key to persistent handle 0x%x\n", TPM2_DEMO_HMAC_KEY_HANDLE);
         /* Store the HMAC key to persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &hmac.key,
@@ -169,6 +174,7 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
         }
         printf("HMAC key stored persistently at handle 0x%x\n",
             TPM2_DEMO_HMAC_KEY_HANDLE);
+    #endif
     }
     else {
         printf("Using existing persistent HMAC key at handle 0x%x\n",
@@ -203,11 +209,13 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
     }
     printf("HMAC SHA256 test with persistent key: PASSED\n");
 
+#ifndef WOLFTPM_NO_NV
     if (!keepKey) {
         /* remove the key from persistent storage */
         wolfTPM2_SetAuthPassword(&dev, 0, NULL);
         wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &hmac.key);
     }
+#endif
 
 exit:
     if (rc != 0) {

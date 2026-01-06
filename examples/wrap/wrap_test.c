@@ -77,7 +77,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_BUFFER plain;
     TPMT_PUBLIC publicTemplate;
     TPM2B_ECC_POINT pubPoint;
-#ifndef WOLFTPM_WINAPI
+#if !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_NO_NV)
     word32 nvAttributes = 0;
 #endif
 #ifdef WOLFTPM_CRYPTOCB
@@ -223,7 +223,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_KEY_HANDLE);
 
-#ifdef TEST_WRAP_DELETE_KEY
+#if defined(TEST_WRAP_DELETE_KEY) && !defined(WOLFTPM_NO_NV)
     if (rc == 0) {
         storageKey.handle.hndl = TPM2_DEMO_STORAGE_KEY_HANDLE;
         rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
@@ -237,10 +237,12 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
+    #ifndef WOLFTPM_NO_NV
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_STORAGE_KEY_HANDLE);
         if (!WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) && rc != 0) goto exit;
+    #endif
 
         printf("Created new RSA Primary Storage Key at 0x%x\n",
             TPM2_DEMO_STORAGE_KEY_HANDLE);
@@ -512,7 +514,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_ReadPublicKey(&dev, &storageKey,
         TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
 
-#ifdef TEST_WRAP_DELETE_KEY
+#if defined(TEST_WRAP_DELETE_KEY) && !defined(WOLFTPM_NO_NV)
     if (rc == 0) {
         storageKey.handle.hndl = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
         rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &storageKey);
@@ -526,10 +528,12 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
         if (rc != 0) goto exit;
 
+    #ifndef WOLFTPM_NO_NV
         /* Move this key into persistent storage */
         rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &storageKey,
             TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
         if (!WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) && rc != 0) goto exit;
+    #endif
 
         printf("Created new ECC Primary Storage Key at 0x%x\n",
             TPM2_DEMO_STORAGE_EC_KEY_HANDLE);
@@ -741,6 +745,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     wolfTPM2_SetAuthSession(&dev, 1, NULL, 0); /* clear auth session */
 #endif
 
+#ifndef WOLFTPM_NO_NV
     /*------------------------------------------------------------------------*/
     /* NV TESTS */
     /*------------------------------------------------------------------------*/
@@ -818,7 +823,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     printf("NV Test on index 0x%x with %d bytes passed\n",
         TPM2_DEMO_NV_TEST_INDEX, TPM2_DEMO_NV_TEST_SIZE);
-#endif
+#endif /* !WOLFTPM_WINAPI */
+#endif /* !WOLFTPM_NO_NV */
 
     /*------------------------------------------------------------------------*/
     /* RANDOM TESTS */

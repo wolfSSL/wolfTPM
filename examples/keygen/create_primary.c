@@ -274,15 +274,16 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     if (persistHandle > 0) {
-    #ifndef WOLFTPM_WINAPI
+    #if !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_NO_NV)
         /* Move storage key into persistent NV */
         printf("Storing Primary key to handle 0x%08x\n", persistHandle);
         rc = wolfTPM2_NVStoreKey(&dev, hierarchy, primary,
             persistHandle);
         if (rc != TPM_RC_SUCCESS) goto exit;
     #else
-        printf("Windows TBS does not allow persisting handles to "
-               "Non-Volatile (NV) Memory\n");
+        printf("Persisting handles to Non-Volatile (NV) Memory not "
+               "available\n");
+        (void)rc;
     #endif
     }
 

@@ -287,6 +287,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
 
+#ifndef WOLFTPM_NO_PCR_POLICY
     if (endorseKey) {
         /* Endorsement Key requires authorization with Policy */
         rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
@@ -298,6 +299,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
         if (rc != 0) goto exit;
     }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
     /* Create new key */
     if (bAIK) {
@@ -387,6 +389,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_CreateKey failed\n");
         goto exit;
     }
+#ifndef WOLFTPM_NO_PCR_POLICY
     if (endorseKey) {
         /* Endorsement policy session is closed after use, so start another */
         rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
@@ -395,6 +398,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         if (rc != 0) goto exit;
     }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
     rc = wolfTPM2_LoadKey(&dev, &newKeyBlob, &primary->handle);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_LoadKey failed\n");

@@ -2330,6 +2330,7 @@ WOLFTPM_API TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
     EventSequenceComplete_Out* out);
 
 
+#ifndef WOLFTPM_NO_ATTESTATION
 typedef struct {
     TPMI_DH_OBJECT objectHandle;
     TPMI_DH_OBJECT signHandle;
@@ -2408,6 +2409,7 @@ typedef struct {
     TPMT_SIGNATURE signature;
 } GetTime_Out;
 WOLFTPM_API TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out);
+#endif /* !WOLFTPM_NO_ATTESTATION */
 
 typedef struct {
     TPMI_DH_OBJECT signHandle;
@@ -2468,6 +2470,7 @@ WOLFTPM_API TPM_RC TPM2_SetCommandCodeAuditStatus(
     SetCommandCodeAuditStatus_In* in);
 
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 typedef struct {
     TPMI_DH_PCR pcrHandle;
     TPM2B_EVENT eventData;
@@ -2665,6 +2668,7 @@ typedef struct {
     TPMI_SH_POLICY policySession;
 } PolicyAuthorizeNV_In;
 WOLFTPM_API TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in);
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 
 
@@ -2818,6 +2822,7 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_TestParms(TestParms_In* in);
 
 
+#ifndef WOLFTPM_NO_NV
 typedef struct {
     TPMI_RH_PROVISION authHandle;
     TPM2B_AUTH auth;
@@ -2922,6 +2927,7 @@ typedef struct {
     TPMT_SIGNATURE signature;
 } NV_Certify_Out;
 WOLFTPM_API TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out);
+#endif /* !WOLFTPM_NO_NV */
 
 
 /* Vendor Specific API's */

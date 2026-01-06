@@ -65,13 +65,15 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEY storage; /* SRK */
     WOLFTPM2_KEY *primary = NULL;
     WOLFTPM2_KEYBLOB newKey;
+#ifndef WOLFTPM_NO_NV
     WOLFTPM2_KEY persistKey;
+    int persistent = 0;
+#endif
     TPM_ALG_ID alg;
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* inputFile = "keyblob.bin";
-    int persistent = 0;
     int endorseKey = 0;
 
 
@@ -97,9 +99,11 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+    #ifndef WOLFTPM_NO_NV
         else if (XSTRCMP(argv[argc-1], "-persistent") == 0) {
             persistent = 1;
         }
+    #endif
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
         }
@@ -109,7 +113,9 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&newKey, 0, sizeof(newKey));
+#ifndef WOLFTPM_NO_NV
     XMEMSET(&persistKey, 0, sizeof(persistKey));
+#endif
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     printf("TPM2.0 Key load example\n");
@@ -151,6 +157,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         primary = &storage;
     }
 
+#ifndef WOLFTPM_NO_PCR_POLICY
     if (endorseKey) {
         /* Fresh policy session for EK auth */
         rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
@@ -159,7 +166,9 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
         if (rc != 0) goto exit;
     }
-    else if (paramEncAlg != TPM_ALG_NULL) {
+    else
+#endif
+    if (paramEncAlg != TPM_ALG_NULL) {
         WOLFTPM2_KEY* bindKey = &storage;
     #ifndef HAVE_ECC
         if (srkAlg == TPM_ALG_ECC)
@@ -198,6 +207,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     printf("Loaded key to 0x%x\n",
         (word32)newKey.handle.hndl);
 
+#ifndef WOLFTPM_NO_NV
     /* Make the TPM key persistent, so it remains loaded after example exit */
     if (persistent) {
         /* Prepare key in the format expected by the wolfTPM wrapper */
@@ -213,6 +223,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
         }
         printf("Key was made persistent at 0x%X\n", persistKey.handle.hndl);
     }
+#endif
 
 exit:
 
@@ -222,8 +233,11 @@ exit:
 
     /* Close key handles */
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
+#ifndef WOLFTPM_NO_NV
     /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
-    if (!persistent) {
+    if (!persistent)
+#endif
+    {
         wolfTPM2_UnloadHandle(&dev, &newKey.handle);
     }
     /* EK policy is destroyed after use, flush parameter encryption session */
