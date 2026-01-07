@@ -43,32 +43,49 @@
 
 #if defined(__UBOOT__)
     #include <config.h>
+    #include <dm/device.h>
+    #include <dm/uclass.h>
+    #include <tpm-common.h>
+
+    /* Forward declarations */
+    struct udevice;
+    struct tpm_ops;
+
+    /* Get TPM device using driver model */
+    static int uboot_get_tpm_dev(struct udevice **dev)
+    {
+        return uclass_first_device_err(UCLASS_TPM, dev);
+    }
+
+    /* Keep track of opened device */
+    static struct udevice *g_tpm_dev = NULL;
+
     int TPM2_IoCb_Uboot_SPI(TPM2_CTX* ctx, const byte* txBuf,
         byte* rxBuf, word16 xferSz, void* userCtx)
     {
-        int ret = 0;
-        struct udevice *dev;
+        int ret;
+        struct udevice *dev = NULL;
+        size_t recv_size = xferSz;
+
+        (void)ctx;
+        (void)userCtx;
 
         /* Get the TPM device */
-        if (ret == 0) {
-            ret = tcg2_platform_get_tpm2(&dev);
-            if ( ret != 0 || dev == NULL) {
-            #ifdef DEBUG_WOLFTPM
-                printf("Failed to get TPM device with error: %d\n", ret);
-            #endif
-                return TPM_RC_FAILURE;
-            }
+        ret = uboot_get_tpm_dev(&dev);
+        if (ret != 0 || dev == NULL) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Failed to get TPM device: %d\n", ret);
+        #endif
+            return TPM_RC_FAILURE;
         }
 
-        /* Transfer the device data using tpm_xfer */
-        if (ret == 0) {
-            ret = tpm_xfer(dev, txBuf, xferSz, rxBuf, &xferSz);
-            if (ret != 0) {
-            #ifdef DEBUG_WOLFTPM
-                printf("tpm_xfer failed with error: %d\n", ret);
-            #endif
-                return TPM_RC_FAILURE;
-            }
+        /* Use tpm_xfer which handles all the TIS protocol internally */
+        ret = tpm_xfer(dev, txBuf, xferSz, rxBuf, &recv_size);
+        if (ret != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM xfer failed: %d\n", ret);
+        #endif
+            return TPM_RC_FAILURE;
         }
 
         return TPM_RC_SUCCESS;
