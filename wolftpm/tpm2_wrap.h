@@ -109,6 +109,22 @@ typedef struct WOLFTPM2_HMAC {
 typedef struct WOLFTPM2_CSR {
     Cert req;
 } WOLFTPM2_CSR;
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Context structure for TPM-based certificate signing callback.
+    
+    This structure holds the TPM device and key references needed for the
+    certificate signing callback (wc_SignCertCb). It is used internally by
+    wolfTPM2_CSR_MakeAndSign_ex when using the callback-based signing approach.
+    
+    \sa wolfTPM2_CSR_MakeAndSign_ex
+    \sa wc_SignCert_cb
+*/
+typedef struct TpmSignCbCtx {
+    WOLFTPM2_DEV* dev;  /*!< Pointer to initialized TPM device */
+    WOLFTPM2_KEY* key;  /*!< Pointer to TPM key used for signing */
+} TpmSignCbCtx;
 #endif
 
 /* buffer similar to TPM2B_MAX_BUFFER that can be used */
