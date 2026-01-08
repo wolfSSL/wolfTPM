@@ -7517,26 +7517,65 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 {
     int rc = 0;
     TpmSignCbCtx signCtx;
+    union {
+    #ifndef NO_RSA
+        RsaKey rsa;
+    #endif
+    #ifdef HAVE_ECC
+        ecc_key ecc;
+    #endif
+    } wolfKey;
 
     if (dev == NULL || csr == NULL || key == NULL || out == NULL) {
         return BAD_FUNC_ARG;
     }
 
-    /* Setup signing context */
-    signCtx.dev = dev;
-    signCtx.key = key;
+    XMEMSET(&wolfKey, 0, sizeof(wolfKey));
 
-    /* Create certificate body */
-    if (selfSignCert) {
+    /* Extract public key from TPM key into wolfCrypt key structure */
+    if (keyType == ECC_TYPE) {
+    #ifdef HAVE_ECC
+        rc = wc_ecc_init(&wolfKey.ecc);
+        if (rc == 0) {
+            /* load public portion of key into wolf ECC Key */
+            rc = wolfTPM2_EccKey_TpmToWolf(dev, key, &wolfKey.ecc);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (keyType == RSA_TYPE) {
+    #ifndef NO_RSA
+        rc = wc_InitRsaKey(&wolfKey.rsa, NULL);
+        if (rc == 0) {
+            /* load public portion of key into wolf RSA Key */
+            rc = wolfTPM2_RsaKey_TpmToWolf(dev, key, &wolfKey.rsa);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else {
+        rc = BAD_FUNC_ARG;
+    }
+
+    /* Setup signing context */
+    if (rc == 0) {
+        signCtx.dev = dev;
+        signCtx.key = key;
+    }
+
+    /* Create certificate body with public key */
+    if (rc == 0 && selfSignCert) {
 #ifdef WOLFSSL_CERT_GEN
-        rc = wc_MakeCert_ex(&csr->req, out, outSz, keyType, NULL,
+        rc = wc_MakeCert_ex(&csr->req, out, outSz, keyType, &wolfKey,
             wolfTPM2_GetRng(dev));
 #else
         rc = NOT_COMPILED_IN;
 #endif
     }
-    else {
-        rc = wc_MakeCertReq_ex(&csr->req, out, outSz, keyType, NULL);
+    if (rc == 0 && !selfSignCert) {
+        rc = wc_MakeCertReq_ex(&csr->req, out, outSz, keyType, &wolfKey);
     }
 
     /* Sign using TPM via callback */
@@ -7565,6 +7604,18 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         #endif
         rc = NOT_COMPILED_IN;
 #endif
+    }
+
+    /* Cleanup wolfCrypt key structure */
+    if (keyType == ECC_TYPE) {
+    #ifdef HAVE_ECC
+        wc_ecc_free(&wolfKey.ecc);
+    #endif
+    }
+    else if (keyType == RSA_TYPE) {
+    #ifndef NO_RSA
+        wc_FreeRsaKey(&wolfKey.rsa);
+    #endif
     }
 
     return rc;
