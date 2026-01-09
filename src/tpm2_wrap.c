@@ -7380,11 +7380,6 @@ static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
 #ifdef HAVE_ECC
         byte sigRS[MAX_ECC_BYTES * 2];
         int rsLen = (int)sizeof(sigRS);
-        word32 keySz;
-
-        /* Get key size for proper R/S formatting */
-        keySz = TPM2_GetCurveSize(
-            tpmCtx->key->pub.publicArea.parameters.eccDetail.curveID);
 
         /* Sign using TPM */
         rc = wolfTPM2_SignHash(tpmCtx->dev, tpmCtx->key,
