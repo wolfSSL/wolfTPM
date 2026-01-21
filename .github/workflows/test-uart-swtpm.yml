@@ -1,0 +1,270 @@
+name: Test UART Communication with SWTPM
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ 'master', 'main', 'release/**' ]
+  workflow_dispatch:
+
+jobs:
+  test-uart-swtpm:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install basic dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          automake \
+          autotools-dev \
+          libtool \
+          pkg-config \
+          gcc \
+          make \
+          git \
+          socat \
+          strace \
+          acl
+
+    - name: Install swtpm
+      run: |
+        sudo apt-get install -y swtpm swtpm-tools
+
+    - name: Setup wolfSSL
+      uses: actions/checkout@v4
+      with:
+        repository: wolfssl/wolfssl
+        path: wolfssl
+
+    - name: Build wolfSSL
+      working-directory: ./wolfssl
+      run: |
+        ./autogen.sh
+        ./configure --enable-wolftpm --prefix=${GITHUB_WORKSPACE}/wolfssl-install
+        make -j$(nproc)
+        make install
+
+    - name: Start swtpm in socket mode
+      run: |
+        mkdir -p /tmp/swtpm-state
+        
+        # Start swtpm with socket backend (this works reliably in GitHub Actions)
+        swtpm socket \
+          --tpm2 \
+          --tpmstate dir=/tmp/swtpm-state \
+          --ctrl type=tcp,port=2322 \
+          --server type=tcp,port=2321 \
+          --flags not-need-init &
+        SWTPM_PID=$!
+        echo $SWTPM_PID > /tmp/swtpm.pid
+
+        # Give swtpm time to start
+        sleep 3
+
+        # Verify swtpm is running and socket is accessible
+        ps aux | grep swtpm | grep -v grep || exit 1
+        timeout 2 bash -c 'until nc -z localhost 2321; do sleep 0.1; done' || exit 1
+
+    - name: Create UART bridge
+      id: uart
+      run: |
+        # Create a PTY for wolfTPM to connect to as UART device
+        # Use socat to create a PTY with proper permissions
+        socat -d -d pty,raw,echo=0,link=/tmp/tpm-uart-client,perm=0666 pty,raw,echo=0,link=/tmp/tpm-uart-server,perm=0666 &
+        SOCAT_PID=$!
+        echo $SOCAT_PID > /tmp/socat.pid
+        sleep 2
+
+        # Get the actual PTY device names
+        CLIENT_PTY=$(readlink -f /tmp/tpm-uart-client)
+        SERVER_PTY=$(readlink -f /tmp/tpm-uart-server)
+
+        echo "client_pty=$CLIENT_PTY" >> $GITHUB_OUTPUT
+        echo "server_pty=$SERVER_PTY" >> $GITHUB_OUTPUT
+
+        echo "Client PTY (for wolfTPM): $CLIENT_PTY"
+        echo "Server PTY (bridge endpoint): $SERVER_PTY"
+        
+        # Verify PTYs exist
+        ls -la $CLIENT_PTY $SERVER_PTY || exit 1
+
+    - name: Bridge socket to UART
+      run: |
+        SERVER_PTY="${{ steps.uart.outputs.server_pty }}"
+        
+        # Ensure swtpm socket is ready before starting bridge
+        echo "Waiting for swtpm socket to be ready..."
+        timeout 5 bash -c 'until nc -z localhost 2321; do sleep 0.1; done' || {
+          echo "ERROR: swtpm socket not ready!"
+          exit 1
+        }
+        
+        # Bridge between swtpm socket (port 2321) and the server PTY
+        # Use TCP-CONNECT to connect to swtpm and bridge to PTY
+        # Add buffering and proper options for reliable data transfer
+        echo "Starting bridge from PTY $SERVER_PTY to socket localhost:2321"
+        # Use OPEN to open the existing PTY device directly
+        # Add readbytes=0 to read all available data, and setsockopt to handle socket properly
+        socat OPEN:$SERVER_PTY,raw,echo=0,readbytes=0 TCP:localhost:2321,keepalive,so-keepalive > /tmp/bridge.log 2>&1 &
+        BRIDGE_PID=$!
+        echo $BRIDGE_PID > /tmp/bridge.pid
+        
+        sleep 2
+        
+        # Verify bridge is running
+        if ! ps -p $BRIDGE_PID > /dev/null 2>&1; then
+          echo "ERROR: Bridge process died!"
+          echo "Bridge log:"
+          cat /tmp/bridge.log || true
+          exit 1
+        fi
+        
+        # Also check if it shows up in ps
+        if ! ps aux | grep "socat.*2321" | grep -v grep > /dev/null; then
+          echo "WARNING: Bridge not found in ps, but PID file exists"
+          echo "Checking bridge log:"
+          cat /tmp/bridge.log || true
+        fi
+        
+        echo "Bridge is running (PID: $BRIDGE_PID), connecting PTY $SERVER_PTY to socket localhost:2321"
+
+    - name: Build wolfTPM with UART support
+      env:
+        CLIENT_PTY: ${{ steps.uart.outputs.client_pty }}
+      run: |
+        cd ${{ github.workspace }}
+        ./autogen.sh
+        # Set UART device path via CPPFLAGS
+        # TPM2_SWTPM_PORT is already set by configure, so we only need to set HOST
+        # The quotes need to be passed through correctly to the C preprocessor
+        echo "Building with UART device: $CLIENT_PTY"
+        ./configure \
+          --enable-swtpm=uart \
+          --enable-debug \
+          --with-wolfcrypt=${GITHUB_WORKSPACE}/wolfssl-install \
+          CPPFLAGS="-DTPM2_SWTPM_HOST=\"${CLIENT_PTY}\""
+        make -j$(nproc)
+        
+        # Verify the define by checking the compiled code
+        echo "Verifying TPM2_SWTPM_HOST define..."
+        strings src/.libs/libwolftpm.so 2>/dev/null | grep -E "(ttyS0|pts)" | head -5 || echo "Cannot verify from library"
+
+    - name: Verify UART setup
+      env:
+        CLIENT_PTY: ${{ steps.uart.outputs.client_pty }}
+        SERVER_PTY: ${{ steps.uart.outputs.server_pty }}
+      run: |
+        echo "Verifying UART setup..."
+        echo "Client PTY: $CLIENT_PTY"
+        echo "Server PTY: $SERVER_PTY"
+        
+        # Verify PTYs are still accessible
+        [ -c "$CLIENT_PTY" ] || (echo "Client PTY not found!" && exit 1)
+        [ -c "$SERVER_PTY" ] || (echo "Server PTY not found!" && exit 1)
+        
+        # Verify swtpm is still running
+        ps aux | grep swtpm | grep -v grep || (echo "swtpm not running!" && exit 1)
+        
+        # Verify bridge is running
+        ps aux | grep "socat.*2321" | grep -v grep || (echo "bridge not running!" && exit 1)
+        
+        # Test socket connectivity to swtpm
+        timeout 2 bash -c 'until nc -z localhost 2321; do sleep 0.1; done' || (echo "Cannot connect to swtpm socket!" && exit 1)
+        
+        echo "UART setup verified successfully"
+
+    - name: Run UART communication test
+      env:
+        CLIENT_PTY: ${{ steps.uart.outputs.client_pty }}
+      run: |
+        cd ${{ github.workspace }}
+        
+        # Build the caps example with the same CPPFLAGS to ensure TPM2_SWTPM_HOST is defined
+        cd examples/wrap
+        # Re-export the CPPFLAGS to ensure the example build uses them
+        export CPPFLAGS="-DTPM2_SWTPM_HOST=\"${CLIENT_PTY}\""
+        echo "Building caps with CPPFLAGS: $CPPFLAGS"
+        make caps CPPFLAGS="$CPPFLAGS"
+        
+        echo "Running UART communication test..."
+        echo "Using UART device: $CLIENT_PTY"
+        
+        # Verify bridge is still running
+        echo "Checking bridge status..."
+        if [ -f /tmp/bridge.pid ]; then
+          BRIDGE_PID=$(cat /tmp/bridge.pid)
+          if ps -p $BRIDGE_PID > /dev/null 2>&1; then
+            echo "Bridge is running (PID: $BRIDGE_PID)"
+          else
+            echo "WARNING: Bridge PID file exists but process is not running"
+            echo "Bridge log:"
+            cat /tmp/bridge.log 2>/dev/null || echo "No bridge log found"
+          fi
+        else
+          echo "WARNING: Bridge PID file not found"
+        fi
+        ps aux | grep "socat.*2321" | grep -v grep || echo "WARNING: Bridge process not found in ps"
+        
+        # Test basic PTY connectivity
+        echo "Testing PTY connectivity..."
+        timeout 1 cat $CLIENT_PTY > /dev/null 2>&1 || echo "PTY read test (may timeout, that's ok)"
+        
+        # Run the test with a timeout and capture all output
+        # The test should connect to the PTY as if it were a UART device
+        echo "Starting caps test..."
+        set +e  # Don't exit on error so we can capture output
+        # Run with stderr to stdout to capture all output
+        timeout 30 ./caps > /tmp/caps_output.log 2>&1
+        CAPS_RC=$?
+        set -e
+        
+        # Also check if we can manually test the connection
+        echo "Testing manual connection..."
+        echo "test" | timeout 1 cat $CLIENT_PTY > /dev/null 2>&1 || echo "Manual PTY test (may timeout)"
+        
+        if [ $CAPS_RC -ne 0 ]; then
+          echo "Test failed with exit code $CAPS_RC"
+          echo "=== Test output ==="
+          cat /tmp/caps_output.log || true
+          echo "=== Checking processes ==="
+          echo "swtpm:"
+          ps aux | grep swtpm | grep -v grep || echo "swtpm is not running"
+          echo "bridge:"
+          ps aux | grep "socat.*2321" | grep -v grep || echo "bridge is not running"
+          echo "PTY pair:"
+          ps aux | grep "socat.*pty" | grep -v grep || echo "PTY pair is not running"
+          echo "PTY devices:"
+          ls -la $CLIENT_PTY || echo "Client PTY not found"
+          exit 1
+        else
+          echo "=== Test output ==="
+          cat /tmp/caps_output.log || true
+        fi
+        
+        echo "UART communication test passed!"
+
+    - name: Cleanup
+      if: always()
+      run: |
+        # Kill bridge
+        if [ -f /tmp/bridge.pid ]; then
+          kill $(cat /tmp/bridge.pid) 2>/dev/null || true
+        fi
+        
+        # Kill socat PTY pair
+        if [ -f /tmp/socat.pid ]; then
+          kill $(cat /tmp/socat.pid) 2>/dev/null || true
+        fi
+        
+        # Kill swtpm
+        if [ -f /tmp/swtpm.pid ]; then
+          kill $(cat /tmp/swtpm.pid) 2>/dev/null || true
+          pkill -f "swtpm socket" 2>/dev/null || true
+        fi
+        
+        # Clean up PTY links
+        rm -f /tmp/tpm-uart-server /tmp/tpm-uart-client

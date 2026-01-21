@@ -298,8 +298,10 @@ typedef int64_t  INT64;
 
 /* Helper to convert macro to string */
 #ifndef XSTRINGIFY
-#define XSTRINGIFY(s) STRINGIFY(s)
+#ifndef STRINGIFY
 #define STRINGIFY(s)  #s
+#endif
+#define XSTRINGIFY(s) STRINGIFY(s)
 #endif
 
 /* ---------------------------------------------------------------------------*/

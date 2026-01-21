@@ -47,8 +47,13 @@
 #ifdef WOLFTPM_ZEPHYR
 #include <zephyr/posix/unistd.h>
 #include <zephyr/net/socket.h>
+#include <zephyr/posix/sys/select.h>
 #elif defined(HAVE_UNISTD_H)
 #include <unistd.h>
+#endif
+/* select() is used for TCP socket mode, not UART mode */
+#if !defined(WOLFTPM_ZEPHYR) && !defined(WOLFTPM_SWTPM_UART) && !defined(WOLFTPM_SWTPM_UARTNS550)
+#include <sys/select.h>
 #endif
 #include <errno.h>
 #include <string.h>                 /* necessary for memset */
@@ -583,7 +588,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
 #if !defined(WOLFTPM_SWTPM_UARTNS550)
     if (ctx->tcpCtx.fd < 0) {
-        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, XSTRINGIFY(TPM2_SWTPM_PORT));
+        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, TPM2_SWTPM_PORT);
     }
 #else
     if (ctx->tcpCtx.setup == 0) {
