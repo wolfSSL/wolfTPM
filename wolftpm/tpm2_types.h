@@ -90,6 +90,14 @@ typedef int64_t  INT64;
 #if defined(WOLFTPM_DEBUG_VERBOSE) && !defined(DEBUG_WOLFTPM)
     #define DEBUG_WOLFTPM
 #endif
+#ifndef DEBUG_PRINTF
+    #if defined(__MICROBLAZE__)
+        /* using xil_printf instead of printf reduces memory footprint size */
+        #define DEBUG_PRINTF xil_printf
+    #else
+        #define DEBUG_PRINTF printf
+    #endif
+#endif
 
 /* ---------------------------------------------------------------------------*/
 /* WOLFCRYPT */
@@ -224,7 +232,7 @@ typedef int64_t  INT64;
             #define THREAD_LS_T __declspec(thread)
         /* Thread local storage only in FreeRTOS v8.2.1 and higher */
         #elif defined(FREERTOS) || defined(FREERTOS_TCP) || \
-                                                         defined(WOLFSSL_ZEPHYR)
+                        defined(WOLFSSL_ZEPHYR) || defined(__MICROBLAZE__)
             #define THREAD_LS_T
         #else
             #define THREAD_LS_T __thread
@@ -290,8 +298,10 @@ typedef int64_t  INT64;
 
 /* Helper to convert macro to string */
 #ifndef XSTRINGIFY
-#define XSTRINGIFY(s) STRINGIFY(s)
+#ifndef STRINGIFY
 #define STRINGIFY(s)  #s
+#endif
+#define XSTRINGIFY(s) STRINGIFY(s)
 #endif
 
 /* ---------------------------------------------------------------------------*/

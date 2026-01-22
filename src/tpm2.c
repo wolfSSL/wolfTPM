@@ -141,7 +141,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n",
+    DEBUG_PRINTF("CommandProcess: Handles (Auth %d, In %d), CmdSz %d, AuthSz %d, ParamSz %d, EncSz %d\n",
         info->authCnt, info->inHandleCnt, (int)cmdSz, (int)authSz, paramSz, encParamSz);
 #else
     (void)paramSz;
@@ -211,7 +211,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 rc = TPM2_ParamEnc_CmdRequest(session, encParam, encParamSz);
                 if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
-                    printf("Command parameter encryption failed\n");
+                    DEBUG_PRINTF("Command parameter encryption failed\n");
             #endif
                     return rc;
                 }
@@ -223,7 +223,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
-                printf("Error getting names for cpHash!\n");
+                DEBUG_PRINTF("Error getting names for cpHash!\n");
             #endif
                 return BAD_FUNC_ARG;
             }
@@ -233,7 +233,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 &name2, &name3, param, paramSz, &hash);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
-                printf("Error calculating cpHash!\n");
+                DEBUG_PRINTF("Error calculating cpHash!\n");
             #endif
                 return rc;
             }
@@ -244,7 +244,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 authCmd.sessionAttributes, &authCmd.hmac);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
-                printf("Error calculating command HMAC!\n");
+                DEBUG_PRINTF("Error calculating command HMAC!\n");
             #endif
                 return rc;
             }
@@ -307,7 +307,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("ResponseProcess: Handles (Out %d), RespSz %d, ParamSz %d, DecSz %d, AuthSz %d\n",
+    DEBUG_PRINTF("ResponseProcess: Handles (Out %d), RespSz %d, ParamSz %d, DecSz %d, AuthSz %d\n",
         info->outHandleCnt, (int)respSz, (int)paramSz, (int)decParamSz, (int)(respSz - authPos));
 #endif
 
@@ -352,7 +352,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     &hash);
                 if (rc != TPM_RC_SUCCESS) {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Error calculating rpHash!\n");
+                    DEBUG_PRINTF("Error calculating rpHash!\n");
                 #endif
                     return rc;
                 }
@@ -363,7 +363,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     authRsp.sessionAttributes, &hmac);
                 if (rc != TPM_RC_SUCCESS) {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Error calculating response HMAC!\n");
+                    DEBUG_PRINTF("Error calculating response HMAC!\n");
                 #endif
                     return rc;
                 }
@@ -372,7 +372,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 if (hmac.size != authRsp.hmac.size ||
                     XMEMCMP(hmac.buffer, authRsp.hmac.buffer, hmac.size) != 0) {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Response HMAC verification failed!\n");
+                    DEBUG_PRINTF("Response HMAC verification failed!\n");
                 #endif
                     return TPM_RC_HMAC;
                 }
@@ -393,7 +393,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 rc = TPM2_ParamDec_CmdResponse(session, decParam, decParamSz);
                 if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
-                    printf("Response parameter decryption failed\n");
+                    DEBUG_PRINTF("Response parameter decryption failed\n");
             #endif
                     return rc;
                 }
@@ -435,7 +435,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         }
 
     #ifdef WOLFTPM_DEBUG_VERBOSE
-        printf("Found %d auth sessions\n", info->authCnt);
+        DEBUG_PRINTF("Found %d auth sessions\n", info->authCnt);
     #endif
 
         rc = TPM2_CommandProcess(ctx, packet, info, cmdCode, cmdSz);
@@ -489,13 +489,13 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #ifdef HAVE_FIPS
 static void WolfFipsCb(int ok, int err, const char* hash)
 {
-    printf("in my Fips callback, ok = %d, err = %d\n", ok, err);
-    printf("message = %s\n", wc_GetErrorString(err));
-    printf("hash = %s\n", hash);
+    DEBUG_PRINTF("in my Fips callback, ok = %d, err = %d\n", ok, err);
+    DEBUG_PRINTF("message = %s\n", wc_GetErrorString(err));
+    DEBUG_PRINTF("hash = %s\n", hash);
 
     if (err == IN_CORE_FIPS_E) {
-        printf("In core integrity hash check failure, copy above hash\n");
-        printf("into verifyCore[] in fips_test.c and rebuild\n");
+        DEBUG_PRINTF("In core integrity hash check failure, copy above hash\n");
+        DEBUG_PRINTF("into verifyCore[] in fips_test.c and rebuild\n");
     }
 }
 #endif
@@ -638,7 +638,7 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return rc;
 #endif
 
-#if defined(WOLFTPM_SWTPM)
+#if defined(WOLFTPM_SWTPM) && !defined(WOLFTPM_SWTPM_UARTNS550)
     ctx->tcpCtx.fd = -1;
 #endif
 
@@ -1061,7 +1061,7 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                 }
                 default:
             #ifdef DEBUG_WOLFTPM
-                    printf("Unknown capability type 0x%x\n",
+                    DEBUG_PRINTF("Unknown capability type 0x%x\n",
                         (unsigned int)out->capabilityData.capability);
             #endif
                     break;
@@ -5736,7 +5736,7 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("TPM2_GetNonce (%d bytes)\n", nonceSz);
+    DEBUG_PRINTF("TPM2_GetNonce (%d bytes)\n", nonceSz);
 #endif
 
 #ifdef WOLFTPM2_USE_WOLF_RNG
@@ -5831,7 +5831,7 @@ int TPM2_GetName(TPM2_CTX* ctx, UINT32 handleValue, int handleCnt, int idx, TPM2
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Name %d: %d\n", idx, name->size);
+    DEBUG_PRINTF("Name %d: %d\n", idx, name->size);
     TPM2_PrintBin(name->name, name->size);
 #endif
     return TPM_RC_SUCCESS;
@@ -5898,6 +5898,7 @@ void TPM2_SetupPCRSelArray(TPML_PCR_SELECTION* pcr, TPM_ALG_ID alg,
 
 const char* TPM2_GetRCString(int rc)
 {
+#if !defined(NO_ERROR_STRINGS)
     /* for negative return codes use wolfCrypt */
     if (rc < 0) {
         switch (rc) {
@@ -5905,7 +5906,7 @@ const char* TPM2_GetRCString(int rc)
             default:
                 break;
         }
-    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT)
         #if !defined(WOLFCRYPT_ONLY) && \
             (!defined(NO_WOLFSSL_SERVER) || !defined(NO_WOLFSSL_CLIENT))
             /* include TLS error codes */
@@ -6018,7 +6019,7 @@ const char* TPM2_GetRCString(int rc)
             /* bits 8-11 */
             int param_num = (rc & 0xF00) >> 8;
         #ifdef DEBUG_WOLFTPM
-            printf("Error: Parameter Number %d\n", param_num);
+            DEBUG_PRINTF("Error: Parameter Number %d\n", param_num);
         #endif
             (void)param_num;
         }
@@ -6026,7 +6027,7 @@ const char* TPM2_GetRCString(int rc)
             /* bits 8-10 */
             int session_num = (rc & 0x700) >> 8;
         #ifdef DEBUG_WOLFTPM
-            printf("Error: Session Number %d\n", session_num);
+            DEBUG_PRINTF("Error: Session Number %d\n", session_num);
         #endif
             (void)session_num;
         }
@@ -6034,7 +6035,7 @@ const char* TPM2_GetRCString(int rc)
             /* bits 8-10 */
             int handle_num = (rc & 0x700) >> 8;
         #ifdef DEBUG_WOLFTPM
-            printf("Error: Handle Number %d\n", handle_num);
+            DEBUG_PRINTF("Error: Handle Number %d\n", handle_num);
         #endif
             (void)handle_num;
         }
@@ -6086,6 +6087,9 @@ const char* TPM2_GetRCString(int rc)
     }
 
     return "Unknown";
+#else
+    return "Error strings not compiled in";
+#endif
 }
 
 const char* TPM2_GetAlgName(TPM_ALG_ID alg)
@@ -6361,7 +6365,7 @@ int TPM2_GetWolfRng(WC_RNG** rng)
         rc = wc_InitRng_ex(&ctx->rng, NULL, ctx->did_vid);
         if (rc < 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("wc_InitRng_ex failed %d: %s\n",
+            DEBUG_PRINTF("wc_InitRng_ex failed %d: %s\n",
                 (int)rc, wc_GetErrorString(rc));
         #endif
             if (rng) {
@@ -6481,7 +6485,7 @@ int TPM2_AppendPublic(byte* buf, word32 size, int* sizeUsed, TPM2B_PUBLIC* pub)
 
     if (size < sizeof(TPM2B_PUBLIC)) {
     #ifdef DEBUG_WOLFTPM
-        printf("Insufficient buffer size for TPM2B_PUBLIC operations\n");
+        DEBUG_PRINTF("Insufficient buffer size for TPM2B_PUBLIC operations\n");
     #endif
         return TPM_RC_FAILURE;
     }
@@ -6530,7 +6534,7 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
     word32 i, sz;
 
     if (!buffer) {
-        printf("\tNULL\n");
+        DEBUG_PRINTF("\tNULL\n");
         return;
     }
 
@@ -6539,21 +6543,21 @@ void TPM2_PrintBin(const byte* buffer, word32 length)
         if (sz > LINE_LEN)
             sz = LINE_LEN;
 
-        printf("\t");
+        DEBUG_PRINTF("\t");
         for (i = 0; i < LINE_LEN; i++) {
             if (i < length)
-                printf("%02x ", buffer[i]);
+                DEBUG_PRINTF("%02x ", buffer[i]);
             else
-                printf("   ");
+                DEBUG_PRINTF("   ");
         }
-        printf("| ");
+        DEBUG_PRINTF("| ");
         for (i = 0; i < sz; i++) {
             if (buffer[i] > 31 && buffer[i] < 127)
-                printf("%c", buffer[i]);
+                DEBUG_PRINTF("%c", buffer[i]);
             else
-                printf(".");
+                DEBUG_PRINTF(".");
         }
-        printf("\r\n");
+        DEBUG_PRINTF("\r\n");
 
         buffer += sz;
         length -= sz;
@@ -6565,25 +6569,25 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
     if (authCmd == NULL)
         return;
 
-    printf("authCmd:\n");
-    printf("sessionHandle=0x%08X\n", (unsigned int)authCmd->sessionHandle);
-    printf("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
+    DEBUG_PRINTF("authCmd:\n");
+    DEBUG_PRINTF("sessionHandle=0x%08X\n", (unsigned int)authCmd->sessionHandle);
+    DEBUG_PRINTF("nonceSize=%u nonceBuffer:\n", authCmd->nonce.size);
     TPM2_PrintBin(authCmd->nonce.buffer, authCmd->nonce.size);
-    printf("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
-    printf("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
+    DEBUG_PRINTF("sessionAttributes=0x%02X\n", authCmd->sessionAttributes);
+    DEBUG_PRINTF("hmacSize=%u hmacBuffer:\n", authCmd->hmac.size);
     TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
 }
 
 void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
 {
-    printf("Public Area (size %d):\n", pub->size);
+    DEBUG_PRINTF("Public Area (size %d):\n", pub->size);
 
     /* Sanity check */
     if (pub->size > (sizeof(TPM2B_PUBLIC))) {
-        printf("Invalid TPM2B_PUBLIC size\n");
+        DEBUG_PRINTF("Invalid TPM2B_PUBLIC size\n");
         return;
     }
-    printf("  Type: %s (0x%X), name: %s (0x%X), objAttr: 0x%X, authPolicy sz: %d\n",
+    DEBUG_PRINTF("  Type: %s (0x%X), name: %s (0x%X), objAttr: 0x%X, authPolicy sz: %d\n",
         TPM2_GetAlgName(pub->publicArea.type), pub->publicArea.type,
         TPM2_GetAlgName(pub->publicArea.nameAlg), pub->publicArea.nameAlg,
         (unsigned int)pub->publicArea.objectAttributes,
@@ -6595,7 +6599,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
     /* parameters and unique field depend on algType */
     switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            printf("  Keyed Hash: scheme: %s (0x%X), scheme hash: %s (0x%X), unique size %d\n",
+            DEBUG_PRINTF("  Keyed Hash: scheme: %s (0x%X), scheme hash: %s (0x%X), unique size %d\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.keyedHashDetail.scheme.scheme),
                 pub->publicArea.parameters.keyedHashDetail.scheme.scheme,
                 TPM2_GetAlgName(pub->publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg),
@@ -6606,7 +6610,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             #endif
             break;
         case TPM_ALG_SYMCIPHER:
-            printf("  Symmetric Cipher: algorithm: %s (0x%X), keyBits: %d, mode: %s (0x%X), unique size %d\n",
+            DEBUG_PRINTF("  Symmetric Cipher: algorithm: %s (0x%X), keyBits: %d, mode: %s (0x%X), unique size %d\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.symDetail.sym.algorithm),
                 pub->publicArea.parameters.symDetail.sym.algorithm,
                 pub->publicArea.parameters.symDetail.sym.keyBits.sym,
@@ -6618,18 +6622,18 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             #endif
             break;
         case TPM_ALG_RSA:
-            printf("  RSA: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
+            DEBUG_PRINTF("  RSA: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.algorithm),
                 pub->publicArea.parameters.rsaDetail.symmetric.algorithm,
                 pub->publicArea.parameters.rsaDetail.symmetric.keyBits.sym,
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.symmetric.mode.sym),
                 pub->publicArea.parameters.rsaDetail.symmetric.mode.sym);
-            printf("       scheme: %s (0x%X), scheme hash: %s (0x%X)\n",
+            DEBUG_PRINTF("       scheme: %s (0x%X), scheme hash: %s (0x%X)\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.scheme.scheme),
                 pub->publicArea.parameters.rsaDetail.scheme.scheme,
                 TPM2_GetAlgName(pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg),
                 pub->publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg);
-            printf("       keyBits: %d, exponent: 0x%X, unique size %d\n",
+            DEBUG_PRINTF("       keyBits: %d, exponent: 0x%X, unique size %d\n",
                 pub->publicArea.parameters.rsaDetail.keyBits,
                 (unsigned int)pub->publicArea.parameters.rsaDetail.exponent,
                 pub->publicArea.unique.rsa.size);
@@ -6638,20 +6642,20 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             #endif
             break;
         case TPM_ALG_ECC:
-            printf("  ECC: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
+            DEBUG_PRINTF("  ECC: sym algorithm: %s (0x%X), sym keyBits: %d, sym mode: %s (0x%X)\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.symmetric.algorithm),
                 pub->publicArea.parameters.eccDetail.symmetric.algorithm,
                 pub->publicArea.parameters.eccDetail.symmetric.keyBits.sym,
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.symmetric.mode.sym),
                 pub->publicArea.parameters.eccDetail.symmetric.mode.sym);
-            printf("       scheme: %s (0x%X), scheme hash: %s (0x%X), curveID: size %d, 0x%X\n",
+            DEBUG_PRINTF("       scheme: %s (0x%X), scheme hash: %s (0x%X), curveID: size %d, 0x%X\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.scheme.scheme),
                 pub->publicArea.parameters.eccDetail.scheme.scheme,
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg),
                 pub->publicArea.parameters.eccDetail.scheme.details.any.hashAlg,
                 TPM2_GetCurveSize(pub->publicArea.parameters.eccDetail.curveID),
                 pub->publicArea.parameters.eccDetail.curveID);
-            printf("       KDF scheme: %s (0x%X), KDF alg: %s (0x%X), unique X/Y size %d/%d\n",
+            DEBUG_PRINTF("       KDF scheme: %s (0x%X), KDF alg: %s (0x%X), unique X/Y size %d/%d\n",
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.kdf.scheme),
                 pub->publicArea.parameters.eccDetail.kdf.scheme,
                 TPM2_GetAlgName(pub->publicArea.parameters.eccDetail.kdf.details.any.hashAlg),
@@ -6665,7 +6669,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             break;
         default:
             /* derive does not seem to have specific fields in the parameters struct */
-            printf("Derive Type: unique label size %d, context size %d\n",
+            DEBUG_PRINTF("Derive Type: unique label size %d, context size %d\n",
                 pub->publicArea.unique.derive.label.size,
                 pub->publicArea.unique.derive.context.size);
             #ifdef WOLFTPM_DEBUG_VERBOSE
