@@ -19,7 +19,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* This example shows IO interfaces for U-boot using raw SPI */
+/* This example shows IO interfaces for U-boot using raw SPI
+ * For Raspberry Pi 4 with Infineon SLB9672 TPM HAT
+ * Reference: https://github.com/wolfSSL/wolfTPM/pull/451
+ */
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_tis.h>
@@ -44,16 +47,19 @@
 #if defined(__UBOOT__)
     #include <config.h>
     #include <spi.h>
+    #include <asm/io.h>
     #include <dm/device.h>
+    #include <dm/device-internal.h>
     #include <dm/uclass.h>
 
     /* SPI bus and chip select configuration for TPM
-     * These can be overridden in user_settings.h or board config */
+     * These can be overridden in user_settings.h or board config
+     * Official Raspberry Pi tpm-slb9670 overlay uses CE1 (GPIO7) */
     #ifndef TPM_SPI_BUS
         #define TPM_SPI_BUS 0
     #endif
     #ifndef TPM_SPI_CS
-        #define TPM_SPI_CS 0
+        #define TPM_SPI_CS 1  /* CE1 (GPIO7) - matches Linux tpm-slb9670 overlay */
     #endif
     #ifndef TPM_SPI_MAX_HZ
         #define TPM_SPI_MAX_HZ 1000000  /* 1 MHz - safe default */
@@ -74,16 +80,22 @@
         int ret;
 
         if (g_spi_initialized) {
-            return 0;  /* Already initialized */
+            return 0;
         }
 
-        /* Get SPI bus and slave device */
-        ret = spi_get_bus_and_cs(TPM_SPI_BUS, TPM_SPI_CS,
-                                 &g_spi_bus, &g_spi_slave);
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM: Initializing SPI bus=%d, cs=%d, hz=%d\n",
+               TPM_SPI_BUS, TPM_SPI_CS, TPM_SPI_MAX_HZ);
+    #endif
+
+        /* Get or create SPI bus and slave device */
+        ret = _spi_get_bus_and_cs(TPM_SPI_BUS, TPM_SPI_CS,
+                                  TPM_SPI_MAX_HZ, TPM_SPI_MODE,
+                                  "spi_generic_drv", "wolftpm_spi",
+                                  &g_spi_bus, &g_spi_slave);
         if (ret != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("Failed to get SPI bus %d cs %d: %d\n",
-                   TPM_SPI_BUS, TPM_SPI_CS, ret);
+            printf("wolfTPM: SPI init failed: %d\n", ret);
         #endif
             return ret;
         }
@@ -91,7 +103,7 @@
         g_spi_initialized = 1;
 
     #ifdef DEBUG_WOLFTPM
-        printf("TPM SPI initialized: bus %d, cs %d\n", TPM_SPI_BUS, TPM_SPI_CS);
+        printf("wolfTPM: SPI initialized successfully\n");
     #endif
 
         return 0;
@@ -123,7 +135,7 @@
         ret = spi_claim_bus(g_spi_slave);
         if (ret != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("Failed to claim SPI bus: %d\n", ret);
+            printf("wolfTPM: Failed to claim SPI bus: %d\n", ret);
         #endif
             return TPM_RC_FAILURE;
         }
@@ -134,7 +146,7 @@
                        txBuf, rxBuf, SPI_XFER_BEGIN);
         if (ret != 0) {
         #ifdef DEBUG_WOLFTPM
-            printf("SPI header xfer failed: %d\n", ret);
+            printf("wolfTPM: SPI header xfer failed: %d\n", ret);
         #endif
             goto cleanup;
         }
@@ -154,7 +166,7 @@
 
             if (timeout <= 0 || ret != 0) {
             #ifdef DEBUG_WOLFTPM
-                printf("SPI wait state timeout\n");
+                printf("wolfTPM: SPI wait state timeout\n");
             #endif
                 /* Deassert CS */
                 spi_xfer(g_spi_slave, 0, NULL, NULL, SPI_XFER_END);
@@ -175,17 +187,12 @@
         }
 
     #else
-        /* No wait state handling - send entire message at once
-         * This works for Infineon TPMs (SLB9670/SLB9672) which guarantee
-         * no wait states */
+        /* No wait state handling - send entire message at once */
         ret = spi_xfer(g_spi_slave, xferSz * 8, txBuf, rxBuf,
                        SPI_XFER_BEGIN | SPI_XFER_END);
     #endif /* WOLFTPM_CHECK_WAIT_STATE */
 
         if (ret != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SPI xfer failed: %d\n", ret);
-        #endif
             ret = TPM_RC_FAILURE;
         } else {
             ret = TPM_RC_SUCCESS;
