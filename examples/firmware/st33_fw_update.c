@@ -138,6 +138,9 @@ static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo)
     return rc;
 }
 
+/* Callback function for firmware data access
+ * Returns the actual number of bytes copied (may be less than requested at end of buffer)
+ * Returns BUFFER_E on error (offset out of bounds) */
 static int TPM2_ST33_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     uint32_t offset, void* cb_ctx)
 {
@@ -257,9 +260,9 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
             rc, TPM2_GetRCString(rc));
         goto exit;
     }
-    
+
     TPM2_ST33_PrintInfo(&caps);
-    
+
     /* Verify this is an ST33 TPM */
     if (caps.mfg != TPM_MFG_STM) {
         printf("Error: This tool is for STMicroelectronics ST33 TPMs only!\n");

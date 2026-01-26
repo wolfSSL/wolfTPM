@@ -4211,9 +4211,8 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade with LMS signature (ST33KTPM)
-    \note For ST33KTPM devices with firmware version >= 256, supports LMS signature
-    \note For firmware version >= 915, LMS signature is required
-    \note For firmware version 256-914, LMS signature is optional
+    \note For ST33KTPM devices with firmware version < 512, non-LMS format required (legacy firmware, e.g., 9.257)
+    \note For ST33KTPM devices with firmware version >= 512, LMS format required (modern firmware, e.g., 9.512)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)

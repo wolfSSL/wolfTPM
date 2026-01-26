@@ -68,7 +68,7 @@ jobs:
             wolftpm_config: --enable-st33
           # STMicro ST33KTPM2
           - name: st33ktpm2 firmware
-            wolftpm_config: --enable-st33 --enable-firmware --enable-st
+            wolftpm_config: --enable-st33 --enable-firmware
           # Microchip
           - name: microchip
             wolftpm_config: --enable-microchip

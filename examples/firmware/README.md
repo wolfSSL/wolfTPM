@@ -153,7 +153,7 @@ Note: LMS format requirements:
 # Run without arguments to display the current firmware information
 ./st33_fw_update
 ST33 Firmware Update Tool
-TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
@@ -165,7 +165,7 @@ Firmware update: Non-LMS format required
 ST33 Firmware Update Tool
 	Firmware File: TPM_ST33KTPM2X_00090200_V1.fi
 	Format: Non-LMS (V1)
-TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
@@ -184,7 +184,7 @@ Please reset or power cycle the TPM.
 ST33 Firmware Update Tool
 	Firmware File: ST33KTPM2X_FAC_00090200_V2.fi
 	Format: LMS (V2)
-TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3 
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
 Firmware version details: Major=9, Minor=512, Vendor=0x0
@@ -201,7 +201,7 @@ Please reset or power cycle the TPM.
 # Cancel an ongoing firmware update
 ./st33_fw_update --abandon
 ST33 Firmware Update Tool
-TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1 
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
@@ -211,27 +211,4 @@ Firmware Update Abandon:
 Success: Please reset or power cycle TPM
 ```
 
-**Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics. Reference implementation code is available in the `examples-private` repository.
-
-### Testing Firmware Updates
-
-The `test_st33_firmware.sh` script can be used to test firmware update functionality:
-
-```sh
-# Basic functionality tests (no firmware files needed)
-./examples/firmware/test_st33_firmware.sh
-
-# Test non-LMS firmware update only
-NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh --no-lms
-
-# Test LMS firmware update only
-LMS_FW_FILE=/path/to/lms.fi ./examples/firmware/test_st33_firmware.sh --lms
-
-# Test both (backward compatible, runs both if both files are provided)
-LMS_FW_FILE=/path/to/lms.fi NON_LMS_FW_FILE=/path/to/nonlms.fi ./examples/firmware/test_st33_firmware.sh
-
-# Show help
-./examples/firmware/test_st33_firmware.sh --help
-```
-
-**Note**: Use `--lms` or `--no-lms` flags to test a specific update path. When neither flag is specified, the script will attempt to run both tests if both firmware files are provided (backward compatible behavior).
+**Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics.

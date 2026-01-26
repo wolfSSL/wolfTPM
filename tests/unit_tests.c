@@ -304,10 +304,10 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(&dev, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-    /* wolfTPM2_FirmwareUpgradeCancel - valid dev (may succeed or fail 
+    /* wolfTPM2_FirmwareUpgradeCancel - valid dev (may succeed or fail
      * depending on TPM state) */
     rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
-    /* Note: This may return success or error depending on TPM state - 
+    /* Note: This may return success or error depending on TPM state -
      * just verify it doesn't crash */
     (void)rc;
 
@@ -332,13 +332,13 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 
     /* Test ST33-specific path if we have an ST33 TPM */
     if (caps.mfg == TPM_MFG_STM) {
-        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature
          * but NULL manifest */
         rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
             dummy_sig, sizeof(dummy_sig));
         AssertIntNE(rc, 0);
 
-        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature 
+        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature
          * but NULL callback */
         rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, dummy_manifest,
             sizeof(dummy_manifest), NULL, NULL, dummy_sig, sizeof(dummy_sig));

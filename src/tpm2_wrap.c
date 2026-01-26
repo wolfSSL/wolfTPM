@@ -32,22 +32,6 @@
 #include <wolftpm/tpm2_packet.h>
 #include <hal/tpm_io.h> /* for default IO callback */
 
-/* Headers for firmware sleep function (needed for pedantic compliance) */
-#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
-     defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
-#if defined(WOLFTPM_ZEPHYR)
-    #include <zephyr/kernel.h>
-#elif defined(WOLFSSL_ESPIDF)
-    /* ESP-IDF headers included via tpm2_types.h */
-#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
-    #include <time.h>
-#elif defined(WIN32)
-    #include <windows.h>
-#elif !defined(FREERTOS)
-    #include <unistd.h>
-#endif
-#endif
-
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
 static void wolfTPM2_CopySymmetric(TPMT_SYM_DEF* out, const TPMT_SYM_DEF* in);
@@ -8185,37 +8169,6 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 
-/* Helper function to avoid -Wpedantic warning from XSLEEP_MS statement expression.
- * This function is shared by both Infineon and ST33 firmware update code.
- * Uses platform-specific sleep functions directly to avoid statement expressions.
- * Headers for these functions are already included via tpm2_types.h.
- * Defined early so it's available to both Infineon and ST33 code. */
-#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
-     defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
-static void tpm2_firmware_sleep_ms(uint32_t ms)
-{
-#if defined(WOLFTPM_ZEPHYR)
-    k_msleep(ms);
-#elif defined(WOLFSSL_ESPIDF)
-    vTaskDelay(pdMS_TO_TICKS(ms));
-#elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
-    struct timespec ts;
-    ts.tv_sec = ms / 1000;
-    ts.tv_nsec = (ms % 1000) * 1000000;
-    nanosleep(&ts, NULL);
-#elif defined(WIN32)
-    Sleep(ms);
-#elif defined(FREERTOS)
-    vTaskDelay(ms);
-#else
-    /* Default POSIX: use sleep/usleep (unistd.h included via tpm2_types.h) */
-    if (ms >= 1000)
-        sleep(ms / 1000);
-    usleep((ms % 1000) * 1000);
-#endif
-}
-#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 || WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
-
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
 
 /* Maximum size of firmware chunks */
@@ -8289,7 +8242,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         }
         if (rc == TPM_RC_SUCCESS) {
             /* delay to give the TPM time to switch modes */
-            tpm2_firmware_sleep_ms(300);
+            XSLEEP_MS(300);
             /* it is not required to release session handle,
              * since TPM reset into firmware upgrade mode */
 
@@ -8404,7 +8357,7 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
 
     if (rc == TPM_RC_SUCCESS) {
         /* Give the TPM time to start the new firmware */
-        tpm2_firmware_sleep_ms(300);
+        XSLEEP_MS(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8476,7 +8429,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (caps.mfg == TPM_MFG_STM) {
-        /* Route to ST33 firmware update 
+        /* Route to ST33 firmware update
          * (for LMS use wolfTPM2_FirmwareUpgradeHashWithLMS) */
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
@@ -8695,22 +8648,27 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 
 /* ST33 uses password auth (TPM_RS_PW) for firmware update, not policy */
 
-/* Start firmware upgrade (non-LMS): sends manifest (blob0=177 bytes) 
- * via FieldUpgradeStart */
-static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz)
+/* Common firmware upgrade start function
+ * Sends manifest (blob0) via FieldUpgradeStart
+ * 300ms delay: ST reference implementation uses this delay to allow
+ * TPM to switch modes after FieldUpgradeStart command */
+static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz, int is_lms)
 {
     int rc;
 
     (void)dev;
 
     /* ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart.
-     * This matches the ST reference implementation behavior. */
+     * This matches the ST reference implementation behavior.
+     * For LMS format, the manifest (blob0) already contains the embedded
+     * LMS signature. Send the full manifest directly. */
     rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
 
     if (rc == TPM_RC_SUCCESS) {
-        /* delay to give the TPM time to switch modes */
-        tpm2_firmware_sleep_ms(300);
+        /* 300ms delay: ST reference implementation uses this delay to allow
+         * TPM to switch modes after FieldUpgradeStart command */
+        XSLEEP_MS(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8720,43 +8678,28 @@ static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware upgrade start failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
+        printf("ST33 Firmware upgrade start%s failed 0x%x: %s\n",
+            is_lms ? " (LMS)" : "", rc, TPM2_GetRCString(rc));
     }
+#else
+    (void)is_lms;  /* Suppress unused parameter warning when DEBUG_WOLFTPM not defined */
 #endif
     return rc;
+}
+
+/* Start firmware upgrade (non-LMS): sends manifest (blob0=177 bytes)
+ * via FieldUpgradeStart */
+static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz)
+{
+    return tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, 0);
 }
 
 /* Start firmware upgrade (LMS): sends manifest (blob0=2697 bytes with embedded signature) via FieldUpgradeStart */
 static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz)
 {
-    int rc;
-
-    (void)dev;
-
-    /* ST33 LMS: The manifest (blob0) already contains the embedded
-     * LMS signature. Send the full manifest directly.
-     * Uses password auth (TPM_RS_PW) like ST reference implementation. */
-    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
-
-    if (rc == TPM_RC_SUCCESS) {
-        /* delay to give the TPM time to switch modes */
-        tpm2_firmware_sleep_ms(300);
-
-    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-        !defined(WOLFTPM_WINAPI)
-        /* Do chip startup and request locality again */
-        rc = TPM2_ChipStartup(&dev->ctx, 10);
-    #endif
-    }
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("ST33 Firmware upgrade start (LMS) failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
-    }
-#endif
-    return rc;
+    return tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, 1);
 }
 
 /* ST33 sends full manifest (blob0) directly in FieldUpgradeStart */
@@ -8860,8 +8803,9 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
     XFREE(blob_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
 
     if (rc == TPM_RC_SUCCESS) {
-        /* Give the TPM time to process */
-        tpm2_firmware_sleep_ms(300);
+        /* 300ms delay: ST reference implementation uses this delay to allow
+         * TPM to process firmware data blobs */
+        XSLEEP_MS(300);
 
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
@@ -8900,7 +8844,6 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     }
 
     /* Two-state model: < 512 requires non-LMS, >= 512 requires LMS */
-    
     #ifdef DEBUG_WOLFTPM
         printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
             caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
@@ -8945,14 +8888,13 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         /* LMS manifest (blob0=2697 bytes) includes embedded signature */
         rc = tpm2_st33_firmware_start_lms(dev, manifest, manifest_sz);
     }
-    
+
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
     }
     /* Note: ST33 doesn't require a finalize command - the firmware update
      * is complete after all blobs are sent. The TPM will automatically
      * apply the update on next reset/power cycle. */
-    
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
         printf("ST33 Firmware update failed 0x%x: %s\n",

@@ -521,12 +521,12 @@ typedef int64_t  INT64;
         #define XSLEEP_MS(ms) vTaskDelay(pdMS_TO_TICKS(ms))
     #elif defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
         #include <time.h>
-        #define XSLEEP_MS(ms) ({ \
-            struct timespec ts; \
-            ts.tv_sec = ms / 1000; \
-            ts.tv_nsec = (ms % 1000) * 1000000; \
-            nanosleep(&ts, NULL); \
-        })
+        static inline void XSLEEP_MS(unsigned int ms) {
+            struct timespec ts;
+            ts.tv_sec = ms / 1000;
+            ts.tv_nsec = (ms % 1000) * 1000000;
+            nanosleep(&ts, NULL);
+        }
     #elif defined(WIN32)
         #include <windows.h>
         #define XSLEEP_MS(ms) Sleep(ms)
@@ -534,11 +534,11 @@ typedef int64_t  INT64;
         #define XSLEEP_MS(ms) vTaskDelay(ms)
     #else
         #include <unistd.h>
-        #define XSLEEP_MS(ms) ({ \
-            if (ms >= 1000) \
-                sleep(ms / 1000); \
-            usleep((ms % 1000) * 1000); \
-        })
+        static inline void XSLEEP_MS(unsigned int ms) {
+            if (ms >= 1000)
+                sleep(ms / 1000);
+            usleep((ms % 1000) * 1000);
+        }
     #endif
 #endif
 
