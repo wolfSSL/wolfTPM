@@ -669,6 +669,7 @@ static void test_wolfTPM_ImportPublicKey(void)
     wolfTPM2_Cleanup(&dev);
 }
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 /* Test vector from ibmtss policy authorize test for SHA2-256 */
 static void test_wolfTPM2_PCRPolicy(void)
 {
@@ -734,6 +735,7 @@ static void test_wolfTPM2_PCRPolicy(void)
 
     wolfTPM2_Cleanup(&dev);
 }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFTPM2_PEM_DECODE */
 
 #if defined(HAVE_THREAD_LS) && defined(HAVE_PTHREAD)
@@ -907,7 +909,9 @@ int unit_tests(int argc, char *argv[])
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
         !defined(NO_RSA)
     test_wolfTPM_ImportPublicKey();
+    #ifndef WOLFTPM_NO_PCR_POLICY
     test_wolfTPM2_PCRPolicy();
+    #endif
     #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);

@@ -462,6 +462,39 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PROVISIONING"
 fi
 
+# NV Storage support
+AC_ARG_ENABLE([nv],
+    [AS_HELP_STRING([--enable-nv],[Enable NV storage commands (default: enabled)])],
+    [ ENABLED_NV=$enableval ],
+    [ ENABLED_NV=yes ]
+    )
+if test "x$ENABLED_NV" = "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_NV"
+fi
+
+# PCR and Policy support
+AC_ARG_ENABLE([pcr-policy],
+    [AS_HELP_STRING([--enable-pcr-policy],[Enable extended PCR and Policy commands (default: enabled)])],
+    [ ENABLED_PCR_POLICY=$enableval ],
+    [ ENABLED_PCR_POLICY=yes ]
+    )
+if test "x$ENABLED_PCR_POLICY" = "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_PCR_POLICY"
+fi
+
+# Attestation commands (Quote, Certify, GetTime, etc.)
+AC_ARG_ENABLE([attestation],
+    [AS_HELP_STRING([--enable-attestation],[Enable attestation commands Quote/Certify/GetTime (default: enabled)])],
+    [ ENABLED_ATTESTATION=$enableval ],
+    [ ENABLED_ATTESTATION=yes ]
+    )
+if test "x$ENABLED_ATTESTATION" = "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_ATTESTATION"
+fi
+
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
@@ -492,6 +525,9 @@ AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_NV], [test "x$ENABLED_NV" = "xyes"])
+AM_CONDITIONAL([BUILD_PCR_POLICY], [test "x$ENABLED_PCR_POLICY" = "xyes"])
+AM_CONDITIONAL([BUILD_ATTESTATION], [test "x$ENABLED_ATTESTATION" = "xyes"])
 
 
 CREATE_HEX_VERSION

@@ -116,6 +116,21 @@ jobs:
             wolftpm_config: --disable-provisioning
             needs_swtpm: false
 
+          # No NV
+          - name: no-nv
+            wolftpm_config: --disable-nv
+            needs_swtpm: false
+
+          # No PCR policy
+          - name: no-pcr-policy
+            wolftpm_config: --disable-pcr-policy
+            needs_swtpm: false
+
+          # No attestation
+          - name: no-attestation
+            wolftpm_config: --disable-attestation
+            needs_swtpm: false
+
           # Symmetric encryption
           - name: symmetric
             wolftpm_cflags: "-DWOLFTPM_USE_SYMMETRIC"

@@ -2,27 +2,30 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-noinst_PROGRAMS += examples/attestation/make_credential \
-                   examples/attestation/activate_credential \
-                   examples/attestation/certify
-
 noinst_HEADERS  += examples/attestation/attestation.h
 
+noinst_PROGRAMS += examples/attestation/make_credential
 examples_attestation_make_credential_SOURCES      = examples/attestation/make_credential.c \
                                                     examples/tpm_test_keys.c
 examples_attestation_make_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_make_credential_DEPENDENCIES = src/libwolftpm.la
 
+if BUILD_PCR_POLICY
+noinst_PROGRAMS += examples/attestation/activate_credential
 examples_attestation_activate_credential_SOURCES      = examples/attestation/activate_credential.c \
                                                         examples/tpm_test_keys.c
 examples_attestation_activate_credential_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_activate_credential_DEPENDENCIES = src/libwolftpm.la
 
+if BUILD_ATTESTATION
+noinst_PROGRAMS += examples/attestation/certify
 examples_attestation_certify_SOURCES      = examples/attestation/certify.c \
                                             examples/tpm_test_keys.c
 examples_attestation_certify_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_attestation_certify_DEPENDENCIES = src/libwolftpm.la
-endif
+endif BUILD_ATTESTATION
+endif BUILD_PCR_POLICY
+endif BUILD_EXAMPLES
 example_attestationdir = $(exampledir)/attestation
 dist_example_attestation_DATA = \
   examples/attestation/make_credential.c \

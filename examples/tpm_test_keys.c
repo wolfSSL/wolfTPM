@@ -378,7 +378,7 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey,
         /* Create primary storage key */
         rc = wolfTPM2_CreateSRK(pDev, pStorageKey, alg,
             (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
-    #ifndef WOLFTPM_WINAPI
+    #if !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_NO_NV)
         if (rc == TPM_RC_SUCCESS) {
             /* Move storage key into persistent NV */
             rc = wolfTPM2_NVStoreKey(pDev, TPM_RH_OWNER, pStorageKey, handle);

@@ -1198,6 +1198,45 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
     return rc;
 }
 
+/* Helper function to parse creation data from TPM response packets.
+ * Used by TPM2_Create and TPM2_CreatePrimary to reduce duplicate code. */
+static void TPM2_Packet_ParseCreationData(TPM2_Packet* packet,
+    TPM2B_CREATION_DATA* creationData,
+    TPM2B_DIGEST* creationHash,
+    TPMT_TK_CREATION* creationTicket)
+{
+    TPM2_Packet_ParseU16(packet, &creationData->size);
+    TPM2_Packet_ParsePCR(packet, &creationData->creationData.pcrSelect);
+    TPM2_Packet_ParseU16(packet, &creationData->creationData.pcrDigest.size);
+    TPM2_Packet_ParseBytes(packet,
+        creationData->creationData.pcrDigest.buffer,
+        creationData->creationData.pcrDigest.size);
+    TPM2_Packet_ParseU8(packet, &creationData->creationData.locality);
+    TPM2_Packet_ParseU16(packet, &creationData->creationData.parentNameAlg);
+    TPM2_Packet_ParseU16(packet, &creationData->creationData.parentName.size);
+    TPM2_Packet_ParseBytes(packet,
+        creationData->creationData.parentName.name,
+        creationData->creationData.parentName.size);
+    TPM2_Packet_ParseU16(packet,
+        &creationData->creationData.parentQualifiedName.size);
+    TPM2_Packet_ParseBytes(packet,
+        creationData->creationData.parentQualifiedName.name,
+        creationData->creationData.parentQualifiedName.size);
+    TPM2_Packet_ParseU16(packet, &creationData->creationData.outsideInfo.size);
+    TPM2_Packet_ParseBytes(packet,
+        creationData->creationData.outsideInfo.buffer,
+        creationData->creationData.outsideInfo.size);
+
+    TPM2_Packet_ParseU16(packet, &creationHash->size);
+    TPM2_Packet_ParseBytes(packet, creationHash->buffer, creationHash->size);
+
+    TPM2_Packet_ParseU16(packet, &creationTicket->tag);
+    TPM2_Packet_ParseU32(packet, &creationTicket->hierarchy);
+    TPM2_Packet_ParseU16(packet, &creationTicket->digest.size);
+    TPM2_Packet_ParseBytes(packet,
+        creationTicket->digest.buffer,
+        creationTicket->digest.size);
+}
 
 TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
 {
@@ -1238,44 +1277,8 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
 
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
-            TPM2_Packet_ParseU16(&packet, &out->creationData.size);
-            TPM2_Packet_ParsePCR(&packet,
-                &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.pcrDigest.buffer,
-                out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseU8(&packet,
-                &out->creationData.creationData.locality);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.parentName.name,
-                out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.parentQualifiedName.name,
-                out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.outsideInfo.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.outsideInfo.buffer,
-                out->creationData.creationData.outsideInfo.size);
-
-            TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
-            TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
-                out->creationHash.size);
-
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
-            TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.digest.size);
-            TPM2_Packet_ParseBytes(&packet,
-                        out->creationTicket.digest.buffer,
-                        out->creationTicket.digest.size);
+            TPM2_Packet_ParseCreationData(&packet, &out->creationData,
+                &out->creationHash, &out->creationTicket);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1366,44 +1369,8 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
 
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
-            TPM2_Packet_ParseU16(&packet, &out->creationData.size);
-            TPM2_Packet_ParsePCR(&packet,
-                &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.pcrDigest.buffer,
-                out->creationData.creationData.pcrDigest.size);
-            TPM2_Packet_ParseU8(&packet,
-                &out->creationData.creationData.locality);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.parentName.name,
-                out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.parentQualifiedName.name,
-                out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.outsideInfo.size);
-            TPM2_Packet_ParseBytes(&packet,
-                out->creationData.creationData.outsideInfo.buffer,
-                out->creationData.creationData.outsideInfo.size);
-
-            TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
-            TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
-                out->creationHash.size);
-
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
-            TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.digest.size);
-            TPM2_Packet_ParseBytes(&packet,
-                        out->creationTicket.digest.buffer,
-                        out->creationTicket.digest.size);
+            TPM2_Packet_ParseCreationData(&packet, &out->creationData,
+                &out->creationHash, &out->creationTicket);
 
             TPM2_Packet_ParseU16(&packet, &out->name.size);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
@@ -2685,6 +2652,7 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
     return rc;
 }
 
+#ifndef WOLFTPM_NO_ATTESTATION
 TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
 {
     TPM_RC rc;
@@ -3005,6 +2973,7 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
     }
     return rc;
 }
+#endif /* !WOLFTPM_NO_ATTESTATION */
 
 TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out)
 {
@@ -3242,6 +3211,7 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_PCR_POLICY
 TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
 {
     TPM_RC rc;
@@ -4145,6 +4115,7 @@ TPM_RC TPM2_PolicyAuthorizeNV(PolicyAuthorizeNV_In* in)
     }
     return rc;
 }
+#endif /* !WOLFTPM_NO_PCR_POLICY */
 
 
 TPM_RC TPM2_HierarchyControl(HierarchyControl_In* in)
@@ -4823,6 +4794,7 @@ TPM_RC TPM2_TestParms(TestParms_In* in)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_NV
 TPM_RC TPM2_NV_DefineSpace(NV_DefineSpace_In* in)
 {
     TPM_RC rc;
@@ -5349,6 +5321,7 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
     }
     return rc;
 }
+#endif /* !WOLFTPM_NO_NV */
 
 /******************************************************************************/
 /* --- END Standard TPM API's -- */
