@@ -219,15 +219,15 @@ static void test_wolfTPM2_ReadPublicKey(void)
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 /* Test ST33 firmware upgrade APIs (function availability and
- * parameter validation) */
+ * parameter validation). LMS vs non-LMS format is auto-detected
+ * from manifest size (177 bytes = non-LMS, 2697 bytes = LMS). */
 static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-    int lms_state = 0; /* 0=non-LMS (< 512), 1=LMS required (>= 512) */
-    uint8_t dummy_sig[1] = {0};
 #ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Invalid manifest size (not 177 or 2697) for testing auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
 
@@ -241,17 +241,14 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
 
-    /* Test two-state version detection (< 512 non-LMS, >= 512 LMS) */
+#ifdef DEBUG_WOLFTPM
+    /* Display firmware version info */
     if (caps.mfg == TPM_MFG_STM) {
-        lms_state = (caps.fwVerMinor >= 512) ? 1 : 0;
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 TPM - Firmware: %u.%u (0x%x), LMS required: %s\n",
+        printf("ST33 TPM - Firmware: %u.%u (0x%x), Format: %s\n",
             caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor,
-            lms_state ? "yes" : "no");
-    #else
-        (void)lms_state;
-    #endif
+            (caps.fwVerMinor >= 512) ? "LMS" : "non-LMS");
     }
+#endif
 
     /* ===== Test NULL dev parameter handling ===== */
 
@@ -264,11 +261,6 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
         0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-    /* wolfTPM2_FirmwareUpgradeHashWithLMS - NULL dev */
-    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(NULL, TPM_ALG_SHA384, NULL, 0,
-        NULL, 0, NULL, NULL, NULL, 0);
-    AssertIntNE(rc, 0);
-
     /* wolfTPM2_FirmwareUpgradeRecover - NULL dev */
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
@@ -277,10 +269,6 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
-
-    /* wolfTPM2_FirmwareUpgradeWithLMS - NULL dev */
-    rc = wolfTPM2_FirmwareUpgradeWithLMS(NULL, NULL, 0, NULL, NULL, NULL, 0);
-    AssertIntNE(rc, 0);
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
     /* ===== Test NULL/invalid parameter combinations ===== */
@@ -288,16 +276,6 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     /* wolfTPM2_FirmwareUpgradeHash - valid dev, NULL manifest */
     rc = wolfTPM2_FirmwareUpgradeHash(&dev, TPM_ALG_SHA384, NULL, 0, NULL,
         0, NULL, NULL);
-    AssertIntNE(rc, 0);
-
-    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, NULL lms_signature */
-    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
-        NULL, 0, NULL, NULL, NULL, 0);
-    AssertIntNE(rc, 0);
-
-    /* wolfTPM2_FirmwareUpgradeHashWithLMS - valid dev, zero-length lms_signature */
-    rc = wolfTPM2_FirmwareUpgradeHashWithLMS(&dev, TPM_ALG_SHA384, NULL, 0,
-        NULL, 0, NULL, NULL, dummy_sig, 0);
     AssertIntNE(rc, 0);
 
     /* wolfTPM2_FirmwareUpgradeRecover - valid dev, NULL manifest */
@@ -321,28 +299,15 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
         NULL, NULL);
     AssertIntNE(rc, 0);
 
-    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, NULL lms_signature */
-    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL, NULL, 0);
-    AssertIntNE(rc, 0);
-
-    /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev, zero-length lms_signature */
-    rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
-        dummy_sig, 0);
-    AssertIntNE(rc, 0);
-
-    /* Test ST33-specific path if we have an ST33 TPM */
+    /* Test ST33-specific manifest size validation if we have an ST33 TPM.
+     * Invalid manifest size (not 177 or 2697) should return BAD_FUNC_ARG. */
     if (caps.mfg == TPM_MFG_STM) {
-        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature
-         * but NULL manifest */
-        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, NULL, 0, NULL, NULL,
-            dummy_sig, sizeof(dummy_sig));
-        AssertIntNE(rc, 0);
-
-        /* wolfTPM2_FirmwareUpgradeWithLMS - valid dev with dummy signature
-         * but NULL callback */
-        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev, dummy_manifest,
-            sizeof(dummy_manifest), NULL, NULL, dummy_sig, sizeof(dummy_sig));
-        AssertIntNE(rc, 0);
+        /* wolfTPM2_FirmwareUpgradeHash - invalid manifest size (10 bytes).
+         * Should fail with BAD_FUNC_ARG because manifest_sz must be
+         * exactly 177 (non-LMS) or 2697 (LMS). */
+        rc = wolfTPM2_FirmwareUpgradeHash(&dev, TPM_ALG_SHA384, NULL, 0,
+            dummy_manifest, sizeof(dummy_manifest), NULL, NULL);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 

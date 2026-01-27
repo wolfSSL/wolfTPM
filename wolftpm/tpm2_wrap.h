@@ -4129,8 +4129,11 @@ typedef int (*wolfTPM2FwDataCb)(
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Calculate hash of firmware manifest for upgrade
+    \brief Perform TPM firmware upgrade with pre-computed manifest hash
     \note Supports SHA2-384 or SHA2-512 for manifest hash
+    \note For ST33KTPM: LMS vs non-LMS format is auto-detected from manifest size:
+          - 177 bytes: Non-LMS format (firmware < 512, e.g., 9.257)
+          - 2697 bytes: LMS format (firmware >= 512, e.g., 9.512)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -4154,42 +4157,14 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
 
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Perform TPM firmware upgrade with pre-computed hash and LMS signature
-    \note For ST33KTPM devices with firmware version >= 512, LMS signature required
-    \note This function accepts pre-computed manifest hash (no wolfCrypt needed)
-
-    \return TPM_RC_SUCCESS: successful
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param hashAlg hash algorithm used (TPM_ALG_SHA384 or TPM_ALG_SHA512)
-    \param manifest_hash pre-computed manifest hash
-    \param manifest_hash_sz size of manifest hash
-    \param manifest pointer to firmware manifest data
-    \param manifest_sz size of firmware manifest
-    \param cb callback function for firmware data access
-    \param cb_ctx context pointer passed to callback
-    \param lms_signature pointer to LMS signature data
-    \param lms_signature_sz size of LMS signature
-
-    \sa wolfTPM2_FirmwareUpgradeHash
-    \sa wolfTPM2_FirmwareUpgradeWithLMS
-*/
-WOLFTPM_API int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev,
-    TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
-    uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz);
-
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
     \note Upgrades TPM firmware using provided manifest and data callback
+    \note For ST33KTPM: LMS vs non-LMS format is auto-detected from manifest size:
+          - 177 bytes: Non-LMS format (firmware < 512, e.g., 9.257)
+          - 2697 bytes: LMS format (firmware >= 512, e.g., 9.512)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -4207,32 +4182,6 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Perform TPM firmware upgrade with LMS signature (ST33KTPM)
-    \note For ST33KTPM devices with firmware version < 512, non-LMS format required (legacy firmware, e.g., 9.257)
-    \note For ST33KTPM devices with firmware version >= 512, LMS format required (modern firmware, e.g., 9.512)
-
-    \return TPM_RC_SUCCESS: successful
-    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
-
-    \param dev pointer to a TPM2_DEV struct
-    \param manifest pointer to firmware manifest data
-    \param manifest_sz size of firmware manifest
-    \param cb callback function for firmware data access
-    \param cb_ctx context pointer passed to callback
-    \param lms_signature pointer to LMS signature data
-    \param lms_signature_sz size of LMS signature
-
-    \sa wolfTPM2_FirmwareUpgrade
-    \sa wolfTPM2_FirmwareUpgradeHash
-*/
-WOLFTPM_API int wolfTPM2_FirmwareUpgradeWithLMS(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz);
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!

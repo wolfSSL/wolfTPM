@@ -8408,8 +8408,7 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz);
+    wolfTPM2FwDataCb cb, void* cb_ctx);
 static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
 #endif
 
@@ -8429,13 +8428,12 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 
 #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     if (caps.mfg == TPM_MFG_STM) {
-        /* Route to ST33 firmware update
-         * (for LMS use wolfTPM2_FirmwareUpgradeHashWithLMS) */
+        /* Route to ST33 firmware update - LMS vs non-LMS is
+         * auto-detected from manifest size */
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
             manifest, manifest_sz,
-            cb, cb_ctx,
-            NULL, 0); /* LMS signature not provided via this API */
+            cb, cb_ctx);
     }
 #endif
 
@@ -8483,53 +8481,6 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     return TPM_RC_COMMAND_CODE;
 }
 
-int wolfTPM2_FirmwareUpgradeHashWithLMS(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
-    uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz)
-{
-    int rc;
-    WOLFTPM2_CAPS caps;
-
-    /* Validate LMS signature is provided */
-    if (lms_signature == NULL || lms_signature_sz == 0) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* Get capabilities to determine manufacturer */
-    rc = wolfTPM2_GetCapabilities(dev, &caps);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-
-#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
-    if (caps.mfg == TPM_MFG_STM) {
-        /* Route to ST33 firmware update implementation with LMS signature */
-        return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
-            manifest_hash, manifest_hash_sz,
-            manifest, manifest_sz,
-            cb, cb_ctx,
-            lms_signature, lms_signature_sz);
-    }
-#else
-    /* Suppress unused parameter warnings when ST33 is not enabled */
-    (void)hashAlg;
-    (void)manifest_hash;
-    (void)manifest_hash_sz;
-    (void)manifest;
-    (void)manifest_sz;
-    (void)cb;
-    (void)cb_ctx;
-#endif
-
-    /* Unsupported manufacturer or LMS not supported */
-#ifdef DEBUG_WOLFTPM
-    printf("Firmware update with LMS not supported for manufacturer %d\n", caps.mfg);
-#endif
-    return TPM_RC_COMMAND_CODE;
-}
-
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
@@ -8544,30 +8495,6 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
         rc = wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
             manifest_hash, (uint32_t)sizeof(manifest_hash),
             manifest, manifest_sz, cb, cb_ctx);
-    }
-    return rc;
-}
-
-int wolfTPM2_FirmwareUpgradeWithLMS(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz)
-{
-    int rc;
-    uint8_t manifest_hash[TPM_SHA384_DIGEST_SIZE];
-
-    /* Validate LMS signature is provided */
-    if (lms_signature == NULL || lms_signature_sz == 0) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* hash the manifest */
-    rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
-    if (rc == 0) {
-        rc = wolfTPM2_FirmwareUpgradeHashWithLMS(dev, TPM_ALG_SHA384,
-            manifest_hash, (uint32_t)sizeof(manifest_hash),
-            manifest, manifest_sz, cb, cb_ctx,
-            lms_signature, lms_signature_sz);
     }
     return rc;
 }
@@ -8646,6 +8573,11 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
  * >= 512: LMS format required (modern, e.g., 9.512) */
 #define ST33_FW_VERSION_LMS_REQUIRED   512
 
+/* ST33 manifest (blob0) sizes determine firmware format.
+ * The manifest size is used for auto-detection of LMS vs non-LMS format. */
+#define ST33_MANIFEST_SIZE_NON_LMS     177   /* Non-LMS manifest size */
+#define ST33_MANIFEST_SIZE_LMS         2697  /* LMS manifest size (includes embedded signature) */
+
 /* ST33 uses password auth (TPM_RS_PW) for firmware update, not policy */
 
 /* Common firmware upgrade start function
@@ -8685,21 +8617,6 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
     (void)is_lms;  /* Suppress unused parameter warning when DEBUG_WOLFTPM not defined */
 #endif
     return rc;
-}
-
-/* Start firmware upgrade (non-LMS): sends manifest (blob0=177 bytes)
- * via FieldUpgradeStart */
-static int tpm2_st33_firmware_start(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz)
-{
-    return tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, 0);
-}
-
-/* Start firmware upgrade (LMS): sends manifest (blob0=2697 bytes with embedded signature) via FieldUpgradeStart */
-static int tpm2_st33_firmware_start_lms(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz)
-{
-    return tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, 1);
 }
 
 /* ST33 sends full manifest (blob0) directly in FieldUpgradeStart */
@@ -8823,15 +8740,39 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
 }
 
 
-/* Main ST33 firmware upgrade function with version detection */
+/* Main ST33 firmware upgrade function with auto-detection from manifest size.
+ * The manifest size determines whether LMS format is used:
+ * - 177 bytes: Non-LMS format (legacy firmware < 512)
+ * - 2697 bytes: LMS format (modern firmware >= 512, LMS signature embedded)
+ */
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx,
-    uint8_t* lms_signature, uint32_t lms_signature_sz)
+    wolfTPM2FwDataCb cb, void* cb_ctx)
 {
     int rc;
     WOLFTPM2_CAPS caps;
+    int is_lms;
+
+    /* ST33 sends full manifest directly, not hash */
+    (void)hashAlg;
+    (void)manifest_hash;
+    (void)manifest_hash_sz;
+
+    /* Auto-detect LMS format from manifest size */
+    if (manifest_sz == ST33_MANIFEST_SIZE_LMS) {
+        is_lms = 1;
+    }
+    else if (manifest_sz == ST33_MANIFEST_SIZE_NON_LMS) {
+        is_lms = 0;
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Error: Invalid manifest size %u (expected %d for non-LMS or %d for LMS)\n",
+            manifest_sz, ST33_MANIFEST_SIZE_NON_LMS, ST33_MANIFEST_SIZE_LMS);
+    #endif
+        return BAD_FUNC_ARG;
+    }
 
     /* Get capabilities to check firmware version */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
@@ -8843,51 +8784,45 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
         return rc;
     }
 
-    /* Two-state model: < 512 requires non-LMS, >= 512 requires LMS */
-    #ifdef DEBUG_WOLFTPM
-        printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
-            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
-        if (caps.fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
-            printf("ST33 Using non-LMS path (fwVerMinor < %d)\n",
-                ST33_FW_VERSION_LMS_REQUIRED);
-        }
-        else {
-            printf("ST33 Using LMS path (fwVerMinor >= %d, LMS required)\n",
-                ST33_FW_VERSION_LMS_REQUIRED);
-        }
-    #endif
+#ifdef DEBUG_WOLFTPM
+    printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
+        caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+    printf("ST33 Manifest size: %u bytes, format: %s\n",
+        manifest_sz, is_lms ? "LMS" : "non-LMS");
+#endif
 
-    /* Unused parameters - ST33 sends full manifest directly, not hash */
-    (void)hashAlg;
-    (void)manifest_hash;
-    (void)manifest_hash_sz;
-
+    /* Validate manifest format matches firmware version requirement */
     if (caps.fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
         /* Legacy firmware (< 512): non-LMS only */
-        if (lms_signature != NULL && lms_signature_sz > 0) {
+        if (is_lms) {
         #ifdef DEBUG_WOLFTPM
-            printf("ST33 Error: LMS signature provided but firmware version < %d requires non-LMS\n",
-                ST33_FW_VERSION_LMS_REQUIRED);
+            printf("ST33 Error: LMS manifest provided but firmware version %u < %d requires non-LMS\n",
+                caps.fwVerMinor, ST33_FW_VERSION_LMS_REQUIRED);
         #endif
             return BAD_FUNC_ARG;
         }
-
-        /* Send manifest (blob0=177 bytes) via password auth */
-        rc = tpm2_st33_firmware_start(dev, manifest, manifest_sz);
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Using non-LMS path (fwVerMinor < %d)\n",
+            ST33_FW_VERSION_LMS_REQUIRED);
+    #endif
     }
     else {
         /* Modern firmware (>= 512): LMS required */
-        if (lms_signature == NULL || lms_signature_sz == 0) {
+        if (!is_lms) {
         #ifdef DEBUG_WOLFTPM
-            printf("ST33 Error: LMS signature required for firmware version >= %d\n",
-                ST33_FW_VERSION_LMS_REQUIRED);
+            printf("ST33 Error: Non-LMS manifest provided but firmware version %u >= %d requires LMS\n",
+                caps.fwVerMinor, ST33_FW_VERSION_LMS_REQUIRED);
         #endif
             return BAD_FUNC_ARG;
         }
-
-        /* LMS manifest (blob0=2697 bytes) includes embedded signature */
-        rc = tpm2_st33_firmware_start_lms(dev, manifest, manifest_sz);
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Using LMS path (fwVerMinor >= %d, LMS required)\n",
+            ST33_FW_VERSION_LMS_REQUIRED);
+    #endif
     }
+
+    /* Send manifest - the common function handles both LMS and non-LMS */
+    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms);
 
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);

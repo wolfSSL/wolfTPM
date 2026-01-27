@@ -107,32 +107,23 @@ KeyGroupId 0x7, FwCounter 1253 (254 same)
 
 ## ST33 Firmware Update
 
-### Firmware Version Requirements
+### Firmware Format Auto-Detection
 
-ST33KTPM firmware update uses a simplified two-state model matching ST's reference implementation:
+ST33KTPM firmware update automatically detects the required format based on TPM firmware version:
 
-- **Legacy firmware (< 512, e.g., 9.257)**: Non-LMS format required
-  - Non-LMS path only
-  - LMS format is rejected
+- **Legacy firmware (< 512, e.g., 9.257)**: Non-LMS format
+  - Manifest size: 177 bytes
   - Generation 1 firmware (ECC-only)
 
-- **Modern firmware (>= 512, e.g., 9.512)**: LMS format required
-  - LMS path only
-  - LMS signature is required (embedded in manifest)
+- **Modern firmware (>= 512, e.g., 9.512)**: LMS format
+  - Manifest size: 2697 bytes (includes embedded LMS signature)
   - Generation 2 firmware (LMS mandatory)
 
-The firmware version is automatically detected by checking `fwVerMinor` from the TPM capabilities. The version threshold is:
-- **512 (0x0200)**: ST policy enforcement threshold - Generation 2 starts here, LMS becomes mandatory
-
-Version breakdown:
-- **9.257 (0x0101)**: Legacy ECC-only firmware (Generation 1)
-- **9.512 (0x0200)**: First modern firmware with LMS mandatory requirement (Generation 2)
-
-This simplified model matches ST's reference implementation behavior, which uses separate tools for Generation 1 (< 512) vs Generation 2 (>= 512) firmware.
+The firmware version is automatically detected from `fwVerMinor` in TPM capabilities. The correct manifest size is determined automatically - no manual format selection is needed.
 
 ### Updating the firmware
 
-The `st33_fw_update` tool uses the manifest and firmware data files.
+The `st33_fw_update` tool automatically detects the firmware format.
 
 ```sh
 # Help
@@ -140,15 +131,11 @@ The `st33_fw_update` tool uses the manifest and firmware data files.
 ST33 Firmware Update Usage:
 	./st33_fw_update (get info)
 	./st33_fw_update --abandon (cancel)
-	./st33_fw_update <firmware.fi> [--lms]
+	./st33_fw_update <firmware.fi>
 
-Options:
-      --lms: Use LMS format (2697 byte manifest with embedded signature)
-             Default is non-LMS format (177 byte manifest)
-
-Note: LMS format requirements:
-      - Firmware < 512: Non-LMS format required (legacy firmware, e.g., 9.257)
-      - Firmware >= 512: LMS format required (modern firmware, e.g., 9.512)
+Firmware format is auto-detected from TPM firmware version:
+      - Firmware < 512: Non-LMS format (177 byte manifest)
+      - Firmware >= 512: LMS format (2697 byte manifest with embedded signature)
 
 # Run without arguments to display the current firmware information
 ./st33_fw_update
@@ -160,17 +147,17 @@ Firmware version details: Major=9, Minor=257, Vendor=0x0
 Hardware: ST33K (legacy firmware, Generation 1)
 Firmware update: Non-LMS format required
 
-# Run with non-LMS firmware file (for legacy firmware < 512)
+# Run with firmware file (format auto-detected from TPM version)
 ./st33_fw_update TPM_ST33KTPM2X_00090200_V1.fi
 ST33 Firmware Update Tool
 	Firmware File: TPM_ST33KTPM2X_00090200_V1.fi
-	Format: Non-LMS (V1)
 TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
 Firmware version details: Major=9, Minor=257, Vendor=0x0
 Hardware: ST33K (legacy firmware, Generation 1)
 Firmware update: Non-LMS format required
+	Format: Non-LMS (from TPM firmware version)
 Firmware Update:
 	Total file size: 364290 bytes
 	Manifest (blob0): 177 bytes
@@ -179,17 +166,17 @@ Firmware Update:
 Firmware update completed successfully.
 Please reset or power cycle the TPM.
 
-# Run with LMS firmware file (for modern firmware >= 512)
-./st33_fw_update ST33KTPM2X_FAC_00090200_V2.fi --lms
+# Example with LMS firmware (Generation 2 TPM, firmware >= 512)
+./st33_fw_update ST33KTPM2X_FAC_00090200_V2.fi
 ST33 Firmware Update Tool
 	Firmware File: ST33KTPM2X_FAC_00090200_V2.fi
-	Format: LMS (V2)
 TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3
 TPM2_Startup pass
 Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
 Firmware version details: Major=9, Minor=512, Vendor=0x0
 Hardware: ST33K (modern firmware, Generation 2)
 Firmware update: LMS format required
+	Format: LMS (from TPM firmware version)
 Firmware Update:
 	Total file size: 360092 bytes
 	Manifest (blob0): 2697 bytes

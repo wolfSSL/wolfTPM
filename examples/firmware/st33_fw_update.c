@@ -47,16 +47,9 @@ static void usage(void)
     printf("ST33 Firmware Update Usage:\n");
     printf("\t./st33_fw_update (get info)\n");
     printf("\t./st33_fw_update --abandon (cancel)\n");
-    printf("\t./st33_fw_update <firmware.fi> [--lms]\n");
-    printf("\nOptions:\n");
-    printf("      --lms: Use LMS format (2697 byte manifest with embedded signature)\n");
-    printf("             Default is non-LMS format (177 byte manifest)\n");
-    printf("\nNote: LMS format requirements:\n");
-    printf("      - Firmware < 512: Non-LMS format required (legacy firmware, e.g., 9.257)\n");
-    printf("      - Firmware >= 512: LMS format required (modern firmware, e.g., 9.512)\n");
-    printf("\nFirmware file format:\n");
-    printf("      - Non-LMS (.fi V1): First 177 bytes = manifest, rest = firmware data\n");
-    printf("      - LMS (.fi V2): First 2697 bytes = manifest (with LMS sig), rest = firmware\n");
+    printf("\t./st33_fw_update <firmware.fi>\n");
+    printf("\nFirmware format is auto-detected from the TPM firmware version.\n");
+    printf("Just provide the correct .fi file for your TPM and it will be handled automatically.\n");
 }
 
 typedef struct {
@@ -66,7 +59,6 @@ typedef struct {
     size_t fi_bufSz;
     size_t manifest_bufSz;
     size_t firmware_bufSz;
-    int    use_lms;        /* 1 = LMS format, 0 = non-LMS format */
     int    in_upgrade_mode; /* 1 = continuing from upgrade mode */
 } fw_info_t;
 
@@ -185,11 +177,10 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     const char* fi_file = NULL;
     fw_info_t fwinfo;
     int abandon = 0;
-    int lms_state = 0; /* 0=UNSUPPORTED, 1=CAPABLE, 2=REQUIRED */
-    int i;
     size_t blob0_size;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
+    XMEMSET(&caps, 0, sizeof(caps));
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -203,19 +194,12 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         }
         else {
             fi_file = argv[1];
-            /* Parse optional --lms flag */
-            for (i = 2; i < argc; i++) {
-                if (XSTRCMP(argv[i], "--lms") == 0) {
-                    fwinfo.use_lms = 1;
-                }
-            }
         }
     }
 
     printf("ST33 Firmware Update Tool\n");
     if (fi_file != NULL) {
         printf("\tFirmware File: %s\n", fi_file);
-        printf("\tFormat: %s\n", fwinfo.use_lms ? "LMS (V2)" : "Non-LMS (V1)");
     }
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -271,15 +255,6 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Two-state model: < 512 requires non-LMS (legacy firmware, e.g., 9.257),
-     * >= 512 requires LMS (modern firmware, LMS required, e.g., 9.512) */
-    if (caps.fwVerMinor < 512) {
-        lms_state = 0;  /* Non-LMS path only (legacy firmware, Generation 1) */
-    }
-    else {
-        lms_state = 1;  /* LMS path only (modern firmware, LMS required, Generation 2) */
-    }
-
     if (abandon) {
         printf("Firmware Update Abandon:\n");
         rc = wolfTPM2_FirmwareUpgradeCancel(&dev);
@@ -299,39 +274,49 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
-    /* Handle LMS signature requirements (skip check in upgrade mode) */
-    if (!fwinfo.in_upgrade_mode) {
-        if (lms_state == 0) {
-            /* Legacy firmware (< 512): reject LMS format */
-            if (fwinfo.use_lms) {
-                printf("\nError: LMS format specified but firmware "
-                       "version < 512 requires non-LMS.\n");
-                printf("This device (fwVerMinor < 512) must use "
-                       "non-LMS firmware format.\n");
-                rc = BAD_FUNC_ARG;
-                goto exit;
+load_firmware:
+    /* Determine blob0 (manifest) size based on firmware version.
+     * In upgrade mode (caps not available), auto-detect from file size. */
+    if (fwinfo.in_upgrade_mode) {
+        /* In upgrade mode, we don't have caps. Load file first to detect format. */
+        rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
+        if (rc != 0) {
+            printf("Failed to load firmware file: %s\n", fi_file);
+            goto exit;
+        }
+        /* Auto-detect format from file size: LMS files are larger due to
+         * 2697 byte manifest vs 177 byte manifest */
+        if (fwinfo.fi_bufSz > ST33_BLOB0_SIZE_LMS + 1000) {
+            /* File large enough to potentially be LMS format.
+             * Check if blob header at LMS offset looks valid. */
+            if (fwinfo.fi_buf[ST33_BLOB0_SIZE_LMS] != 0 &&
+                fwinfo.fi_buf[ST33_BLOB0_SIZE_LMS] != 0xFF) {
+                blob0_size = ST33_BLOB0_SIZE_LMS;
+                printf("\tFormat: LMS (auto-detected from file)\n");
+            }
+            else {
+                blob0_size = ST33_BLOB0_SIZE_NON_LMS;
+                printf("\tFormat: Non-LMS (auto-detected from file)\n");
             }
         }
         else {
-            /* Modern firmware (>= 512): require LMS format */
-            if (!fwinfo.use_lms) {
-                printf("\nError: Firmware version >= 512 requires LMS format.\n");
-                printf("Please use --lms option with LMS firmware file.\n");
-                rc = BAD_FUNC_ARG;
-                goto exit;
-            }
+            blob0_size = ST33_BLOB0_SIZE_NON_LMS;
+            printf("\tFormat: Non-LMS (auto-detected from file)\n");
         }
     }
+    else {
+        /* Normal mode: determine format from firmware version */
+        blob0_size = (caps.fwVerMinor >= 512) ?
+            ST33_BLOB0_SIZE_LMS : ST33_BLOB0_SIZE_NON_LMS;
+        printf("\tFormat: %s (from TPM firmware version)\n",
+            (caps.fwVerMinor >= 512) ? "LMS" : "Non-LMS");
 
-load_firmware:
-    /* Determine blob0 (manifest) size based on format */
-    blob0_size = fwinfo.use_lms ? ST33_BLOB0_SIZE_LMS : ST33_BLOB0_SIZE_NON_LMS;
-
-    /* Load the complete .fi file */
-    rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
-    if (rc != 0) {
-        printf("Failed to load firmware file: %s\n", fi_file);
-        goto exit;
+        /* Load the complete .fi file */
+        rc = loadFile(fi_file, &fwinfo.fi_buf, &fwinfo.fi_bufSz);
+        if (rc != 0) {
+            printf("Failed to load firmware file: %s\n", fi_file);
+            goto exit;
+        }
     }
 
     /* Validate file size */
@@ -358,15 +343,8 @@ load_firmware:
         printf("Sending firmware data (TPM already in upgrade mode)...\n");
         rc = TPM2_ST33_SendFirmwareData(&fwinfo);
     }
-    else if (fwinfo.use_lms) {
-        /* LMS path - manifest contains embedded LMS signature */
-        rc = wolfTPM2_FirmwareUpgradeWithLMS(&dev,
-            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
-            TPM2_ST33_FwData_Cb, &fwinfo,
-            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz);
-    }
     else {
-        /* Non-LMS path */
+        /* Normal mode - use unified API which auto-detects format from manifest size */
         rc = wolfTPM2_FirmwareUpgrade(&dev,
             fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
             TPM2_ST33_FwData_Cb, &fwinfo);
