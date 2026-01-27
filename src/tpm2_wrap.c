@@ -866,6 +866,135 @@ int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
     return handles->count;
 }
 
+#ifdef WOLFTPM_SPDM
+int wolfTPM2_GetACHandles(WOLFTPM2_DEV* dev, TPM_HANDLE* handles,
+    word32* handleCount, word32 maxHandles)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    word32 totalCount = 0;
+    UINT32 property = HR_AC;  /* Start at AC handle range */
+    TPMI_YES_NO moreData = YES;
+
+    if (dev == NULL || handles == NULL || handleCount == NULL || maxHandles == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    *handleCount = 0;
+    XMEMSET(handles, 0, maxHandles * sizeof(TPM_HANDLE));
+
+    /* Discovery loop: continue while moreData == YES */
+    while (moreData == YES && totalCount < maxHandles) {
+        TPML_HANDLE* handleList;
+        word32 i;
+
+        XMEMSET(&in, 0, sizeof(in));
+        XMEMSET(&out, 0, sizeof(out));
+        in.capability = TPM_CAP_HANDLES;
+        in.property = property;
+        in.propertyCount = maxHandles - totalCount;  /* Request remaining space */
+
+        rc = TPM2_GetCapability(&in, &out);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_GetCapability AC handles failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+        #endif
+            break;
+        }
+
+        moreData = out.moreData;
+        handleList = &out.capabilityData.data.handles;
+
+        /* Filter handles: only include AC range handles */
+        for (i = 0; i < handleList->count && totalCount < maxHandles; i++) {
+            if (TPM2_IS_AC_HANDLE(handleList->handle[i])) {
+                handles[totalCount++] = handleList->handle[i];
+            }
+        }
+
+        /* Update property for next iteration (use last handle + 1) */
+        if (handleList->count > 0) {
+            property = handleList->handle[handleList->count - 1] + 1;
+        } else {
+            break;  /* No handles returned, stop */
+        }
+    }
+
+    *handleCount = totalCount;
+
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfTPM2_GetACHandles: Found %d AC handles (moreData=%d)\n",
+            (int)totalCount, (int)moreData);
+    #endif
+
+    return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
+    const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName)
+{
+    PolicyTransportSPDM_In in;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.policySession = sessionHandle;
+
+    if (reqKeyName != NULL) {
+        if (reqKeyName->size > sizeof(in.reqKeyName.name)) {
+            return BUFFER_E;
+        }
+        in.reqKeyName.size = reqKeyName->size;
+        XMEMCPY(in.reqKeyName.name, reqKeyName->name, reqKeyName->size);
+    }
+
+    if (tpmKeyName != NULL) {
+        if (tpmKeyName->size > sizeof(in.tpmKeyName.name)) {
+            return BUFFER_E;
+        }
+        in.tpmKeyName.size = tpmKeyName->size;
+        XMEMCPY(in.tpmKeyName.name, tpmKeyName->name, tpmKeyName->size);
+    }
+
+    return TPM2_PolicyTransportSPDM(&in);
+}
+
+int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
+    TPML_SPDM_SESSION_INFO* spdmSessionInfo)
+{
+    int rc;
+    GetCapability_In in;
+    GetCapability_Out out;
+
+    if (dev == NULL || spdmSessionInfo == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+
+    in.capability = TPM_CAP_SPDM_SESSION_INFO;
+    in.property = 0;  /* Must be 0 per TCG spec */
+    in.propertyCount = MAX_SPDM_SESS_INFO;
+
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS) {
+        if (out.capabilityData.capability == TPM_CAP_SPDM_SESSION_INFO) {
+            XMEMCPY(spdmSessionInfo, &out.capabilityData.data.spdmSessionInfo,
+                    sizeof(TPML_SPDM_SESSION_INFO));
+        } else {
+            rc = TPM_RC_VALUE;
+        }
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
+
 int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index)
 {
     TPM2_AUTH_SESSION* session;

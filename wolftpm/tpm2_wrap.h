@@ -145,6 +145,10 @@ typedef struct WOLFTPM2_CAPS {
     word16 fips140_2 : 1; /* using FIPS mode */
     word16 cc_eal4   : 1; /* Common Criteria EAL4+ */
     word16 req_wait_state : 1; /* requires SPI wait state */
+#ifdef WOLFTPM_SPDM
+    word32 acHandleCount;  /* Number of AC handles discovered */
+    TPM_HANDLE acHandles[16];  /* AC handles (max 16) */
+#endif
 } WOLFTPM2_CAPS;
 
 
@@ -394,6 +398,81 @@ WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps)
 */
 WOLFTPM_API int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles);
 
+#ifdef WOLFTPM_SPDM
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Discover all Authenticated Controller (AC) handles on the TPM
+    \note AC handles are dynamic (range 0x40xxxxxx) and cannot be hardcoded.
+          This function implements a discovery loop with moreData handling to find
+          all available AC handles. Multiple ACs may exist on a single TPM.
+
+    \return TPM_RC_SUCCESS: discovery completed (check handleCount)
+    \return BAD_FUNC_ARG: invalid parameters
+    \return BUFFER_E: maxHandles too small (more ACs exist)
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param handles output array to store discovered AC handles
+    \param handleCount output parameter: number of AC handles found
+    \param maxHandles maximum number of handles to return
+
+    _Example_
+    \code
+    TPM_HANDLE acHandles[16];
+    word32 count = 0;
+    rc = wolfTPM2_GetACHandles(&dev, acHandles, &count, 16);
+    if (rc == TPM_RC_SUCCESS && count > 0) {
+        printf("Found %d AC handles\n", count);
+        for (word32 i = 0; i < count; i++) {
+            printf("  AC handle: 0x%x\n", acHandles[i]);
+        }
+    }
+    \endcode
+*/
+WOLFTPM_API int wolfTPM2_GetACHandles(WOLFTPM2_DEV* dev, TPM_HANDLE* handles,
+    word32* handleCount, word32 maxHandles);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Add PolicyTransportSPDM to policy session
+    \note This command adds secure channel restrictions to the policy digest.
+          It must be called before any command that requires SPDM secure channel.
+          The hash algorithm used is the session's authHashAlg (dynamic, not hardcoded).
+
+    \return TPM_RC_SUCCESS: Policy updated successfully
+    \return TPM_RC_VALUE: PolicyTransportSPDM already executed on this session
+    \return TPM_RC_HASH: Invalid hash algorithm in reqKeyName or tpmKeyName
+    \return TPM_RC_SIZE: Invalid size in reqKeyName or tpmKeyName
+    \return BAD_FUNC_ARG: Invalid parameters
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param sessionHandle policy session handle
+    \param reqKeyName optional: requester key name (can be NULL)
+    \param tpmKeyName optional: TPM key name (can be NULL)
+
+    \sa wolfTPM2_GetCapability_SPDMSessionInfo
+*/
+WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sessionHandle, const TPM2B_NAME* reqKeyName,
+    const TPM2B_NAME* tpmKeyName);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Get SPDM session information via GetCapability
+    \note This returns SPDM session info if called within an active SPDM session.
+          TCG simulator returns empty list unless within active SPDM session.
+
+    \return TPM_RC_SUCCESS: Capability retrieved successfully
+    \return TPM_RC_VALUE: Invalid property (must be 0) or capability mismatch
+    \return BAD_FUNC_ARG: Invalid parameters
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param spdmSessionInfo output: SPDM session info list
+
+    \sa wolfTPM2_PolicyTransportSPDM
+*/
+WOLFTPM_API int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
+    TPML_SPDM_SESSION_INFO* spdmSessionInfo);
+#endif /* WOLFTPM_SPDM */
 
 /*!
     \ingroup wolfTPM2_Wrappers

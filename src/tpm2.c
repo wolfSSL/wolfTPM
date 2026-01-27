@@ -1045,6 +1045,20 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                     }
                     break;
                 }
+#ifdef WOLFTPM_SPDM
+                case TPM_CAP_SPDM_SESSION_INFO:
+                {
+                    /* Validate property == 0 (per TCG spec) */
+                    if (in->property != 0) {
+                        rc = TPM_RC_VALUE;
+                        break;
+                    }
+                    TPML_SPDM_SESSION_INFO* spdmSessionInfo =
+                        &out->capabilityData.data.spdmSessionInfo;
+                    TPM2_Packet_ParseSPDMSessionInfoList(&packet, spdmSessionInfo);
+                    break;
+                }
+#endif
                 case TPM_CAP_VENDOR_PROPERTY:
                 {
                     out->capabilityData.data.vendor.size =
@@ -1553,6 +1567,52 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
     }
     return rc;
 }
+
+#ifdef WOLFTPM_SPDM
+TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->policySession);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* Marshal reqKeyName (TPM2B_NAME): size (UINT16) + name data */
+        TPM2_Packet_AppendU16(&packet, in->reqKeyName.size);
+        if (in->reqKeyName.size > 0) {
+            TPM2_Packet_AppendBytes(&packet, in->reqKeyName.name, in->reqKeyName.size);
+        }
+
+        /* Marshal tpmKeyName (TPM2B_NAME): size (UINT16) + name data */
+        TPM2_Packet_AppendU16(&packet, in->tpmKeyName.size);
+        if (in->tpmKeyName.size > 0) {
+            TPM2_Packet_AppendBytes(&packet, in->tpmKeyName.name, in->tpmKeyName.size);
+        }
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_PolicyTransportSPDM);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_SPDM */
 
 TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in)
 {
