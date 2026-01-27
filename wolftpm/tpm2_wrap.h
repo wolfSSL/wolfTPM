@@ -4129,8 +4129,11 @@ typedef int (*wolfTPM2FwDataCb)(
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Calculate hash of firmware manifest for upgrade
+    \brief Perform TPM firmware upgrade with pre-computed manifest hash
     \note Supports SHA2-384 or SHA2-512 for manifest hash
+    \note For ST33KTPM: LMS vs non-LMS format is auto-detected from manifest size:
+          - 177 bytes: Non-LMS format (firmware < 512, e.g., 9.257)
+          - 2697 bytes: LMS format (firmware >= 512, e.g., 9.512)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -4154,10 +4157,14 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
     \note Upgrades TPM firmware using provided manifest and data callback
+    \note For ST33KTPM: LMS vs non-LMS format is auto-detected from manifest size:
+          - 177 bytes: Non-LMS format (firmware < 512, e.g., 9.257)
+          - 2697 bytes: LMS format (firmware >= 512, e.g., 9.512)
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
@@ -4175,6 +4182,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!
     \ingroup wolfTPM2_Wrappers

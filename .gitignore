@@ -84,6 +84,7 @@ examples/boot/secret_seal
 examples/boot/secret_unseal
 examples/firmware/ifx_fw_extract
 examples/firmware/ifx_fw_update
+examples/firmware/st33_fw_update
 examples/endorsement/get_ek_certs
 examples/endorsement/verify_ek_cert
 
@@ -151,6 +152,10 @@ UpgradeLog.htm
 *.VC.db
 *.filters
 
+# macOS files
+._.DS_Store
+.DS_Store
+
 # Backup and old files
 /**/*.bak
 /**/*.old
@@ -170,3 +175,11 @@ UpgradeLog.htm
 # we won't track the actual working sdkconfig files
 /IDE/Espressif/**/sdkconfig
 /IDE/Espressif/**/sdkconfig.old
+
+# Firmware files
+examples/firmware/*.fi
+examples/firmware/*.BIN
+examples/firmware/*.DATA
+examples/firmware/*.MANIFEST
+examples/firmware/*.MANIFESTHASH
+

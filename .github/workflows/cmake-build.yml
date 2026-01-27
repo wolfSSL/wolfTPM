@@ -22,6 +22,9 @@ jobs:
             options: "-DWOLFTPM_INTERFACE=SPI -DWOLFTPM_MODULE=st33"
           - name: "Module ST33 I2C"
             options: "-DWOLFTPM_INTERFACE=I2C -DWOLFTPM_MODULE=st33"
+          # ST33 Firmware
+          - name: "Module ST33 Firmware"
+            options: "-DWOLFTPM_MODULE=st33 -DWOLFTPM_FIRMWARE=yes"
           # Other modules use SPI
           - name: "Module Microchip"
             options: "-DWOLFTPM_INTERFACE=SPI -DWOLFTPM_MODULE=microchip"
