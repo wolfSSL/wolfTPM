@@ -828,7 +828,8 @@ static void test_wolfTPM2_SPDM_Functions(void)
         }
     }
 
-    /* Test 3: PolicyTransportSPDM parameter validation */
+#ifdef WOLFTPM_SWTPM
+    /* Test 3: PolicyTransportSPDM parameter validation (TCG simulator only) */
     {
         TPM2B_NAME reqKeyName, tpmKeyName;
         WOLFTPM2_SESSION policySession;
@@ -895,6 +896,7 @@ static void test_wolfTPM2_SPDM_Functions(void)
             AssertTrue(spdmSessionInfo.count <= MAX_SPDM_SESS_INFO);
         }
     }
+#endif /* WOLFTPM_SWTPM */
 
     wolfTPM2_Cleanup(&dev);
 

@@ -972,8 +972,8 @@ int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
     return cmdSz;
 }
 
-#ifdef WOLFTPM_SPDM
-void TPM2_Packet_AppendSPDMSessionInfo(TPM2_Packet* packet, 
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
+void TPM2_Packet_AppendSPDMSessionInfo(TPM2_Packet* packet,
     TPMS_SPDM_SESSION_INFO* info)
 {
     if (packet == NULL || info == NULL)
@@ -1056,7 +1056,7 @@ void TPM2_Packet_ParseSPDMSessionInfoList(TPM2_Packet* packet,
         TPM2_Packet_ParseSPDMSessionInfo(packet, &list->spdmSessionInfo[i]);
     }
 }
-#endif /* WOLFTPM_SPDM */
+#endif /* WOLFTPM_SPDM && WOLFTPM_SWTPM */
 
 /******************************************************************************/
 /* --- END TPM Packet Assembly / Parsing -- */

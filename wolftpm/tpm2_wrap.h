@@ -23,6 +23,9 @@
 #define __TPM2_WRAP_H__
 
 #include <wolftpm/tpm2.h>
+#ifdef WOLFTPM_SPDM
+#include <wolftpm/tpm2_spdm.h>
+#endif
 
 #ifdef __cplusplus
     extern "C" {
@@ -57,6 +60,9 @@ typedef struct WOLFTPM2_SESSION {
 typedef struct WOLFTPM2_DEV {
     TPM2_CTX ctx;
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
+#ifdef WOLFTPM_SPDM
+    struct WOLFTPM2_SPDM_CTX* spdmCtx; /* NULL = no SPDM, non-NULL = active */
+#endif
 } WOLFTPM2_DEV;
 
 /* Public Key with Handle.
@@ -431,12 +437,15 @@ WOLFTPM_API int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles);
 WOLFTPM_API int wolfTPM2_GetACHandles(WOLFTPM2_DEV* dev, TPM_HANDLE* handles,
     word32* handleCount, word32 maxHandles);
 
+#ifdef WOLFTPM_SWTPM
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Add PolicyTransportSPDM to policy session
+    \brief Add PolicyTransportSPDM to policy session (TCG simulator only)
     \note This command adds secure channel restrictions to the policy digest.
           It must be called before any command that requires SPDM secure channel.
           The hash algorithm used is the session's authHashAlg (dynamic, not hardcoded).
+          This command is specific to the TCG reference simulator and is not
+          supported on hardware TPMs (e.g., Nuvoton).
 
     \return TPM_RC_SUCCESS: Policy updated successfully
     \return TPM_RC_VALUE: PolicyTransportSPDM already executed on this session
@@ -457,9 +466,10 @@ WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Get SPDM session information via GetCapability
+    \brief Get SPDM session information via GetCapability (TCG simulator only)
     \note This returns SPDM session info if called within an active SPDM session.
           TCG simulator returns empty list unless within active SPDM session.
+          This capability is specific to the TCG reference simulator.
 
     \return TPM_RC_SUCCESS: Capability retrieved successfully
     \return TPM_RC_VALUE: Invalid property (must be 0) or capability mismatch
@@ -472,6 +482,126 @@ WOLFTPM_API int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
     TPML_SPDM_SESSION_INFO* spdmSessionInfo);
+#endif /* WOLFTPM_SWTPM */
+
+/* SPDM Secure Session Wrapper API */
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Initialize SPDM support on a wolfTPM2 device.
+    Allocates and configures the SPDM context with the default backend
+    (libspdm or wolfSPDM). After init, call wolfTPM2_SpdmConnect to
+    establish a secure session.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: invalid parameters
+    \return MEMORY_E: memory allocation failed
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Enable SPDM on the TPM via NTC2_PreConfig vendor command.
+    Requires platform hierarchy auth. TPM must be reset after this call.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_COMMAND_CODE: not yet implemented
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Establish an SPDM secure session (full handshake).
+    Performs GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE -> GIVE_PUB_KEY -> FINISH.
+    After success, all TPM commands are transparently encrypted/authenticated.
+
+    \return TPM_RC_SUCCESS: session established
+    \return TPM_RC_FAILURE: handshake failed
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param reqPubKey host's ECDSA P-384 public key (DER/TPMT_PUBLIC)
+    \param reqPubKeySz size of reqPubKey in bytes
+    \param reqPrivKey host's ECDSA P-384 private key (for mutual auth)
+    \param reqPrivKeySz size of reqPrivKey in bytes
+*/
+WOLFTPM_API int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Check if an SPDM secure session is currently active.
+
+    \return 1 if connected, 0 if not
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Get SPDM status from the TPM (GET_STS_ vendor command).
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: invalid parameters
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param status output: SPDM status information
+*/
+WOLFTPM_API int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SPDM_STATUS* status);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Get the TPM's SPDM-Identity public key.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: invalid parameters
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param pubKey output buffer for the public key
+    \param pubKeySz in/out: buffer size / actual key size
+*/
+WOLFTPM_API int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
+    byte* pubKey, word32* pubKeySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Lock or unlock SPDM-only mode.
+    When locked, TPM only accepts commands over SPDM secure channel.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param lock 1 to lock SPDM-only mode, 0 to unlock
+*/
+WOLFTPM_API int wolfTPM2_SpdmSetOnlyMode(WOLFTPM2_DEV* dev, int lock);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Disconnect the SPDM secure session.
+    After this, TPM commands are sent in the clear.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free SPDM context and resources.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
+
 #endif /* WOLFTPM_SPDM */
 
 /*!

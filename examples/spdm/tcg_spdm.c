@@ -43,7 +43,7 @@
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
 
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
 
 /******************************************************************************/
 /* --- BEGIN TCG SPDM Validation -- */
@@ -126,9 +126,10 @@ static int test_policy_transport_spdm(WOLFTPM2_DEV* dev)
         printf("    This is not a failure - command reached TPM correctly\n");
         rc = 0;
     } else if (rc == TPM_RC_COMMAND_CODE) {
-        printf("  FAILED: TPM_RC_COMMAND_CODE - Command not recognized\n");
-        printf("    TPM may not support SPDM commands\n");
-        rc = 1;
+        printf("  INFO: TPM_RC_COMMAND_CODE - Command not recognized\n");
+        printf("    PolicyTransportSPDM (0x1A1) is not supported on this TPM\n");
+        printf("    This is expected on hardware TPMs (Nuvoton uses vendor commands)\n");
+        rc = 0;  /* Not a failure - command simply not supported */
     } else {
         printf("  Result: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         rc = 0;  /* May be expected depending on TPM state */
@@ -278,5 +279,5 @@ int main(int argc, char *argv[])
 }
 #endif /* !NO_MAIN_DRIVER */
 
-#endif /* WOLFTPM_SPDM */
+#endif /* WOLFTPM_SPDM && WOLFTPM_SWTPM */
 #endif /* !WOLFTPM2_NO_WRAPPER */

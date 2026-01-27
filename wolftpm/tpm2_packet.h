@@ -180,7 +180,7 @@ WOLFTPM_LOCAL void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATU
 WOLFTPM_LOCAL void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
 WOLFTPM_LOCAL void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out);
 
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
 WOLFTPM_LOCAL void TPM2_Packet_AppendSPDMSessionInfo(TPM2_Packet* packet, TPMS_SPDM_SESSION_INFO* info);
 WOLFTPM_LOCAL void TPM2_Packet_ParseSPDMSessionInfo(TPM2_Packet* packet, TPMS_SPDM_SESSION_INFO* info);
 WOLFTPM_LOCAL void TPM2_Packet_AppendSPDMSessionInfoList(TPM2_Packet* packet, TPML_SPDM_SESSION_INFO* list);

@@ -25,6 +25,9 @@
 
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
+#ifdef WOLFTPM_SPDM
+#include <wolftpm/tpm2_spdm.h>
+#endif
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
@@ -932,6 +935,7 @@ int wolfTPM2_GetACHandles(WOLFTPM2_DEV* dev, TPM_HANDLE* handles,
     return TPM_RC_SUCCESS;
 }
 
+#ifdef WOLFTPM_SWTPM
 int wolfTPM2_PolicyTransportSPDM(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
     const TPM2B_NAME* reqKeyName, const TPM2B_NAME* tpmKeyName)
 {
@@ -993,6 +997,125 @@ int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
 
     return rc;
 }
+#endif /* WOLFTPM_SWTPM */
+
+/* --- SPDM Secure Session Wrapper API --- */
+
+int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    WOLFTPM2_SPDM_BACKEND* backend;
+    WOLFTPM2_SPDM_CTX* spdmCtx;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Get the default backend (wolfSPDM preferred, else libspdm) */
+    backend = wolfTPM2_SPDM_GetDefaultBackend();
+    if (backend == NULL) {
+        return TPM_RC_FAILURE; /* No SPDM backend available */
+    }
+
+    /* Allocate SPDM context */
+    spdmCtx = (WOLFTPM2_SPDM_CTX*)XMALLOC(sizeof(WOLFTPM2_SPDM_CTX),
+        NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (spdmCtx == NULL) {
+        return MEMORY_E;
+    }
+
+    /* Initialize SPDM context with backend and the default I/O callback.
+     * The default callback sends TCG-framed SPDM messages through
+     * TPM2_SendRawBytes (same TIS FIFO as regular TPM commands).
+     * The userCtx is the TPM2_CTX so the callback can access the HAL. */
+    rc = wolfTPM2_SPDM_InitCtx(spdmCtx, backend,
+        wolfTPM2_SPDM_GetDefaultIoCb(), &dev->ctx);
+    if (rc != 0) {
+        XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        return rc;
+    }
+
+    /* Link SPDM context to device */
+    dev->spdmCtx = spdmCtx;
+    dev->ctx.spdmCtx = spdmCtx;
+
+    return 0;
+}
+
+int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_Enable(dev->spdmCtx, &dev->ctx);
+}
+
+int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_Connect(dev->spdmCtx,
+        reqPubKey, reqPubKeySz, reqPrivKey, reqPrivKeySz);
+}
+
+int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return 0;
+    }
+    return wolfTPM2_SPDM_IsConnected(dev->spdmCtx);
+}
+
+int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev, WOLFTPM2_SPDM_STATUS* status)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_GetStatus(dev->spdmCtx, status);
+}
+
+int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
+    byte* pubKey, word32* pubKeySz)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_GetPubKey(dev->spdmCtx, pubKey, pubKeySz);
+}
+
+int wolfTPM2_SpdmSetOnlyMode(WOLFTPM2_DEV* dev, int lock)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_SetOnlyMode(dev->spdmCtx, lock);
+}
+
+int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_Disconnect(dev->spdmCtx);
+}
+
+int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (dev->spdmCtx != NULL) {
+        wolfTPM2_SPDM_FreeCtx(dev->spdmCtx);
+        XFREE(dev->spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        dev->spdmCtx = NULL;
+        dev->ctx.spdmCtx = NULL;
+    }
+    return 0;
+}
+
 #endif /* WOLFTPM_SPDM */
 
 int wolfTPM2_UnsetAuth(WOLFTPM2_DEV* dev, int index)

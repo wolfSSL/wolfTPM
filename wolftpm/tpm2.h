@@ -248,7 +248,7 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
     TPM_CC_Policy_AC_SendSelect     = 0x00000196,
     TPM_CC_PolicyTransportSPDM      = 0x000001A1,
 #endif
@@ -266,7 +266,7 @@ typedef enum {
     TPM_CC_SetCommandSetLock        = CC_VEND + 0x030B,
     TPM_CC_GPIO_Config              = CC_VEND + 0x030F,
 #endif
-#ifdef WOLFTPM_NUVOTON
+#if defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT)
     TPM_CC_NTC2_PreConfig           = CC_VEND + 0x0211,
     TPM_CC_NTC2_GetConfig           = CC_VEND + 0x0213,
 #endif
@@ -496,7 +496,7 @@ typedef enum {
     TPM_CAP_ECC_CURVES      = 0x00000008,
     TPM_CAP_AUTH_POLICIES   = 0x00000009,
     TPM_CAP_ACT             = 0x0000000A,
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
     TPM_CAP_SPDM_SESSION_INFO = 0x0000000C, /* SPDM Session Info (TCG v1.84) */
 #endif
     TPM_CAP_LAST            = TPM_CAP_ACT,
@@ -507,7 +507,92 @@ typedef UINT32 TPM_CAP;
 
 #ifdef WOLFTPM_SPDM
 /* Note: AC_GetCapability (0x194) and AC_Send (0x195) are DEPRECATED per TCG spec */
-#endif
+
+/* TCG SPDM Binding for Secure Communication v1.0 Constants */
+
+/* TCG SPDM Binding Message Tags */
+#define SPDM_TAG_CLEAR      0x8101  /* Clear (unencrypted) SPDM message */
+#define SPDM_TAG_SECURED    0x8201  /* Secured (encrypted) SPDM message */
+
+/* SPDM Protocol Version */
+#define SPDM_VERSION_1_3    0x13    /* SPDM v1.3 */
+
+/* SPDM Message Request Codes (DMTF DSP0274) */
+#define SPDM_GET_VERSION            0x84
+#define SPDM_GET_CAPABILITIES       0xE1
+#define SPDM_NEGOTIATE_ALGORITHMS   0xE3
+#define SPDM_KEY_EXCHANGE           0xE4
+#define SPDM_FINISH                 0xE5
+#define SPDM_END_SESSION            0xEC
+#define SPDM_VENDOR_DEFINED_REQUEST 0xFE
+
+/* SPDM Message Response Codes */
+#define SPDM_VERSION_RESP           0x04
+#define SPDM_CAPABILITIES_RESP      0x61
+#define SPDM_ALGORITHMS_RESP        0x63
+#define SPDM_KEY_EXCHANGE_RSP       0x64
+#define SPDM_FINISH_RSP             0x65
+#define SPDM_END_SESSION_ACK        0x6C
+#define SPDM_VENDOR_DEFINED_RESP    0x7E
+#define SPDM_ERROR                  0x7F
+
+/* SPDM Vendor Defined Codes (8-byte ASCII, used as VdCode in VENDOR_DEFINED) */
+#define SPDM_VDCODE_TPM2_CMD   "TPM2_CMD"  /* TPM command over SPDM session */
+#define SPDM_VDCODE_GET_PUBK   "GET_PUBK"  /* Get TPM's SPDM-Identity pub key */
+#define SPDM_VDCODE_GIVE_PUB   "GIVE_PUB"  /* Give host's SPDM-Identity pub key */
+#define SPDM_VDCODE_SPDMONLY   "SPDMONLY"  /* Lock/unlock SPDM-only mode */
+#define SPDM_VDCODE_GET_STS    "GET_STS_"  /* Get SPDM status */
+
+/* SPDM Vendor Defined Code Length */
+#define SPDM_VDCODE_LEN        8
+
+/* SPDM Session Constants (Nuvoton NPCT7xx) */
+#define SPDM_CONNECTION_ID      0       /* Single connection */
+#define SPDM_RSP_SESSION_ID     0xAEAD  /* Responder session ID */
+#define SPDM_REQ_SESSION_ID     0x0001  /* Default requester session ID */
+
+/* SPDM FIPS Indicator (TCG binding) */
+#define SPDM_FIPS_NON_FIPS     0x00
+#define SPDM_FIPS_APPROVED     0x01
+
+/* SPDM Algorithm Set B (192-bit security strength) */
+#define SPDM_ALG_ECDSA_P384    0x0003  /* Signing algorithm */
+#define SPDM_ALG_SHA384        0x0002  /* Hash algorithm */
+#define SPDM_ALG_ECDHE_P384    0x0003  /* Key exchange algorithm */
+#define SPDM_ALG_AES256_GCM    0x0002  /* AEAD algorithm */
+
+/* SPDM-Identity NV Indices */
+#define SPDM_NV_INDEX_TPM_KEY  0x01C20110  /* TPM SPDM-Identity key */
+#define SPDM_NV_INDEX_REQ_KEY  0x01C20111  /* Requester SPDM-Identity key */
+
+/* NTC2 PreConfig CFG_H Bit Definitions for SPDM */
+#define NTC2_CFG_H_SPDM_ENABLE_BIT    1  /* Bit position in CFG_H */
+#define NTC2_CFG_H_SPDM_ENABLE        0x00  /* SPDM enabled (bit 1 = 0) */
+#define NTC2_CFG_H_SPDM_DISABLE       0x02  /* SPDM disabled (bit 1 = 1) */
+
+/* SPDM ONLY mode sub-commands */
+#define SPDM_ONLY_LOCK         0x01
+#define SPDM_ONLY_UNLOCK       0x00
+
+/* SPDM Message Sizes */
+#define SPDM_MAX_MSG_SIZE       4096
+#define SPDM_AEAD_TAG_SIZE      16    /* AES-256-GCM tag size */
+#define SPDM_AEAD_IV_SIZE       12    /* AES-256-GCM IV size */
+#define SPDM_AEAD_KEY_SIZE      32    /* AES-256-GCM key size */
+#define SPDM_HASH_SIZE          48    /* SHA-384 digest size */
+#define SPDM_ECDSA_KEY_SIZE     48    /* P-384 coordinate size */
+#define SPDM_ECDSA_SIG_SIZE     96    /* P-384 signature (r+s) */
+
+/* TCG SPDM Binding Header Size (per Nuvoton SPDM Guidance Rev 1.11):
+ * tag(2/BE) + size(4/BE) + connectionHandle(4/BE) + fipsIndicator(2/BE) +
+ * reserved(4) = 16 bytes */
+#define SPDM_TCG_BINDING_HEADER_SIZE  16
+
+/* SPDM Secured Message Header Size:
+ * sessionId(4) + sequenceNumber(8) */
+#define SPDM_SECURED_MSG_HEADER_SIZE  12
+
+#endif /* WOLFTPM_SPDM */
 
 /* Property Tag */
 typedef enum {
@@ -1056,7 +1141,7 @@ typedef struct TPML_ACT_DATA {
     TPMS_ACT_DATA actData[MAX_ACT_DATA];
 } TPML_ACT_DATA;
 
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
 /* SPDM Session Info Structures (TCG v1.84) - Must be defined before TPMU_CAPABILITIES */
 typedef struct TPMS_SPDM_SESSION_INFO {
     TPM2B_NAME reqKeyName;  /* Requester key name */
@@ -1086,7 +1171,7 @@ typedef union TPMU_CAPABILITIES {
     TPML_ECC_CURVE eccCurves; /* TPM_CAP_ECC_CURVES */
     TPML_TAGGED_POLICY authPolicies; /* TPM_CAP_AUTH_POLICIES */
     TPML_ACT_DATA actData; /* TPM_CAP_ACT - added v1.57 */
-#ifdef WOLFTPM_SPDM
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
     TPML_SPDM_SESSION_INFO spdmSessionInfo; /* TPM_CAP_SPDM_SESSION_INFO - TCG v1.84 */
 #endif
     TPM2B_MAX_BUFFER vendor;
@@ -1925,6 +2010,9 @@ typedef struct TPM2_CTX {
 #ifdef WOLFTPM_LINUX_DEV
     int fd;
 #endif
+#ifdef WOLFTPM_SPDM
+    void* spdmCtx; /* Pointer to WOLFTPM2_SPDM_CTX when session active */
+#endif
 } TPM2_CTX;
 
 
@@ -2672,8 +2760,8 @@ typedef struct {
 } PolicyAuthValue_In;
 WOLFTPM_API TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in);
 
-#ifdef WOLFTPM_SPDM
-/* Policy Commands for SPDM (TCG v1.84) */
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
+/* Policy Commands for SPDM (TCG v1.84) - TCG simulator only */
 typedef struct {
     TPMI_SH_POLICY policySession;
     TPM2B_NAME reqKeyName;
@@ -3166,6 +3254,44 @@ WOLFTPM_API int TPM2_IFX_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t 
     WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
 #endif /* Vendor GPIO Commands */
 
+/* NTC2 PreConfig/GetConfig for WOLFTPM_AUTODETECT (runtime vendor detection).
+ * When a specific vendor is not selected at compile time, the NTC2 types
+ * must still be available for SPDM enable via NTC2_PreConfig. */
+#if defined(WOLFTPM_AUTODETECT) && !defined(WOLFTPM_NUVOTON) && \
+    !defined(WOLFTPM_ST33)
+    typedef struct {
+        BYTE Base0;
+        BYTE Base1;
+        BYTE GpioAltCfg;
+        BYTE GpioInitValue;
+        BYTE GpioPullUp;
+        BYTE GpioPushPull;
+        BYTE Cfg_A;
+        BYTE Cfg_B;
+        BYTE Cfg_C;
+        BYTE Cfg_D;
+        BYTE Cfg_E;
+        BYTE Cfg_F;
+        BYTE Cfg_G;
+        BYTE Cfg_H;
+        BYTE Cfg_I;
+        BYTE Cfg_J;
+        BYTE isValid;
+        BYTE isLocked;
+    } CFG_STRUCT;
+
+    typedef struct {
+        TPMI_RH_PLATFORM authHandle;
+        CFG_STRUCT preConfig;
+    } NTC2_PreConfig_In;
+    WOLFTPM_API int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in);
+
+    typedef struct {
+        CFG_STRUCT preConfig;
+    } NTC2_GetConfig_Out;
+    WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
+#endif /* WOLFTPM_AUTODETECT && !WOLFTPM_NUVOTON && !WOLFTPM_ST33 */
+
 
 /* Non-standard API's */
 
@@ -3325,6 +3451,27 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
     \sa wolfTPM2_Init
 */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+
+#ifdef WOLFTPM_SPDM
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Send raw bytes through the TIS/HAL transport and receive the response.
+    Used by the SPDM layer to send TCG-framed SPDM messages over the same
+    SPI FIFO as regular TPM commands.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_FAILURE: communication failure
+
+    \param ctx pointer to a TPM2 context
+    \param txBuf pointer to the transmit buffer (TCG SPDM framed message)
+    \param txSz size of the transmit buffer in bytes
+    \param rxBuf pointer to the receive buffer for the response
+    \param rxSz pointer to size; on input max buffer size, on output actual response size
+*/
+WOLFTPM_API TPM_RC TPM2_SendRawBytes(TPM2_CTX* ctx,
+    const byte* txBuf, word32 txSz, byte* rxBuf, word32* rxSz);
+#endif /* WOLFTPM_SPDM */
 
 /*!
     \ingroup TPM2_Proprietary

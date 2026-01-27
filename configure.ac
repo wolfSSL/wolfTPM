@@ -490,27 +490,40 @@ AC_COMPILE_IFELSE(
     ]
 )
 
+ENABLED_LIBSPDM="no"
 if test "x$ENABLED_SPDM" = "xyes"
 then
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SPDM"
     AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM Authenticated Controller support])
-    
+
     # Optional libspdm integration
     AC_ARG_WITH([libspdm],
-        [AS_HELP_STRING([--with-libspdm=PATH],[Path to libspdm installation for integration testing (optional)])],
+        [AS_HELP_STRING([--with-libspdm=PATH],[Path to libspdm source or install directory])],
         [
             if test "x$withval" != "xno" && test "x$withval" != "xyes"
             then
                 LIBSPDM_PATH="$withval"
+                # Check for installed layout: PATH/include + PATH/lib
                 if test -d "${LIBSPDM_PATH}/include" && test -d "${LIBSPDM_PATH}/lib"
                 then
-                    CPPFLAGS="$CPPFLAGS -I${LIBSPDM_PATH}/include"
-                    LDFLAGS="$LDFLAGS -L${LIBSPDM_PATH}/lib"
-                    AC_DEFINE([WOLFTPM_WITH_LIBSPDM], [1], [Enable libspdm integration])
-                    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WITH_LIBSPDM"
+                    LIBSPDM_INCDIR="${LIBSPDM_PATH}/include"
+                    LIBSPDM_LIBDIR="${LIBSPDM_PATH}/lib"
+                # Check for source tree layout: PATH/include + PATH/build/lib
+                elif test -d "${LIBSPDM_PATH}/include" && test -d "${LIBSPDM_PATH}/build/lib"
+                then
+                    LIBSPDM_INCDIR="${LIBSPDM_PATH}/include"
+                    LIBSPDM_LIBDIR="${LIBSPDM_PATH}/build/lib"
                 else
-                    AC_MSG_WARN([libspdm path not found: ${LIBSPDM_PATH}])
+                    AC_MSG_ERROR([libspdm not found at: ${LIBSPDM_PATH}
+  Expected either installed layout (PATH/include + PATH/lib)
+  or source tree layout (PATH/include + PATH/build/lib).
+  Build libspdm first: cd libspdm && mkdir build && cd build && cmake -DCRYPTO=openssl -DTOOLCHAIN=GCC -DTARGET=Release -DENABLE_BINARY_BUILD=1 -DCOMPILED_LIBCRYPTO_PATH=/usr/lib/libcrypto.so -DCOMPILED_LIBSSL_PATH=/usr/lib/libssl.so -DDISABLE_TESTS=1 .. && make])
                 fi
+
+                CPPFLAGS="$CPPFLAGS -I${LIBSPDM_INCDIR}"
+                LDFLAGS="$LDFLAGS -L${LIBSPDM_LIBDIR}"
+                LIBS="$LIBS -lspdm_requester_lib -lspdm_common_lib -lspdm_crypt_lib -lspdm_secured_message_lib -lspdm_device_secret_lib_null -lspdm_crypt_ext_lib -lcryptlib_openssl -lmemlib -lmalloclib -ldebuglib_null -lplatform_lib_null -lrnglib -lssl -lcrypto"
+                AC_DEFINE([WOLFTPM_WITH_LIBSPDM], [1], [Enable libspdm backend for SPDM])
+                ENABLED_LIBSPDM="yes"
             fi
         ]
     )
@@ -546,6 +559,7 @@ AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
 AM_CONDITIONAL([BUILD_SPDM], [test "x$ENABLED_SPDM" = "xyes"])
+AM_CONDITIONAL([BUILD_LIBSPDM], [test "x$ENABLED_LIBSPDM" = "xyes"])
 
 
 CREATE_HEX_VERSION
