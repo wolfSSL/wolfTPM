@@ -117,6 +117,10 @@ typedef enum {
     TPM_ALG_CBC             = 0x0042,
     TPM_ALG_CFB             = 0x0043,
     TPM_ALG_ECB             = 0x0044,
+    /* Post-Quantum Algorithms - TPM 2.0 Library v185 */
+    TPM_ALG_MLKEM           = 0x00A0,
+    TPM_ALG_MLDSA           = 0x00A1,
+    TPM_ALG_HASH_MLDSA      = 0x00A2,
 } TPM_ALG_ID_T;
 typedef UINT16 TPM_ALG_ID;
 
@@ -132,6 +136,20 @@ typedef enum {
     TPM_ECC_SM2_P256    = 0x0020,
 } TPM_ECC_CURVE_T;
 typedef UINT16 TPM_ECC_CURVE;
+
+/* ML-KEM Parameter Sets (TCG Algorithm Registry v2.0) */
+typedef UINT16 TPMI_MLKEM_PARAMETER_SET;
+#define TPM_MLKEM_NONE              0x0000
+#define TPM_MLKEM_512               0x0001
+#define TPM_MLKEM_768               0x0002
+#define TPM_MLKEM_1024              0x0003
+
+/* ML-DSA Parameter Sets (TCG Algorithm Registry v2.0) */
+typedef UINT16 TPMI_MLDSA_PARAMETER_SET;
+#define TPM_MLDSA_NONE              0x0000
+#define TPM_MLDSA_44                0x0001
+#define TPM_MLDSA_65                0x0002
+#define TPM_MLDSA_87                0x0003
 
 /* Command Codes */
 typedef enum {
@@ -248,7 +266,15 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
-    TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
+    TPM_CC_VerifySequenceComplete   = 0x000001A3,
+    TPM_CC_SignSequenceComplete     = 0x000001A4,
+    TPM_CC_VerifyDigestSignature    = 0x000001A5,
+    TPM_CC_SignDigest               = 0x000001A6,
+    TPM_CC_Encapsulate              = 0x000001A7,
+    TPM_CC_Decapsulate              = 0x000001A8,
+    TPM_CC_VerifySequenceStart      = 0x000001A9,
+    TPM_CC_SignSequenceStart        = 0x000001AA,
+    TPM_CC_LAST                     = TPM_CC_SignSequenceStart,
 
     CC_VEND                         = 0x20000000,
     TPM_CC_Vendor_TCG_Test          = CC_VEND + 0x0000,
@@ -458,6 +484,10 @@ typedef enum {
     TPM_ST_AUTH_SECRET          = 0x8023,
     TPM_ST_HASHCHECK            = 0x8024,
     TPM_ST_AUTH_SIGNED          = 0x8025,
+#ifdef WOLFTPM_V185
+    TPM_ST_MESSAGE_VERIFIED     = 0x8026,
+    TPM_ST_DIGEST_VERIFIED      = 0x8027,
+#endif
     TPM_ST_FU_MANIFEST          = 0x8029,
 } TPM_ST_T;
 typedef UINT16 TPM_ST;
@@ -878,6 +908,24 @@ typedef struct TPM2B_IV {
     UINT16 size;
     BYTE buffer[MAX_SYM_BLOCK_SIZE];
 } TPM2B_IV;
+
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Types */
+typedef struct TPM2B_SIGNATURE_CTX {
+    UINT16 size;
+    BYTE buffer[MAX_SIGNATURE_CTX_SIZE];
+} TPM2B_SIGNATURE_CTX;
+
+typedef struct TPM2B_KEM_CIPHERTEXT {
+    UINT16 size;
+    BYTE buffer[MAX_KEM_CIPHERTEXT_SIZE];
+} TPM2B_KEM_CIPHERTEXT;
+
+typedef struct TPM2B_SHARED_SECRET {
+    UINT16 size;
+    BYTE buffer[MAX_SHARED_SECRET_SIZE];
+} TPM2B_SHARED_SECRET;
+#endif /* WOLFTPM_V185 */
 
 
 /* Names */
@@ -1370,6 +1418,14 @@ typedef struct TPMS_SIGNATURE_ECC {
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDSA;
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 
+#ifdef WOLFTPM_V185
+/* ML-DSA (Dilithium) Signature Structure */
+typedef struct TPMS_SIGNATURE_ML_DSA {
+    TPMI_ALG_HASH hash;
+    TPM2B_MAX_BUFFER signature;  /* ML-DSA signature is variable length */
+} TPMS_SIGNATURE_ML_DSA;
+#endif /* WOLFTPM_V185 */
+
 typedef union TPMU_SIGNATURE {
     TPMS_SIGNATURE_ECDSA ecdsa;
     TPMS_SIGNATURE_ECDAA ecdaa;
@@ -1377,6 +1433,9 @@ typedef union TPMU_SIGNATURE {
     TPMS_SIGNATURE_RSAPSS rsapss;
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
+#ifdef WOLFTPM_V185
+    TPMS_SIGNATURE_ML_DSA mldsa;
+#endif /* WOLFTPM_V185 */
 } TPMU_SIGNATURE;
 
 typedef struct TPMT_SIGNATURE {
@@ -2457,6 +2516,92 @@ typedef struct {
 } Sign_Out;
 WOLFTPM_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
 
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_SIGNATURE_CTX context;
+} SignSequenceStart_In;
+typedef struct {
+    TPMI_DH_OBJECT sequenceHandle;
+} SignSequenceStart_Out;
+WOLFTPM_API TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
+    SignSequenceStart_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_SIGNATURE_CTX context;
+} VerifySequenceStart_In;
+typedef struct {
+    TPMI_DH_OBJECT sequenceHandle;
+} VerifySequenceStart_Out;
+WOLFTPM_API TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
+    VerifySequenceStart_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT sequenceHandle;
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_MAX_BUFFER buffer;
+} SignSequenceComplete_In;
+typedef struct {
+    TPMT_SIGNATURE signature;
+} SignSequenceComplete_Out;
+WOLFTPM_API TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
+    SignSequenceComplete_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT sequenceHandle;
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_MAX_BUFFER buffer;
+    TPMT_SIGNATURE signature;
+} VerifySequenceComplete_In;
+typedef struct {
+    TPMT_TK_VERIFIED validation;
+} VerifySequenceComplete_Out;
+WOLFTPM_API TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
+    VerifySequenceComplete_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_DIGEST digest;
+    TPM2B_SIGNATURE_CTX context;
+} SignDigest_In;
+typedef struct {
+    TPMT_SIGNATURE signature;
+} SignDigest_Out;
+WOLFTPM_API TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_DIGEST digest;
+    TPMT_SIGNATURE signature;
+    TPM2B_SIGNATURE_CTX context;
+} VerifyDigestSignature_In;
+typedef struct {
+    TPMT_TK_VERIFIED validation;
+} VerifyDigestSignature_Out;
+WOLFTPM_API TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
+    VerifyDigestSignature_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+} Encapsulate_In;
+typedef struct {
+    TPM2B_KEM_CIPHERTEXT ciphertext;
+    TPM2B_SHARED_SECRET sharedSecret;
+} Encapsulate_Out;
+WOLFTPM_API TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT keyHandle;
+    TPM2B_KEM_CIPHERTEXT ciphertext;
+} Decapsulate_In;
+typedef struct {
+    TPM2B_SHARED_SECRET sharedSecret;
+} Decapsulate_Out;
+WOLFTPM_API TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out);
+#endif /* WOLFTPM_V185 */
 
 typedef struct {
     TPMI_RH_PROVISION auth;

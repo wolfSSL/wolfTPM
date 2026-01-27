@@ -1748,6 +1748,256 @@ WOLFTPM_API int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev,
     int digestSz, TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
     TPMT_TK_VERIFIED* checkTicket);
 
+#ifdef WOLFTPM_V185
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Start a signing sequence with context support
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Signing key
+    \param context Signature context (for PQ algorithms like ML-DSA)
+    \param contextSz Size of context buffer
+    \param sequenceHandle Output sequence handle
+
+    _Example_
+    \code
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    TPM_HANDLE sequenceHandle;
+    byte context[1024];
+    int contextSz = sizeof(context);
+
+    // Initialize and set up key...
+    rc = wolfTPM2_SignSequenceStart(&dev, &key, context, contextSz, &sequenceHandle);
+    \endcode
+
+    \sa wolfTPM2_SignSequenceUpdate
+    \sa wolfTPM2_SignSequenceComplete
+    \sa wolfTPM2_VerifySequenceStart
+*/
+WOLFTPM_API int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Update a signing sequence with data
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param sequenceHandle Sequence handle from SignSequenceStart
+    \param data Data to add to sequence
+    \param dataSz Size of data buffer
+
+    _Example_
+    \code
+    byte data[256];
+    rc = wolfTPM2_SignSequenceUpdate(&dev, sequenceHandle, data, sizeof(data));
+    \endcode
+
+    \sa wolfTPM2_SignSequenceStart
+    \sa wolfTPM2_SignSequenceComplete
+*/
+WOLFTPM_API int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Complete a signing sequence
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param sequenceHandle Sequence handle from SignSequenceStart
+    \param key Signing key
+    \param data Final data to add to sequence
+    \param dataSz Size of data buffer
+    \param sig Output signature buffer
+    \param sigSz Input/output signature size
+
+    _Example_
+    \code
+    byte sig[2048];
+    int sigSz = sizeof(sig);
+    rc = wolfTPM2_SignSequenceComplete(&dev, sequenceHandle, &key, data, dataSz, sig, &sigSz);
+    \endcode
+
+    \sa wolfTPM2_SignSequenceStart
+    \sa wolfTPM2_SignSequenceUpdate
+*/
+WOLFTPM_API int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    byte* sig, int* sigSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Start a verification sequence with context support
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Verification key
+    \param context Signature context (for PQ algorithms like ML-DSA)
+    \param contextSz Size of context buffer
+    \param sequenceHandle Output sequence handle
+
+    _Example_
+    \code
+    TPM_HANDLE sequenceHandle;
+    byte context[1024];
+    rc = wolfTPM2_VerifySequenceStart(&dev, &key, context, sizeof(context), &sequenceHandle);
+    \endcode
+
+    \sa wolfTPM2_VerifySequenceUpdate
+    \sa wolfTPM2_VerifySequenceComplete
+    \sa wolfTPM2_SignSequenceStart
+*/
+WOLFTPM_API int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Update a verification sequence with data
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param sequenceHandle Sequence handle from VerifySequenceStart
+    \param data Data to add to sequence
+    \param dataSz Size of data buffer
+
+    _Example_
+    \code
+    rc = wolfTPM2_VerifySequenceUpdate(&dev, sequenceHandle, data, sizeof(data));
+    \endcode
+
+    \sa wolfTPM2_VerifySequenceStart
+    \sa wolfTPM2_VerifySequenceComplete
+*/
+WOLFTPM_API int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Complete a verification sequence
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param sequenceHandle Sequence handle from VerifySequenceStart
+    \param key Verification key
+    \param data Final data to add to sequence
+    \param dataSz Size of data buffer
+    \param sig Signature to verify
+    \param sigSz Size of signature buffer
+    \param validation Optional output validation ticket
+
+    _Example_
+    \code
+    TPMT_TK_VERIFIED validation;
+    rc = wolfTPM2_VerifySequenceComplete(&dev, sequenceHandle, &key, data, dataSz, sig, sigSz, &validation);
+    \endcode
+
+    \sa wolfTPM2_VerifySequenceStart
+    \sa wolfTPM2_VerifySequenceUpdate
+*/
+WOLFTPM_API int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Sign a digest with context support
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Signing key
+    \param digest Digest to sign
+    \param digestSz Size of digest buffer
+    \param context Signature context (for PQ algorithms like ML-DSA)
+    \param contextSz Size of context buffer
+    \param sig Output signature buffer
+    \param sigSz Input/output signature size
+
+    _Example_
+    \code
+    byte digest[64], sig[2048];
+    int sigSz = sizeof(sig);
+    byte context[1024];
+    rc = wolfTPM2_SignDigest(&dev, &key, digest, sizeof(digest), context, sizeof(context), sig, &sigSz);
+    \endcode
+
+    \sa wolfTPM2_VerifyDigestSignature
+    \sa wolfTPM2_SignHash
+*/
+WOLFTPM_API int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* context, int contextSz,
+    byte* sig, int* sigSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: Verify a digest signature with context support
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Verification key
+    \param digest Digest that was signed
+    \param digestSz Size of digest buffer
+    \param sig Signature to verify
+    \param sigSz Size of signature buffer
+    \param context Signature context (for PQ algorithms like ML-DSA)
+    \param contextSz Size of context buffer
+    \param validation Optional output validation ticket
+
+    _Example_
+    \code
+    TPMT_TK_VERIFIED validation;
+    rc = wolfTPM2_VerifyDigestSignature(&dev, &key, digest, sizeof(digest), sig, sigSz, context, sizeof(context), &validation);
+    \endcode
+
+    \sa wolfTPM2_SignDigest
+    \sa wolfTPM2_VerifyHash
+*/
+WOLFTPM_API int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* sig, int sigSz,
+    const byte* context, int contextSz, TPMT_TK_VERIFIED* validation);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: KEM Encapsulate (public key operation)
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Public key for encapsulation
+    \param ciphertext Output ciphertext buffer
+    \param ciphertextSz Input/output ciphertext size
+    \param sharedSecret Output shared secret buffer
+    \param sharedSecretSz Input/output shared secret size
+
+    _Example_
+    \code
+    byte ciphertext[2048], sharedSecret[64];
+    int ciphertextSz = sizeof(ciphertext);
+    int sharedSecretSz = sizeof(sharedSecret);
+    rc = wolfTPM2_Encapsulate(&dev, &key, ciphertext, &ciphertextSz, sharedSecret, &sharedSecretSz);
+    \endcode
+
+    \sa wolfTPM2_Decapsulate
+*/
+WOLFTPM_API int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    byte* ciphertext, int* ciphertextSz, byte* sharedSecret, int* sharedSecretSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Post-Quantum Cryptography: KEM Decapsulate (private key operation)
+    \return 0 on success, negative on error
+    \param dev Device structure
+    \param key Private key for decapsulation
+    \param ciphertext Ciphertext to decapsulate
+    \param ciphertextSz Size of ciphertext buffer
+    \param sharedSecret Output shared secret buffer
+    \param sharedSecretSz Input/output shared secret size
+
+    _Example_
+    \code
+    byte sharedSecret[64];
+    int sharedSecretSz = sizeof(sharedSecret);
+    rc = wolfTPM2_Decapsulate(&dev, &key, ciphertext, ciphertextSz, sharedSecret, &sharedSecretSz);
+    \endcode
+
+    \sa wolfTPM2_Encapsulate
+*/
+WOLFTPM_API int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* ciphertext, int ciphertextSz, byte* sharedSecret, int* sharedSecretSz);
+#endif /* WOLFTPM_V185 */
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Generates and then loads a ECC key-pair with NULL hierarchy for Diffie-Hellman exchange

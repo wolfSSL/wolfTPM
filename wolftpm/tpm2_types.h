@@ -689,6 +689,18 @@ typedef int64_t  INT64;
 #ifndef MAX_CAP_HANDLES
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Size Definitions */
+#ifndef MAX_SIGNATURE_CTX_SIZE
+#define MAX_SIGNATURE_CTX_SIZE 1024
+#endif
+#ifndef MAX_KEM_CIPHERTEXT_SIZE
+#define MAX_KEM_CIPHERTEXT_SIZE 2048
+#endif
+#ifndef MAX_SHARED_SECRET_SIZE
+#define MAX_SHARED_SECRET_SIZE 64
+#endif
+#endif /* WOLFTPM_V185 */
 #ifndef HASH_COUNT
     #ifndef WOLFTPM2_NO_WOLFCRYPT
         /* Calculate hash count based on wolfCrypt enables */
