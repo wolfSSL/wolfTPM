@@ -812,9 +812,8 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_AppendBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
 #ifdef WOLFTPM_V185
-    case TPM_ALG_ML_DSA_44:
-    case TPM_ALG_ML_DSA_65:
-    case TPM_ALG_ML_DSA_87:
+    case TPM_ALG_MLDSA:
+    case TPM_ALG_HASH_MLDSA:
         TPM2_Packet_AppendU16(packet, sig->signature.mldsa.hash);
         TPM2_Packet_AppendU16(packet, sig->signature.mldsa.signature.size);
         TPM2_Packet_AppendBytes(packet, sig->signature.mldsa.signature.buffer,
@@ -858,9 +857,8 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         TPM2_Packet_ParseBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
 #ifdef WOLFTPM_V185
-    case TPM_ALG_ML_DSA_44:
-    case TPM_ALG_ML_DSA_65:
-    case TPM_ALG_ML_DSA_87:
+    case TPM_ALG_MLDSA:
+    case TPM_ALG_HASH_MLDSA:
         TPM2_Packet_ParseU16(packet, &sig->signature.mldsa.hash);
         TPM2_Packet_ParseU16(packet, &sig->signature.mldsa.signature.size);
         TPM2_Packet_ParseBytes(packet, sig->signature.mldsa.signature.buffer,

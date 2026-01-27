@@ -6538,18 +6538,12 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
             return "AES-CFB";
         case TPM_ALG_ECB:
             return "AES-ECB";
-        case TPM_ALG_ML_DSA_44:
-            return "ML-DSA-44";
-        case TPM_ALG_ML_DSA_65:
-            return "ML-DSA-65";
-        case TPM_ALG_ML_DSA_87:
-            return "ML-DSA-87";
-        case TPM_ALG_ML_KEM_512:
-            return "ML-KEM-512";
-        case TPM_ALG_ML_KEM_768:
-            return "ML-KEM-768";
-        case TPM_ALG_ML_KEM_1024:
-            return "ML-KEM-1024";
+        case TPM_ALG_MLKEM:
+            return "ML-KEM";
+        case TPM_ALG_MLDSA:
+            return "ML-DSA";
+        case TPM_ALG_HASH_MLDSA:
+            return "HashML-DSA";
         default:
             break;
     }
