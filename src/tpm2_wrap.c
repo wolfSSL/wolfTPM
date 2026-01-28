@@ -7340,6 +7340,100 @@ typedef struct CSRKey {
     TpmCryptoDevCtx tpmCtx;
 } CSRKey;
 
+/*
+ * Internal callback function for wc_SignCert_cb that uses TPM for signing.
+ * 
+ * This callback implements the wc_SignCertCb interface to perform certificate
+ * and CSR signing using the TPM. It is used internally by CSR_MakeAndSign_Cb
+ * when the callback-based signing approach is selected.
+ * 
+ * For RSA keys:
+ *   - Input is PKCS#1 v1.5 padded digest (already encoded by wolfSSL)
+ *   - Uses wolfTPM2_RsaDecrypt with TPM_ALG_NULL (no padding) to perform
+ *     the private key operation for signing
+ * 
+ * For ECC keys:
+ *   - Input is the raw hash to sign
+ *   - Uses wolfTPM2_SignHash to sign with TPM
+ *   - Converts TPM's R||S format to DER-encoded ECDSA signature
+ * 
+ * Parameters:
+ *   in       - Data to sign (encoded for RSA, raw hash for ECC)
+ *   inLen    - Length of input data
+ *   out      - Output buffer for signature
+ *   outLen   - Input: buffer size, Output: signature size
+ *   sigAlgo  - Signature algorithm (not used, determined by keyType)
+ *   keyType  - Key type (RSA_TYPE or ECC_TYPE)
+ *   ctx      - TpmSignCbCtx containing TPM device and key
+ * 
+ * Returns:
+ *   0 on success
+ *   BAD_FUNC_ARG on invalid parameters
+ *   NOT_COMPILED_IN if key type not supported
+ *   Other negative values on TPM errors
+ */
+static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
+    byte* out, word32* outLen, int sigAlgo, int keyType, void* ctx)
+{
+    int rc;
+    TpmSignCbCtx* tpmCtx = (TpmSignCbCtx*)ctx;
+
+    if (tpmCtx == NULL || tpmCtx->dev == NULL || tpmCtx->key == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    (void)sigAlgo; /* Algorithm determined by key type */
+
+    if (keyType == ECC_TYPE) {
+#ifdef HAVE_ECC
+        byte sigRS[MAX_ECC_BYTES * 2];
+        int rsLen = (int)sizeof(sigRS);
+
+        /* Sign using TPM */
+        rc = wolfTPM2_SignHash(tpmCtx->dev, tpmCtx->key,
+            in, inLen, sigRS, &rsLen);
+
+        if (rc == 0) {
+            byte *r, *s;
+            word32 rLen, sLen;
+
+            /* Split R and S from concatenated signature */
+            rLen = sLen = rsLen / 2;
+            r = &sigRS[0];
+            s = &sigRS[rLen];
+
+            /* Encode as DER ECDSA signature */
+            rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outLen);
+        }
+#else
+        rc = NOT_COMPILED_IN;
+#endif
+    }
+    else if (keyType == RSA_TYPE) {
+#ifndef NO_RSA
+        int outSz = (int)*outLen;
+
+        /* For RSA, input is already PKCS#1 v1.5 padded digest
+         * Use RSA decrypt (private key operation) for signing */
+        rc = wolfTPM2_RsaDecrypt(tpmCtx->dev, tpmCtx->key,
+            TPM_ALG_NULL, /* No padding - input is pre-padded */
+            in, inLen, out, &outSz);
+
+        if (rc == 0) {
+            *outLen = (word32)outSz;
+        }
+#else
+        rc = NOT_COMPILED_IN;
+#endif
+    }
+    else {
+        rc = BAD_FUNC_ARG;
+    }
+
+    return rc;
+}
+
+
 static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     int outFormat, byte* out, int outSz, int selfSignCert)
 {
@@ -7389,6 +7483,147 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
 
     return rc;
 }
+
+/*
+ * Internal function for CSR/Certificate generation and signing using the
+ * callback-based approach.
+ * 
+ * This function generates and signs a Certificate Signing Request (CSR) or
+ * self-signed certificate using the new wc_SignCert_cb() API. Unlike the
+ * legacy CSR_MakeAndSign() function which requires crypto callback setup,
+ * this function calls TPM signing directly via wolfTPM2_SignCertCb().
+ * 
+ * Advantages of this approach:
+ *   - FIPS compliant (no wolfCrypt crypto offloading)
+ *   - Simpler code path (no crypto callback infrastructure)
+ *   - Direct TPM signing without intermediate key structures
+ * 
+ * Parameters:
+ *   dev          - Initialized TPM device
+ *   csr          - CSR structure with subject, extensions, etc.
+ *   key          - TPM key to use for signing
+ *   keyType      - Key type (RSA_TYPE or ECC_TYPE)
+ *   outFormat    - Output format (ENCODING_TYPE_PEM or ENCODING_TYPE_ASN1)
+ *   out          - Output buffer
+ *   outSz        - Size of output buffer
+ *   selfSignCert - 1 to create self-signed cert, 0 for CSR
+ * 
+ * Returns:
+ *   Positive value: size of generated CSR/certificate
+ *   BAD_FUNC_ARG: invalid parameters
+ *   BUFFER_E: output buffer too small
+ *   Other negative: error code from wolfSSL or TPM
+ */
+static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
+    WOLFTPM2_KEY* key, int keyType, int outFormat, byte* out, int outSz,
+    int selfSignCert)
+{
+    int rc = 0;
+    TpmSignCbCtx signCtx;
+    union {
+    #ifndef NO_RSA
+        RsaKey rsa;
+    #endif
+    #ifdef HAVE_ECC
+        ecc_key ecc;
+    #endif
+    } wolfKey;
+
+    if (dev == NULL || csr == NULL || key == NULL || out == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&wolfKey, 0, sizeof(wolfKey));
+
+    /* Extract public key from TPM key into wolfCrypt key structure */
+    if (keyType == ECC_TYPE) {
+    #ifdef HAVE_ECC
+        rc = wc_ecc_init(&wolfKey.ecc);
+        if (rc == 0) {
+            /* load public portion of key into wolf ECC Key */
+            rc = wolfTPM2_EccKey_TpmToWolf(dev, key, &wolfKey.ecc);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else if (keyType == RSA_TYPE) {
+    #ifndef NO_RSA
+        rc = wc_InitRsaKey(&wolfKey.rsa, NULL);
+        if (rc == 0) {
+            /* load public portion of key into wolf RSA Key */
+            rc = wolfTPM2_RsaKey_TpmToWolf(dev, key, &wolfKey.rsa);
+        }
+    #else
+        rc = NOT_COMPILED_IN;
+    #endif
+    }
+    else {
+        rc = BAD_FUNC_ARG;
+    }
+
+    /* Setup signing context */
+    if (rc == 0) {
+        signCtx.dev = dev;
+        signCtx.key = key;
+    }
+
+    /* Create certificate body with public key */
+    if (rc == 0 && selfSignCert) {
+#ifdef WOLFSSL_CERT_GEN
+        rc = wc_MakeCert_ex(&csr->req, out, outSz, keyType, &wolfKey,
+            wolfTPM2_GetRng(dev));
+#else
+        rc = NOT_COMPILED_IN;
+#endif
+    }
+    if (rc == 0 && !selfSignCert) {
+        rc = wc_MakeCertReq_ex(&csr->req, out, outSz, keyType, &wolfKey);
+    }
+
+    /* Sign using TPM via callback */
+    if (rc >= 0) {
+        rc = wc_SignCert_cb(csr->req.bodySz, csr->req.sigType, out,
+            (word32)outSz, keyType, wolfTPM2_SignCertCb, &signCtx,
+            wolfTPM2_GetRng(dev));
+    }
+
+    /* Optionally convert to PEM */
+    if (rc >= 0 && outFormat == ENCODING_TYPE_PEM) {
+#ifdef WOLFSSL_DER_TO_PEM
+        byte tmp[MAX_CONTEXT_SIZE];
+        if (rc > (int)sizeof(tmp)) {
+            rc = BUFFER_E;
+        }
+        else {
+            XMEMCPY(tmp, out, rc);
+            XMEMSET(out, 0, outSz);
+            rc = wc_DerToPem(tmp, (word32)rc, out, outSz,
+                selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+        }
+#else
+        #ifdef DEBUG_WOLFTPM
+        printf("CSR_MakeAndSign_Cb PEM not supported\n");
+        #endif
+        rc = NOT_COMPILED_IN;
+#endif
+    }
+
+    /* Cleanup wolfCrypt key structure */
+    if (keyType == ECC_TYPE) {
+    #ifdef HAVE_ECC
+        wc_ecc_free(&wolfKey.ecc);
+    #endif
+    }
+    else if (keyType == RSA_TYPE) {
+    #ifndef NO_RSA
+        wc_FreeRsaKey(&wolfKey.rsa);
+    #endif
+    }
+
+    return rc;
+}
+
 
 static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
     CSRKey* csrKey, int sigType, int devId)
@@ -7584,10 +7819,34 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     int sigType, int selfSignCert, int devId)
 {
     int rc;
-    CSRKey csrKey;
+    int keyType;
 
     if (dev == NULL || key == NULL || csr == NULL || out == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    /* Determine key type from TPM key */
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        keyType = ECC_TYPE;
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        keyType = RSA_TYPE;
+    }
+    else {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Set signature type if not specified */
+    if (sigType == 0) {
+        if (keyType == RSA_TYPE) {
+            csr->req.sigType = CTC_SHA256wRSA;
+        }
+        else if (keyType == ECC_TYPE) {
+            csr->req.sigType = CTC_SHA256wECDSA;
+        }
+    }
+    else {
+        csr->req.sigType = sigType;
     }
 
     /* Set version to 2 for self-signed certificates, 0 for regular CSRs per RFC2986 */
@@ -7598,12 +7857,21 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         csr->req.version = 0;
     }
 
-    rc = CSR_KeySetup(dev, csr, key, &csrKey, sigType, devId);
-    if (rc == 0) {
-        rc = CSR_MakeAndSign(dev, csr, &csrKey, outFormat, out, outSz,
+    /* Use new callback-based signing if devId not specified */
+    if (devId == INVALID_DEVID) {
+        rc = CSR_MakeAndSign_Cb(dev, csr, key, keyType, outFormat, out, outSz,
             selfSignCert);
     }
-    CSR_KeyCleanup(dev, &csrKey);
+    else {
+        /* Fall back to crypto callback approach for backward compatibility */
+        CSRKey csrKey;
+        rc = CSR_KeySetup(dev, csr, key, &csrKey, sigType, devId);
+        if (rc == 0) {
+            rc = CSR_MakeAndSign(dev, csr, &csrKey, outFormat, out, outSz,
+                selfSignCert);
+        }
+        CSR_KeyCleanup(dev, &csrKey);
+    }
 
     return rc;
 }

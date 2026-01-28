@@ -67,6 +67,30 @@ static const char* gClientCertEccFile = ECC_CERT_PEM;
 /* --- BEGIN TPM2 CSR Example -- */
 /******************************************************************************/
 
+/* Certificate/CSR Signing with TPM:
+ * 
+ * wolfTPM supports two approaches for TPM-based certificate signing:
+ * 
+ * 1. NEW CALLBACK-BASED APPROACH (Recommended for FIPS):
+ *    When devId is INVALID_DEVID, wolfTPM2_CSR_MakeAndSign_ex() uses the new
+ *    wc_SignCert_cb() API which calls TPM signing functions directly without
+ *    requiring wolfCrypt crypto callbacks. This approach:
+ *    - Uses TPM crypto directly (no wolfCrypt offloading)
+ *    - Is FIPS-compliant (doesn't rely on wolfCrypt crypto callbacks)
+ *    - Simplifies the code path
+ *
+ * 2. CRYPTO CALLBACK APPROACH (Legacy/Backward Compatible):
+ *    When devId is set via wolfTPM2_SetCryptoDevCb(), the legacy crypto
+ *    callback infrastructure is used. This approach:
+ *    - Uses wc_SignCert_ex() which offloads crypto operations to TPM
+ *    - Maintains backward compatibility
+ *    - Requires crypto callback setup
+ * 
+ * This example demonstrates the crypto callback approach. To use the new
+ * callback-based approach, pass INVALID_DEVID instead of tpmDevId when calling
+ * TPM2_CSR_Generate() or wolfTPM2_CSR_MakeAndSign_ex().
+ */
+
 static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     const char* outputPemFile, int makeSelfSignedCert, int devId, int sigType)
 {
