@@ -1,6 +1,8 @@
 # TPM Firmware Update Support
 
-Currently wolfTPM supports firmware update capability for the Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
+Currently wolfTPM supports firmware update capability for:
+- Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
+- STMicroelectronics ST33KTPM TPM 2.0 modules. Support includes both Generation 1 firmware versions (< 512, without LMS signature) and Generation 2 firmware versions (>= 512, with LMS signature requirement).
 
 ## Infineon Firmware
 
@@ -102,3 +104,98 @@ Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a)
 Operational mode: Normal TPM operational mode (0x0)
 KeyGroupId 0x7, FwCounter 1253 (254 same)
 ```
+
+## ST33 Firmware Update
+
+### Firmware Format Auto-Detection
+
+ST33KTPM firmware update automatically detects the required format based on TPM firmware version:
+
+- **Legacy firmware (< 512, e.g., 9.257)**: Non-LMS format
+  - Manifest size: 177 bytes
+  - Generation 1 firmware (ECC-only)
+
+- **Modern firmware (>= 512, e.g., 9.512)**: LMS format
+  - Manifest size: 2697 bytes (includes embedded LMS signature)
+  - Generation 2 firmware (LMS mandatory)
+
+The firmware version is automatically detected from `fwVerMinor` in TPM capabilities. The correct manifest size is determined automatically - no manual format selection is needed.
+
+### Updating the firmware
+
+The `st33_fw_update` tool automatically detects the firmware format.
+
+```sh
+# Help
+./st33_fw_update --help
+ST33 Firmware Update Usage:
+	./st33_fw_update (get info)
+	./st33_fw_update --abandon (cancel)
+	./st33_fw_update <firmware.fi>
+
+Firmware format is auto-detected from TPM firmware version:
+      - Firmware < 512: Non-LMS format (177 byte manifest)
+      - Firmware >= 512: LMS format (2697 byte manifest with embedded signature)
+
+# Run without arguments to display the current firmware information
+./st33_fw_update
+ST33 Firmware Update Tool
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
+
+# Run with firmware file (format auto-detected from TPM version)
+./st33_fw_update TPM_ST33KTPM2X_00090200_V1.fi
+ST33 Firmware Update Tool
+	Firmware File: TPM_ST33KTPM2X_00090200_V1.fi
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
+	Format: Non-LMS (from TPM firmware version)
+Firmware Update:
+	Total file size: 364290 bytes
+	Manifest (blob0): 177 bytes
+	Firmware data: 364113 bytes
+...
+Firmware update completed successfully.
+Please reset or power cycle the TPM.
+
+# Example with LMS firmware (Generation 2 TPM, firmware >= 512)
+./st33_fw_update ST33KTPM2X_FAC_00090200_V2.fi
+ST33 Firmware Update Tool
+	Firmware File: ST33KTPM2X_FAC_00090200_V2.fi
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 3
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.512 (0x0)
+Firmware version details: Major=9, Minor=512, Vendor=0x0
+Hardware: ST33K (modern firmware, Generation 2)
+Firmware update: LMS format required
+	Format: LMS (from TPM firmware version)
+Firmware Update:
+	Total file size: 360092 bytes
+	Manifest (blob0): 2697 bytes
+	Firmware data: 357395 bytes
+...
+Firmware update completed successfully.
+Please reset or power cycle the TPM.
+
+# Cancel an ongoing firmware update
+./st33_fw_update --abandon
+ST33 Firmware Update Tool
+TPM2: Caps 0x30000415, Did 0x0003, Vid 0x104a, Rid 0x 1
+TPM2_Startup pass
+Mfg STM (2), Vendor ST33KTPM2X, Fw 9.257 (0x0)
+Firmware version details: Major=9, Minor=257, Vendor=0x0
+Hardware: ST33K (legacy firmware, Generation 1)
+Firmware update: Non-LMS format required
+Firmware Update Abandon:
+Success: Please reset or power cycle TPM
+```
+
+**Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics.
