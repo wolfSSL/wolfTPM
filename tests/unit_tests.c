@@ -311,12 +311,9 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
-    rc = 0;
-
     wolfTPM2_Cleanup(&dev);
 
-    printf("Test ST33 Firmware Upgrade:\tAPI Availability:\t%s\n",
-        rc == 0 ? "Passed" : "Failed");
+    printf("Test ST33 Firmware Upgrade:\tAPI Availability:\tPassed\n");
 }
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
