@@ -97,13 +97,30 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_Startup(&startupIn);
     if (rc != TPM_RC_SUCCESS &&
         rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Startup failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
-        return rc;
+    #ifdef WOLFTPM_SPDM
+        if (rc == (int)TPM_RC_DISABLED) {
+            /* When SPDM-only mode is active on the TPM, TPM2_Startup returns
+             * TPM_RC_DISABLED. This is expected - SPDM commands bypass the
+             * normal TPM command path and work over raw SPI. */
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Startup: TPM_RC_DISABLED (SPDM-only mode active, "
+                   "this is expected)\n");
+        #endif
+        }
+        else
+    #endif /* WOLFTPM_SPDM */
+        {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_Startup failed %d: %s\n", rc,
+                   wolfTPM2_GetRCString(rc));
+        #endif
+            return rc;
+        }
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_Startup pass\n");
+    if (rc == TPM_RC_SUCCESS || rc == TPM_RC_INITIALIZE) {
+        printf("TPM2_Startup pass\n");
+    }
 #endif
     rc = TPM_RC_SUCCESS;
 
@@ -113,13 +130,29 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     selfTest.fullTest = YES;
     rc = TPM2_SelfTest(&selfTest);
     if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_SelfTest failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-    #endif
-        return rc;
+    #ifdef WOLFTPM_SPDM
+        if (rc == (int)TPM_RC_DISABLED) {
+            /* SPDM-only mode active - SelfTest not needed */
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SelfTest: TPM_RC_DISABLED (SPDM-only mode, "
+                   "expected)\n");
+        #endif
+            rc = TPM_RC_SUCCESS;
+        }
+        else
+    #endif /* WOLFTPM_SPDM */
+        {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_SelfTest failed 0x%x: %s\n", rc,
+                   TPM2_GetRCString(rc));
+        #endif
+            return rc;
+        }
     }
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_SelfTest pass\n");
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_SelfTest pass\n");
+    }
 #endif
 #endif /* WOLFTPM_MICROCHIP || WOLFTPM_PERFORM_SELFTEST */
 #endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
@@ -1011,11 +1044,14 @@ int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev)
         return BAD_FUNC_ARG;
     }
 
-    /* Get the default backend (wolfSPDM preferred, else libspdm) */
+    /* Get the default backend (wolfSPDM preferred, else libspdm).
+     * If no backend is available, native wolfCrypt handshake will be used. */
     backend = wolfTPM2_SPDM_GetDefaultBackend();
+#ifdef DEBUG_WOLFTPM
     if (backend == NULL) {
-        return TPM_RC_FAILURE; /* No SPDM backend available */
+        printf("SPDM Init: No external backend, using native wolfCrypt\n");
     }
+#endif
 
     /* Allocate SPDM context */
     spdmCtx = (WOLFTPM2_SPDM_CTX*)XMALLOC(sizeof(WOLFTPM2_SPDM_CTX),
@@ -1024,15 +1060,26 @@ int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev)
         return MEMORY_E;
     }
 
-    /* Initialize SPDM context with backend and the default I/O callback.
-     * The default callback sends TCG-framed SPDM messages through
+    /* Initialize SPDM context.
+     * The default I/O callback sends TCG-framed SPDM messages through
      * TPM2_SendRawBytes (same TIS FIFO as regular TPM commands).
      * The userCtx is the TPM2_CTX so the callback can access the HAL. */
-    rc = wolfTPM2_SPDM_InitCtx(spdmCtx, backend,
-        wolfTPM2_SPDM_GetDefaultIoCb(), &dev->ctx);
-    if (rc != 0) {
-        XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        return rc;
+    XMEMSET(spdmCtx, 0, sizeof(*spdmCtx));
+    spdmCtx->backend = backend;
+    spdmCtx->ioCb = wolfTPM2_SPDM_GetDefaultIoCb();
+    spdmCtx->ioUserCtx = &dev->ctx;
+    spdmCtx->connectionHandle = (word32)SPDM_CONNECTION_ID;
+    spdmCtx->fipsIndicator = (word16)SPDM_FIPS_NON_FIPS;
+    spdmCtx->reqSessionId = SPDM_REQ_SESSION_ID;
+    spdmCtx->state = SPDM_STATE_INITIALIZED;
+
+    /* If backend is available, initialize it */
+    if (backend != NULL && backend->Init != NULL) {
+        rc = backend->Init(spdmCtx, spdmCtx->ioCb, spdmCtx->ioUserCtx);
+        if (rc != 0) {
+            XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            return rc;
+        }
     }
 
     /* Link SPDM context to device */
@@ -1448,10 +1495,23 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
         shutdownIn.shutdownType = TPM_SU_CLEAR;
         rc = TPM2_Shutdown(&shutdownIn);
         if (rc != TPM_RC_SUCCESS) {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Shutdown failed %d: %s\n",
-                rc, wolfTPM2_GetRCString(rc));
-        #endif
+        #ifdef WOLFTPM_SPDM
+            if (rc == (int)TPM_RC_DISABLED) {
+                /* SPDM-only mode active - shutdown not needed */
+            #ifdef DEBUG_WOLFTPM
+                printf("TPM2_Shutdown: TPM_RC_DISABLED (SPDM-only mode, "
+                       "expected)\n");
+            #endif
+                rc = TPM_RC_SUCCESS; /* Not an error in SPDM mode */
+            }
+            else
+        #endif /* WOLFTPM_SPDM */
+            {
+            #ifdef DEBUG_WOLFTPM
+                printf("TPM2_Shutdown failed %d: %s\n",
+                    rc, wolfTPM2_GetRCString(rc));
+            #endif
+            }
             /* finish cleanup and return error */
         }
     }

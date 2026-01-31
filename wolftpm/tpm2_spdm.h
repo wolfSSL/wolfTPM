@@ -61,6 +61,8 @@ typedef enum {
     SPDM_STATE_DISCONNECTED = 0,  /* No session */
     SPDM_STATE_INITIALIZED,       /* Context allocated, backend initialized */
     SPDM_STATE_VERSION_DONE,      /* GET_VERSION/VERSION complete */
+    SPDM_STATE_CAPS_DONE,         /* Reserved (Nuvoton does not use CAPS) */
+    SPDM_STATE_ALGORITHMS_DONE,   /* Reserved (Nuvoton does not use ALGO) */
     SPDM_STATE_PUBKEY_DONE,       /* GET_PUB_KEY vendor command complete */
     SPDM_STATE_KEY_EXCHANGE_DONE, /* KEY_EXCHANGE/KEY_EXCHANGE_RSP complete */
     SPDM_STATE_GIVE_PUBKEY_DONE,  /* GIVE_PUB_KEY vendor command complete */
@@ -154,7 +156,7 @@ typedef struct WOLFTPM2_SPDM_CTX {
     word64  rspSeqNum;      /* Incoming (TPM -> host) sequence number */
 
     /* TPM's SPDM-Identity public key (ECDSA P-384, from GET_PUB_KEY) */
-    byte    rspPubKey[128]; /* TPMT_PUBLIC serialized */
+    byte    rspPubKey[160]; /* Full VENDOR_DEFINED_RESPONSE (137 bytes) */
     word32  rspPubKeyLen;
 
     /* Host's SPDM-Identity public key (ECDSA P-384) */
@@ -178,6 +180,50 @@ typedef struct WOLFTPM2_SPDM_CTX {
     WOLFTPM2_SPDM_BACKEND* backend;
     void*   backendCtx;  /* Opaque backend-specific context */
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Native wolfCrypt crypto state for SPDM handshake.
+     * Used when no external backend (libspdm/wolfSPDM) is configured. */
+
+    /* RNG for ephemeral key generation and random data */
+    WC_RNG  rng;
+    int     rngInit;
+
+    /* Ephemeral ECDHE P-384 key pair (host side) */
+    ecc_key ephemeralKey;
+    int     ephemeralKeyInit;
+
+    /* ECDHE shared secret (raw X-coordinate, 48 bytes for P-384) */
+    byte    sharedSecret[SPDM_ECDSA_KEY_SIZE];
+    word32  sharedSecretLen;
+
+    /* Transcript buffer - accumulates all SPDM messages for hashing.
+     * The transcript hash (TH) is computed at specific points in the
+     * handshake for signature verification and key derivation. */
+    byte    transcript[SPDM_MAX_MSG_SIZE * 4];
+    word32  transcriptLen;
+
+    /* Random data from KEY_EXCHANGE (saved for transcript) */
+    byte    reqRandom[32];    /* Requester random data */
+    byte    rspRandom[32];    /* Responder random data */
+
+    /* Session keys - handshake phase (derived after KEY_EXCHANGE_RSP) */
+    byte    handshakeSecret[SPDM_HASH_SIZE];
+    byte    reqHandshakeKey[SPDM_AEAD_KEY_SIZE];
+    byte    rspHandshakeKey[SPDM_AEAD_KEY_SIZE];
+    byte    reqHandshakeIv[SPDM_AEAD_IV_SIZE];
+    byte    rspHandshakeIv[SPDM_AEAD_IV_SIZE];
+    byte    reqFinishedKey[SPDM_HASH_SIZE];
+    byte    rspFinishedKey[SPDM_HASH_SIZE];
+    byte    th1HashNoSig[SPDM_HASH_SIZE];  /* TH1 hash from 356-byte transcript (no sig) for HMAC testing */
+
+    /* Session keys - application phase (derived after FINISH_RSP) */
+    byte    masterSecret[SPDM_HASH_SIZE];
+    byte    reqDataKey[SPDM_AEAD_KEY_SIZE];
+    byte    rspDataKey[SPDM_AEAD_KEY_SIZE];
+    byte    reqDataIv[SPDM_AEAD_IV_SIZE];
+    byte    rspDataIv[SPDM_AEAD_IV_SIZE];
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
     /* Scratch buffer for message framing */
     byte    msgBuf[SPDM_MAX_MSG_SIZE];
 } WOLFTPM2_SPDM_CTX;
@@ -199,14 +245,15 @@ typedef struct SPDM_TCG_CLEAR_HDR {
 
 /* Secured message header (tag 0x8201) - per Nuvoton SPDM Guidance Rev 1.11
  * Layout: tag(2/BE) + size(4/BE) + connectionHandle(4/BE) +
- *         fipsIndicator(2/BE) + reserved(4) = 16 bytes total */
+ *         fipsIndicator(2/BE) + reserved(4) = 16 bytes total
+ * Followed by SPDM secured record (per DSP0277, all LE):
+ *   sessionId(4/LE) + seqNum(8/LE) + length(2/LE) + encData + MAC(16) */
 typedef struct SPDM_TCG_SECURED_HDR {
     word16  tag;              /* SPDM_TAG_SECURED (0x8201) */
     word32  size;             /* Total message size including header */
     word32  connectionHandle; /* Connection handle */
     word16  fipsIndicator;    /* FIPS indicator */
     word32  reserved;         /* Must be 0 */
-    /* Followed by: sessionId(4) + seqNum(8) + encPayload + MAC(16) */
 } SPDM_TCG_SECURED_HDR;
 
 /* SPDM VENDOR_DEFINED_REQUEST header */
@@ -279,6 +326,23 @@ WOLFTPM_API int wolfTPM2_SPDM_Connect(
  * Returns 1 if connected, 0 if not. */
 WOLFTPM_API int wolfTPM2_SPDM_IsConnected(
     WOLFTPM2_SPDM_CTX* ctx
+);
+
+/* Establish an SPDM secure session using standard message flow.
+ * Uses: GET_VERSION -> GET_CAPABILITIES -> NEGOTIATE_ALGORITHMS ->
+ *       GET_CERTIFICATE (optional) -> KEY_EXCHANGE -> FINISH
+ *
+ * For use with libspdm emulator or standard SPDM responders.
+ * For Nuvoton TPMs, use wolfTPM2_SPDM_Connect() instead.
+ *
+ * reqPrivKey/reqPrivKeySz: Host's ECDSA P-384 private key (for signing)
+ * getCert: If non-zero, request responder's certificate chain
+ *
+ * Returns 0 on success. */
+WOLFTPM_API int wolfTPM2_SPDM_ConnectStandard(
+    WOLFTPM2_SPDM_CTX* ctx,
+    const byte* reqPrivKey, word32 reqPrivKeySz,
+    int getCert
 );
 
 /* Wrap a raw TPM command in an SPDM VENDOR_DEFINED(TPM2_CMD) secured message.
@@ -399,6 +463,13 @@ WOLFTPM_API WOLFTPM2_SPDM_BACKEND* wolfTPM2_SPDM_GetWolfSPDMBackend(void);
 
 /* Get the default SPDM backend (prefers wolfSPDM if available, else libspdm). */
 WOLFTPM_API WOLFTPM2_SPDM_BACKEND* wolfTPM2_SPDM_GetDefaultBackend(void);
+
+/* Get the native SPDM backend implementation (wolfCrypt-based).
+ * This backend uses wolfCrypt for all cryptographic operations including
+ * ECDHE key exchange, ECDSA signature verification, HKDF key derivation,
+ * and AES-256-GCM encryption/decryption. Returns NULL if compiled with
+ * WOLFTPM2_NO_WOLFCRYPT. */
+WOLFTPM_API WOLFTPM2_SPDM_BACKEND* wolfTPM2_SPDM_GetNativeBackend(void);
 
 /* Set the I/O callback and user context on an existing SPDM context.
  * Use this to wire the SPDM layer to the TPM transport after initialization. */

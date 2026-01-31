@@ -521,8 +521,16 @@ typedef UINT32 TPM_CAP;
 #define SPDM_GET_VERSION            0x84
 #define SPDM_GET_CAPABILITIES       0xE1
 #define SPDM_NEGOTIATE_ALGORITHMS   0xE3
+#define SPDM_GET_DIGESTS            0x81
+#define SPDM_GET_CERTIFICATE        0x82
+#define SPDM_CHALLENGE              0x83
+#define SPDM_GET_MEASUREMENTS       0xE0
 #define SPDM_KEY_EXCHANGE           0xE4
 #define SPDM_FINISH                 0xE5
+#define SPDM_PSK_EXCHANGE           0xE6
+#define SPDM_PSK_FINISH             0xE7
+#define SPDM_HEARTBEAT              0xE8
+#define SPDM_KEY_UPDATE             0xE9
 #define SPDM_END_SESSION            0xEC
 #define SPDM_VENDOR_DEFINED_REQUEST 0xFE
 
@@ -530,11 +538,37 @@ typedef UINT32 TPM_CAP;
 #define SPDM_VERSION_RESP           0x04
 #define SPDM_CAPABILITIES_RESP      0x61
 #define SPDM_ALGORITHMS_RESP        0x63
+#define SPDM_DIGESTS_RESP           0x01
+#define SPDM_CERTIFICATE_RESP       0x02
+#define SPDM_CHALLENGE_AUTH         0x03
+#define SPDM_MEASUREMENTS_RESP      0x60
 #define SPDM_KEY_EXCHANGE_RSP       0x64
 #define SPDM_FINISH_RSP             0x65
+#define SPDM_PSK_EXCHANGE_RSP       0x66
+#define SPDM_PSK_FINISH_RSP         0x67
+#define SPDM_HEARTBEAT_ACK          0x68
+#define SPDM_KEY_UPDATE_ACK         0x69
 #define SPDM_END_SESSION_ACK        0x6C
 #define SPDM_VENDOR_DEFINED_RESP    0x7E
 #define SPDM_ERROR                  0x7F
+
+/* SPDM Error Codes (per DSP0274) */
+#define SPDM_ERR_INVALID_REQUEST    0x01
+#define SPDM_ERR_BUSY               0x03
+#define SPDM_ERR_UNEXPECTED_REQUEST 0x04
+#define SPDM_ERR_UNSPECIFIED        0x05
+#define SPDM_ERR_DECRYPT_ERROR      0x06
+#define SPDM_ERR_UNSUPPORTED_REQUEST 0x07
+#define SPDM_ERR_REQUEST_IN_FLIGHT  0x08
+#define SPDM_ERR_INVALID_RESPONSE_CODE 0x09
+#define SPDM_ERR_SESSION_LIMIT_EXCEEDED 0x0A
+#define SPDM_ERR_SESSION_REQUIRED   0x0B
+#define SPDM_ERR_RESET_REQUIRED     0x0C
+#define SPDM_ERR_RESPONSE_TOO_LARGE 0x0D
+#define SPDM_ERR_REQUEST_TOO_LARGE  0x0E
+#define SPDM_ERR_LARGE_RESPONSE     0x0F
+#define SPDM_ERR_MESSAGE_LOST       0x10
+#define SPDM_ERR_VENDOR_DEFINED     0xFF
 
 /* SPDM Vendor Defined Codes (8-byte ASCII, used as VdCode in VENDOR_DEFINED) */
 #define SPDM_VDCODE_TPM2_CMD   "TPM2_CMD"  /* TPM command over SPDM session */
@@ -588,9 +622,10 @@ typedef UINT32 TPM_CAP;
  * reserved(4) = 16 bytes */
 #define SPDM_TCG_BINDING_HEADER_SIZE  16
 
-/* SPDM Secured Message Header Size:
- * sessionId(4) + sequenceNumber(8) */
-#define SPDM_SECURED_MSG_HEADER_SIZE  12
+/* SPDM Secured Message Header Size (per DSP0277 / Nuvoton SPDM Guidance):
+ * sessionId(4/LE) + sequenceNumber(8/LE) + length(2/LE) = 14 bytes
+ * where length = size of encrypted data + MAC */
+#define SPDM_SECURED_MSG_HEADER_SIZE  14
 
 #endif /* WOLFTPM_SPDM */
 
