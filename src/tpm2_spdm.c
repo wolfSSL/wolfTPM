@@ -202,8 +202,10 @@ int SPDM_ParseClearMessage(
     return (int)payloadSz;
 }
 
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
 /* Helper: Build TCG clear message around SPDM payload and send via IO callback.
- * Returns raw response in rxBuf/rxSz for caller to parse. */
+ * Returns raw response in rxBuf/rxSz for caller to parse.
+ * Only used by standard SPDM functions for emulator testing. */
 static int SPDM_SendClearMsg(
     WOLFTPM2_SPDM_CTX* ctx,
     const byte* spdmPayload, word32 spdmPayloadSz,
@@ -250,6 +252,7 @@ static int SPDM_SendClearMsg(
 
     return 0;
 }
+#endif /* WOLFTPM_SPDM && WOLFTPM_SWTPM */
 
 int SPDM_BuildSecuredMessage(
     WOLFTPM2_SPDM_CTX* ctx,
@@ -2369,52 +2372,6 @@ static int SPDM_NativeKeyExchange(WOLFTPM2_SPDM_CTX* ctx)
 
     keReqSz = offset;
 
-#ifdef DEBUG_WOLFTPM
-    /* Verify ExchangeData in KEY_EXCHANGE request matches our exported key */
-    {
-        byte verifyQx[SPDM_ECDSA_KEY_SIZE], verifyQy[SPDM_ECDSA_KEY_SIZE];
-        word32 verifyQxSz = sizeof(verifyQx), verifyQySz = sizeof(verifyQy);
-        word32 exDataOff = 40; /* Header(4) + ReqSessionID(2) + Policy(1) + Rsv(1) + Random(32) */
-        int verifyRc;
-
-        printf("\n=== ExchangeData Verification ===\n");
-
-        /* Re-export ephemeral key to verify it hasn't changed */
-        verifyRc = wc_ecc_export_public_raw(&ctx->ephemeralKey,
-                                            verifyQx, &verifyQxSz,
-                                            verifyQy, &verifyQySz);
-        if (verifyRc == 0) {
-            word32 i;
-
-            printf("Original exported qx: ");
-            for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) printf("%02x", qx[i]);
-            printf("\n");
-
-            printf("Re-exported qx:       ");
-            for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) printf("%02x", verifyQx[i]);
-            printf("\n");
-
-            printf("keReq ExchangeData X: ");
-            for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) printf("%02x", keReq[exDataOff + i]);
-            printf("\n");
-
-            printf("keReq ExchangeData Y: ");
-            for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) printf("%02x", keReq[exDataOff + SPDM_ECDSA_KEY_SIZE + i]);
-            printf("\n");
-
-            printf("qx == re-export:      %s\n",
-                   (XMEMCMP(qx, verifyQx, SPDM_ECDSA_KEY_SIZE) == 0) ? "YES" : "*** NO ***");
-            printf("qx == keReq:          %s\n",
-                   (XMEMCMP(qx, keReq + exDataOff, SPDM_ECDSA_KEY_SIZE) == 0) ? "YES" : "*** NO ***");
-            printf("qy == keReq:          %s\n",
-                   (XMEMCMP(qy, keReq + exDataOff + SPDM_ECDSA_KEY_SIZE, SPDM_ECDSA_KEY_SIZE) == 0) ? "YES" : "*** NO ***");
-        } else {
-            printf("Failed to re-export ephemeral key: %d\n", verifyRc);
-        }
-        printf("=== End ExchangeData Verification ===\n\n");
-    }
-#endif
-
     /* Parse rspPubKey for ECDH computation (ECC point extraction).
      * For TH1 transcript, test: Ct = Null (no cert_chain_buffer_hash).
      * Per DSP0274 section 9.5.3: "If M1.Ct != Null then M1.Ct; otherwise Null"
@@ -2532,74 +2489,6 @@ static int SPDM_NativeKeyExchange(WOLFTPM2_SPDM_CTX* ctx)
             }
         }
         (void)eccPoint; /* Used for debug above */
-
-    #if 0 /* Disabled SPKI format test */
-        /* Build RFC7250 SubjectPublicKeyInfo (SPKI) from ECC point and hash it.
-         * Per libspdm: raw public keys use ASN.1 DER SubjectPublicKeyInfo format.
-         * For P-384: 24-byte header + 96-byte ECC point = 120 bytes total. */
-        {
-            byte certChainHash[SPDM_HASH_SIZE]; /* 48 bytes for SHA-384 */
-            byte spki[120];
-            /* P-384 SubjectPublicKeyInfo ASN.1 DER header (24 bytes):
-             * SEQUENCE(118) + SEQUENCE(16) + OID(ecPublicKey) + OID(secp384r1)
-             * + BIT_STRING(98, 0 unused bits, 0x04 uncompressed) */
-            static const byte P384_SPKI_HEADER[24] = {
-                0x30, 0x76,             /* SEQUENCE, 118 bytes */
-                0x30, 0x10,             /* SEQUENCE, 16 bytes (AlgorithmIdentifier) */
-                0x06, 0x07,             /* OID, 7 bytes */
-                0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,  /* ecPublicKey 1.2.840.10045.2.1 */
-                0x06, 0x05,             /* OID, 5 bytes */
-                0x2b, 0x81, 0x04, 0x00, 0x22,              /* secp384r1 1.3.132.0.34 */
-                0x03, 0x62,             /* BIT STRING, 98 bytes */
-                0x00,                   /* 0 unused bits */
-                0x04                    /* Uncompressed point format */
-            };
-
-            /* Build SPKI: header + X + Y */
-            XMEMCPY(spki, P384_SPKI_HEADER, sizeof(P384_SPKI_HEADER));
-            XMEMCPY(spki + 24, eccPoint, SPDM_ECDSA_SIG_SIZE); /* X||Y (96 bytes) */
-
-    #ifdef DEBUG_WOLFTPM
-            printf("SPDM KeyExchange: Building RFC7250 SubjectPublicKeyInfo (120 bytes):\n");
-            {
-                word32 i;
-                printf("  SPKI header (24 bytes): ");
-                for (i = 0; i < 24; i++) printf("%02x ", spki[i]);
-                printf("\n  ECC point (96 bytes): ");
-                for (i = 24; i < 56; i++) printf("%02x ", spki[i]);
-                printf("...\n");
-            }
-    #endif
-
-            rc = wc_Hash(WC_HASH_TYPE_SHA384, spki, sizeof(spki),
-                         certChainHash, sizeof(certChainHash));
-            if (rc != 0) {
-            #ifdef DEBUG_WOLFTPM
-                printf("SPDM KeyExchange: SPKI hash failed %d\n", rc);
-            #endif
-                return rc;
-            }
-
-    #ifdef DEBUG_WOLFTPM
-            {
-                word32 i;
-                printf("SPDM KeyExchange: cert_chain_buffer_hash (SPKI 120 bytes):\n  ");
-                for (i = 0; i < SPDM_HASH_SIZE; i++) {
-                    printf("%02x ", certChainHash[i]);
-                    if ((i + 1) % 32 == 0) printf("\n  ");
-                }
-                printf("\n");
-            }
-    #endif
-
-            /* Add cert_chain_buffer_hash to transcript (48 bytes) */
-            if (ctx->transcriptLen + SPDM_HASH_SIZE <= sizeof(ctx->transcript)) {
-                XMEMCPY(ctx->transcript + ctx->transcriptLen, certChainHash,
-                         SPDM_HASH_SIZE);
-                ctx->transcriptLen += SPDM_HASH_SIZE;
-            }
-        }
-    #endif /* Disabled - testing without cert_chain_buffer_hash */
     }  /* if (ctx->rspPubKeyLen > 0) */
 
     /* Add KEY_EXCHANGE to transcript */
@@ -2704,70 +2593,6 @@ static int SPDM_NativeKeyExchange(WOLFTPM2_SPDM_CTX* ctx)
         for (dbg = spdmPayloadSz - 48; dbg < spdmPayloadSz; dbg++)
             printf("%02x ", ctx->msgBuf[dbg]);
         printf("\n");
-    }
-
-    /* Detailed structure analysis */
-    {
-        word32 off = 0;
-        word16 opaqueLen_dbg;
-        printf("\n");
-        printf("╔══════════════════════════════════════════════════════════════╗\n");
-        printf("║         KEY_EXCHANGE_RSP STRUCTURE ANALYSIS                  ║\n");
-        printf("╚══════════════════════════════════════════════════════════════╝\n");
-        printf("Total response size: %u bytes\n\n", spdmPayloadSz);
-
-        printf("Offset %3u-%3u: Header (4 bytes)\n", off, off+3);
-        printf("                Version=0x%02x Code=0x%02x Param1=0x%02x Param2=0x%02x\n",
-               ctx->msgBuf[0], ctx->msgBuf[1], ctx->msgBuf[2], ctx->msgBuf[3]);
-        off = 4;
-
-        printf("Offset %3u-%3u: RspSessionID (2 bytes LE) = 0x%04x\n",
-               off, off+1, (word16)(ctx->msgBuf[off] | (ctx->msgBuf[off+1] << 8)));
-        off += 2;
-
-        printf("Offset %3u:     MutAuthRequested = 0x%02x\n", off, ctx->msgBuf[off]);
-        off += 1;
-
-        printf("Offset %3u:     ReqSlotIDParam = 0x%02x\n", off, ctx->msgBuf[off]);
-        off += 1;
-
-        printf("Offset %3u-%3u: RandomData (32 bytes)\n", off, off+31);
-        off += 32;
-
-        printf("Offset %3u-%3u: ExchangeData (96 bytes) - TPM EPHEMERAL PUBLIC KEY\n", off, off+95);
-        printf("                X starts at offset %u: %02x %02x %02x %02x ...\n",
-               off, ctx->msgBuf[off], ctx->msgBuf[off+1], ctx->msgBuf[off+2], ctx->msgBuf[off+3]);
-        printf("                Y starts at offset %u: %02x %02x %02x %02x ...\n",
-               off+48, ctx->msgBuf[off+48], ctx->msgBuf[off+49], ctx->msgBuf[off+50], ctx->msgBuf[off+51]);
-        off += 96;
-
-        printf("Offset %3u-%3u: OpaqueDataLength (2 bytes LE)\n", off, off+1);
-        opaqueLen_dbg = (word16)(ctx->msgBuf[off] | (ctx->msgBuf[off+1] << 8));
-        printf("                OpaqueDataLength = %u (0x%04x)\n", opaqueLen_dbg, opaqueLen_dbg);
-        off += 2;
-
-        if (opaqueLen_dbg > 0) {
-            printf("Offset %3u-%3u: OpaqueData (%u bytes)\n", off, off+opaqueLen_dbg-1, opaqueLen_dbg);
-            off += opaqueLen_dbg;
-        }
-
-        printf("Offset %3u-%3u: Signature (96 bytes)\n", off, off+95);
-        printf("                First 4 bytes: %02x %02x %02x %02x\n",
-               ctx->msgBuf[off], ctx->msgBuf[off+1], ctx->msgBuf[off+2], ctx->msgBuf[off+3]);
-        off += 96;
-
-        printf("Offset %3u-%3u: ResponderVerifyData (48 bytes)\n", off, off+47);
-        printf("                First 4 bytes: %02x %02x %02x %02x\n",
-               ctx->msgBuf[off], ctx->msgBuf[off+1], ctx->msgBuf[off+2], ctx->msgBuf[off+3]);
-
-        printf("\nExpected end offset: %u, Actual size: %u\n", off+48, spdmPayloadSz);
-        if (off + 48 != spdmPayloadSz) {
-            printf("*** WARNING: STRUCTURE SIZE MISMATCH! ***\n");
-            printf("    Difference: %d bytes\n", (int)spdmPayloadSz - (int)(off + 48));
-        } else {
-            printf("*** Structure size matches - parsing offsets are correct ***\n");
-        }
-        printf("══════════════════════════════════════════════════════════════\n\n");
     }
 #endif
 
@@ -2928,73 +2753,6 @@ static int SPDM_NativeKeyExchange(WOLFTPM2_SPDM_CTX* ctx)
                 return rc;
             }
 
-        #ifdef DEBUG_WOLFTPM
-            /* Verify we're NOT using the static key for ECDH */
-            {
-                word32 i;
-                word32 tpmtOff = (ctx->rspPubKeyLen >= 128) ? 8 : 0;
-                const byte* staticX = ctx->rspPubKey + tpmtOff + 22;
-                byte loadedX[SPDM_ECDSA_KEY_SIZE], loadedY[SPDM_ECDSA_KEY_SIZE];
-                word32 loadedXSz = sizeof(loadedX), loadedYSz = sizeof(loadedY);
-                byte ourX[SPDM_ECDSA_KEY_SIZE], ourY[SPDM_ECDSA_KEY_SIZE];
-                word32 ourXSz = sizeof(ourX), ourYSz = sizeof(ourY);
-                int exportRc;
-
-                printf("=== ECDH Key Verification ===\n");
-                printf("TPM STATIC key (from GET_PUB_KEY, offset %u+22):\n  ",
-                       tpmtOff);
-                for (i = 0; i < 24; i++) printf("%02x ", staticX[i]);
-                printf("...\n");
-
-                printf("TPM EPHEMERAL key (from KE_RSP offset 40) [rspQx]:\n  ");
-                for (i = 0; i < 24; i++) printf("%02x ", rspQx[i]);
-                printf("...\n");
-
-                printf("Key being used for ECDH: %s\n",
-                       (XMEMCMP(rspQx, staticX, 24) == 0) ?
-                       "*** STATIC (WRONG!) ***" : "EPHEMERAL (correct)");
-
-                /* Verify peer key was loaded correctly by exporting it back */
-                exportRc = wc_ecc_export_public_raw(&rspEphKey,
-                                loadedX, &loadedXSz, loadedY, &loadedYSz);
-                if (exportRc == 0) {
-                    printf("Loaded peer key X (re-exported): ");
-                    for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++)
-                        printf("%02x ", loadedX[i]);
-                    printf("\n");
-                    printf("Loaded peer key Y (re-exported): ");
-                    for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++)
-                        printf("%02x ", loadedY[i]);
-                    printf("\n");
-                    printf("Peer X matches input: %s\n",
-                           (XMEMCMP(loadedX, rspQx, SPDM_ECDSA_KEY_SIZE) == 0) ?
-                           "YES" : "*** NO ***");
-                    printf("Peer Y matches input: %s\n",
-                           (XMEMCMP(loadedY, rspQy, SPDM_ECDSA_KEY_SIZE) == 0) ?
-                           "YES" : "*** NO ***");
-                } else {
-                    printf("Failed to export loaded peer key: %d\n", exportRc);
-                }
-
-                /* Also verify OUR ephemeral key */
-                exportRc = wc_ecc_export_public_raw(&ctx->ephemeralKey,
-                                ourX, &ourXSz, ourY, &ourYSz);
-                if (exportRc == 0) {
-                    printf("OUR ephemeral key X: ");
-                    for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++)
-                        printf("%02x ", ourX[i]);
-                    printf("\n");
-                    printf("OUR ephemeral key Y: ");
-                    for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++)
-                        printf("%02x ", ourY[i]);
-                    printf("\n");
-                } else {
-                    printf("Failed to export our ephemeral key: %d\n", exportRc);
-                }
-                printf("=== End ECDH Key Verification ===\n");
-            }
-        #endif
-
             /* Compute shared secret (ECDH) */
             rc = wc_ecc_shared_secret(&ctx->ephemeralKey, &rspEphKey,
                                       sharedX, &sharedXSz);
@@ -3029,73 +2787,13 @@ static int SPDM_NativeKeyExchange(WOLFTPM2_SPDM_CTX* ctx)
         #ifdef DEBUG_WOLFTPM
             {
                 word32 i;
-                byte ourPrivKey[SPDM_ECDSA_KEY_SIZE];
-                word32 ourPrivSz = sizeof(ourPrivKey);
-                byte ourPubX[SPDM_ECDSA_KEY_SIZE], ourPubY[SPDM_ECDSA_KEY_SIZE];
-                word32 ourPubXSz = sizeof(ourPubX), ourPubYSz = sizeof(ourPubY);
-
-                printf("\n");
-                printf("╔══════════════════════════════════════════════════════════════╗\n");
-                printf("║           CRITICAL ECDH DEBUG - ALL INPUTS                   ║\n");
-                printf("╚══════════════════════════════════════════════════════════════╝\n");
-
-                /* Export and display our ephemeral PRIVATE key */
-                if (wc_ecc_export_private_only(&ctx->ephemeralKey, ourPrivKey, &ourPrivSz) == 0) {
-                    printf("OUR ephemeral PRIVATE key (d) [%u bytes]:\n  ", ourPrivSz);
-                    for (i = 0; i < ourPrivSz; i++) {
-                        printf("%02x ", ourPrivKey[i]);
-                        if ((i + 1) % 16 == 0) printf("\n  ");
-                    }
-                    printf("\n");
-                } else {
-                    printf("ERROR: Failed to export our ephemeral private key!\n");
-                }
-
-                /* Export and display our ephemeral PUBLIC key (what we sent to TPM) */
-                if (wc_ecc_export_public_raw(&ctx->ephemeralKey, ourPubX, &ourPubXSz,
-                                              ourPubY, &ourPubYSz) == 0) {
-                    printf("OUR ephemeral PUBLIC key (sent to TPM in KEY_EXCHANGE):\n");
-                    printf("  X [%u bytes]: ", ourPubXSz);
-                    for (i = 0; i < ourPubXSz; i++) {
-                        printf("%02x ", ourPubX[i]);
-                        if ((i + 1) % 16 == 0) printf("\n              ");
-                    }
-                    printf("\n  Y [%u bytes]: ", ourPubYSz);
-                    for (i = 0; i < ourPubYSz; i++) {
-                        printf("%02x ", ourPubY[i]);
-                        if ((i + 1) % 16 == 0) printf("\n              ");
-                    }
-                    printf("\n");
-                }
-
-                /* Display TPM's ephemeral PUBLIC key (what we received) */
-                printf("TPM ephemeral PUBLIC key (received in KEY_EXCHANGE_RSP):\n");
-                printf("  X [48 bytes]: ");
-                for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) {
-                    printf("%02x ", rspQx[i]);
-                    if ((i + 1) % 16 == 0) printf("\n              ");
-                }
-                printf("\n  Y [48 bytes]: ");
-                for (i = 0; i < SPDM_ECDSA_KEY_SIZE; i++) {
-                    printf("%02x ", rspQy[i]);
-                    if ((i + 1) % 16 == 0) printf("\n              ");
-                }
-                printf("\n");
-
-                /* Display computed shared secret */
-                printf("COMPUTED ECDH shared secret Z.x (raw %u bytes, padded to %u):\n  ",
-                       sharedXSz, ctx->sharedSecretLen);
+                printf("SPDM KeyExchange: Shared secret (%u bytes):\n  ",
+                       ctx->sharedSecretLen);
                 for (i = 0; i < ctx->sharedSecretLen; i++) {
                     printf("%02x ", ctx->sharedSecret[i]);
                     if ((i + 1) % 16 == 0) printf("\n  ");
                 }
                 printf("\n");
-
-                printf("══════════════════════════════════════════════════════════════\n");
-                printf("To verify: Z = [our_private_d] × [TPM_public_point]\n");
-                printf("The TPM computes: Z = [TPM_private] × [our_public_point]\n");
-                printf("Both should yield the same Z.x (shared secret)\n");
-                printf("══════════════════════════════════════════════════════════════\n\n");
             }
         #endif
         }
@@ -3732,6 +3430,10 @@ static int SPDM_NativeEndSession(WOLFTPM2_SPDM_CTX* ctx)
     return TPM_RC_FAILURE;
 }
 
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
+/* Standard SPDM functions for SWTPM/libspdm emulator testing.
+ * Not used by Nuvoton TPM path which uses vendor-defined commands. */
+
 /* Standard SPDM: GET_CAPABILITIES / CAPABILITIES
  * Per DSP0274: Discover responder capabilities and flags */
 static int SPDM_NativeGetCapabilities(WOLFTPM2_SPDM_CTX* ctx)
@@ -3999,6 +3701,7 @@ static int SPDM_NativeGetCertificate(WOLFTPM2_SPDM_CTX* ctx, byte slotId,
 
     return TPM_RC_FAILURE;
 }
+#endif /* WOLFTPM_SPDM && WOLFTPM_SWTPM */
 
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
@@ -4190,7 +3893,8 @@ int wolfTPM2_SPDM_IsConnected(WOLFTPM2_SPDM_CTX* ctx)
     return (ctx->state == SPDM_STATE_CONNECTED) ? 1 : 0;
 }
 
-/* Standard SPDM Connect (non-Nuvoton)
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
+/* Standard SPDM Connect (for SWTPM/libspdm emulator)
  * Uses standard SPDM message flow:
  * 1. GET_VERSION / VERSION
  * 2. GET_CAPABILITIES / CAPABILITIES
@@ -4302,6 +4006,7 @@ int wolfTPM2_SPDM_ConnectStandard(
     return TPM_RC_FAILURE; /* Requires wolfCrypt */
 #endif
 }
+#endif /* WOLFTPM_SPDM && WOLFTPM_SWTPM */
 
 /* -------------------------------------------------------------------------- */
 /* SPDM Command Wrapping (Transport Layer) */

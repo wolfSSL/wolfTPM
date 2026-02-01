@@ -73,10 +73,12 @@ make -j4
 
 ### Starting the SPDM Responder Emulator
 
+The wolfTPM SPDM demo uses MCTP transport which is the default for spdm_responder_emu.
+
 ```bash
 cd spdm-emu/build/bin
 
-# Default mode (MCTP transport on port 2323)
+# Default mode (MCTP transport on port 2323) - use this for wolfTPM
 ./spdm_responder_emu
 
 # With specific SPDM version
@@ -104,54 +106,102 @@ Multiple values can be specified with commas: `--hash SHA_256,SHA_384`
 
 ### Running wolfTPM SPDM Demo
 
+The `--standard` mode connects to the libspdm emulator using TCP sockets and performs a complete SPDM 1.2 handshake with session establishment.
+
 ```bash
-# Terminal 1: Start emulator
+# Terminal 1: Start the emulator (uses MCTP transport on port 2323 by default)
 cd spdm-emu/build/bin
 ./spdm_responder_emu
 
-# Terminal 2: Run wolfTPM SPDM demo
+# Terminal 2: Run wolfTPM SPDM demo in standard mode
 cd wolfTPM
 ./examples/spdm/spdm_demo --standard
 
-# With specific host/port
+# With specific host/port (for remote emulator)
 ./examples/spdm/spdm_demo --standard --host 192.168.1.100 --port 2323
 ```
 
+### Demo Options
+
+| Option | Description |
+|--------|-------------|
+| `--standard` | Connect to libspdm emulator for testing (requires spdm_responder_emu) |
+| `--nuvoton` | Connect to Nuvoton TPM with SPDM AC support (default, requires hardware) |
+| `--host <ip>` | Emulator host IP address (default: 127.0.0.1) |
+| `--port <num>` | Emulator port number (default: 2323) |
+| `-h, --help` | Show help message |
+
 ### SPDM Protocol Flow
 
-The demo tests the following SPDM messages:
+The `--standard` demo performs the complete SPDM 1.2 handshake:
 
-1. **GET_VERSION** - Negotiate SPDM protocol version
-2. **GET_CAPABILITIES** - Exchange capability flags
-3. **NEGOTIATE_ALGORITHMS** - Negotiate cryptographic algorithms
+1. **GET_VERSION / VERSION** - Negotiate SPDM protocol version (uses v1.0 for this message)
+2. **GET_CAPABILITIES / CAPABILITIES** - Exchange capability flags (encryption, key exchange, etc.)
+3. **NEGOTIATE_ALGORITHMS / ALGORITHMS** - Negotiate crypto: SHA-384, ECDSA P-384, ECDH P-384, AES-256-GCM
+4. **GET_DIGESTS / DIGESTS** - Get certificate chain digests for available slots
+5. **GET_CERTIFICATE / CERTIFICATE** - Retrieve full certificate chain (may require multiple requests)
+6. **KEY_EXCHANGE / KEY_EXCHANGE_RSP** - ECDH key exchange with signature verification
+7. **FINISH / FINISH_RSP** - Complete handshake with encrypted HMAC verification
 
 A successful run shows:
 ```
-SUCCESS: Received VERSION response!
-SUCCESS: Received CAPABILITIES response!
-SUCCESS: Received ALGORITHMS response!
+=== Standard SPDM Test (TCP to libspdm emulator) ===
+This demo implements FULL transcript tracking for SPDM 1.2
+Connecting to 127.0.0.1:2323...
+TCP: Connected to 127.0.0.1:2323
+
+--- Step 1: GET_VERSION ---
+SUCCESS: Received VERSION response (16 bytes)
+
+--- Step 2: GET_CAPABILITIES ---
+SUCCESS: Received CAPABILITIES response (20 bytes)
+
+--- Step 3: NEGOTIATE_ALGORITHMS ---
+SUCCESS: Received ALGORITHMS response (52 bytes)
+
+--- Step 4: GET_DIGESTS ---
+SUCCESS: Received DIGESTS response (148 bytes)
+
+--- Step 5: GET_CERTIFICATE (full chain) ---
+SUCCESS: Retrieved full certificate chain (1591 bytes)
+
+--- Step 6: KEY_EXCHANGE ---
+SUCCESS: Received KEY_EXCHANGE_RSP (294 bytes)
+*** ResponderVerifyData VERIFIED! ***
+
+--- Step 7: FINISH ---
+╔══════════════════════════════════════════════════════════════╗
+║     SUCCESS: SPDM SESSION ESTABLISHED (VERIFIED!)           ║
+╚══════════════════════════════════════════════════════════════╝
+```
+
+### Quick Start
+
+```bash
+# 1. Start the emulator (in first terminal)
+cd ~/spdm-emu/build/bin && ./spdm_responder_emu
+
+# 2. Run the demo (in second terminal)
+cd ~/wolfTPM && ./examples/spdm/spdm_demo --standard
 ```
 
 ## Troubleshooting
 
 ### Bind error 0x62 (EADDRINUSE)
 
-Port still in use from previous run. Kill old processes and wait for socket cleanup:
+Port still in use from previous run:
 
 ```bash
-pkill -9 spdm_responder
-sleep 30  # Wait for socket TIME_WAIT to expire
+pkill -9 spdm_responder_emu
+sleep 5
 ./spdm_responder_emu
 ```
 
 ### Connection refused
 
-Emulator not running or wrong port:
+Check if emulator is listening:
 
 ```bash
-# Check if emulator is listening
-netstat -tlnp | grep 2323
-# or
 ss -tlnp | grep 2323
 ```
 
