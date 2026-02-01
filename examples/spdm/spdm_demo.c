@@ -486,6 +486,7 @@ static int demo_all(WOLFTPM2_DEV* dev)
 typedef struct {
     int sockFd;
     struct sockaddr_in serverAddr;
+    int isSecured;  /* Set to 1 to use MCTP type 0x06 (SECURED_MCTP) */
 } SPDM_TCP_CTX;
 
 static SPDM_TCP_CTX g_tcpCtx;
@@ -498,12 +499,13 @@ static SPDM_TCP_CTX g_tcpCtx;
 /* Socket IO callback for libspdm emulator (MCTP transport)
  * The emulator protocol:
  *   Socket header: command(4,BE) + transport_type(4,BE) + size(4,BE)
- *   MCTP header: message_type(1) = 0x05 for SPDM
+ *   MCTP header: message_type(1) = 0x05 for SPDM, 0x06 for secured SPDM
  *   SPDM payload
  * Command: 0x00000001 = SOCKET_SPDM_COMMAND_NORMAL
  * Transport: 0x00000001 = SOCKET_TRANSPORT_TYPE_MCTP */
 #define SOCKET_SPDM_COMMAND_NORMAL    0x00000001
 #define MCTP_MESSAGE_TYPE_SPDM        0x05
+#define MCTP_MESSAGE_TYPE_SECURED     0x06
 
 static int spdm_tcp_io_callback(
     WOLFTPM2_SPDM_CTX* ctx,
@@ -540,14 +542,14 @@ static int spdm_tcp_io_callback(
     sendBuf[9] = (byte)(payloadSz >> 16);
     sendBuf[10] = (byte)(payloadSz >> 8);
     sendBuf[11] = (byte)(payloadSz & 0xFF);
-    /* MCTP header: message_type = 0x05 (SPDM) */
-    sendBuf[12] = MCTP_MESSAGE_TYPE_SPDM;
+    /* MCTP header: message_type = 0x05 (SPDM) or 0x06 (SECURED_MCTP) */
+    sendBuf[12] = tcpCtx->isSecured ? MCTP_MESSAGE_TYPE_SECURED : MCTP_MESSAGE_TYPE_SPDM;
     /* SPDM payload */
     if (txSz > 0) {
         XMEMCPY(sendBuf + 13, txBuf, txSz);
     }
 
-    printf("MCTP TX: SPDM(%u bytes): ", txSz);
+    printf("MCTP TX %s(%u bytes): ", tcpCtx->isSecured ? "SECURED" : "SPDM", txSz);
     {
         word32 i;
         for (i = 0; i < txSz && i < 16; i++) printf("%02x ", txBuf[i]);
@@ -740,6 +742,12 @@ static int demo_standard(const char* host, int port)
     byte handshakeSecret[48];
     byte reqFinishedKey[48];
     byte rspFinishedKey[48];
+    /* For secured message encryption/decryption (AES-256-GCM) */
+    byte reqDataKey[32];
+    byte reqDataIV[12];
+    byte rspDataKey[32];
+    byte rspDataIV[12];
+    word32 sessionId = 0; /* Combined session ID */
     /* Certificate chain hash for Ct */
     byte certChainHash[48];
     word32 certChainTotalLen = 0;
@@ -826,9 +834,12 @@ static int demo_standard(const char* host, int port)
     txBuf[5] = 0x00; /* CTExponent */
     txBuf[6] = 0x00; /* Reserved */
     txBuf[7] = 0x00;
-    /* Requester flags: CERT_CAP | CHAL_CAP | ENCRYPT_CAP | MAC_CAP | KEY_EX_CAP */
-    txBuf[8] = 0xC6;  /* CERT_CAP | CHAL_CAP | ENCRYPT_CAP | MAC_CAP */
-    txBuf[9] = 0x02;  /* KEY_EX_CAP */
+    /* Requester flags: CERT_CAP | CHAL_CAP | ENCRYPT_CAP | MAC_CAP | KEY_EX_CAP
+     * Bit positions: CERT=1, CHAL=2, ENCRYPT=6, MAC=7, KEY_EX=9
+     * Byte 8 (bits 0-7):  0xC6 = CERT(0x02) | CHAL(0x04) | ENCRYPT(0x40) | MAC(0x80)
+     * Byte 9 (bits 8-15): 0x02 = KEY_EX_CAP */
+    txBuf[8] = 0xC6;
+    txBuf[9] = 0x02;  /* KEY_EX_CAP only - NO HANDSHAKE_IN_THE_CLEAR */
     txBuf[10] = 0x00;
     txBuf[11] = 0x00;
     /* DataTransferSize (4 LE) */
@@ -907,8 +918,8 @@ static int demo_standard(const char* host, int port)
 
     /* ================================================================
      * Step 4: GET_DIGESTS / DIGESTS
-     * Per SPDM spec, Ct = Hash(certificate_chain)
-     * GET_DIGESTS/DIGESTS are NOT part of the Ct hash
+     * Note: message_d is NOT added to transcript for TH1 computation
+     * because libspdm responder doesn't include it for this session type
      * ================================================================ */
     printf("\n--- Step 4: GET_DIGESTS ---\n");
     XMEMSET(txBuf, 0, sizeof(txBuf));
@@ -1318,6 +1329,71 @@ static int demo_standard(const char* host, int port)
                         goto cleanup;
                     }
 
+                    /* reqDataKey = HKDF-Expand(reqHsSecret, "spdm1.2 key", 32)
+                     * For AES-256-GCM encryption of FINISH message */
+                    infoLen = 0;
+                    info[infoLen++] = 0x20; info[infoLen++] = 0x00; /* length = 32 (little-endian) */
+                    XMEMCPY(info + infoLen, "spdm1.2 key", 11);
+                    infoLen += 11;
+
+                    rc = wc_HKDF_Expand(WC_SHA384, reqHsSecret, 48,
+                                        info, infoLen, reqDataKey, 32);
+                    if (rc != 0) {
+                        printf("reqDataKey derivation failed: %d\n", rc);
+                        goto cleanup;
+                    }
+
+                    /* reqDataIV = HKDF-Expand(reqHsSecret, "spdm1.2 iv", 12) */
+                    infoLen = 0;
+                    info[infoLen++] = 0x0C; info[infoLen++] = 0x00; /* length = 12 (little-endian) */
+                    XMEMCPY(info + infoLen, "spdm1.2 iv", 10);
+                    infoLen += 10;
+
+                    rc = wc_HKDF_Expand(WC_SHA384, reqHsSecret, 48,
+                                        info, infoLen, reqDataIV, 12);
+                    if (rc != 0) {
+                        printf("reqDataIV derivation failed: %d\n", rc);
+                        goto cleanup;
+                    }
+
+                    /* rspDataKey = HKDF-Expand(rspHsSecret, "spdm1.2 key", 32)
+                     * For AES-256-GCM decryption of FINISH_RSP message */
+                    infoLen = 0;
+                    info[infoLen++] = 0x20; info[infoLen++] = 0x00; /* length = 32 */
+                    XMEMCPY(info + infoLen, "spdm1.2 key", 11);
+                    infoLen += 11;
+
+                    rc = wc_HKDF_Expand(WC_SHA384, rspHsSecret, 48,
+                                        info, infoLen, rspDataKey, 32);
+                    if (rc != 0) {
+                        printf("rspDataKey derivation failed: %d\n", rc);
+                        goto cleanup;
+                    }
+
+                    /* rspDataIV = HKDF-Expand(rspHsSecret, "spdm1.2 iv", 12) */
+                    infoLen = 0;
+                    info[infoLen++] = 0x0C; info[infoLen++] = 0x00; /* length = 12 */
+                    XMEMCPY(info + infoLen, "spdm1.2 iv", 10);
+                    infoLen += 10;
+
+                    rc = wc_HKDF_Expand(WC_SHA384, rspHsSecret, 48,
+                                        info, infoLen, rspDataIV, 12);
+                    if (rc != 0) {
+                        printf("rspDataIV derivation failed: %d\n", rc);
+                        goto cleanup;
+                    }
+
+                    /* Store combined session ID: reqSessionId | (rspSessionId << 16) */
+                    sessionId = 0xFFFF | (rspSessionId << 16);
+                    printf("SessionID: 0x%08x\n", sessionId);
+
+                    printf("reqDataKey (32 bytes): ");
+                    { int k; for (k = 0; k < 32; k++) printf("%02x", reqDataKey[k]); }
+                    printf("\n");
+                    printf("reqDataIV (12 bytes): ");
+                    { int k; for (k = 0; k < 12; k++) printf("%02x", reqDataIV[k]); }
+                    printf("\n");
+
                     printf("reqFinishedKey:\n  ");
                     {
                         int k;
@@ -1377,11 +1453,13 @@ static int demo_standard(const char* host, int port)
                         printf("    (This is expected - libspdm may use different TH format)\n");
                     }
 
-                    /* Add ResponderVerifyData to transcript for TH2.
-                     * Per libspdm: message_k includes signature + ResponderVerifyData
-                     * TH2 = VCA + Ct + message_k + FINISH_header */
+                    /* Per SPDM spec DSP0274 section 5.2.2.2.2:
+                     * "After receiving KEY_EXCHANGE_RSP, append ResponderVerifyData to message_k"
+                     * This is ALWAYS done, regardless of HANDSHAKE_IN_THE_CLEAR capability.
+                     * message_k = KEY_EX + KEY_EX_RSP_partial + Signature + ResponderVerifyData */
                     transcript_add(rspVerifyData, 48);
-                    printf("Added ResponderVerifyData, transcript now: %u bytes\n", g_transcriptLen);
+                    printf("ResponderVerifyData added to transcript (message_k)\n");
+                    printf("  Transcript after KEY_EXCHANGE_RSP: %u bytes\n", g_transcriptLen);
                 }
             }
         }
@@ -1400,6 +1478,14 @@ static int demo_standard(const char* host, int port)
         wc_Sha384 sha;
         Hmac hmac;
 
+        /* Debug: Print transcript breakdown
+         * TH2 = VCA + Ct + message_k + FINISH_header
+         * message_k = KEY_EXCHANGE + KEY_EXCHANGE_RSP_partial + Signature + ResponderVerifyData
+         * Per SPDM spec, ResponderVerifyData is ALWAYS included in message_k */
+        printf("=== TRANSCRIPT for TH2 ===\n");
+        printf("Total before FINISH: %u bytes\n", g_transcriptLen);
+        printf("Expected: VCA(160) + Ct(48) + KEY_EX(158) + KEY_EX_RSP_partial(150) + Sig(96) + RspVerify(48) = 660\n");
+
         /* Build FINISH request header */
         finishBuf[0] = 0x12; /* SPDM v1.2 */
         finishBuf[1] = 0xE5; /* FINISH */
@@ -1409,6 +1495,16 @@ static int demo_standard(const char* host, int port)
         /* Add FINISH header to transcript */
         transcript_add(finishBuf, 4);
         printf("Transcript with FINISH header: %u bytes\n", g_transcriptLen);
+
+        /* Dump full transcript to file for analysis */
+        {
+            FILE *fp = fopen("/tmp/transcript_th2.bin", "wb");
+            if (fp) {
+                fwrite(g_transcript, 1, g_transcriptLen, fp);
+                fclose(fp);
+                printf("\nWrote %u bytes to /tmp/transcript_th2.bin\n", g_transcriptLen);
+            }
+        }
 
         /* TH2 = Hash(transcript including FINISH header) */
         wc_InitSha384(&sha);
@@ -1443,30 +1539,205 @@ static int demo_standard(const char* host, int port)
         /* Append RequesterVerifyData to FINISH message */
         XMEMCPY(&finishBuf[4], verifyData, 48);
 
-        printf("Sending FINISH (52 bytes)\n");
-        rxSz = sizeof(rxBuf);
-        rc = spdm_tcp_io_callback(&spdmCtx, finishBuf, 52, rxBuf, &rxSz, &g_tcpCtx);
+        /* ============================================================
+         * Encrypt FINISH with AES-256-GCM for secured message
+         * Since HANDSHAKE_IN_THE_CLEAR is not negotiated, FINISH must
+         * be sent as an encrypted secured message.
+         *
+         * MCTP Secured message format (DSP0277 + DSP0275):
+         *   SessionID (4) || SeqNum (2, MCTP-specific) || Length (2) || Ciphertext || Tag (16)
+         * AAD = SessionID || SeqNum || Length
+         * IV = reqDataIV XOR (0-padded sequence number)
+         *
+         * Inside encrypted portion (cipher header + app data):
+         *   ApplicationDataLength (2) || ApplicationData
+         * ============================================================ */
+        printf("\n--- Encrypting FINISH as secured message ---\n");
+        {
+            Aes aes;
+            byte securedMsg[128];  /* SessionID(4) + SeqNum(2) + Len(2) + Cipher + Tag(16) */
+            byte aad[8];           /* SessionID(4) + SeqNum(2) + Length(2) - MCTP uses 2-byte seqnum */
+            byte iv[12];           /* AES-GCM IV */
+            byte tag[16];          /* AES-GCM authentication tag */
+            byte plaintext[72];    /* Cipher header (2) + MCTP(1) + FINISH (52) = 55 bytes */
+            byte ciphertext[72];   /* Encrypted plaintext */
+            word32 securedMsgLen;
+            /* ApplicationData = MCTP header (1) + FINISH (52) = 53 bytes */
+            word16 appDataLen = 53;
+            /* Encrypted data = AppDataLen(2) + ApplicationData(53) = 55 bytes */
+            word16 encDataLen = 55;
+            int k;
 
-        if (rc == 0 && rxSz >= 2) {
-            printf("FINISH Response (%u bytes): ", rxSz);
+            /* Build plaintext: ApplicationDataLength (2, LE) || MCTP header || FINISH
+             * Per libspdm, the ApplicationData includes an inner MCTP header (0x05) */
+            plaintext[0] = (byte)(appDataLen & 0xFF);
+            plaintext[1] = (byte)((appDataLen >> 8) & 0xFF);
+            plaintext[2] = 0x05;  /* MCTP_MESSAGE_TYPE_SPDM - inner MCTP header */
+            XMEMCPY(&plaintext[3], finishBuf, 52);
+
+            /* Build AAD/Header: SessionID (4, LE) || SeqNum (2, LE) || Length (2, LE)
+             * For MCTP, sequence number is 2 bytes (LIBSPDM_MCTP_SEQUENCE_NUMBER_COUNT=2) */
+            securedMsg[0] = (byte)(sessionId & 0xFF);
+            securedMsg[1] = (byte)((sessionId >> 8) & 0xFF);
+            securedMsg[2] = (byte)((sessionId >> 16) & 0xFF);
+            securedMsg[3] = (byte)((sessionId >> 24) & 0xFF);
+            /* Sequence number = 0 (2 bytes for MCTP) */
+            securedMsg[4] = 0x00;
+            securedMsg[5] = 0x00;
+            /* Length = remaining data INCLUDING MAC (cipher_header + app_data + tag)
+             * Per DSP0277: "length of remaining data, including app_data_length, payload, Random, and MAC" */
             {
-                word32 k;
-                for (k = 0; k < rxSz && k < 64; k++) printf("%02x ", rxBuf[k]);
+                word16 recordLen = encDataLen + 16;  /* 55 + 16 = 71 */
+                securedMsg[6] = (byte)(recordLen & 0xFF);
+                securedMsg[7] = (byte)((recordLen >> 8) & 0xFF);
             }
+
+            /* Copy AAD for encryption */
+            XMEMCPY(aad, securedMsg, 8);
+
+            /* Build IV: reqDataIV XOR (0-padded sequence number)
+             * For seq=0, IV = reqDataIV */
+            XMEMCPY(iv, reqDataIV, 12);
+
+            printf("AAD (8 bytes, Length incl MAC=%d): ", encDataLen + 16);
+            for (k = 0; k < 8; k++) printf("%02x", aad[k]);
+            printf("\n");
+            printf("IV (12 bytes): ");
+            for (k = 0; k < 12; k++) printf("%02x", iv[k]);
+            printf("\n");
+            printf("Plaintext (%d bytes): ", encDataLen);
+            for (k = 0; k < 16; k++) printf("%02x", plaintext[k]);
+            printf("...\n");
+
+            /* Initialize AES-GCM */
+            rc = wc_AesGcmSetKey(&aes, reqDataKey, 32);
+            if (rc != 0) {
+                printf("AES-GCM SetKey failed: %d\n", rc);
+                goto cleanup;
+            }
+
+            /* Encrypt: cipher_header + FINISH message */
+            rc = wc_AesGcmEncrypt(&aes, ciphertext, plaintext, encDataLen,
+                                  iv, 12, tag, 16, aad, 8);
+            if (rc != 0) {
+                printf("AES-GCM Encrypt failed: %d\n", rc);
+                goto cleanup;
+            }
+
+            printf("Ciphertext (%d bytes): ", encDataLen);
+            for (k = 0; k < 16; k++) printf("%02x", ciphertext[k]);
+            printf("...\n");
+            printf("Tag (16 bytes): ");
+            for (k = 0; k < 16; k++) printf("%02x", tag[k]);
             printf("\n");
 
-            if (rxBuf[1] == 0x65) {
+            /* Build secured message: Header (8) || Ciphertext (55) || Tag (16) */
+            XMEMCPY(&securedMsg[8], ciphertext, encDataLen);
+            XMEMCPY(&securedMsg[8 + encDataLen], tag, 16);
+            securedMsgLen = 8 + encDataLen + 16;  /* 8 + 55 + 16 = 79 */
+
+            printf("Sending secured FINISH (%u bytes)\n", securedMsgLen);
+            /* Set secured mode for MCTP message type 0x06 */
+            g_tcpCtx.isSecured = 1;
+            rxSz = sizeof(rxBuf);
+            rc = spdm_tcp_io_callback(&spdmCtx, securedMsg, securedMsgLen, rxBuf, &rxSz, &g_tcpCtx);
+            g_tcpCtx.isSecured = 0;
+
+            if (rc == 0 && rxSz >= 8) {
+                printf("Secured FINISH Response (%u bytes): ", rxSz);
+                for (k = 0; k < (int)rxSz && k < 32; k++) printf("%02x ", rxBuf[k]);
                 printf("\n");
-                printf("╔══════════════════════════════════════════════════════════════╗\n");
-                printf("║          SUCCESS: SPDM SESSION ESTABLISHED!                  ║\n");
-                printf("╚══════════════════════════════════════════════════════════════╝\n");
-                rc = 0;
-            } else if (rxBuf[1] == 0x7F) {
-                printf("FINISH failed: error 0x%02x", rxBuf[2]);
-                if (rxBuf[2] == 0x01) printf(" (InvalidRequest)");
-                else if (rxBuf[2] == 0x0b) printf(" (DecryptError - HMAC mismatch)");
-                printf("\n");
-                rc = -1;
+
+                /* Decrypt and verify FINISH_RSP to confirm session established
+                 * Format: SessionID(4) || SeqNum(2) || Length(2) || Ciphertext || Tag(16)
+                 * We MUST decrypt to verify it's FINISH_RSP (0x65) not ERROR (0x7F) */
+                {
+                    word32 rspSessionId = rxBuf[0] | (rxBuf[1] << 8) |
+                                          (rxBuf[2] << 16) | (rxBuf[3] << 24);
+                    word16 rspSeqNum = rxBuf[4] | (rxBuf[5] << 8);
+                    word16 rspLen = rxBuf[6] | (rxBuf[7] << 8);
+                    byte decryptedMsg[64];
+                    byte rspAad[8];
+                    byte rspIv[12];
+                    byte rspTag[16];
+                    Aes rspAes;
+                    int decryptRc;
+
+                    printf("\n--- Decrypting FINISH_RSP ---\n");
+                    printf("RspSessionID: 0x%08x, SeqNum: %u, Length: %u\n",
+                           rspSessionId, rspSeqNum, rspLen);
+
+                    if (rspSessionId != sessionId) {
+                        printf("ERROR: Session ID mismatch (expected 0x%08x)\n", sessionId);
+                        rc = -1;
+                    } else if (rspLen < 16 || rxSz < (word32)(8 + rspLen)) {
+                        printf("ERROR: Response too short\n");
+                        rc = -1;
+                    } else {
+                        word16 cipherLen = rspLen - 16;  /* Subtract tag size */
+
+                        /* Build AAD: SessionID || SeqNum || Length */
+                        XMEMCPY(rspAad, rxBuf, 8);
+
+                        /* Build IV: rspDataIV XOR (0-padded sequence number) */
+                        XMEMCPY(rspIv, rspDataIV, 12);
+                        rspIv[0] ^= (byte)(rspSeqNum & 0xFF);
+                        rspIv[1] ^= (byte)((rspSeqNum >> 8) & 0xFF);
+
+                        /* Extract tag (last 16 bytes of encrypted data) */
+                        XMEMCPY(rspTag, &rxBuf[8 + cipherLen], 16);
+
+                        /* Decrypt with rspDataKey */
+                        decryptRc = wc_AesGcmSetKey(&rspAes, rspDataKey, 32);
+                        if (decryptRc == 0) {
+                            decryptRc = wc_AesGcmDecrypt(&rspAes,
+                                decryptedMsg, &rxBuf[8], cipherLen,
+                                rspIv, 12, rspTag, 16, rspAad, 8);
+                        }
+
+                        if (decryptRc != 0) {
+                            printf("ERROR: Decryption failed (%d) - tag mismatch\n", decryptRc);
+                            printf("  This may indicate HMAC verification failed on responder\n");
+                            rc = -1;
+                        } else {
+                            /* Decrypted format: AppDataLen(2) || MCTP(1) || SPDM message */
+                            word16 rspAppDataLen = decryptedMsg[0] | (decryptedMsg[1] << 8);
+                            byte mctpType = decryptedMsg[2];
+                            byte spdmVersion = decryptedMsg[3];
+                            byte spdmCode = decryptedMsg[4];
+
+                            printf("Decrypted: AppLen=%u, MCTP=0x%02x, SPDM=0x%02x 0x%02x\n",
+                                   rspAppDataLen, mctpType, spdmVersion, spdmCode);
+
+                            if (spdmCode == 0x65) {
+                                /* FINISH_RSP - Session truly established! */
+                                printf("\n");
+                                printf("╔══════════════════════════════════════════════════════════════╗\n");
+                                printf("║     SUCCESS: SPDM SESSION ESTABLISHED (VERIFIED!)           ║\n");
+                                printf("║                                                              ║\n");
+                                printf("║  All TPM commands are now encrypted on the bus.             ║\n");
+                                printf("║  This protects against physical bus snooping attacks.       ║\n");
+                                printf("╚══════════════════════════════════════════════════════════════╝\n");
+                                rc = 0;
+                            } else if (spdmCode == 0x7F) {
+                                /* ERROR response - session NOT established */
+                                byte errCode = decryptedMsg[5];
+                                printf("\n");
+                                printf("╔══════════════════════════════════════════════════════════════╗\n");
+                                printf("║     FAILED: Responder returned encrypted ERROR              ║\n");
+                                printf("╚══════════════════════════════════════════════════════════════╝\n");
+                                printf("Error code: 0x%02x", errCode);
+                                if (errCode == 0x01) printf(" (InvalidRequest)");
+                                else if (errCode == 0x06) printf(" (DecryptError - HMAC mismatch)");
+                                printf("\n");
+                                rc = -1;
+                            } else {
+                                printf("ERROR: Unexpected SPDM message 0x%02x\n", spdmCode);
+                                rc = -1;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
