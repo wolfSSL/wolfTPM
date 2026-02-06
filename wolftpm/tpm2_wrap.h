@@ -484,14 +484,17 @@ WOLFTPM_API int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
     TPML_SPDM_SESSION_INFO* spdmSessionInfo);
 #endif /* WOLFTPM_SWTPM */
 
-/* SPDM Secure Session Wrapper API */
+/* SPDM Secure Session Wrapper API
+ *
+ * These functions provide a high-level interface for SPDM secure sessions.
+ * All SPDM protocol logic is implemented in the wolfSPDM library.
+ */
 
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Initialize SPDM support on a wolfTPM2 device.
-    Allocates and configures the SPDM context with the default backend
-    (libspdm or wolfSPDM). After init, call wolfTPM2_SpdmConnect to
-    establish a secure session.
+    Allocates and configures the SPDM context using wolfSPDM.
+    After init, call wolfTPM2_SpdmConnect to establish a secure session.
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: invalid parameters
@@ -503,34 +506,16 @@ WOLFTPM_API int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Enable SPDM on the TPM via NTC2_PreConfig vendor command.
-    Requires platform hierarchy auth. TPM must be reset after this call.
-
-    \return TPM_RC_SUCCESS: successful
-    \return TPM_RC_COMMAND_CODE: not yet implemented
-
-    \param dev pointer to a WOLFTPM2_DEV structure
-*/
-WOLFTPM_API int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
     \brief Establish an SPDM secure session (full handshake).
-    Performs GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE -> GIVE_PUB_KEY -> FINISH.
-    After success, all TPM commands are transparently encrypted/authenticated.
+    Uses standard SPDM flow: GET_VERSION -> GET_CAPABILITIES ->
+    NEGOTIATE_ALGORITHMS -> KEY_EXCHANGE -> FINISH.
 
     \return TPM_RC_SUCCESS: session established
     \return TPM_RC_FAILURE: handshake failed
 
     \param dev pointer to a WOLFTPM2_DEV structure
-    \param reqPubKey host's ECDSA P-384 public key (DER/TPMT_PUBLIC)
-    \param reqPubKeySz size of reqPubKey in bytes
-    \param reqPrivKey host's ECDSA P-384 private key (for mutual auth)
-    \param reqPrivKeySz size of reqPrivKey in bytes
 */
-WOLFTPM_API int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev,
-    const byte* reqPubKey, word32 reqPubKeySz,
-    const byte* reqPrivKey, word32 reqPrivKeySz);
+WOLFTPM_API int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -544,6 +529,81 @@ WOLFTPM_API int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Get the current SPDM session ID.
+
+    \return Session ID, or 0 if not connected
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API word32 wolfTPM2_SpdmGetSessionId(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Disconnect the SPDM secure session.
+    After this, TPM commands are sent in the clear.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Free SPDM context and resources.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
+
+#ifdef WOLFSPDM_NUVOTON
+/* Nuvoton-specific SPDM functions (requires wolfSPDM with --enable-nuvoton) */
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Configure for Nuvoton TPM SPDM mode.
+    Must be called before wolfTPM2_SpdmConnect() for Nuvoton TPMs.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmSetNuvotonMode(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Enable SPDM on the TPM via NTC2_PreConfig vendor command.
+    Requires platform hierarchy auth. TPM must be reset after this call.
+
+    \return TPM_RC_SUCCESS: successful
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+*/
+WOLFTPM_API int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Establish Nuvoton SPDM secure session with mutual authentication.
+    Uses Nuvoton flow: GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE ->
+    GIVE_PUB_KEY -> FINISH.
+
+    \return TPM_RC_SUCCESS: session established
+    \return TPM_RC_FAILURE: handshake failed
+
+    \param dev pointer to a WOLFTPM2_DEV structure
+    \param reqPubKey host's ECDSA P-384 public key (TPMT_PUBLIC format)
+    \param reqPubKeySz size of reqPubKey in bytes
+    \param reqPrivKey host's ECDSA P-384 private key (raw 48 bytes)
+    \param reqPrivKeySz size of reqPrivKey in bytes
+*/
+WOLFTPM_API int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Get SPDM status from the TPM (GET_STS_ vendor command).
 
     \return TPM_RC_SUCCESS: successful
@@ -553,7 +613,7 @@ WOLFTPM_API int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev);
     \param status output: SPDM status information
 */
 WOLFTPM_API int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev,
-    WOLFTPM2_SPDM_STATUS* status);
+    WOLFSPDM_NUVOTON_STATUS* status);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -581,26 +641,7 @@ WOLFTPM_API int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_SpdmSetOnlyMode(WOLFTPM2_DEV* dev, int lock);
 
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Disconnect the SPDM secure session.
-    After this, TPM commands are sent in the clear.
-
-    \return TPM_RC_SUCCESS: successful
-
-    \param dev pointer to a WOLFTPM2_DEV structure
-*/
-WOLFTPM_API int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Free SPDM context and resources.
-
-    \return TPM_RC_SUCCESS: successful
-
-    \param dev pointer to a WOLFTPM2_DEV structure
-*/
-WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
+#endif /* WOLFSPDM_NUVOTON */
 
 #endif /* WOLFTPM_SPDM */
 

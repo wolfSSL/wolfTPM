@@ -463,70 +463,75 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PROVISIONING"
 fi
 
-# SPDM Authenticated Controller (AC) Support (TCG v1.84)
+# SPDM Authenticated Controller (AC) Support
+# Requires wolfSPDM library for all SPDM protocol operations
 AC_ARG_ENABLE([spdm],
-    [AS_HELP_STRING([--enable-spdm],[Enable SPDM Authenticated Controller (AC) support per TCG TPM 2.0 Library Spec v1.84 (default: disabled)])],
+    [AS_HELP_STRING([--enable-spdm],[Enable SPDM support using wolfSPDM library (default: disabled)])],
     [ ENABLED_SPDM=$enableval ],
     [ ENABLED_SPDM=no ]
     )
 
-# Check for TCG v1.84 support (TPM_SPEC_VERSION >= 138)
-AC_MSG_CHECKING([for TCG TPM 2.0 Library Spec v1.84 support])
-AC_COMPILE_IFELSE(
-    [AC_LANG_PROGRAM([[
-        #include <wolftpm/tpm2.h>
-    ]], [[
-        #if TPM_SPEC_VERSION < 138
-        #error "TPM_SPEC_VERSION must be >= 138 for v1.84 support"
-        #endif
-    ]])],
-    [AC_MSG_RESULT([yes (TPM_SPEC_VERSION >= 138)])],
-    [AC_MSG_RESULT([no])
-     if test "x$ENABLED_SPDM" = "xyes"
-     then
-         AC_MSG_WARN([SPDM support requires TCG v1.84 (TPM_SPEC_VERSION >= 138). Disabling SPDM support.])
-         ENABLED_SPDM=no
-     fi
+# wolfSPDM path (required when --enable-spdm is used)
+WOLFSPDM_PATH=""
+AC_ARG_WITH([wolfspdm],
+    [AS_HELP_STRING([--with-wolfspdm=PATH],[Path to wolfSPDM install or source directory (required for --enable-spdm)])],
+    [
+        if test "x$withval" != "xno" && test "x$withval" != "xyes"
+        then
+            WOLFSPDM_PATH="$withval"
+        fi
     ]
 )
 
-ENABLED_LIBSPDM="no"
 if test "x$ENABLED_SPDM" = "xyes"
 then
-    AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM Authenticated Controller support])
+    # wolfSPDM is required for SPDM support
+    if test "x$WOLFSPDM_PATH" = "x"
+    then
+        AC_MSG_ERROR([--enable-spdm requires --with-wolfspdm=PATH
+  wolfSPDM provides all SPDM protocol implementation.
+  Build wolfSPDM first:
+    cd /path/to/wolfspdm
+    ./autogen.sh
+    ./configure --with-wolfssl=/path/to/wolfssl
+    make
+  Then use: --with-wolfspdm=/path/to/wolfspdm])
+    fi
 
-    # Optional libspdm integration
-    AC_ARG_WITH([libspdm],
-        [AS_HELP_STRING([--with-libspdm=PATH],[Path to libspdm source or install directory])],
-        [
-            if test "x$withval" != "xno" && test "x$withval" != "xyes"
-            then
-                LIBSPDM_PATH="$withval"
-                # Check for installed layout: PATH/include + PATH/lib
-                if test -d "${LIBSPDM_PATH}/include" && test -d "${LIBSPDM_PATH}/lib"
-                then
-                    LIBSPDM_INCDIR="${LIBSPDM_PATH}/include"
-                    LIBSPDM_LIBDIR="${LIBSPDM_PATH}/lib"
-                # Check for source tree layout: PATH/include + PATH/build/lib
-                elif test -d "${LIBSPDM_PATH}/include" && test -d "${LIBSPDM_PATH}/build/lib"
-                then
-                    LIBSPDM_INCDIR="${LIBSPDM_PATH}/include"
-                    LIBSPDM_LIBDIR="${LIBSPDM_PATH}/build/lib"
-                else
-                    AC_MSG_ERROR([libspdm not found at: ${LIBSPDM_PATH}
+    # Check for installed layout: PATH/include + PATH/lib
+    if test -d "${WOLFSPDM_PATH}/include" && test -d "${WOLFSPDM_PATH}/lib"
+    then
+        WOLFSPDM_INCDIR="${WOLFSPDM_PATH}/include"
+        WOLFSPDM_LIBDIR="${WOLFSPDM_PATH}/lib"
+    # Check for source tree layout: PATH/wolfspdm + PATH/.libs
+    elif test -d "${WOLFSPDM_PATH}/wolfspdm" && test -d "${WOLFSPDM_PATH}/.libs"
+    then
+        WOLFSPDM_INCDIR="${WOLFSPDM_PATH}"
+        WOLFSPDM_LIBDIR="${WOLFSPDM_PATH}/.libs"
+    else
+        AC_MSG_ERROR([wolfSPDM not found at: ${WOLFSPDM_PATH}
   Expected either installed layout (PATH/include + PATH/lib)
-  or source tree layout (PATH/include + PATH/build/lib).
-  Build libspdm first: cd libspdm && mkdir build && cd build && cmake -DCRYPTO=openssl -DTOOLCHAIN=GCC -DTARGET=Release -DENABLE_BINARY_BUILD=1 -DCOMPILED_LIBCRYPTO_PATH=/usr/lib/libcrypto.so -DCOMPILED_LIBSSL_PATH=/usr/lib/libssl.so -DDISABLE_TESTS=1 .. && make])
-                fi
+  or source tree layout (PATH/wolfspdm + PATH/.libs).
+  Build wolfSPDM first: cd wolfspdm && ./autogen.sh && ./configure && make])
+    fi
 
-                CPPFLAGS="$CPPFLAGS -I${LIBSPDM_INCDIR}"
-                LDFLAGS="$LDFLAGS -L${LIBSPDM_LIBDIR}"
-                LIBS="$LIBS -lspdm_requester_lib -lspdm_common_lib -lspdm_crypt_lib -lspdm_secured_message_lib -lspdm_device_secret_lib_null -lspdm_crypt_ext_lib -lcryptlib_openssl -lmemlib -lmalloclib -ldebuglib_null -lplatform_lib_null -lrnglib -lssl -lcrypto"
-                AC_DEFINE([WOLFTPM_WITH_LIBSPDM], [1], [Enable libspdm backend for SPDM])
-                ENABLED_LIBSPDM="yes"
-            fi
-        ]
-    )
+    CPPFLAGS="-I${WOLFSPDM_INCDIR} $CPPFLAGS"
+    LDFLAGS="-L${WOLFSPDM_LIBDIR} $LDFLAGS"
+    LIBS="$LIBS -lwolfspdm"
+
+    # Check that wolfSPDM library is usable
+    AC_CHECK_HEADER([wolfspdm/spdm.h], [],
+        [AC_MSG_ERROR([wolfSPDM header not found at ${WOLFSPDM_INCDIR}])])
+
+    AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support using wolfSPDM])
+    AC_MSG_NOTICE([SPDM support enabled using wolfSPDM at: ${WOLFSPDM_PATH}])
+
+    # Enable wolfSPDM Nuvoton support if Nuvoton TPM is also enabled
+    if test "x$ENABLED_NUVOTON" = "xyes"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFSPDM_NUVOTON"
+        AC_MSG_NOTICE([Nuvoton SPDM vendor commands enabled])
+    fi
 fi
 
 # HARDEN FLAGS
@@ -559,7 +564,6 @@ AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
 AM_CONDITIONAL([BUILD_SPDM], [test "x$ENABLED_SPDM" = "xyes"])
-AM_CONDITIONAL([BUILD_LIBSPDM], [test "x$ENABLED_LIBSPDM" = "xyes"])
 
 
 CREATE_HEX_VERSION
@@ -689,4 +693,7 @@ echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
-echo "   * SPDM AC Support:           $ENABLED_SPDM"
+echo "   * SPDM Support:              $ENABLED_SPDM"
+if test "x$ENABLED_SPDM" = "xyes"; then
+    echo "   * wolfSPDM:                  ${WOLFSPDM_PATH}"
+fi

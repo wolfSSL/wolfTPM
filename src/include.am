@@ -24,10 +24,8 @@ src_libwolftpm_la_SOURCES      += src/tpm2_winapi.c
 src_libwolftpm_la_LIBADD       = -ltbs
 endif
 if BUILD_SPDM
+# SPDM support using wolfSPDM library
 src_libwolftpm_la_SOURCES      += src/tpm2_spdm.c
-if BUILD_LIBSPDM
-src_libwolftpm_la_SOURCES      += src/tpm2_spdm_libspdm.c
-endif
 endif
 
 src_libwolftpm_la_CFLAGS       = $(src_libwolftpm_la_EXTRAS) -DBUILDING_WOLFTPM $(AM_CFLAGS)

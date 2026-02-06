@@ -1032,26 +1032,20 @@ int wolfTPM2_GetCapability_SPDMSessionInfo(WOLFTPM2_DEV* dev,
 }
 #endif /* WOLFTPM_SWTPM */
 
-/* --- SPDM Secure Session Wrapper API --- */
+/* --- SPDM Secure Session Wrapper API ---
+ *
+ * These functions provide a high-level interface to wolfSPDM.
+ * All SPDM protocol logic is implemented in the wolfSPDM library.
+ */
 
 int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev)
 {
     int rc;
-    WOLFTPM2_SPDM_BACKEND* backend;
     WOLFTPM2_SPDM_CTX* spdmCtx;
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
-
-    /* Get the default backend (wolfSPDM preferred, else libspdm).
-     * If no backend is available, native wolfCrypt handshake will be used. */
-    backend = wolfTPM2_SPDM_GetDefaultBackend();
-#ifdef DEBUG_WOLFTPM
-    if (backend == NULL) {
-        printf("SPDM Init: No external backend, using native wolfCrypt\n");
-    }
-#endif
 
     /* Allocate SPDM context */
     spdmCtx = (WOLFTPM2_SPDM_CTX*)XMALLOC(sizeof(WOLFTPM2_SPDM_CTX),
@@ -1060,52 +1054,39 @@ int wolfTPM2_SpdmInit(WOLFTPM2_DEV* dev)
         return MEMORY_E;
     }
 
-    /* Initialize SPDM context.
-     * The default I/O callback sends TCG-framed SPDM messages through
-     * TPM2_SendRawBytes (same TIS FIFO as regular TPM commands).
-     * The userCtx is the TPM2_CTX so the callback can access the HAL. */
-    XMEMSET(spdmCtx, 0, sizeof(*spdmCtx));
-    spdmCtx->backend = backend;
-    spdmCtx->ioCb = wolfTPM2_SPDM_GetDefaultIoCb();
-    spdmCtx->ioUserCtx = &dev->ctx;
-    spdmCtx->connectionHandle = (word32)SPDM_CONNECTION_ID;
-    spdmCtx->fipsIndicator = (word16)SPDM_FIPS_NON_FIPS;
-    spdmCtx->reqSessionId = SPDM_REQ_SESSION_ID;
-    spdmCtx->state = SPDM_STATE_INITIALIZED;
+    /* Initialize SPDM context with wolfSPDM.
+     * I/O callback will be set later when Connect is called. */
+    rc = wolfTPM2_SPDM_InitCtx(spdmCtx, NULL, NULL);
+    if (rc != 0) {
+        XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        return rc;
+    }
 
-    /* If backend is available, initialize it */
-    if (backend != NULL && backend->Init != NULL) {
-        rc = backend->Init(spdmCtx, spdmCtx->ioCb, spdmCtx->ioUserCtx);
-        if (rc != 0) {
-            XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            return rc;
-        }
+    /* Set TPM context for NTC2 vendor commands */
+    rc = wolfTPM2_SPDM_SetTPMCtx(spdmCtx, &dev->ctx);
+    if (rc != 0) {
+        wolfTPM2_SPDM_FreeCtx(spdmCtx);
+        XFREE(spdmCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        return rc;
     }
 
     /* Link SPDM context to device */
     dev->spdmCtx = spdmCtx;
     dev->ctx.spdmCtx = spdmCtx;
 
-    return 0;
+#ifdef DEBUG_WOLFTPM
+    printf("SPDM initialized with wolfSPDM backend\n");
+#endif
+
+    return TPM_RC_SUCCESS;
 }
 
-int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev)
+int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev)
 {
     if (dev == NULL || dev->spdmCtx == NULL) {
         return BAD_FUNC_ARG;
     }
-    return wolfTPM2_SPDM_Enable(dev->spdmCtx, &dev->ctx);
-}
-
-int wolfTPM2_SpdmConnect(WOLFTPM2_DEV* dev,
-    const byte* reqPubKey, word32 reqPubKeySz,
-    const byte* reqPrivKey, word32 reqPrivKeySz)
-{
-    if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-    return wolfTPM2_SPDM_Connect(dev->spdmCtx,
-        reqPubKey, reqPubKeySz, reqPrivKey, reqPrivKeySz);
+    return wolfTPM2_SPDM_Connect(dev->spdmCtx);
 }
 
 int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev)
@@ -1116,29 +1097,12 @@ int wolfTPM2_SpdmIsConnected(WOLFTPM2_DEV* dev)
     return wolfTPM2_SPDM_IsConnected(dev->spdmCtx);
 }
 
-int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev, WOLFTPM2_SPDM_STATUS* status)
+word32 wolfTPM2_SpdmGetSessionId(WOLFTPM2_DEV* dev)
 {
     if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
+        return 0;
     }
-    return wolfTPM2_SPDM_GetStatus(dev->spdmCtx, status);
-}
-
-int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
-    byte* pubKey, word32* pubKeySz)
-{
-    if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-    return wolfTPM2_SPDM_GetPubKey(dev->spdmCtx, pubKey, pubKeySz);
-}
-
-int wolfTPM2_SpdmSetOnlyMode(WOLFTPM2_DEV* dev, int lock)
-{
-    if (dev == NULL || dev->spdmCtx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-    return wolfTPM2_SPDM_SetOnlyMode(dev->spdmCtx, lock);
+    return wolfTPM2_SPDM_GetSessionId(dev->spdmCtx);
 }
 
 int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev)
@@ -1160,8 +1124,103 @@ int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev)
         dev->spdmCtx = NULL;
         dev->ctx.spdmCtx = NULL;
     }
-    return 0;
+    return TPM_RC_SUCCESS;
 }
+
+#ifdef WOLFSPDM_NUVOTON
+/* Nuvoton-specific SPDM functions */
+
+int wolfTPM2_SpdmSetNuvotonMode(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_SetNuvotonMode(dev->spdmCtx);
+}
+
+int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_Enable(dev->spdmCtx);
+}
+
+int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev, WOLFSPDM_NUVOTON_STATUS* status)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_GetStatus(dev->spdmCtx, status);
+}
+
+int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev, byte* pubKey, word32* pubKeySz)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_GetPubKey(dev->spdmCtx, pubKey, pubKeySz);
+}
+
+int wolfTPM2_SpdmSetOnlyMode(WOLFTPM2_DEV* dev, int lock)
+{
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return wolfTPM2_SPDM_SetOnlyMode(dev->spdmCtx, lock);
+}
+
+int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
+    const byte* reqPubKey, word32 reqPubKeySz,
+    const byte* reqPrivKey, word32 reqPrivKeySz)
+{
+    int rc;
+
+    if (dev == NULL || dev->spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Note: I/O callback must be set by caller before calling this function.
+     * For Nuvoton TPM, use wolfTPM2_SPDM_SetIoCb() with a callback that
+     * calls TPM2_SendRawBytes(). */
+
+    /* Set Nuvoton mode first */
+    rc = wolfTPM2_SPDM_SetNuvotonMode(dev->spdmCtx);
+    if (rc != 0) {
+        return rc;
+    }
+
+    /* Set requester key pair if provided (for mutual authentication) */
+    if (reqPrivKey != NULL && reqPrivKeySz > 0 &&
+        reqPubKey != NULL && reqPubKeySz > 0) {
+        /* Extract raw X||Y from TPMT_PUBLIC format (skip header, get unique) */
+        /* TPMT_PUBLIC: type(2) + nameAlg(2) + attr(4) + authPolicy(2) +
+         * params(10) + unique.x.size(2) + x(48) + unique.y.size(2) + y(48) */
+        if (reqPubKeySz >= 120) {
+            const byte* uniqueX = reqPubKey + 22;  /* offset to unique.x data */
+            const byte* uniqueY = reqPubKey + 72;  /* offset to unique.y data */
+            byte rawPubKey[96];
+            XMEMCPY(rawPubKey, uniqueX, 48);
+            XMEMCPY(rawPubKey + 48, uniqueY, 48);
+            rc = wolfTPM2_SPDM_SetRequesterKeyPair(dev->spdmCtx,
+                reqPrivKey, reqPrivKeySz, rawPubKey, 96);
+            if (rc != 0) {
+                return rc;
+            }
+            /* Also store the full TPMT_PUBLIC for GIVE_PUB step */
+            rc = wolfTPM2_SPDM_SetRequesterKeyTPMT(dev->spdmCtx,
+                reqPubKey, reqPubKeySz);
+            if (rc != 0) {
+                return rc;
+            }
+        }
+    }
+
+    /* Perform the Nuvoton SPDM handshake */
+    return wolfTPM2_SPDM_Connect(dev->spdmCtx);
+}
+
+#endif /* WOLFSPDM_NUVOTON */
 
 #endif /* WOLFTPM_SPDM */
 

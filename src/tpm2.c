@@ -485,30 +485,12 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (ctx->spdmCtx != NULL) {
         WOLFTPM2_SPDM_CTX* spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
         if (wolfTPM2_SPDM_IsConnected(spdmCtx)) {
-            byte spdmMsg[SPDM_MAX_MSG_SIZE];
-            word32 spdmMsgSz = sizeof(spdmMsg);
-            byte rxBuf[SPDM_MAX_MSG_SIZE];
-            word32 rxSz = sizeof(rxBuf);
-            byte tpmResp[SPDM_MAX_MSG_SIZE];
+            byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
             word32 tpmRespSz = sizeof(tpmResp);
 
-            /* Wrap TPM command in SPDM secured message */
-            rc = wolfTPM2_SPDM_WrapCommand(spdmCtx,
-                packet->buf, packet->pos, spdmMsg, &spdmMsgSz);
-            if (rc != 0) {
-                return rc;
-            }
-
-            /* Send SPDM message via I/O callback */
-            rc = spdmCtx->ioCb(spdmCtx, spdmMsg, spdmMsgSz,
-                rxBuf, &rxSz, spdmCtx->ioUserCtx);
-            if (rc != 0) {
-                return rc;
-            }
-
-            /* Unwrap SPDM response to get TPM response */
-            rc = wolfTPM2_SPDM_UnwrapResponse(spdmCtx,
-                rxBuf, rxSz, tpmResp, &tpmRespSz);
+            /* Use wolfSPDM to encrypt, send, receive, and decrypt */
+            rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
+                packet->buf, packet->pos, tpmResp, &tpmRespSz);
             if (rc != 0) {
                 return rc;
             }

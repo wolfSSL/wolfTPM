@@ -67,8 +67,12 @@
     #define SPDM_EMU_DEFAULT_PORT 2323  /* DEFAULT_SPDM_PLATFORM_PORT (MCTP) */
     #define SPDM_EMU_DEFAULT_HOST "127.0.0.1"
     /* Transport types for libspdm emulator socket protocol */
-    #define SOCKET_TRANSPORT_TYPE_MCTP 0x01
-    #define SOCKET_TRANSPORT_TYPE_TCP  0x03
+    #ifndef SOCKET_TRANSPORT_TYPE_MCTP
+        #define SOCKET_TRANSPORT_TYPE_MCTP 0x00000001
+    #endif
+    #ifndef SOCKET_TRANSPORT_TYPE_TCP
+        #define SOCKET_TRANSPORT_TYPE_TCP  0x00000003
+    #endif
 #endif
 
 #ifndef WOLFTPM2_NO_WRAPPER
@@ -80,10 +84,42 @@
 
 #include <wolftpm/tpm2_spdm.h>
 
+#include <wolfspdm/spdm.h>
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #include <wolfssl/wolfcrypt/ecc.h>
     #include <wolfssl/wolfcrypt/random.h>
 #endif
+
+/* -------------------------------------------------------------------------- */
+/* Unified SPDM I/O Layer
+ *
+ * Single I/O callback that handles both:
+ * - TCP transport to libspdm emulator (--emu mode)
+ * - TPM TIS transport to Nuvoton hardware (--connect mode)
+ *
+ * The callback gates internally based on the transport mode set in context.
+ * -------------------------------------------------------------------------- */
+
+/* Transport modes for unified I/O callback */
+typedef enum {
+    SPDM_IO_MODE_NONE = 0,  /* Not configured */
+    SPDM_IO_MODE_TCP  = 1,  /* TCP socket to libspdm emulator */
+    SPDM_IO_MODE_TPM  = 2   /* TPM TIS (SPI) to Nuvoton hardware */
+} SPDM_IO_MODE;
+
+/* Unified I/O context - passed as userCtx to wolfSPDM */
+typedef struct {
+    SPDM_IO_MODE mode;
+    /* TCP fields (for emulator) */
+    int sockFd;
+    int isSecured;
+    /* TPM fields (for Nuvoton hardware) */
+    WOLFTPM2_DEV* tpmDev;
+} SPDM_IO_CTX;
+
+/* Global unified I/O context */
+static SPDM_IO_CTX g_ioCtx;
 
 /******************************************************************************/
 /* --- SPDM Demo --- */
@@ -107,24 +143,496 @@ static void usage(void)
     printf("  --unlock       Unlock SPDM-only mode\n");
     printf("  --all          Run full demo sequence\n");
 #ifdef SPDM_EMU_SOCKET_SUPPORT
-    printf("  --standard     Test standard SPDM via TCP (libspdm emulator)\n");
+    printf("  --emu          Test SPDM with libspdm emulator (TCP)\n");
     printf("  --host <addr>  Emulator IP address (default: 127.0.0.1)\n");
     printf("  --port <num>   Emulator port (default: 2323)\n");
 #endif
     printf("  -h, --help     Show this help message\n");
     printf("\n");
-    printf("Prerequisites:\n");
-    printf("  - Nuvoton NPCT75x TPM with Fw 7.2+ connected via SPI\n");
-    printf("  - Host ECDSA P-384 keypair for mutual authentication\n");
-    printf("  - Built with: ./configure --enable-spdm [--with-libspdm=PATH]\n");
+    printf("Nuvoton Hardware Mode (--enable, --connect, etc.):\n");
+    printf("  - Requires Nuvoton NPCT75x TPM with Fw 7.2+ via SPI\n");
+    printf("  - Built with: ./configure --enable-spdm --enable-nuvoton\n");
 #ifdef SPDM_EMU_SOCKET_SUPPORT
     printf("\n");
-    printf("Standard SPDM testing with libspdm emulator:\n");
-    printf("  1. Start emulator: ./spdm_responder_emu --trans TCP\n");
-    printf("  2. Run test: ./spdm_demo --standard\n");
+    printf("Emulator Mode (--emu):\n");
+    printf("  - Tests SPDM 1.2 protocol with libspdm responder emulator\n");
+    printf("  - Built with: ./configure --enable-spdm --with-wolfspdm=PATH\n");
+    printf("  - Start emulator: ./spdm_responder_emu\n");
+    printf("  - Run test: ./spdm_demo --emu\n");
 #endif
 }
 
+/* -------------------------------------------------------------------------- */
+/* Unified I/O Callback Implementation
+ * -------------------------------------------------------------------------- */
+
+/* MCTP transport constants */
+#define SOCKET_SPDM_COMMAND_NORMAL    0x00000001
+#define MCTP_MESSAGE_TYPE_SPDM        0x05
+#define MCTP_MESSAGE_TYPE_SECURED     0x06
+
+/* Initialize I/O context for TCP mode (emulator) */
+static int spdm_io_init_tcp(SPDM_IO_CTX* ioCtx, const char* host, int port)
+{
+    int sockFd;
+    struct sockaddr_in addr;
+    int optVal = 1;
+
+    XMEMSET(ioCtx, 0, sizeof(*ioCtx));
+    ioCtx->mode = SPDM_IO_MODE_NONE;
+    ioCtx->sockFd = -1;
+
+    printf("TCP: Creating socket...\n");
+    fflush(stdout);
+    sockFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockFd < 0) {
+        printf("TCP: Failed to create socket (%d)\n", errno);
+        return -1;
+    }
+    printf("TCP: Socket created (fd=%d)\n", sockFd);
+    fflush(stdout);
+
+    /* Disable Nagle's algorithm for immediate send */
+    setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &optVal, sizeof(optVal));
+
+    XMEMSET(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        printf("TCP: Invalid address %s\n", host);
+        close(sockFd);
+        return -1;
+    }
+
+    printf("TCP: Calling connect()...\n");
+    fflush(stdout);
+    if (connect(sockFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        printf("TCP: Failed to connect to %s:%d (%d)\n", host, port, errno);
+        close(sockFd);
+        return -1;
+    }
+
+    printf("TCP: Connected to %s:%d\n", host, port);
+    fflush(stdout);
+
+    ioCtx->mode = SPDM_IO_MODE_TCP;
+    ioCtx->sockFd = sockFd;
+    return 0;
+}
+
+#ifdef WOLFTPM_NUVOTON
+/* Initialize I/O context for TPM mode (Nuvoton hardware) */
+static void spdm_io_init_tpm(SPDM_IO_CTX* ioCtx, WOLFTPM2_DEV* dev)
+{
+    XMEMSET(ioCtx, 0, sizeof(*ioCtx));
+    ioCtx->mode = SPDM_IO_MODE_TPM;
+    ioCtx->sockFd = -1;
+    ioCtx->tpmDev = dev;
+}
+#endif /* WOLFTPM_NUVOTON */
+
+/* Cleanup I/O context */
+static void spdm_io_cleanup(SPDM_IO_CTX* ioCtx)
+{
+    if (ioCtx->mode == SPDM_IO_MODE_TCP && ioCtx->sockFd >= 0) {
+        close(ioCtx->sockFd);
+        ioCtx->sockFd = -1;
+    }
+    ioCtx->mode = SPDM_IO_MODE_NONE;
+    ioCtx->tpmDev = NULL;
+}
+
+/* Internal: TCP send/receive for emulator */
+static int spdm_io_tcp_exchange(SPDM_IO_CTX* ioCtx,
+    const byte* txBuf, word32 txSz,
+    byte* rxBuf, word32* rxSz)
+{
+    byte sendBuf[512];
+    byte recvHdr[12];
+    ssize_t sent, recvd;
+    word32 respSize;
+    word32 payloadSz;
+    int isSecured = 0;
+
+    if (ioCtx->sockFd < 0) {
+        return -1;
+    }
+
+    /* Detect secured messages: SPDM messages start with version (0x10-0x1F),
+     * secured messages start with SessionID (typically 0xFF...). */
+    if (txSz >= 8 && (txBuf[0] < 0x10 || txBuf[0] > 0x1F)) {
+        isSecured = 1;
+    }
+
+    /* Payload = MCTP header (1 byte) + SPDM message */
+    payloadSz = 1 + txSz;
+    if (12 + payloadSz > sizeof(sendBuf)) {
+        return -1;
+    }
+
+    /* Build socket header: command(4,BE) + transport_type(4,BE) + size(4,BE) */
+    sendBuf[0] = 0x00; sendBuf[1] = 0x00; sendBuf[2] = 0x00; sendBuf[3] = 0x01;
+    sendBuf[4] = 0x00; sendBuf[5] = 0x00; sendBuf[6] = 0x00; sendBuf[7] = 0x01;
+    sendBuf[8] = (byte)(payloadSz >> 24);
+    sendBuf[9] = (byte)(payloadSz >> 16);
+    sendBuf[10] = (byte)(payloadSz >> 8);
+    sendBuf[11] = (byte)(payloadSz & 0xFF);
+
+    /* MCTP header: 0x05 for SPDM, 0x06 for secured SPDM */
+    sendBuf[12] = isSecured ? MCTP_MESSAGE_TYPE_SECURED : MCTP_MESSAGE_TYPE_SPDM;
+
+    if (txSz > 0) {
+        XMEMCPY(sendBuf + 13, txBuf, txSz);
+    }
+
+    sent = send(ioCtx->sockFd, sendBuf, 12 + payloadSz, 0);
+    if (sent != (ssize_t)(12 + payloadSz)) {
+        return -1;
+    }
+
+    recvd = recv(ioCtx->sockFd, recvHdr, 12, MSG_WAITALL);
+    if (recvd != 12) {
+        return -1;
+    }
+
+    respSize = ((word32)recvHdr[8] << 24) | ((word32)recvHdr[9] << 16) |
+               ((word32)recvHdr[10] << 8) | (word32)recvHdr[11];
+
+    if (respSize < 1 || respSize - 1 > *rxSz) {
+        return -1;
+    }
+
+    /* Skip MCTP header */
+    {
+        byte mctpHdr;
+        recvd = recv(ioCtx->sockFd, &mctpHdr, 1, MSG_WAITALL);
+        if (recvd != 1) return -1;
+    }
+
+    *rxSz = respSize - 1;
+    if (*rxSz > 0) {
+        recvd = recv(ioCtx->sockFd, rxBuf, *rxSz, MSG_WAITALL);
+        if (recvd != (ssize_t)*rxSz) return -1;
+    }
+
+    return 0;
+}
+
+/* TCG SPDM Binding tags */
+#define TCG_SPDM_TAG_CLEAR   0x8101
+#define TCG_SPDM_TAG_SECURED 0x8201
+
+#ifdef WOLFTPM_NUVOTON
+/* Internal: TPM TIS send/receive for Nuvoton hardware
+ *
+ * wolfSPDM may send either:
+ * - Raw SPDM messages (standard commands like GET_VERSION)
+ * - Already TCG-framed messages (vendor-defined commands like GET_PUBK)
+ * - Encrypted SPDM records (session messages like FINISH)
+ *
+ * This function detects which format and handles accordingly:
+ * - If already TCG-framed (starts with 0x8101 or 0x8201): send as-is
+ * - If encrypted record (starts with session ID): wrap in TCG secured format
+ * - If raw SPDM: wrap in TCG clear message format first
+ */
+static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
+    const byte* txBuf, word32 txSz,
+    byte* rxBuf, word32* rxSz)
+{
+    WOLFTPM2_DEV* dev = ioCtx->tpmDev;
+    byte tcgTxBuf[512];  /* TCG-framed message to send */
+    byte tcgRxBuf[512];  /* TCG-framed response */
+    const byte* sendBuf;
+    word32 sendSz;
+    word32 tcgRxSz;
+    int alreadyFramed = 0;
+    int isEncrypted = 0;
+    word32 i;
+    int rc;
+
+    if (dev == NULL) {
+        printf("SPDM I/O ERROR: dev is NULL\n");
+        return -1;
+    }
+
+    if (spdmCtx == NULL) {
+        printf("SPDM I/O ERROR: spdmCtx is NULL\n");
+        return -1;
+    }
+
+    /* Check if message is already TCG-framed (starts with tag 0x8101 or 0x8201) */
+    if (txSz >= 2) {
+        word16 tag = (word16)((txBuf[0] << 8) | txBuf[1]);
+        if (tag == TCG_SPDM_TAG_CLEAR || tag == TCG_SPDM_TAG_SECURED) {
+            alreadyFramed = 1;
+        }
+    }
+
+    /* Check if message is encrypted (not a clear SPDM message)
+     * Clear SPDM messages start with version byte (0x10-0x1F)
+     * Encrypted messages start with session ID (first byte is low byte of reqSessionId) */
+    if (!alreadyFramed && txSz >= 8) {
+        /* SPDM version bytes are 0x10 (1.0), 0x11 (1.1), 0x12 (1.2), 0x13 (1.3) */
+        if (txBuf[0] < 0x10 || txBuf[0] > 0x1F) {
+            isEncrypted = 1;
+        }
+    }
+
+    /* Print incoming message */
+    printf("SPDM I/O TX (%u bytes, %s): ", txSz,
+           alreadyFramed ? "TCG-framed" :
+           (isEncrypted ? "encrypted" : "raw SPDM"));
+    for (i = 0; i < txSz && i < 20; i++) {
+        printf("%02x ", txBuf[i]);
+    }
+    if (txSz > 20) printf("...");
+    printf("\n");
+
+    if (alreadyFramed) {
+        /* Already TCG-framed, send as-is */
+        sendBuf = txBuf;
+        sendSz = txSz;
+        printf("  -> Already TCG-framed, sending as-is\n");
+    }
+    else if (isEncrypted) {
+        /* Wrap TCG-format encrypted message in TCG binding header (16 bytes)
+         *
+         * wolfSPDM (Nuvoton mode) outputs TCG format:
+         *   SessionID(4 LE) + SeqNum(8 LE) + Length(2 LE) + encrypted + tag = 14 + data
+         *
+         * We just add the TCG binding header (16 bytes with tag 0x8201):
+         *   Tag(2 BE) + Size(4 BE) + ConnHandle(4 BE) + FIPS(2 BE) + Reserved(4)
+         */
+        word32 totalSz = 16 + txSz;
+        word32 connHandle = 0;
+        word16 fipsInd = 0;
+
+        if (totalSz > sizeof(tcgTxBuf)) {
+            printf("SPDM I/O: Encrypted message too large\n");
+            return -1;
+        }
+
+        /* Get ConnectionHandle from SPDM context.
+         * FipsIndicator for requests is D/C (Don't Care) per Nuvoton spec,
+         * but spec example shows 0x0000 for requests. */
+        if (spdmCtx != NULL) {
+            connHandle = wolfSPDM_GetConnectionHandle(spdmCtx);
+        }
+        /* fipsInd stays 0 for requests (D/C per spec) */
+
+        /* TCG binding header (16 bytes, all BE) */
+        tcgTxBuf[0] = (byte)(TCG_SPDM_TAG_SECURED >> 8);
+        tcgTxBuf[1] = (byte)(TCG_SPDM_TAG_SECURED & 0xFF);
+        tcgTxBuf[2] = (byte)(totalSz >> 24);
+        tcgTxBuf[3] = (byte)(totalSz >> 16);
+        tcgTxBuf[4] = (byte)(totalSz >> 8);
+        tcgTxBuf[5] = (byte)(totalSz & 0xFF);
+        tcgTxBuf[6] = (byte)(connHandle >> 24);  /* ConnectionHandle (BE) */
+        tcgTxBuf[7] = (byte)(connHandle >> 16);
+        tcgTxBuf[8] = (byte)(connHandle >> 8);
+        tcgTxBuf[9] = (byte)(connHandle & 0xFF);
+        tcgTxBuf[10] = (byte)(fipsInd >> 8);     /* FipsIndicator (BE) */
+        tcgTxBuf[11] = (byte)(fipsInd & 0xFF);
+        tcgTxBuf[12] = 0; tcgTxBuf[13] = 0;      /* Reserved */
+        tcgTxBuf[14] = 0; tcgTxBuf[15] = 0;
+
+        /* Copy TCG-format encrypted SPDM record (already has 14-byte header) */
+        XMEMCPY(tcgTxBuf + 16, txBuf, txSz);
+
+        sendBuf = tcgTxBuf;
+        sendSz = totalSz;
+
+        printf("  -> Wrapped in TCG secured (%u bytes, connHandle=0x%x): ", sendSz, connHandle);
+        for (i = 0; i < sendSz && i < 24; i++) {
+            printf("%02x ", sendBuf[i]);
+        }
+        if (sendSz > 24) printf("...");
+        printf("\n");
+
+        /* Parse and display TCG header details */
+        printf("  TCG Header breakdown:\n");
+        printf("    Tag: 0x%02x%02x (expect 0x8201 for secured)\n", sendBuf[0], sendBuf[1]);
+        printf("    Size: 0x%02x%02x%02x%02x = %u bytes\n", sendBuf[2], sendBuf[3], sendBuf[4], sendBuf[5],
+            ((word32)sendBuf[2] << 24) | ((word32)sendBuf[3] << 16) |
+            ((word32)sendBuf[4] << 8) | sendBuf[5]);
+        printf("    ConnHandle: 0x%02x%02x%02x%02x\n", sendBuf[6], sendBuf[7], sendBuf[8], sendBuf[9]);
+        printf("    FIPS: 0x%02x%02x\n", sendBuf[10], sendBuf[11]);
+        printf("    Reserved: 0x%02x%02x%02x%02x\n", sendBuf[12], sendBuf[13], sendBuf[14], sendBuf[15]);
+        printf("  SPDM Record (after TCG header):\n");
+        printf("    SessionID: 0x%02x%02x%02x%02x (LE: req=%04x rsp=%04x)\n",
+            sendBuf[16], sendBuf[17], sendBuf[18], sendBuf[19],
+            sendBuf[16] | (sendBuf[17] << 8), sendBuf[18] | (sendBuf[19] << 8));
+        printf("    SeqNum: 0x%02x%02x%02x%02x%02x%02x%02x%02x (LE: %llu)\n",
+            sendBuf[20], sendBuf[21], sendBuf[22], sendBuf[23],
+            sendBuf[24], sendBuf[25], sendBuf[26], sendBuf[27],
+            (unsigned long long)((word64)sendBuf[20] | ((word64)sendBuf[21] << 8) |
+            ((word64)sendBuf[22] << 16) | ((word64)sendBuf[23] << 24)));
+        printf("    Length: 0x%02x%02x (LE: %u = encrypted + 16 tag)\n",
+            sendBuf[28], sendBuf[29], sendBuf[28] | (sendBuf[29] << 8));
+    }
+    else {
+        /* Wrap raw SPDM message in TCG clear message format (16-byte header) */
+        int tcgTxSz = wolfSPDM_BuildTcgClearMessage(spdmCtx, txBuf, txSz,
+                                                 tcgTxBuf, sizeof(tcgTxBuf));
+        if (tcgTxSz < 0) {
+            printf("SPDM I/O: BuildTcgClearMessage failed: %d\n", tcgTxSz);
+            return tcgTxSz;
+        }
+        sendBuf = tcgTxBuf;
+        sendSz = (word32)tcgTxSz;
+
+        /* Print wrapped message */
+        printf("  -> Wrapped in TCG (%u bytes): ", sendSz);
+        for (i = 0; i < sendSz && i < 24; i++) {
+            printf("%02x ", sendBuf[i]);
+        }
+        if (sendSz > 24) printf("...");
+        printf("\n");
+    }
+
+    printf("SPDM I/O: Calling TPM2_SendRawBytes...\n");
+    fflush(stdout);
+
+    /* Send via TPM2_SendRawBytes */
+    tcgRxSz = sizeof(tcgRxBuf);
+    rc = TPM2_SendRawBytes(&dev->ctx, sendBuf, sendSz, tcgRxBuf, &tcgRxSz);
+
+    printf("SPDM I/O: TPM2_SendRawBytes returned %d (0x%x)\n", rc, rc);
+    fflush(stdout);
+
+    if (rc != TPM_RC_SUCCESS) {
+        printf("SPDM I/O: SendRawBytes failed: %s\n", TPM2_GetRCString(rc));
+        return rc;
+    }
+
+    /* Print response */
+    printf("SPDM I/O RX (%u bytes): ", tcgRxSz);
+    for (i = 0; i < tcgRxSz && i < 24; i++) {
+        printf("%02x ", tcgRxBuf[i]);
+    }
+    if (tcgRxSz > 24) printf("...");
+    printf("\n");
+
+    if (alreadyFramed) {
+        /* wolfSPDM already did TCG framing, so it will parse the response.
+         * Return the raw TCG response as-is. */
+        if (tcgRxSz > *rxSz) {
+            printf("SPDM I/O: Response too large: %u > %u\n", tcgRxSz, *rxSz);
+            return -1;
+        }
+        XMEMCPY(rxBuf, tcgRxBuf, tcgRxSz);
+        *rxSz = tcgRxSz;
+        printf("  -> Returning TCG response as-is (wolfSPDM will parse)\n");
+    }
+    else if (isEncrypted) {
+        /* For encrypted requests, response can be:
+         * - SECURED (0x8201): successful response, return encrypted record for decryption
+         * - CLEAR (0x8101): error response, return SPDM payload directly */
+        word16 rspTag = 0;
+        if (tcgRxSz >= 2) {
+            rspTag = (word16)((tcgRxBuf[0] << 8) | tcgRxBuf[1]);
+        }
+
+        if (rspTag == TCG_SPDM_TAG_SECURED) {
+            /* Secured response - strip TCG header, return encrypted record */
+            if (tcgRxSz < 16) {
+                printf("SPDM I/O: Secured response too small\n");
+                return -1;
+            }
+            if (tcgRxSz - 16 > *rxSz) {
+                printf("SPDM I/O: Secured response too large: %u > %u\n",
+                       tcgRxSz - 16, *rxSz);
+                return -1;
+            }
+            XMEMCPY(rxBuf, tcgRxBuf + 16, tcgRxSz - 16);
+            *rxSz = tcgRxSz - 16;
+            printf("  -> Stripped TCG header, returning encrypted record (%u bytes)\n", *rxSz);
+        }
+        else if (rspTag == TCG_SPDM_TAG_CLEAR) {
+            /* Clear response - likely an error, extract SPDM payload */
+            rc = wolfSPDM_ParseTcgClearMessage(tcgRxBuf, tcgRxSz, rxBuf, rxSz, NULL);
+            if (rc < 0) {
+                printf("SPDM I/O: ParseTcgClearMessage failed: %d\n", rc);
+                return rc;
+            }
+            /* Check if it's an SPDM ERROR response */
+            if (*rxSz >= 2 && rxBuf[1] == 0x7F) {  /* SPDM_ERROR */
+                printf("  -> TPM returned SPDM ERROR: code=0x%02x data=0x%02x\n",
+                       (*rxSz >= 3) ? rxBuf[2] : 0,
+                       (*rxSz >= 4) ? rxBuf[3] : 0);
+            }
+            printf("  -> Extracted clear SPDM response (%u bytes)\n", *rxSz);
+        }
+        else {
+            printf("SPDM I/O: Unknown response tag 0x%04x\n", rspTag);
+            return -1;
+        }
+    }
+    else {
+        /* For clear requests, response should be CLEAR */
+        rc = wolfSPDM_ParseTcgClearMessage(tcgRxBuf, tcgRxSz, rxBuf, rxSz, NULL);
+        if (rc < 0) {
+            printf("SPDM I/O: ParseTcgClearMessage failed: %d\n", rc);
+            return rc;
+        }
+        printf("  -> Extracted SPDM (%u bytes): ", *rxSz);
+        for (i = 0; i < *rxSz && i < 16; i++) {
+            printf("%02x ", rxBuf[i]);
+        }
+        if (*rxSz > 16) printf("...");
+        printf("\n");
+    }
+
+    return 0;
+}
+#endif /* WOLFTPM_NUVOTON */
+
+/* Unified I/O callback for wolfSPDM
+ * Handles both TCP (emulator) and TPM TIS (Nuvoton hardware) transports.
+ * The mode is determined by ioCtx->mode set during initialization.
+ *
+ * For TCP (emulator): adds MCTP framing and sends over socket
+ * For TPM (Nuvoton): adds TCG binding framing and sends via TIS */
+static int wolfspdm_io_callback(
+    WOLFSPDM_CTX* ctx,
+    const byte* txBuf, word32 txSz,
+    byte* rxBuf, word32* rxSz,
+    void* userCtx)
+{
+    SPDM_IO_CTX* ioCtx = (SPDM_IO_CTX*)userCtx;
+
+    if (ioCtx == NULL || txBuf == NULL || rxBuf == NULL || rxSz == NULL) {
+        return -1;
+    }
+
+    switch (ioCtx->mode) {
+        case SPDM_IO_MODE_TCP:
+            /* TCP path for emulator - uses MCTP framing */
+            (void)ctx; /* Not needed for TCP */
+            return spdm_io_tcp_exchange(ioCtx, txBuf, txSz, rxBuf, rxSz);
+
+        case SPDM_IO_MODE_TPM:
+#ifdef WOLFTPM_NUVOTON
+            /* TPM TIS path for Nuvoton - uses TCG binding framing */
+            return spdm_io_tpm_exchange(ioCtx, ctx, txBuf, txSz, rxBuf, rxSz);
+#else
+            printf("SPDM I/O: TPM mode requires --enable-nuvoton\n");
+            (void)ctx;
+            return -1;
+#endif /* WOLFTPM_NUVOTON */
+
+        case SPDM_IO_MODE_NONE:
+        default:
+            printf("SPDM I/O: Invalid mode %d\n", ioCtx->mode);
+            return -1;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Nuvoton-Specific Demo Functions
+ * -------------------------------------------------------------------------- */
+
+#ifdef WOLFSPDM_NUVOTON
 static int demo_enable(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -150,7 +658,9 @@ static int demo_enable(WOLFTPM2_DEV* dev)
     }
     return rc;
 }
+#endif /* WOLFSPDM_NUVOTON */
 
+#ifdef WOLFSPDM_NUVOTON
 static int demo_raw_test(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -163,7 +673,7 @@ static int demo_raw_test(WOLFTPM2_DEV* dev)
 
     printf("\n=== Raw SPDM GET_VERSION Test ===\n");
 
-    if (spdmCtx == NULL || spdmCtx->ioCb == NULL) {
+    if (spdmCtx == NULL || spdmCtx->spdmCtx == NULL) {
         printf("  ERROR: SPDM not initialized\n");
         return -1;
     }
@@ -179,7 +689,7 @@ static int demo_raw_test(WOLFTPM2_DEV* dev)
         spdmReq[3] = 0x00;
 
         /* Wrap in TCG clear message (16-byte header per Nuvoton spec) */
-        txSz = SPDM_BuildClearMessage(spdmCtx, spdmReq, 4,
+        txSz = wolfSPDM_BuildTcgClearMessage(spdmCtx->spdmCtx, spdmReq, 4,
             txBuf, sizeof(txBuf));
         if (txSz < 0) {
             printf("  ERROR: BuildClearMessage failed: %d\n", txSz);
@@ -191,56 +701,76 @@ static int demo_raw_test(WOLFTPM2_DEV* dev)
     for (i = 0; i < (word32)txSz; i++) printf("%02x ", txBuf[i]);
     printf("\n");
 
-    rxSz = sizeof(rxBuf);
-    rc = spdmCtx->ioCb(spdmCtx, txBuf, (word32)txSz, rxBuf, &rxSz,
-                        spdmCtx->ioUserCtx);
-    if (rc != 0) {
-        printf("  ERROR: I/O callback failed: 0x%x\n", rc);
+    /* Use wolfSPDM_GetVersion which handles the I/O internally */
+    printf("  Note: Raw I/O test skipped - use wolfSPDM_GetVersion() instead\n");
+    rc = wolfSPDM_GetVersion(spdmCtx->spdmCtx);
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("  -> VERSION response received!\n");
+        rxSz = 0; /* Indicate we got a response via wolfSPDM */
+    } else {
+        printf("  ERROR: wolfSPDM_GetVersion failed: %d\n", rc);
         return rc;
     }
 
-    printf("  Received (%u bytes):\n  ", rxSz);
-    for (i = 0; i < rxSz; i++) printf("%02x ", rxBuf[i]);
-    printf("\n");
-
-    /* Parse response (16-byte TCG binding header per Nuvoton spec) */
-    if (rxSz >= SPDM_TCG_BINDING_HEADER_SIZE + 4) {
-        byte* payload = rxBuf + SPDM_TCG_BINDING_HEADER_SIZE;
-        word32 payloadSz = rxSz - SPDM_TCG_BINDING_HEADER_SIZE;
-        printf("  SPDM payload (%u bytes):\n  ", payloadSz);
-        for (i = 0; i < payloadSz; i++) printf("%02x ", payload[i]);
-        printf("\n");
-        printf("  SPDMVersion=0x%02x, Code=0x%02x, Param1=0x%02x, Param2=0x%02x\n",
-               payload[0], payload[1], payload[2], payload[3]);
-        if (payload[1] == 0x04) {
-            printf("  -> VERSION response!\n");
-        } else if (payload[1] == 0x7F) {
-            printf("  -> ERROR response (ErrorCode=0x%02x)\n", payload[2]);
-        }
-    }
-
+    (void)rxBuf;
+    (void)rxSz;
     return 0;
 }
+#endif /* WOLFSPDM_NUVOTON */
 
+#ifdef WOLFSPDM_NUVOTON
 static int demo_status(WOLFTPM2_DEV* dev)
 {
     int rc;
-    WOLFTPM2_SPDM_STATUS status;
+    WOLFSPDM_NUVOTON_STATUS status;
 
-    printf("\n=== SPDM Status ===\n");
+    printf("\n=== SPDM Status (GET_STS_ vendor command) ===\n");
 
+    /* Initialize I/O context for TPM mode */
+    spdm_io_init_tpm(&g_ioCtx, dev);
+
+    /* Set I/O callback for wolfSPDM */
+    rc = wolfSPDM_SetIO(dev->spdmCtx->spdmCtx, wolfspdm_io_callback, &g_ioCtx);
+    if (rc != 0) {
+        printf("  ERROR: Failed to set I/O callback: %d\n", rc);
+        return rc;
+    }
+
+    /* Enable debug for verbose output */
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+
+    XMEMSET(&status, 0, sizeof(status));
     rc = wolfTPM2_SpdmGetStatus(dev, &status);
     if (rc == 0) {
         printf("  SPDM Enabled:      %s\n", status.spdmEnabled ? "Yes" : "No");
-        printf("  Session Active:    %s\n", status.sessionActive ? "Yes" : "No");
-        printf("  SPDM-Only Locked:  %s\n", status.spdmOnlyLocked ? "Yes" : "No");
+        printf("  SPDM Spec Version: %u.%u", status.specVersionMajor,
+               status.specVersionMinor);
+        if (status.specVersionMajor == 0 && status.specVersionMinor == 1) {
+            printf(" (SPDM 1.1)\n");
+        } else if (status.specVersionMajor == 0 && status.specVersionMinor == 3) {
+            printf(" (SPDM 1.3)\n");
+        } else if (status.specVersionMajor == 1 && status.specVersionMinor == 3) {
+            printf(" (SPDM 1.3 alt format)\n");
+        } else {
+            printf("\n");
+        }
+        printf("  SPDM-Only Locked:  %s\n", status.spdmOnlyLocked ? "YES (TPM commands blocked)" : "No");
+        printf("  Session Active:    %s\n", status.sessionActive ? "Yes" : "Unknown");
+
+        if (status.spdmOnlyLocked) {
+            printf("\n  NOTE: TPM is in SPDM-only mode. Standard TPM commands will\n");
+            printf("        return TPM_RC_DISABLED until SPDM session is established\n");
+            printf("        and --unlock is called.\n");
+        }
     } else {
         printf("  FAILED to get status: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         printf("  Note: GET_STS requires SPDM to be enabled on the TPM\n");
     }
     return rc;
 }
+#endif /* WOLFSPDM_NUVOTON */
 
+#ifdef WOLFSPDM_NUVOTON
 static int demo_get_pubkey(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -249,6 +779,19 @@ static int demo_get_pubkey(WOLFTPM2_DEV* dev)
     word32 i;
 
     printf("\n=== Get TPM SPDM-Identity Public Key ===\n");
+
+    /* Initialize I/O context for TPM mode */
+    spdm_io_init_tpm(&g_ioCtx, dev);
+
+    /* Set I/O callback for wolfSPDM */
+    rc = wolfSPDM_SetIO(dev->spdmCtx->spdmCtx, wolfspdm_io_callback, &g_ioCtx);
+    if (rc != 0) {
+        printf("  ERROR: Failed to set I/O callback: %d\n", rc);
+        return rc;
+    }
+
+    /* Enable debug for verbose output */
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
 
     rc = wolfTPM2_SpdmGetPubKey(dev, pubKey, &pubKeySz);
     if (rc == 0) {
@@ -333,28 +876,29 @@ static int demo_connect(WOLFTPM2_DEV* dev)
         return rc;
     }
 
-    /* Build TPMT_PUBLIC structure (same format as TPM's SPDM-Identity key):
+    /* Build TPMT_PUBLIC structure matching Nuvoton spec page 24:
      * type(2) + nameAlg(2) + objectAttr(4) + authPolicy(2+0) +
-     * parameters(4) + unique(2+48+2+48) = 120 bytes */
+     * symmetric(2) + scheme(2+2) + curveID(2) + kdf(2) + unique(2+48+2+48) = 120 bytes
+     * Note: objectAttributes must be 0x00040000 per Nuvoton spec */
     {
         byte* p = hostPubKeyTPMT;
         /* type = TPM_ALG_ECC (0x0023) */
         *p++ = 0x00; *p++ = 0x23;
         /* nameAlg = TPM_ALG_SHA384 (0x000C) */
         *p++ = 0x00; *p++ = 0x0C;
-        /* objectAttributes (sign + restricted) */
-        *p++ = 0x00; *p++ = 0x05; *p++ = 0x00; *p++ = 0x32;
+        /* objectAttributes = 0x00040000 (sign only, per Nuvoton spec page 24) */
+        *p++ = 0x00; *p++ = 0x04; *p++ = 0x00; *p++ = 0x00;
         /* authPolicy size = 0 */
         *p++ = 0x00; *p++ = 0x00;
-        /* parameters.eccDetail.symmetric = TPM_ALG_NULL */
+        /* parameters.eccDetail.symmetric = TPM_ALG_NULL (0x0010) */
         *p++ = 0x00; *p++ = 0x10;
-        /* parameters.eccDetail.scheme = TPM_ALG_ECDSA */
+        /* parameters.eccDetail.scheme = TPM_ALG_ECDSA (0x0018) */
         *p++ = 0x00; *p++ = 0x18;
-        /* parameters.eccDetail.scheme.hashAlg = SHA384 */
+        /* parameters.eccDetail.scheme.hashAlg = SHA384 (0x000C) */
         *p++ = 0x00; *p++ = 0x0C;
-        /* parameters.eccDetail.curveID = TPM_ECC_NIST_P384 */
+        /* parameters.eccDetail.curveID = TPM_ECC_NIST_P384 (0x0004) */
         *p++ = 0x00; *p++ = 0x04;
-        /* parameters.eccDetail.kdf = TPM_ALG_NULL */
+        /* parameters.eccDetail.kdf = TPM_ALG_NULL (0x0010) */
         *p++ = 0x00; *p++ = 0x10;
         /* unique.x size = 48 */
         *p++ = 0x00; *p++ = 0x30;
@@ -370,11 +914,37 @@ static int demo_connect(WOLFTPM2_DEV* dev)
     printf("  Generated host key (TPMT_PUBLIC: %u bytes, private: %u bytes)\n",
            hostPubKeyTPMTSz, hostPrivKeySz);
 
-    rc = wolfTPM2_SpdmConnect(dev, hostPubKeyTPMT, hostPubKeyTPMTSz,
-                               hostPrivKey, hostPrivKeySz);
+    /* Initialize unified I/O context for TPM mode */
+    spdm_io_init_tpm(&g_ioCtx, dev);
+
+    /* Set unified I/O callback (handles both TCP emulator and TPM TIS modes) */
+    rc = wolfSPDM_SetIO(dev->spdmCtx->spdmCtx, wolfspdm_io_callback, &g_ioCtx);
+    if (rc != 0) {
+        printf("  ERROR: Failed to set I/O callback: %d\n", rc);
+        return rc;
+    }
+
+    /* Enable debug output for TH1/ResponderVerifyData comparison */
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+
+    rc = wolfTPM2_SpdmConnectNuvoton(dev, hostPubKeyTPMT, hostPubKeyTPMTSz,
+                                      hostPrivKey, hostPrivKeySz);
 #else
     /* No wolfCrypt - skip mutual authentication */
-    rc = wolfTPM2_SpdmConnect(dev, NULL, 0, NULL, 0);
+    /* Initialize unified I/O context for TPM mode */
+    spdm_io_init_tpm(&g_ioCtx, dev);
+
+    /* Set unified I/O callback (handles both TCP emulator and TPM TIS modes) */
+    rc = wolfSPDM_SetIO(dev->spdmCtx->spdmCtx, wolfspdm_io_callback, &g_ioCtx);
+    if (rc != 0) {
+        printf("  ERROR: Failed to set I/O callback: %d\n", rc);
+        return rc;
+    }
+
+    /* Enable debug output for TH1/ResponderVerifyData comparison */
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+
+    rc = wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
 #endif
     if (rc == 0) {
         printf("  SUCCESS: SPDM session established!\n");
@@ -475,6 +1045,7 @@ static int demo_all(WOLFTPM2_DEV* dev)
 
     return (failures == 0) ? 0 : 1;
 }
+#endif /* WOLFSPDM_NUVOTON */
 
 /* -------------------------------------------------------------------------- */
 /* Standard SPDM over TCP (for libspdm emulator testing) */
@@ -482,1288 +1053,71 @@ static int demo_all(WOLFTPM2_DEV* dev)
 
 #ifdef SPDM_EMU_SOCKET_SUPPORT
 
-/* Socket context for TCP transport */
-typedef struct {
-    int sockFd;
-    struct sockaddr_in serverAddr;
-    int isSecured;  /* Set to 1 to use MCTP type 0x06 (SECURED_MCTP) */
-} SPDM_TCP_CTX;
-
-static SPDM_TCP_CTX g_tcpCtx;
-
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-/* SPDM cryptographic constants */
-#define SPDM_HASH_SIZE      48  /* SHA-384 */
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
-
-/* Socket IO callback for libspdm emulator (MCTP transport)
- * The emulator protocol:
- *   Socket header: command(4,BE) + transport_type(4,BE) + size(4,BE)
- *   MCTP header: message_type(1) = 0x05 for SPDM, 0x06 for secured SPDM
- *   SPDM payload
- * Command: 0x00000001 = SOCKET_SPDM_COMMAND_NORMAL
- * Transport: 0x00000001 = SOCKET_TRANSPORT_TYPE_MCTP */
-#define SOCKET_SPDM_COMMAND_NORMAL    0x00000001
-#define MCTP_MESSAGE_TYPE_SPDM        0x05
-#define MCTP_MESSAGE_TYPE_SECURED     0x06
-
-static int spdm_tcp_io_callback(
-    WOLFTPM2_SPDM_CTX* ctx,
-    const byte* txBuf, word32 txSz,
-    byte* rxBuf, word32* rxSz,
-    void* userCtx)
+/* SPDM emulator test using wolfSPDM library
+ * Connects to libspdm responder emulator via TCP and performs full SPDM 1.2 handshake
+ * Uses the unified I/O callback (same as Nuvoton hardware mode) */
+static int demo_emulator(const char* host, int port)
 {
-    SPDM_TCP_CTX* tcpCtx = (SPDM_TCP_CTX*)userCtx;
-    byte sendBuf[300]; /* Socket header + MCTP header + SPDM payload */
-    byte recvHdr[12];  /* Socket header for receive */
-    ssize_t sent, recvd;
-    word32 respSize;
-    word32 respCmd, respTransport;
-    word32 payloadSz; /* MCTP header + SPDM */
-
-    (void)ctx;
-
-    if (tcpCtx == NULL || tcpCtx->sockFd < 0) {
-        return -1;
-    }
-
-    /* Payload = MCTP header (1 byte) + SPDM message */
-    payloadSz = 1 + txSz;
-
-    if (12 + payloadSz > sizeof(sendBuf)) {
-        printf("MCTP: Message too large\n");
-        return -1;
-    }
-
-    /* Build socket header: command(4,BE) + transport_type(4,BE) + size(4,BE) */
-    sendBuf[0] = 0x00; sendBuf[1] = 0x00; sendBuf[2] = 0x00; sendBuf[3] = 0x01; /* NORMAL */
-    sendBuf[4] = 0x00; sendBuf[5] = 0x00; sendBuf[6] = 0x00; sendBuf[7] = 0x01; /* MCTP */
-    sendBuf[8] = (byte)(payloadSz >> 24);
-    sendBuf[9] = (byte)(payloadSz >> 16);
-    sendBuf[10] = (byte)(payloadSz >> 8);
-    sendBuf[11] = (byte)(payloadSz & 0xFF);
-    /* MCTP header: message_type = 0x05 (SPDM) or 0x06 (SECURED_MCTP) */
-    sendBuf[12] = tcpCtx->isSecured ? MCTP_MESSAGE_TYPE_SECURED : MCTP_MESSAGE_TYPE_SPDM;
-    /* SPDM payload */
-    if (txSz > 0) {
-        XMEMCPY(sendBuf + 13, txBuf, txSz);
-    }
-
-    printf("MCTP TX %s(%u bytes): ", tcpCtx->isSecured ? "SECURED" : "SPDM", txSz);
-    {
-        word32 i;
-        for (i = 0; i < txSz && i < 16; i++) printf("%02x ", txBuf[i]);
-        if (txSz > 16) printf("...");
-        printf("\n");
-    }
-    fflush(stdout);
-
-    /* Send socket header + MCTP header + SPDM payload */
-    sent = send(tcpCtx->sockFd, sendBuf, 12 + payloadSz, 0);
-    if (sent != (ssize_t)(12 + payloadSz)) {
-        printf("MCTP: Failed to send (%d, errno=%d)\n", (int)sent, errno);
-        return -1;
-    }
-
-    /* Receive socket header (12 bytes) */
-    printf("MCTP: Waiting for response...\n");
-    fflush(stdout);
-    recvd = recv(tcpCtx->sockFd, recvHdr, 12, MSG_WAITALL);
-    if (recvd != 12) {
-        printf("MCTP: Failed to receive socket header (%d, errno=%d)\n", (int)recvd, errno);
-        return -1;
-    }
-
-    /* Parse response socket header */
-    respCmd = ((word32)recvHdr[0] << 24) | ((word32)recvHdr[1] << 16) |
-              ((word32)recvHdr[2] << 8) | (word32)recvHdr[3];
-    respTransport = ((word32)recvHdr[4] << 24) | ((word32)recvHdr[5] << 16) |
-                    ((word32)recvHdr[6] << 8) | (word32)recvHdr[7];
-    respSize = ((word32)recvHdr[8] << 24) | ((word32)recvHdr[9] << 16) |
-               ((word32)recvHdr[10] << 8) | (word32)recvHdr[11];
-
-    printf("MCTP RX: cmd=0x%x, transport=0x%x, size=%u\n",
-           respCmd, respTransport, respSize);
-    (void)respCmd;
-    (void)respTransport;
-
-    if (respSize < 1) {
-        printf("MCTP: Response too small\n");
-        return -1;
-    }
-
-    /* Response includes MCTP header (1 byte) + SPDM payload */
-    if (respSize - 1 > *rxSz) {
-        printf("MCTP: Response too large (%u > %u)\n", respSize - 1, *rxSz);
-        return -1;
-    }
-
-    /* Receive MCTP header + SPDM payload into temporary buffer */
-    {
-        byte mctpHdr;
-        recvd = recv(tcpCtx->sockFd, &mctpHdr, 1, MSG_WAITALL);
-        if (recvd != 1) {
-            printf("MCTP: Failed to receive MCTP header\n");
-            return -1;
-        }
-        printf("  MCTP message_type: 0x%02x\n", mctpHdr);
-    }
-
-    /* Receive SPDM payload */
-    *rxSz = respSize - 1;
-    if (*rxSz > 0) {
-        recvd = recv(tcpCtx->sockFd, rxBuf, *rxSz, MSG_WAITALL);
-        if (recvd != (ssize_t)*rxSz) {
-            printf("MCTP: Failed to receive SPDM payload (%d)\n", errno);
-            return -1;
-        }
-    }
-
-    printf("MCTP RX: SPDM(%u bytes): ", *rxSz);
-    {
-        word32 i;
-        for (i = 0; i < *rxSz && i < 16; i++) printf("%02x ", rxBuf[i]);
-        if (*rxSz > 16) printf("...");
-        printf("\n");
-    }
-    fflush(stdout);
-
-    return 0;
-}
-
-static int spdm_tcp_connect(const char* host, int port)
-{
-    int sockFd;
-    struct sockaddr_in addr;
-    int optVal = 1;
-
-    printf("TCP: Creating socket...\n");
-    fflush(stdout);
-    sockFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockFd < 0) {
-        printf("TCP: Failed to create socket (%d)\n", errno);
-        return -1;
-    }
-    printf("TCP: Socket created (fd=%d)\n", sockFd);
-    fflush(stdout);
-
-    /* Disable Nagle's algorithm for immediate send */
-    setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &optVal, sizeof(optVal));
-
-    XMEMSET(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        printf("TCP: Invalid address %s\n", host);
-        close(sockFd);
-        return -1;
-    }
-
-    printf("TCP: Calling connect()...\n");
-    fflush(stdout);
-    if (connect(sockFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        printf("TCP: Failed to connect to %s:%d (%d)\n", host, port, errno);
-        close(sockFd);
-        return -1;
-    }
-
-    printf("TCP: Connected to %s:%d\n", host, port);
-    fflush(stdout);
-    g_tcpCtx.sockFd = sockFd;
-    g_tcpCtx.serverAddr = addr;
-    return sockFd;
-}
-
-static void spdm_tcp_disconnect(void)
-{
-    if (g_tcpCtx.sockFd >= 0) {
-        close(g_tcpCtx.sockFd);
-        g_tcpCtx.sockFd = -1;
-    }
-}
-
-/* Transcript buffer for proper TH1/TH2 computation */
-#define SPDM_TRANSCRIPT_MAX 4096
-static byte g_transcript[SPDM_TRANSCRIPT_MAX];
-static word32 g_transcriptLen = 0;
-
-/* Certificate chain buffer for Ct computation
- * Ct = Hash(certificate_chain data) per SPDM spec
- */
-#define SPDM_CERTCHAIN_MAX 4096
-static byte g_certChain[SPDM_CERTCHAIN_MAX];
-static word32 g_certChainLen = 0;
-
-/* Add message to transcript */
-static void transcript_add(const byte* data, word32 len)
-{
-    if (g_transcriptLen + len <= SPDM_TRANSCRIPT_MAX) {
-        XMEMCPY(g_transcript + g_transcriptLen, data, len);
-        g_transcriptLen += len;
-    }
-}
-
-/* Add data to certificate chain buffer */
-static void certchain_add(const byte* data, word32 len)
-{
-    if (g_certChainLen + len <= SPDM_CERTCHAIN_MAX) {
-        XMEMCPY(g_certChain + g_certChainLen, data, len);
-        g_certChainLen += len;
-    }
-}
-
-/* Reset transcript */
-static void transcript_reset(void)
-{
-    g_transcriptLen = 0;
-    XMEMSET(g_transcript, 0, sizeof(g_transcript));
-    g_certChainLen = 0;
-    XMEMSET(g_certChain, 0, sizeof(g_certChain));
-}
-
-/* Demo standard SPDM flow over TCP to libspdm emulator */
-static int demo_standard(const char* host, int port)
-{
+    WOLFSPDM_CTX* ctx;
     int rc;
-    WOLFTPM2_SPDM_CTX spdmCtx;
-    byte txBuf[256];
-    byte rxBuf[2048]; /* Large enough for certificate chains */
-    word32 rxSz;
-    word32 txLen;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* For key exchange */
-    ecc_key eccKey;
-    WC_RNG rng;
-    byte pubKeyX[48], pubKeyY[48];
-    word32 pubKeyXSz = sizeof(pubKeyX), pubKeyYSz = sizeof(pubKeyY);
-    /* For ECDH and key derivation */
-    byte sharedSecret[48];
-    word32 sharedSecretSz = sizeof(sharedSecret);
-    byte handshakeSecret[48];
-    byte reqFinishedKey[48];
-    byte rspFinishedKey[48];
-    /* For secured message encryption/decryption (AES-256-GCM) */
-    byte reqDataKey[32];
-    byte reqDataIV[12];
-    byte rspDataKey[32];
-    byte rspDataIV[12];
-    word32 sessionId = 0; /* Combined session ID */
-    /* Certificate chain hash for Ct */
-    byte certChainHash[48];
-    word32 certChainTotalLen = 0;
-    int eccInitialized = 0;
-    int rngInitialized = 0;
-#endif
 
-    printf("\n=== Standard SPDM Test (TCP to libspdm emulator) ===\n");
-    printf("This demo implements FULL transcript tracking for SPDM 1.2\n");
-    fflush(stdout);
+    printf("\n=== SPDM Emulator Test (wolfSPDM -> libspdm) ===\n");
     printf("Connecting to %s:%d...\n", host, port);
-    fflush(stdout);
 
-    /* Connect via TCP */
-    rc = spdm_tcp_connect(host, port);
+    /* Initialize unified I/O context for TCP mode (emulator) */
+    rc = spdm_io_init_tcp(&g_ioCtx, host, port);
     if (rc < 0) {
         printf("Failed to connect to emulator\n");
         printf("Make sure spdm_responder_emu is running:\n");
-        printf("  cd spdm-emu/build/bin && ./spdm_responder_emu --trans TCP\n");
+        printf("  ./spdm_responder_emu --trans TCP\n");
         return rc;
     }
 
-    /* Initialize SPDM context with TCP transport */
-    XMEMSET(&spdmCtx, 0, sizeof(spdmCtx));
-    spdmCtx.ioCb = spdm_tcp_io_callback;
-    spdmCtx.ioUserCtx = &g_tcpCtx;
-    spdmCtx.state = SPDM_STATE_INITIALIZED;
+    /* Create wolfSPDM context */
+    ctx = wolfSPDM_New();
+    if (ctx == NULL) {
+        printf("ERROR: wolfSPDM_New() failed\n");
+        spdm_io_cleanup(&g_ioCtx);
+        return -1;
+    }
 
-    /* Reset transcript for new session */
-    transcript_reset();
-
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* Initialize RNG */
-    rc = wc_InitRng(&rng);
-    if (rc != 0) {
-        printf("Failed to init RNG: %d\n", rc);
-        spdm_tcp_disconnect();
+    /* Initialize wolfSPDM */
+    rc = wolfSPDM_Init(ctx);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("ERROR: wolfSPDM_Init() failed: %s\n", wolfSPDM_GetErrorString(rc));
+        wolfSPDM_Free(ctx);
+        spdm_io_cleanup(&g_ioCtx);
         return rc;
     }
-    rngInitialized = 1;
-#endif
 
-    /* ================================================================
-     * Step 1: GET_VERSION / VERSION (VCA part 1)
-     * ================================================================ */
-    printf("\n--- Step 1: GET_VERSION ---\n");
-    txBuf[0] = 0x10; /* SPDM v1.0 for initial request */
-    txBuf[1] = 0x84; /* GET_VERSION */
-    txBuf[2] = 0x00;
-    txBuf[3] = 0x00;
-    txLen = 4;
+    /* Set unified I/O callback (handles both TCP emulator and TPM TIS modes) */
+    wolfSPDM_SetIO(ctx, wolfspdm_io_callback, &g_ioCtx);
+    wolfSPDM_SetDebug(ctx, 1);
 
-    /* Add GET_VERSION to transcript (VCA) */
-    transcript_add(txBuf, txLen);
+    /* Full SPDM handshake - this single call replaces ~1000 lines of code!
+     * Performs: GET_VERSION -> GET_CAPABILITIES -> NEGOTIATE_ALGORITHMS ->
+     *           GET_DIGESTS -> GET_CERTIFICATE -> KEY_EXCHANGE -> FINISH */
+    printf("\nEstablishing SPDM session...\n");
+    rc = wolfSPDM_Connect(ctx);
 
-    rxSz = sizeof(rxBuf);
-    rc = spdm_tcp_io_callback(&spdmCtx, txBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-    if (rc != 0) {
-        printf("GET_VERSION failed: %d\n", rc);
-        goto cleanup;
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("\n=============================================\n");
+        printf(" SUCCESS: SPDM Session Established!\n");
+        printf(" Session ID: 0x%08x\n", wolfSPDM_GetSessionId(ctx));
+        printf(" SPDM Version: 0x%02x\n", wolfSPDM_GetVersion_Negotiated(ctx));
+        printf("=============================================\n");
+    } else {
+        printf("\nERROR: wolfSPDM_Connect() failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
     }
 
-    if (rxSz >= 2 && rxBuf[1] == 0x04) {
-        printf("SUCCESS: Received VERSION response (%u bytes)\n", rxSz);
-        /* Add VERSION to transcript (VCA) */
-        transcript_add(rxBuf, rxSz);
-        printf("  Transcript now: %u bytes\n", g_transcriptLen);
-    } else if (rxSz >= 2 && rxBuf[1] == 0x7F) {
-        printf("ERROR response: ErrorCode=0x%02x\n", rxBuf[2]);
-        rc = -1;
-        goto cleanup;
-    }
-
-    /* ================================================================
-     * Step 2: GET_CAPABILITIES / CAPABILITIES (VCA part 2)
-     * ================================================================ */
-    printf("\n--- Step 2: GET_CAPABILITIES ---\n");
-    XMEMSET(txBuf, 0, sizeof(txBuf));
-    txBuf[0] = 0x12; /* SPDM v1.2 */
-    txBuf[1] = 0xE1; /* GET_CAPABILITIES */
-    txBuf[2] = 0x00; /* Param1 */
-    txBuf[3] = 0x00; /* Param2 */
-    txBuf[4] = 0x00; /* Reserved */
-    txBuf[5] = 0x00; /* CTExponent */
-    txBuf[6] = 0x00; /* Reserved */
-    txBuf[7] = 0x00;
-    /* Requester flags: CERT_CAP | CHAL_CAP | ENCRYPT_CAP | MAC_CAP | KEY_EX_CAP
-     * Bit positions: CERT=1, CHAL=2, ENCRYPT=6, MAC=7, KEY_EX=9
-     * Byte 8 (bits 0-7):  0xC6 = CERT(0x02) | CHAL(0x04) | ENCRYPT(0x40) | MAC(0x80)
-     * Byte 9 (bits 8-15): 0x02 = KEY_EX_CAP */
-    txBuf[8] = 0xC6;
-    txBuf[9] = 0x02;  /* KEY_EX_CAP only - NO HANDSHAKE_IN_THE_CLEAR */
-    txBuf[10] = 0x00;
-    txBuf[11] = 0x00;
-    /* DataTransferSize (4 LE) */
-    txBuf[12] = 0x00; txBuf[13] = 0x10; txBuf[14] = 0x00; txBuf[15] = 0x00;
-    /* MaxSPDMmsgSize (4 LE) */
-    txBuf[16] = 0x00; txBuf[17] = 0x10; txBuf[18] = 0x00; txBuf[19] = 0x00;
-    txLen = 20;
-
-    /* Add GET_CAPABILITIES to transcript (VCA) */
-    transcript_add(txBuf, txLen);
-
-    rxSz = sizeof(rxBuf);
-    rc = spdm_tcp_io_callback(&spdmCtx, txBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-    if (rc != 0) {
-        printf("GET_CAPABILITIES failed: %d\n", rc);
-        goto cleanup;
-    }
-
-    if (rxSz >= 2 && rxBuf[1] == 0x61) {
-        printf("SUCCESS: Received CAPABILITIES response (%u bytes)\n", rxSz);
-        /* Add CAPABILITIES to transcript (VCA) */
-        transcript_add(rxBuf, rxSz);
-        printf("  Transcript now: %u bytes\n", g_transcriptLen);
-    } else if (rxSz >= 2 && rxBuf[1] == 0x7F) {
-        printf("ERROR response: ErrorCode=0x%02x\n", rxBuf[2]);
-        rc = -1;
-        goto cleanup;
-    }
-
-    /* ================================================================
-     * Step 3: NEGOTIATE_ALGORITHMS / ALGORITHMS (VCA part 3)
-     * ================================================================ */
-    printf("\n--- Step 3: NEGOTIATE_ALGORITHMS ---\n");
-    XMEMSET(txBuf, 0, sizeof(txBuf));
-    txBuf[0] = 0x12; /* SPDM v1.2 */
-    txBuf[1] = 0xE3; /* NEGOTIATE_ALGORITHMS */
-    txBuf[2] = 0x04; /* Param1: NumAlgoStructTables = 4 */
-    txBuf[3] = 0x00; /* Param2 */
-    txBuf[4] = 48; txBuf[5] = 0x00; /* Length = 48 bytes */
-    txBuf[6] = 0x01; /* MeasurementSpecification = DMTF */
-    txBuf[7] = 0x02; /* OtherParamsSupport = MULTI_KEY_CONN */
-    txBuf[8] = 0x80; txBuf[9] = 0x00; txBuf[10] = 0x00; txBuf[11] = 0x00; /* ECDSA P-384 */
-    txBuf[12] = 0x02; txBuf[13] = 0x00; txBuf[14] = 0x00; txBuf[15] = 0x00; /* SHA-384 */
-    /* Reserved (12 bytes) */
-    txBuf[28] = 0x00; txBuf[29] = 0x00; txBuf[30] = 0x00; txBuf[31] = 0x00;
-    /* Struct Table 1: DHE - SECP_384_R1 */
-    txBuf[32] = 0x02; txBuf[33] = 0x20; txBuf[34] = 0x10; txBuf[35] = 0x00;
-    /* Struct Table 2: AEAD - AES_256_GCM */
-    txBuf[36] = 0x03; txBuf[37] = 0x20; txBuf[38] = 0x02; txBuf[39] = 0x00;
-    /* Struct Table 3: ReqBaseAsymAlg */
-    txBuf[40] = 0x04; txBuf[41] = 0x20; txBuf[42] = 0x0F; txBuf[43] = 0x00;
-    /* Struct Table 4: KeySchedule */
-    txBuf[44] = 0x05; txBuf[45] = 0x20; txBuf[46] = 0x01; txBuf[47] = 0x00;
-    txLen = 48;
-
-    /* Add NEGOTIATE_ALGORITHMS to transcript (VCA) */
-    transcript_add(txBuf, txLen);
-
-    rxSz = sizeof(rxBuf);
-    rc = spdm_tcp_io_callback(&spdmCtx, txBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-    if (rc != 0) {
-        printf("NEGOTIATE_ALGORITHMS failed: %d\n", rc);
-        goto cleanup;
-    }
-
-    if (rxSz >= 2 && rxBuf[1] == 0x63) {
-        printf("SUCCESS: Received ALGORITHMS response (%u bytes)\n", rxSz);
-        /* Add ALGORITHMS to transcript (VCA complete) */
-        transcript_add(rxBuf, rxSz);
-        printf("  VCA complete. Transcript now: %u bytes\n", g_transcriptLen);
-    } else if (rxSz >= 2 && rxBuf[1] == 0x7F) {
-        printf("ERROR response: ErrorCode=0x%02x\n", rxBuf[2]);
-        rc = -1;
-        goto cleanup;
-    }
-
-    /* ================================================================
-     * Step 4: GET_DIGESTS / DIGESTS
-     * Note: message_d is NOT added to transcript for TH1 computation
-     * because libspdm responder doesn't include it for this session type
-     * ================================================================ */
-    printf("\n--- Step 4: GET_DIGESTS ---\n");
-    XMEMSET(txBuf, 0, sizeof(txBuf));
-    txBuf[0] = 0x12; /* SPDM v1.2 */
-    txBuf[1] = 0x81; /* GET_DIGESTS */
-    txBuf[2] = 0x00; /* Param1 */
-    txBuf[3] = 0x00; /* Param2 */
-    txLen = 4;
-
-    rxSz = sizeof(rxBuf);
-    rc = spdm_tcp_io_callback(&spdmCtx, txBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-    if (rc != 0) {
-        printf("GET_DIGESTS failed: %d\n", rc);
-        goto cleanup;
-    }
-
-    if (rxSz >= 4 && rxBuf[1] == 0x01) {
-        printf("SUCCESS: Received DIGESTS response (%u bytes)\n", rxSz);
-        printf("  Slot mask: 0x%02x\n", rxBuf[3]);
-    } else if (rxSz >= 2 && rxBuf[1] == 0x7F) {
-        printf("ERROR response: ErrorCode=0x%02x\n", rxBuf[2]);
-        rc = -1;
-        goto cleanup;
-    }
-
-    /* ================================================================
-     * Step 5: GET_CERTIFICATE / CERTIFICATE (retrieve full chain)
-     * Per SPDM spec, Ct = Hash(certificate_chain)
-     * The certificate_chain is the data portion of CERTIFICATE responses
-     * (starts at offset 8, which is the SPDM CertificateChain structure)
-     * ================================================================ */
-    printf("\n--- Step 5: GET_CERTIFICATE (full chain) ---\n");
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    {
-        word16 offset = 0;
-        word16 remainderLen = 1; /* Non-zero to start loop */
-
-        while (remainderLen > 0) {
-            word16 portionLen;
-
-            XMEMSET(txBuf, 0, sizeof(txBuf));
-            txBuf[0] = 0x12; /* SPDM v1.2 */
-            txBuf[1] = 0x82; /* GET_CERTIFICATE */
-            txBuf[2] = 0x00; /* Param1: slot_id = 0 */
-            txBuf[3] = 0x00; /* Param2 */
-            /* Offset (2 LE) */
-            txBuf[4] = (byte)(offset & 0xFF);
-            txBuf[5] = (byte)((offset >> 8) & 0xFF);
-            /* Length (2 LE) - request up to 1024 bytes */
-            txBuf[6] = 0x00;
-            txBuf[7] = 0x04; /* 0x0400 = 1024 */
-            txLen = 8;
-
-            rxSz = sizeof(rxBuf);
-            rc = spdm_tcp_io_callback(&spdmCtx, txBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-            if (rc != 0) {
-                printf("GET_CERTIFICATE failed: %d\n", rc);
-                goto cleanup;
-            }
-
-            if (rxSz >= 8 && rxBuf[1] == 0x02) {
-                portionLen = rxBuf[4] | (rxBuf[5] << 8);
-                remainderLen = rxBuf[6] | (rxBuf[7] << 8);
-
-                printf("  Offset %u: portion=%u, remainder=%u\n",
-                       offset, portionLen, remainderLen);
-
-                /* Add certificate chain data (at offset 8) to buffer */
-                if (portionLen > 0 && rxSz >= (word32)(8 + portionLen)) {
-                    certchain_add(rxBuf + 8, portionLen);
-                }
-                certChainTotalLen += portionLen;
-
-                offset += portionLen;
-            } else if (rxSz >= 2 && rxBuf[1] == 0x7F) {
-                printf("ERROR response: ErrorCode=0x%02x\n", rxBuf[2]);
-                rc = -1;
-                goto cleanup;
-            } else {
-                break;
-            }
-        }
-
-        /* Compute Ct = Hash(certificate_chain) */
-        {
-            wc_Sha384 sha;
-            wc_InitSha384(&sha);
-            wc_Sha384Update(&sha, g_certChain, g_certChainLen);
-            wc_Sha384Final(&sha, certChainHash);
-        }
-        printf("SUCCESS: Retrieved full certificate chain (%u bytes)\n",
-               certChainTotalLen);
-        printf("  Ct = Hash(cert_chain[%u]): ", g_certChainLen);
-        {
-            int k;
-            for (k = 0; k < 16; k++) printf("%02x", certChainHash[k]);
-            printf("...\n");
-        }
-
-        /* Add Ct (certificate chain hash) to transcript for TH1 */
-        transcript_add(certChainHash, 48);
-        printf("  Transcript with Ct: %u bytes\n", g_transcriptLen);
-    }
-#else
-    printf("  Skipping certificate (no wolfCrypt)\n");
-#endif
-
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* ================================================================
-     * Step 6: KEY_EXCHANGE / KEY_EXCHANGE_RSP
-     * Add KEY_EXCHANGE to transcript
-     * Add KEY_EXCHANGE_RSP (partial - without sig/verify) to transcript
-     * Compute TH1 for key derivation
-     * ================================================================ */
-    printf("\n--- Step 6: KEY_EXCHANGE ---\n");
-
-    /* Generate ephemeral P-384 key for ECDH */
-    rc = wc_ecc_init(&eccKey);
-    if (rc != 0) {
-        printf("Failed to init ECC key: %d\n", rc);
-        goto cleanup;
-    }
-    eccInitialized = 1;
-
-    rc = wc_ecc_make_key(&rng, 48, &eccKey);
-    if (rc != 0) {
-        printf("Failed to generate ECC key: %d\n", rc);
-        goto cleanup;
-    }
-
-    rc = wc_ecc_export_public_raw(&eccKey, pubKeyX, &pubKeyXSz,
-                                   pubKeyY, &pubKeyYSz);
-    if (rc != 0) {
-        printf("Failed to export public key: %d\n", rc);
-        goto cleanup;
-    }
-    printf("Generated P-384 ephemeral key\n");
-
-    /* Build KEY_EXCHANGE request */
-    {
-        byte keyExBuf[256];
-        word32 offset = 0;
-        word32 keRspPartialLen;
-        XMEMSET(keyExBuf, 0, sizeof(keyExBuf));
-
-        keyExBuf[offset++] = 0x12; /* SPDM v1.2 */
-        keyExBuf[offset++] = 0xE4; /* KEY_EXCHANGE */
-        keyExBuf[offset++] = 0x00; /* Param1: MeasurementSummaryHashType = None */
-        keyExBuf[offset++] = 0x00; /* Param2: SlotID = 0 */
-        /* ReqSessionID (2 LE) */
-        keyExBuf[offset++] = 0xFF;
-        keyExBuf[offset++] = 0xFF;
-        /* SessionPolicy (1) */
-        keyExBuf[offset++] = 0x00;
-        /* Reserved (1) */
-        keyExBuf[offset++] = 0x00;
-        /* RandomData (32 bytes) */
-        rc = wc_RNG_GenerateBlock(&rng, &keyExBuf[offset], 32);
-        if (rc != 0) {
-            printf("Failed to generate random: %d\n", rc);
-            goto cleanup;
-        }
-        offset += 32;
-
-        /* ExchangeData (96 bytes: X || Y) */
-        XMEMCPY(&keyExBuf[offset], pubKeyX, 48);
-        offset += 48;
-        XMEMCPY(&keyExBuf[offset], pubKeyY, 48);
-        offset += 48;
-
-        /* OpaqueLength (2 LE) + OpaqueData (20 bytes) */
-        keyExBuf[offset++] = 0x14; /* 20 bytes */
-        keyExBuf[offset++] = 0x00;
-        /* OpaqueData - secured message versions */
-        keyExBuf[offset++] = 0x01; keyExBuf[offset++] = 0x00; /* TotalElements */
-        keyExBuf[offset++] = 0x00; keyExBuf[offset++] = 0x00; /* Reserved */
-        keyExBuf[offset++] = 0x00; keyExBuf[offset++] = 0x00;
-        keyExBuf[offset++] = 0x09; keyExBuf[offset++] = 0x00; /* DataSize */
-        keyExBuf[offset++] = 0x01; /* Registry ID */
-        keyExBuf[offset++] = 0x01; /* VendorLen */
-        keyExBuf[offset++] = 0x03; keyExBuf[offset++] = 0x00; /* VersionCount */
-        keyExBuf[offset++] = 0x10; keyExBuf[offset++] = 0x00; /* 1.0 */
-        keyExBuf[offset++] = 0x11; keyExBuf[offset++] = 0x00; /* 1.1 */
-        keyExBuf[offset++] = 0x12; keyExBuf[offset++] = 0x00; /* 1.2 */
-        keyExBuf[offset++] = 0x00; keyExBuf[offset++] = 0x00; /* Padding */
-
-        txLen = offset;
-        printf("Sending KEY_EXCHANGE (%u bytes)\n", txLen);
-
-        /* Add KEY_EXCHANGE to transcript */
-        transcript_add(keyExBuf, txLen);
-        printf("  Transcript with KEY_EXCHANGE: %u bytes\n", g_transcriptLen);
-
-        rxSz = sizeof(rxBuf);
-        rc = spdm_tcp_io_callback(&spdmCtx, keyExBuf, txLen, rxBuf, &rxSz, &g_tcpCtx);
-        if (rc != 0) {
-            printf("KEY_EXCHANGE I/O failed: %d\n", rc);
-            goto cleanup;
-        }
-
-        if (rxSz < 8 || rxBuf[1] != 0x64) {
-            if (rxBuf[1] == 0x7F) {
-                printf("KEY_EXCHANGE error: 0x%02x\n", rxBuf[2]);
-            }
-            rc = -1;
-            goto cleanup;
-        }
-
-        printf("SUCCESS: Received KEY_EXCHANGE_RSP (%u bytes)\n", rxSz);
-
-        /* Parse KEY_EXCHANGE_RSP:
-         * header(4) + RspSessionID(2) + MutAuth(1) + SlotID(1) +
-         * RandomData(32) + ExchangeData(96) + MeasSummary(0) +
-         * OpaqueLen(2) + Opaque(var) + Signature(96) + VerifyData(48)
-         *
-         * For TH1: include everything EXCEPT Signature and VerifyData */
-        {
-            word16 rspSessionId = rxBuf[4] | (rxBuf[5] << 8);
-            byte rspPubKeyX[48], rspPubKeyY[48];
-            word16 opaqueLen;
-            word32 sigOffset;
-            ecc_key rspEphKey;
-
-            printf("  RspSessionID: 0x%04x, MutAuth: 0x%02x\n",
-                   rspSessionId, rxBuf[6]);
-
-            /* Extract responder's ephemeral public key (offset 40) */
-            XMEMCPY(rspPubKeyX, &rxBuf[40], 48);
-            XMEMCPY(rspPubKeyY, &rxBuf[88], 48);
-
-            /* Find opaque length at offset 136 (4+2+1+1+32+96) */
-            opaqueLen = rxBuf[136] | (rxBuf[137] << 8);
-            printf("  OpaqueLen: %u\n", opaqueLen);
-
-            /* Signature starts after opaque data */
-            sigOffset = 138 + opaqueLen;
-            keRspPartialLen = sigOffset; /* Partial = everything before signature */
-
-            printf("  KEY_EXCHANGE_RSP partial: %u bytes (sig at %u)\n",
-                   keRspPartialLen, sigOffset);
-
-            /* Add KEY_EXCHANGE_RSP partial (without sig/verify) to transcript */
-            transcript_add(rxBuf, keRspPartialLen);
-            printf("  Transcript before signature: %u bytes\n", g_transcriptLen);
-
-            /* ============================================================
-             * IMPORTANT: Add signature to transcript BEFORE key derivation!
-             * Per SPDM spec, TH1 = Hash(VCA || Ct || KEY_EX || KEY_EX_RSP_partial || Signature)
-             * The signature is included in TH1 for key derivation.
-             * ============================================================ */
-            {
-                const byte* signature = rxBuf + sigOffset;
-                const byte* rspVerifyData = rxBuf + sigOffset + 96;
-
-                /* Add signature to transcript for TH1 */
-                transcript_add(signature, 96);
-                printf("  Transcript with signature (TH1): %u bytes\n", g_transcriptLen);
-
-                /* ============================================================
-                 * Compute ECDH shared secret
-                 * ============================================================ */
-                printf("\n--- Computing ECDH Shared Secret ---\n");
-
-                rc = wc_ecc_init(&rspEphKey);
-                if (rc == 0) {
-                    rc = wc_ecc_import_unsigned(&rspEphKey, rspPubKeyX, rspPubKeyY,
-                                                NULL, ECC_SECP384R1);
-                }
-                if (rc == 0) {
-                    rc = wc_ecc_shared_secret(&eccKey, &rspEphKey,
-                                              sharedSecret, &sharedSecretSz);
-                }
-                wc_ecc_free(&rspEphKey);
-
-                if (rc != 0) {
-                    printf("ECDH failed: %d\n", rc);
-                    goto cleanup;
-                }
-
-                /* Zero-pad shared secret if needed */
-                if (sharedSecretSz < 48) {
-                    XMEMMOVE(sharedSecret + (48 - sharedSecretSz), sharedSecret, sharedSecretSz);
-                    XMEMSET(sharedSecret, 0, 48 - sharedSecretSz);
-                    sharedSecretSz = 48;
-                }
-
-                printf("SUCCESS: ECDH shared secret (%u bytes)\n", sharedSecretSz);
-                printf("  Z.x: ");
-                {
-                    int k;
-                    for (k = 0; k < 16; k++) printf("%02x", sharedSecret[k]);
-                }
-                printf("...\n");
-
-                /* ============================================================
-                 * Key Derivation per SPDM DSP0277
-                 * TH1 = Hash(transcript WITH signature)
-                 * ============================================================ */
-                printf("\n--- Key Derivation ---\n");
-                {
-                    byte th1Hash[48];
-                    byte salt[48];
-                    byte reqHsSecret[48], rspHsSecret[48];
-                    wc_Sha384 sha;
-                    byte info[128];
-                    word32 infoLen;
-                    byte expectedHmac[48];
-                    Hmac hmac;
-
-                    /* Compute TH1 = Hash(transcript WITH signature) */
-                    wc_InitSha384(&sha);
-                    wc_Sha384Update(&sha, g_transcript, g_transcriptLen);
-                    wc_Sha384Final(&sha, th1Hash);
-
-                    /* Debug: dump first 64 bytes of transcript for comparison */
-                    printf("Transcript dump (first 64 bytes):\n");
-                    {
-                        int k;
-                        for (k = 0; k < 64 && k < (int)g_transcriptLen; k++) {
-                            printf("%02x ", g_transcript[k]);
-                            if ((k + 1) % 32 == 0) printf("\n");
-                        }
-                        printf("\n");
-                    }
-
-                    printf("TH1 = Hash(transcript[%u]):\n  ", g_transcriptLen);
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", th1Hash[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    /* Salt = zeros per SPDM DSP0277 (NOT Hash("") like TLS 1.3!) */
-                    XMEMSET(salt, 0, sizeof(salt));
-
-                    /* HandshakeSecret = HKDF-Extract(salt=zeros, IKM=sharedSecret) */
-                    rc = wc_HKDF_Extract(WC_SHA384, salt, 48,
-                                         sharedSecret, sharedSecretSz,
-                                         handshakeSecret);
-                    if (rc != 0) {
-                        printf("HKDF-Extract failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    printf("HandshakeSecret:\n  ");
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", handshakeSecret[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    /* reqHsSecret = HKDF-Expand(HS, "req hs data" || TH1, 48)
-                     * BinConcat format: length(2, LE) || "spdm1.2 " || label || context */
-                    infoLen = 0;
-                    info[infoLen++] = 0x30; info[infoLen++] = 0x00; /* length = 48 (little-endian!) */
-                    XMEMCPY(info + infoLen, "spdm1.2 req hs data", 19);
-                    infoLen += 19;
-                    XMEMCPY(info + infoLen, th1Hash, 48);
-                    infoLen += 48;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, handshakeSecret, 48,
-                                        info, infoLen, reqHsSecret, 48);
-                    if (rc != 0) {
-                        printf("reqHsSecret derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* rspHsSecret = HKDF-Expand(HS, "rsp hs data" || TH1, 48) */
-                    infoLen = 0;
-                    info[infoLen++] = 0x30; info[infoLen++] = 0x00; /* little-endian */
-                    XMEMCPY(info + infoLen, "spdm1.2 rsp hs data", 19);
-                    infoLen += 19;
-                    XMEMCPY(info + infoLen, th1Hash, 48);
-                    infoLen += 48;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, handshakeSecret, 48,
-                                        info, infoLen, rspHsSecret, 48);
-                    if (rc != 0) {
-                        printf("rspHsSecret derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* reqFinishedKey = HKDF-Expand(reqHsSecret, "finished", 48) */
-                    infoLen = 0;
-                    info[infoLen++] = 0x30; info[infoLen++] = 0x00; /* little-endian */
-                    XMEMCPY(info + infoLen, "spdm1.2 finished", 16);
-                    infoLen += 16;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, reqHsSecret, 48,
-                                        info, infoLen, reqFinishedKey, 48);
-                    if (rc != 0) {
-                        printf("reqFinishedKey derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* rspFinishedKey = HKDF-Expand(rspHsSecret, "finished", 48) */
-                    rc = wc_HKDF_Expand(WC_SHA384, rspHsSecret, 48,
-                                        info, infoLen, rspFinishedKey, 48);
-                    if (rc != 0) {
-                        printf("rspFinishedKey derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* reqDataKey = HKDF-Expand(reqHsSecret, "spdm1.2 key", 32)
-                     * For AES-256-GCM encryption of FINISH message */
-                    infoLen = 0;
-                    info[infoLen++] = 0x20; info[infoLen++] = 0x00; /* length = 32 (little-endian) */
-                    XMEMCPY(info + infoLen, "spdm1.2 key", 11);
-                    infoLen += 11;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, reqHsSecret, 48,
-                                        info, infoLen, reqDataKey, 32);
-                    if (rc != 0) {
-                        printf("reqDataKey derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* reqDataIV = HKDF-Expand(reqHsSecret, "spdm1.2 iv", 12) */
-                    infoLen = 0;
-                    info[infoLen++] = 0x0C; info[infoLen++] = 0x00; /* length = 12 (little-endian) */
-                    XMEMCPY(info + infoLen, "spdm1.2 iv", 10);
-                    infoLen += 10;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, reqHsSecret, 48,
-                                        info, infoLen, reqDataIV, 12);
-                    if (rc != 0) {
-                        printf("reqDataIV derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* rspDataKey = HKDF-Expand(rspHsSecret, "spdm1.2 key", 32)
-                     * For AES-256-GCM decryption of FINISH_RSP message */
-                    infoLen = 0;
-                    info[infoLen++] = 0x20; info[infoLen++] = 0x00; /* length = 32 */
-                    XMEMCPY(info + infoLen, "spdm1.2 key", 11);
-                    infoLen += 11;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, rspHsSecret, 48,
-                                        info, infoLen, rspDataKey, 32);
-                    if (rc != 0) {
-                        printf("rspDataKey derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* rspDataIV = HKDF-Expand(rspHsSecret, "spdm1.2 iv", 12) */
-                    infoLen = 0;
-                    info[infoLen++] = 0x0C; info[infoLen++] = 0x00; /* length = 12 */
-                    XMEMCPY(info + infoLen, "spdm1.2 iv", 10);
-                    infoLen += 10;
-
-                    rc = wc_HKDF_Expand(WC_SHA384, rspHsSecret, 48,
-                                        info, infoLen, rspDataIV, 12);
-                    if (rc != 0) {
-                        printf("rspDataIV derivation failed: %d\n", rc);
-                        goto cleanup;
-                    }
-
-                    /* Store combined session ID: reqSessionId | (rspSessionId << 16) */
-                    sessionId = 0xFFFF | (rspSessionId << 16);
-                    printf("SessionID: 0x%08x\n", sessionId);
-
-                    printf("reqDataKey (32 bytes): ");
-                    { int k; for (k = 0; k < 32; k++) printf("%02x", reqDataKey[k]); }
-                    printf("\n");
-                    printf("reqDataIV (12 bytes): ");
-                    { int k; for (k = 0; k < 12; k++) printf("%02x", reqDataIV[k]); }
-                    printf("\n");
-
-                    printf("reqFinishedKey:\n  ");
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", reqFinishedKey[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    printf("rspFinishedKey:\n  ");
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", rspFinishedKey[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    /* ============================================================
-                     * Verify ResponderVerifyData
-                     * Per SPDM spec: HMAC(rspFinishedKey, TH1)
-                     * TH1 already includes the signature
-                     * ============================================================ */
-                    printf("\n--- Verifying ResponderVerifyData ---\n");
-
-                    /* HMAC(rspFinishedKey, TH1) - using the same TH1 as key derivation */
-                    wc_HmacSetKey(&hmac, WC_SHA384, rspFinishedKey, 48);
-                    wc_HmacUpdate(&hmac, th1Hash, 48);
-                    wc_HmacFinal(&hmac, expectedHmac);
-
-                    printf("Computed ResponderVerifyData:\n  ");
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", expectedHmac[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    printf("Received ResponderVerifyData:\n  ");
-                    {
-                        int k;
-                        for (k = 0; k < 48; k++) {
-                            printf("%02x", rspVerifyData[k]);
-                            if ((k + 1) % 24 == 0) printf("\n  ");
-                        }
-                    }
-                    printf("\n");
-
-                    if (XMEMCMP(expectedHmac, rspVerifyData, 48) == 0) {
-                        printf("*** ResponderVerifyData VERIFIED! ***\n");
-                    } else {
-                        printf("*** ResponderVerifyData MISMATCH! ***\n");
-                        printf("    (This is expected - libspdm may use different TH format)\n");
-                    }
-
-                    /* Per SPDM spec DSP0274 section 5.2.2.2.2:
-                     * "After receiving KEY_EXCHANGE_RSP, append ResponderVerifyData to message_k"
-                     * This is ALWAYS done, regardless of HANDSHAKE_IN_THE_CLEAR capability.
-                     * message_k = KEY_EX + KEY_EX_RSP_partial + Signature + ResponderVerifyData */
-                    transcript_add(rspVerifyData, 48);
-                    printf("ResponderVerifyData added to transcript (message_k)\n");
-                    printf("  Transcript after KEY_EXCHANGE_RSP: %u bytes\n", g_transcriptLen);
-                }
-            }
-        }
-    }
-
-    /* ================================================================
-     * Step 7: FINISH / FINISH_RSP
-     * Add FINISH header to transcript, compute TH2
-     * RequesterVerifyData = HMAC(reqFinishedKey, Hash(TH2))
-     * ================================================================ */
-    printf("\n--- Step 7: FINISH ---\n");
-    {
-        byte finishBuf[64];
-        byte th2Hash[48];
-        byte verifyData[48];
-        wc_Sha384 sha;
-        Hmac hmac;
-
-        /* Debug: Print transcript breakdown
-         * TH2 = VCA + Ct + message_k + FINISH_header
-         * message_k = KEY_EXCHANGE + KEY_EXCHANGE_RSP_partial + Signature + ResponderVerifyData
-         * Per SPDM spec, ResponderVerifyData is ALWAYS included in message_k */
-        printf("=== TRANSCRIPT for TH2 ===\n");
-        printf("Total before FINISH: %u bytes\n", g_transcriptLen);
-        printf("Expected: VCA(160) + Ct(48) + KEY_EX(158) + KEY_EX_RSP_partial(150) + Sig(96) + RspVerify(48) = 660\n");
-
-        /* Build FINISH request header */
-        finishBuf[0] = 0x12; /* SPDM v1.2 */
-        finishBuf[1] = 0xE5; /* FINISH */
-        finishBuf[2] = 0x00; /* Param1: No signature (not mutual auth) */
-        finishBuf[3] = 0x00; /* Param2: SlotID */
-
-        /* Add FINISH header to transcript */
-        transcript_add(finishBuf, 4);
-        printf("Transcript with FINISH header: %u bytes\n", g_transcriptLen);
-
-        /* Dump full transcript to file for analysis */
-        {
-            FILE *fp = fopen("/tmp/transcript_th2.bin", "wb");
-            if (fp) {
-                fwrite(g_transcript, 1, g_transcriptLen, fp);
-                fclose(fp);
-                printf("\nWrote %u bytes to /tmp/transcript_th2.bin\n", g_transcriptLen);
-            }
-        }
-
-        /* TH2 = Hash(transcript including FINISH header) */
-        wc_InitSha384(&sha);
-        wc_Sha384Update(&sha, g_transcript, g_transcriptLen);
-        wc_Sha384Final(&sha, th2Hash);
-
-        printf("TH2 = Hash(transcript[%u]):\n  ", g_transcriptLen);
-        {
-            int k;
-            for (k = 0; k < 48; k++) {
-                printf("%02x", th2Hash[k]);
-                if ((k + 1) % 24 == 0) printf("\n  ");
-            }
-        }
-        printf("\n");
-
-        /* RequesterVerifyData = HMAC(reqFinishedKey, TH2) */
-        wc_HmacSetKey(&hmac, WC_SHA384, reqFinishedKey, 48);
-        wc_HmacUpdate(&hmac, th2Hash, 48);
-        wc_HmacFinal(&hmac, verifyData);
-
-        printf("RequesterVerifyData:\n  ");
-        {
-            int k;
-            for (k = 0; k < 48; k++) {
-                printf("%02x", verifyData[k]);
-                if ((k + 1) % 24 == 0) printf("\n  ");
-            }
-        }
-        printf("\n");
-
-        /* Append RequesterVerifyData to FINISH message */
-        XMEMCPY(&finishBuf[4], verifyData, 48);
-
-        /* ============================================================
-         * Encrypt FINISH with AES-256-GCM for secured message
-         * Since HANDSHAKE_IN_THE_CLEAR is not negotiated, FINISH must
-         * be sent as an encrypted secured message.
-         *
-         * MCTP Secured message format (DSP0277 + DSP0275):
-         *   SessionID (4) || SeqNum (2, MCTP-specific) || Length (2) || Ciphertext || Tag (16)
-         * AAD = SessionID || SeqNum || Length
-         * IV = reqDataIV XOR (0-padded sequence number)
-         *
-         * Inside encrypted portion (cipher header + app data):
-         *   ApplicationDataLength (2) || ApplicationData
-         * ============================================================ */
-        printf("\n--- Encrypting FINISH as secured message ---\n");
-        {
-            Aes aes;
-            byte securedMsg[128];  /* SessionID(4) + SeqNum(2) + Len(2) + Cipher + Tag(16) */
-            byte aad[8];           /* SessionID(4) + SeqNum(2) + Length(2) - MCTP uses 2-byte seqnum */
-            byte iv[12];           /* AES-GCM IV */
-            byte tag[16];          /* AES-GCM authentication tag */
-            byte plaintext[72];    /* Cipher header (2) + MCTP(1) + FINISH (52) = 55 bytes */
-            byte ciphertext[72];   /* Encrypted plaintext */
-            word32 securedMsgLen;
-            /* ApplicationData = MCTP header (1) + FINISH (52) = 53 bytes */
-            word16 appDataLen = 53;
-            /* Encrypted data = AppDataLen(2) + ApplicationData(53) = 55 bytes */
-            word16 encDataLen = 55;
-            int k;
-
-            /* Build plaintext: ApplicationDataLength (2, LE) || MCTP header || FINISH
-             * Per libspdm, the ApplicationData includes an inner MCTP header (0x05) */
-            plaintext[0] = (byte)(appDataLen & 0xFF);
-            plaintext[1] = (byte)((appDataLen >> 8) & 0xFF);
-            plaintext[2] = 0x05;  /* MCTP_MESSAGE_TYPE_SPDM - inner MCTP header */
-            XMEMCPY(&plaintext[3], finishBuf, 52);
-
-            /* Build AAD/Header: SessionID (4, LE) || SeqNum (2, LE) || Length (2, LE)
-             * For MCTP, sequence number is 2 bytes (LIBSPDM_MCTP_SEQUENCE_NUMBER_COUNT=2) */
-            securedMsg[0] = (byte)(sessionId & 0xFF);
-            securedMsg[1] = (byte)((sessionId >> 8) & 0xFF);
-            securedMsg[2] = (byte)((sessionId >> 16) & 0xFF);
-            securedMsg[3] = (byte)((sessionId >> 24) & 0xFF);
-            /* Sequence number = 0 (2 bytes for MCTP) */
-            securedMsg[4] = 0x00;
-            securedMsg[5] = 0x00;
-            /* Length = remaining data INCLUDING MAC (cipher_header + app_data + tag)
-             * Per DSP0277: "length of remaining data, including app_data_length, payload, Random, and MAC" */
-            {
-                word16 recordLen = encDataLen + 16;  /* 55 + 16 = 71 */
-                securedMsg[6] = (byte)(recordLen & 0xFF);
-                securedMsg[7] = (byte)((recordLen >> 8) & 0xFF);
-            }
-
-            /* Copy AAD for encryption */
-            XMEMCPY(aad, securedMsg, 8);
-
-            /* Build IV: reqDataIV XOR (0-padded sequence number)
-             * For seq=0, IV = reqDataIV */
-            XMEMCPY(iv, reqDataIV, 12);
-
-            printf("AAD (8 bytes, Length incl MAC=%d): ", encDataLen + 16);
-            for (k = 0; k < 8; k++) printf("%02x", aad[k]);
-            printf("\n");
-            printf("IV (12 bytes): ");
-            for (k = 0; k < 12; k++) printf("%02x", iv[k]);
-            printf("\n");
-            printf("Plaintext (%d bytes): ", encDataLen);
-            for (k = 0; k < 16; k++) printf("%02x", plaintext[k]);
-            printf("...\n");
-
-            /* Initialize AES-GCM */
-            rc = wc_AesGcmSetKey(&aes, reqDataKey, 32);
-            if (rc != 0) {
-                printf("AES-GCM SetKey failed: %d\n", rc);
-                goto cleanup;
-            }
-
-            /* Encrypt: cipher_header + FINISH message */
-            rc = wc_AesGcmEncrypt(&aes, ciphertext, plaintext, encDataLen,
-                                  iv, 12, tag, 16, aad, 8);
-            if (rc != 0) {
-                printf("AES-GCM Encrypt failed: %d\n", rc);
-                goto cleanup;
-            }
-
-            printf("Ciphertext (%d bytes): ", encDataLen);
-            for (k = 0; k < 16; k++) printf("%02x", ciphertext[k]);
-            printf("...\n");
-            printf("Tag (16 bytes): ");
-            for (k = 0; k < 16; k++) printf("%02x", tag[k]);
-            printf("\n");
-
-            /* Build secured message: Header (8) || Ciphertext (55) || Tag (16) */
-            XMEMCPY(&securedMsg[8], ciphertext, encDataLen);
-            XMEMCPY(&securedMsg[8 + encDataLen], tag, 16);
-            securedMsgLen = 8 + encDataLen + 16;  /* 8 + 55 + 16 = 79 */
-
-            printf("Sending secured FINISH (%u bytes)\n", securedMsgLen);
-            /* Set secured mode for MCTP message type 0x06 */
-            g_tcpCtx.isSecured = 1;
-            rxSz = sizeof(rxBuf);
-            rc = spdm_tcp_io_callback(&spdmCtx, securedMsg, securedMsgLen, rxBuf, &rxSz, &g_tcpCtx);
-            g_tcpCtx.isSecured = 0;
-
-            if (rc == 0 && rxSz >= 8) {
-                printf("Secured FINISH Response (%u bytes): ", rxSz);
-                for (k = 0; k < (int)rxSz && k < 32; k++) printf("%02x ", rxBuf[k]);
-                printf("\n");
-
-                /* Decrypt and verify FINISH_RSP to confirm session established
-                 * Format: SessionID(4) || SeqNum(2) || Length(2) || Ciphertext || Tag(16)
-                 * We MUST decrypt to verify it's FINISH_RSP (0x65) not ERROR (0x7F) */
-                {
-                    word32 rspSessionId = rxBuf[0] | (rxBuf[1] << 8) |
-                                          (rxBuf[2] << 16) | (rxBuf[3] << 24);
-                    word16 rspSeqNum = rxBuf[4] | (rxBuf[5] << 8);
-                    word16 rspLen = rxBuf[6] | (rxBuf[7] << 8);
-                    byte decryptedMsg[64];
-                    byte rspAad[8];
-                    byte rspIv[12];
-                    byte rspTag[16];
-                    Aes rspAes;
-                    int decryptRc;
-
-                    printf("\n--- Decrypting FINISH_RSP ---\n");
-                    printf("RspSessionID: 0x%08x, SeqNum: %u, Length: %u\n",
-                           rspSessionId, rspSeqNum, rspLen);
-
-                    if (rspSessionId != sessionId) {
-                        printf("ERROR: Session ID mismatch (expected 0x%08x)\n", sessionId);
-                        rc = -1;
-                    } else if (rspLen < 16 || rxSz < (word32)(8 + rspLen)) {
-                        printf("ERROR: Response too short\n");
-                        rc = -1;
-                    } else {
-                        word16 cipherLen = rspLen - 16;  /* Subtract tag size */
-
-                        /* Build AAD: SessionID || SeqNum || Length */
-                        XMEMCPY(rspAad, rxBuf, 8);
-
-                        /* Build IV: rspDataIV XOR (0-padded sequence number) */
-                        XMEMCPY(rspIv, rspDataIV, 12);
-                        rspIv[0] ^= (byte)(rspSeqNum & 0xFF);
-                        rspIv[1] ^= (byte)((rspSeqNum >> 8) & 0xFF);
-
-                        /* Extract tag (last 16 bytes of encrypted data) */
-                        XMEMCPY(rspTag, &rxBuf[8 + cipherLen], 16);
-
-                        /* Decrypt with rspDataKey */
-                        decryptRc = wc_AesGcmSetKey(&rspAes, rspDataKey, 32);
-                        if (decryptRc == 0) {
-                            decryptRc = wc_AesGcmDecrypt(&rspAes,
-                                decryptedMsg, &rxBuf[8], cipherLen,
-                                rspIv, 12, rspTag, 16, rspAad, 8);
-                        }
-
-                        if (decryptRc != 0) {
-                            printf("ERROR: Decryption failed (%d) - tag mismatch\n", decryptRc);
-                            printf("  This may indicate HMAC verification failed on responder\n");
-                            rc = -1;
-                        } else {
-                            /* Decrypted format: AppDataLen(2) || MCTP(1) || SPDM message */
-                            word16 rspAppDataLen = decryptedMsg[0] | (decryptedMsg[1] << 8);
-                            byte mctpType = decryptedMsg[2];
-                            byte spdmVersion = decryptedMsg[3];
-                            byte spdmCode = decryptedMsg[4];
-
-                            printf("Decrypted: AppLen=%u, MCTP=0x%02x, SPDM=0x%02x 0x%02x\n",
-                                   rspAppDataLen, mctpType, spdmVersion, spdmCode);
-
-                            if (spdmCode == 0x65) {
-                                /* FINISH_RSP - Session truly established! */
-                                printf("\n");
-                                printf("╔══════════════════════════════════════════════════════════════╗\n");
-                                printf("║     SUCCESS: SPDM SESSION ESTABLISHED (VERIFIED!)           ║\n");
-                                printf("║                                                              ║\n");
-                                printf("║  All TPM commands are now encrypted on the bus.             ║\n");
-                                printf("║  This protects against physical bus snooping attacks.       ║\n");
-                                printf("╚══════════════════════════════════════════════════════════════╝\n");
-                                rc = 0;
-                            } else if (spdmCode == 0x7F) {
-                                /* ERROR response - session NOT established */
-                                byte errCode = decryptedMsg[5];
-                                printf("\n");
-                                printf("╔══════════════════════════════════════════════════════════════╗\n");
-                                printf("║     FAILED: Responder returned encrypted ERROR              ║\n");
-                                printf("╚══════════════════════════════════════════════════════════════╝\n");
-                                printf("Error code: 0x%02x", errCode);
-                                if (errCode == 0x01) printf(" (InvalidRequest)");
-                                else if (errCode == 0x06) printf(" (DecryptError - HMAC mismatch)");
-                                printf("\n");
-                                rc = -1;
-                            } else {
-                                printf("ERROR: Unexpected SPDM message 0x%02x\n", spdmCode);
-                                rc = -1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-#else
-    printf("\n--- KEY_EXCHANGE/FINISH skipped (requires wolfCrypt) ---\n");
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
-
-    printf("\n========================================\n");
-    printf("SPDM Session Summary\n");
-    printf("========================================\n");
-    printf("Transcript tracking: FULL (VCA + Ct + KE)\n");
-    printf("Total transcript:    %u bytes\n", g_transcriptLen);
-    printf("========================================\n");
-
-cleanup:
-#ifndef WOLFTPM2_NO_WOLFCRYPT
-    if (eccInitialized) {
-        wc_ecc_free(&eccKey);
-    }
-    if (rngInitialized) {
-        wc_FreeRng(&rng);
-    }
-#endif
-    spdm_tcp_disconnect();
-    return rc;
+    /* Cleanup */
+    wolfSPDM_Free(ctx);
+    spdm_io_cleanup(&g_ioCtx);
+
+    return (rc == WOLFSPDM_SUCCESS) ? 0 : rc;
 }
+
 
 #endif /* SPDM_EMU_SOCKET_SUPPORT */
 
@@ -1775,7 +1129,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
 #ifdef SPDM_EMU_SOCKET_SUPPORT
     const char* emuHost = SPDM_EMU_DEFAULT_HOST;
     int emuPort = SPDM_EMU_DEFAULT_PORT;
-    int useStandard = 0;
+    int useEmulator = 0;
 #endif
 
     if (argc <= 1) {
@@ -1790,8 +1144,8 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             return 0;
         }
 #ifdef SPDM_EMU_SOCKET_SUPPORT
-        else if (XSTRCMP(argv[i], "--standard") == 0) {
-            useStandard = 1;
+        else if (XSTRCMP(argv[i], "--emu") == 0) {
+            useEmulator = 1;
         }
         else if (XSTRCMP(argv[i], "--host") == 0 && i + 1 < argc) {
             emuHost = argv[++i];
@@ -1803,11 +1157,11 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     }
 
 #ifdef SPDM_EMU_SOCKET_SUPPORT
-    /* Handle --standard mode (TCP to emulator, no TPM needed) */
-    if (useStandard) {
-        printf("Entering standard SPDM mode...\n");
+    /* Handle --emu mode (TCP to emulator, no TPM needed) */
+    if (useEmulator) {
+        printf("Entering emulator mode...\n");
         fflush(stdout);
-        return demo_standard(emuHost, emuPort);
+        return demo_emulator(emuHost, emuPort);
     }
 #endif
 
@@ -1835,6 +1189,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
 
     /* Process command-line options */
     for (i = 1; i < argc; i++) {
+#ifdef WOLFSPDM_NUVOTON
         if (XSTRCMP(argv[i], "--all") == 0) {
             rc = demo_all(&dev);
             break;
@@ -1867,7 +1222,9 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             rc = demo_raw_test(&dev);
             if (rc != 0) break;
         }
-        else {
+        else
+#endif /* WOLFSPDM_NUVOTON */
+        {
             printf("Unknown option: %s\n", argv[i]);
             usage();
             rc = BAD_FUNC_ARG;
