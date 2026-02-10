@@ -52,10 +52,12 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+#ifndef WOLFTPM_ZEPHYR
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#endif
 
 #include <wolftpm/tpm2_socket.h>
 
