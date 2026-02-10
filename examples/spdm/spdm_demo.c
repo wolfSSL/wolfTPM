@@ -56,14 +56,13 @@
 #include <string.h>
 
 /* Socket includes for TCP transport to libspdm emulator */
-#ifdef __linux__
+#ifdef WOLFTPM_SWTPM
     #include <sys/socket.h>
     #include <netinet/in.h>
     #include <netinet/tcp.h>  /* TCP_NODELAY */
     #include <arpa/inet.h>
     #include <unistd.h>
     #include <errno.h>
-    #define SPDM_EMU_SOCKET_SUPPORT
     #define SPDM_EMU_DEFAULT_PORT 2323  /* DEFAULT_SPDM_PLATFORM_PORT (MCTP) */
     #define SPDM_EMU_DEFAULT_HOST "127.0.0.1"
     /* Transport types for libspdm emulator socket protocol */
@@ -142,7 +141,7 @@ static void usage(void)
     printf("  --lock         Lock SPDM-only mode\n");
     printf("  --unlock       Unlock SPDM-only mode\n");
     printf("  --all          Run full demo sequence\n");
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
     printf("  --emu          Test SPDM with libspdm emulator (TCP)\n");
     printf("  --host <addr>  Emulator IP address (default: 127.0.0.1)\n");
     printf("  --port <num>   Emulator port (default: 2323)\n");
@@ -152,7 +151,7 @@ static void usage(void)
     printf("Nuvoton Hardware Mode (--enable, --connect, etc.):\n");
     printf("  - Requires Nuvoton NPCT75x TPM with Fw 7.2+ via SPI\n");
     printf("  - Built with: ./configure --enable-spdm --enable-nuvoton\n");
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
     printf("\n");
     printf("Emulator Mode (--emu):\n");
     printf("  - Tests SPDM 1.2 protocol with libspdm responder emulator\n");
@@ -166,7 +165,7 @@ static void usage(void)
 /* Unified I/O Callback Implementation
  * -------------------------------------------------------------------------- */
 
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
 /* MCTP transport constants */
 #define SOCKET_SPDM_COMMAND_NORMAL    0x00000001
 #define MCTP_MESSAGE_TYPE_SPDM        0x05
@@ -298,7 +297,7 @@ static int spdm_io_tcp_exchange(SPDM_IO_CTX* ioCtx,
 
     return 0;
 }
-#endif /* SPDM_EMU_SOCKET_SUPPORT */
+#endif /* WOLFTPM_SWTPM */
 
 /* TCG SPDM Binding tags */
 #define TCG_SPDM_TAG_CLEAR   0x8101
@@ -532,12 +531,12 @@ static int wolfspdm_io_callback(
     if (0) {
         /* not reached */
     }
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
     else if (ioCtx->mode == SPDM_IO_MODE_TCP) {
         /* TCP path for emulator - uses MCTP framing */
         return spdm_io_tcp_exchange(ioCtx, txBuf, txSz, rxBuf, rxSz);
     }
-#endif /* SPDM_EMU_SOCKET_SUPPORT */
+#endif /* WOLFTPM_SWTPM */
 #ifdef WOLFTPM_NUVOTON
     else if (ioCtx->mode == SPDM_IO_MODE_TPM) {
         /* TPM TIS path for Nuvoton - uses TCG binding framing */
@@ -948,7 +947,7 @@ static int demo_all(WOLFTPM2_DEV* dev)
 /* Standard SPDM over TCP (for libspdm emulator testing) */
 /* -------------------------------------------------------------------------- */
 
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
 
 /* SPDM emulator test using wolfSPDM library
  * Connects to libspdm responder emulator via TCP and performs full SPDM 1.2 handshake
@@ -1018,14 +1017,14 @@ static int demo_emulator(const char* host, int port)
 }
 
 
-#endif /* SPDM_EMU_SOCKET_SUPPORT */
+#endif /* WOLFTPM_SWTPM */
 
 int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
 {
     int rc;
     WOLFTPM2_DEV dev;
     int i;
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
     const char* emuHost = SPDM_EMU_DEFAULT_HOST;
     int emuPort = SPDM_EMU_DEFAULT_PORT;
     int useEmulator = 0;
@@ -1042,7 +1041,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
         else if (XSTRCMP(argv[i], "--emu") == 0) {
             useEmulator = 1;
         }
@@ -1055,7 +1054,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
 #endif
     }
 
-#ifdef SPDM_EMU_SOCKET_SUPPORT
+#ifdef WOLFTPM_SWTPM
     /* Handle --emu mode (TCP to emulator, no TPM needed) */
     if (useEmulator) {
         printf("Entering emulator mode...\n");
