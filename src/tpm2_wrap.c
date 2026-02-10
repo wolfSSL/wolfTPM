@@ -51,114 +51,122 @@ static void wolfTPM2_CopyNvPublic(TPMS_NV_PUBLIC* out, const TPMS_NV_PUBLIC* in)
 /* --- BEGIN Wrapper Device Functions -- */
 /******************************************************************************/
 
-static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
-    int timeoutTries)
-{
-    int rc;
+static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,                                                                                                                                
+      int timeoutTries)                                   
+  {                                                                                                                                                                                                          
+      int rc;                                                                                                                                                                                                
 
-#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
-    Startup_In startupIn;
-#if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
-    SelfTest_In selfTest;
-#endif
-#endif /* ! WOLFTPM_LINUX_DEV */
+  #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+      Startup_In startupIn;
+  #if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
+      SelfTest_In selfTest;
+  #endif
+  #endif /* ! WOLFTPM_LINUX_DEV */
 
-    if (ctx == NULL)
-        return BAD_FUNC_ARG;
+      if (ctx == NULL)
+          return BAD_FUNC_ARG;
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
-    defined(WOLFTPM_WINAPI)
-    rc = TPM2_Init_minimal(ctx);
-    /* Using standard file I/O for the Linux TPM device */
-    (void)ioCb;
-    (void)userCtx;
-    (void)timeoutTries;
-#else
-    rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
-#endif
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
-        return rc;
-    }
-#ifdef DEBUG_WOLFTPM
-    printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
-        ctx->caps,
-        ctx->did_vid >> 16,
-        ctx->did_vid & 0xFFFF,
-        ctx->rid);
-#endif
+  #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+      defined(WOLFTPM_WINAPI)
+      rc = TPM2_Init_minimal(ctx);
+      /* Using standard file I/O for the Linux TPM device */
+      (void)ioCb;
+      (void)userCtx;
+      (void)timeoutTries;
+  #else
+      rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
+  #endif
+      if (rc != TPM_RC_SUCCESS) {
+      #ifdef DEBUG_WOLFTPM
+          printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+      #endif
+          return rc;
+      }
+  #ifdef DEBUG_WOLFTPM
+      printf("TPM2: Caps 0x%08x, Did 0x%04x, Vid 0x%04x, Rid 0x%2x \n",
+          ctx->caps,
+          ctx->did_vid >> 16,
+          ctx->did_vid & 0xFFFF,
+          ctx->rid);
+  #endif
 
-#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
-    /* startup */
-    XMEMSET(&startupIn, 0, sizeof(Startup_In));
-    startupIn.startupType = TPM_SU_CLEAR;
-    rc = TPM2_Startup(&startupIn);
-    if (rc != TPM_RC_SUCCESS &&
-        rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ ) {
-    #ifdef WOLFTPM_SPDM
-        if (rc == (int)TPM_RC_DISABLED) {
-            /* When SPDM-only mode is active on the TPM, TPM2_Startup returns
-             * TPM_RC_DISABLED. This is expected - SPDM commands bypass the
-             * normal TPM command path and work over raw SPI. */
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Startup: TPM_RC_DISABLED (SPDM-only mode active, "
-                   "this is expected)\n");
-        #endif
-        }
-        else
-    #endif /* WOLFTPM_SPDM */
-        {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_Startup failed %d: %s\n", rc,
-                   wolfTPM2_GetRCString(rc));
-        #endif
-            return rc;
-        }
-    }
-#ifdef DEBUG_WOLFTPM
-    if (rc == TPM_RC_SUCCESS || rc == TPM_RC_INITIALIZE) {
-        printf("TPM2_Startup pass\n");
-    }
-#endif
-    rc = TPM_RC_SUCCESS;
+  #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+      /* startup */
+      XMEMSET(&startupIn, 0, sizeof(Startup_In));
+      startupIn.startupType = TPM_SU_CLEAR;
+      rc = TPM2_Startup(&startupIn);
+      if (rc != TPM_RC_SUCCESS &&
+          rc != TPM_RC_INITIALIZE /* TPM_RC_INITIALIZE = Already started */ &&
+          rc != TPM_RC_UPGRADE /* TPM_RC_UPGRADE = In firmware upgrade mode */ ) {
+      #ifdef WOLFTPM_SPDM
+          if (rc == (int)TPM_RC_DISABLED) {
+              /* When SPDM-only mode is active on the TPM, TPM2_Startup returns
+               * TPM_RC_DISABLED. This is expected - SPDM commands bypass the
+               * normal TPM command path and work over raw SPI. */
+          #ifdef DEBUG_WOLFTPM
+              printf("TPM2_Startup: TPM_RC_DISABLED (SPDM-only mode active, "
+                     "this is expected)\n");
+          #endif
+          }
+          else
+      #endif /* WOLFTPM_SPDM */
+          {
+          #ifdef DEBUG_WOLFTPM
+              printf("TPM2_Startup failed %d: %s\n", rc,
+                     wolfTPM2_GetRCString(rc));
+          #endif
+              return rc;
+          }
+      }
+      /* Return upgrade status so caller can handle appropriately */
+      if (rc == TPM_RC_UPGRADE) {
+      #ifdef DEBUG_WOLFTPM
+          printf("TPM2_Startup: TPM is in firmware upgrade mode\n");
+      #endif
+          return rc;
+      }
+  #ifdef DEBUG_WOLFTPM
+      if (rc == TPM_RC_SUCCESS || rc == TPM_RC_INITIALIZE) {
+          printf("TPM2_Startup pass\n");
+      }
+  #endif
+      rc = TPM_RC_SUCCESS;
 
-#if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
-    /* Do full self-test (Chips such as ATTPM20 require this before some operations) */
-    XMEMSET(&selfTest, 0, sizeof(selfTest));
-    selfTest.fullTest = YES;
-    rc = TPM2_SelfTest(&selfTest);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef WOLFTPM_SPDM
-        if (rc == (int)TPM_RC_DISABLED) {
-            /* SPDM-only mode active - SelfTest not needed */
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_SelfTest: TPM_RC_DISABLED (SPDM-only mode, "
-                   "expected)\n");
-        #endif
-            rc = TPM_RC_SUCCESS;
-        }
-        else
-    #endif /* WOLFTPM_SPDM */
-        {
-        #ifdef DEBUG_WOLFTPM
-            printf("TPM2_SelfTest failed 0x%x: %s\n", rc,
-                   TPM2_GetRCString(rc));
-        #endif
-            return rc;
-        }
-    }
-#ifdef DEBUG_WOLFTPM
-    if (rc == TPM_RC_SUCCESS) {
-        printf("TPM2_SelfTest pass\n");
-    }
-#endif
-#endif /* WOLFTPM_MICROCHIP || WOLFTPM_PERFORM_SELFTEST */
-#endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
+  #if defined(WOLFTPM_MICROCHIP) || defined(WOLFTPM_PERFORM_SELFTEST)
+      /* Do full self-test (Chips such as ATTPM20 require this before some operations) */
+      XMEMSET(&selfTest, 0, sizeof(selfTest));
+      selfTest.fullTest = YES;
+      rc = TPM2_SelfTest(&selfTest);
+      if (rc != TPM_RC_SUCCESS) {
+      #ifdef WOLFTPM_SPDM
+          if (rc == (int)TPM_RC_DISABLED) {
+              /* SPDM-only mode active - SelfTest not needed */
+          #ifdef DEBUG_WOLFTPM
+              printf("TPM2_SelfTest: TPM_RC_DISABLED (SPDM-only mode, "
+                     "expected)\n");
+          #endif
+              rc = TPM_RC_SUCCESS;
+          }
+          else
+      #endif /* WOLFTPM_SPDM */
+          {
+          #ifdef DEBUG_WOLFTPM
+              printf("TPM2_SelfTest failed 0x%x: %s\n", rc,
+                     TPM2_GetRCString(rc));
+          #endif
+              return rc;
+          }
+      }
+  #ifdef DEBUG_WOLFTPM
+      if (rc == TPM_RC_SUCCESS) {
+          printf("TPM2_SelfTest pass\n");
+      }
+  #endif
+  #endif /* WOLFTPM_MICROCHIP || WOLFTPM_PERFORM_SELFTEST */
+  #endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
-    return rc;
-}
+      return rc;
+  }
 
 /* Single-shot API for testing access to hardware and optionally return capabilities */
 int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
@@ -8397,14 +8405,12 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 /******************************************************************************/
 
 
-
-
-
 /******************************************************************************/
 /* --- BEGIN Firmware Upgrade Support -- */
 /******************************************************************************/
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
+
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
 
 /* Maximum size of firmware chunks */
@@ -8632,6 +8638,22 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
     return rc;
 }
 
+#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+
+/* Public Firmware Upgrade APIs - routes to appropriate vendor implementation
+ * Available when any firmware upgrade vendor support is enabled */
+#if (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+     defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+
+/* Forward declarations for vendor-specific firmware functions */
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx);
+static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
+#endif
+
 int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
@@ -8640,9 +8662,27 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     int rc;
     WOLFTPM2_CAPS caps;
 
-    /* check the operational mode */
+    /* Get capabilities to determine manufacturer */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
-    if (rc == TPM_RC_SUCCESS) {
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (caps.mfg == TPM_MFG_STM) {
+        /* Route to ST33 firmware update - LMS vs non-LMS is
+         * auto-detected from manifest size */
+        return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
+            manifest_hash, manifest_hash_sz,
+            manifest, manifest_sz,
+            cb, cb_ctx);
+    }
+#endif
+
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    if (caps.mfg == TPM_MFG_INFINEON) {
+        /* Route to Infineon firmware update implementation */
+        /* check the operational mode */
         if (caps.opMode == 0x03) {
             /* firmware update is done, just needs finalized and TPM reset */
         #ifdef DEBUG_WOLFTPM
@@ -8650,30 +8690,37 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         #endif
             return tpm2_ifx_firmware_final(dev);
         }
-    }
-    if (rc == TPM_RC_SUCCESS && caps.opMode == 0x00) {
-        rc = tpm2_ifx_firmware_enable_policy(dev);
-        if (rc == TPM_RC_SUCCESS) {
-            rc = tpm2_ifx_firmware_start(dev, hashAlg,
-                manifest_hash, manifest_hash_sz);
+        if (caps.opMode == 0x00) {
+            rc = tpm2_ifx_firmware_enable_policy(dev);
+            if (rc == TPM_RC_SUCCESS) {
+                rc = tpm2_ifx_firmware_start(dev, hashAlg,
+                    manifest_hash, manifest_hash_sz);
+            }
         }
-    }
-    if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_ifx_firmware_manifest(dev, manifest, manifest_sz);
-    }
-    if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_ifx_firmware_data(dev, cb, cb_ctx);
-    }
-    if (rc == TPM_RC_SUCCESS) {
-        rc = tpm2_ifx_firmware_final(dev);
-    }
-#ifdef DEBUG_WOLFTPM
-    if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware update failed 0x%x: %s\n",
-            rc, TPM2_GetRCString(rc));
+        if (rc == TPM_RC_SUCCESS) {
+            rc = tpm2_ifx_firmware_manifest(dev, manifest, manifest_sz);
+        }
+        if (rc == TPM_RC_SUCCESS) {
+            rc = tpm2_ifx_firmware_data(dev, cb, cb_ctx);
+        }
+        if (rc == TPM_RC_SUCCESS) {
+            rc = tpm2_ifx_firmware_final(dev);
+        }
+    #ifdef DEBUG_WOLFTPM
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Firmware update failed 0x%x: %s\n",
+                rc, TPM2_GetRCString(rc));
+        }
+    #endif
+        return rc;
     }
 #endif
-    return rc;
+
+    /* Unsupported manufacturer */
+#ifdef DEBUG_WOLFTPM
+    printf("Firmware update not supported for manufacturer %d\n", caps.mfg);
+#endif
+    return TPM_RC_COMMAND_CODE;
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -8713,6 +8760,331 @@ int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
 int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
 {
     int rc;
+    WOLFTPM2_CAPS caps;
+
+    /* Get capabilities to determine manufacturer */
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+    if (caps.mfg == TPM_MFG_STM) {
+        /* Route to ST33 firmware cancel */
+        return tpm2_st33_firmware_cancel(dev);
+    }
+#endif
+
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+    if (caps.mfg == TPM_MFG_INFINEON) {
+        /* Route to Infineon firmware cancel */
+        uint8_t cmd[2];
+        uint16_t val16;
+
+        val16 = 0; /* data size */
+        XMEMCPY(&cmd[0], &val16, sizeof(val16));
+
+        rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor,
+            cmd, sizeof(cmd));
+    #ifdef DEBUG_WOLFTPM
+        if (rc != TPM_RC_SUCCESS) {
+            printf("Firmware abandon failed 0x%x: %s\n",
+                rc, TPM2_GetRCString(rc));
+        }
+    #endif
+        return rc;
+    }
+#endif
+
+    /* Unsupported manufacturer */
+#ifdef DEBUG_WOLFTPM
+    printf("Firmware cancel not supported for manufacturer %d\n", caps.mfg);
+#endif
+    return TPM_RC_COMMAND_CODE;
+}
+
+#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 || WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
+
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+
+/* Maximum size of firmware chunks for ST33 */
+#define ST33_FW_MAX_CHUNK_SZ 2048  /* Must be large enough for firmware blobs */
+
+/* ST33 firmware version threshold for LMS requirement:
+ * < 512: Non-LMS format required (legacy, e.g., 9.257)
+ * >= 512: LMS format required (modern, e.g., 9.512) */
+#define ST33_FW_VERSION_LMS_REQUIRED   512
+
+/* ST33 manifest (blob0) sizes determine firmware format.
+ * The manifest size is used for auto-detection of LMS vs non-LMS format. */
+#define ST33_MANIFEST_SIZE_NON_LMS     177   /* Non-LMS manifest size */
+#define ST33_MANIFEST_SIZE_LMS         2697  /* LMS manifest size (includes embedded signature) */
+
+/* ST33 uses password auth (TPM_RS_PW) for firmware update, not policy */
+
+/* Common firmware upgrade start function
+ * Sends manifest (blob0) via FieldUpgradeStart
+ * 300ms delay: ST reference implementation uses this delay to allow
+ * TPM to switch modes after FieldUpgradeStart command */
+static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz, int is_lms)
+{
+    int rc;
+
+    (void)dev;
+
+    /* ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart.
+     * This matches the ST reference implementation behavior.
+     * For LMS format, the manifest (blob0) already contains the embedded
+     * LMS signature. Send the full manifest directly. */
+    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
+
+    if (rc == TPM_RC_SUCCESS) {
+        /* 300ms delay: ST reference implementation uses this delay to allow
+         * TPM to switch modes after FieldUpgradeStart command */
+        XSLEEP_MS(300);
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
+    }
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("ST33 Firmware upgrade start%s failed 0x%x: %s\n",
+            is_lms ? " (LMS)" : "", rc, TPM2_GetRCString(rc));
+    }
+#else
+    (void)is_lms;  /* Suppress unused parameter warning when DEBUG_WOLFTPM not defined */
+#endif
+    return rc;
+}
+
+/* ST33 sends full manifest (blob0) directly in FieldUpgradeStart */
+
+/* Send firmware data as blobs per ST reference implementation
+ * Firmware data format (after blob0/manifest):
+ * - Byte 0: blob type
+ * - Bytes 1-2: blob data length (big-endian)
+ * - Bytes 3+: blob data
+ * Each blob is sent complete to the TPM via FieldUpgradeData command */
+static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    int rc;
+    uint32_t offset = 0;
+    uint8_t blob_header[3];
+    uint8_t* blob_buf = NULL;
+    uint32_t blob_len;
+    uint32_t blob_total;
+
+    (void)dev;
+
+    /* Allocate buffer for largest possible blob */
+    blob_buf = (uint8_t*)XMALLOC(ST33_FW_MAX_CHUNK_SZ + 3, NULL,
+        DYNAMIC_TYPE_TMP_BUFFER);
+    if (blob_buf == NULL) {
+        return MEMORY_E;
+    }
+
+    for (;;) {
+        /* Read blob header: type (1 byte) + length (2 bytes big-endian) */
+        rc = cb(blob_header, 3, offset, cb_ctx);
+        if (rc < 3) {
+            /* End of data or error */
+            if (rc == 0 || blob_header[0] == 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("ST33 Firmware data done\n");
+            #endif
+                rc = TPM_RC_SUCCESS;
+            }
+            else {
+            #ifdef DEBUG_WOLFTPM
+                printf("ST33 Firmware data read error at offset %u\n", offset);
+            #endif
+                rc = BUFFER_E;
+            }
+            break;
+        }
+
+        /* Check for end marker (type byte = 0) */
+        if (blob_header[0] == 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Firmware data end marker at offset %u\n", offset);
+        #endif
+            rc = TPM_RC_SUCCESS;
+            break;
+        }
+
+        /* Parse blob length from bytes 1-2 (big-endian) */
+        blob_len = ((uint32_t)blob_header[1] << 8) | blob_header[2];
+        blob_total = blob_len + 3; /* total blob size including header */
+
+        if (blob_total > ST33_FW_MAX_CHUNK_SZ + 3) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Blob too large: %u bytes at offset %u\n",
+                blob_total, offset);
+        #endif
+            rc = BUFFER_E;
+            break;
+        }
+
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Firmware blob offset %u, type 0x%02x, len %u\n",
+            offset, blob_header[0], blob_len);
+    #endif
+
+        /* Read complete blob (header + data) */
+        rc = cb(blob_buf, blob_total, offset, cb_ctx);
+        if (rc != (int)blob_total) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Failed to read blob data at offset %u\n", offset);
+        #endif
+            rc = BUFFER_E;
+            break;
+        }
+
+        /* Send blob to TPM - blob is sent as-is per ST reference */
+        rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeDataVendor_ST33,
+            blob_buf, blob_total);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 FieldUpgradeData failed at offset %u: 0x%x\n",
+                offset, rc);
+        #endif
+            break;
+        }
+
+        offset += blob_total;
+    }
+
+    XFREE(blob_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+
+    if (rc == TPM_RC_SUCCESS) {
+        /* 300ms delay: ST reference implementation uses this delay to allow
+         * TPM to process firmware data blobs */
+        XSLEEP_MS(300);
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
+    }
+#ifdef DEBUG_WOLFTPM
+    else {
+        printf("ST33 Firmware upgrade data failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+
+/* Main ST33 firmware upgrade function with auto-detection from manifest size.
+ * The manifest size determines whether LMS format is used:
+ * - 177 bytes: Non-LMS format (legacy firmware < 512)
+ * - 2697 bytes: LMS format (modern firmware >= 512, LMS signature embedded)
+ */
+static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    int rc;
+    WOLFTPM2_CAPS caps;
+    int is_lms;
+
+    /* ST33 sends full manifest directly, not hash */
+    (void)hashAlg;
+    (void)manifest_hash;
+    (void)manifest_hash_sz;
+
+    /* Auto-detect LMS format from manifest size */
+    if (manifest_sz == ST33_MANIFEST_SIZE_LMS) {
+        is_lms = 1;
+    }
+    else if (manifest_sz == ST33_MANIFEST_SIZE_NON_LMS) {
+        is_lms = 0;
+    }
+    else {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Error: Invalid manifest size %u (expected %d for non-LMS or %d for LMS)\n",
+            manifest_sz, ST33_MANIFEST_SIZE_NON_LMS, ST33_MANIFEST_SIZE_LMS);
+    #endif
+        return BAD_FUNC_ARG;
+    }
+
+    /* Get capabilities to check firmware version */
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 GetCapabilities failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("ST33 Firmware version: Major=%u, Minor=%u, Vendor=0x%x\n",
+        caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+    printf("ST33 Manifest size: %u bytes, format: %s\n",
+        manifest_sz, is_lms ? "LMS" : "non-LMS");
+#endif
+
+    /* Validate manifest format matches firmware version requirement */
+    if (caps.fwVerMinor < ST33_FW_VERSION_LMS_REQUIRED) {
+        /* Legacy firmware (< 512): non-LMS only */
+        if (is_lms) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Error: LMS manifest provided but firmware version %u < %d requires non-LMS\n",
+                caps.fwVerMinor, ST33_FW_VERSION_LMS_REQUIRED);
+        #endif
+            return BAD_FUNC_ARG;
+        }
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Using non-LMS path (fwVerMinor < %d)\n",
+            ST33_FW_VERSION_LMS_REQUIRED);
+    #endif
+    }
+    else {
+        /* Modern firmware (>= 512): LMS required */
+        if (!is_lms) {
+        #ifdef DEBUG_WOLFTPM
+            printf("ST33 Error: Non-LMS manifest provided but firmware version %u >= %d requires LMS\n",
+                caps.fwVerMinor, ST33_FW_VERSION_LMS_REQUIRED);
+        #endif
+            return BAD_FUNC_ARG;
+        }
+    #ifdef DEBUG_WOLFTPM
+        printf("ST33 Using LMS path (fwVerMinor >= %d, LMS required)\n",
+            ST33_FW_VERSION_LMS_REQUIRED);
+    #endif
+    }
+
+    /* Send manifest - the common function handles both LMS and non-LMS */
+    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms);
+
+    if (rc == TPM_RC_SUCCESS) {
+        rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
+    }
+    /* Note: ST33 doesn't require a finalize command - the firmware update
+     * is complete after all blobs are sent. The TPM will automatically
+     * apply the update on next reset/power cycle. */
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("ST33 Firmware update failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+/* Cancel/abandon firmware upgrade */
+static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev)
+{
+    int rc;
     uint8_t cmd[2];
     uint16_t val16;
 
@@ -8721,18 +9093,18 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
     val16 = 0; /* data size */
     XMEMCPY(&cmd[0], &val16, sizeof(val16));
 
-    rc = TPM2_IFX_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor,
+    rc = TPM2_ST33_FieldUpgradeCommand(TPM_CC_FieldUpgradeAbandonVendor_ST33,
         cmd, sizeof(cmd));
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
-        printf("Firmware abandon failed 0x%x: %s\n",
+        printf("ST33 Firmware abandon failed 0x%x: %s\n",
             rc, TPM2_GetRCString(rc));
     }
 #endif
     return rc;
 }
 
-#endif /* WOLFTPM_SLB9672 || WOLFTPM_SLB9673 */
+#endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
 
 /******************************************************************************/
