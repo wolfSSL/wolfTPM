@@ -197,6 +197,49 @@ int wolfTPM2_SPDM_SecuredExchange(
     if (ctx == NULL || ctx->spdmCtx == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#ifdef WOLFSPDM_NUVOTON
+    /* Nuvoton TPMs require TPM commands to be wrapped in SPDM VENDOR_DEFINED
+     * messages with the "TPM2_CMD" vendor code. The TPM's SPDM layer only
+     * accepts SPDM messages (starting with version byte 0x13), not raw TPM
+     * commands (starting with tag 0x80 0x01).
+     * Per Nuvoton SPDM Guidance Rev 1.11 section 2.6:
+     * "In SPDM-only mode the TPM accepts only TPM commands wrapped in SPDM
+     * secure messages." */
+    if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON) {
+        byte vdMsg[WOLFSPDM_MAX_MSG_SIZE];
+        byte vdRsp[WOLFSPDM_MAX_MSG_SIZE];
+        word32 vdRspSz = sizeof(vdRsp);
+        char rspVdCode[WOLFSPDM_VDCODE_LEN + 1];
+        int vdMsgSz;
+        int rc;
+
+        /* Wrap TPM command in SPDM VENDOR_DEFINED_REQUEST("TPM2_CMD") */
+        vdMsgSz = wolfSPDM_BuildVendorDefined(WOLFSPDM_VDCODE_TPM2_CMD,
+            cmdPlain, cmdSz, vdMsg, sizeof(vdMsg));
+        if (vdMsgSz < 0) {
+            return vdMsgSz;
+        }
+
+        /* Send encrypted VENDOR_DEFINED, receive encrypted response */
+        rc = wolfSPDM_SecuredExchange(ctx->spdmCtx,
+            vdMsg, (word32)vdMsgSz, vdRsp, &vdRspSz);
+        if (rc != 0) {
+            return rc;
+        }
+
+        /* Parse VENDOR_DEFINED_RESPONSE to extract TPM response */
+        rc = wolfSPDM_ParseVendorDefined(vdRsp, vdRspSz,
+            rspVdCode, rspPlain, rspSz);
+        if (rc < 0) {
+            return rc;
+        }
+
+        return TPM_RC_SUCCESS;
+    }
+#endif /* WOLFSPDM_NUVOTON */
+
+    /* Standard SPDM mode: send TPM command as raw app data */
     return wolfSPDM_SecuredExchange(ctx->spdmCtx,
         cmdPlain, cmdSz, rspPlain, rspSz);
 }

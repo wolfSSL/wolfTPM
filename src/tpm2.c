@@ -495,8 +495,10 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
                 return rc;
             }
 
-            /* Copy TPM response back into packet buffer */
-            if (tpmRespSz > sizeof(packet->buf)) {
+            /* Copy TPM response back into packet buffer.
+             * Note: packet->buf is a pointer so sizeof gives pointer size,
+             * use MAX_RESPONSE_SIZE for the actual buffer capacity. */
+            if (tpmRespSz > MAX_RESPONSE_SIZE) {
                 return TPM_RC_SIZE;
             }
             XMEMCPY(packet->buf, tpmResp, tpmRespSz);

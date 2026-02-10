@@ -166,6 +166,7 @@ static void usage(void)
 /* Unified I/O Callback Implementation
  * -------------------------------------------------------------------------- */
 
+#ifdef SPDM_EMU_SOCKET_SUPPORT
 /* MCTP transport constants */
 #define SOCKET_SPDM_COMMAND_NORMAL    0x00000001
 #define MCTP_MESSAGE_TYPE_SPDM        0x05
@@ -182,15 +183,11 @@ static int spdm_io_init_tcp(SPDM_IO_CTX* ioCtx, const char* host, int port)
     ioCtx->mode = SPDM_IO_MODE_NONE;
     ioCtx->sockFd = -1;
 
-    printf("TCP: Creating socket...\n");
-    fflush(stdout);
     sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockFd < 0) {
         printf("TCP: Failed to create socket (%d)\n", errno);
         return -1;
     }
-    printf("TCP: Socket created (fd=%d)\n", sockFd);
-    fflush(stdout);
 
     /* Disable Nagle's algorithm for immediate send */
     setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &optVal, sizeof(optVal));
@@ -204,37 +201,21 @@ static int spdm_io_init_tcp(SPDM_IO_CTX* ioCtx, const char* host, int port)
         return -1;
     }
 
-    printf("TCP: Calling connect()...\n");
-    fflush(stdout);
     if (connect(sockFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         printf("TCP: Failed to connect to %s:%d (%d)\n", host, port, errno);
         close(sockFd);
         return -1;
     }
 
-    printf("TCP: Connected to %s:%d\n", host, port);
-    fflush(stdout);
-
     ioCtx->mode = SPDM_IO_MODE_TCP;
     ioCtx->sockFd = sockFd;
     return 0;
 }
 
-#ifdef WOLFTPM_NUVOTON
-/* Initialize I/O context for TPM mode (Nuvoton hardware) */
-static void spdm_io_init_tpm(SPDM_IO_CTX* ioCtx, WOLFTPM2_DEV* dev)
-{
-    XMEMSET(ioCtx, 0, sizeof(*ioCtx));
-    ioCtx->mode = SPDM_IO_MODE_TPM;
-    ioCtx->sockFd = -1;
-    ioCtx->tpmDev = dev;
-}
-#endif /* WOLFTPM_NUVOTON */
-
-/* Cleanup I/O context */
+/* Cleanup TCP I/O context */
 static void spdm_io_cleanup(SPDM_IO_CTX* ioCtx)
 {
-    if (ioCtx->mode == SPDM_IO_MODE_TCP && ioCtx->sockFd >= 0) {
+    if (ioCtx->sockFd >= 0) {
         close(ioCtx->sockFd);
         ioCtx->sockFd = -1;
     }
@@ -317,12 +298,22 @@ static int spdm_io_tcp_exchange(SPDM_IO_CTX* ioCtx,
 
     return 0;
 }
+#endif /* SPDM_EMU_SOCKET_SUPPORT */
 
 /* TCG SPDM Binding tags */
 #define TCG_SPDM_TAG_CLEAR   0x8101
 #define TCG_SPDM_TAG_SECURED 0x8201
 
 #ifdef WOLFTPM_NUVOTON
+/* Initialize I/O context for TPM mode (Nuvoton hardware) */
+static void spdm_io_init_tpm(SPDM_IO_CTX* ioCtx, WOLFTPM2_DEV* dev)
+{
+    XMEMSET(ioCtx, 0, sizeof(*ioCtx));
+    ioCtx->mode = SPDM_IO_MODE_TPM;
+    ioCtx->sockFd = -1;
+    ioCtx->tpmDev = dev;
+}
+
 /* Internal: TPM TIS send/receive for Nuvoton hardware
  *
  * wolfSPDM may send either:
@@ -347,17 +338,10 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
     word32 tcgRxSz;
     int alreadyFramed = 0;
     int isEncrypted = 0;
-    word32 i;
     int rc;
 
-    if (dev == NULL) {
-        printf("SPDM I/O ERROR: dev is NULL\n");
-        return -1;
-    }
-
-    if (spdmCtx == NULL) {
-        printf("SPDM I/O ERROR: spdmCtx is NULL\n");
-        return -1;
+    if (dev == NULL || spdmCtx == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     /* Check if message is already TCG-framed (starts with tag 0x8101 or 0x8201) */
@@ -378,21 +362,16 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         }
     }
 
-    /* Print incoming message */
-    printf("SPDM I/O TX (%u bytes, %s): ", txSz,
+#ifdef DEBUG_WOLFTPM
+    printf("SPDM I/O TX (%u bytes, %s)\n", txSz,
            alreadyFramed ? "TCG-framed" :
            (isEncrypted ? "encrypted" : "raw SPDM"));
-    for (i = 0; i < txSz && i < 20; i++) {
-        printf("%02x ", txBuf[i]);
-    }
-    if (txSz > 20) printf("...");
-    printf("\n");
+#endif
 
     if (alreadyFramed) {
         /* Already TCG-framed, send as-is */
         sendBuf = txBuf;
         sendSz = txSz;
-        printf("  -> Already TCG-framed, sending as-is\n");
     }
     else if (isEncrypted) {
         /* Wrap TCG-format encrypted message in TCG binding header (16 bytes)
@@ -413,12 +392,13 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         }
 
         /* Get ConnectionHandle from SPDM context.
-         * FipsIndicator for requests is D/C (Don't Care) per Nuvoton spec,
-         * but spec example shows 0x0000 for requests. */
+         * FipsIndicator for secured requests is D/C (Don't Care) per Nuvoton
+         * spec Rev 1.11 page 24-25. Spec examples use WOLFSPDM_FIPS_NON_FIPS
+         * (0x0000) for requests, WOLFSPDM_FIPS_APPROVED (0x0001) for responses. */
         if (spdmCtx != NULL) {
             connHandle = wolfSPDM_GetConnectionHandle(spdmCtx);
         }
-        /* fipsInd stays 0 for requests (D/C per spec) */
+        fipsInd = WOLFSPDM_FIPS_NON_FIPS; /* D/C for requests per spec */
 
         /* TCG binding header (16 bytes, all BE) */
         tcgTxBuf[0] = (byte)(TCG_SPDM_TAG_SECURED >> 8);
@@ -441,34 +421,10 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
 
         sendBuf = tcgTxBuf;
         sendSz = totalSz;
-
-        printf("  -> Wrapped in TCG secured (%u bytes, connHandle=0x%x): ", sendSz, connHandle);
-        for (i = 0; i < sendSz && i < 24; i++) {
-            printf("%02x ", sendBuf[i]);
-        }
-        if (sendSz > 24) printf("...");
-        printf("\n");
-
-        /* Parse and display TCG header details */
-        printf("  TCG Header breakdown:\n");
-        printf("    Tag: 0x%02x%02x (expect 0x8201 for secured)\n", sendBuf[0], sendBuf[1]);
-        printf("    Size: 0x%02x%02x%02x%02x = %u bytes\n", sendBuf[2], sendBuf[3], sendBuf[4], sendBuf[5],
-            ((word32)sendBuf[2] << 24) | ((word32)sendBuf[3] << 16) |
-            ((word32)sendBuf[4] << 8) | sendBuf[5]);
-        printf("    ConnHandle: 0x%02x%02x%02x%02x\n", sendBuf[6], sendBuf[7], sendBuf[8], sendBuf[9]);
-        printf("    FIPS: 0x%02x%02x\n", sendBuf[10], sendBuf[11]);
-        printf("    Reserved: 0x%02x%02x%02x%02x\n", sendBuf[12], sendBuf[13], sendBuf[14], sendBuf[15]);
-        printf("  SPDM Record (after TCG header):\n");
-        printf("    SessionID: 0x%02x%02x%02x%02x (LE: req=%04x rsp=%04x)\n",
-            sendBuf[16], sendBuf[17], sendBuf[18], sendBuf[19],
-            sendBuf[16] | (sendBuf[17] << 8), sendBuf[18] | (sendBuf[19] << 8));
-        printf("    SeqNum: 0x%02x%02x%02x%02x%02x%02x%02x%02x (LE: %llu)\n",
-            sendBuf[20], sendBuf[21], sendBuf[22], sendBuf[23],
-            sendBuf[24], sendBuf[25], sendBuf[26], sendBuf[27],
-            (unsigned long long)((word64)sendBuf[20] | ((word64)sendBuf[21] << 8) |
-            ((word64)sendBuf[22] << 16) | ((word64)sendBuf[23] << 24)));
-        printf("    Length: 0x%02x%02x (LE: %u = encrypted + 16 tag)\n",
-            sendBuf[28], sendBuf[29], sendBuf[28] | (sendBuf[29] << 8));
+#ifdef DEBUG_WOLFTPM
+        printf("  -> TCG secured (%u bytes, connHandle=0x%x)\n",
+               sendSz, connHandle);
+#endif
     }
     else {
         /* Wrap raw SPDM message in TCG clear message format (16-byte header) */
@@ -480,49 +436,29 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         }
         sendBuf = tcgTxBuf;
         sendSz = (word32)tcgTxSz;
-
-        /* Print wrapped message */
-        printf("  -> Wrapped in TCG (%u bytes): ", sendSz);
-        for (i = 0; i < sendSz && i < 24; i++) {
-            printf("%02x ", sendBuf[i]);
-        }
-        if (sendSz > 24) printf("...");
-        printf("\n");
     }
-
-    printf("SPDM I/O: Calling TPM2_SendRawBytes...\n");
-    fflush(stdout);
 
     /* Send via TPM2_SendRawBytes */
     tcgRxSz = sizeof(tcgRxBuf);
     rc = TPM2_SendRawBytes(&dev->ctx, sendBuf, sendSz, tcgRxBuf, &tcgRxSz);
-
-    printf("SPDM I/O: TPM2_SendRawBytes returned %d (0x%x)\n", rc, rc);
-    fflush(stdout);
 
     if (rc != TPM_RC_SUCCESS) {
         printf("SPDM I/O: SendRawBytes failed: %s\n", TPM2_GetRCString(rc));
         return rc;
     }
 
-    /* Print response */
-    printf("SPDM I/O RX (%u bytes): ", tcgRxSz);
-    for (i = 0; i < tcgRxSz && i < 24; i++) {
-        printf("%02x ", tcgRxBuf[i]);
-    }
-    if (tcgRxSz > 24) printf("...");
-    printf("\n");
+#ifdef DEBUG_WOLFTPM
+    printf("SPDM I/O RX (%u bytes)\n", tcgRxSz);
+#endif
 
     if (alreadyFramed) {
         /* wolfSPDM already did TCG framing, so it will parse the response.
          * Return the raw TCG response as-is. */
         if (tcgRxSz > *rxSz) {
-            printf("SPDM I/O: Response too large: %u > %u\n", tcgRxSz, *rxSz);
             return -1;
         }
         XMEMCPY(rxBuf, tcgRxBuf, tcgRxSz);
         *rxSz = tcgRxSz;
-        printf("  -> Returning TCG response as-is (wolfSPDM will parse)\n");
     }
     else if (isEncrypted) {
         /* For encrypted requests, response can be:
@@ -536,35 +472,30 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         if (rspTag == TCG_SPDM_TAG_SECURED) {
             /* Secured response - strip TCG header, return encrypted record */
             if (tcgRxSz < 16) {
-                printf("SPDM I/O: Secured response too small\n");
                 return -1;
             }
             if (tcgRxSz - 16 > *rxSz) {
-                printf("SPDM I/O: Secured response too large: %u > %u\n",
-                       tcgRxSz - 16, *rxSz);
                 return -1;
             }
             XMEMCPY(rxBuf, tcgRxBuf + 16, tcgRxSz - 16);
             *rxSz = tcgRxSz - 16;
-            printf("  -> Stripped TCG header, returning encrypted record (%u bytes)\n", *rxSz);
         }
         else if (rspTag == TCG_SPDM_TAG_CLEAR) {
             /* Clear response - likely an error, extract SPDM payload */
             rc = wolfSPDM_ParseTcgClearMessage(tcgRxBuf, tcgRxSz, rxBuf, rxSz, NULL);
             if (rc < 0) {
-                printf("SPDM I/O: ParseTcgClearMessage failed: %d\n", rc);
                 return rc;
             }
+#ifdef DEBUG_WOLFTPM
             /* Check if it's an SPDM ERROR response */
             if (*rxSz >= 2 && rxBuf[1] == 0x7F) {  /* SPDM_ERROR */
-                printf("  -> TPM returned SPDM ERROR: code=0x%02x data=0x%02x\n",
+                printf("  SPDM ERROR: code=0x%02x data=0x%02x\n",
                        (*rxSz >= 3) ? rxBuf[2] : 0,
                        (*rxSz >= 4) ? rxBuf[3] : 0);
             }
-            printf("  -> Extracted clear SPDM response (%u bytes)\n", *rxSz);
+#endif
         }
         else {
-            printf("SPDM I/O: Unknown response tag 0x%04x\n", rspTag);
             return -1;
         }
     }
@@ -572,15 +503,8 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         /* For clear requests, response should be CLEAR */
         rc = wolfSPDM_ParseTcgClearMessage(tcgRxBuf, tcgRxSz, rxBuf, rxSz, NULL);
         if (rc < 0) {
-            printf("SPDM I/O: ParseTcgClearMessage failed: %d\n", rc);
             return rc;
         }
-        printf("  -> Extracted SPDM (%u bytes): ", *rxSz);
-        for (i = 0; i < *rxSz && i < 16; i++) {
-            printf("%02x ", rxBuf[i]);
-        }
-        if (*rxSz > 16) printf("...");
-        printf("\n");
     }
 
     return 0;
@@ -605,25 +529,21 @@ static int wolfspdm_io_callback(
         return -1;
     }
 
+    (void)ctx;
+
     switch (ioCtx->mode) {
+#ifdef SPDM_EMU_SOCKET_SUPPORT
         case SPDM_IO_MODE_TCP:
             /* TCP path for emulator - uses MCTP framing */
-            (void)ctx; /* Not needed for TCP */
             return spdm_io_tcp_exchange(ioCtx, txBuf, txSz, rxBuf, rxSz);
-
-        case SPDM_IO_MODE_TPM:
+#endif /* SPDM_EMU_SOCKET_SUPPORT */
 #ifdef WOLFTPM_NUVOTON
+        case SPDM_IO_MODE_TPM:
             /* TPM TIS path for Nuvoton - uses TCG binding framing */
             return spdm_io_tpm_exchange(ioCtx, ctx, txBuf, txSz, rxBuf, rxSz);
-#else
-            printf("SPDM I/O: TPM mode requires --enable-nuvoton\n");
-            (void)ctx;
-            return -1;
 #endif /* WOLFTPM_NUVOTON */
-
         case SPDM_IO_MODE_NONE:
         default:
-            printf("SPDM I/O: Invalid mode %d\n", ioCtx->mode);
             return -1;
     }
 }
@@ -661,64 +581,6 @@ static int demo_enable(WOLFTPM2_DEV* dev)
 #endif /* WOLFSPDM_NUVOTON */
 
 #ifdef WOLFSPDM_NUVOTON
-static int demo_raw_test(WOLFTPM2_DEV* dev)
-{
-    int rc;
-    WOLFTPM2_SPDM_CTX* spdmCtx = dev->spdmCtx;
-    byte txBuf[64];
-    byte rxBuf[256];
-    word32 rxSz;
-    int txSz;
-    word32 i;
-
-    printf("\n=== Raw SPDM GET_VERSION Test ===\n");
-
-    if (spdmCtx == NULL || spdmCtx->spdmCtx == NULL) {
-        printf("  ERROR: SPDM not initialized\n");
-        return -1;
-    }
-
-    /* Build GET_VERSION SPDM request:
-     * SPDMVersion=0x10 (v1.0 for initial GET_VERSION per SPDM spec),
-     * Code=0x84, Param1=0, Param2=0 */
-    {
-        byte spdmReq[4];
-        spdmReq[0] = 0x10; /* SPDM version 1.0 for GET_VERSION */
-        spdmReq[1] = 0x84; /* GET_VERSION */
-        spdmReq[2] = 0x00;
-        spdmReq[3] = 0x00;
-
-        /* Wrap in TCG clear message (16-byte header per Nuvoton spec) */
-        txSz = wolfSPDM_BuildTcgClearMessage(spdmCtx->spdmCtx, spdmReq, 4,
-            txBuf, sizeof(txBuf));
-        if (txSz < 0) {
-            printf("  ERROR: BuildClearMessage failed: %d\n", txSz);
-            return txSz;
-        }
-    }
-
-    printf("  Sending GET_VERSION (%d bytes):\n  ", txSz);
-    for (i = 0; i < (word32)txSz; i++) printf("%02x ", txBuf[i]);
-    printf("\n");
-
-    /* Use wolfSPDM_GetVersion which handles the I/O internally */
-    printf("  Note: Raw I/O test skipped - use wolfSPDM_GetVersion() instead\n");
-    rc = wolfSPDM_GetVersion(spdmCtx->spdmCtx);
-    if (rc == WOLFSPDM_SUCCESS) {
-        printf("  -> VERSION response received!\n");
-        rxSz = 0; /* Indicate we got a response via wolfSPDM */
-    } else {
-        printf("  ERROR: wolfSPDM_GetVersion failed: %d\n", rc);
-        return rc;
-    }
-
-    (void)rxBuf;
-    (void)rxSz;
-    return 0;
-}
-#endif /* WOLFSPDM_NUVOTON */
-
-#ifdef WOLFSPDM_NUVOTON
 static int demo_status(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -736,26 +598,24 @@ static int demo_status(WOLFTPM2_DEV* dev)
         return rc;
     }
 
-    /* Enable debug for verbose output */
-    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
-
     XMEMSET(&status, 0, sizeof(status));
     rc = wolfTPM2_SpdmGetStatus(dev, &status);
     if (rc == 0) {
+        int isConnected = wolfTPM2_SpdmIsConnected(dev);
+        byte negVer = wolfSPDM_GetVersion_Negotiated(dev->spdmCtx->spdmCtx);
+
         printf("  SPDM Enabled:      %s\n", status.spdmEnabled ? "Yes" : "No");
-        printf("  SPDM Spec Version: %u.%u", status.specVersionMajor,
-               status.specVersionMinor);
-        if (status.specVersionMajor == 0 && status.specVersionMinor == 1) {
-            printf(" (SPDM 1.1)\n");
-        } else if (status.specVersionMajor == 0 && status.specVersionMinor == 3) {
-            printf(" (SPDM 1.3)\n");
-        } else if (status.specVersionMajor == 1 && status.specVersionMinor == 3) {
-            printf(" (SPDM 1.3 alt format)\n");
-        } else {
-            printf("\n");
+        printf("  SPDM-Only Locked:  %s\n",
+            status.spdmOnlyLocked ? "YES (TPM commands blocked)" : "No");
+        printf("  Session Active:    %s\n", isConnected ? "Yes" : "No");
+        if (isConnected) {
+            printf("  Negotiated Ver:    SPDM %u.%u (0x%02x)\n",
+                (negVer >> 4) & 0xF, negVer & 0xF, negVer);
+            printf("  Session ID:        0x%08x\n",
+                wolfTPM2_SpdmGetSessionId(dev));
         }
-        printf("  SPDM-Only Locked:  %s\n", status.spdmOnlyLocked ? "YES (TPM commands blocked)" : "No");
-        printf("  Session Active:    %s\n", status.sessionActive ? "Yes" : "Unknown");
+        printf("  Nuvoton Status:    v%u.%u\n",
+            status.specVersionMajor, status.specVersionMinor);
 
         if (status.spdmOnlyLocked) {
             printf("\n  NOTE: TPM is in SPDM-only mode. Standard TPM commands will\n");
@@ -789,9 +649,6 @@ static int demo_get_pubkey(WOLFTPM2_DEV* dev)
         printf("  ERROR: Failed to set I/O callback: %d\n", rc);
         return rc;
     }
-
-    /* Enable debug for verbose output */
-    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
 
     rc = wolfTPM2_SpdmGetPubKey(dev, pubKey, &pubKeySz);
     if (rc == 0) {
@@ -924,8 +781,9 @@ static int demo_connect(WOLFTPM2_DEV* dev)
         return rc;
     }
 
-    /* Enable debug output for TH1/ResponderVerifyData comparison */
+#ifdef DEBUG_WOLFTPM
     wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+#endif
 
     rc = wolfTPM2_SpdmConnectNuvoton(dev, hostPubKeyTPMT, hostPubKeyTPMTSz,
                                       hostPrivKey, hostPrivKeySz);
@@ -941,8 +799,9 @@ static int demo_connect(WOLFTPM2_DEV* dev)
         return rc;
     }
 
-    /* Enable debug output for TH1/ResponderVerifyData comparison */
+#ifdef DEBUG_WOLFTPM
     wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+#endif
 
     rc = wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
 #endif
@@ -950,19 +809,8 @@ static int demo_connect(WOLFTPM2_DEV* dev)
         printf("  SUCCESS: SPDM session established!\n");
         printf("  All TPM commands now encrypted with AES-256-GCM\n");
 
-        /* Run a test command over the secure channel */
-        printf("\n  Running TPM2_SelfTest over SPDM secure channel...\n");
-        {
-            SelfTest_In selfTestIn;
-            selfTestIn.fullTest = YES;
-            rc = TPM2_SelfTest(&selfTestIn);
-            if (rc == TPM_RC_SUCCESS) {
-                printf("  SUCCESS: TPM2_SelfTest passed over SPDM!\n");
-            } else {
-                printf("  SelfTest result: 0x%x: %s\n", rc,
-                    TPM2_GetRCString(rc));
-            }
-        }
+        /* TPM commands are automatically wrapped in SPDM VENDOR_DEFINED
+         * messages and encrypted with AES-256-GCM over the secure channel. */
 
         /* Check connection status */
         if (wolfTPM2_SpdmIsConnected(dev)) {
@@ -991,6 +839,56 @@ static int demo_lock(WOLFTPM2_DEV* dev, int lock)
     } else {
         printf("  FAILED: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
     }
+    return rc;
+}
+
+/* Test TPM commands over SPDM secure channel.
+ * Only works after full provisioning: connect -> lock -> reset -> reconnect.
+ * Uses wolfTPM2 wrapper API - all commands route through SPDM automatically. */
+static int demo_caps(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    WOLFTPM2_CAPS caps;
+
+    printf("\n=== TPM Commands over SPDM Secure Channel ===\n");
+
+    if (!wolfTPM2_SpdmIsConnected(dev)) {
+        printf("  ERROR: SPDM session not established. Run --connect first.\n");
+        return -1;
+    }
+
+    /* TPM2_Startup - needed after TPM reset */
+    printf("  TPM2_Startup over SPDM...\n");
+    {
+        Startup_In startupIn;
+        XMEMSET(&startupIn, 0, sizeof(startupIn));
+        startupIn.startupType = TPM_SU_CLEAR;
+        rc = TPM2_Startup(&startupIn);
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        printf("  TPM2_Startup: PASS\n");
+    } else if (rc == TPM_RC_INITIALIZE) {
+        printf("  TPM2_Startup: Already initialized (OK)\n");
+        rc = TPM_RC_SUCCESS;
+    } else {
+        printf("  TPM2_Startup: 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        return rc;
+    }
+
+    /* wolfTPM2_GetCapabilities - reads manufacturer, vendor, firmware info
+     * This calls TPM2_GetCapability internally, all encrypted over SPDM */
+    printf("  wolfTPM2_GetCapabilities over SPDM...\n");
+    rc = wolfTPM2_GetCapabilities(dev, &caps);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("  Mfg 0x%x (%s), Vendor %s, Fw %u.%u (0x%x)\n",
+            caps.mfg, caps.mfgStr, caps.vendorStr,
+            caps.fwVerMajor, caps.fwVerMinor, caps.fwVerVendor);
+        printf("\n  SUCCESS: TPM commands working over SPDM encrypted channel!\n");
+    } else {
+        printf("  wolfTPM2_GetCapabilities: 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+    }
+
     return rc;
 }
 
@@ -1092,7 +990,9 @@ static int demo_emulator(const char* host, int port)
 
     /* Set unified I/O callback (handles both TCP emulator and TPM TIS modes) */
     wolfSPDM_SetIO(ctx, wolfspdm_io_callback, &g_ioCtx);
+#ifdef DEBUG_WOLFTPM
     wolfSPDM_SetDebug(ctx, 1);
+#endif
 
     /* Full SPDM handshake - this single call replaces ~1000 lines of code!
      * Performs: GET_VERSION -> GET_CAPABILITIES -> NEGOTIATE_ALGORITHMS ->
@@ -1181,8 +1081,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     if (rc != 0) {
         printf("wolfTPM2_SpdmInit failed: 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        printf("Ensure wolfTPM is built with --enable-spdm and a backend\n");
-        printf("(e.g., --with-libspdm=PATH)\n");
+        printf("Ensure wolfTPM is built with --enable-spdm --with-wolfspdm=PATH\n");
         wolfTPM2_Cleanup(&dev);
         return rc;
     }
@@ -1218,8 +1117,8 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             rc = demo_lock(&dev, 0);
             if (rc != 0) break;
         }
-        else if (XSTRCMP(argv[i], "--raw-test") == 0) {
-            rc = demo_raw_test(&dev);
+        else if (XSTRCMP(argv[i], "--caps") == 0) {
+            rc = demo_caps(&dev);
             if (rc != 0) break;
         }
         else
