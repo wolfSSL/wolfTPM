@@ -205,7 +205,11 @@ jobs:
           git clone https://github.com/aidangarske/wolfSPDM.git ../wolfspdm
           cd ../wolfspdm
           ./autogen.sh
-          ./configure
+          WOLFSPDM_CONFIG=""
+          if echo "${{ matrix.wolftpm_config }}" | grep -q -- '--enable-nuvoton'; then
+            WOLFSPDM_CONFIG="--enable-nuvoton"
+          fi
+          ./configure $WOLFSPDM_CONFIG
           make
           sudo make install
           sudo ldconfig

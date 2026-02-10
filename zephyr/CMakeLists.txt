@@ -6,6 +6,11 @@ if(CONFIG_WOLFTPM)
       ${ZEPHYR_CURRENT_MODULE_DIR}/src/*.c
       ${ZEPHYR_CURRENT_MODULE_DIR}/hal/*.c
   )
+  # Exclude transport backends not applicable to Zephyr
+  list(FILTER wolftpm_sources EXCLUDE REGEX "tpm2_swtpm\\.c$")
+  list(FILTER wolftpm_sources EXCLUDE REGEX "tpm2_linux\\.c$")
+  list(FILTER wolftpm_sources EXCLUDE REGEX "tpm2_winapi\\.c$")
+  list(FILTER wolftpm_sources EXCLUDE REGEX "tpm2_spdm\\.c$")
   target_sources(app PRIVATE ${wolftpm_sources})
 
   if(CONFIG_WOLFTPM_DEBUG)
