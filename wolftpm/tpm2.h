@@ -248,10 +248,6 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
-    TPM_CC_Policy_AC_SendSelect     = 0x00000196,
-    TPM_CC_PolicyTransportSPDM      = 0x000001A1,
-#endif
     TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
 
     CC_VEND                         = 0x20000000,
@@ -496,9 +492,6 @@ typedef enum {
     TPM_CAP_ECC_CURVES      = 0x00000008,
     TPM_CAP_AUTH_POLICIES   = 0x00000009,
     TPM_CAP_ACT             = 0x0000000A,
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
-    TPM_CAP_SPDM_SESSION_INFO = 0x0000000C, /* SPDM Session Info (TCG v1.84) */
-#endif
     TPM_CAP_LAST            = TPM_CAP_ACT,
 
     TPM_CAP_VENDOR_PROPERTY = 0x00000100,
@@ -506,8 +499,6 @@ typedef enum {
 typedef UINT32 TPM_CAP;
 
 #ifdef WOLFTPM_SPDM
-/* Note: AC_GetCapability (0x194) and AC_Send (0x195) are DEPRECATED per TCG spec */
-
 /* TCG SPDM Binding for Secure Communication v1.0 Constants */
 
 /* TCG SPDM Binding Message Tags */
@@ -617,12 +608,12 @@ typedef UINT32 TPM_CAP;
 #define SPDM_ECDSA_KEY_SIZE     48    /* P-384 coordinate size */
 #define SPDM_ECDSA_SIG_SIZE     96    /* P-384 signature (r+s) */
 
-/* TCG SPDM Binding Header Size (per Nuvoton SPDM Guidance Rev 1.11):
+/* TCG SPDM Binding Header Size (per TCG SPDM Binding Spec):
  * tag(2/BE) + size(4/BE) + connectionHandle(4/BE) + fipsIndicator(2/BE) +
  * reserved(4) = 16 bytes */
 #define SPDM_TCG_BINDING_HEADER_SIZE  16
 
-/* SPDM Secured Message Header Size (per DSP0277 / Nuvoton SPDM Guidance):
+/* SPDM Secured Message Header Size (per DSP0277):
  * sessionId(4/LE) + sequenceNumber(8/LE) + length(2/LE) = 14 bytes
  * where length = size of encrypted data + MAC */
 #define SPDM_SECURED_MSG_HEADER_SIZE  14
@@ -763,7 +754,6 @@ typedef enum {
     TPM_HT_POLICY_SESSION   = 0x03,
     TPM_HT_ACTIVE_SESSION   = 0x03,
     TPM_HT_PERMANENT        = 0x40,
-    TPM_HT_AC               = 0x40,  /* Authenticated Controller (TCG v1.84) */
     TPM_HT_TRANSIENT        = 0x80,
     TPM_HT_PERSISTENT       = 0x81,
 } TPM_HT_T;
@@ -806,12 +796,6 @@ typedef UINT32 TPM_RH;
 #define HR_PERSISTENT        ((UINT32)TPM_HT_PERSISTENT << HR_SHIFT)
 #define HR_NV_INDEX          ((UINT32)TPM_HT_NV_INDEX << HR_SHIFT)
 #define HR_PERMANENT         ((UINT32)TPM_HT_PERMANENT << HR_SHIFT)
-#ifdef WOLFTPM_SPDM
-#define HR_AC                ((UINT32)TPM_HT_AC << HR_SHIFT)  /* 0x40000000 */
-#define AC_HANDLE_FIRST      (HR_AC + 0)
-#define AC_HANDLE_LAST       (HR_AC + 0x00FFFFFFUL)
-#define TPM2_IS_AC_HANDLE(h) (((h) & HR_RANGE_MASK) == HR_AC)
-#endif
 #define PCR_FIRST            (HR_PCR + 0)
 #define PCR_LAST             (PCR_FIRST + IMPLEMENTATION_PCR-1)
 #define HMAC_SESSION_FIRST   (HR_HMAC_SESSION + 0)
@@ -1176,22 +1160,6 @@ typedef struct TPML_ACT_DATA {
     TPMS_ACT_DATA actData[MAX_ACT_DATA];
 } TPML_ACT_DATA;
 
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
-/* SPDM Session Info Structures (TCG v1.84) - Must be defined before TPMU_CAPABILITIES */
-typedef struct TPMS_SPDM_SESSION_INFO {
-    TPM2B_NAME reqKeyName;  /* Requester key name */
-    TPM2B_NAME tpmKeyName;  /* TPM key name */
-} TPMS_SPDM_SESSION_INFO;
-
-#ifndef MAX_SPDM_SESS_INFO
-#define MAX_SPDM_SESS_INFO 8  /* Reasonable default, matches TCG reference */
-#endif
-typedef struct TPML_SPDM_SESSION_INFO {
-    UINT32 count;  /* Number of session info entries */
-    TPMS_SPDM_SESSION_INFO spdmSessionInfo[MAX_SPDM_SESS_INFO];
-} TPML_SPDM_SESSION_INFO;
-#endif
-
 /* Capabilities Structures */
 
 typedef union TPMU_CAPABILITIES {
@@ -1206,9 +1174,6 @@ typedef union TPMU_CAPABILITIES {
     TPML_ECC_CURVE eccCurves; /* TPM_CAP_ECC_CURVES */
     TPML_TAGGED_POLICY authPolicies; /* TPM_CAP_AUTH_POLICIES */
     TPML_ACT_DATA actData; /* TPM_CAP_ACT - added v1.57 */
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
-    TPML_SPDM_SESSION_INFO spdmSessionInfo; /* TPM_CAP_SPDM_SESSION_INFO - TCG v1.84 */
-#endif
     TPM2B_MAX_BUFFER vendor;
 } TPMU_CAPABILITIES;
 
@@ -2795,15 +2760,6 @@ typedef struct {
 } PolicyAuthValue_In;
 WOLFTPM_API TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in);
 
-#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SWTPM)
-/* Policy Commands for SPDM (TCG v1.84) - TCG simulator only */
-typedef struct {
-    TPMI_SH_POLICY policySession;
-    TPM2B_NAME reqKeyName;
-    TPM2B_NAME tpmKeyName;
-} PolicyTransportSPDM_In;
-WOLFTPM_API TPM_RC TPM2_PolicyTransportSPDM(PolicyTransportSPDM_In* in);
-#endif
 
 typedef struct {
     TPMI_SH_POLICY policySession;

@@ -66,9 +66,15 @@ jobs:
           # STMicro ST33KTPM2
           - name: st33ktpm2
             wolftpm_config: --enable-st33
-          # SPDM AC Support
-          - name: spdm-ac
-            wolftpm_config: --enable-spdm --enable-swtpm
+          # SPDM with wolfSPDM (emulator mode, compile + unit test)
+          - name: spdm-wolfspdm
+            wolfssl_config: --enable-wolftpm --enable-all
+            wolftpm_config: --enable-spdm --enable-swtpm --with-wolfspdm=../wolfspdm
+          # SPDM + Nuvoton (compile-only, no hardware in CI)
+          - name: spdm-nuvoton
+            wolfssl_config: --enable-wolftpm --enable-all
+            wolftpm_config: --enable-spdm --enable-nuvoton --with-wolfspdm=../wolfspdm
+            needs_swtpm: false
           # Microchip
           - name: microchip
             wolftpm_config: --enable-microchip
@@ -187,6 +193,17 @@ jobs:
           sudo make install
           sudo ldconfig
 
+      - name: Checkout and build wolfSPDM
+        if: contains(matrix.wolftpm_config, '--enable-spdm')
+        run: |
+          git clone https://github.com/wolfSSL/wolfspdm.git ../wolfspdm
+          cd ../wolfspdm
+          ./autogen.sh
+          ./configure
+          make
+          sudo make install
+          sudo ldconfig
+
       # For old-wolfssl test: checkout and build old wolfSSL for linking
       - name: Checkout old wolfSSL
         if: matrix.name == 'old-wolfssl'
@@ -297,10 +314,6 @@ jobs:
           name: wolftpm-test-logs-${{ matrix.name }}
           path: |
             run.out
-            test-suite.log
-            wolftpm-*/_build/sub/test-suite.log
-          retention-days: 5
-
             test-suite.log
             wolftpm-*/_build/sub/test-suite.log
           retention-days: 5

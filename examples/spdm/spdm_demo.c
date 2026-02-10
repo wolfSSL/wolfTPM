@@ -392,13 +392,11 @@ static int spdm_io_tpm_exchange(SPDM_IO_CTX* ioCtx, WOLFSPDM_CTX* spdmCtx,
         }
 
         /* Get ConnectionHandle from SPDM context.
-         * FipsIndicator for secured requests is D/C (Don't Care) per Nuvoton
-         * spec Rev 1.11 page 24-25. Spec examples use WOLFSPDM_FIPS_NON_FIPS
-         * (0x0000) for requests, WOLFSPDM_FIPS_APPROVED (0x0001) for responses. */
+         * FipsIndicator is Don't Care for requests (use 0x0000). */
         if (spdmCtx != NULL) {
             connHandle = wolfSPDM_GetConnectionHandle(spdmCtx);
         }
-        fipsInd = WOLFSPDM_FIPS_NON_FIPS; /* D/C for requests per spec */
+        fipsInd = WOLFSPDM_FIPS_NON_FIPS; /* Don't Care for requests */
 
         /* TCG binding header (16 bytes, all BE) */
         tcgTxBuf[0] = (byte)(TCG_SPDM_TAG_SECURED >> 8);
@@ -531,21 +529,23 @@ static int wolfspdm_io_callback(
 
     (void)ctx;
 
-    switch (ioCtx->mode) {
+    if (0) {
+        /* not reached */
+    }
 #ifdef SPDM_EMU_SOCKET_SUPPORT
-        case SPDM_IO_MODE_TCP:
-            /* TCP path for emulator - uses MCTP framing */
-            return spdm_io_tcp_exchange(ioCtx, txBuf, txSz, rxBuf, rxSz);
+    else if (ioCtx->mode == SPDM_IO_MODE_TCP) {
+        /* TCP path for emulator - uses MCTP framing */
+        return spdm_io_tcp_exchange(ioCtx, txBuf, txSz, rxBuf, rxSz);
+    }
 #endif /* SPDM_EMU_SOCKET_SUPPORT */
 #ifdef WOLFTPM_NUVOTON
-        case SPDM_IO_MODE_TPM:
-            /* TPM TIS path for Nuvoton - uses TCG binding framing */
-            return spdm_io_tpm_exchange(ioCtx, ctx, txBuf, txSz, rxBuf, rxSz);
-#endif /* WOLFTPM_NUVOTON */
-        case SPDM_IO_MODE_NONE:
-        default:
-            return -1;
+    else if (ioCtx->mode == SPDM_IO_MODE_TPM) {
+        /* TPM TIS path for Nuvoton - uses TCG binding framing */
+        return spdm_io_tpm_exchange(ioCtx, ctx, txBuf, txSz, rxBuf, rxSz);
     }
+#endif /* WOLFTPM_NUVOTON */
+
+    return -1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -733,17 +733,16 @@ static int demo_connect(WOLFTPM2_DEV* dev)
         return rc;
     }
 
-    /* Build TPMT_PUBLIC structure matching Nuvoton spec page 24:
+    /* Build TPMT_PUBLIC structure for ECDSA P-384 signing key:
      * type(2) + nameAlg(2) + objectAttr(4) + authPolicy(2+0) +
-     * symmetric(2) + scheme(2+2) + curveID(2) + kdf(2) + unique(2+48+2+48) = 120 bytes
-     * Note: objectAttributes must be 0x00040000 per Nuvoton spec */
+     * symmetric(2) + scheme(2+2) + curveID(2) + kdf(2) + unique(2+48+2+48) = 120 bytes */
     {
         byte* p = hostPubKeyTPMT;
         /* type = TPM_ALG_ECC (0x0023) */
         *p++ = 0x00; *p++ = 0x23;
         /* nameAlg = TPM_ALG_SHA384 (0x000C) */
         *p++ = 0x00; *p++ = 0x0C;
-        /* objectAttributes = 0x00040000 (sign only, per Nuvoton spec page 24) */
+        /* objectAttributes = 0x00040000 (sign only) */
         *p++ = 0x00; *p++ = 0x04; *p++ = 0x00; *p++ = 0x00;
         /* authPolicy size = 0 */
         *p++ = 0x00; *p++ = 0x00;

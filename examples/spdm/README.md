@@ -1,88 +1,53 @@
 # SPDM Examples
 
-This directory contains examples demonstrating SPDM (Security Protocol and Data Model) functionality as specified in TCG TPM 2.0 Library Specification v1.84.
+This directory contains examples demonstrating SPDM (Security Protocol and Data Model)
+functionality with wolfTPM.
 
 ## Overview
 
-The SPDM example demonstrates how to use wolfTPM SPDM commands for secure communication channels between the host and TPM.
+The SPDM demo (`spdm_demo`) shows how to establish an SPDM secure session between
+the host and a TPM using the wolfSPDM library backend. It supports both the standard
+spdm-emu emulator and Nuvoton hardware TPMs.
 
-**Important Notes:**
-- **AC_GetCapability (0x194) and AC_Send (0x195) are DEPRECATED** per TCG and will never be implemented in the reference simulator
-- **PolicyTransportSPDM and GetCapability SPDM Session Info are supported**
-- For real SPDM support on hardware TPMs, contact **support@wolfssl.com**
+For real SPDM support on hardware TPMs, contact **support@wolfssl.com**
 
 ## Example
 
-### `tcg_spdm.c` - TCG SPDM Validation
+### `spdm_demo.c` - SPDM Secure Session Demo
 
-**Purpose:** Validates wolfTPM SPDM functionality per TCG spec v1.84.
-
-**Command-line Options:**
+**Standard mode (spdm-emu emulator):**
 
 ```bash
-./tcg_spdm --help                   # Show help message
-./tcg_spdm --all                    # Run all validation tests
-./tcg_spdm --discover-handles       # Discover AC handles
-./tcg_spdm --test-policy-transport  # Test PolicyTransportSPDM command
-./tcg_spdm --test-spdm-session-info # Test GetCapability SPDM session info
+./spdm_demo --standard
 ```
 
-**Example Usage:**
+**Nuvoton hardware mode:**
 
 ```bash
-# Run all tests
-./tcg_spdm --all
-
-# Discover AC handles
-./tcg_spdm --discover-handles
-
-# Test PolicyTransportSPDM
-./tcg_spdm --test-policy-transport
-```
-
-**What Works:**
-- AC handle discovery (GetCapability with TPM_CAP_HANDLES)
-- PolicyTransportSPDM (0x1A1) - adds secure channel restrictions to policy
-- GetCapability SPDM session info (TPM_CAP_SPDM_SESSION_INFO)
-
-**What's Deprecated (NOT tested):**
-- AC_GetCapability (0x194) - DEPRECATED per TCG spec
-- AC_Send (0x195) - DEPRECATED per TCG spec
-
-## Test Script
-
-### `test_tcg_spdm.sh`
-
-Test script that exercises all command-line options for `tcg_spdm` in formatted output.
-
-**Usage:**
-
-```bash
-./tcg_spdm --help                   # Show help message
-./tcg_spdm --all                    # Run all validation tests
-./tcg_spdm --discover-handles       # Discover AC handles
-./tcg_spdm --test-policy-transport  # Test PolicyTransportSPDM command
-./tcg_spdm --test-spdm-session-info # Test GetCapability SPDM session info           
+./spdm_demo --enable               # Enable SPDM on TPM (one-time, requires reset)
+./spdm_demo --connect --status     # Connect + get SPDM status
+./spdm_demo --connect --lock       # Connect + lock SPDM-only mode
+./spdm_demo --connect --caps       # Connect + run TPM commands over SPDM
+./spdm_demo --connect --unlock     # Connect + unlock SPDM-only mode
 ```
 
 ## Building
 
 ### Prerequisites
 
-Build wolfTPM with SPDM support:
+Build wolfSSL with full crypto support and wolfSPDM:
 
 ```bash
-                          # Build with TCG simulator
-./configure --enable-spdm --enable-swtpm
+# wolfSSL (needs --enable-all for P-384/ECDH)
+cd wolfssl && ./configure --enable-wolftpm --enable-all && make && sudo make install
+
+# wolfSPDM
+cd wolfspdm && ./autogen.sh && ./configure && make && sudo make install
+
+# wolfTPM with SPDM
+./configure --enable-spdm --with-wolfspdm=/path/to/wolfspdm
 make
 ```
-
-## Deprecated Commands
-
-The following commands are **DEPRECATED** per TCG specification and are not implemented in wolfTPM:
-
-- **AC_GetCapability (0x194)** - Use PolicyTransportSPDM instead
-- **AC_Send (0x195)** - Use PolicyTransportSPDM instead
 
 ## Support
 

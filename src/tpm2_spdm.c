@@ -199,13 +199,10 @@ int wolfTPM2_SPDM_SecuredExchange(
     }
 
 #ifdef WOLFSPDM_NUVOTON
-    /* Nuvoton TPMs require TPM commands to be wrapped in SPDM VENDOR_DEFINED
-     * messages with the "TPM2_CMD" vendor code. The TPM's SPDM layer only
+    /* In SPDM-only mode, TPM commands must be wrapped in SPDM VENDOR_DEFINED
+     * messages with the TPM2_CMD vendor code. The TPM's SPDM layer only
      * accepts SPDM messages (starting with version byte 0x13), not raw TPM
-     * commands (starting with tag 0x80 0x01).
-     * Per Nuvoton SPDM Guidance Rev 1.11 section 2.6:
-     * "In SPDM-only mode the TPM accepts only TPM commands wrapped in SPDM
-     * secure messages." */
+     * commands (starting with tag 0x80 0x01). */
     if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON) {
         byte vdMsg[WOLFSPDM_MAX_MSG_SIZE];
         byte vdRsp[WOLFSPDM_MAX_MSG_SIZE];
