@@ -201,7 +201,8 @@ jobs:
       - name: Checkout and build wolfSPDM
         if: contains(matrix.wolftpm_config, '--enable-spdm')
         run: |
-          git clone https://github.com/wolfSSL/wolfspdm.git ../wolfspdm
+          # TODO: Change to wolfSSL/wolfSPDM when repo is moved over
+          git clone https://github.com/aidangarske/wolfSPDM.git ../wolfspdm
           cd ../wolfspdm
           ./autogen.sh
           ./configure
