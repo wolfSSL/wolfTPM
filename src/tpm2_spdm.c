@@ -62,19 +62,21 @@ int wolfTPM2_SPDM_InitCtx(
     /* Zero initialize context */
     XMEMSET(ctx, 0, sizeof(WOLFTPM2_SPDM_CTX));
 
-    /* Create wolfSPDM context */
+#ifdef WOLFSPDM_DYNAMIC_MEMORY
+    /* Dynamic path: allocate and initialize via wolfSPDM_New() */
     ctx->spdmCtx = wolfSPDM_New();
     if (ctx->spdmCtx == NULL) {
         return MEMORY_E;
     }
-
-    /* Initialize wolfSPDM context */
-    rc = wolfSPDM_Init(ctx->spdmCtx);
+#else
+    /* Static path: use inline buffer, no malloc */
+    ctx->spdmCtx = (WOLFSPDM_CTX*)ctx->spdmBuf;
+    rc = wolfSPDM_InitStatic(ctx->spdmCtx, (int)sizeof(ctx->spdmBuf));
     if (rc != WOLFSPDM_SUCCESS) {
-        wolfSPDM_Free(ctx->spdmCtx);
         ctx->spdmCtx = NULL;
         return rc;
     }
+#endif
 
     /* Set I/O callback if provided */
     if (ioCb != NULL) {

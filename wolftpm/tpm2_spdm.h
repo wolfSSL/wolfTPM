@@ -81,6 +81,11 @@ typedef struct WOLFTPM2_SPDM_CTX {
 
     /* SPDM-only mode tracking (for Nuvoton TPMs) */
     int spdmOnlyLocked;
+
+#ifndef WOLFSPDM_DYNAMIC_MEMORY
+    /* Inline buffer for static wolfSPDM context (zero-malloc mode) */
+    byte spdmBuf[WOLFSPDM_CTX_STATIC_SIZE];
+#endif
 } WOLFTPM2_SPDM_CTX;
 
 /* -------------------------------------------------------------------------- */

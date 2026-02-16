@@ -15,10 +15,17 @@ For real SPDM support on hardware TPMs, contact **support@wolfssl.com**
 
 ### `spdm_demo.c` - SPDM Secure Session Demo
 
-**Standard mode (spdm-emu emulator):**
+**Emulator mode (spdm-emu responder):**
 
 ```bash
-./spdm_demo --standard
+# Terminal 1: Start the emulator (from spdm-emu/build/bin directory)
+# Must specify Algorithm Set B algorithms to match wolfSPDM
+cd spdm-emu/build/bin
+./spdm_responder_emu --ver 1.2 --hash SHA_384 --asym ECDSA_P384 \
+    --dhe SECP_384_R1 --aead AES_256_GCM
+
+# Terminal 2: Run wolfTPM SPDM demo
+./spdm_demo --emu
 ```
 
 **Nuvoton hardware mode:**

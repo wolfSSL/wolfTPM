@@ -956,8 +956,11 @@ static int demo_emulator(const char* host, int port)
 {
     WOLFSPDM_CTX* ctx;
     int rc;
+#ifndef WOLFSPDM_DYNAMIC_MEMORY
+    byte spdmBuf[WOLFSPDM_CTX_STATIC_SIZE];
+#endif
 
-    printf("\n=== SPDM Emulator Test (wolfSPDM -> libspdm) ===\n");
+    printf("\n=== wolfSPDM spdm-emu Test ===\n");
     printf("Connecting to %s:%d...\n", host, port);
 
     /* Initialize unified I/O context for TCP mode (emulator) */
@@ -970,21 +973,23 @@ static int demo_emulator(const char* host, int port)
     }
 
     /* Create wolfSPDM context */
+#ifdef WOLFSPDM_DYNAMIC_MEMORY
     ctx = wolfSPDM_New();
     if (ctx == NULL) {
         printf("ERROR: wolfSPDM_New() failed\n");
         spdm_io_cleanup(&g_ioCtx);
         return -1;
     }
-
-    /* Initialize wolfSPDM */
-    rc = wolfSPDM_Init(ctx);
+#else
+    ctx = (WOLFSPDM_CTX*)spdmBuf;
+    rc = wolfSPDM_InitStatic(ctx, (int)sizeof(spdmBuf));
     if (rc != WOLFSPDM_SUCCESS) {
-        printf("ERROR: wolfSPDM_Init() failed: %s\n", wolfSPDM_GetErrorString(rc));
-        wolfSPDM_Free(ctx);
+        printf("ERROR: wolfSPDM_InitStatic() failed: %s\n",
+               wolfSPDM_GetErrorString(rc));
         spdm_io_cleanup(&g_ioCtx);
         return rc;
     }
+#endif
 
     /* Set unified I/O callback (handles both TCP emulator and TPM TIS modes) */
     wolfSPDM_SetIO(ctx, wolfspdm_io_callback, &g_ioCtx);
