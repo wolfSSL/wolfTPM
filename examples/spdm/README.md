@@ -15,22 +15,35 @@ For real SPDM support on hardware TPMs, contact **support@wolfssl.com**
 
 ### `spdm_demo.c` - SPDM Secure Session Demo
 
-**Emulator mode (spdm-emu responder):**
+**Quick test (emulator — starts/stops automatically):**
 
 ```bash
-# Terminal 1: Start the emulator (from spdm-emu/build/bin directory)
-# Must specify Algorithm Set B algorithms to match wolfSPDM
-cd spdm-emu/build/bin
-./spdm_responder_emu --ver 1.2 --hash SHA_384 --asym ECDSA_P384 \
-    --dhe SECP_384_R1 --aead AES_256_GCM
-
-# Terminal 2: Run wolfTPM SPDM demo
-./spdm_demo --emu
+./examples/spdm/spdm_test.sh --emu
 ```
 
-**Nuvoton hardware mode:**
+Runs session establishment, signed measurements, unsigned measurements,
+challenge authentication, heartbeat, and key update.
+
+**Quick test (Nuvoton hardware):**
 
 ```bash
+./examples/spdm/spdm_test.sh --nuvoton
+```
+
+Runs connect, lock, caps-over-SPDM, unlock, and cleartext verification.
+
+**Manual commands:**
+
+```bash
+# Emulator (start spdm_responder_emu first, see docs/SPDM.md)
+./spdm_demo --emu                  # Session only
+./spdm_demo --meas                 # Session + signed measurements
+./spdm_demo --meas --no-sig        # Session + unsigned measurements
+./spdm_demo --challenge            # Sessionless challenge authentication
+./spdm_demo --emu --heartbeat      # Session + heartbeat keep-alive
+./spdm_demo --emu --key-update     # Session + key rotation
+
+# Nuvoton hardware
 ./spdm_demo --enable               # Enable SPDM on TPM (one-time, requires reset)
 ./spdm_demo --connect --status     # Connect + get SPDM status
 ./spdm_demo --connect --lock       # Connect + lock SPDM-only mode

@@ -143,6 +143,11 @@ static void usage(void)
     printf("  --all          Run full demo sequence\n");
 #ifdef WOLFTPM_SWTPM
     printf("  --emu          Test SPDM with libspdm emulator (TCP)\n");
+    printf("  --meas         Retrieve and verify device measurements (--emu)\n");
+    printf("  --no-sig       Skip signature verification (use with --meas)\n");
+    printf("  --challenge    Challenge authentication (sessionless, --emu)\n");
+    printf("  --heartbeat    Session heartbeat keep-alive (--emu)\n");
+    printf("  --key-update   Session key rotation (--emu)\n");
     printf("  --host <addr>  Emulator IP address (default: 127.0.0.1)\n");
     printf("  --port <num>   Emulator port (default: 2323)\n");
 #endif
@@ -949,10 +954,171 @@ static int demo_all(WOLFTPM2_DEV* dev)
 
 #ifdef WOLFTPM_SWTPM
 
+#ifndef NO_WOLFSPDM_MEAS
+/* Retrieve and display device measurements from an established SPDM session.
+ * Calls wolfSPDM measurement APIs directly. */
+static int demo_measurements(WOLFSPDM_CTX* ctx, int requestSignature)
+{
+    int rc, count, i;
+
+    printf("\n=== SPDM GET_MEASUREMENTS ===\n");
+
+    rc = wolfSPDM_GetMeasurements(ctx, SPDM_MEAS_OPERATION_ALL,
+                                  requestSignature);
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("Measurements retrieved and signature VERIFIED\n");
+    }
+    else if (rc == WOLFSPDM_E_MEAS_NOT_VERIFIED) {
+        printf("Measurements retrieved (not signature-verified)\n");
+    }
+    else if (rc == WOLFSPDM_E_MEAS_SIG_FAIL) {
+        printf("WARNING: Measurement signature INVALID\n");
+        return rc;
+    }
+    else {
+        printf("ERROR: %s (%d)\n", wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    count = wolfSPDM_GetMeasurementCount(ctx);
+    printf("Measurement blocks: %d\n", count);
+
+    for (i = 0; i < count; i++) {
+        byte idx = 0, mtype = 0;
+        byte val[WOLFSPDM_MAX_MEAS_VALUE_SIZE];
+        word32 valSz = sizeof(val);
+        int j;
+
+        rc = wolfSPDM_GetMeasurementBlock(ctx, i, &idx, &mtype, val, &valSz);
+        if (rc != WOLFSPDM_SUCCESS)
+            continue;
+
+        printf("  [%u] type=0x%02x size=%u: ", idx, mtype, valSz);
+        for (j = 0; j < (int)valSz && j < 48; j++)
+            printf("%02x", val[j]);
+        if (valSz > 48)
+            printf("...");
+        printf("\n");
+    }
+
+    return 0;
+}
+#endif /* !NO_WOLFSPDM_MEAS */
+
+#ifndef NO_WOLFSPDM_CHALLENGE
+/* Perform CHALLENGE authentication (sessionless attestation).
+ * Uses individual handshake steps instead of wolfSPDM_Connect() to avoid
+ * establishing a full session (KEY_EXCHANGE/FINISH). */
+static int demo_challenge(WOLFSPDM_CTX* ctx)
+{
+    int rc;
+
+    printf("\n=== SPDM CHALLENGE (Sessionless Attestation) ===\n");
+
+    /* Step 1: GET_VERSION */
+    printf("  GET_VERSION...\n");
+    rc = wolfSPDM_GetVersion(ctx);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("  ERROR: GET_VERSION failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    /* Step 2: GET_CAPABILITIES */
+    printf("  GET_CAPABILITIES...\n");
+    rc = wolfSPDM_GetCapabilities(ctx);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("  ERROR: GET_CAPABILITIES failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    /* Step 3: NEGOTIATE_ALGORITHMS */
+    printf("  NEGOTIATE_ALGORITHMS...\n");
+    rc = wolfSPDM_NegotiateAlgorithms(ctx);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("  ERROR: NEGOTIATE_ALGORITHMS failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    /* Step 4: GET_DIGESTS */
+    printf("  GET_DIGESTS...\n");
+    rc = wolfSPDM_GetDigests(ctx);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("  ERROR: GET_DIGESTS failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    /* Step 5: GET_CERTIFICATE (also extracts responder public key) */
+    printf("  GET_CERTIFICATE...\n");
+    rc = wolfSPDM_GetCertificate(ctx, 0);
+    if (rc != WOLFSPDM_SUCCESS) {
+        printf("  ERROR: GET_CERTIFICATE failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+        return rc;
+    }
+
+    /* Step 6: CHALLENGE */
+    printf("  CHALLENGE (slot=0, no measurement summary)...\n");
+    rc = wolfSPDM_Challenge(ctx, 0, SPDM_MEAS_SUMMARY_HASH_NONE);
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("\n  CHALLENGE authentication PASSED\n");
+    }
+    else {
+        printf("\n  CHALLENGE authentication FAILED: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+    }
+
+    return rc;
+}
+#endif /* !NO_WOLFSPDM_CHALLENGE */
+
+/* Send HEARTBEAT over an established SPDM session */
+static int demo_heartbeat(WOLFSPDM_CTX* ctx)
+{
+    int rc;
+
+    printf("\n=== SPDM HEARTBEAT ===\n");
+
+    rc = wolfSPDM_Heartbeat(ctx);
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("  HEARTBEAT_ACK received — session alive\n");
+    }
+    else {
+        printf("  HEARTBEAT failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+    }
+
+    return rc;
+}
+
+/* Perform KEY_UPDATE to rotate session encryption keys */
+static int demo_key_update(WOLFSPDM_CTX* ctx)
+{
+    int rc;
+
+    printf("\n=== SPDM KEY_UPDATE ===\n");
+
+    rc = wolfSPDM_KeyUpdate(ctx, 1); /* updateAll = 1: rotate both keys */
+    if (rc == WOLFSPDM_SUCCESS) {
+        printf("  KEY_UPDATE completed — new keys active\n");
+    }
+    else {
+        printf("  KEY_UPDATE failed: %s (%d)\n",
+               wolfSPDM_GetErrorString(rc), rc);
+    }
+
+    return rc;
+}
+
 /* SPDM emulator test using wolfSPDM library
  * Connects to libspdm responder emulator via TCP and performs full SPDM 1.2 handshake
  * Uses the unified I/O callback (same as Nuvoton hardware mode) */
-static int demo_emulator(const char* host, int port)
+static int demo_emulator(const char* host, int port, int doMeas,
+                         int requestSignature, int doChallenge,
+                         int doHeartbeat, int doKeyUpdate)
 {
     WOLFSPDM_CTX* ctx;
     int rc;
@@ -997,6 +1163,20 @@ static int demo_emulator(const char* host, int port)
     wolfSPDM_SetDebug(ctx, 1);
 #endif
 
+#ifndef NO_WOLFSPDM_CHALLENGE
+    /* Challenge mode: sessionless attestation (no KEY_EXCHANGE/FINISH) */
+    if (doChallenge) {
+        rc = demo_challenge(ctx);
+
+        /* Cleanup */
+        wolfSPDM_Free(ctx);
+        spdm_io_cleanup(&g_ioCtx);
+        return (rc == WOLFSPDM_SUCCESS) ? 0 : rc;
+    }
+#else
+    (void)doChallenge;
+#endif
+
     /* Full SPDM handshake - this single call replaces ~1000 lines of code!
      * Performs: GET_VERSION -> GET_CAPABILITIES -> NEGOTIATE_ALGORITHMS ->
      *           GET_DIGESTS -> GET_CERTIFICATE -> KEY_EXCHANGE -> FINISH */
@@ -1009,11 +1189,34 @@ static int demo_emulator(const char* host, int port)
         printf(" Session ID: 0x%08x\n", wolfSPDM_GetSessionId(ctx));
         printf(" SPDM Version: 0x%02x\n", wolfSPDM_GetVersion_Negotiated(ctx));
         printf("=============================================\n");
+
+        /* Heartbeat: send keep-alive over encrypted channel */
+        if (doHeartbeat) {
+            rc = demo_heartbeat(ctx);
+            if (rc != WOLFSPDM_SUCCESS) goto cleanup;
+        }
+
+        /* Key update: rotate session keys */
+        if (doKeyUpdate) {
+            rc = demo_key_update(ctx);
+            if (rc != WOLFSPDM_SUCCESS) goto cleanup;
+        }
+
+#ifndef NO_WOLFSPDM_MEAS
+        /* Retrieve measurements if requested */
+        if (doMeas) {
+            rc = demo_measurements(ctx, requestSignature);
+        }
+#else
+        (void)doMeas;
+        (void)requestSignature;
+#endif
     } else {
         printf("\nERROR: wolfSPDM_Connect() failed: %s (%d)\n",
                wolfSPDM_GetErrorString(rc), rc);
     }
 
+cleanup:
     /* Cleanup */
     wolfSPDM_Free(ctx);
     spdm_io_cleanup(&g_ioCtx);
@@ -1033,6 +1236,11 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     const char* emuHost = SPDM_EMU_DEFAULT_HOST;
     int emuPort = SPDM_EMU_DEFAULT_PORT;
     int useEmulator = 0;
+    int doMeas = 0;
+    int requestSignature = 1;
+    int doChallenge = 0;
+    int doHeartbeat = 0;
+    int doKeyUpdate = 0;
 #endif
 
     if (argc <= 1) {
@@ -1056,6 +1264,25 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[i], "--port") == 0 && i + 1 < argc) {
             emuPort = atoi(argv[++i]);
         }
+        else if (XSTRCMP(argv[i], "--meas") == 0) {
+            doMeas = 1;
+            useEmulator = 1;
+        }
+        else if (XSTRCMP(argv[i], "--no-sig") == 0) {
+            requestSignature = 0;
+        }
+        else if (XSTRCMP(argv[i], "--challenge") == 0) {
+            doChallenge = 1;
+            useEmulator = 1;
+        }
+        else if (XSTRCMP(argv[i], "--heartbeat") == 0) {
+            doHeartbeat = 1;
+            useEmulator = 1;
+        }
+        else if (XSTRCMP(argv[i], "--key-update") == 0) {
+            doKeyUpdate = 1;
+            useEmulator = 1;
+        }
 #endif
     }
 
@@ -1064,7 +1291,8 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     if (useEmulator) {
         printf("Entering emulator mode...\n");
         fflush(stdout);
-        return demo_emulator(emuHost, emuPort);
+        return demo_emulator(emuHost, emuPort, doMeas, requestSignature,
+                             doChallenge, doHeartbeat, doKeyUpdate);
     }
 #endif
 

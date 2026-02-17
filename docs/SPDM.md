@@ -83,8 +83,18 @@ make -j4
 ### Running the Test
 
 ```bash
+# Run all emulator tests (starts/stops emulator automatically)
+cd wolfTPM
+./examples/spdm/spdm_test.sh --emu
+```
+
+The script runs session establishment, signed measurements, and unsigned measurements.
+It finds the emulator in `../spdm-emu/build/bin/` automatically.
+
+To run individual commands manually:
+
+```bash
 # Terminal 1: Start the emulator (from spdm-emu/build/bin directory)
-# Must specify Algorithm Set B algorithms to match wolfSPDM
 cd spdm-emu/build/bin
 ./spdm_responder_emu --ver 1.2 --hash SHA_384 --asym ECDSA_P384 \
     --dhe SECP_384_R1 --aead AES_256_GCM
@@ -92,9 +102,6 @@ cd spdm-emu/build/bin
 # Terminal 2: Run wolfTPM SPDM demo
 cd wolfTPM
 ./examples/spdm/spdm_demo --emu
-
-# With specific host/port:
-./examples/spdm/spdm_demo --emu --host 192.168.1.100 --port 2323
 ```
 
 ### Expected Output
@@ -123,6 +130,67 @@ Establishing SPDM session...
  SPDM Version: 0x12
 =============================================
 ```
+
+### Measurement Retrieval and Verification
+
+After session establishment, you can retrieve device measurements with
+cryptographic signature verification:
+
+```bash
+# Terminal 1: Start emulator (must restart — emulator is single-shot)
+cd spdm-emu/build/bin
+./spdm_responder_emu --ver 1.2 --hash SHA_384 --asym ECDSA_P384 \
+    --dhe SECP_384_R1 --aead AES_256_GCM
+
+# Terminal 2: Session + signed measurements (signature verified)
+./examples/spdm/spdm_demo --meas
+
+# Or without signature verification
+./examples/spdm/spdm_demo --meas --no-sig
+```
+
+Expected output with `--meas`:
+```
+=== SPDM GET_MEASUREMENTS ===
+Measurements retrieved and signature VERIFIED
+Measurement blocks: 8
+  [1] type=0x00 size=48: <hex digest>
+  [2] type=0x01 size=48: <hex digest>
+  ...
+```
+
+When `--no-sig` is used, the output shows:
+```
+Measurements retrieved (not signature-verified)
+```
+
+**Note:** The `--meas` flag implies `--emu` — it automatically uses emulator mode.
+The emulator must be restarted between runs as it exits after each connection.
+
+### Automated Test Script
+
+The `spdm_test.sh` script automates emulator and/or Nuvoton hardware tests:
+
+```bash
+# Run all emulator tests (starts/stops emulator automatically)
+./examples/spdm/spdm_test.sh --emu
+
+# Run Nuvoton hardware tests (requires GPIO reset)
+./examples/spdm/spdm_test.sh --nuvoton
+
+# Run both
+./examples/spdm/spdm_test.sh --emu --nuvoton
+```
+
+The script expects `spdm_responder_emu` to be found via:
+1. `SPDM_EMU_PATH` environment variable
+2. `../spdm-emu/build/bin/` (cloned next to wolfTPM)
+3. `spdm_responder_emu` in `PATH`
+
+Emulator tests run:
+1. Session establishment (`--emu`)
+2. Signed measurements with verification (`--meas`)
+3. Unsigned measurements (`--meas --no-sig`)
 
 ## Nuvoton Hardware Mode
 
@@ -336,6 +404,8 @@ any active session is cleared. You can verify with `--status` and proceed with
 | `--caps` | Run TPM commands over SPDM (Startup + GetCapabilities) |
 | `--lock` | Lock SPDM-only mode |
 | `--unlock` | Unlock SPDM-only mode |
+| `--meas` | Retrieve and verify device measurements (implies `--emu`) |
+| `--no-sig` | Skip measurement signature verification (use with `--meas`) |
 | `--all` | Run full Nuvoton demo sequence |
 | `-h, --help` | Show help message |
 
@@ -350,6 +420,7 @@ any active session is cleared. You can verify with `--status` and proceed with
 5. **GET_CERTIFICATE / CERTIFICATE** - Retrieve certificate chain
 6. **KEY_EXCHANGE / KEY_EXCHANGE_RSP** - ECDH key exchange with signature
 7. **FINISH / FINISH_RSP** - Complete handshake (encrypted)
+8. **GET_MEASUREMENTS / MEASUREMENTS** - Retrieve device measurements with optional signature verification (via `--meas`)
 
 ### Nuvoton SPDM (Hardware Mode)
 
