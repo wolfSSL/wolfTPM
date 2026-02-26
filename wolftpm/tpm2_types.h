@@ -760,6 +760,9 @@ typedef int64_t  INT64;
 #ifndef MAX_ACT_DATA
 #define MAX_ACT_DATA  (MAX_CAP_DATA / sizeof(TPMS_ACT_DATA))
 #endif
+#ifndef MAX_AC_HANDLES
+#define MAX_AC_HANDLES 16
+#endif
 
 
 /* ---------------------------------------------------------------------------*/

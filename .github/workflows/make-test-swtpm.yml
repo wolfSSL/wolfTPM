@@ -75,6 +75,24 @@ jobs:
           # STMicro ST33KTPM2
           - name: st33ktpm2 firmware
             wolftpm_config: --enable-st33 --enable-firmware
+          # SPDM (emulator mode, compile + unit test)
+          - name: spdm
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-swtpm
+          # SPDM + Nuvoton (compile-only, no hardware in CI)
+          - name: spdm-nuvoton
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-nuvoton
+            needs_swtpm: false
+          # SPDM dynamic memory
+          - name: spdm-dynamic-mem
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-swtpm --enable-spdm-dynamic-mem
+          # SPDM debug
+          - name: spdm-debug
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-nuvoton --enable-debug
+            needs_swtpm: false
           # Microchip
           - name: microchip
             wolftpm_config: --enable-microchip
