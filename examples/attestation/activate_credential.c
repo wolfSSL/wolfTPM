@@ -192,6 +192,18 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     }
     printf("Read credential blob and secret from %s, %d bytes\n",
         input, dataSize);
+    /* Validate sizes from file data to prevent buffer overrun */
+    if (activCredIn.credentialBlob.size >
+            sizeof(activCredIn.credentialBlob.buffer)) {
+        printf("Credential blob size %d exceeds buffer\n",
+            activCredIn.credentialBlob.size);
+        goto exit;
+    }
+    if (activCredIn.secret.size > sizeof(activCredIn.secret.secret)) {
+        printf("Secret size %d exceeds buffer\n",
+            activCredIn.secret.size);
+        goto exit;
+    }
 #else
     printf("Can not load credential. File support not enabled\n");
     goto exit;

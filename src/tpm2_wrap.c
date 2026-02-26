@@ -123,7 +123,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
 #endif
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
         printf("TPM2_Init failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 #ifdef DEBUG_WOLFTPM

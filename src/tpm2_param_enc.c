@@ -209,6 +209,14 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
         return BUFFER_E;
     }
 
+    /* Validate source key sizes to prevent overrun of source buffers */
+    if (sessKey->size > sizeof(sessKey->buffer)) {
+        return BUFFER_E;
+    }
+    if (bindKey != NULL && bindKey->size > sizeof(bindKey->buffer)) {
+        return BUFFER_E;
+    }
+
     /* Validate key sizes before copy to prevent buffer overflow */
     if (sessKey->size + bindKeySz > sizeof(keyIn.buffer)) {
         return BUFFER_E;
@@ -261,6 +269,14 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (paramSz > sizeof(mask.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Validate source key sizes to prevent overrun of source buffers */
+    if (sessKey->size > sizeof(sessKey->buffer)) {
+        return BUFFER_E;
+    }
+    if (bindKey != NULL && bindKey->size > sizeof(bindKey->buffer)) {
         return BUFFER_E;
     }
 
@@ -318,6 +334,14 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Validate source key sizes to prevent overrun of source buffers */
+    if (sessKey->size > sizeof(sessKey->buffer)) {
+        return BUFFER_E;
+    }
+    if (bindKey != NULL && bindKey->size > sizeof(bindKey->buffer)) {
         return BUFFER_E;
     }
 
@@ -384,6 +408,14 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Validate source key sizes to prevent overrun of source buffers */
+    if (sessKey->size > sizeof(sessKey->buffer)) {
+        return BUFFER_E;
+    }
+    if (bindKey != NULL && bindKey->size > sizeof(bindKey->buffer)) {
         return BUFFER_E;
     }
 
