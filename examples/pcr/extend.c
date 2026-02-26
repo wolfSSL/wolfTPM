@@ -74,6 +74,7 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
     BYTE dataBuffer[1024];
     enum wc_HashType hashType;
     wc_HashAlg dig;
+    int hashInitialized = 0;
 #endif
 
     union {
@@ -154,6 +155,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         rc = TPM2_GetHashType(alg);
         hashType = (enum wc_HashType)rc;
         rc = wc_HashInit(&dig, hashType);
+        if (rc == 0)
+            hashInitialized = 1;
         while (rc == 0 && !XFEOF(fp)) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
             if (len > 0) {
@@ -163,7 +166,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         XFCLOSE(fp);
         if (rc == 0)
             rc = wc_HashFinal(&dig, hashType, hash);
-        wc_HashFree(&dig, hashType);
+        if (hashInitialized)
+            wc_HashFree(&dig, hashType);
         if (rc != 0) {
             printf("Hash operation failed %d\n", rc);
             goto exit;
