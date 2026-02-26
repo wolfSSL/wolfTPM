@@ -144,17 +144,16 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
                     rspSz = (int)ret;
                     rc = TPM_RC_SUCCESS;
                 }
-                else if (ret == 0) {
-                #ifdef DEBUG_WOLFTPM
-                    printf("Received EOF(0) from %s: errno %d = %s\n",
-                        TPM2_LINUX_DEV, errno, strerror(errno));
-                #endif
-                    rc = TPM_RC_FAILURE;
-                }
                 else {
                 #ifdef DEBUG_WOLFTPM
-                    printf("Failed to read from %s: errno %d = %s\n",
-                        TPM2_LINUX_DEV, errno, strerror(errno));
+                    if (ret == 0) {
+                        printf("Received EOF from %s\n", TPM2_LINUX_DEV);
+                    }
+                    else {
+                        printf("Failed to read from %s (ret %zd):"
+                            " errno %d = %s\n", TPM2_LINUX_DEV, ret,
+                            errno, strerror(errno));
+                    }
                 #endif
                     rc = TPM_RC_FAILURE;
                 }

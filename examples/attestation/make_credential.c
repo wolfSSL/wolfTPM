@@ -156,6 +156,11 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     wolfTPM2_GetRandom(&dev, makeCredIn.credential.buffer,
                              makeCredIn.credential.size);
     /* Set the object name */
+    if (name.size > sizeof(makeCredIn.objectName.name)) {
+        printf("Name size %d exceeds buffer\n", name.size);
+        rc = BAD_FUNC_ARG;
+        goto exit;
+    }
     makeCredIn.objectName.size = name.size;
     XMEMCPY(makeCredIn.objectName.name, name.name,
             makeCredIn.objectName.size);
