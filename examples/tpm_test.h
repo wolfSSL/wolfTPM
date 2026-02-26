@@ -45,6 +45,7 @@
 #define TPM2_DEMO_NV_TEST_INDEX         0x01800200
 #define TPM2_DEMO_NV_TEST_AUTH_INDEX    0x01800201
 #define TPM2_DEMO_NVRAM_STORE_INDEX     0x01800202
+#define TPM2_DEMO_NVRAM_OWNER_INDEX     0x01800203
 #define TPM2_DEMO_NVRAM_EXTEND_INDEX    0x01000200
 #define TPM2_DEMO_NV_TEST_SIZE          MAX_DIGEST_BUFFER /* max size on Infineon SLB9670 is 1664 */
 #define TPM2_DEMO_NV_COUNTER_INDEX      0x01800300
@@ -73,6 +74,7 @@ static const char gKeyAuthAlt[] =     "ThisIsMyKeyAltAuth";
 static const char gUsageAuth[] =      "ThisIsASecretUsageAuth";
 static const char gNvAuth[] =         "ThisIsMyNvAuth";
 static const char gXorAuth[] =        "ThisIsMyXorAuth";
+static const char gOwnerAuth[] =      "ThisIsMyOwnerAuth";
 
 static const char pemFileAk[] = PEM_FILE_AK;
 static const char pemFileEk[] = PEM_FILE_EK;
