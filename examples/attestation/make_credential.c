@@ -158,6 +158,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     /* Set the object name */
     if (name.size > sizeof(makeCredIn.objectName.name)) {
         printf("Name size %d exceeds buffer\n", name.size);
+        rc = BAD_FUNC_ARG;
         goto exit;
     }
     makeCredIn.objectName.size = name.size;

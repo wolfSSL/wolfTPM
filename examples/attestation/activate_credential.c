@@ -197,11 +197,13 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
             sizeof(activCredIn.credentialBlob.buffer)) {
         printf("Credential blob size %d exceeds buffer\n",
             activCredIn.credentialBlob.size);
+        rc = BAD_FUNC_ARG;
         goto exit;
     }
     if (activCredIn.secret.size > sizeof(activCredIn.secret.secret)) {
         printf("Secret size %d exceeds buffer\n",
             activCredIn.secret.size);
+        rc = BAD_FUNC_ARG;
         goto exit;
     }
 #else

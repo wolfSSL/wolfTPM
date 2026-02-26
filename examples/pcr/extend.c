@@ -163,6 +163,10 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         XFCLOSE(fp);
         if (rc == 0)
             rc = wc_HashFinal(&dig, hashType, hash);
+        if (rc != 0) {
+            printf("Hash operation failed %d\n", rc);
+            goto exit;
+        }
 
         XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,
                 hash, hashSz);
