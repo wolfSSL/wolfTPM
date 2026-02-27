@@ -1,0 +1,70 @@
+name: Seal Test Suite
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+    paths:
+      - 'examples/seal/**'
+      - 'examples/nvram/seal_nv.c'
+      - 'examples/nvram/nvram.h'
+      - 'src/tpm2_wrap.c'
+      - 'wolftpm/tpm2_wrap.h'
+  pull_request:
+    branches: [ '*' ]
+    paths:
+      - 'examples/seal/**'
+      - 'examples/nvram/seal_nv.c'
+      - 'examples/nvram/nvram.h'
+      - 'src/tpm2_wrap.c'
+      - 'wolftpm/tpm2_wrap.h'
+
+jobs:
+  seal-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@master
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@master
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Build and install wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks
+          make -j
+          sudo make install
+          sudo ldconfig
+
+      - name: Checkout ibmswtpm2
+        uses: actions/checkout@master
+        with:
+          repository: kgoldman/ibmswtpm2
+          path: ibmswtpm2
+
+      - name: Build and start SWTPM
+        working-directory: ./ibmswtpm2/src
+        run: |
+          make
+          ./tpm_server &
+
+      - name: Build wolfTPM
+        run: |
+          ./autogen.sh
+          ./configure --enable-swtpm --enable-debug
+          make -j
+
+      - name: Run seal tests
+        run: bash examples/seal/seal_test.sh
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seal-test-logs
+          path: seal_test.log
+          retention-days: 5

@@ -70,12 +70,15 @@ examples/nvram/store
 examples/nvram/read
 examples/nvram/counter
 examples/nvram/policy_nv
+examples/nvram/seal_nv
 examples/gpio/gpio_config
 examples/gpio/gpio_set
 examples/gpio/gpio_read
 examples/gpio/gpio_nuvoton
 examples/seal/seal
 examples/seal/unseal
+examples/seal/seal_pcr
+examples/seal/seal_policy_auth
 examples/attestation/make_credential
 examples/attestation/activate_credential
 examples/attestation/certify
