@@ -1256,6 +1256,18 @@ WOLFTPM_API int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE
     TPMI_ALG_HASH nameAlg, TPM2B_NAME* name, const WOLFTPM2_KEY* parentKey,
     TPMT_SYM_DEF_OBJECT* sym, TPM2B_DATA* symSeed);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Converts a big-endian byte array to a native word32 value.
+    Used for RSA exponent conversion from ASN.1/DER format.
+
+    \param e pointer to big-endian byte array
+    \param eSz size of the byte array (max 4 bytes)
+
+    \return word32 value in native byte order
+*/
+WOLFTPM_API word32 wolfTPM2_RsaKey_Exponent(const byte* e, word32 eSz);
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -1321,6 +1333,7 @@ WOLFTPM_API int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* 
     int encodingType, byte* out, word32* outSz);
 
 #ifndef NO_RSA
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Helper function to import Der rsa key directly
