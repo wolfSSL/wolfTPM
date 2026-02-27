@@ -23,12 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout wolfTPM
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
 
       - name: Checkout wolfSSL
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
         with:
           repository: wolfssl/wolfssl
+          ref: master
           path: wolfssl
 
       - name: Build and install wolfSSL
@@ -41,7 +42,7 @@ jobs:
           sudo ldconfig
 
       - name: Checkout ibmswtpm2
-        uses: actions/checkout@master
+        uses: actions/checkout@v4
         with:
           repository: kgoldman/ibmswtpm2
           path: ibmswtpm2

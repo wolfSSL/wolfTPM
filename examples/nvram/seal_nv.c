@@ -74,6 +74,7 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_SESSION tpmSession;
+    WOLFTPM2_SESSION paramEncSession;
     WOLFTPM2_HANDLE parent;
     WOLFTPM2_NV nv;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
@@ -94,6 +95,7 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
 
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&paramEncSession, 0, sizeof(paramEncSession));
     XMEMSET(&parent, 0, sizeof(parent));
     XMEMSET(&nv, 0, sizeof(nv));
 
@@ -165,6 +167,21 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed\n");
         goto exit;
+    }
+
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start TPM session for parameter encryption */
+        rc = wolfTPM2_StartSession(&dev, &paramEncSession, NULL, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)paramEncSession.handle.hndl);
+        /* Set TPM session attributes for parameter encryption.
+         * Use index 2 to avoid conflict with NV handle auth on index 1 */
+        rc = wolfTPM2_SetAuthSession(&dev, 2, &paramEncSession,
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
     }
 
     /* Validate that the PCR bank is available */
@@ -335,6 +352,7 @@ exit:
     }
 
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+    wolfTPM2_UnloadHandle(&dev, &paramEncSession.handle);
 
     wolfTPM2_Cleanup(&dev);
 

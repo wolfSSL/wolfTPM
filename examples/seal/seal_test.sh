@@ -53,7 +53,7 @@ run_test() {
         if [ $rc -ne 0 ]; then
             fail "$desc (exit code: $rc)"; rm -f "$tmpout"; return 1
         fi
-        if [ -n "$secret" ] && ! grep -q "$secret" "$tmpout"; then
+        if [ -n "$secret" ] && ! grep -F -q -- "$secret" "$tmpout"; then
             fail "$desc (secret not found in output)"; rm -f "$tmpout"; return 1
         fi
         pass "$desc"; rm -f "$tmpout"; return 0
@@ -66,12 +66,12 @@ run_test() {
 setup_pcr() {
     ./examples/pcr/reset 16 >> "$LOGFILE" 2>&1 || return 1
     echo aaa > aaa_pcr16.bin
-    ./examples/pcr/extend 16 aaa_pcr16.bin >> "$LOGFILE" 2>&1
+    ./examples/pcr/extend 16 aaa_pcr16.bin >> "$LOGFILE" 2>&1 || return 1
 }
 
 change_pcr() {
     echo bbb > bbb_pcr16.bin
-    ./examples/pcr/extend 16 bbb_pcr16.bin >> "$LOGFILE" 2>&1
+    ./examples/pcr/extend 16 bbb_pcr16.bin >> "$LOGFILE" 2>&1 || return 1
 }
 
 # Pre-flight
@@ -248,6 +248,32 @@ else
         ./examples/nvram/seal_nv -read -pcr=16 -nvindex=0x01800204
     run_test "3.3c seal_nv -delete nvindex=0x01800204" expect_pass -- \
         ./examples/nvram/seal_nv -delete -nvindex=0x01800204
+
+    # 3.4: XOR param encryption
+    if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+        setup_pcr; S="NVSealXor004"
+        run_test "3.4a seal_nv -store -xor" expect_pass -- \
+            ./examples/nvram/seal_nv -store -pcr=16 -xor -secretstr="$S"
+        run_test "3.4b seal_nv -read -xor (verify)" expect_pass "$S" -- \
+            ./examples/nvram/seal_nv -read -pcr=16 -xor
+        run_test "3.4c seal_nv -delete" expect_pass -- \
+            ./examples/nvram/seal_nv -delete
+    else
+        skip "3.4 seal_nv -xor (wolfCrypt disabled)"
+    fi
+
+    # 3.5: AES param encryption
+    if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        setup_pcr; S="NVSealAes005"
+        run_test "3.5a seal_nv -store -aes" expect_pass -- \
+            ./examples/nvram/seal_nv -store -pcr=16 -aes -secretstr="$S"
+        run_test "3.5b seal_nv -read -aes (verify)" expect_pass "$S" -- \
+            ./examples/nvram/seal_nv -read -pcr=16 -aes
+        run_test "3.5c seal_nv -delete" expect_pass -- \
+            ./examples/nvram/seal_nv -delete
+    else
+        skip "3.5 seal_nv -aes (wolfCrypt default or disabled)"
+    fi
 fi
 echo ""
 

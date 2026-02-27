@@ -22,8 +22,9 @@
 /* Self-contained PolicyAuthorize seal/unseal example.
  *
  * Creates a TPM-internal signing key, seals a secret with PolicyAuthorize
- * + PCR policy, then unseals using the same key. Single program, no
- * external key files needed.
+ * + PCR policy, then unseals using the same key. No pre-existing signing
+ * key is required — the TPM generates one internally. However, the key
+ * blob file (authkey.bin) must be retained for subsequent unseal operations.
  *
  * Sealing method: PolicyAuthorize (with PCR policy)
  *   Complexity:   High

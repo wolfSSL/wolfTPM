@@ -793,6 +793,33 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     [ $RESULT -ne 0 ] && echo -e "seal_nv delete failed! $RESULT" && exit 1
 
     rm -f $TMPFILE aaa_nv.bin
+
+    # seal_nv with XOR parameter encryption
+    if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+        echo aaa > aaa_nv.bin
+        ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
+        ./examples/pcr/extend 16 aaa_nv.bin >> $TPMPWD/run.out 2>&1
+
+        SECRET_STRING="NVSealXorTest"
+        ./examples/nvram/seal_nv -store -pcr=16 -xor -secretstr=$SECRET_STRING >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv store -xor failed! $RESULT" && exit 1
+
+        TMPFILE=$(mktemp)
+        ./examples/nvram/seal_nv -read -pcr=16 -xor &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> $TPMPWD/run.out
+        [ $RESULT -ne 0 ] && echo -e "seal_nv read -xor failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv read -xor match failed! $RESULT" && exit 1
+
+        ./examples/nvram/seal_nv -delete >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv delete (xor) failed! $RESULT" && exit 1
+
+        rm -f $TMPFILE aaa_nv.bin
+    fi
 fi
 
 run_tpm_policy() { # Usage: run_tpm_policy [ecc/rsa] [key] [pcrs]
