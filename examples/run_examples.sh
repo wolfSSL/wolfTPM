@@ -685,7 +685,7 @@ fi
 
 # Seal/Unseal (PCR-only Policy)
 echo -e "Seal/Unseal (PCR-only policy)"
-if [ $NO_FILESYSTEM -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     # Reset PCR 16 and extend with known value
     ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
     RESULT=$?
@@ -761,7 +761,7 @@ fi
 
 # NV Seal (PCR Policy)
 echo -e "NV Seal (PCR policy)"
-if [ $NO_FILESYSTEM -eq 0 ]; then
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     # Reset PCR 16 and extend with known value
     ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
     RESULT=$?
