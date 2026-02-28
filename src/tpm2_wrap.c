@@ -26,6 +26,16 @@
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
 
+/* Convert big-endian byte array to native word32 */
+word32 wolfTPM2_RsaKey_Exponent(const byte* e, word32 eSz)
+{
+    word32 exponent = 0, i;
+    for (i = 0; i < eSz && i < sizeof(word32); i++) {
+        exponent = (exponent << 8) | e[i];
+    }
+    return exponent;
+}
+
 #ifndef WOLFTPM2_NO_WRAPPER
 
 /* For some struct to buffer conversions */
@@ -3529,15 +3539,6 @@ int wolfTPM2_RsaKey_TpmToPemPub(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 #endif /* !NO_ASN */
 
 #ifndef NO_RSA
-static word32 wolfTPM2_RsaKey_Exponent(byte* e, word32 eSz)
-{
-    word32 exponent = 0, i;
-    for (i=0; i<eSz && i<sizeof(word32); i++) {
-        exponent |= ((word32)e[i]) << (i*8);
-    }
-    return exponent;
-}
-
 int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     RsaKey* wolfKey)
 {
@@ -4144,22 +4145,22 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         /* Assemble R and S into signature (R then S) */
         sigOutSz = curveSize * 2;
         if (sigOutSz > *sigSz ||
-            curveSize > ecdsa->signatureR.size ||
-            curveSize > ecdsa->signatureS.size) {
+            ecdsa->signatureR.size > curveSize ||
+            ecdsa->signatureS.size > curveSize) {
         #ifdef DEBUG_WOLFTPM
             printf("TPM2_Sign: ECC result buffer too small %d -> %d\n",
                 sigOutSz, *sigSz);
         #endif
             return BUFFER_E;
         }
-        XMEMCPY(sig, ecdsa->signatureR.buffer,
-            ecdsa->signatureR.size);
-        XMEMSET(sig + ecdsa->signatureR.size, 0,
-            curveSize - ecdsa->signatureR.size);
-        XMEMCPY(sig + curveSize, ecdsa->signatureS.buffer,
-            ecdsa->signatureS.size);
-        XMEMSET(sig + curveSize + ecdsa->signatureS.size, 0,
-            curveSize - ecdsa->signatureS.size);
+        /* Left-pad R */
+        XMEMSET(sig, 0, curveSize - ecdsa->signatureR.size);
+        XMEMCPY(sig + curveSize - ecdsa->signatureR.size,
+            ecdsa->signatureR.buffer, ecdsa->signatureR.size);
+        /* Left-pad S */
+        XMEMSET(sig + curveSize, 0, curveSize - ecdsa->signatureS.size);
+        XMEMCPY(sig + curveSize + (curveSize - ecdsa->signatureS.size),
+            ecdsa->signatureS.buffer, ecdsa->signatureS.size);
     }
     else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         /* RSA signature size and buffer (with padding depending on scheme) */
@@ -5857,7 +5858,7 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     /* update IV */
     if (iv) {
-        if (ivSz < encDecOut.ivOut.size)
+        if (ivSz > encDecOut.ivOut.size)
             ivSz = encDecOut.ivOut.size;
         XMEMCPY(iv, encDecOut.ivOut.buffer, ivSz);
     }

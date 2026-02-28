@@ -24,6 +24,7 @@
 #endif
 
 #include <wolftpm/tpm2_asn.h>
+#include <wolftpm/tpm2_wrap.h>
 
 #ifndef WOLFTPM2_NO_ASN
 
@@ -343,8 +344,8 @@ int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
         }
     }
     if (rc == 0) {
-        XMEMCPY(&pub->publicArea.parameters.rsaDetail.exponent, &input[idx],
-            exp_len);
+        pub->publicArea.parameters.rsaDetail.exponent =
+            wolfTPM2_RsaKey_Exponent(&input[idx], exp_len);
     }
     return rc;
 }
