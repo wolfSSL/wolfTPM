@@ -683,6 +683,145 @@ if [ $NO_FILESYSTEM -eq 0 ]; then
     fi
 fi
 
+# Seal/Unseal (PCR-only Policy)
+echo -e "Seal/Unseal (PCR-only policy)"
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
+    # Reset PCR 16 and extend with known value
+    ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 reset failed! $RESULT" && exit 1
+    echo aaa > aaa_pcr.bin
+    ./examples/pcr/extend 16 aaa_pcr.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 extend failed! $RESULT" && exit 1
+
+    # Seal and unseal with PCR-only policy (should succeed)
+    TMPFILE=$(mktemp)
+    SECRET_STRING="SealPCRTestSecret"
+    ./examples/seal/seal_pcr -both -pcr=16 -secretstr=$SECRET_STRING &> $TMPFILE
+    RESULT=$?
+    cat $TMPFILE >> $TPMPWD/run.out
+    [ $RESULT -ne 0 ] && echo -e "seal_pcr both failed! $RESULT" && exit 1
+    grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "seal_pcr secret match failed! $RESULT" && exit 1
+
+    # Extend PCR 16 again so it changes, then try unseal (should fail)
+    echo bbb > bbb_pcr.bin
+    ./examples/pcr/extend 16 bbb_pcr.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 extend (2nd) failed! $RESULT" && exit 1
+    ./examples/seal/seal_pcr -unseal -pcr=16 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -eq 0 ] && echo -e "seal_pcr unseal should have failed after PCR change! $RESULT" && exit 1
+
+    rm -f $TMPFILE sealblob.bin aaa_pcr.bin bbb_pcr.bin
+fi
+
+# Seal/Unseal (PolicyAuthorize - self-contained)
+echo -e "Seal/Unseal (PolicyAuthorize)"
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
+    # Reset PCR 16 and extend with known value
+    ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 reset failed! $RESULT" && exit 1
+    echo aaa > aaa_pa.bin
+    ./examples/pcr/extend 16 aaa_pa.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 extend failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_ECC -eq 1 ]; then
+        TMPFILE=$(mktemp)
+        SECRET_STRING="PolicyAuthECCSecret"
+        ./examples/seal/seal_policy_auth -both -ecc -pcr=16 -secretstr=$SECRET_STRING &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> $TPMPWD/run.out
+        [ $RESULT -ne 0 ] && echo -e "seal_policy_auth ecc failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_policy_auth ecc match failed! $RESULT" && exit 1
+        rm -f $TMPFILE sealblob.bin authkey.bin
+    fi
+
+    if [ $WOLFCRYPT_RSA -eq 1 ]; then
+        TMPFILE=$(mktemp)
+        SECRET_STRING="PolicyAuthRSASecret"
+        ./examples/seal/seal_policy_auth -both -rsa -pcr=16 -secretstr=$SECRET_STRING &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> $TPMPWD/run.out
+        [ $RESULT -ne 0 ] && echo -e "seal_policy_auth rsa failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_policy_auth rsa match failed! $RESULT" && exit 1
+        rm -f $TMPFILE sealblob.bin authkey.bin
+    fi
+
+    rm -f aaa_pa.bin
+fi
+
+# NV Seal (PCR Policy)
+echo -e "NV Seal (PCR policy)"
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ]; then
+    # Reset PCR 16 and extend with known value
+    ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 reset failed! $RESULT" && exit 1
+    echo aaa > aaa_nv.bin
+    ./examples/pcr/extend 16 aaa_nv.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr 16 extend failed! $RESULT" && exit 1
+
+    # Store secret to NV with PCR policy
+    SECRET_STRING="NVSealTestSecret"
+    ./examples/nvram/seal_nv -store -pcr=16 -secretstr=$SECRET_STRING >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "seal_nv store failed! $RESULT" && exit 1
+
+    # Read back and verify
+    TMPFILE=$(mktemp)
+    ./examples/nvram/seal_nv -read -pcr=16 &> $TMPFILE
+    RESULT=$?
+    cat $TMPFILE >> $TPMPWD/run.out
+    [ $RESULT -ne 0 ] && echo -e "seal_nv read failed! $RESULT" && exit 1
+    grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "seal_nv read match failed! $RESULT" && exit 1
+
+    # Delete NV index (cleanup)
+    ./examples/nvram/seal_nv -delete >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "seal_nv delete failed! $RESULT" && exit 1
+
+    rm -f $TMPFILE aaa_nv.bin
+
+    # seal_nv with XOR parameter encryption
+    if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+        echo aaa > aaa_nv.bin
+        ./examples/pcr/reset 16 >> $TPMPWD/run.out 2>&1
+        ./examples/pcr/extend 16 aaa_nv.bin >> $TPMPWD/run.out 2>&1
+
+        SECRET_STRING="NVSealXorTest"
+        ./examples/nvram/seal_nv -store -pcr=16 -xor -secretstr=$SECRET_STRING >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv store -xor failed! $RESULT" && exit 1
+
+        TMPFILE=$(mktemp)
+        ./examples/nvram/seal_nv -read -pcr=16 -xor &> $TMPFILE
+        RESULT=$?
+        cat $TMPFILE >> $TPMPWD/run.out
+        [ $RESULT -ne 0 ] && echo -e "seal_nv read -xor failed! $RESULT" && exit 1
+        grep "$SECRET_STRING" $TMPFILE >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv read -xor match failed! $RESULT" && exit 1
+
+        ./examples/nvram/seal_nv -delete >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "seal_nv delete (xor) failed! $RESULT" && exit 1
+
+        rm -f $TMPFILE aaa_nv.bin
+    fi
+fi
+
 run_tpm_policy() { # Usage: run_tpm_policy [ecc/rsa] [key] [pcrs]
     echo -e "TPM Seal/Unseal (Policy Auth) test $1 $2 $3"
 
