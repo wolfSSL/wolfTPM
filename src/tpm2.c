@@ -26,9 +26,15 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
-#include <wolftpm/tpm2_linux.h>
-#include <wolftpm/tpm2_swtpm.h>
-#include <wolftpm/tpm2_winapi.h>
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+    #include <wolftpm/tpm2_linux.h>
+#endif
+#ifdef WOLFTPM_SWTPM
+    #include <wolftpm/tpm2_swtpm.h>
+#endif
+#ifdef WOLFTPM_WINAPI
+    #include <wolftpm/tpm2_winapi.h>
+#endif
 #include <wolftpm/tpm2_param_enc.h>
 
 #include <hal/tpm_io.h>
