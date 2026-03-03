@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 
 /* --- Transcript Management ---
  * VCA = GET_VERSION || VERSION || GET_CAPS || CAPS || NEG_ALGO || ALGO

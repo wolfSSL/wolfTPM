@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 
 /* Callback types for build/parse functions */
 typedef int (*wolfSPDM_BuildFn)(WOLFSPDM_CTX*, byte*, word32*);
@@ -38,12 +37,14 @@ static int wolfSPDM_ExchangeMsg(WOLFSPDM_CTX* ctx,
     rc = buildFn(ctx, txBuf, &txSz);
     if (rc != WOLFSPDM_SUCCESS) return rc;
 
-    wolfSPDM_TranscriptAdd(ctx, txBuf, txSz);
+    rc = wolfSPDM_TranscriptAdd(ctx, txBuf, txSz);
+    if (rc != WOLFSPDM_SUCCESS) return rc;
 
     rc = wolfSPDM_SendReceive(ctx, txBuf, txSz, rxBuf, &rxSz);
     if (rc != WOLFSPDM_SUCCESS) return rc;
 
-    wolfSPDM_TranscriptAdd(ctx, rxBuf, rxSz);
+    rc = wolfSPDM_TranscriptAdd(ctx, rxBuf, rxSz);
+    if (rc != WOLFSPDM_SUCCESS) return rc;
 
     return parseFn(ctx, rxBuf, rxSz);
 }
@@ -351,6 +352,16 @@ int wolfSPDM_GetMeasurements(WOLFSPDM_CTX* ctx, byte measOperation,
         return rc;
     }
 
+    /* Check for SPDM error before parsing measurements */
+    {
+        int errCode = 0;
+        if (wolfSPDM_CheckError(rxBuf, rxSz, &errCode)) {
+            wolfSPDM_DebugPrint(ctx,
+                "GET_MEASUREMENTS: responder error 0x%02x\n", errCode);
+            return WOLFSPDM_E_PEER_ERROR;
+        }
+    }
+
     /* Parse the response */
     rc = wolfSPDM_ParseMeasurements(ctx, rxBuf, rxSz);
     if (rc != WOLFSPDM_SUCCESS) {
@@ -392,7 +403,7 @@ int wolfSPDM_GetMeasurements(WOLFSPDM_CTX* ctx, byte measOperation,
 
 int wolfSPDM_Challenge(WOLFSPDM_CTX* ctx, int slotId, byte measHashType)
 {
-    byte txBuf[48];   /* CHALLENGE: 36 bytes */
+    byte txBuf[48];   /* CHALLENGE: 36 bytes (1.2) or 46 bytes (1.3+) */
     byte rxBuf[512];  /* CHALLENGE_AUTH: variable, up to ~300+ bytes */
     word32 txSz = sizeof(txBuf);
     word32 rxSz = sizeof(rxBuf);

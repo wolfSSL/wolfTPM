@@ -940,6 +940,178 @@ static int test_key_update_state_check(void)
 }
 
 /* ========================================================================== */
+/* Multi-Version Tests */
+/* ========================================================================== */
+
+static int test_kdf_version_prefix(void)
+{
+    byte secret[48];
+    byte context[48];
+    byte out12[32], out13[32], out14[32];
+
+    printf("test_kdf_version_prefix...\n");
+
+    memset(secret, 0x5A, sizeof(secret));
+    memset(context, 0x00, sizeof(context));
+
+    ASSERT_SUCCESS(wolfSPDM_HkdfExpandLabel(SPDM_VERSION_12, secret,
+        sizeof(secret), SPDM_LABEL_KEY, context, sizeof(context),
+        out12, sizeof(out12)));
+    ASSERT_SUCCESS(wolfSPDM_HkdfExpandLabel(SPDM_VERSION_13, secret,
+        sizeof(secret), SPDM_LABEL_KEY, context, sizeof(context),
+        out13, sizeof(out13)));
+    ASSERT_SUCCESS(wolfSPDM_HkdfExpandLabel(SPDM_VERSION_14, secret,
+        sizeof(secret), SPDM_LABEL_KEY, context, sizeof(context),
+        out14, sizeof(out14)));
+
+    /* All three outputs should differ due to different BinConcat prefixes */
+    ASSERT_NE(memcmp(out12, out13, sizeof(out12)), 0,
+        "1.2 and 1.3 outputs should differ");
+    ASSERT_NE(memcmp(out13, out14, sizeof(out13)), 0,
+        "1.3 and 1.4 outputs should differ");
+    ASSERT_NE(memcmp(out12, out14, sizeof(out12)), 0,
+        "1.2 and 1.4 outputs should differ");
+
+    TEST_PASS();
+}
+
+static int test_hmac_mismatch_negative(void)
+{
+    byte finishedKeyA[WOLFSPDM_HASH_SIZE];
+    byte finishedKeyB[WOLFSPDM_HASH_SIZE];
+    byte thHash[WOLFSPDM_HASH_SIZE];
+    byte verifyA[WOLFSPDM_HASH_SIZE];
+    byte verifyB[WOLFSPDM_HASH_SIZE];
+
+    printf("test_hmac_mismatch_negative...\n");
+
+    memset(finishedKeyA, 0xAB, sizeof(finishedKeyA));
+    memset(finishedKeyB, 0xAC, sizeof(finishedKeyB));  /* Differs by 1 bit */
+    memset(thHash, 0xCD, sizeof(thHash));
+
+    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(finishedKeyA, thHash, verifyA));
+    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(finishedKeyB, thHash, verifyB));
+
+    /* Single-bit change in key must produce different verify data */
+    ASSERT_NE(memcmp(verifyA, verifyB, WOLFSPDM_HASH_SIZE), 0,
+        "Different keys should produce different verify data");
+
+    TEST_PASS();
+}
+
+static int test_transcript_overflow(void)
+{
+    byte chunk[256];
+    word32 i, needed;
+    TEST_CTX_SETUP();
+
+    printf("test_transcript_overflow...\n");
+
+    memset(chunk, 0x42, sizeof(chunk));
+
+    /* Fill transcript to capacity */
+    needed = WOLFSPDM_MAX_TRANSCRIPT / sizeof(chunk);
+    for (i = 0; i < needed; i++) {
+        ASSERT_SUCCESS(wolfSPDM_TranscriptAdd(ctx, chunk, sizeof(chunk)));
+    }
+    ASSERT_EQ(ctx->transcriptLen, (word32)(needed * sizeof(chunk)),
+        "Transcript should be full");
+
+    /* Next add should fail with BUFFER_SMALL */
+    ASSERT_EQ(wolfSPDM_TranscriptAdd(ctx, chunk, sizeof(chunk)),
+        WOLFSPDM_E_BUFFER_SMALL, "Overflow should return BUFFER_SMALL");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#ifndef NO_WOLFSPDM_MEAS
+static int test_parse_measurements_negative(void)
+{
+    byte truncated[] = {0x12, 0x60, 0x00, 0x00, 0x01};
+    byte wrongCode[] = {0x12, 0xFF, 0x00, 0x00, 0x01, 0x04, 0x00, 0x00};
+    TEST_CTX_SETUP();
+
+    printf("test_parse_measurements_negative...\n");
+
+    /* Truncated buffer */
+    ASSERT_FAIL(wolfSPDM_ParseMeasurements(ctx, truncated, sizeof(truncated)));
+
+    /* Wrong response code */
+    ASSERT_FAIL(wolfSPDM_ParseMeasurements(ctx, wrongCode, sizeof(wrongCode)));
+
+    /* NULL inputs */
+    ASSERT_FAIL(wolfSPDM_ParseMeasurements(NULL, truncated, sizeof(truncated)));
+    ASSERT_FAIL(wolfSPDM_ParseMeasurements(ctx, NULL, sizeof(truncated)));
+
+    /* Zero length */
+    ASSERT_FAIL(wolfSPDM_ParseMeasurements(ctx, truncated, 0));
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+#endif /* !NO_WOLFSPDM_MEAS */
+
+static int test_version_fallback(void)
+{
+    /* Fake VERSION response with versions 1.0, 1.1, 1.2, 1.3 */
+    byte rsp[] = {
+        0x10, SPDM_VERSION, 0x00, 0x00,    /* header */
+        0x04, 0x00,                          /* entryCount = 4 */
+        0x00, 0x10,                          /* 1.0 */
+        0x00, 0x11,                          /* 1.1 */
+        0x00, 0x12,                          /* 1.2 */
+        0x00, 0x13                           /* 1.3 */
+    };
+    TEST_CTX_SETUP();
+
+    printf("test_version_fallback...\n");
+
+    /* With no maxVersion set, should select 1.3 (highest mutual) */
+    ASSERT_SUCCESS(wolfSPDM_ParseVersion(ctx, rsp, sizeof(rsp)));
+    ASSERT_EQ(ctx->spdmVersion, SPDM_VERSION_13,
+        "Should select 1.3 as highest mutual");
+
+    /* Reset state and set maxVersion to 1.2 */
+    ctx->state = WOLFSPDM_STATE_INIT;
+    ctx->spdmVersion = 0;
+    ctx->maxVersion = SPDM_VERSION_12;
+    ASSERT_SUCCESS(wolfSPDM_ParseVersion(ctx, rsp, sizeof(rsp)));
+    ASSERT_EQ(ctx->spdmVersion, SPDM_VERSION_12,
+        "Should fall back to 1.2 with maxVersion cap");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_set_max_version(void)
+{
+    TEST_CTX_SETUP();
+
+    printf("test_set_max_version...\n");
+
+    /* Valid versions */
+    ASSERT_SUCCESS(wolfSPDM_SetMaxVersion(ctx, SPDM_VERSION_12));
+    ASSERT_EQ(ctx->maxVersion, SPDM_VERSION_12, "maxVersion should be 0x12");
+    ASSERT_SUCCESS(wolfSPDM_SetMaxVersion(ctx, SPDM_VERSION_14));
+    ASSERT_EQ(ctx->maxVersion, SPDM_VERSION_14, "maxVersion should be 0x14");
+
+    /* Reset to default */
+    ASSERT_SUCCESS(wolfSPDM_SetMaxVersion(ctx, 0));
+    ASSERT_EQ(ctx->maxVersion, 0, "maxVersion should be 0 (default)");
+
+    /* Invalid: too low */
+    ASSERT_FAIL(wolfSPDM_SetMaxVersion(ctx, 0x11));
+    /* Invalid: too high */
+    ASSERT_FAIL(wolfSPDM_SetMaxVersion(ctx, 0x15));
+    /* NULL ctx */
+    ASSERT_FAIL(wolfSPDM_SetMaxVersion(NULL, SPDM_VERSION_12));
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+/* ========================================================================== */
 /* Session State Tests */
 /* ========================================================================== */
 
@@ -1036,6 +1208,16 @@ int main(void)
     test_parse_key_update_ack();
     test_derive_updated_keys();
     test_key_update_state_check();
+
+    /* Multi-version tests */
+    test_kdf_version_prefix();
+    test_hmac_mismatch_negative();
+    test_transcript_overflow();
+#ifndef NO_WOLFSPDM_MEAS
+    test_parse_measurements_negative();
+#endif
+    test_version_fallback();
+    test_set_max_version();
 
     /* Session state tests */
     test_session_state();

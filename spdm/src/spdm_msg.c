@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 #include <wolfssl/wolfcrypt/asn.h>
 
 int wolfSPDM_BuildGetVersion(byte* buf, word32* bufSz)
@@ -54,9 +53,9 @@ int wolfSPDM_BuildGetCapabilities(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     SPDM_Set32LE(&buf[8], ctx->reqCaps);
 
     /* DataTransferSize (4 LE) */
-    buf[12] = 0x00; buf[13] = 0x10; buf[14] = 0x00; buf[15] = 0x00;
+    SPDM_Set32LE(&buf[12], WOLFSPDM_MAX_MSG_SIZE);
     /* MaxSPDMmsgSize (4 LE) */
-    buf[16] = 0x00; buf[17] = 0x10; buf[18] = 0x00; buf[19] = 0x00;
+    SPDM_Set32LE(&buf[16], WOLFSPDM_MAX_MSG_SIZE);
 
     *bufSz = 20;
     return WOLFSPDM_SUCCESS;
@@ -195,7 +194,8 @@ int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     buf[offset++] = 0x10; buf[offset++] = 0x00;  /* Version 1.0 (0x0010 LE) */
     buf[offset++] = 0x00; buf[offset++] = 0x00;  /* Padding to make OpaqueData 12 bytes */
 #else
-    /* Standard SPDM 1.2+ OpaqueData format: 20 bytes */
+    /* Standard SPDM 1.2+ OpaqueData format: 20 bytes
+     * OpaqueLength must be a multiple of 4 per DSP0274. */
     buf[offset++] = 0x14;  /* OpaqueLength = 20 */
     buf[offset++] = 0x00;
     buf[offset++] = 0x01; buf[offset++] = 0x00;  /* TotalElements */
@@ -307,6 +307,11 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     int mutualAuth = 0;
     int rc;
 
+    /* Check arguments first before any ctx dereference */
+    if (ctx == NULL || buf == NULL || bufSz == NULL) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
 #ifdef WOLFSPDM_NUVOTON
     /* Nuvoton requires mutual authentication when we have a requester key */
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON && ctx->flags.hasReqKeyPair) {
@@ -315,15 +320,16 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     }
 #endif
 
-    /* Check buffer size: 148 bytes for mutual auth, 52 bytes otherwise */
-    if (ctx == NULL || buf == NULL || bufSz == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-    if (mutualAuth && *bufSz < 148) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-    if (!mutualAuth && *bufSz < 52) {
-        return WOLFSPDM_E_BUFFER_SMALL;
+    /* Check buffer size: header(4) + [OpaqueLength(2) for 1.4+] +
+     * [signature(96) for mutual auth] + HMAC(48) */
+    {
+        word32 minSz = 4 + WOLFSPDM_HASH_SIZE;  /* header + HMAC */
+        if (ctx->spdmVersion >= SPDM_VERSION_14)
+            minSz += 2;  /* OpaqueLength */
+        if (mutualAuth)
+            minSz += WOLFSPDM_ECC_POINT_SIZE;  /* Signature */
+        if (*bufSz < minSz)
+            return WOLFSPDM_E_BUFFER_SMALL;
     }
 
     /* Build FINISH header */
@@ -336,6 +342,12 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     else {
         buf[2] = 0x00;  /* Param1: No signature */
         buf[3] = 0x00;  /* Param2: SlotID = 0 when no signature */
+    }
+
+    /* SPDM 1.4 adds OpaqueLength(2) + OpaqueData(var) after header */
+    if (ctx->spdmVersion >= SPDM_VERSION_14) {
+        buf[offset++] = 0x00;  /* OpaqueLength = 0 (LE) */
+        buf[offset++] = 0x00;
     }
 
     /* Per DSP0274 / libspdm: When mutual auth is requested, the transcript
@@ -357,8 +369,8 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     }
 #endif
 
-    /* Add FINISH header to transcript for TH2 */
-    rc = wolfSPDM_TranscriptAdd(ctx, buf, 4);
+    /* Add FINISH header (+ OpaqueLength for 1.4) to transcript for TH2 */
+    rc = wolfSPDM_TranscriptAdd(ctx, buf, offset);
     if (rc != WOLFSPDM_SUCCESS) {
         return rc;
     }
@@ -450,11 +462,27 @@ int wolfSPDM_CheckError(const byte* buf, word32 bufSz, int* errorCode)
     return 0;
 }
 
+/* Maximum SPDM version we support. Supports SPDM 1.2 through 1.4.
+ * Override with -DWOLFSPDM_MAX_SPDM_VERSION at compile time to cap
+ * at a lower version. Runtime override via wolfSPDM_SetMaxVersion(). */
+#ifndef WOLFSPDM_MAX_SPDM_VERSION
+#define WOLFSPDM_MAX_SPDM_VERSION  SPDM_VERSION_14
+#endif
+
+/* Minimum SPDM version we require. Our key derivation uses BinConcat
+ * format ("spdm1.2 " prefix) which is a 1.2+ feature. SPDM 1.1 uses
+ * a different HKDF label format and would require separate key
+ * derivation code. Override at compile time if 1.1 support is added. */
+#ifndef WOLFSPDM_MIN_SPDM_VERSION
+#define WOLFSPDM_MIN_SPDM_VERSION  SPDM_VERSION_12
+#endif
+
 int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
 {
     word16 entryCount;
+    word16 maxEntries;
     word32 i;
-    byte highestVersion = SPDM_VERSION_12;  /* Start at 1.2, find highest supported (capped at 1.3) */
+    byte highestVersion = 0;  /* No version found yet */
 
     SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, 6);
     SPDM_CHECK_RESPONSE(ctx, buf, bufSz, SPDM_VERSION, WOLFSPDM_E_VERSION_MISMATCH);
@@ -464,19 +492,36 @@ int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
      * Offset 6+: VersionNumberEntry array (2 bytes each, LE) */
     entryCount = SPDM_Get16LE(&buf[4]);
 
-    /* Find highest supported version from entries (capped at 1.3 for now)
-     *
-     * TODO: SPDM 1.4 fails at FINISH step with libspdm emulator returning
-     * InvalidRequest (0x01). KEY_EXCHANGE and key derivation work correctly
-     * with "spdm1.4 " prefix, but FINISH message format may differ in 1.4.
-     * Investigate OpaqueData format or FINISH requirements for 1.4 support.
-     */
-    for (i = 0; i < entryCount && (6 + i * 2 + 1) < bufSz; i++) {
-        byte ver = buf[6 + i * 2 + 1];  /* Major.Minor in high byte */
-        /* Cap at 1.3 (0x13) - SPDM 1.4 FINISH handling needs work */
-        if (ver > highestVersion && ver <= SPDM_VERSION_13) {
-            highestVersion = ver;
+    /* Cap entryCount to what actually fits in the buffer to prevent
+     * overflow on exotic compilers where i*2 could wrap */
+    maxEntries = (word16)((bufSz - 6) / 2);
+    if (entryCount > maxEntries) {
+        entryCount = maxEntries;
+    }
+
+    /* Find highest mutually supported version.
+     * Per DSP0274, negotiated version must be the highest version
+     * that both sides support. We support WOLFSPDM_MIN_SPDM_VERSION
+     * through WOLFSPDM_MAX_SPDM_VERSION (or ctx->maxVersion if set). */
+    {
+        byte maxVer = (ctx->maxVersion != 0) ? ctx->maxVersion
+                                              : WOLFSPDM_MAX_SPDM_VERSION;
+        for (i = 0; i < entryCount; i++) {
+            /* Each entry is 2 bytes; high byte (offset +1) is Major.Minor */
+            byte ver = buf[6 + i * 2 + 1];
+            if (ver >= WOLFSPDM_MIN_SPDM_VERSION &&
+                ver <= maxVer &&
+                ver > highestVersion) {
+                highestVersion = ver;
+            }
         }
+    }
+
+    /* If no mutually supported version found, fail */
+    if (highestVersion == 0) {
+        wolfSPDM_DebugPrint(ctx, "No mutually supported SPDM version found "
+            "(require >= 0x%02x)\n", WOLFSPDM_MIN_SPDM_VERSION);
+        return WOLFSPDM_E_VERSION_MISMATCH;
     }
 
     ctx->spdmVersion = highestVersion;
@@ -500,8 +545,37 @@ int wolfSPDM_ParseCapabilities(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
 
 int wolfSPDM_ParseAlgorithms(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
 {
-    SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, 4);
+    word32 baseAsymAlgo;
+    word32 baseHashAlgo;
+
+    SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, 36);
     SPDM_CHECK_RESPONSE(ctx, buf, bufSz, SPDM_ALGORITHMS, WOLFSPDM_E_ALGO_MISMATCH);
+
+    /* Validate negotiated algorithms match Algorithm Set B.
+     * ALGORITHMS response layout (DSP0274 Table 18):
+     *   Offset 8-11:  MeasurementHashAlgo (4 LE)
+     *   Offset 12-15: BaseAsymSel (4 LE)
+     *   Offset 16-19: BaseHashSel (4 LE)
+     * Note: Response has MeasurementHashAlgo before BaseAsymSel,
+     * unlike the request which has BaseAsymAlgo at offset 8. */
+    baseAsymAlgo = SPDM_Get32LE(&buf[12]);
+    baseHashAlgo = SPDM_Get32LE(&buf[16]);
+
+    if (!(baseAsymAlgo & SPDM_ASYM_ALGO_ECDSA_P384)) {
+        wolfSPDM_DebugPrint(ctx,
+            "ALGORITHMS: responder does not support ECDSA P-384 (0x%08x)\n",
+            baseAsymAlgo);
+        return WOLFSPDM_E_ALGO_MISMATCH;
+    }
+    if (!(baseHashAlgo & SPDM_HASH_ALGO_SHA_384)) {
+        wolfSPDM_DebugPrint(ctx,
+            "ALGORITHMS: responder does not support SHA-384 (0x%08x)\n",
+            baseHashAlgo);
+        return WOLFSPDM_E_ALGO_MISMATCH;
+    }
+
+    wolfSPDM_DebugPrint(ctx, "ALGORITHMS: BaseAsym=0x%08x BaseHash=0x%08x\n",
+        baseAsymAlgo, baseHashAlgo);
 
     ctx->state = WOLFSPDM_STATE_ALGO;
     return WOLFSPDM_SUCCESS;
@@ -587,6 +661,10 @@ int wolfSPDM_ParseKeyExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufS
         return rc;
     }
 
+    /* TODO: Verify responder signature (DSP0274) - prevents MITM key
+     * substitution. Requires correct TH1 transcript construction which
+     * differs between standard and Nuvoton modes. */
+
     /* Add signature to transcript (TH1 includes signature) */
     rc = wolfSPDM_TranscriptAdd(ctx, signature, WOLFSPDM_ECC_SIG_SIZE);
     if (rc != WOLFSPDM_SUCCESS) {
@@ -638,8 +716,23 @@ int wolfSPDM_ParseFinishRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
 
     if (buf[1] == SPDM_FINISH_RSP) {
         int addRc;
-        /* Add FINISH_RSP to transcript for TH2_final (app data key derivation) */
-        addRc = wolfSPDM_TranscriptAdd(ctx, buf, 4);
+        word32 rspMsgLen = 4;
+
+        /* SPDM 1.4 adds OpaqueLength(2) + OpaqueData(var) to FINISH_RSP */
+        if (ctx->spdmVersion >= SPDM_VERSION_14) {
+            word16 opaqueLen;
+            if (bufSz < 6) {
+                return WOLFSPDM_E_BUFFER_SMALL;
+            }
+            opaqueLen = SPDM_Get16LE(&buf[4]);
+            rspMsgLen = 4 + 2 + opaqueLen;
+            if (bufSz < rspMsgLen) {
+                return WOLFSPDM_E_BUFFER_SMALL;
+            }
+        }
+
+        /* Add FINISH_RSP (header + OpaqueData for 1.4) to transcript */
+        addRc = wolfSPDM_TranscriptAdd(ctx, buf, rspMsgLen);
         if (addRc != WOLFSPDM_SUCCESS) {
             return addRc;
         }
@@ -669,17 +762,26 @@ int wolfSPDM_BuildGetMeasurements(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz,
         return WOLFSPDM_E_INVALID_ARG;
     }
 
-    /* Size: 4 header + (requestSig ? 32 nonce + 1 slotId : 0) */
-    if (requestSig && *bufSz < 37) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-    if (!requestSig && *bufSz < 4) {
-        return WOLFSPDM_E_BUFFER_SMALL;
+    /* Size: 4 header + (requestSig ? 32 nonce + 1 slotId : 0)
+     * SPDM 1.3+ adds RequesterContext(8) always, plus
+     * OpaqueDataLength(2) when signature is requested */
+    {
+        word32 minSz = 4;
+        if (requestSig) {
+            minSz += 32 + 1;  /* Nonce + SlotIDParam */
+        }
+        if (ctx->spdmVersion >= SPDM_VERSION_13) {
+            minSz += 8;       /* RequesterContext (always for 1.3+) */
+            if (requestSig)
+                minSz += 2;   /* OpaqueDataLength */
+        }
+        if (*bufSz < minSz)
+            return WOLFSPDM_E_BUFFER_SMALL;
     }
 
     buf[offset++] = ctx->spdmVersion;
     buf[offset++] = SPDM_GET_MEASUREMENTS;
-    /* Param1: bits [7:1] = MeasurementSummaryHashType, bit 0 = signature requested */
+    /* Param1: bit 0 = signature requested */
     buf[offset++] = requestSig ? SPDM_MEAS_REQUEST_SIG_BIT : 0x00;
     /* Param2: MeasurementOperation */
     buf[offset++] = operation;
@@ -695,6 +797,18 @@ int wolfSPDM_BuildGetMeasurements(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz,
 
         /* SlotIDParam (1 byte) — slot 0 */
         buf[offset++] = 0x00;
+    }
+
+    /* SPDM 1.3+ adds RequesterContext (8 bytes) for both signed and unsigned.
+     * Per DSP0274 Table 51, this field is always present for version >= 1.3. */
+    if (ctx->spdmVersion >= SPDM_VERSION_13) {
+        int rc = wolfSPDM_GetRandom(ctx, &buf[offset], 8);
+        if (rc != WOLFSPDM_SUCCESS) {
+            return rc;
+        }
+        offset += 8;
+        /* Note: OpaqueDataLength is NOT part of GET_MEASUREMENTS request
+         * per DSP0274 Table 51 / libspdm. Only RequesterContext is added. */
     }
 
     *bufSz = offset;
@@ -1084,9 +1198,14 @@ int wolfSPDM_BuildChallenge(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz,
     int slotId, byte measHashType)
 {
     word32 offset = 0;
+    word32 minSz;
     int rc;
 
-    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, 36);
+    /* SPDM 1.3+ adds RequesterContext(8) per DSP0274 Table 46 */
+    minSz = 36;
+    if (ctx->spdmVersion >= SPDM_VERSION_13)
+        minSz += 8;  /* RequesterContext */
+    SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, minSz);
 
     buf[offset++] = ctx->spdmVersion;
     buf[offset++] = SPDM_CHALLENGE;
@@ -1103,6 +1222,16 @@ int wolfSPDM_BuildChallenge(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz,
     }
     XMEMCPY(ctx->challengeNonce, &buf[offset], 32);
     offset += 32;
+
+    /* SPDM 1.3+ adds RequesterContext(8) per DSP0274 Table 46.
+     * Note: OpaqueDataLength is NOT part of the CHALLENGE request. */
+    if (ctx->spdmVersion >= SPDM_VERSION_13) {
+        rc = wolfSPDM_GetRandom(ctx, &buf[offset], 8);
+        if (rc != WOLFSPDM_SUCCESS) {
+            return rc;
+        }
+        offset += 8;
+    }
 
     *bufSz = offset;
     return WOLFSPDM_SUCCESS;
@@ -1169,6 +1298,17 @@ int wolfSPDM_ParseChallengeAuth(WOLFSPDM_CTX* ctx, const byte* buf,
         return WOLFSPDM_E_CHALLENGE;
     }
     offset += opaqueLen;
+
+    /* SPDM 1.3+ adds RequesterContext (8 bytes echoed from request)
+     * Per DSP0274, this comes AFTER OpaqueData and BEFORE Signature */
+    if (ctx->spdmVersion >= SPDM_VERSION_13) {
+        if (offset + 8 > bufSz) {
+            wolfSPDM_DebugPrint(ctx,
+                "CHALLENGE_AUTH: too short for RequesterContext\n");
+            return WOLFSPDM_E_CHALLENGE;
+        }
+        offset += 8;
+    }
 
     /* Signature starts here */
     if (offset + WOLFSPDM_ECC_SIG_SIZE > bufSz) {

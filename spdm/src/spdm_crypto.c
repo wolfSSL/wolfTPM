@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 
 /* Left-pad a buffer in-place to targetSz with leading zeros */
 static void wolfSPDM_LeftPadToSize(byte* buf, word32 currentSz, word32 targetSz)
@@ -118,6 +117,12 @@ int wolfSPDM_ExportEphemeralPubKey(WOLFSPDM_CTX* ctx,
     if (rc != 0) {
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
+
+    /* Left-pad coordinates to full size (wolfSSL may strip leading zeros) */
+    wolfSPDM_LeftPadToSize(pubKeyX, *pubKeyXSz, WOLFSPDM_ECC_KEY_SIZE);
+    *pubKeyXSz = WOLFSPDM_ECC_KEY_SIZE;
+    wolfSPDM_LeftPadToSize(pubKeyY, *pubKeyYSz, WOLFSPDM_ECC_KEY_SIZE);
+    *pubKeyYSz = WOLFSPDM_ECC_KEY_SIZE;
 
     return WOLFSPDM_SUCCESS;
 }

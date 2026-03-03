@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 
 /*
  * SPDM Key Derivation (DSP0277)
@@ -93,17 +92,25 @@ int wolfSPDM_ComputeVerifyData(const byte* finishedKey, const byte* thHash,
         return WOLFSPDM_E_INVALID_ARG;
     }
 
+    rc = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
+    if (rc != 0) {
+        return WOLFSPDM_E_CRYPTO_FAIL;
+    }
+
     rc = wc_HmacSetKey(&hmac, WC_SHA384, finishedKey, WOLFSPDM_HASH_SIZE);
     if (rc != 0) {
+        wc_HmacFree(&hmac);
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
 
     rc = wc_HmacUpdate(&hmac, thHash, WOLFSPDM_HASH_SIZE);
     if (rc != 0) {
+        wc_HmacFree(&hmac);
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
 
     rc = wc_HmacFinal(&hmac, verifyData);
+    wc_HmacFree(&hmac);
 
     return (rc == 0) ? WOLFSPDM_SUCCESS : WOLFSPDM_E_CRYPTO_FAIL;
 }

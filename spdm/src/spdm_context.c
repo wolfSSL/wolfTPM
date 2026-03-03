@@ -20,8 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <stdlib.h>
-#include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -235,6 +233,27 @@ void wolfSPDM_SetDebug(WOLFSPDM_CTX* ctx, int enable)
     if (ctx != NULL) {
         ctx->flags.debug = enable;
     }
+}
+
+int wolfSPDM_SetMaxVersion(WOLFSPDM_CTX* ctx, byte maxVersion)
+{
+    if (ctx == NULL) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
+    /* 0 means reset to compile-time default */
+    if (maxVersion == 0) {
+        ctx->maxVersion = 0;
+        return WOLFSPDM_SUCCESS;
+    }
+
+    /* Validate range: we only support 1.2 through 1.4 */
+    if (maxVersion < SPDM_VERSION_12 || maxVersion > SPDM_VERSION_14) {
+        return WOLFSPDM_E_INVALID_ARG;
+    }
+
+    ctx->maxVersion = maxVersion;
+    return WOLFSPDM_SUCCESS;
 }
 
 int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode)

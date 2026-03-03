@@ -121,6 +121,7 @@ struct WOLFSPDM_CTX {
     WC_RNG rng;
 
     /* Negotiated parameters */
+    byte maxVersion;            /* Runtime max version cap (0 = use compile-time default) */
     byte spdmVersion;           /* Negotiated SPDM version */
     word32 rspCaps;             /* Responder capabilities */
     word32 reqCaps;             /* Our (requester) capabilities */
@@ -179,10 +180,6 @@ struct WOLFSPDM_CTX {
     word32 reqPrivKeyLen;
     byte reqPubKey[WOLFSPDM_ECC_POINT_SIZE];
     word32 reqPubKeyLen;
-
-    /* Message buffers */
-    byte sendBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_TAG_SIZE];
-    byte recvBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_TAG_SIZE];
 
 #ifndef NO_WOLFSPDM_MEAS
     /* Measurement data */
@@ -315,7 +312,9 @@ static WC_INLINE void wolfSPDM_BuildIV(byte* iv, const byte* baseIv,
 /* --- Argument Validation Macros --- */
 
 #define SPDM_CHECK_BUILD_ARGS(ctx, buf, bufSz, minSz) \
-    if ((ctx) == NULL || (buf) == NULL || (bufSz) == NULL || *(bufSz) < (minSz)) \
+    if ((ctx) == NULL || (buf) == NULL || (bufSz) == NULL) \
+        return WOLFSPDM_E_INVALID_ARG; \
+    if (*(bufSz) < (minSz)) \
         return WOLFSPDM_E_BUFFER_SMALL
 
 #define SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, minSz) \

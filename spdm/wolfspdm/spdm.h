@@ -231,6 +231,18 @@ WOLFSPDM_API int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode);
 WOLFSPDM_API WOLFSPDM_MODE wolfSPDM_GetMode(WOLFSPDM_CTX* ctx);
 
 /**
+ * Set the maximum SPDM version to negotiate.
+ * Caps the version selected during GET_VERSION exchange.
+ * Must be called before wolfSPDM_Connect().
+ *
+ * @param ctx         The wolfSPDM context.
+ * @param maxVersion  Maximum version (e.g., SPDM_VERSION_12, SPDM_VERSION_14).
+ *                    Must be in range 0x12-0x14. Use 0 to reset to compile-time default.
+ * @return WOLFSPDM_SUCCESS or negative error code.
+ */
+WOLFSPDM_API int wolfSPDM_SetMaxVersion(WOLFSPDM_CTX* ctx, byte maxVersion);
+
+/**
  * Set the responder's public key for certificate-less operation.
  * Used when the responder doesn't send a certificate chain (e.g., Nuvoton TPM).
  *

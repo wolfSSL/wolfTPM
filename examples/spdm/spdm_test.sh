@@ -118,19 +118,30 @@ find_emu() {
 }
 
 # Start the emulator (must run from its bin dir for cert files)
+# Usage: start_emu [version]
+#   version: "1.2", "1.3", or "1.4" (default: "1.2")
 start_emu() {
-    echo "  Starting spdm_responder_emu..."
+    local ver="${1:-1.2}"
+    echo "  Starting spdm_responder_emu (SPDM $ver)..."
 
-    # Kill any stale emulator processes
-    if pgrep -x spdm_responder_emu >/dev/null 2>&1; then
+    # Kill any stale emulator processes (use -f for partial name match —
+    # process name can be truncated to "spdm_responder_" on some systems)
+    if pgrep -f spdm_responder_emu >/dev/null 2>&1; then
         echo "  Killing stale emulator process..."
-        pkill -9 -x spdm_responder_emu 2>/dev/null
+        pkill -9 -f spdm_responder_emu 2>/dev/null
         sleep 2
     fi
 
-    # Check port availability
+    # Free port 2323 if still held (e.g. by orphaned process)
     if ss -tlnp 2>/dev/null | grep -q ":2323 "; then
-        echo -e "  ${RED}ERROR: Port 2323 already in use${NC}"
+        echo "  Port 2323 in use, killing holder..."
+        fuser -k 2323/tcp 2>/dev/null
+        sleep 2
+    fi
+
+    # Final port check
+    if ss -tlnp 2>/dev/null | grep -q ":2323 "; then
+        echo -e "  ${RED}ERROR: Port 2323 still in use after cleanup${NC}"
         ss -tlnp 2>/dev/null | grep ":2323 "
         return 1
     fi
@@ -142,7 +153,7 @@ start_emu() {
         echo "  Run 'make copy_sample_key' in the spdm-emu build directory"
     fi
 
-    (cd "$EMU_DIR" && ./spdm_responder_emu --ver 1.2 \
+    (cd "$EMU_DIR" && ./spdm_responder_emu --ver "$ver" \
         --hash SHA_384 --asym ECDSA_P384 \
         --dhe SECP_384_R1 --aead AES_256_GCM >"$EMU_LOG" 2>&1) &
     EMU_PID=$!
@@ -186,12 +197,14 @@ gpio_reset() {
 }
 
 # Run a test with optional setup/teardown
-# Usage: run_test <mode> <name> <command...>
+# Usage: run_test <mode> <name> <emu_ver> <command...>
 #   mode: "nuvoton" (GPIO reset before) or "emu" (start/stop emulator around)
+#   emu_ver: emulator SPDM version (e.g., "1.2"), ignored for nuvoton mode
 run_test() {
     local mode="$1"
     local name="$2"
-    shift 2
+    local emu_ver="$3"
+    shift 3
 
     TOTAL=$((TOTAL + 1))
     echo "[$TOTAL] $name"
@@ -200,7 +213,7 @@ run_test() {
     if [ "$mode" = "nuvoton" ]; then
         gpio_reset
     elif [ "$mode" = "emu" ]; then
-        if ! start_emu; then
+        if ! start_emu "$emu_ver"; then
             echo -e "  ${RED}FAIL (emulator start)${NC}"
             FAIL=$((FAIL + 1))
             echo ""
@@ -252,31 +265,36 @@ if [ $DO_EMU -eq 1 ]; then
     echo "Using demo:     $SPDM_DEMO"
     echo ""
 
-    # Test 1: Session establishment
-    run_test emu "Session establishment (--emu)" \
-        "$SPDM_DEMO" --emu
+    # Test each SPDM version (1.2, 1.3, 1.4) against the emulator
+    for VER in 1.2 1.3 1.4; do
+        echo "--- SPDM $VER ---"
 
-    # Test 2: Session + signed measurements
-    run_test emu "Signed measurements (--meas)" \
-        "$SPDM_DEMO" --meas
+        # Session establishment
+        run_test emu "Session (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --emu --ver "$VER"
 
-    # Test 3: Session + unsigned measurements
-    run_test emu "Unsigned measurements (--meas --no-sig)" \
-        "$SPDM_DEMO" --meas --no-sig
+        # Session + signed measurements
+        run_test emu "Signed measurements (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --meas --ver "$VER"
 
-    # Test 4: Challenge authentication (sessionless)
-    run_test emu "Challenge authentication (--challenge)" \
-        "$SPDM_DEMO" --challenge
+        # Session + unsigned measurements
+        run_test emu "Unsigned measurements (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --meas --no-sig --ver "$VER"
 
-    # Test 5: Session + heartbeat
-    run_test emu "Heartbeat (--emu --heartbeat)" \
-        "$SPDM_DEMO" --emu --heartbeat
+        # Challenge authentication (sessionless)
+        run_test emu "Challenge (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --challenge --ver "$VER"
 
-    # Test 6: Session + key update
-    run_test emu "Key update (--emu --key-update)" \
-        "$SPDM_DEMO" --emu --key-update
+        # Session + heartbeat
+        run_test emu "Heartbeat (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --emu --heartbeat --ver "$VER"
 
-    echo ""
+        # Session + key update
+        run_test emu "Key update (SPDM $VER)" "$VER" \
+            "$SPDM_DEMO" --emu --key-update --ver "$VER"
+
+        echo ""
+    done
 fi
 
 # ==========================================================================
@@ -290,27 +308,27 @@ if [ $DO_NUVOTON -eq 1 ]; then
     echo ""
 
     # Step 1: SPDM status query (vendor command over TIS)
-    run_test nuvoton "SPDM status query" "$SPDM_DEMO" --status
+    run_test nuvoton "SPDM status query" "" "$SPDM_DEMO" --status
 
     # Step 2: SPDM session establishment (version + keygen + handshake)
-    run_test nuvoton "SPDM session connect" "$SPDM_DEMO" --connect
+    run_test nuvoton "SPDM session connect" "" "$SPDM_DEMO" --connect
 
     # Step 3: Lock SPDM-only mode (connect + lock in one session)
-    run_test nuvoton "Lock SPDM-only mode" "$SPDM_DEMO" --connect --lock
+    run_test nuvoton "Lock SPDM-only mode" "" "$SPDM_DEMO" --connect --lock
 
     # Step 4: Unit test over SPDM (auto-detects SPDM-only, all commands encrypted)
     if [ -x "$UNIT_TEST" ]; then
-        run_test nuvoton "Unit test over SPDM" "$UNIT_TEST"
+        run_test nuvoton "Unit test over SPDM" "" "$UNIT_TEST"
     else
         echo -e "  ${YELLOW}Skipping: $UNIT_TEST not found${NC}"
     fi
 
     # Step 5: Unlock SPDM-only mode
-    run_test nuvoton "Unlock SPDM-only mode" "$SPDM_DEMO" --connect --unlock
+    run_test nuvoton "Unlock SPDM-only mode" "" "$SPDM_DEMO" --connect --unlock
 
     # Step 6: Verify cleartext TPM works (proves unlock succeeded)
     if [ -x "$CAPS_DEMO" ]; then
-        run_test nuvoton "Cleartext caps (no SPDM)" "$CAPS_DEMO"
+        run_test nuvoton "Cleartext caps (no SPDM)" "" "$CAPS_DEMO"
     else
         echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
     fi

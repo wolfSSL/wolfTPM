@@ -125,6 +125,7 @@ static void usage(void)
     printf("  --challenge    Challenge authentication (sessionless, --emu)\n");
     printf("  --heartbeat    Session heartbeat keep-alive (--emu)\n");
     printf("  --key-update   Session key rotation (--emu)\n");
+    printf("  --ver <ver>    SPDM version cap: 1.2, 1.3, or 1.4 (default: highest)\n");
     printf("  --host <addr>  Emulator IP address (default: 127.0.0.1)\n");
     printf("  --port <num>   Emulator port (default: 2323)\n");
 #endif
@@ -629,7 +630,8 @@ static int demo_key_update(WOLFSPDM_CTX* ctx)
  * Uses the unified I/O callback (same as Nuvoton hardware mode) */
 static int demo_emulator(const char* host, int port, int doMeas,
                          int requestSignature, int doChallenge,
-                         int doHeartbeat, int doKeyUpdate)
+                         int doHeartbeat, int doKeyUpdate,
+                         byte maxVersion)
 {
     WOLFSPDM_CTX* ctx;
     int rc;
@@ -673,6 +675,18 @@ static int demo_emulator(const char* host, int port, int doMeas,
 #ifdef DEBUG_WOLFTPM
     wolfSPDM_SetDebug(ctx, 1);
 #endif
+
+    /* Set max version if specified via --ver */
+    if (maxVersion != 0) {
+        rc = wolfSPDM_SetMaxVersion(ctx, maxVersion);
+        if (rc != WOLFSPDM_SUCCESS) {
+            printf("ERROR: wolfSPDM_SetMaxVersion(0x%02x) failed: %s\n",
+                   maxVersion, wolfSPDM_GetErrorString(rc));
+            wolfSPDM_Free(ctx);
+            spdm_io_cleanup(&g_ioCtx);
+            return rc;
+        }
+    }
 
 #ifndef NO_WOLFSPDM_CHALLENGE
     /* Challenge mode: sessionless attestation (no KEY_EXCHANGE/FINISH) */
@@ -752,6 +766,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     int doChallenge = 0;
     int doHeartbeat = 0;
     int doKeyUpdate = 0;
+    byte maxVersion = 0;  /* 0 = use default (highest supported) */
 #endif
 
     if (argc <= 1) {
@@ -794,6 +809,19 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             doKeyUpdate = 1;
             useEmulator = 1;
         }
+        else if (XSTRCMP(argv[i], "--ver") == 0 && i + 1 < argc) {
+            const char* verStr = argv[++i];
+            if (XSTRCMP(verStr, "1.2") == 0)
+                maxVersion = SPDM_VERSION_12;
+            else if (XSTRCMP(verStr, "1.3") == 0)
+                maxVersion = SPDM_VERSION_13;
+            else if (XSTRCMP(verStr, "1.4") == 0)
+                maxVersion = SPDM_VERSION_14;
+            else {
+                printf("Invalid version: %s (use 1.2, 1.3, or 1.4)\n", verStr);
+                return BAD_FUNC_ARG;
+            }
+        }
 #endif
     }
 
@@ -803,7 +831,8 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
         printf("Entering emulator mode...\n");
         fflush(stdout);
         return demo_emulator(emuHost, emuPort, doMeas, requestSignature,
-                             doChallenge, doHeartbeat, doKeyUpdate);
+                             doChallenge, doHeartbeat, doKeyUpdate,
+                             maxVersion);
     }
 #endif
 

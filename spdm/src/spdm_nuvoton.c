@@ -34,7 +34,6 @@
 #ifdef WOLFSPDM_NUVOTON
 
 #include <wolfspdm/spdm_nuvoton.h>
-#include <string.h>
 
 /* Check for SPDM ERROR in response payload */
 #define SPDM_CHECK_ERROR_RSP(ctx, buf, sz, label) \
@@ -713,11 +712,10 @@ int wolfSPDM_ConnectNuvoton(WOLFSPDM_CTX* ctx)
             ctx->reqPubKeyTPMTLen);
         if (rc != WOLFSPDM_SUCCESS) {
             wolfSPDM_DebugPrint(ctx, "GIVE_PUB failed: %d\n", rc);
-            /* Don't fail - continue to FINISH for debug */
+            ctx->state = WOLFSPDM_STATE_ERROR;
+            return rc;
         }
-        else {
-            wolfSPDM_DebugPrint(ctx, "GIVE_PUB succeeded!\n");
-        }
+        wolfSPDM_DebugPrint(ctx, "GIVE_PUB succeeded!\n");
     }
     else {
         wolfSPDM_DebugPrint(ctx, "Nuvoton Step 4: GIVE_PUB (skipped, no host key)\n");

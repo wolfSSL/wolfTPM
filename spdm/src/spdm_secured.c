@@ -20,7 +20,6 @@
  */
 
 #include "spdm_internal.h"
-#include <string.h>
 
 /*
  * SPDM Secured Message Format (DSP0277):
@@ -37,63 +36,6 @@
  * Full message: Header || Ciphertext || Tag (16)
  */
 
-#ifdef WOLFSPDM_NUVOTON
-/* Self-test: verify AES-GCM encrypt/decrypt round-trip with current keys.
- * Called before first encrypted message to confirm crypto parameters. */
-static int wolfSPDM_AesGcmSelfTest(WOLFSPDM_CTX* ctx)
-{
-    Aes aesEnc, aesDec;
-    byte testPlain[] = "wolfSPDM AES-GCM self-test 1234";  /* 31 bytes */
-    byte testCipher[32];
-    byte testDecrypted[32];
-    byte testTag[WOLFSPDM_AEAD_TAG_SIZE];
-    byte testAad[14];
-    word32 testPlainSz = sizeof(testPlain);
-    int rc;
-
-    /* Build AAD matching what we'd use for SeqNum=0 */
-    SPDM_Set32LE(&testAad[0], ctx->sessionId);
-    XMEMSET(&testAad[4], 0, 8);  /* SeqNum = 0 */
-    SPDM_Set16LE(&testAad[12], (word16)(testPlainSz + 16));
-
-    /* Encrypt */
-    rc = wc_AesGcmSetKey(&aesEnc, ctx->reqDataKey, WOLFSPDM_AEAD_KEY_SIZE);
-    if (rc != 0) {
-        wolfSPDM_DebugPrint(ctx, "Self-test: AesGcmSetKey (enc) failed: %d\n", rc);
-        return rc;
-    }
-    rc = wc_AesGcmEncrypt(&aesEnc, testCipher, testPlain, testPlainSz,
-        ctx->reqDataIv, WOLFSPDM_AEAD_IV_SIZE,
-        testTag, WOLFSPDM_AEAD_TAG_SIZE, testAad, 14);
-    if (rc != 0) {
-        wolfSPDM_DebugPrint(ctx, "Self-test: AesGcmEncrypt failed: %d\n", rc);
-        return rc;
-    }
-
-    /* Decrypt with same key */
-    rc = wc_AesGcmSetKey(&aesDec, ctx->reqDataKey, WOLFSPDM_AEAD_KEY_SIZE);
-    if (rc != 0) {
-        wolfSPDM_DebugPrint(ctx, "Self-test: AesGcmSetKey (dec) failed: %d\n", rc);
-        return rc;
-    }
-    rc = wc_AesGcmDecrypt(&aesDec, testDecrypted, testCipher, testPlainSz,
-        ctx->reqDataIv, WOLFSPDM_AEAD_IV_SIZE,
-        testTag, WOLFSPDM_AEAD_TAG_SIZE, testAad, 14);
-    if (rc != 0) {
-        wolfSPDM_DebugPrint(ctx, "Self-test: AesGcmDecrypt FAILED: %d\n", rc);
-        return rc;
-    }
-
-    /* Verify plaintext matches */
-    if (XMEMCMP(testPlain, testDecrypted, testPlainSz) != 0) {
-        wolfSPDM_DebugPrint(ctx, "Self-test: Plaintext mismatch!\n");
-        return -1;
-    }
-
-    wolfSPDM_DebugPrint(ctx, "Self-test: AES-GCM round-trip PASSED\n");
-    return 0;
-}
-#endif /* WOLFSPDM_NUVOTON */
 
 int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     const byte* plain, word32 plainSz,
@@ -122,14 +64,6 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
          */
         word16 appDataLen = (word16)plainSz;
 
-        /* Run self-test before first encrypted message */
-        if (ctx->reqSeqNum == 0) {
-            rc = wolfSPDM_AesGcmSelfTest(ctx);
-            if (rc != 0) {
-                wolfSPDM_DebugPrint(ctx, "AES-GCM self-test FAILED: %d\n", rc);
-                return WOLFSPDM_E_CRYPTO_FAIL;
-            }
-        }
         word16 unpadded = (word16)(2 + appDataLen);  /* AppDataLength + SPDM msg */
         word16 padLen = (word16)((16 - (unpadded % 16)) % 16);  /* Pad to 16-byte boundary */
         word16 encPayloadSz = (word16)(unpadded + padLen);
@@ -148,13 +82,9 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
         XMEMCPY(&plainBuf[2], plain, plainSz);
         /* Fill RandomData with actual random bytes per Nuvoton spec */
         if (padLen > 0) {
-            WC_RNG rng;
-            if (wc_InitRng(&rng) == 0) {
-                wc_RNG_GenerateBlock(&rng, &plainBuf[unpadded], padLen);
-                wc_FreeRng(&rng);
-            } else {
-                /* Fallback to zeros if RNG fails */
-                XMEMSET(&plainBuf[unpadded], 0, padLen);
+            rc = wolfSPDM_GetRandom(ctx, &plainBuf[unpadded], padLen);
+            if (rc != WOLFSPDM_SUCCESS) {
+                return rc;
             }
         }
 
@@ -203,14 +133,20 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     wolfSPDM_BuildIV(iv, ctx->reqDataIv, ctx->reqSeqNum,
         ctx->mode == WOLFSPDM_MODE_NUVOTON);
 
+    rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
+    if (rc != 0) {
+        return WOLFSPDM_E_CRYPTO_FAIL;
+    }
     rc = wc_AesGcmSetKey(&aes, ctx->reqDataKey, WOLFSPDM_AEAD_KEY_SIZE);
     if (rc != 0) {
+        wc_AesFree(&aes);
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
 
     /* Encrypt directly into output buffer (enc + hdrSz) to avoid a copy */
     rc = wc_AesGcmEncrypt(&aes, &enc[hdrSz], plainBuf, plainBufSz,
         iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
+    wc_AesFree(&aes);
     if (rc != 0) {
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
@@ -276,6 +212,14 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
             return WOLFSPDM_E_SESSION_INVALID;
         }
 
+        /* Validate sequence number matches expected (DSP0277 replay protection) */
+        if (rspSeqNum64 != ctx->rspSeqNum) {
+            wolfSPDM_DebugPrint(ctx, "Sequence number mismatch: %llu != %llu\n",
+                (unsigned long long)rspSeqNum64,
+                (unsigned long long)ctx->rspSeqNum);
+            return WOLFSPDM_E_SEQUENCE;
+        }
+
         /* Length field = ciphertext + MAC (per Nuvoton spec) */
         if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < hdrSz + rspLen) {
             return WOLFSPDM_E_BUFFER_SMALL;
@@ -290,13 +234,19 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
         /* Build IV: BaseIV XOR sequence number (DSP0277 1.2) */
         wolfSPDM_BuildIV(iv, ctx->rspDataIv, rspSeqNum64, 1);
 
+        rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
+        if (rc != 0) {
+            return WOLFSPDM_E_CRYPTO_FAIL;
+        }
         rc = wc_AesGcmSetKey(&aes, ctx->rspDataKey, WOLFSPDM_AEAD_KEY_SIZE);
         if (rc != 0) {
+            wc_AesFree(&aes);
             return WOLFSPDM_E_CRYPTO_FAIL;
         }
 
         rc = wc_AesGcmDecrypt(&aes, decrypted, ciphertext, cipherLen,
             iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
+        wc_AesFree(&aes);
         if (rc != 0) {
             wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
             return WOLFSPDM_E_DECRYPT_FAIL;
@@ -339,6 +289,13 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
             return WOLFSPDM_E_SESSION_INVALID;
         }
 
+        /* Validate sequence number matches expected (DSP0277 replay protection) */
+        if ((word64)rspSeqNum != ctx->rspSeqNum) {
+            wolfSPDM_DebugPrint(ctx, "Sequence number mismatch: %u != %llu\n",
+                rspSeqNum, (unsigned long long)ctx->rspSeqNum);
+            return WOLFSPDM_E_SEQUENCE;
+        }
+
         if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < (word32)(hdrSz + rspLen)) {
             return WOLFSPDM_E_BUFFER_SMALL;
         }
@@ -352,13 +309,19 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
         /* Build IV: BaseIV XOR sequence number (DSP0277) */
         wolfSPDM_BuildIV(iv, ctx->rspDataIv, (word64)rspSeqNum, 0);
 
+        rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
+        if (rc != 0) {
+            return WOLFSPDM_E_CRYPTO_FAIL;
+        }
         rc = wc_AesGcmSetKey(&aes, ctx->rspDataKey, WOLFSPDM_AEAD_KEY_SIZE);
         if (rc != 0) {
+            wc_AesFree(&aes);
             return WOLFSPDM_E_CRYPTO_FAIL;
         }
 
         rc = wc_AesGcmDecrypt(&aes, decrypted, ciphertext, cipherLen,
             iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
+        wc_AesFree(&aes);
         if (rc != 0) {
             wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
             return WOLFSPDM_E_DECRYPT_FAIL;

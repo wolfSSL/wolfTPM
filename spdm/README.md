@@ -4,6 +4,13 @@ wolfTPM includes a built-in SPDM 1.2+ requester stack using wolfSSL/wolfCrypt.
 This provides encrypted bus communication between the host and TPM, ensuring
 all commands and responses are protected with AES-256-GCM.
 
+### Supported Versions
+
+| Target | SPDM Versions | Notes |
+|--------|---------------|-------|
+| DMTF spdm-emu | 1.2, 1.3, 1.4 | Full protocol support including session, measurements, challenge, heartbeat, key update |
+| Nuvoton NPCT75x | 1.3 | Hardware SPDM with SPDM-only mode and vendor-defined TPM command wrapping |
+
 ## How It Works
 
 SPDM (Security Protocol and Data Model) establishes an authenticated encrypted
@@ -15,7 +22,7 @@ automatically encrypted — no application code changes needed.
 ```
 Host                                TPM (Nuvoton NPCT75x)
   |                                    |
-  |--- GET_VERSION ------------------>|  (negotiate SPDM 1.3)
+  |--- GET_VERSION ------------------>|  (negotiate SPDM 1.2-1.4)
   |<-- VERSION -----------------------|
   |                                    |
   |--- GET_PUB_KEY ------------------>|  (get TPM's P-384 identity key)
@@ -190,19 +197,20 @@ make
 
 The test script automatically finds `spdm_responder_emu` in `../spdm-emu/build/bin/`,
 starts it for each test, and runs session establishment, signed measurements,
-unsigned measurements, challenge authentication, heartbeat, and key update.
+unsigned measurements, challenge authentication, heartbeat, and key update
+across SPDM versions 1.2, 1.3, and 1.4 (18 tests total).
 
 To run individual commands manually:
 
 ```bash
-# Terminal 1: Start the emulator
+# Terminal 1: Start the emulator (specify version with --ver)
 cd spdm-emu/build/bin
-./spdm_responder_emu --ver 1.2 --hash SHA_384 --asym ECDSA_P384 \
+./spdm_responder_emu --ver 1.3 --hash SHA_384 --asym ECDSA_P384 \
     --dhe SECP_384_R1 --aead AES_256_GCM
 
-# Terminal 2: Run wolfTPM SPDM demo
+# Terminal 2: Run wolfTPM SPDM demo (--ver must match emulator)
 cd wolfTPM
-./examples/spdm/spdm_demo --emu
+./examples/spdm/spdm_demo --emu --ver 1.3
 ```
 
 ### Emulator Demo Options
@@ -215,6 +223,7 @@ cd wolfTPM
 | `--challenge` | Sessionless challenge authentication |
 | `--emu --heartbeat` | Session keep-alive |
 | `--emu --key-update` | Session key rotation |
+| `--ver 1.2\|1.3\|1.4` | Maximum SPDM version to negotiate (default: 1.4) |
 | `--host <ip>` | Emulator host (default: 127.0.0.1) |
 | `--port <num>` | Emulator port (default: 2323) |
 
@@ -251,6 +260,7 @@ Useful on platforms with small stacks.
 | `wolfSPDM_GetCtxSize()` | Return `sizeof(WOLFSPDM_CTX)` at runtime |
 | `wolfSPDM_SetIO()` | Set transport I/O callback |
 | `wolfSPDM_SetDebug()` | Enable/disable debug output |
+| `wolfSPDM_SetMaxVersion()` | Set maximum SPDM version to negotiate (0x12=1.2, 0x13=1.3, 0x14=1.4) |
 | `wolfSPDM_Connect()` | Full SPDM handshake |
 | `wolfSPDM_IsConnected()` | Check session status |
 | `wolfSPDM_Disconnect()` | End session |

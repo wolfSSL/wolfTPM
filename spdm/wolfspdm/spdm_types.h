@@ -54,6 +54,7 @@ extern "C" {
 #define SPDM_VERSION_11             0x11    /* SPDM 1.1 */
 #define SPDM_VERSION_12             0x12    /* SPDM 1.2 */
 #define SPDM_VERSION_13             0x13    /* SPDM 1.3 */
+#define SPDM_VERSION_14             0x14    /* SPDM 1.4 */
 
 /* SPDM Message Header Size */
 #define SPDM_HEADER_SIZE            4       /* Version + Code + Param1 + Param2 */
