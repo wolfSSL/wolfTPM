@@ -94,6 +94,7 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 {
     int ret = 0;
     byte* tempBuf = NULL;
+    (void)userCtx;
 
     if (buf == NULL) {
         printf("Buffer passed is NULL");
@@ -111,11 +112,6 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         return -1;
     }
 
-    if (userCtx == NULL) {
-        //printf("UserCtx Cannot be NULL\n");
-    }
-
-
     /* Init Zephyr I2C Driver */
     if (_is_initialized_i2c == 0) {
         if (TPM2_I2C_Zephyr_Init() != 0) {
@@ -129,6 +125,7 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
         tempBuf = (byte*)XMALLOC(1, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         if (tempBuf == NULL) {
             printf("Failed to allocate temp buffer\n");
+            return -1;
         }
 
         tempBuf[0] = (byte)(addr & 0xFF);
@@ -143,10 +140,10 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     }
     else {
         // Write operation: Register address + Data
-
         tempBuf = (byte*)XMALLOC(size + 1, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         if (tempBuf == NULL) {
             printf("Failed to allocate temp buffer\n");
+            return -1;
         }
 
         tempBuf[0] = (byte)(addr & 0xFF);
@@ -166,8 +163,6 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
             printf("Input/Output Error\n");
         }
     }
-
-
 
     (void)ctx;
     return ret;
