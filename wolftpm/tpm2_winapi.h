@@ -22,6 +22,8 @@
 #ifndef _TPM2_WINAPI_H_
 #define _TPM2_WINAPI_H_
 
+#ifdef WOLFTPM_WINAPI
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 
@@ -38,5 +40,7 @@ WOLFTPM_LOCAL int TPM2_WinApi_Cleanup(TPM2_CTX* ctx);
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
+
+#endif /* WOLFTPM_WINAPI */
 
 #endif /* _TPM2_WINAPI_H_ */

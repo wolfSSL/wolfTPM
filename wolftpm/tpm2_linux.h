@@ -22,6 +22,8 @@
 #ifndef _TPM2_LINUX_H_
 #define _TPM2_LINUX_H_
 
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 
@@ -46,5 +48,7 @@ WOLFTPM_LOCAL int TPM2_LINUX_AUTODETECT_SendCommand(TPM2_CTX* ctx,
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
+
+#endif /* WOLFTPM_LINUX_DEV || WOLFTPM_LINUX_DEV_AUTODETECT */
 
 #endif /* _TPM2_LINUX_H_ */

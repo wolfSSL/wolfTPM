@@ -22,6 +22,8 @@
 #ifndef _TPM2_SWTPM_H_
 #define _TPM2_SWTPM_H_
 
+#ifdef WOLFTPM_SWTPM
+
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 
@@ -48,5 +50,7 @@ WOLFTPM_LOCAL int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
+
+#endif /* WOLFTPM_SWTPM */
 
 #endif /* _TPM2_SWTPM_H_ */
