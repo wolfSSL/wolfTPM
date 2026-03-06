@@ -36,6 +36,9 @@
     #include <wolftpm/tpm2_winapi.h>
 #endif
 #include <wolftpm/tpm2_param_enc.h>
+#ifdef WOLFTPM_SPDM
+#include <wolftpm/tpm2_spdm.h>
+#endif
 
 #include <hal/tpm_io.h>
 
@@ -456,7 +459,36 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     packet->pos = cmdSz;
 
     /* submit command and wait for response */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+#ifdef WOLFTPM_SPDM
+    /* If SPDM session is active, wrap command through SPDM transport */
+    if (ctx->spdmCtx != NULL) {
+        WOLFTPM2_SPDM_CTX* spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
+        if (spdmCtx->spdmCtx != NULL &&
+            wolfSPDM_IsConnected(spdmCtx->spdmCtx)) {
+            byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
+            word32 tpmRespSz = sizeof(tpmResp);
+
+            rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
+                packet->buf, packet->pos, tpmResp, &tpmRespSz);
+            if (rc != 0)
+                return rc;
+
+            if (tpmRespSz > MAX_RESPONSE_SIZE)
+                return TPM_RC_SIZE;
+            XMEMCPY(packet->buf, tpmResp, tpmRespSz);
+            packet->pos = 0;
+            packet->size = tpmRespSz;
+            rc = TPM_RC_SUCCESS;
+        }
+        else {
+            rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+        }
+    }
+    else
+#endif /* WOLFTPM_SPDM */
+    {
+        rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+    }
     if (rc != 0)
         return rc;
 
@@ -485,6 +517,37 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
+
+#ifdef WOLFTPM_SPDM
+    /* If SPDM session is active, wrap command through SPDM transport */
+    if (ctx->spdmCtx != NULL) {
+        WOLFTPM2_SPDM_CTX* spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
+        if (spdmCtx->spdmCtx != NULL &&
+            wolfSPDM_IsConnected(spdmCtx->spdmCtx)) {
+            byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
+            word32 tpmRespSz = sizeof(tpmResp);
+
+            /* Use wolfSPDM to encrypt, send, receive, and decrypt */
+            rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
+                packet->buf, packet->pos, tpmResp, &tpmRespSz);
+            if (rc != 0) {
+                return rc;
+            }
+
+            /* Copy TPM response back into packet buffer.
+             * Note: packet->buf is a pointer so sizeof gives pointer size,
+             * use MAX_RESPONSE_SIZE for the actual buffer capacity. */
+            if (tpmRespSz > MAX_RESPONSE_SIZE) {
+                return TPM_RC_SIZE;
+            }
+            XMEMCPY(packet->buf, tpmResp, tpmRespSz);
+            packet->pos = 0;
+            packet->size = tpmRespSz;
+
+            return TPM2_Packet_Parse(TPM_RC_SUCCESS, packet);
+        }
+    }
+#endif /* WOLFTPM_SPDM */
 
     /* submit command and wait for response */
     rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
@@ -627,6 +690,61 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     return rc;
 }
+
+#ifdef WOLFTPM_SPDM
+TPM_RC TPM2_SendRawBytes(TPM2_CTX* ctx,
+    const byte* txBuf, word32 txSz, byte* rxBuf, word32* rxSz)
+{
+    TPM_RC rc;
+    TPM2_Packet packet;
+    word32 rspSz;
+    UINT32 tmpSz;
+
+    if (ctx == NULL || txBuf == NULL || rxBuf == NULL || rxSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (txSz > sizeof(ctx->cmdBuf)) {
+        return TPM_RC_SIZE;
+    }
+
+    /* Copy transmit data into the context command buffer */
+    XMEMCPY(ctx->cmdBuf, txBuf, txSz);
+
+    /* Set up the packet structure pointing to cmdBuf.
+     * pos = number of bytes to send, size = buffer capacity. */
+    packet.buf = ctx->cmdBuf;
+    packet.pos = (int)txSz;
+    packet.size = (int)sizeof(ctx->cmdBuf);
+
+    /* Send through the transport layer (TIS, Linux dev, SWTPM, etc.).
+     * TIS will write txSz bytes, then read the response into cmdBuf.
+     * The response size is parsed from the header (offset 2, 4 bytes BE)
+     * inside TIS and only that many bytes are read from the FIFO. */
+    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, &packet);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    /* After TIS returns, the response is in cmdBuf. The TIS layer read
+     * exactly the number of bytes indicated by the header size field.
+     * Extract that size from the response to know how many bytes to copy.
+     * Both TPM2 and TCG SPDM headers have: tag(2) + size(4) at offset 0. */
+    if (packet.size < 6) {
+        return TPM_RC_FAILURE;
+    }
+    XMEMCPY(&tmpSz, &ctx->cmdBuf[2], sizeof(UINT32));
+    rspSz = TPM2_Packet_SwapU32(tmpSz);
+
+    if (rspSz > (word32)packet.size || rspSz > *rxSz) {
+        return TPM_RC_SIZE;
+    }
+
+    XMEMCPY(rxBuf, ctx->cmdBuf, rspSz);
+    *rxSz = rspSz;
+
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_SPDM */
 
 /* If timeoutTries <= 0 then it will not try and startup chip and will
  * use existing default locality */
@@ -1585,6 +1703,7 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
     }
     return rc;
 }
+
 
 TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in)
 {
@@ -5599,6 +5718,7 @@ int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
 
         TPM2_Packet_Init(ctx, &packet);
         /* Process the auth handle for GPIO configuration */
@@ -5641,6 +5761,68 @@ int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
     return rc;
 }
 #endif /* WOLFTPM_NUVOTON */
+
+/* NTC2 PreConfig/GetConfig for runtime vendor detection (WOLFTPM_AUTODETECT).
+ * Identical to the WOLFTPM_NUVOTON implementations above. */
+#if defined(WOLFTPM_AUTODETECT) && !defined(WOLFTPM_NUVOTON) && \
+    !defined(WOLFTPM_ST33)
+
+int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (in == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
+
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        TPM2_Packet_AppendBytes(&packet, (byte*)&in->preConfig,
+                                sizeof(in->preConfig));
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+                             TPM_CC_NTC2_PreConfig);
+
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (out == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+                             TPM_CC_NTC2_GetConfig);
+
+        rc = TPM2_SendCommand(ctx, &packet);
+        if (rc == TPM_RC_SUCCESS) {
+            TPM2_Packet_ParseBytes(&packet, (byte*)&out->preConfig,
+                                   sizeof(out->preConfig));
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_AUTODETECT && !WOLFTPM_NUVOTON && !WOLFTPM_ST33 */
 
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE

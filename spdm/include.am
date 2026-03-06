@@ -1,0 +1,35 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_SPDM
+
+src_libwolftpm_la_SOURCES += \
+    spdm/src/spdm_context.c \
+    spdm/src/spdm_crypto.c \
+    spdm/src/spdm_kdf.c \
+    spdm/src/spdm_msg.c \
+    spdm/src/spdm_secured.c \
+    spdm/src/spdm_session.c \
+    spdm/src/spdm_transcript.c
+
+if BUILD_NUVOTON
+src_libwolftpm_la_SOURCES += spdm/src/spdm_nuvoton.c
+endif
+
+src_libwolftpm_la_CFLAGS += -I$(srcdir)/spdm -I$(srcdir)/spdm/src
+
+wolfspdmincdir = $(includedir)/wolfspdm
+wolfspdminc_HEADERS = \
+    spdm/wolfspdm/spdm.h \
+    spdm/wolfspdm/spdm_types.h \
+    spdm/wolfspdm/spdm_error.h \
+    spdm/wolfspdm/spdm_nuvoton.h
+
+check_PROGRAMS += spdm/test/unit_test
+spdm_test_unit_test_SOURCES  = spdm/test/unit_test.c
+spdm_test_unit_test_LDADD    = src/libwolftpm.la $(LIB_STATIC_ADD)
+spdm_test_unit_test_CFLAGS   = $(AM_CFLAGS) -I$(srcdir)/spdm -I$(srcdir)/spdm/src
+
+EXTRA_DIST += spdm/src/spdm_internal.h
+
+endif BUILD_SPDM

@@ -22,6 +22,7 @@ AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 AC_CONFIG_MACRO_DIR([m4])
 
+
 AM_INIT_AUTOMAKE([1.11 -Wall -Werror -Wno-portability foreign tar-ustar subdir-objects no-define color-tests])
 
 AC_ARG_PROGRAM
@@ -462,6 +463,52 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PROVISIONING"
 fi
 
+# SPDM Support
+AC_ARG_ENABLE([spdm],
+    [AS_HELP_STRING([--enable-spdm],[Enable SPDM support (default: disabled)])],
+    [ ENABLED_SPDM=$enableval ],
+    [ ENABLED_SPDM=no ]
+    )
+
+AC_ARG_WITH([wolfspdm],
+    [AS_HELP_STRING([--with-wolfspdm=PATH],[DEPRECATED: Use --enable-spdm instead.])],
+    [AC_MSG_ERROR([--with-wolfspdm is no longer needed. Use --enable-spdm instead.])])
+
+# SPDM dynamic memory (default: static/zero-malloc)
+AC_ARG_ENABLE([spdm-dynamic-mem],
+    [AS_HELP_STRING([--enable-spdm-dynamic-mem],[SPDM: Use heap allocation for context (default: static)])],
+    [ ENABLED_SPDM_DYNMEM=$enableval ],
+    [ ENABLED_SPDM_DYNMEM=no ]
+    )
+
+if test "x$ENABLED_SPDM" = "xyes"
+then
+    AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support])
+
+    # Add spdm/ include path so all targets can find <wolfspdm/spdm.h>
+    AM_CPPFLAGS="$AM_CPPFLAGS -I\$(srcdir)/spdm"
+
+    # Nuvoton SPDM support
+    if test "x$ENABLED_NUVOTON" = "xyes"
+    then
+        if test "x$ENABLED_SWTPM" = "xyes"
+        then
+            AC_MSG_ERROR([Cannot enable both swtpm and nuvoton with SPDM. Use --enable-swtpm --enable-spdm for emulator testing, or --enable-nuvoton --enable-spdm for hardware.])
+        fi
+        AC_DEFINE([WOLFSPDM_NUVOTON], [1], [Enable SPDM Nuvoton TPM support])
+        AC_MSG_NOTICE([Nuvoton SPDM vendor commands enabled])
+    fi
+
+    if test "x$ENABLED_SPDM_DYNMEM" = "xyes"
+    then
+        AC_DEFINE([WOLFSPDM_DYNAMIC_MEMORY], [1], [SPDM: Enable dynamic memory allocation])
+    fi
+
+    if test "x$ax_enable_debug" != "xno"
+    then
+        AC_DEFINE([WOLFSPDM_DEBUG], [1], [SPDM: Enable debug output])
+    fi
+fi
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
@@ -493,6 +540,7 @@ AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_SPDM], [test "x$ENABLED_SPDM" = "xyes"])
 
 
 CREATE_HEX_VERSION
@@ -578,6 +626,10 @@ for option in $OPTION_FLAGS; do
     fi
 done
 
+# Also capture SPDM defines from config.h (set via AC_DEFINE, not AM_CFLAGS)
+grep '^#define WOLFSPDM_' src/config.h >> $OPTION_FILE 2>/dev/null || true
+grep '^#define WOLFTPM_SPDM' src/config.h >> $OPTION_FILE 2>/dev/null || true
+
 echo "" >> $OPTION_FILE
 echo "#ifdef __cplusplus" >> $OPTION_FILE
 echo "}" >> $OPTION_FILE
@@ -622,3 +674,7 @@ echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
+echo "   * SPDM Support:              $ENABLED_SPDM"
+if test "x$ENABLED_SPDM" = "xyes"; then
+    echo "   * SPDM Dynamic Mem:          $ENABLED_SPDM_DYNMEM"
+fi
