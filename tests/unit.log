@@ -1,0 +1,32 @@
+wolfSSL Entering wolfCrypt_Init
+wolfSSL Entering wc_PubKeyPemToDer
+wolfSSL Entering PemToDer
+RNG_HEALTH_TEST_CHECK_SIZE = 128
+sizeof(seedB_data)         = 128
+Test TPM Wrapper:	Init:	Passed
+Test TPM Wrapper:	Open Existing:	Passed
+Test TPM Wrapper:	Get Capabilities:	Passed
+Test TPM Wrapper:	Get Random:	Passed
+Test TPM Wrapper:	PCR Select Array:	Passed
+Test TPM2:		Policy NULL Args:	Passed
+Test TPM Wrapper:	KDFa:	Passed
+Test TPM Wrapper:	Read Public Key:	Passed
+Test TPM Wrapper:	EncryptSecret:	Passed
+Test TPM Wrapper:	KeyBlob RSA:	Passed
+Test TPM Wrapper:	KeyBlob ECC:	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=20, CurveSz=32, Hash=SHA256, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=32, CurveSz=32, Hash=SHA256, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=48, CurveSz=32, Hash=SHA256, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=64, CurveSz=32, Hash=SHA256, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=20, CurveSz=48, Hash=SHA384, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=32, CurveSz=48, Hash=SHA384, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=48, CurveSz=48, Hash=SHA384, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=64, CurveSz=48, Hash=SHA384, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=20, CurveSz=66, Hash=SHA512, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=32, CurveSz=66, Hash=SHA512, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=48, CurveSz=66, Hash=SHA512, Flags=):	Passed
+Test TPM Wrapper:	Sign/Verify (DigSz=64, CurveSz=66, Hash=SHA512, Flags=):	Passed
+Test ST33 Firmware Upgrade:	API Availability:	Passed
+Test TPM Wrapper:	Cleanup:	Passed
+Test TPM Wrapper:	Thread Local Storage	Passed
+PASS tests/unit.test (exit status: 0)

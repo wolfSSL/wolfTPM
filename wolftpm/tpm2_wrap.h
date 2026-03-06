@@ -3402,7 +3402,7 @@ WOLFTPM_API int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION
 #define wolfTPM2_GetCurveSize TPM2_GetCurveSize
 
 /* for encrypting secrets (like salt) used in auth sessions and external key import */
-WOLFTPM_LOCAL int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
+WOLFTPM_API int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *secret, TPM2B_ENCRYPTED_SECRET *encSecret, const char* label);
 
 
