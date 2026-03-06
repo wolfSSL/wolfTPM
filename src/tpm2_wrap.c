@@ -2682,7 +2682,7 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     TPMI_ALG_RSA_SCHEME scheme, TPMI_ALG_HASH hashAlg, TPMA_OBJECT attributes,
     byte* seed, word32 seedSz)
 {
-    int rc = 0;
+    int rc = TPM_RC_SUCCESS;
     TPM2B_PUBLIC pub;
     TPM2B_SENSITIVE sens;
     word32 digestSz;
@@ -2739,29 +2739,36 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
     #ifdef DEBUG_WOLFTPM
         printf("Import RSA name alg size invalid! %d\n", digestSz);
     #endif
-        return BUFFER_E;
+        rc = BUFFER_E;
     }
-    if (seed != NULL) {
-        /* use custom seed */
-        if (seedSz != digestSz) {
-        #ifdef DEBUG_WOLFTPM
-            printf("Import RSA seed size invalid! %d != %d\n",
-                seedSz, digestSz);
-        #endif
-            return BAD_FUNC_ARG;
+
+    if (rc == TPM_RC_SUCCESS) {
+        if (seed != NULL) {
+            /* use custom seed */
+            if (seedSz != digestSz) {
+            #ifdef DEBUG_WOLFTPM
+                printf("Import RSA seed size invalid! %d != %d\n",
+                    seedSz, digestSz);
+            #endif
+                rc = BAD_FUNC_ARG;
+            }
+            else {
+                sens.sensitiveArea.seedValue.size = seedSz;
+                XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+            }
         }
-        sens.sensitiveArea.seedValue.size = seedSz;
-        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+        else {
+            /* assign random seed */
+            sens.sensitiveArea.seedValue.size = digestSz;
+            rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
+                sens.sensitiveArea.seedValue.size);
+        }
     }
-    else {
-        /* assign random seed */
-        sens.sensitiveArea.seedValue.size = digestSz;
-        rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
-            sens.sensitiveArea.seedValue.size);
-    }
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
     }
+
+    TPM2_ForceZero(&sens, sizeof(sens));
     return rc;
 }
 int wolfTPM2_ImportRsaPrivateKey(WOLFTPM2_DEV* dev,
