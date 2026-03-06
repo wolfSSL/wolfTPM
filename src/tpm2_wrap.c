@@ -2386,7 +2386,7 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     symKey.size = (symKey.size + 7) / 8;
     /* check for invalid value */
     if (symKey.size > sizeof(symKey.buffer)) {
-        return BUFFER_E;
+        rc = BUFFER_E;
     }
 #endif
 
@@ -2394,78 +2394,93 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         /* TODO: Inner wrap support */
     }
 
-    if (outerWrap) {
+    if (rc == 0 && outerWrap) {
     #ifdef WOLFTPM2_PRIVATE_IMPORT
         /* Generate symmetric key for encryption of inner values */
         rc = TPM2_KDFa(nameAlg, symSeed, "STORAGE", (TPM2B_NONCE*)name,
             NULL, symKey.buffer, symKey.size);
-        if (rc != symKey.size) {
+        if (rc == symKey.size) {
+            rc = 0;
+        }
+        else {
         #ifdef DEBUG_WOLFTPM
             printf("KDFa STORAGE Gen Error %d\n", rc);
         #endif
-            return TPM_RC_FAILURE;
+            rc = TPM_RC_FAILURE;
         }
 
         /* Encrypt the Sensitive Area using the generated symmetric key */
-        rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
         if (rc == 0) {
-            rc = wc_AesSetKey(&enc, symKey.buffer, symKey.size,
-                ivField.buffer, AES_ENCRYPTION);
+            rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
             if (rc == 0) {
-                /* use inline encryption for both IV and sensitive */
-                rc = wc_AesCfbEncrypt(&enc, sensitiveData, sensitiveData,
-                    sensSz);
+                rc = wc_AesSetKey(&enc, symKey.buffer, symKey.size,
+                    ivField.buffer, AES_ENCRYPTION);
+                if (rc == 0) {
+                    /* use inline encryption for both IV and sensitive */
+                    rc = wc_AesCfbEncrypt(&enc, sensitiveData, sensitiveData,
+                        sensSz);
+                }
+                wc_AesFree(&enc);
             }
-            wc_AesFree(&enc);
-        }
-        if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SensitiveToPrivate AES error %d!\n", rc);
-        #endif
-            return rc;
+            if (rc != 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("SensitiveToPrivate AES error %d!\n", rc);
+            #endif
+            }
         }
 
         /* Generate HMAC key for generation of the integrity value */
-        hmacKey.size = digestSz;
-        rc = TPM2_KDFa(nameAlg, symSeed, "INTEGRITY", NULL, NULL,
-                    hmacKey.buffer, hmacKey.size);
-        if (rc != hmacKey.size) {
-        #ifdef DEBUG_WOLFTPM
-            printf("KDFa INTEGRITY Gen Error %d\n", rc);
-        #endif
-            return rc;
+        if (rc == 0) {
+            hmacKey.size = digestSz;
+            rc = TPM2_KDFa(nameAlg, symSeed, "INTEGRITY", NULL, NULL,
+                        hmacKey.buffer, hmacKey.size);
+            if (rc == hmacKey.size) {
+                rc = 0;
+            }
+            else {
+            #ifdef DEBUG_WOLFTPM
+                printf("KDFa INTEGRITY Gen Error %d\n", rc);
+            #endif
+                rc = TPM_RC_FAILURE;
+            }
         }
 
         /* setup HMAC */
-        rc = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
         if (rc == 0) {
-            /* start HMAC */
-            rc = wc_HmacSetKey(&hmac_ctx, TPM2_GetHashType(nameAlg),
-                hmacKey.buffer, hmacKey.size);
+            rc = wc_HmacInit(&hmac_ctx, NULL, INVALID_DEVID);
+            if (rc == 0) {
+                /* start HMAC */
+                rc = wc_HmacSetKey(&hmac_ctx, TPM2_GetHashType(nameAlg),
+                    hmacKey.buffer, hmacKey.size);
 
-            /* consume IV and sensitive area */
-            if (rc == 0)
-                rc = wc_HmacUpdate(&hmac_ctx, sensitiveData, sensSz);
+                /* consume IV and sensitive area */
+                if (rc == 0)
+                    rc = wc_HmacUpdate(&hmac_ctx, sensitiveData, sensSz);
 
-            /* consume name field */
-            if (rc == 0)
-                rc = wc_HmacUpdate(&hmac_ctx, name->name, name->size);
+                /* consume name field */
+                if (rc == 0)
+                    rc = wc_HmacUpdate(&hmac_ctx, name->name, name->size);
 
-            if (rc == 0)
-                rc = wc_HmacFinal(&hmac_ctx, &priv->buffer[sizeof(word16)]);
+                if (rc == 0)
+                    rc = wc_HmacFinal(&hmac_ctx, &priv->buffer[sizeof(word16)]);
 
-            wc_HmacFree(&hmac_ctx);
-        }
-        if (rc != 0) {
-        #ifdef DEBUG_WOLFTPM
-            printf("SensitiveToPrivate HMAC error %d!\n", rc);
-        #endif
-            return rc;
+                wc_HmacFree(&hmac_ctx);
+            }
+            if (rc != 0) {
+            #ifdef DEBUG_WOLFTPM
+                printf("SensitiveToPrivate HMAC error %d!\n", rc);
+            #endif
+            }
         }
 
         /* store the size of the integrity */
-        digestSz = TPM2_Packet_SwapU16(digestSz);
-        XMEMCPY(&priv->buffer[0], &digestSz, sizeof(word16));
+        if (rc == 0) {
+            digestSz = TPM2_Packet_SwapU16(digestSz);
+            XMEMCPY(&priv->buffer[0], &digestSz, sizeof(word16));
+        }
+
+        TPM2_ForceZero(&symKey, sizeof(symKey));
+        TPM2_ForceZero(&hmacKey, sizeof(hmacKey));
     #else
         (void)name;
         (void)sensSz;
