@@ -3433,21 +3433,23 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
             printf("Import %s name alg size invalid! %d\n",
                 TPM2_GetAlgName((TPM_ALG_ID)keyType), digestSz);
         #endif
-            return BUFFER_E;
+            rc = BUFFER_E;
         }
-        if (seed != NULL) {
+        if ((seed != NULL) && (rc == 0)) {
             /* use custom seed */
             if (seedSz != digestSz) {
             #ifdef DEBUG_WOLFTPM
                 printf("Import %s seed size invalid! %d != %d\n",
                     TPM2_GetAlgName(keyType), seedSz, digestSz);
             #endif
-                return BAD_FUNC_ARG;
+                rc = BAD_FUNC_ARG;
             }
-            sens.sensitiveArea.seedValue.size = seedSz;
-            XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+            if (rc == 0) {
+                sens.sensitiveArea.seedValue.size = seedSz;
+                XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+            }
         }
-        else {
+        else if (rc == 0) {
             /* assign random seed */
             sens.sensitiveArea.seedValue.size = digestSz;
             rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
