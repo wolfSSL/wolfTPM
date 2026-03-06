@@ -1383,6 +1383,7 @@ static int TPM2_KDFe(
     ret = keySz;
 
 exit:
+    TPM2_ForceZero(hash, sizeof(hash));
     wc_HashFree(&hash_ctx, hashType);
 
     /* return length rounded up to nearest 8 multiple */
@@ -1506,6 +1507,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     wc_ecc_free(&eccKeyPub);
     wc_ecc_free(&eccKeyPriv);
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&secretPoint, sizeof(secretPoint));
 
     if (rc >= 0) {
         rc = (rc == data->size) ? 0 /* success */ : BUFFER_E /* fail */;
