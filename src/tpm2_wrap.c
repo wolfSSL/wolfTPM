@@ -3507,9 +3507,12 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
 
 #ifdef WOLFTPM2_PEM_DECODE
     if (derBuf != (byte*)input) {
+        TPM2_ForceZero(derBuf, derSz);
         XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
 #endif
+
+    TPM2_ForceZero(&sens, sizeof(sens));
 
     return rc;
 }
