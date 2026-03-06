@@ -191,6 +191,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     s = getaddrinfo(host, port, &hints, &result);
     if (s != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        return rc;
     }
 
     for (rp = result; rp != NULL; rp = rp->ai_next) {

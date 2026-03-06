@@ -177,6 +177,7 @@ int TPM2_KDFa(
 
 exit:
     wc_HmacFree(&hmac_ctx);
+    TPM2_ForceZero(hash, sizeof(hash));
 
     /* return length rounded up to nearest 8 multiple */
     return ret;

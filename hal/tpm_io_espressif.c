@@ -170,14 +170,21 @@
 static int _is_initialized_i2c =    0;
 
 #ifdef DEBUG_WOLFSSL_VERBOSE
+/* Fixed buffer size for hex output (MAX_SPI_FRAMESIZE * 2 + 2) */
+#define SHOW_BINARY_HEX_BUF_SZ ((MAX_SPI_FRAMESIZE * 2) + 2)
 static esp_err_t show_binary(byte* theVar, size_t dataSz) {
-    char hex_buffer[(dataSz * 2) + 2];
+    char hex_buffer[SHOW_BINARY_HEX_BUF_SZ];
     word32 i;
+    size_t maxSz;
+
+    /* Limit output to buffer capacity */
+    maxSz = (dataSz > MAX_SPI_FRAMESIZE) ? MAX_SPI_FRAMESIZE : dataSz;
 
     ESP_LOGI(TAG, "*********************************************************");
-    for (i = 0; i < dataSz; i++) {
+    for (i = 0; i < maxSz; i++) {
         snprintf(&hex_buffer[i * 2], 3, "%02X", (unsigned char)theVar[i]);
     }
+    hex_buffer[maxSz * 2] = '\0';
     ESP_LOGI("TAG", "%s", hex_buffer);
     ESP_LOGI(TAG, "*********************************************************");
     return ESP_OK;
@@ -557,7 +564,13 @@ static int esp_spi_master_init(void)
     ret = spi_bus_add_device(SPI2_HOST, &dev_cfg, &spi);
     ESP_ERROR_CHECK(ret);
 
-    tpm_data = malloc(sizeof(struct TPM_DATA));
+    tpm_data = (struct TPM_DATA*)XMALLOC(sizeof(struct TPM_DATA),
+        NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (tpm_data == NULL) {
+        spi_bus_remove_device(spi);
+        spi_bus_free(SPI2_HOST);
+        return TPM_RC_FAILURE;
+    }
     tpm_data->spi = spi;
     tpm_data->cs_pin = PIN_NUM_CS;
     tpm_data->timeout_expiry = 0;
