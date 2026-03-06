@@ -1614,8 +1614,12 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     int rc = NOT_COMPILED_IN;
 
     /* if a tpmKey is not present then we are using an unsalted session */
-    if (dev == NULL || tpmKey == NULL || data == NULL || secret == NULL) {
+    if (tpmKey == NULL) {
         return TPM_RC_SUCCESS;
+    }
+
+    if (dev == NULL || data == NULL || secret == NULL) {
+        return BAD_FUNC_ARG;
     }
 
 #ifdef DEBUG_WOLFTPM
