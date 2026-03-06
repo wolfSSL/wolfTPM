@@ -3231,6 +3231,8 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
         wc_ecc_free(key);
     }
 
+    TPM2_ForceZero(d, sizeof(d));
+
     return rc;
 }
 #endif /* HAVE_ECC */
