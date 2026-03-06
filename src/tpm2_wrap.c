@@ -1582,8 +1582,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
         rc = wc_RsaPublicEncrypt_ex(
             data->buffer,    /* in pointer to the buffer for encryption */
             data->size,      /* inLen length of in parameter */
-            secret->secret, /* out encrypted msg created */
-            secret->size,   /* outLen length of buffer available to hold encrypted msg */
+            secret->secret,  /* out encrypted msg created */
+            secret->size,    /* outLen length of buffer available to hold encrypted msg */
             &rsaKey,         /* key initialized RSA key struct */
             &rng,            /* rng initialized WC_RNG struct */
             WC_RSA_OAEP_PAD, /* type type of padding to use (WC_RSA_OAEP_PAD or WC_RSA_PKCSV15_PAD) */
@@ -1595,7 +1595,9 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     }
 
     wc_FreeRsaKey(&rsaKey);
+    TPM2_ForceZero(&rsaKey, sizeof(rsaKey));
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&rng, sizeof(rng));
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
