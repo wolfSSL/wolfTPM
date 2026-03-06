@@ -7033,6 +7033,15 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         return BAD_FUNC_ARG;
     }
 
+    /* Seal size must be 0 when data pointer is NULL */
+    if (sealSize > 0 && sealData == NULL) {
+#ifdef DEBUG_WOLFTPM
+        printf("Seal size %d specified with NULL data pointer\n",
+            sealSize);
+#endif
+        return BAD_FUNC_ARG;
+    }
+
     /* clear output key buffer */
     XMEMSET(keyBlob, 0, sizeof(WOLFTPM2_KEYBLOB));
     XMEMSET(&createOut, 0, sizeof(createOut)); /* make sure pub struct is zero init */
