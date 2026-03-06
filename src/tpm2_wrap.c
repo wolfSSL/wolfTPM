@@ -3224,6 +3224,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
                     rc = BUFFER_E;
                 }
             }
+            wc_ecc_free(&key.ecc);
         }
     #else
         (void)out;
@@ -3250,6 +3251,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
                     rc = BUFFER_E;
                 }
             }
+            wc_FreeRsaKey(&key.rsa);
         }
     #else
         (void)out;
