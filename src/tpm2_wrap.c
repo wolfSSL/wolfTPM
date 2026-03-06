@@ -4804,8 +4804,22 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
     }
 
     digestLen = (int)pcrReadOut.pcrValues.digests[0].size;
-    if (digest)
+    if (digest) {
+        if (pDigestLen == NULL) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_PCR_Read: NULL pDigestLen with non-NULL digest\n");
+        #endif
+            return BAD_FUNC_ARG;
+        }
+        if (*pDigestLen < (int)pcrReadOut.pcrValues.digests[0].size) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM2_PCR_Read: Digest buffer too small %d -> %d\n",
+                *pDigestLen, (int)pcrReadOut.pcrValues.digests[0].size);
+        #endif
+            return BUFFER_E;
+        }
         XMEMCPY(digest, pcrReadOut.pcrValues.digests[0].buffer, digestLen);
+    }
 
 #ifdef DEBUG_WOLFTPM
     printf("TPM2_PCR_Read: Index %d, Digest Sz %d, Update Counter %d\n",
