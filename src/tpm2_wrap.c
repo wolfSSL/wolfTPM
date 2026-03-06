@@ -2623,6 +2623,8 @@ int wolfTPM2_LoadPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     wolfTPM2_CopyPub(&key->pub, &keyBlob.pub);
     wolfTPM2_CopyAuth(&key->handle.auth, &sens->sensitiveArea.authValue);
 
+    TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
+
     return rc;
 }
 
