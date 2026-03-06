@@ -196,7 +196,7 @@
                     (byte*)txBuf, rxBuf, 1);
                 if (status == XST_SUCCESS && rxBuf[0] & TPM_TIS_READY_MASK)
                     break;
-            } while (ret == TPM_RC_SUCCESS && --timeout > 0);
+            } while (status == XST_SUCCESS && --timeout > 0);
         #ifdef WOLFTPM_DEBUG_TIMEOUT
             printf("SPI Ready Wait %d\n", TPM_SPI_WAIT_RETRY - timeout);
         #endif

@@ -90,25 +90,38 @@ static void TPM2_Mmio_Write8(word32 addr, byte *buf)
     sw_barrier();
 }
 
+/* Maximum valid TPM register offset to prevent address wrap-around */
+#ifndef TPM_MMIO_MAX_OFFSET
+#define TPM_MMIO_MAX_OFFSET 0x1000000u /* 16MB - well above any valid TPM offset */
+#endif
+
 int TPM2_IoCb_Mmio(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 size,
     void* userCtx)
 {
     size_t i;
+    word32 effectiveAddr;
+
+    /* Bounds check to prevent address wrap-around */
+    if (addr >= TPM_MMIO_MAX_OFFSET) {
+        return TPM_RC_FAILURE;
+    }
+
+    effectiveAddr = MIMO_BASE_ADDRESS + addr;
 
     /* IO for 32-bit aligned */
     for (i = 0; ((size_t)size - i) >= sizeof(word32); i += sizeof(word32)) {
         if (isRead)
-            TPM2_Mmio_Read32(MIMO_BASE_ADDRESS + addr, buf + i);
+            TPM2_Mmio_Read32(effectiveAddr, buf + i);
         else
-            TPM2_Mmio_Write32(MIMO_BASE_ADDRESS + addr, buf + i);
+            TPM2_Mmio_Write32(effectiveAddr, buf + i);
     }
 
     /* IO for unaligned remainder */
     for (; i < (size_t)size; i++) {
         if (isRead)
-            TPM2_Mmio_Read8(MIMO_BASE_ADDRESS + addr, buf + i);
+            TPM2_Mmio_Read8(effectiveAddr, buf + i);
         else
-            TPM2_Mmio_Write8(MIMO_BASE_ADDRESS + addr, buf + i);
+            TPM2_Mmio_Write8(effectiveAddr, buf + i);
     }
 
     (void)ctx;

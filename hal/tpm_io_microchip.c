@@ -305,7 +305,7 @@ int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     /* Send Entire Message blocking - no wait states */
     if (DRV_SPI_WriteReadTransfer(handle, (byte*)txBuf, xferSz, rxBuf,
                                                               xferSz) == true) {
-        ret = TPM_RC_SUCCESS
+        ret = TPM_RC_SUCCESS;
     }
 
     (void)ctx;

@@ -647,10 +647,12 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 
         /* clean hmac context */
         if (rc != 0 || info->hmac.digest != NULL) {
-            wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->hash.handle);
-            wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->key.handle);
-            XFREE(hmacCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            hmacCtx = NULL;
+            if (hmacCtx != NULL) {
+                wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->hash.handle);
+                wolfTPM2_UnloadHandle(tlsCtx->dev, &hmacCtx->key.handle);
+                XFREE(hmacCtx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                hmacCtx = NULL;
+            }
         }
         info->hmac.hmac->devCtx = hmacCtx;
     #endif /* WOLFTPM_USE_SYMMETRIC */
@@ -739,11 +741,19 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     /* determine if we need to grow buffer */
     else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
         byte* oldIn = hashCtx->cacheBuf;
+        word32 oldBufSz = hashCtx->cacheBufSz;
+        /* check for overflow */
+        if (hashCtx->cacheSz + inSz < hashCtx->cacheSz) {
+            return BUFFER_E;
+        }
         hashCtx->cacheBufSz = (hashCtx->cacheSz + inSz +
             WOLFTPM2_HASH_BLOCK_SZ - 1) & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
-            hashCtx->cacheBuf = (byte*)XMALLOC(hashCtx->cacheBufSz,
+        hashCtx->cacheBuf = (byte*)XMALLOC(hashCtx->cacheBufSz,
             NULL, DYNAMIC_TYPE_TMP_BUFFER);
         if (hashCtx->cacheBuf == NULL) {
+            /* restore old buffer on allocation failure */
+            hashCtx->cacheBuf = oldIn;
+            hashCtx->cacheBufSz = oldBufSz;
             return MEMORY_E;
         }
         XMEMCPY(hashCtx->cacheBuf, oldIn, hashCtx->cacheSz);
@@ -919,6 +929,7 @@ static int RsaMGF1(wc_HashAlg* hash, enum wc_HashType hType,
         counter++;
     } while (ret == 0 && idx < outSz);
 
+    TPM2_ForceZero(tmp, sizeof(tmp));
     return ret;
 }
 
@@ -1057,6 +1068,7 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
         xorbuf(m, salt + o, (word32)saltLen);
     }
     wc_HashFree(&hashCtx, hType);
+    TPM2_ForceZero(salt, sizeof(salt));
     return ret;
 }
 

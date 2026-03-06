@@ -377,9 +377,10 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
 
-                /* Verify HMAC */
+                /* Verify HMAC using constant-time comparison */
                 if (hmac.size != authRsp.hmac.size ||
-                    XMEMCMP(hmac.buffer, authRsp.hmac.buffer, hmac.size) != 0) {
+                    TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
+                        hmac.size) != 0) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Response HMAC verification failed!\n");
                 #endif
@@ -5537,7 +5538,7 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
                 if (payloadSz > (size_t)size) {
                     payloadSz = (size_t)size;
                 }
-                XMEMCPY(info, &packet.buf[25], payloadSz);
+                XMEMCPY(info, &packet.buf[26], payloadSz);
             }
         }
         TPM2_ReleaseLock(ctx);
@@ -6618,6 +6619,17 @@ void TPM2_ForceZero(void* mem, word32 len)
 {
     volatile byte* z = (volatile byte*)mem;
     while (len--) *z++ = 0;
+}
+
+/* Constant time memory comparison. Returns 0 if equal, non-zero if different. */
+int TPM2_ConstantCompare(const byte* a, const byte* b, word32 len)
+{
+    word32 i;
+    byte result = 0;
+    for (i = 0; i < len; i++) {
+        result |= a[i] ^ b[i];
+    }
+    return (int)result;
 }
 
 #ifdef DEBUG_WOLFTPM
