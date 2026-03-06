@@ -5026,9 +5026,8 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
         /* Necessary, because NVWrite has two handles, second is NV Index
          * If policy session Name will update via nonceTPM each iteration */
-        rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-        rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-        if (rc != TPM_RC_SUCCESS) {
+        if ((wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle) != 0) ||
+            (wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle) != 0)) {
         #ifdef DEBUG_WOLFTPM
             printf("wolfTPM2_NVWriteData: Setting NV index name failed\n");
         #endif
@@ -5152,9 +5151,8 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
         /* Necessary, because NVWrite has two handles, second is NV Index
          * If policy session Name will update via nonceTPM each iteration */
-        rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-        rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-        if (rc != TPM_RC_SUCCESS) {
+        if ((wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle) != 0) ||
+            (wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle) != 0)) {
         #ifdef DEBUG_WOLFTPM
             printf("Setting NV index name failed\n");
         #endif
@@ -5367,13 +5365,12 @@ int wolfTPM2_NVIncrement(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     }
 
     /* Necessary, because NVRead has two handles, second is NV Index */
-    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-    if (rc != TPM_RC_SUCCESS) {
+    if ((wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle) != 0) ||
+        (wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle) != 0)) {
     #ifdef DEBUG_WOLFTPM
         printf("Setting NV index name failed\n");
     #endif
-        return rc;
+        return TPM_RC_FAILURE;
     }
 
     XMEMSET(&in, 0, sizeof(in));
@@ -5415,9 +5412,8 @@ int wolfTPM2_NVWriteLock(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv)
     }
 
     /* Necessary, because NVRead has two handles, second is NV Index */
-    rc  = wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle);
-    rc |= wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle);
-    if (rc != TPM_RC_SUCCESS) {
+    if ((wolfTPM2_SetAuthHandleName(dev, 0, &nv->handle) != 0) ||
+        (wolfTPM2_SetAuthHandleName(dev, 1, &nv->handle) != 0)) {
     #ifdef DEBUG_WOLFTPM
         printf("Setting NV index name failed\n");
     #endif
