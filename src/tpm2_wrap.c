@@ -1655,7 +1655,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     WOLFTPM2_KEY* tpmKey, WOLFTPM2_HANDLE* bind, TPM_SE sesType,
     int encDecAlg)
 {
-    int rc;
+    int rc = TPM_RC_SUCCESS;
     StartAuthSession_In  authSesIn;
     StartAuthSession_Out authSesOut;
     TPM2B_DATA keyIn;
@@ -1756,71 +1756,88 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     XMEMSET(&keyIn, 0, sizeof(keyIn));
     if (bind && bind->auth.size > 0) {
         if (bind->auth.size > (UINT16)sizeof(bind->auth.buffer)) {
-            return BUFFER_E;
+            rc = BUFFER_E;
         }
-        if ((keyIn.size + bind->auth.size) > (UINT16)sizeof(keyIn.buffer)) {
-            return BUFFER_E;
+        if (rc == TPM_RC_SUCCESS) {
+            if ((keyIn.size + bind->auth.size) > (UINT16)sizeof(keyIn.buffer)) {
+                rc = BUFFER_E;
+            }
+            else {
+                XMEMCPY(&keyIn.buffer[keyIn.size], bind->auth.buffer,
+                    bind->auth.size);
+                keyIn.size += bind->auth.size;
+            }
         }
-        XMEMCPY(&keyIn.buffer[keyIn.size], bind->auth.buffer,
-            bind->auth.size);
-        keyIn.size += bind->auth.size;
     }
-    if (session->salt.size > 0) {
+    if (rc == TPM_RC_SUCCESS && session->salt.size > 0) {
         if (session->salt.size > (UINT16)sizeof(session->salt.buffer)) {
-            return BUFFER_E;
+            rc = BUFFER_E;
         }
-        if ((keyIn.size + session->salt.size) > (UINT16)sizeof(keyIn.buffer)) {
-            return BUFFER_E;
+        if (rc == TPM_RC_SUCCESS) {
+            if ((keyIn.size + session->salt.size) > (UINT16)sizeof(keyIn.buffer)) {
+                rc = BUFFER_E;
+            }
+            else {
+                XMEMCPY(&keyIn.buffer[keyIn.size], session->salt.buffer,
+                    session->salt.size);
+                keyIn.size += session->salt.size;
+            }
         }
-        XMEMCPY(&keyIn.buffer[keyIn.size], session->salt.buffer,
-            session->salt.size);
-        keyIn.size += session->salt.size;
     }
 
-    if (keyIn.size > 0) {
+    if (rc == TPM_RC_SUCCESS && keyIn.size > 0) {
         session->handle.auth.size = hashDigestSz;
         rc = TPM2_KDFa(authSesIn.authHash, &keyIn, "ATH",
             &authSesOut.nonceTPM, &authSesIn.nonceCaller,
             session->handle.auth.buffer, session->handle.auth.size);
-        if (rc != hashDigestSz) {
+        if (rc == hashDigestSz) {
+            rc = TPM_RC_SUCCESS;
+        }
+        else {
         #ifdef DEBUG_WOLFTPM
             printf("KDFa ATH Gen Error %d\n", rc);
         #endif
-            return TPM_RC_FAILURE;
+            rc = TPM_RC_FAILURE;
         }
-        rc = TPM_RC_SUCCESS;
     }
 
+    /* Erase salt after key generation */
+    TPM2_ForceZero(&session->salt, sizeof(session->salt));
+
+    if (rc == TPM_RC_SUCCESS) {
 #ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("Session Key %d\n", session->handle.auth.size);
-    TPM2_PrintBin(session->handle.auth.buffer, session->handle.auth.size);
+        printf("Session Key %d\n", session->handle.auth.size);
+        TPM2_PrintBin(session->handle.auth.buffer, session->handle.auth.size);
 #endif
 
-    /* return session */
-    session->type = authSesIn.sessionType;
-    session->authHash = authSesIn.authHash;
-    session->handle.hndl = authSesOut.sessionHandle;
-    wolfTPM2_CopySymmetric(&session->handle.symmetric, &authSesIn.symmetric);
-    if (bind) {
-        session->bind = &bind->auth; /* pointer to bind key auth */
-        wolfTPM2_CopyName(&session->handle.name, &bind->name);
-    }
-    session->nonceCaller.size = authSesIn.nonceCaller.size;
-    if (session->nonceCaller.size > (UINT16)sizeof(session->nonceCaller.buffer))
-        session->nonceCaller.size = (UINT16)sizeof(session->nonceCaller.buffer);
-    XMEMCPY(session->nonceCaller.buffer, authSesIn.nonceCaller.buffer,
-        authSesIn.nonceCaller.size);
-    session->nonceTPM.size = authSesOut.nonceTPM.size;
-    if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
-        session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
-    XMEMCPY(session->nonceTPM.buffer, authSesOut.nonceTPM.buffer,
-        session->nonceTPM.size);
+        /* return session */
+        session->type = authSesIn.sessionType;
+        session->authHash = authSesIn.authHash;
+        session->handle.hndl = authSesOut.sessionHandle;
+        wolfTPM2_CopySymmetric(&session->handle.symmetric, &authSesIn.symmetric);
+        if (bind) {
+            session->bind = &bind->auth; /* pointer to bind key auth */
+            wolfTPM2_CopyName(&session->handle.name, &bind->name);
+        }
+        session->nonceCaller.size = authSesIn.nonceCaller.size;
+        if (session->nonceCaller.size > (UINT16)sizeof(session->nonceCaller.buffer))
+            session->nonceCaller.size = (UINT16)sizeof(session->nonceCaller.buffer);
+        XMEMCPY(session->nonceCaller.buffer, authSesIn.nonceCaller.buffer,
+            authSesIn.nonceCaller.size);
+        session->nonceTPM.size = authSesOut.nonceTPM.size;
+        if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
+            session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
+        XMEMCPY(session->nonceTPM.buffer, authSesOut.nonceTPM.buffer,
+            session->nonceTPM.size);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_StartAuthSession: handle 0x%x, algorithm %s\n",
-        (word32)session->handle.hndl,
-        TPM2_GetAlgName(authSesIn.symmetric.algorithm));
+        printf("TPM2_StartAuthSession: handle 0x%x, algorithm %s\n",
+            (word32)session->handle.hndl,
+            TPM2_GetAlgName(authSesIn.symmetric.algorithm));
 #endif
+    }
+
+    TPM2_ForceZero(&keyIn, sizeof(keyIn));
 
     return rc;
 }
