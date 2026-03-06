@@ -3565,6 +3565,10 @@ int wolfTPM2_RsaPrivateKeyImportDer(WOLFTPM2_DEV* dev,
     if (initRc == 0)
         wc_FreeRsaKey(key);
 
+    TPM2_ForceZero(d, sizeof(d));
+    TPM2_ForceZero(p, sizeof(p));
+    TPM2_ForceZero(q, sizeof(q));
+
     return rc;
 }
 
