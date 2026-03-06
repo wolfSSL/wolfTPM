@@ -3122,6 +3122,10 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
         wc_FreeRsaKey(key);
     }
 
+    TPM2_ForceZero(d, sizeof(d));
+    TPM2_ForceZero(p, sizeof(p));
+    TPM2_ForceZero(q, sizeof(q));
+
     return rc;
 }
 #endif /* !NO_RSA */
