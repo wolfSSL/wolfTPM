@@ -989,7 +989,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /* PCR TESTS */
     /*------------------------------------------------------------------------*/
     /* Read PCR Index 0 */
-    hashSz = 0;
+    hashSz = sizeof(hashBuf);
     rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);
     if (rc != 0) goto exit;
 
@@ -1001,6 +1001,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     /* Read PCR Index 0 */
+    hashSz = sizeof(hashBuf);
     rc = wolfTPM2_ReadPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, &hashSz);
     if (rc != 0) goto exit;
     printf("PCR Test pass\n");

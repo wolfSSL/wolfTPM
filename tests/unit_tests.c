@@ -429,6 +429,43 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:\t\tPolicy NULL Args:\tPassed\n");
 }
 
+static void test_wolfTPM2_EncryptSecret(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    TPM2B_DATA data;
+    TPM2B_ENCRYPTED_SECRET secret;
+
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    XMEMSET(&data, 0, sizeof(data));
+    XMEMSET(&secret, 0, sizeof(secret));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Test NULL tpmKey returns success (unsalted session) */
+    rc = wolfTPM2_EncryptSecret(&dev, NULL, &data, &secret, "SECRET");
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Test NULL dev returns BAD_FUNC_ARG */
+    rc = wolfTPM2_EncryptSecret(NULL, &tpmKey, &data, &secret, "SECRET");
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test NULL data returns BAD_FUNC_ARG */
+    rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, NULL, &secret, "SECRET");
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test NULL secret returns BAD_FUNC_ARG */
+    rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, &data, NULL, "SECRET");
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tEncryptSecret:\t%s\n",
+        rc == BAD_FUNC_ARG ? "Passed" : "Failed");
+}
+
 static void test_wolfTPM2_Cleanup(void)
 {
     int rc;
@@ -1047,6 +1084,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM_ImportPublicKey();
     test_wolfTPM2_PCRPolicy();
     #endif
+    test_wolfTPM2_EncryptSecret();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
