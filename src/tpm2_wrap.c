@@ -1595,9 +1595,7 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     }
 
     wc_FreeRsaKey(&rsaKey);
-    TPM2_ForceZero(&rsaKey, sizeof(rsaKey));
     wc_FreeRng(&rng);
-    TPM2_ForceZero(&rng, sizeof(rng));
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
