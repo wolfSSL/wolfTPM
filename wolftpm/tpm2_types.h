@@ -724,6 +724,51 @@ typedef int64_t  INT64;
 #ifndef MAX_CAP_HANDLES
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Size Definitions - TCG v185 RC4 */
+
+/* ML-DSA sizes (TCG v185 RC4 Table 207) */
+#ifndef MAX_MLDSA_PUB_SIZE
+#define MAX_MLDSA_PUB_SIZE          2592  /* ML-DSA-87 public key */
+#endif
+#ifndef MAX_MLDSA_SIG_SIZE
+#define MAX_MLDSA_SIG_SIZE          4627  /* ML-DSA-87 signature */
+#endif
+#ifndef MAX_MLDSA_PRIV_SEED_SIZE
+#define MAX_MLDSA_PRIV_SEED_SIZE    32    /* Private seed Xi (ξ) */
+#endif
+
+/* ML-KEM sizes (TCG v185 RC4 Table 204) */
+#ifndef MAX_MLKEM_PUB_SIZE
+#define MAX_MLKEM_PUB_SIZE          1568  /* ML-KEM-1024 public key */
+#endif
+#ifndef MAX_MLKEM_PRIV_SEED_SIZE
+#define MAX_MLKEM_PRIV_SEED_SIZE    64    /* Private seed (d||z) */
+#endif
+
+/* CRITICAL: MAX_SIGNATURE_CTX_SIZE must support ML-DSA-87 signatures (4627 bytes) */
+#ifndef MAX_SIGNATURE_CTX_SIZE
+#define MAX_SIGNATURE_CTX_SIZE      MAX_MLDSA_SIG_SIZE  /* 4627 */
+#endif
+
+#ifndef MAX_KEM_CIPHERTEXT_SIZE
+#define MAX_KEM_CIPHERTEXT_SIZE     2048
+#endif
+
+/* MAX_MLKEM_CT_SIZE aliased to avoid collision with existing MAX_KEM_CIPHERTEXT_SIZE */
+#ifndef MAX_MLKEM_CT_SIZE
+#define MAX_MLKEM_CT_SIZE           MAX_KEM_CIPHERTEXT_SIZE
+#endif
+
+/* Compile-time sanity check */
+#if MAX_MLKEM_CT_SIZE < 1568
+#error "MAX_MLKEM_CT_SIZE too small for ML-KEM-1024 ciphertext (1568 bytes)"
+#endif
+
+#ifndef MAX_SHARED_SECRET_SIZE
+#define MAX_SHARED_SECRET_SIZE      64
+#endif
+#endif /* WOLFTPM_V185 */
 #ifndef HASH_COUNT
     #ifndef WOLFTPM2_NO_WOLFCRYPT
         /* Calculate hash count based on wolfCrypt enables */

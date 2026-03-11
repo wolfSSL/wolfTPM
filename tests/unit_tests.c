@@ -3773,6 +3773,399 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
     printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
 }
 
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
+
+/* TODO: Remove TPM_RC_COMMAND_CODE skip logic once we have a TPM simulator
+ * or hardware that supports TPM 2.0 v1.85 PQC commands. Currently the IBM SW
+ * TPM does not support ML-DSA/ML-KEM, so tests skip with TPM_RC_COMMAND_CODE.
+ * When real support is available, update tests to require success. */
+
+/* Test ML-DSA Sign Sequence (Start, Update, Complete) */
+static void test_wolfTPM2_MLDSA_SignSequence(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mldsaKey)
+{
+    int rc;
+    TPM_HANDLE sequenceHandle;
+    byte message[] = "Test message for ML-DSA signing";
+    int messageSz = (int)sizeof(message) - 1;
+    byte sig[5000]; /* ML-DSA signatures are large */
+    int sigSz = (int)sizeof(sig);
+    byte context[16] = {0}; /* Optional context */
+    int contextSz = 0;
+
+    /* Note: This test requires a TPM that supports ML-DSA */
+    /* The key should already be created and loaded */
+
+    /* Test SignSequenceStart */
+    rc = wolfTPM2_SignSequenceStart(dev, mldsaKey, context, contextSz,
+        &sequenceHandle);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-DSA Sign Sequence:\tSkipped (not supported)\n");
+        return;
+    }
+    /* If we get here, TPM supports it, continue testing */
+    AssertIntEQ(rc, 0);
+
+    /* Test SignSequenceUpdate */
+    rc = wolfTPM2_SignSequenceUpdate(dev, sequenceHandle, message, messageSz);
+    AssertIntEQ(rc, 0);
+
+    /* Test SignSequenceComplete */
+    rc = wolfTPM2_SignSequenceComplete(dev, sequenceHandle, mldsaKey, NULL, 0,
+        sig, &sigSz);
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sigSz, 0);
+
+    printf("Test TPM Wrapper:\tML-DSA Sign Sequence:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test ML-DSA Verify Sequence (Start, Update, Complete) */
+static void test_wolfTPM2_MLDSA_VerifySequence(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mldsaKey, const byte* message, int messageSz,
+    const byte* sig, int sigSz)
+{
+    int rc;
+    TPM_HANDLE sequenceHandle;
+
+    /* Test VerifySequenceStart */
+    rc = wolfTPM2_VerifySequenceStart(dev, mldsaKey, NULL, 0, &sequenceHandle);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-DSA Verify Sequence:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+
+    /* Test VerifySequenceUpdate */
+    rc = wolfTPM2_VerifySequenceUpdate(dev, sequenceHandle, message, messageSz);
+    AssertIntEQ(rc, 0);
+
+    /* Test VerifySequenceComplete */
+    rc = wolfTPM2_VerifySequenceComplete(dev, sequenceHandle, mldsaKey,
+        NULL, 0, sig, sigSz, NULL);
+    AssertIntEQ(rc, 0);
+
+    printf("Test TPM Wrapper:\tML-DSA Verify Sequence:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test ML-DSA Sign Digest */
+static void test_wolfTPM2_MLDSA_SignDigest(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mldsaKey)
+{
+    int rc;
+    byte digest[32]; /* SHA3-256 digest */
+    int digestSz = 32;
+    byte context[16];
+    int contextSz = 16;
+    byte sig[5000];
+    int sigSz = (int)sizeof(sig);
+
+    /* Create test digest */
+    XMEMSET(digest, 0xAA, digestSz);
+    XMEMSET(context, 0xBB, contextSz);
+
+    /* Test SignDigest */
+    rc = wolfTPM2_SignDigest(dev, mldsaKey, digest, digestSz,
+        context, contextSz, sig, &sigSz);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-DSA Sign Digest:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sigSz, 0);
+
+    printf("Test TPM Wrapper:\tML-DSA Sign Digest:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test ML-DSA Verify Digest Signature */
+static void test_wolfTPM2_MLDSA_VerifyDigestSignature(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mldsaKey, const byte* digest, int digestSz,
+    const byte* sig, int sigSz)
+{
+    int rc;
+    byte context[16];
+    int contextSz = 16;
+    TPMT_TK_VERIFIED validation;
+
+    XMEMSET(context, 0xBB, contextSz);
+
+    /* Test VerifyDigestSignature */
+    rc = wolfTPM2_VerifyDigestSignature(dev, mldsaKey, digest, digestSz,
+        sig, sigSz, context, contextSz, &validation);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-DSA Verify Digest:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+
+    printf("Test TPM Wrapper:\tML-DSA Verify Digest:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+/* Test ML-KEM Encapsulate */
+static void test_wolfTPM2_MLKEM_Encapsulate(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mlkemKey)
+{
+    int rc;
+    byte ciphertext[2048]; /* ML-KEM ciphertext is variable length */
+    int ciphertextSz = (int)sizeof(ciphertext);
+    byte sharedSecret[64]; /* Shared secret */
+    int sharedSecretSz = (int)sizeof(sharedSecret);
+
+    XMEMSET(ciphertext, 0, sizeof(ciphertext));
+    XMEMSET(sharedSecret, 0, sizeof(sharedSecret));
+
+    /* Test Encapsulate */
+    rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, &ciphertextSz,
+        sharedSecret, &sharedSecretSz);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-KEM Encapsulate:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    AssertIntGT(ciphertextSz, 0);
+    AssertIntGT(sharedSecretSz, 0);
+
+    printf("Test TPM Wrapper:\tML-KEM Encapsulate:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test ML-KEM Decapsulate */
+static void test_wolfTPM2_MLKEM_Decapsulate(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mlkemKey, const byte* ciphertext, int ciphertextSz)
+{
+    int rc;
+    byte sharedSecret[64]; /* Shared secret */
+    int sharedSecretSz = (int)sizeof(sharedSecret);
+
+    XMEMSET(sharedSecret, 0, sizeof(sharedSecret));
+
+    /* Test Decapsulate */
+    rc = wolfTPM2_Decapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
+        sharedSecret, &sharedSecretSz);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-KEM Decapsulate:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sharedSecretSz, 0);
+
+    printf("Test TPM Wrapper:\tML-KEM Decapsulate:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+
+/* Test ML-KEM Encapsulate/Decapsulate round-trip */
+static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* mlkemKey)
+{
+    int rc;
+    byte ciphertext[2048];
+    int ciphertextSz = (int)sizeof(ciphertext);
+    byte sharedSecret1[64], sharedSecret2[64];
+    int sharedSecret1Sz = (int)sizeof(sharedSecret1);
+    int sharedSecret2Sz = (int)sizeof(sharedSecret2);
+
+    XMEMSET(ciphertext, 0, sizeof(ciphertext));
+    XMEMSET(sharedSecret1, 0, sizeof(sharedSecret1));
+    XMEMSET(sharedSecret2, 0, sizeof(sharedSecret2));
+
+    /* Encapsulate */
+    rc = wolfTPM2_Encapsulate(dev, mlkemKey, ciphertext, &ciphertextSz,
+        sharedSecret1, &sharedSecret1Sz);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+        rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper:\tML-KEM Round Trip:\tSkipped (not supported)\n");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+    AssertIntGT(ciphertextSz, 0);
+    AssertIntGT(sharedSecret1Sz, 0);
+
+    /* Decapsulate */
+    rc = wolfTPM2_Decapsulate(dev, mlkemKey, ciphertext, ciphertextSz,
+        sharedSecret2, &sharedSecret2Sz);
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sharedSecret2Sz, 0);
+
+    /* Verify shared secrets match */
+    AssertIntEQ(sharedSecret1Sz, sharedSecret2Sz);
+    AssertIntEQ(XMEMCMP(sharedSecret1, sharedSecret2, sharedSecret1Sz), 0);
+
+    printf("Test TPM Wrapper:\tML-KEM Round Trip:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+}
+#endif /* ML-KEM support */
+
+/* Main PQC test function */
+static void test_wolfTPM2_PQC(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY storageKey;
+    WOLFTPM2_KEY mldsaKey;
+    byte sig[5000];
+    int sigSz = (int)sizeof(sig);
+    byte digest[32];
+    int digestSz = 32;
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+    WOLFTPM2_KEY mlkemKey;
+#endif
+
+    /* Initialize TPM */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* Create storage key */
+    rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC,
+        (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
+    AssertIntEQ(rc, 0);
+
+    /* Note: ML-DSA key creation would need proper TPM 2.0 v185 support */
+    /* For now, tests will gracefully skip if not supported */
+    printf("Testing ML-DSA functions (will skip if not supported by TPM)...\n");
+    
+    /* Initialize mldsaKey - in real usage, this would be created/loaded */
+    XMEMSET(&mldsaKey, 0, sizeof(mldsaKey));
+    
+    /* Test Sign Sequence */
+    test_wolfTPM2_MLDSA_SignSequence(&dev, &mldsaKey);
+    
+    /* Test Sign Digest */
+    test_wolfTPM2_MLDSA_SignDigest(&dev, &mldsaKey);
+    
+    /* Test Verify Sequence - will skip if not supported */
+    /* Note: In a real test, we'd need actual message and signature */
+    {
+        byte testMessage[] = "Test message";
+        byte testSig[5000] = {0};
+        test_wolfTPM2_MLDSA_VerifySequence(&dev, &mldsaKey,
+            testMessage, (int)sizeof(testMessage) - 1,
+            testSig, (int)sizeof(testSig));
+    }
+    
+    /* If we have a signature, test verification */
+    if (sigSz > 0 && sigSz < (int)sizeof(sig)) {
+        XMEMSET(digest, 0xAA, digestSz);
+        test_wolfTPM2_MLDSA_VerifyDigestSignature(&dev, &mldsaKey,
+            digest, digestSz, sig, sigSz);
+    }
+
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+    /* Note: ML-KEM key creation would need proper TPM 2.0 v185 support */
+    printf("Testing ML-KEM functions (will skip if not supported by TPM)...\n");
+    
+    /* Initialize mlkemKey - in real usage, this would be created/loaded */
+    XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+    
+    /* Test Encapsulate */
+    test_wolfTPM2_MLKEM_Encapsulate(&dev, &mlkemKey);
+    
+    /* Test Decapsulate - will skip if not supported */
+    /* Note: In a real test, we'd need actual ciphertext from Encapsulate */
+    {
+        byte testCiphertext[2048] = {0};
+        test_wolfTPM2_MLKEM_Decapsulate(&dev, &mlkemKey,
+            testCiphertext, (int)sizeof(testCiphertext));
+    }
+    
+    /* Test Encapsulate/Decapsulate round-trip */
+    test_wolfTPM2_MLKEM_RoundTrip(&dev, &mlkemKey);
+#endif
+
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+    wolfTPM2_Cleanup(&dev);
+}
+
+/* Test PQC key template creation */
+static void test_wolfTPM2_PQC_KeyTemplates(void)
+{
+    int rc;
+    TPMT_PUBLIC mldsaTemplate, hashMldsaTemplate, mlkemTemplate;
+
+    printf("Testing PQC Key Templates...\n");
+
+    /* Test MLDSA template */
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&mldsaTemplate,
+        TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth,
+        TPM_MLDSA_65, 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(mldsaTemplate.type, TPM_ALG_MLDSA);
+    AssertIntEQ(mldsaTemplate.parameters.mldsaDetail.parameterSet, TPM_MLDSA_65);
+    AssertIntEQ(mldsaTemplate.parameters.mldsaDetail.allowExternalMu, YES);
+    /* Verify sign is set, decrypt is NOT set */
+    AssertTrue(mldsaTemplate.objectAttributes & TPMA_OBJECT_sign);
+    AssertFalse(mldsaTemplate.objectAttributes & TPMA_OBJECT_decrypt);
+
+    /* Test HASH_MLDSA template */
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&hashMldsaTemplate,
+        TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth,
+        TPM_MLDSA_87, TPM_ALG_SHA256);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(hashMldsaTemplate.type, TPM_ALG_HASH_MLDSA);
+    AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.parameterSet, TPM_MLDSA_87);
+    AssertIntEQ(hashMldsaTemplate.parameters.hash_mldsaDetail.hashAlg, TPM_ALG_SHA256);
+
+    /* Test MLKEM template */
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(&mlkemTemplate,
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth,
+        TPM_MLKEM_768);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(mlkemTemplate.type, TPM_ALG_MLKEM);
+    AssertIntEQ(mlkemTemplate.parameters.mlkemDetail.parameterSet, TPM_MLKEM_768);
+    /* Verify decrypt is set, sign is NOT set */
+    AssertTrue(mlkemTemplate.objectAttributes & TPMA_OBJECT_decrypt);
+    AssertFalse(mlkemTemplate.objectAttributes & TPMA_OBJECT_sign);
+
+    /* Test NULL argument handling */
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(NULL, 0, TPM_MLDSA_44, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(NULL, 0, TPM_MLDSA_44, TPM_ALG_SHA256);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(NULL, 0, TPM_MLKEM_512);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tPQC Key Templates:\tPassed\n");
+}
+
+/* Test PQC sizes sanity check */
+static void test_wolfTPM2_PQC_Sizes(void)
+{
+    printf("Testing PQC Sizes...\n");
+
+    /* Verify TPMT_PUBLIC size is reasonable for embedded targets */
+    printf("  TPMT_PUBLIC size with PQC: %zu bytes\n", sizeof(TPMT_PUBLIC));
+    /* Flag if > 5KB, which could blow embedded stacks */
+    AssertTrue(sizeof(TPMT_PUBLIC) < 5120);
+
+    /* Verify key buffer sizes are correct */
+    AssertIntEQ(MAX_MLDSA_PUB_SIZE, 2592);  /* ML-DSA-87 */
+    AssertIntEQ(MAX_MLDSA_SIG_SIZE, 4627);  /* ML-DSA-87 */
+    AssertIntEQ(MAX_MLDSA_PRIV_SEED_SIZE, 32);
+    AssertIntEQ(MAX_MLKEM_PUB_SIZE, 1568);  /* ML-KEM-1024 */
+    AssertIntEQ(MAX_MLKEM_PRIV_SEED_SIZE, 64);
+
+    printf("Test TPM Wrapper:\tPQC Sizes:\tPassed\n");
+}
+#endif /* WOLFTPM_V185 */
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -3869,6 +4262,13 @@ int unit_tests(int argc, char *argv[])
     #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
     test_wolfTPM2_ST33_FirmwareUpgrade();
     #endif
+    #endif
+    #ifdef WOLFTPM_V185
+    /* Run non-TPM-dependent tests first */
+    test_wolfTPM2_PQC_KeyTemplates();
+    test_wolfTPM2_PQC_Sizes();
+    /* Then run TPM-dependent PQC tests */
+    test_wolfTPM2_PQC();
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();

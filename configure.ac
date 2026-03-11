@@ -675,6 +675,16 @@ then
     fi
 fi
 
+AC_ARG_ENABLE([v185],
+    [AS_HELP_STRING([--enable-v185],[Enable TPM 2.0 v185 Post-Quantum Cryptography (PQC) support (default: disabled)])],
+    [ ENABLED_V185=$enableval ],
+    [ ENABLED_V185=no ]
+    )
+if test "x$ENABLED_V185" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
+fi
+
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
 
