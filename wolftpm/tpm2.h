@@ -262,7 +262,7 @@ typedef enum {
     TPM_CC_SetCommandSetLock        = CC_VEND + 0x030B,
     TPM_CC_GPIO_Config              = CC_VEND + 0x030F,
 #endif
-#ifdef WOLFTPM_NUVOTON
+#if defined(WOLFTPM_NUVOTON) || defined(WOLFTPM_AUTODETECT)
     TPM_CC_NTC2_PreConfig           = CC_VEND + 0x0211,
     TPM_CC_NTC2_GetConfig           = CC_VEND + 0x0213,
 #endif
@@ -507,6 +507,73 @@ typedef enum {
     TPM_CAP_VENDOR_PROPERTY = 0x00000100,
 } TPM_CAP_T;
 typedef UINT32 TPM_CAP;
+
+#ifdef WOLFTPM_SPDM
+/* TCG SPDM Binding for Secure Communication v1.0 Constants */
+
+/* TCG SPDM Binding Message Tags */
+#define SPDM_TAG_CLEAR      0x8101  /* Clear (unencrypted) SPDM message */
+#define SPDM_TAG_SECURED    0x8201  /* Secured (encrypted) SPDM message */
+
+/* SPDM Protocol Version */
+#define SPDM_VERSION_1_3    0x13    /* SPDM v1.3 */
+
+/* SPDM protocol message codes, response codes, and error codes are
+ * defined in <wolfspdm/spdm_types.h> (the authoritative source).
+ * Include that header directly if you need SPDM protocol constants. */
+
+/* SPDM Vendor Defined Codes (8-byte ASCII, used as VdCode in VENDOR_DEFINED) */
+#define SPDM_VDCODE_TPM2_CMD   "TPM2_CMD"  /* TPM command over SPDM session */
+#define SPDM_VDCODE_GET_PUBK   "GET_PUBK"  /* Get TPM's SPDM-Identity pub key */
+#define SPDM_VDCODE_GIVE_PUB   "GIVE_PUB"  /* Give host's SPDM-Identity pub key */
+#define SPDM_VDCODE_SPDMONLY   "SPDMONLY"  /* Lock/unlock SPDM-only mode */
+#define SPDM_VDCODE_GET_STS    "GET_STS_"  /* Get SPDM status */
+
+/* SPDM Vendor Defined Code Length */
+#define SPDM_VDCODE_LEN        8
+
+/* SPDM Session Constants (Nuvoton NPCT7xx) */
+#define SPDM_CONNECTION_ID      0       /* Single connection */
+#define SPDM_RSP_SESSION_ID     0xAEAD  /* Responder session ID */
+#define SPDM_REQ_SESSION_ID     0x0001  /* Default requester session ID */
+
+/* SPDM FIPS Indicator (TCG binding) */
+#define SPDM_FIPS_NON_FIPS     0x00
+#define SPDM_FIPS_APPROVED     0x01
+
+/* SPDM Algorithm Set B (192-bit security strength) */
+#define SPDM_ALG_ECDSA_P384    0x0003  /* Signing algorithm */
+#define SPDM_ALG_SHA384        0x0002  /* Hash algorithm */
+#define SPDM_ALG_ECDHE_P384    0x0003  /* Key exchange algorithm */
+#define SPDM_ALG_AES256_GCM    0x0002  /* AEAD algorithm */
+
+/* SPDM-Identity NV Indices */
+#define SPDM_NV_INDEX_TPM_KEY  0x01C20110  /* TPM SPDM-Identity key */
+#define SPDM_NV_INDEX_REQ_KEY  0x01C20111  /* Requester SPDM-Identity key */
+
+/* NTC2 PreConfig CFG_H Bit Definitions for SPDM */
+#define NTC2_CFG_H_SPDM_ENABLE_BIT    1  /* Bit position in CFG_H */
+#define NTC2_CFG_H_SPDM_ENABLE        0x00  /* SPDM enabled (bit 1 = 0) */
+#define NTC2_CFG_H_SPDM_DISABLE       0x02  /* SPDM disabled (bit 1 = 1) */
+
+/* SPDM ONLY mode sub-commands */
+#define SPDM_ONLY_LOCK         0x01
+#define SPDM_ONLY_UNLOCK       0x00
+
+/* SPDM Message Sizes */
+#define SPDM_MAX_MSG_SIZE       4096
+
+/* TCG SPDM Binding Header Size (per TCG SPDM Binding Spec):
+ * tag(2/BE) + size(4/BE) + connectionHandle(4/BE) + fipsIndicator(2/BE) +
+ * reserved(4) = 16 bytes */
+#define SPDM_TCG_BINDING_HEADER_SIZE  16
+
+/* SPDM Secured Message Header Size (per DSP0277):
+ * sessionId(4/LE) + sequenceNumber(8/LE) + length(2/LE) = 14 bytes
+ * where length = size of encrypted data + MAC */
+#define SPDM_SECURED_MSG_HEADER_SIZE  14
+
+#endif /* WOLFTPM_SPDM */
 
 /* Property Tag */
 typedef enum {
@@ -816,6 +883,9 @@ typedef TPM_HANDLE TPMI_RH_CLEAR;
 typedef TPM_HANDLE TPMI_RH_NV_AUTH;
 typedef TPM_HANDLE TPMI_RH_LOCKOUT;
 typedef TPM_HANDLE TPMI_RH_NV_INDEX;
+#ifdef WOLFTPM_SPDM
+typedef TPM_HANDLE TPMI_DH_AC;  /* Authenticated Controller handle */
+#endif
 
 typedef TPM_ALG_ID TPMI_ALG_HASH;
 typedef TPM_ALG_ID TPMI_ALG_ASYM;
@@ -1044,7 +1114,6 @@ typedef struct TPML_ACT_DATA {
     UINT32        count;
     TPMS_ACT_DATA actData[MAX_ACT_DATA];
 } TPML_ACT_DATA;
-
 
 /* Capabilities Structures */
 
@@ -1902,6 +1971,10 @@ typedef struct TPM2_CTX {
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     int fd;
 #endif
+#ifdef WOLFTPM_SPDM
+    void* spdmCtx; /* Pointer to WOLFTPM2_SPDM_CTX when session active */
+    unsigned int spdmOnlyDetected:1; /* TPM_RC_DISABLED from Startup */
+#endif
 } TPM2_CTX;
 
 
@@ -1928,7 +2001,6 @@ typedef struct {
 } GetCapability_Out;
 WOLFTPM_API TPM_RC TPM2_GetCapability(GetCapability_In* in,
     GetCapability_Out* out);
-
 
 typedef struct {
     TPMI_YES_NO fullTest;
@@ -2650,6 +2722,7 @@ typedef struct {
 } PolicyAuthValue_In;
 WOLFTPM_API TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in);
 
+
 typedef struct {
     TPMI_SH_POLICY policySession;
 } PolicyPassword_In;
@@ -3141,6 +3214,44 @@ WOLFTPM_API int TPM2_ST33_FieldUpgradeCommand(TPM_CC cc, uint8_t* data, uint32_t
     } NTC2_GetConfig_Out;
     WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
 #endif /* Vendor GPIO Commands */
+
+/* NTC2 PreConfig/GetConfig for WOLFTPM_AUTODETECT (runtime vendor detection).
+ * When a specific vendor is not selected at compile time, the NTC2 types
+ * must still be available for SPDM enable via NTC2_PreConfig. */
+#if defined(WOLFTPM_AUTODETECT) && !defined(WOLFTPM_NUVOTON) && \
+    !defined(WOLFTPM_ST33)
+    typedef struct {
+        BYTE Base0;
+        BYTE Base1;
+        BYTE GpioAltCfg;
+        BYTE GpioInitValue;
+        BYTE GpioPullUp;
+        BYTE GpioPushPull;
+        BYTE Cfg_A;
+        BYTE Cfg_B;
+        BYTE Cfg_C;
+        BYTE Cfg_D;
+        BYTE Cfg_E;
+        BYTE Cfg_F;
+        BYTE Cfg_G;
+        BYTE Cfg_H;
+        BYTE Cfg_I;
+        BYTE Cfg_J;
+        BYTE isValid;
+        BYTE isLocked;
+    } CFG_STRUCT;
+
+    typedef struct {
+        TPMI_RH_PLATFORM authHandle;
+        CFG_STRUCT preConfig;
+    } NTC2_PreConfig_In;
+    WOLFTPM_API int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in);
+
+    typedef struct {
+        CFG_STRUCT preConfig;
+    } NTC2_GetConfig_Out;
+    WOLFTPM_API int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out);
+#endif /* WOLFTPM_AUTODETECT && !WOLFTPM_NUVOTON && !WOLFTPM_ST33 */
 
 
 /* Non-standard API's */
