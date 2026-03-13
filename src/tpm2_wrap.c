@@ -1248,6 +1248,7 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
 
         rc = wc_ecc_export_private_only(&hostKey, privKey, &privKeySz);
         if (rc != 0) {
+            wc_ForceZero(privKey, sizeof(privKey));
             wc_ecc_free(&hostKey);
             wc_FreeRng(&rng);
             return rc;
@@ -1264,6 +1265,7 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
         XMEMCPY(rawPubKey + 48, pubKeyY, 48);
         rc = wolfSPDM_SetRequesterKeyPair(dev->spdmCtx->spdmCtx,
             privKey, privKeySz, rawPubKey, 96);
+        wc_ForceZero(privKey, sizeof(privKey));
         if (rc != 0) return rc;
 
         /* Build TPMT_PUBLIC for GIVE_PUB step */

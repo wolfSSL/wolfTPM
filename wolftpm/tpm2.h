@@ -3413,27 +3413,6 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
 */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 
-#ifdef WOLFTPM_SPDM
-/*!
-    \ingroup TPM2_Proprietary
-    \brief Send raw bytes through the TIS/HAL transport and receive the response.
-    Used by the SPDM layer to send TCG-framed SPDM messages over the same
-    SPI FIFO as regular TPM commands.
-
-    \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: check the provided arguments
-    \return TPM_RC_FAILURE: communication failure
-
-    \param ctx pointer to a TPM2 context
-    \param txBuf pointer to the transmit buffer (TCG SPDM framed message)
-    \param txSz size of the transmit buffer in bytes
-    \param rxBuf pointer to the receive buffer for the response
-    \param rxSz pointer to size; on input max buffer size, on output actual response size
-*/
-WOLFTPM_API TPM_RC TPM2_SendRawBytes(TPM2_CTX* ctx,
-    const byte* txBuf, word32 txSz, byte* rxBuf, word32* rxSz);
-#endif /* WOLFTPM_SPDM */
-
 /*!
     \ingroup TPM2_Proprietary
     \brief Sets the structure holding the TPM Authorizations.

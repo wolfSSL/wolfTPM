@@ -488,13 +488,9 @@ then
     # Add spdm/ include path so all targets can find <wolfspdm/spdm.h>
     AM_CPPFLAGS="$AM_CPPFLAGS -I\$(srcdir)/spdm"
 
-    # Nuvoton SPDM support
+    # Nuvoton SPDM support (required for SPDM in wolfTPM)
     if test "x$ENABLED_NUVOTON" = "xyes"
     then
-        if test "x$ENABLED_SWTPM" = "xyes"
-        then
-            AC_MSG_ERROR([Cannot enable both swtpm and nuvoton with SPDM. Use --enable-swtpm --enable-spdm for emulator testing, or --enable-nuvoton --enable-spdm for hardware.])
-        fi
         AC_DEFINE([WOLFSPDM_NUVOTON], [1], [Enable SPDM Nuvoton TPM support])
         AC_MSG_NOTICE([Nuvoton SPDM vendor commands enabled])
     fi

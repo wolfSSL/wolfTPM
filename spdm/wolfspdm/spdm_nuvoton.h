@@ -51,7 +51,7 @@
 extern "C" {
 #endif
 
-/* --- TCG SPDM Binding Constants (per TCG SPDM Binding Spec v1.0) --- */
+/* ----- TCG SPDM Binding Constants (per TCG SPDM Binding Spec v1.0) ----- */
 
 /* Message Tags */
 #define WOLFSPDM_TCG_TAG_CLEAR          0x8101  /* Clear (unencrypted) message */
@@ -59,13 +59,12 @@ extern "C" {
 
 /* Header Sizes */
 #define WOLFSPDM_TCG_HEADER_SIZE        16      /* TCG binding header size */
-#define WOLFSPDM_TCG_SECURED_HDR_SIZE   14      /* Session record header (4+8+2) */
 
 /* FIPS Service Indicator */
 #define WOLFSPDM_FIPS_NON_FIPS          0x00
 #define WOLFSPDM_FIPS_APPROVED          0x01
 
-/* --- Nuvoton Vendor-Defined Command Codes --- */
+/* ----- Nuvoton Vendor-Defined Command Codes ----- */
 
 /* 8-byte ASCII vendor codes for SPDM VENDOR_DEFINED messages */
 #define WOLFSPDM_VDCODE_LEN             8
@@ -80,7 +79,7 @@ extern "C" {
 #define WOLFSPDM_SPDMONLY_LOCK          0x01
 #define WOLFSPDM_SPDMONLY_UNLOCK        0x00
 
-/* --- TCG Binding Header Structures --- */
+/* ----- TCG Binding Header Structures ----- */
 
 /* Clear message header (tag 0x8101)
  * Layout: tag(2/BE) + size(4/BE) + connectionHandle(4/BE) +
@@ -93,31 +92,17 @@ typedef struct WOLFSPDM_TCG_CLEAR_HDR {
     word32  reserved;         /* Must be 0 */
 } WOLFSPDM_TCG_CLEAR_HDR;
 
-/* Secured message header (tag 0x8201)
- * Layout: tag(2/BE) + size(4/BE) + connectionHandle(4/BE) +
- *         fipsIndicator(2/BE) + reserved(4) = 16 bytes
- * Followed by SPDM secured record (per DSP0277, all LE):
- *   sessionId(4/LE) + seqNum(8/LE) + length(2/LE) + encData + MAC(16) */
-typedef struct WOLFSPDM_TCG_SECURED_HDR {
-    word16  tag;              /* WOLFSPDM_TCG_TAG_SECURED (0x8201) */
-    word32  size;             /* Total message size including header */
-    word32  connectionHandle; /* Connection handle */
-    word16  fipsIndicator;    /* FIPS service indicator */
-    word32  reserved;         /* Must be 0 */
-} WOLFSPDM_TCG_SECURED_HDR;
-
-/* --- Nuvoton SPDM Status --- */
+/* ----- Nuvoton SPDM Status ----- */
 
 typedef struct WOLFSPDM_NUVOTON_STATUS {
     int     spdmEnabled;      /* SPDM is enabled on the TPM */
     int     sessionActive;    /* An SPDM session is currently active */
     int     spdmOnlyLocked;   /* SPDM-only mode is locked */
-    word32  fwVersion;        /* TPM firmware version */
     byte    specVersionMajor; /* SPDM spec version major (0 for 1.x) */
     byte    specVersionMinor; /* SPDM spec version minor (1=1.1, 3=1.3) */
 } WOLFSPDM_NUVOTON_STATUS;
 
-/* --- TCG Binding Message Framing Functions --- */
+/* ----- TCG Binding Message Framing Functions ----- */
 
 /**
  * Build a TCG SPDM clear message (tag 0x8101).
@@ -151,52 +136,12 @@ WOLFSPDM_API int wolfSPDM_ParseTcgClearMessage(
     byte* spdmPayload, word32* spdmPayloadSz,
     WOLFSPDM_TCG_CLEAR_HDR* hdr);
 
-/**
- * Build a TCG SPDM secured message (tag 0x8201).
- * Wraps encrypted payload with session ID, sequence number, and MAC.
- *
- * @param ctx           wolfSPDM context
- * @param encPayload    Encrypted payload (ciphertext)
- * @param encPayloadSz  Size of encrypted payload
- * @param mac           Authentication tag (AES-GCM tag)
- * @param macSz         Size of MAC (must be 16)
- * @param outBuf        Output buffer for framed message
- * @param outBufSz      Size of output buffer
- * @return Total message size on success, negative on error
- */
-WOLFSPDM_API int wolfSPDM_BuildTcgSecuredMessage(
-    WOLFSPDM_CTX* ctx,
-    const byte* encPayload, word32 encPayloadSz,
-    const byte* mac, word32 macSz,
-    byte* outBuf, word32 outBufSz);
-
-/**
- * Parse a TCG SPDM secured message (tag 0x8201).
- * Extracts session ID, sequence number, encrypted payload, and MAC.
- *
- * @param inBuf         Input buffer containing framed message
- * @param inBufSz       Size of input buffer
- * @param sessionId     Receives session ID
- * @param seqNum        Receives sequence number
- * @param encPayload    Output buffer for encrypted payload
- * @param encPayloadSz  [in] Size of output buffer, [out] Actual payload size
- * @param mac           Output buffer for MAC
- * @param macSz         [in] Size of MAC buffer, [out] Actual MAC size
- * @param hdr           Optional: receives parsed header fields
- * @return Payload size on success, negative on error
- */
-WOLFSPDM_API int wolfSPDM_ParseTcgSecuredMessage(
-    const byte* inBuf, word32 inBufSz,
-    word32* sessionId, word64* seqNum,
-    byte* encPayload, word32* encPayloadSz,
-    byte* mac, word32* macSz,
-    WOLFSPDM_TCG_SECURED_HDR* hdr);
-
-/* --- Vendor-Defined Message Helpers --- */
+/* ----- Vendor-Defined Message Helpers ----- */
 
 /**
  * Build an SPDM VENDOR_DEFINED_REQUEST message.
  *
+ * @param spdmVersion   Negotiated SPDM version byte (e.g., 0x13)
  * @param vdCode        8-byte ASCII vendor code (e.g., "GET_PUBK")
  * @param payload       Vendor-specific payload (may be NULL)
  * @param payloadSz     Size of payload
@@ -205,6 +150,7 @@ WOLFSPDM_API int wolfSPDM_ParseTcgSecuredMessage(
  * @return Message size on success, negative on error
  */
 WOLFSPDM_API int wolfSPDM_BuildVendorDefined(
+    byte spdmVersion,
     const char* vdCode,
     const byte* payload, word32 payloadSz,
     byte* outBuf, word32 outBufSz);
@@ -224,7 +170,7 @@ WOLFSPDM_API int wolfSPDM_ParseVendorDefined(
     char* vdCode,
     byte* payload, word32* payloadSz);
 
-/* --- Nuvoton-Specific SPDM Functions --- */
+/* ----- Nuvoton-Specific SPDM Functions ----- */
 
 /**
  * Get the TPM's SPDM-Identity public key (GET_PUBK vendor command).
@@ -300,7 +246,7 @@ WOLFSPDM_API int wolfSPDM_SetRequesterKeyTPMT(WOLFSPDM_CTX* ctx,
  */
 WOLFSPDM_API int wolfSPDM_ConnectNuvoton(WOLFSPDM_CTX* ctx);
 
-/* --- Nuvoton Context Fields --- */
+/* ----- Nuvoton Context Fields ----- */
 
 /* These fields are added to WOLFSPDM_CTX when WOLFSPDM_NUVOTON is defined */
 

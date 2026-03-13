@@ -36,7 +36,6 @@
  * Full message: Header || Ciphertext || Tag (16)
  */
 
-
 int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     const byte* plain, word32 plainSz,
     byte* enc, word32* encSz)
@@ -50,17 +49,21 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     word16 recordLen;
     word32 hdrSz;
     word32 aadSz;
+    int aesInit = 0;
     int rc;
 
     if (ctx == NULL || plain == NULL || enc == NULL || encSz == NULL) {
         return WOLFSPDM_E_INVALID_ARG;
+    }
+    if (plainSz > WOLFSPDM_MAX_MSG_SIZE) {
+        return WOLFSPDM_E_BUFFER_SMALL;
     }
 
 #ifdef WOLFSPDM_NUVOTON
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON) {
         /* Nuvoton TCG binding format per Rev 1.11 spec page 25:
          * Header/AAD: SessionID(4 LE) + SeqNum(8 LE) + Length(2 LE) = 14 bytes
-         * IV XOR: Rightmost 8 bytes (bytes 4-11) with 8-byte sequence number
+         * IV XOR: Leftmost 8 bytes (bytes 0-7) with 8-byte LE sequence number
          */
         word16 appDataLen = (word16)plainSz;
 
@@ -95,8 +98,7 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
 
         aadSz = 14;
         XMEMCPY(aad, enc, aadSz);
-    }
-    else
+    } else
 #endif
     {
         /* MCTP format (per DSP0277):
@@ -130,36 +132,32 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     }
 
     /* Build IV: BaseIV XOR sequence number (DSP0277) */
-    wolfSPDM_BuildIV(iv, ctx->reqDataIv, ctx->reqSeqNum,
-        ctx->mode == WOLFSPDM_MODE_NUVOTON);
+    wolfSPDM_BuildIV(iv, ctx->reqDataIv, ctx->reqSeqNum);
 
+    /* AES-GCM encrypt — cascade with single cleanup */
     rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
-    if (rc != 0) {
-        return WOLFSPDM_E_CRYPTO_FAIL;
+    if (rc == 0) {
+        aesInit = 1;
+        rc = wc_AesGcmSetKey(&aes, ctx->reqDataKey, WOLFSPDM_AEAD_KEY_SIZE);
     }
-    rc = wc_AesGcmSetKey(&aes, ctx->reqDataKey, WOLFSPDM_AEAD_KEY_SIZE);
-    if (rc != 0) {
+    if (rc == 0) {
+        rc = wc_AesGcmEncrypt(&aes, &enc[hdrSz], plainBuf, plainBufSz,
+            iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
+    }
+    if (aesInit) {
         wc_AesFree(&aes);
-        return WOLFSPDM_E_CRYPTO_FAIL;
     }
 
-    /* Encrypt directly into output buffer (enc + hdrSz) to avoid a copy */
-    rc = wc_AesGcmEncrypt(&aes, &enc[hdrSz], plainBuf, plainBufSz,
-        iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
-    wc_AesFree(&aes);
-    if (rc != 0) {
-        return WOLFSPDM_E_CRYPTO_FAIL;
+    if (rc == 0) {
+        XMEMCPY(&enc[hdrSz + plainBufSz], tag, WOLFSPDM_AEAD_TAG_SIZE);
+        *encSz = hdrSz + plainBufSz + WOLFSPDM_AEAD_TAG_SIZE;
+        ctx->reqSeqNum++;
+        wolfSPDM_DebugPrint(ctx, "Encrypted %u bytes -> %u bytes (seq=%llu)\n",
+            plainSz, *encSz, (unsigned long long)(ctx->reqSeqNum - 1));
     }
 
-    XMEMCPY(&enc[hdrSz + plainBufSz], tag, WOLFSPDM_AEAD_TAG_SIZE);
-    *encSz = hdrSz + plainBufSz + WOLFSPDM_AEAD_TAG_SIZE;
-
-    ctx->reqSeqNum++;
-
-    wolfSPDM_DebugPrint(ctx, "Encrypted %u bytes -> %u bytes (seq=%llu)\n",
-        plainSz, *encSz, (unsigned long long)(ctx->reqSeqNum - 1));
-
-    return WOLFSPDM_SUCCESS;
+    wc_ForceZero(plainBuf, sizeof(plainBuf));
+    return (rc == 0) ? WOLFSPDM_SUCCESS : WOLFSPDM_E_CRYPTO_FAIL;
 }
 
 int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
@@ -172,113 +170,67 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
     byte decrypted[WOLFSPDM_MAX_MSG_SIZE + 16];
     const byte* ciphertext;
     const byte* tag;
-    word32 rspSessionId;
-    word16 rspSeqNum;
-    word16 rspLen;
-    word16 cipherLen;
+    word32 cipherLen;
     word16 appDataLen;
     word32 hdrSz;
     word32 aadSz;
+    int aesInit = 0;
+    int ret;
     int rc;
 
     if (ctx == NULL || enc == NULL || plain == NULL || plainSz == NULL) {
         return WOLFSPDM_E_INVALID_ARG;
     }
 
+    /* ----- Transport-specific header parsing ----- */
 #ifdef WOLFSPDM_NUVOTON
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON) {
-        /* Nuvoton TCG binding format per Rev 1.11 spec page 25:
-         * Header/AAD: SessionID(4 LE) + SeqNum(8 LE) + Length(2 LE) = 14 bytes
-         * Encrypted: AppDataLength(2 LE) + SPDM message + RandomData padding
-         * MAC: 16 bytes
-         */
         word64 rspSeqNum64;
+        word32 rspSessionId;
+        word16 rspLen;
         hdrSz = 14;
         aadSz = 14;
 
-        if (encSz < hdrSz + WOLFSPDM_AEAD_TAG_SIZE) {
+        if (encSz < hdrSz + WOLFSPDM_AEAD_TAG_SIZE)
             return WOLFSPDM_E_BUFFER_SMALL;
-        }
 
-        /* Parse header: SessionID(4) + SeqNum(8) + Length(2) */
         rspSessionId = SPDM_Get32LE(&enc[0]);
         rspSeqNum64 = SPDM_Get64LE(&enc[4]);
         rspLen = SPDM_Get16LE(&enc[12]);
-        rspSeqNum = (word16)(rspSeqNum64 & 0xFFFF);  /* For debug output */
 
         if (rspSessionId != ctx->sessionId) {
             wolfSPDM_DebugPrint(ctx, "Session ID mismatch: 0x%08x != 0x%08x\n",
                 rspSessionId, ctx->sessionId);
             return WOLFSPDM_E_SESSION_INVALID;
         }
-
-        /* Validate sequence number matches expected (DSP0277 replay protection) */
         if (rspSeqNum64 != ctx->rspSeqNum) {
-            wolfSPDM_DebugPrint(ctx, "Sequence number mismatch: %llu != %llu\n",
+            wolfSPDM_DebugPrint(ctx, "Seq mismatch: %llu != %llu\n",
                 (unsigned long long)rspSeqNum64,
                 (unsigned long long)ctx->rspSeqNum);
             return WOLFSPDM_E_SEQUENCE;
         }
-
-        /* Length field = ciphertext + MAC (per Nuvoton spec) */
-        if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < hdrSz + rspLen) {
+        if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < hdrSz + rspLen)
             return WOLFSPDM_E_BUFFER_SMALL;
-        }
 
-        cipherLen = (word16)(rspLen - WOLFSPDM_AEAD_TAG_SIZE);
+        cipherLen = (word32)(rspLen - WOLFSPDM_AEAD_TAG_SIZE);
+        if (cipherLen > sizeof(decrypted))
+            return WOLFSPDM_E_BUFFER_SMALL;
+
         ciphertext = enc + hdrSz;
         tag = enc + hdrSz + cipherLen;
-
         XMEMCPY(aad, enc, aadSz);
-
-        /* Build IV: BaseIV XOR sequence number (DSP0277 1.2) */
-        wolfSPDM_BuildIV(iv, ctx->rspDataIv, rspSeqNum64, 1);
-
-        rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
-        if (rc != 0) {
-            return WOLFSPDM_E_CRYPTO_FAIL;
-        }
-        rc = wc_AesGcmSetKey(&aes, ctx->rspDataKey, WOLFSPDM_AEAD_KEY_SIZE);
-        if (rc != 0) {
-            wc_AesFree(&aes);
-            return WOLFSPDM_E_CRYPTO_FAIL;
-        }
-
-        rc = wc_AesGcmDecrypt(&aes, decrypted, ciphertext, cipherLen,
-            iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
-        wc_AesFree(&aes);
-        if (rc != 0) {
-            wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
-            return WOLFSPDM_E_DECRYPT_FAIL;
-        }
-
-        /* Parse decrypted: AppDataLen (2 LE) || SPDM message || RandomData */
-        appDataLen = SPDM_Get16LE(decrypted);
-
-        if (cipherLen < (word32)(2 + appDataLen)) {
-            return WOLFSPDM_E_BUFFER_SMALL;
-        }
-
-        if (*plainSz < appDataLen) {
-            return WOLFSPDM_E_BUFFER_SMALL;
-        }
-
-        /* Copy SPDM message (no MCTP header to skip) */
-        XMEMCPY(plain, &decrypted[2], appDataLen);
-        *plainSz = appDataLen;
-    }
-    else
+        wolfSPDM_BuildIV(iv, ctx->rspDataIv, rspSeqNum64);
+    } else
 #endif
     {
-        /* MCTP format */
+        word32 rspSessionId;
+        word16 rspSeqNum, rspLen;
         hdrSz = 8;
         aadSz = 8;
 
-        if (encSz < hdrSz + WOLFSPDM_AEAD_TAG_SIZE) {
+        if (encSz < hdrSz + WOLFSPDM_AEAD_TAG_SIZE)
             return WOLFSPDM_E_BUFFER_SMALL;
-        }
 
-        /* Parse header: SessionID(4) + SeqNum(2) + Length(2) */
         rspSessionId = SPDM_Get32LE(&enc[0]);
         rspSeqNum = SPDM_Get16LE(&enc[4]);
         rspLen = SPDM_Get16LE(&enc[6]);
@@ -288,111 +240,89 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
                 rspSessionId, ctx->sessionId);
             return WOLFSPDM_E_SESSION_INVALID;
         }
-
-        /* Validate sequence number matches expected (DSP0277 replay protection) */
         if ((word64)rspSeqNum != ctx->rspSeqNum) {
-            wolfSPDM_DebugPrint(ctx, "Sequence number mismatch: %u != %llu\n",
+            wolfSPDM_DebugPrint(ctx, "Seq mismatch: %u != %llu\n",
                 rspSeqNum, (unsigned long long)ctx->rspSeqNum);
             return WOLFSPDM_E_SEQUENCE;
         }
-
-        if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < (word32)(hdrSz + rspLen)) {
+        if (rspLen < WOLFSPDM_AEAD_TAG_SIZE || encSz < (word32)(hdrSz + rspLen))
             return WOLFSPDM_E_BUFFER_SMALL;
-        }
 
-        cipherLen = (word16)(rspLen - WOLFSPDM_AEAD_TAG_SIZE);
+        cipherLen = (word32)(rspLen - WOLFSPDM_AEAD_TAG_SIZE);
+        if (cipherLen > sizeof(decrypted))
+            return WOLFSPDM_E_BUFFER_SMALL;
+
         ciphertext = enc + hdrSz;
         tag = enc + hdrSz + cipherLen;
-
         XMEMCPY(aad, enc, aadSz);
+        wolfSPDM_BuildIV(iv, ctx->rspDataIv, (word64)rspSeqNum);
+    }
 
-        /* Build IV: BaseIV XOR sequence number (DSP0277) */
-        wolfSPDM_BuildIV(iv, ctx->rspDataIv, (word64)rspSeqNum, 0);
-
-        rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
-        if (rc != 0) {
-            return WOLFSPDM_E_CRYPTO_FAIL;
-        }
+    /* ----- AES-GCM decrypt (shared for both transports) ----- */
+    ret = WOLFSPDM_E_CRYPTO_FAIL;
+    rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        aesInit = 1;
         rc = wc_AesGcmSetKey(&aes, ctx->rspDataKey, WOLFSPDM_AEAD_KEY_SIZE);
-        if (rc != 0) {
-            wc_AesFree(&aes);
-            return WOLFSPDM_E_CRYPTO_FAIL;
-        }
-
+    }
+    if (rc == 0) {
         rc = wc_AesGcmDecrypt(&aes, decrypted, ciphertext, cipherLen,
-            iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE, aad, aadSz);
-        wc_AesFree(&aes);
+            iv, WOLFSPDM_AEAD_IV_SIZE, tag, WOLFSPDM_AEAD_TAG_SIZE,
+            aad, aadSz);
         if (rc != 0) {
             wolfSPDM_DebugPrint(ctx, "AES-GCM decrypt failed: %d\n", rc);
-            return WOLFSPDM_E_DECRYPT_FAIL;
+            ret = WOLFSPDM_E_DECRYPT_FAIL;
         }
+    }
+    if (aesInit) {
+        wc_AesFree(&aes);
+    }
 
-        /* Parse decrypted: AppDataLen (2) || MCTP (1) || SPDM msg */
+    /* ----- Parse decrypted payload ----- */
+    if (rc == 0) {
         appDataLen = SPDM_Get16LE(decrypted);
-
-        if (appDataLen < 1 || cipherLen < (word32)(2 + appDataLen)) {
-            return WOLFSPDM_E_BUFFER_SMALL;
+#ifdef WOLFSPDM_NUVOTON
+        if (ctx->mode == WOLFSPDM_MODE_NUVOTON) {
+            /* Nuvoton: AppDataLen(2) || SPDM msg || RandomData */
+            if (cipherLen < (word32)(2 + appDataLen) ||
+                *plainSz < appDataLen) {
+                ret = WOLFSPDM_E_BUFFER_SMALL;
+            } else {
+                XMEMCPY(plain, &decrypted[2], appDataLen);
+                *plainSz = appDataLen;
+                ret = WOLFSPDM_SUCCESS;
+            }
+        } else
+#endif
+        {
+            /* MCTP: AppDataLen(2) || MCTP(1) || SPDM msg */
+            if (appDataLen < 1 || cipherLen < (word32)(2 + appDataLen) ||
+                *plainSz < (word32)(appDataLen - 1)) {
+                ret = WOLFSPDM_E_BUFFER_SMALL;
+            } else {
+                XMEMCPY(plain, &decrypted[3], appDataLen - 1);
+                *plainSz = appDataLen - 1;
+                ret = WOLFSPDM_SUCCESS;
+            }
         }
-
-        /* Skip MCTP header, copy SPDM message */
-        if (*plainSz < (word32)(appDataLen - 1)) {
-            return WOLFSPDM_E_BUFFER_SMALL;
-        }
-
-        XMEMCPY(plain, &decrypted[3], appDataLen - 1);
-        *plainSz = appDataLen - 1;
     }
 
-    ctx->rspSeqNum++;
+    if (ret == WOLFSPDM_SUCCESS) {
+        ctx->rspSeqNum++;
+        wolfSPDM_DebugPrint(ctx, "Decrypted %u bytes -> %u bytes\n",
+            encSz, *plainSz);
+    }
 
-    wolfSPDM_DebugPrint(ctx, "Decrypted %u bytes -> %u bytes (seq=%u)\n",
-        encSz, *plainSz, rspSeqNum);
-
-    return WOLFSPDM_SUCCESS;
+    wc_ForceZero(decrypted, sizeof(decrypted));
+    return ret;
 }
-
-#ifndef WOLFSPDM_LEAN
-int wolfSPDM_EncryptMessage(WOLFSPDM_CTX* ctx,
-    const byte* plain, word32 plainSz,
-    byte* enc, word32* encSz)
-{
-    if (ctx == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    if (ctx->state != WOLFSPDM_STATE_CONNECTED &&
-        ctx->state != WOLFSPDM_STATE_KEY_EX &&
-        ctx->state != WOLFSPDM_STATE_FINISH) {
-        return WOLFSPDM_E_NOT_CONNECTED;
-    }
-
-    return wolfSPDM_EncryptInternal(ctx, plain, plainSz, enc, encSz);
-}
-
-int wolfSPDM_DecryptMessage(WOLFSPDM_CTX* ctx,
-    const byte* enc, word32 encSz,
-    byte* plain, word32* plainSz)
-{
-    if (ctx == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    if (ctx->state != WOLFSPDM_STATE_CONNECTED &&
-        ctx->state != WOLFSPDM_STATE_KEY_EX &&
-        ctx->state != WOLFSPDM_STATE_FINISH) {
-        return WOLFSPDM_E_NOT_CONNECTED;
-    }
-
-    return wolfSPDM_DecryptInternal(ctx, enc, encSz, plain, plainSz);
-}
-#endif /* !WOLFSPDM_LEAN */
 
 int wolfSPDM_SecuredExchange(WOLFSPDM_CTX* ctx,
     const byte* cmdPlain, word32 cmdSz,
     byte* rspPlain, word32* rspSz)
 {
-    byte encBuf[WOLFSPDM_MAX_MSG_SIZE + 48];
-    byte rxBuf[WOLFSPDM_MAX_MSG_SIZE + 48];
+    byte encBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
+    byte rxBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
     word32 encSz = sizeof(encBuf);
     word32 rxSz = sizeof(rxBuf);
     int rc;
@@ -402,96 +332,12 @@ int wolfSPDM_SecuredExchange(WOLFSPDM_CTX* ctx,
     }
 
     rc = wolfSPDM_EncryptInternal(ctx, cmdPlain, cmdSz, encBuf, &encSz);
-    if (rc != WOLFSPDM_SUCCESS) {
-        return rc;
+    if (rc == WOLFSPDM_SUCCESS) {
+        rc = wolfSPDM_SendReceive(ctx, encBuf, encSz, rxBuf, &rxSz);
+    }
+    if (rc == WOLFSPDM_SUCCESS) {
+        rc = wolfSPDM_DecryptInternal(ctx, rxBuf, rxSz, rspPlain, rspSz);
     }
 
-    rc = wolfSPDM_SendReceive(ctx, encBuf, encSz, rxBuf, &rxSz);
-    if (rc != WOLFSPDM_SUCCESS) {
-        return rc;
-    }
-
-    return wolfSPDM_DecryptInternal(ctx, rxBuf, rxSz, rspPlain, rspSz);
+    return rc;
 }
-
-/* --- Application Data Transfer --- */
-
-#ifndef WOLFSPDM_LEAN
-int wolfSPDM_SendData(WOLFSPDM_CTX* ctx, const byte* data, word32 dataSz)
-{
-    byte encBuf[WOLFSPDM_MAX_MSG_SIZE + 48];
-    word32 encSz = sizeof(encBuf);
-    int rc;
-
-    if (ctx == NULL || data == NULL || dataSz == 0) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    if (ctx->state != WOLFSPDM_STATE_CONNECTED
-#ifndef NO_WOLFSPDM_MEAS
-        && ctx->state != WOLFSPDM_STATE_MEASURED
-#endif
-        ) {
-        return WOLFSPDM_E_NOT_CONNECTED;
-    }
-
-    /* Max payload: leave room for AEAD overhead */
-    if (dataSz > WOLFSPDM_MAX_MSG_SIZE - 64) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* Encrypt the application data */
-    rc = wolfSPDM_EncryptInternal(ctx, data, dataSz, encBuf, &encSz);
-    if (rc != WOLFSPDM_SUCCESS) {
-        return rc;
-    }
-
-    /* Send via I/O callback (no response expected for send-only) */
-    if (ctx->ioCb == NULL) {
-        return WOLFSPDM_E_IO_FAIL;
-    }
-
-    {
-        byte rxBuf[16];
-        word32 rxSz = sizeof(rxBuf);
-        rc = ctx->ioCb(ctx, encBuf, encSz, rxBuf, &rxSz, ctx->ioUserCtx);
-        if (rc != 0) {
-            return WOLFSPDM_E_IO_FAIL;
-        }
-    }
-
-    return WOLFSPDM_SUCCESS;
-}
-
-int wolfSPDM_ReceiveData(WOLFSPDM_CTX* ctx, byte* data, word32* dataSz)
-{
-    byte rxBuf[WOLFSPDM_MAX_MSG_SIZE + 48];
-    word32 rxSz = sizeof(rxBuf);
-    int rc;
-
-    if (ctx == NULL || data == NULL || dataSz == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    if (ctx->state != WOLFSPDM_STATE_CONNECTED
-#ifndef NO_WOLFSPDM_MEAS
-        && ctx->state != WOLFSPDM_STATE_MEASURED
-#endif
-        ) {
-        return WOLFSPDM_E_NOT_CONNECTED;
-    }
-
-    if (ctx->ioCb == NULL) {
-        return WOLFSPDM_E_IO_FAIL;
-    }
-
-    /* Receive via I/O callback (NULL tx to indicate receive-only) */
-    rc = ctx->ioCb(ctx, NULL, 0, rxBuf, &rxSz, ctx->ioUserCtx);
-    if (rc != 0) {
-        return WOLFSPDM_E_IO_FAIL;
-    }
-
-    /* Decrypt the received data */
-    return wolfSPDM_DecryptInternal(ctx, rxBuf, rxSz, data, dataSz);
-}
-#endif /* !WOLFSPDM_LEAN */

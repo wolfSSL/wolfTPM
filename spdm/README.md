@@ -1,15 +1,11 @@
 # wolfTPM SPDM
 
-wolfTPM includes a built-in SPDM 1.2+ requester stack using wolfSSL/wolfCrypt.
-This provides encrypted bus communication between the host and TPM, ensuring
-all commands and responses are protected with AES-256-GCM.
+wolfTPM includes built-in SPDM support for Nuvoton NPCT75x TPMs using
+wolfSSL/wolfCrypt. This provides encrypted bus communication between the host
+and TPM, ensuring all commands and responses are protected with AES-256-GCM.
 
-### Supported Versions
-
-| Target | SPDM Versions | Notes |
-|--------|---------------|-------|
-| DMTF spdm-emu | 1.2, 1.3, 1.4 | Full protocol support including session, measurements, challenge, heartbeat, key update |
-| Nuvoton NPCT75x | 1.3 | Hardware SPDM with SPDM-only mode and vendor-defined TPM command wrapping |
+For standard SPDM protocol testing with the DMTF spdm-emu emulator, see the
+[wolfSPDM](https://github.com/aidangarske/wolfSPDM) standalone library.
 
 ## How It Works
 
@@ -22,7 +18,7 @@ automatically encrypted — no application code changes needed.
 ```
 Host                                TPM (Nuvoton NPCT75x)
   |                                    |
-  |--- GET_VERSION ------------------>|  (negotiate SPDM 1.2-1.4)
+  |--- GET_VERSION ------------------>|  (negotiate SPDM version)
   |<-- VERSION -----------------------|
   |                                    |
   |--- GET_PUB_KEY ------------------>|  (get TPM's P-384 identity key)
@@ -85,8 +81,7 @@ sudo ldconfig
 ```
 
 The `--enable-sp` flag enables Single Precision math with optimized ECC P-384
-support, which is required for SPDM Algorithm Set B on platforms like ARM64.
-For a broader feature set, `--enable-all` can be used instead.
+support. For a broader feature set, `--enable-all` can be used instead.
 
 ### wolfTPM with Nuvoton SPDM
 
@@ -153,7 +148,7 @@ gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
 ```bash
 # Run all Nuvoton SPDM tests (status, connect, lock, unit test, unlock, caps)
-./examples/spdm/spdm_test.sh --nuvoton
+./examples/spdm/spdm_test.sh
 ```
 
 ### Demo Options
@@ -167,65 +162,6 @@ gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 | `--connect` | Establish SPDM session |
 | `--lock` | Lock SPDM-only mode (use with `--connect`) |
 | `--unlock` | Unlock SPDM-only mode (use with `--connect`) |
-
-## Emulator Testing (spdm-emu)
-
-For development without Nuvoton hardware, use the DMTF spdm-emu emulator:
-
-```bash
-# Build emulator
-git clone https://github.com/DMTF/spdm-emu.git
-cd spdm-emu && mkdir build && cd build
-cmake -DARCH=x64 -DTOOLCHAIN=GCC -DTARGET=Release -DCRYPTO=mbedtls ..
-make copy_sample_key && make
-
-# Build wolfSSL
-cd wolfssl
-./autogen.sh
-./configure --enable-wolftpm --enable-all
-make && sudo make install && sudo ldconfig
-
-# Build wolfTPM with SPDM + SWTPM
-cd wolfTPM
-./autogen.sh
-./configure --enable-spdm --enable-swtpm
-make
-
-# Run emulator tests (starts/stops emulator automatically)
-./examples/spdm/spdm_test.sh --emu
-```
-
-The test script automatically finds `spdm_responder_emu` in `../spdm-emu/build/bin/`,
-starts it for each test, and runs session establishment, signed measurements,
-unsigned measurements, challenge authentication, heartbeat, and key update
-across SPDM versions 1.2, 1.3, and 1.4 (18 tests total).
-
-To run individual commands manually:
-
-```bash
-# Terminal 1: Start the emulator (specify version with --ver)
-cd spdm-emu/build/bin
-./spdm_responder_emu --ver 1.3 --hash SHA_384 --asym ECDSA_P384 \
-    --dhe SECP_384_R1 --aead AES_256_GCM
-
-# Terminal 2: Run wolfTPM SPDM demo (--ver must match emulator)
-cd wolfTPM
-./examples/spdm/spdm_demo --emu --ver 1.3
-```
-
-### Emulator Demo Options
-
-| Option | Description |
-|--------|-------------|
-| `--emu` | Session establishment with emulator |
-| `--meas` | Retrieve signed device measurements |
-| `--meas --no-sig` | Measurements without signature verification |
-| `--challenge` | Sessionless challenge authentication |
-| `--emu --heartbeat` | Session keep-alive |
-| `--emu --key-update` | Session key rotation |
-| `--ver 1.2\|1.3\|1.4` | Maximum SPDM version to negotiate (default: 1.4) |
-| `--host <ip>` | Emulator host (default: 127.0.0.1) |
-| `--port <num>` | Emulator port (default: 2323) |
 
 ## How Auto-SPDM Works
 
@@ -260,22 +196,10 @@ Useful on platforms with small stacks.
 | `wolfSPDM_GetCtxSize()` | Return `sizeof(WOLFSPDM_CTX)` at runtime |
 | `wolfSPDM_SetIO()` | Set transport I/O callback |
 | `wolfSPDM_SetDebug()` | Enable/disable debug output |
-| `wolfSPDM_SetMaxVersion()` | Set maximum SPDM version to negotiate (0x12=1.2, 0x13=1.3, 0x14=1.4) |
 | `wolfSPDM_Connect()` | Full SPDM handshake |
 | `wolfSPDM_IsConnected()` | Check session status |
 | `wolfSPDM_Disconnect()` | End session |
-| `wolfSPDM_EncryptMessage()` | Encrypt outgoing message |
-| `wolfSPDM_DecryptMessage()` | Decrypt incoming message |
 | `wolfSPDM_SecuredExchange()` | Encrypt/send/receive/decrypt in one call |
-| `wolfSPDM_SetTrustedCAs()` | Load trusted root CA certificates for chain validation |
-| `wolfSPDM_GetMeasurements()` | Retrieve device measurements with optional signature verification |
-| `wolfSPDM_GetMeasurementCount()` | Get number of measurement blocks retrieved |
-| `wolfSPDM_GetMeasurementBlock()` | Access individual measurement block data |
-| `wolfSPDM_Challenge()` | Sessionless device attestation via CHALLENGE/CHALLENGE_AUTH |
-| `wolfSPDM_Heartbeat()` | Session keep-alive (HEARTBEAT/HEARTBEAT_ACK) |
-| `wolfSPDM_KeyUpdate()` | Rotate session encryption keys (KEY_UPDATE/KEY_UPDATE_ACK) |
-| `wolfSPDM_SendData()` | Send application data over established session |
-| `wolfSPDM_ReceiveData()` | Receive application data over established session |
 
 ## Troubleshooting
 
@@ -300,14 +224,6 @@ gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
 If GPIO is not wired, a full power cycle is required.
 
-### Emulator: bind error / connection refused
-
-```bash
-pkill -9 spdm_responder_emu
-sleep 5
-ss -tlnp | grep 2323  # verify port is free
-```
-
 ### SPDM Error Codes
 
 | Code | Name | Description |
@@ -318,16 +234,12 @@ ss -tlnp | grep 2323  # verify port is free
 | 0x06 | UnsupportedRequest | Request not supported or format rejected |
 | 0x41 | VersionMismatch | SPDM version mismatch |
 
-## SPDM Support Beyond wolfTPM
+## Standard SPDM Support
 
-The wolfSPDM requester stack was developed as a standalone implementation and
-is integrated into wolfTPM for convenience. It is designed to be portable and
-can support SPDM on other hardware platforms, additional algorithm sets beyond
-Algorithm Set B, and responder-side implementations.
-
-For inquiries about full standalone SPDM support, custom hardware integration,
-additional algorithm sets, or commercial licensing, please contact
-support@wolfssl.com.
+For standard SPDM protocol support including session establishment with the
+DMTF spdm-emu emulator, measurements, challenge authentication, heartbeat,
+and key update, see the [wolfSPDM](https://github.com/aidangarske/wolfSPDM)
+standalone library.
 
 ## License
 

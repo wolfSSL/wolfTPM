@@ -410,6 +410,38 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     return rc;
 }
 
+#ifdef WOLFTPM_SPDM
+/* SPDM intercept: if SPDM session is active, send TPM command through
+ * the encrypted SPDM channel instead of raw SPI/I2C.
+ * Returns TPM_RC_SUCCESS on success, negative if SPDM not active
+ * (caller should use normal transport), or positive error code. */
+static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    WOLFTPM2_SPDM_CTX* spdmCtx;
+    byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
+    word32 tpmRespSz = sizeof(tpmResp);
+    TPM_RC rc;
+
+    if (ctx->spdmCtx == NULL)
+        return -1; /* SPDM not configured */
+    spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
+    if (spdmCtx->spdmCtx == NULL || !wolfSPDM_IsConnected(spdmCtx->spdmCtx))
+        return -1; /* SPDM not connected */
+
+    rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
+        packet->buf, packet->pos, tpmResp, &tpmRespSz);
+    if (rc != 0)
+        return rc;
+
+    if (tpmRespSz > MAX_RESPONSE_SIZE)
+        return TPM_RC_SIZE;
+    XMEMCPY(packet->buf, tpmResp, tpmRespSz);
+    packet->pos = 0;
+    packet->size = tpmRespSz;
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_SPDM */
+
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info)
 {
@@ -454,32 +486,9 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* submit command and wait for response */
 #ifdef WOLFTPM_SPDM
-    /* If SPDM session is active, wrap command through SPDM transport */
-    if (ctx->spdmCtx != NULL) {
-        WOLFTPM2_SPDM_CTX* spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
-        if (spdmCtx->spdmCtx != NULL &&
-            wolfSPDM_IsConnected(spdmCtx->spdmCtx)) {
-            byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
-            word32 tpmRespSz = sizeof(tpmResp);
-
-            rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
-                packet->buf, packet->pos, tpmResp, &tpmRespSz);
-            if (rc != 0)
-                return rc;
-
-            if (tpmRespSz > MAX_RESPONSE_SIZE)
-                return TPM_RC_SIZE;
-            XMEMCPY(packet->buf, tpmResp, tpmRespSz);
-            packet->pos = 0;
-            packet->size = tpmRespSz;
-            rc = TPM_RC_SUCCESS;
-        }
-        else {
-            rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
-        }
-    }
-    else
-#endif /* WOLFTPM_SPDM */
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc < 0) /* SPDM not active, use normal transport */
+#endif
     {
         rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
     }
@@ -513,35 +522,11 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         return BAD_FUNC_ARG;
 
 #ifdef WOLFTPM_SPDM
-    /* If SPDM session is active, wrap command through SPDM transport */
-    if (ctx->spdmCtx != NULL) {
-        WOLFTPM2_SPDM_CTX* spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
-        if (spdmCtx->spdmCtx != NULL &&
-            wolfSPDM_IsConnected(spdmCtx->spdmCtx)) {
-            byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
-            word32 tpmRespSz = sizeof(tpmResp);
-
-            /* Use wolfSPDM to encrypt, send, receive, and decrypt */
-            rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
-                packet->buf, packet->pos, tpmResp, &tpmRespSz);
-            if (rc != 0) {
-                return rc;
-            }
-
-            /* Copy TPM response back into packet buffer.
-             * Note: packet->buf is a pointer so sizeof gives pointer size,
-             * use MAX_RESPONSE_SIZE for the actual buffer capacity. */
-            if (tpmRespSz > MAX_RESPONSE_SIZE) {
-                return TPM_RC_SIZE;
-            }
-            XMEMCPY(packet->buf, tpmResp, tpmRespSz);
-            packet->pos = 0;
-            packet->size = tpmRespSz;
-
-            return TPM2_Packet_Parse(TPM_RC_SUCCESS, packet);
-        }
-    }
-#endif /* WOLFTPM_SPDM */
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc == TPM_RC_SUCCESS)
+        return TPM2_Packet_Parse(rc, packet);
+    /* rc < 0 means SPDM not active, fall through to normal transport */
+#endif
 
     /* submit command and wait for response */
     rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
@@ -684,61 +669,6 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 
     return rc;
 }
-
-#ifdef WOLFTPM_SPDM
-TPM_RC TPM2_SendRawBytes(TPM2_CTX* ctx,
-    const byte* txBuf, word32 txSz, byte* rxBuf, word32* rxSz)
-{
-    TPM_RC rc;
-    TPM2_Packet packet;
-    word32 rspSz;
-    UINT32 tmpSz;
-
-    if (ctx == NULL || txBuf == NULL || rxBuf == NULL || rxSz == NULL) {
-        return BAD_FUNC_ARG;
-    }
-    if (txSz > sizeof(ctx->cmdBuf)) {
-        return TPM_RC_SIZE;
-    }
-
-    /* Copy transmit data into the context command buffer */
-    XMEMCPY(ctx->cmdBuf, txBuf, txSz);
-
-    /* Set up the packet structure pointing to cmdBuf.
-     * pos = number of bytes to send, size = buffer capacity. */
-    packet.buf = ctx->cmdBuf;
-    packet.pos = (int)txSz;
-    packet.size = (int)sizeof(ctx->cmdBuf);
-
-    /* Send through the transport layer (TIS, Linux dev, SWTPM, etc.).
-     * TIS will write txSz bytes, then read the response into cmdBuf.
-     * The response size is parsed from the header (offset 2, 4 bytes BE)
-     * inside TIS and only that many bytes are read from the FIFO. */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, &packet);
-    if (rc != TPM_RC_SUCCESS) {
-        return rc;
-    }
-
-    /* After TIS returns, the response is in cmdBuf. The TIS layer read
-     * exactly the number of bytes indicated by the header size field.
-     * Extract that size from the response to know how many bytes to copy.
-     * Both TPM2 and TCG SPDM headers have: tag(2) + size(4) at offset 0. */
-    if (packet.size < 6) {
-        return TPM_RC_FAILURE;
-    }
-    XMEMCPY(&tmpSz, &ctx->cmdBuf[2], sizeof(UINT32));
-    rspSz = TPM2_Packet_SwapU32(tmpSz);
-
-    if (rspSz > (word32)packet.size || rspSz > *rxSz) {
-        return TPM_RC_SIZE;
-    }
-
-    XMEMCPY(rxBuf, ctx->cmdBuf, rspSz);
-    *rxSz = rspSz;
-
-    return TPM_RC_SUCCESS;
-}
-#endif /* WOLFTPM_SPDM */
 
 /* If timeoutTries <= 0 then it will not try and startup chip and will
  * use existing default locality */

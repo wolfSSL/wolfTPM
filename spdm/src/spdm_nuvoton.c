@@ -19,31 +19,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Nuvoton TPM SPDM Support
- *
- * This file implements Nuvoton-specific SPDM functionality:
- * - TCG SPDM Binding message framing (per TCG SPDM Binding Spec v1.0)
- * - Nuvoton vendor-defined commands (GET_PUBK, GIVE_PUB, GET_STS_, SPDMONLY)
- * - Nuvoton SPDM handshake flow
- *
- * Reference: Nuvoton SPDM Guidance Rev 1.11
- */
-
 #include "spdm_internal.h"
 
 #ifdef WOLFSPDM_NUVOTON
 
 #include <wolfspdm/spdm_nuvoton.h>
 
-/* Check for SPDM ERROR in response payload */
-#define SPDM_CHECK_ERROR_RSP(ctx, buf, sz, label) \
-    if ((sz) >= 4 && (buf)[1] == SPDM_ERROR) { \
-        wolfSPDM_DebugPrint(ctx, label ": SPDM ERROR 0x%02x 0x%02x\n", \
-            (buf)[2], (buf)[3]); \
-        return WOLFSPDM_E_PEER_ERROR; \
-    }
-
-/* --- Vendor Command Helper Types --- */
+/* ----- Vendor Command Helper Types ----- */
 
 /* Response container for clear vendor commands */
 typedef struct {
@@ -62,8 +44,11 @@ static int wolfSPDM_VendorCmdClear(WOLFSPDM_CTX* ctx, const char* vdCode,
     word32 rxSz;
     int rc;
 
-    spdmMsgSz = wolfSPDM_BuildVendorDefined(vdCode, payload, payloadSz,
-        spdmMsg, sizeof(spdmMsg));
+    {
+        byte ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
+        spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
+            payloadSz, spdmMsg, sizeof(spdmMsg));
+    }
     if (spdmMsgSz < 0) {
         return spdmMsgSz;
     }
@@ -103,8 +88,11 @@ static int wolfSPDM_VendorCmdSecured(WOLFSPDM_CTX* ctx, const char* vdCode,
     word32 decSz;
     int rc;
 
-    spdmMsgSz = wolfSPDM_BuildVendorDefined(vdCode, payload, payloadSz,
-        spdmMsg, sizeof(spdmMsg));
+    {
+        byte ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
+        spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
+            payloadSz, spdmMsg, sizeof(spdmMsg));
+    }
     if (spdmMsgSz < 0) {
         return spdmMsgSz;
     }
@@ -125,7 +113,7 @@ static int wolfSPDM_VendorCmdSecured(WOLFSPDM_CTX* ctx, const char* vdCode,
     return WOLFSPDM_SUCCESS;
 }
 
-/* --- TCG SPDM Binding Message Framing --- */
+/* ----- TCG SPDM Binding Message Framing ----- */
 
 int wolfSPDM_BuildTcgClearMessage(
     WOLFSPDM_CTX* ctx,
@@ -178,7 +166,7 @@ int wolfSPDM_ParseTcgClearMessage(
     }
 
     msgSize = SPDM_Get32BE(inBuf + 2);
-    if (msgSize > inBufSz) {
+    if (msgSize < WOLFSPDM_TCG_HEADER_SIZE || msgSize > inBufSz) {
         return WOLFSPDM_E_BUFFER_SMALL;
     }
 
@@ -203,155 +191,10 @@ int wolfSPDM_ParseTcgClearMessage(
     return (int)payloadSz;
 }
 
-int wolfSPDM_BuildTcgSecuredMessage(
-    WOLFSPDM_CTX* ctx,
-    const byte* encPayload, word32 encPayloadSz,
-    const byte* mac, word32 macSz,
-    byte* outBuf, word32 outBufSz)
-{
-    word32 totalSz;
-    word32 offset;
-    word16 recordLen;
-
-    if (ctx == NULL || encPayload == NULL || mac == NULL || outBuf == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    /* Total: TCG header(16) + sessionId(4/LE) + seqNum(8/LE) +
-     *        length(2/LE) + encPayload + MAC */
-    totalSz = WOLFSPDM_TCG_HEADER_SIZE + WOLFSPDM_TCG_SECURED_HDR_SIZE +
-              encPayloadSz + macSz;
-
-    if (outBufSz < totalSz) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* TCG binding header (16 bytes, all BE) */
-    wolfSPDM_WriteTcgHeader(outBuf, WOLFSPDM_TCG_TAG_SECURED, totalSz,
-        ctx->connectionHandle, ctx->fipsIndicator);
-
-    offset = WOLFSPDM_TCG_HEADER_SIZE;
-
-    /* Session ID (4 bytes LE per DSP0277):
-     * ReqSessionId(2/LE) || RspSessionId(2/LE) */
-    SPDM_Set16LE(outBuf + offset, ctx->reqSessionId);
-    offset += 2;
-    SPDM_Set16LE(outBuf + offset, ctx->rspSessionId);
-    offset += 2;
-
-    /* Sequence Number (8 bytes LE per DSP0277) */
-    SPDM_Set64LE(outBuf + offset, ctx->reqSeqNum);
-    offset += 8;
-
-    /* Length (2 bytes LE per DSP0277) = encrypted data + MAC */
-    recordLen = (word16)(encPayloadSz + macSz);
-    SPDM_Set16LE(outBuf + offset, recordLen);
-    offset += 2;
-
-    /* Encrypted payload */
-    XMEMCPY(outBuf + offset, encPayload, encPayloadSz);
-    offset += encPayloadSz;
-
-    /* MAC (AES-256-GCM tag) */
-    XMEMCPY(outBuf + offset, mac, macSz);
-
-    /* Note: Sequence number increment is handled by caller */
-
-    return (int)totalSz;
-}
-
-int wolfSPDM_ParseTcgSecuredMessage(
-    const byte* inBuf, word32 inBufSz,
-    word32* sessionId, word64* seqNum,
-    byte* encPayload, word32* encPayloadSz,
-    byte* mac, word32* macSz,
-    WOLFSPDM_TCG_SECURED_HDR* hdr)
-{
-    word16 tag;
-    word32 msgSize;
-    word32 offset;
-    word16 recordLen;
-    word32 payloadSz;
-
-    if (inBuf == NULL || sessionId == NULL || seqNum == NULL ||
-        encPayload == NULL || encPayloadSz == NULL ||
-        mac == NULL || macSz == NULL) {
-        return WOLFSPDM_E_INVALID_ARG;
-    }
-
-    if (inBufSz < WOLFSPDM_TCG_HEADER_SIZE + WOLFSPDM_TCG_SECURED_HDR_SIZE +
-                  WOLFSPDM_AEAD_TAG_SIZE) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* Parse TCG binding header (16 bytes, all BE) */
-    tag = SPDM_Get16BE(inBuf);
-    if (tag != WOLFSPDM_TCG_TAG_SECURED) {
-        return WOLFSPDM_E_PEER_ERROR;
-    }
-
-    msgSize = SPDM_Get32BE(inBuf + 2);
-    if (msgSize > inBufSz) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* Fill header if requested */
-    if (hdr != NULL) {
-        hdr->tag = tag;
-        hdr->size = msgSize;
-        hdr->connectionHandle = SPDM_Get32BE(inBuf + 6);
-        hdr->fipsIndicator = SPDM_Get16BE(inBuf + 10);
-        hdr->reserved = SPDM_Get32BE(inBuf + 12);
-    }
-
-    offset = WOLFSPDM_TCG_HEADER_SIZE;
-
-    /* Session ID (4 bytes LE per DSP0277):
-     * ReqSessionId(2/LE) || RspSessionId(2/LE) */
-    {
-        word16 reqSid = SPDM_Get16LE(inBuf + offset);
-        word16 rspSid = SPDM_Get16LE(inBuf + offset + 2);
-        *sessionId = ((word32)reqSid << 16) | rspSid;
-    }
-    offset += 4;
-
-    /* Sequence Number (8 bytes LE per DSP0277) */
-    *seqNum = SPDM_Get64LE(inBuf + offset);
-    offset += 8;
-
-    /* Length (2 bytes LE per DSP0277) = encrypted data + MAC */
-    recordLen = SPDM_Get16LE(inBuf + offset);
-    offset += 2;
-
-    /* Validate record length */
-    if (recordLen < WOLFSPDM_AEAD_TAG_SIZE) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-    if (offset + recordLen > inBufSz) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* Encrypted payload size = recordLen - MAC */
-    payloadSz = recordLen - WOLFSPDM_AEAD_TAG_SIZE;
-    if (*encPayloadSz < payloadSz || *macSz < WOLFSPDM_AEAD_TAG_SIZE) {
-        return WOLFSPDM_E_BUFFER_SMALL;
-    }
-
-    /* Encrypted payload */
-    XMEMCPY(encPayload, inBuf + offset, payloadSz);
-    *encPayloadSz = payloadSz;
-    offset += payloadSz;
-
-    /* MAC */
-    XMEMCPY(mac, inBuf + offset, WOLFSPDM_AEAD_TAG_SIZE);
-    *macSz = WOLFSPDM_AEAD_TAG_SIZE;
-
-    return (int)payloadSz;
-}
-
-/* --- SPDM Vendor Defined Message Helpers --- */
+/*SPDM Vendor Defined Message Helpers */
 
 int wolfSPDM_BuildVendorDefined(
+    byte spdmVersion,
     const char* vdCode,
     const byte* payload, word32 payloadSz,
     byte* outBuf, word32 outBufSz)
@@ -373,8 +216,7 @@ int wolfSPDM_BuildVendorDefined(
         return WOLFSPDM_E_BUFFER_SMALL;
     }
 
-    /* SPDM Version (v1.3 = 0x13) */
-    outBuf[offset++] = SPDM_VERSION_13;
+    outBuf[offset++] = spdmVersion;
     /* Request/Response Code */
     outBuf[offset++] = SPDM_VENDOR_DEFINED_REQUEST;
     /* Param1, Param2 */
@@ -466,7 +308,7 @@ int wolfSPDM_ParseVendorDefined(
     return (int)dataLen;
 }
 
-/* --- Nuvoton-Specific SPDM Functions --- */
+/* ----- Nuvoton-Specific SPDM Functions ----- */
 
 int wolfSPDM_Nuvoton_GetPubKey(
     WOLFSPDM_CTX* ctx,
@@ -586,8 +428,7 @@ int wolfSPDM_Nuvoton_GetStatus(
 
         wolfSPDM_DebugPrint(ctx, "GET_STS_: SpecVersion=%u.%u, SPDMOnly=%s\n",
             specMajor, specMinor, spdmOnly ? "LOCKED" : "unlocked");
-    }
-    else if (rsp.payloadSz >= 1) {
+    } else if (rsp.payloadSz >= 1) {
         /* Minimal response - just SPDMOnly */
         status->spdmOnlyLocked = (rsp.payload[0] != 0);
         status->spdmEnabled = 1;
@@ -627,17 +468,9 @@ int wolfSPDM_Nuvoton_SetOnlyMode(
     return WOLFSPDM_SUCCESS;
 }
 
-/* --- Nuvoton SPDM Connection Flow --- */
+/* ----- Nuvoton SPDM Connection Flow ----- */
 
-/* Nuvoton-specific connection flow:
- * GET_VERSION -> GET_PUB_KEY -> KEY_EXCHANGE -> GIVE_PUB_KEY -> FINISH
- *
- * Key differences from standard SPDM:
- * - No GET_CAPABILITIES or NEGOTIATE_ALGORITHMS (Algorithm Set B is fixed)
- * - Uses GET_PUBK vendor command instead of GET_CERTIFICATE
- * - Uses GIVE_PUB vendor command for mutual authentication
- * - All messages wrapped in TCG binding headers
- */
+/* Nuvoton connection: GET_VERSION -> GET_PUBK -> KEY_EXCHANGE -> GIVE_PUB -> FINISH */
 int wolfSPDM_ConnectNuvoton(WOLFSPDM_CTX* ctx)
 {
     int rc;
@@ -695,8 +528,7 @@ int wolfSPDM_ConnectNuvoton(WOLFSPDM_CTX* ctx)
             ctx->state = WOLFSPDM_STATE_ERROR;
             return rc;
         }
-    }
-    else {
+    } else {
         wolfSPDM_DebugPrint(ctx, "Nuvoton: Warning - no responder public key for Ct\n");
     }
 
@@ -716,8 +548,7 @@ int wolfSPDM_ConnectNuvoton(WOLFSPDM_CTX* ctx)
             return rc;
         }
         wolfSPDM_DebugPrint(ctx, "GIVE_PUB succeeded!\n");
-    }
-    else {
+    } else {
         wolfSPDM_DebugPrint(ctx, "Nuvoton Step 4: GIVE_PUB (skipped, no host key)\n");
     }
 

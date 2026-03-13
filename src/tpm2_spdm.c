@@ -219,8 +219,13 @@ int wolfTPM2_SPDM_SecuredExchange(
         int rc;
 
         /* Wrap TPM command in SPDM VENDOR_DEFINED_REQUEST("TPM2_CMD") */
-        vdMsgSz = wolfSPDM_BuildVendorDefined(WOLFSPDM_VDCODE_TPM2_CMD,
-            cmdPlain, cmdSz, vdMsg, sizeof(vdMsg));
+        {
+            byte ver = wolfSPDM_GetNegotiatedVersion(ctx->spdmCtx);
+            if (ver == 0) ver = SPDM_VERSION_13;
+            vdMsgSz = wolfSPDM_BuildVendorDefined(ver,
+                WOLFSPDM_VDCODE_TPM2_CMD,
+                cmdPlain, cmdSz, vdMsg, sizeof(vdMsg));
+        }
         if (vdMsgSz < 0) {
             return vdMsgSz;
         }
