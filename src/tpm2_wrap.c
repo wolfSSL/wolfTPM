@@ -540,6 +540,14 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     runner += sizeof(key->pub.size);
     done_reading += sizeof(key->pub.size);
 
+    if (key->pub.size > sizeof(pubAreaBuffer) - sizeof(UINT16)) {
+#ifdef DEBUG_WOLFTPM
+        printf("Public key size too large (%d > %d)\n",
+            key->pub.size, (int)(sizeof(pubAreaBuffer) - sizeof(UINT16)));
+#endif
+        return BUFFER_E;
+    }
+
     if (bufferSz < done_reading + sizeof(UINT16) + key->pub.size) {
 #ifdef DEBUG_WOLFTPM
         printf("Buffer size check failed (%d)\n", bufferSz);
@@ -568,6 +576,14 @@ int wolfTPM2_SetKeyBlobFromBuffer(WOLFTPM2_KEYBLOB* key, byte *buffer,
     XMEMCPY(&key->priv.size, runner, sizeof(key->priv.size));
     runner += sizeof(key->priv.size);
     done_reading += sizeof(key->priv.size);
+
+    if (key->priv.size > sizeof(key->priv.buffer)) {
+#ifdef DEBUG_WOLFTPM
+        printf("Private key size too large (%d > %d)\n",
+            key->priv.size, (int)sizeof(key->priv.buffer));
+#endif
+        return BUFFER_E;
+    }
 
     if (bufferSz < done_reading + key->priv.size) {
 #ifdef DEBUG_WOLFTPM
@@ -1032,7 +1048,7 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
 {
     const TPM2B_AUTH* auth = NULL;
     const TPM2B_NAME* name = NULL;
-    if (dev == NULL || index >= MAX_SESSION_NUM) {
+    if (dev == NULL || index < 0 || index >= MAX_SESSION_NUM) {
         return BAD_FUNC_ARG;
     }
 
@@ -1064,7 +1080,10 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer,
                 handle->auth.size);
             session->name.size = handle->name.size;
-            XMEMCPY(session->name.name, handle->name.name, handle->name.size);
+            if (session->name.size > sizeof(session->name.name)) {
+                session->name.size = sizeof(session->name.name);
+            }
+            XMEMCPY(session->name.name, handle->name.name, session->name.size);
             return TPM_RC_SUCCESS;
         }
         auth = &handle->auth;
@@ -1079,7 +1098,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     const TPM2B_NAME* name = NULL;
     TPM2_AUTH_SESSION* session;
 
-    if (dev == NULL || handle == NULL || index >= MAX_SESSION_NUM) {
+    if (dev == NULL || handle == NULL || index < 0 || index >= MAX_SESSION_NUM) {
         return BAD_FUNC_ARG;
     }
 
@@ -1136,7 +1155,7 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 {
     int rc;
 
-    if (dev == NULL || index >= MAX_SESSION_NUM) {
+    if (dev == NULL || index < 0 || index >= MAX_SESSION_NUM) {
         return BAD_FUNC_ARG;
     }
 
@@ -1596,6 +1615,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&rsaKey, sizeof(rsaKey));
+    TPM2_ForceZero(&rng, sizeof(rng));
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
@@ -2939,6 +2960,9 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     if (rc == 0) {
         rc = wolfTPM2_ImportPrivateKey(dev, parentKey, keyBlob, &pub, &sens);
     }
+
+    TPM2_ForceZero(&sens, sizeof(sens));
+
     return rc;
 }
 
@@ -3684,6 +3708,10 @@ int wolfTPM2_CreateRsaKeyBlob(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     /* not used */
     (void)p;
 
+    TPM2_ForceZero(d, sizeof(d));
+    TPM2_ForceZero(p, sizeof(p));
+    TPM2_ForceZero(q, sizeof(q));
+
     return rc;
 }
 
@@ -3728,6 +3756,10 @@ int wolfTPM2_RsaKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKe
 
         /* not used */
         (void)p;
+
+        TPM2_ForceZero(d, sizeof(d));
+        TPM2_ForceZero(p, sizeof(p));
+        TPM2_ForceZero(q, sizeof(q));
     }
     else {
         /* export the raw public RSA portion */
@@ -3911,6 +3943,8 @@ int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
             qx, qxSz, qy, qySz, d, dSz);
     }
 
+    TPM2_ForceZero(d, sizeof(d));
+
     return rc;
 }
 
@@ -3986,6 +4020,8 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
             rc = wolfTPM2_LoadEccPrivateKey(dev, parentKey, tpmKey, curve_id,
                 qx, qxSz, qy, qySz, d, dSz);
         }
+
+        TPM2_ForceZero(d, sizeof(d));
     }
     else {
         /* export the raw public ECC portion */
@@ -5231,6 +5267,10 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
     WOLFTPM2_NV nv;
     TPMS_NV_PUBLIC nvPublic;
 
+    if (len == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     XMEMSET(&nvPublic, 0, sizeof(nvPublic));
     XMEMSET(&nv, 0, sizeof(nv));
 
@@ -5530,7 +5570,7 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         }
 
         sz = out.randomBytes.size; /* use actual returned size */
-        if (sz > MAX_RNG_REQ_SIZE) {
+        if (sz == 0 || sz > MAX_RNG_REQ_SIZE || sz > (len - pos)) {
         #ifdef DEBUG_WOLFTPM
             printf("wolfTPM2_GetRandom out size error\n");
         #endif
@@ -5857,6 +5897,8 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
 
 exit:
 
+    TPM2_ForceZero(&loadExtIn, sizeof(loadExtIn));
+
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_LoadExternal: failed %d: %s\n",
@@ -6096,6 +6138,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     printf("wolfTPM2_LoadKeyedHashKey Key Handle 0x%x\n",
         (word32)key->handle.hndl);
 #endif
+
+    TPM2_ForceZero(&createIn, sizeof(createIn));
 
     return rc;
 }
