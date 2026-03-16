@@ -5867,7 +5867,7 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
 
         TPM2_Packet_ParseU16(&packet, &outSz);
         if (outSz == 0 || outSz > MAX_RNG_REQ_SIZE ||
-            outSz > (UINT16)(nonceSz - randSz)) {
+            randSz > nonceSz || outSz > (nonceSz - randSz)) {
         #ifdef DEBUG_WOLFTPM
             printf("TPM2_GetNonce out size error\n");
         #endif

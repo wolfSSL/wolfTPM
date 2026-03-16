@@ -1079,10 +1079,10 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
             session->auth.size = authDigestSz + handle->auth.size;
             XMEMCPY(&session->auth.buffer[authDigestSz], handle->auth.buffer,
                 handle->auth.size);
-            session->name.size = handle->name.size;
-            if (session->name.size > sizeof(session->name.name)) {
-                session->name.size = sizeof(session->name.name);
+            if (handle->name.size > sizeof(session->name.name)) {
+                return BUFFER_E;
             }
+            session->name.size = handle->name.size;
             XMEMCPY(session->name.name, handle->name.name, session->name.size);
             return TPM_RC_SUCCESS;
         }
