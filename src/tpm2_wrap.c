@@ -1615,8 +1615,6 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
-    TPM2_ForceZero(&rsaKey, sizeof(rsaKey));
-    TPM2_ForceZero(&rng, sizeof(rng));
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
@@ -5897,7 +5895,7 @@ int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int alg,
 
 exit:
 
-    TPM2_ForceZero(&loadExtIn, sizeof(loadExtIn));
+    TPM2_ForceZero(&loadExtIn.inPrivate, sizeof(loadExtIn.inPrivate));
 
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -6139,7 +6137,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         (word32)key->handle.hndl);
 #endif
 
-    TPM2_ForceZero(&createIn, sizeof(createIn));
+    TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
 
     return rc;
 }
