@@ -260,7 +260,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
  */
 int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
-    int rc = TPM_RC_FAILURE;
+    int rc = TPM_RC_SUCCESS;
     int rspSz = 0;
     uint32_t tss_word;
 
