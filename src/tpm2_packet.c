@@ -1212,21 +1212,39 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 #ifdef WOLFTPM_V185
         case TPM_ALG_MLDSA:
         case TPM_ALG_HASH_MLDSA:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.mldsa.size);
+        {
+            UINT16 wireSize;
+            TPM2_Packet_ParseU16(packet, &wireSize);
+            pub->publicArea.unique.mldsa.size = wireSize;
             if (pub->publicArea.unique.mldsa.size > MAX_MLDSA_PUB_SIZE) {
                 pub->publicArea.unique.mldsa.size = MAX_MLDSA_PUB_SIZE;
             }
             TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.mldsa.buffer,
                 pub->publicArea.unique.mldsa.size);
+            /* Skip remaining bytes to keep packet position synchronized */
+            if (wireSize > pub->publicArea.unique.mldsa.size) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSize - pub->publicArea.unique.mldsa.size);
+            }
             break;
+        }
         case TPM_ALG_MLKEM:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.mlkem.size);
+        {
+            UINT16 wireSize;
+            TPM2_Packet_ParseU16(packet, &wireSize);
+            pub->publicArea.unique.mlkem.size = wireSize;
             if (pub->publicArea.unique.mlkem.size > MAX_MLKEM_PUB_SIZE) {
                 pub->publicArea.unique.mlkem.size = MAX_MLKEM_PUB_SIZE;
             }
             TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.mlkem.buffer,
                 pub->publicArea.unique.mlkem.size);
+            /* Skip remaining bytes to keep packet position synchronized */
+            if (wireSize > pub->publicArea.unique.mlkem.size) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSize - pub->publicArea.unique.mlkem.size);
+            }
             break;
+        }
 #endif /* WOLFTPM_V185 */
         default:
             /* TPMS_DERIVE derive; ? */
@@ -1377,9 +1395,20 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
         TPM2_Packet_ParseU16(packet, &sig->signature.mldsa.hash);
-        TPM2_Packet_ParseU16(packet, &sig->signature.mldsa.signature.size);
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        sig->signature.mldsa.signature.size = wireSize;
+        if (sig->signature.mldsa.signature.size >
+                sizeof(sig->signature.mldsa.signature.buffer)) {
+            sig->signature.mldsa.signature.size =
+                sizeof(sig->signature.mldsa.signature.buffer);
+        }
         TPM2_Packet_ParseBytes(packet, sig->signature.mldsa.signature.buffer,
             sig->signature.mldsa.signature.size);
+        /* Skip remaining bytes to keep packet position synchronized */
+        if (wireSize > sig->signature.mldsa.signature.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - sig->signature.mldsa.signature.size);
+        }
         break;
 #endif /* WOLFTPM_V185 */
     default:

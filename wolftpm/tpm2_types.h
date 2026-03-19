@@ -746,9 +746,11 @@ typedef int64_t  INT64;
 #define MAX_MLKEM_PRIV_SEED_SIZE    64    /* Private seed (d||z) */
 #endif
 
-/* CRITICAL: MAX_SIGNATURE_CTX_SIZE must support ML-DSA-87 signatures (4627 bytes) */
+/* MAX_SIGNATURE_CTX_SIZE is for the domain separation context parameter
+ * passed to ML-DSA sign/verify operations. Set large enough for general use.
+ * Note: ML-DSA signatures themselves can be up to 4627 bytes (ML-DSA-87). */
 #ifndef MAX_SIGNATURE_CTX_SIZE
-#define MAX_SIGNATURE_CTX_SIZE      MAX_MLDSA_SIG_SIZE  /* 4627 */
+#define MAX_SIGNATURE_CTX_SIZE      255  /* Domain separation context max */
 #endif
 
 #ifndef MAX_KEM_CIPHERTEXT_SIZE

@@ -1055,6 +1055,12 @@ typedef struct TPM2B_PRIVATE_KEY_MLKEM {
     UINT16 size;           /* shall be 64 */
     BYTE buffer[MAX_MLKEM_PRIV_SEED_SIZE];  /* 64-byte private seed (d||z) */
 } TPM2B_PRIVATE_KEY_MLKEM;
+
+/* TPM2B_MLDSA_SIGNATURE - ML-DSA signature (up to 4627 bytes for ML-DSA-87) */
+typedef struct TPM2B_MLDSA_SIGNATURE {
+    UINT16 size;
+    BYTE buffer[MAX_MLDSA_SIG_SIZE];
+} TPM2B_MLDSA_SIGNATURE;
 #endif /* WOLFTPM_V185 */
 
 
@@ -1563,7 +1569,7 @@ typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 /* ML-DSA (Dilithium) Signature Structure */
 typedef struct TPMS_SIGNATURE_ML_DSA {
     TPMI_ALG_HASH hash;
-    TPM2B_MAX_BUFFER signature;  /* ML-DSA signature is variable length */
+    TPM2B_MLDSA_SIGNATURE signature;  /* ML-DSA signature up to 4627 bytes */
 } TPMS_SIGNATURE_ML_DSA;
 #endif /* WOLFTPM_V185 */
 

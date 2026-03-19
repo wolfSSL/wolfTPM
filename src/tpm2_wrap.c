@@ -5262,8 +5262,11 @@ int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    if (contextSz > (int)sizeof(signSeqStartIn.context.buffer)) {
+    if (contextSz < 0 || contextSz > (int)sizeof(signSeqStartIn.context.buffer)) {
         return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     /* set session auth for key */
@@ -5321,8 +5324,11 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    if (dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
+    if (dataSz < 0 || dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
         return BUFFER_E;
+    }
+    if (dataSz > 0 && data == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     /* set session auth for key */
@@ -5398,8 +5404,11 @@ int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    if (contextSz > (int)sizeof(verifySeqStartIn.context.buffer)) {
+    if (contextSz < 0 || contextSz > (int)sizeof(verifySeqStartIn.context.buffer)) {
         return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     XMEMSET(&verifySeqStartIn, 0, sizeof(verifySeqStartIn));
@@ -5455,8 +5464,11 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    if (dataSz > (int)sizeof(verifySeqCompleteIn.buffer.buffer)) {
+    if (dataSz < 0 || dataSz > (int)sizeof(verifySeqCompleteIn.buffer.buffer)) {
         return BUFFER_E;
+    }
+    if (dataSz > 0 && data == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     XMEMSET(&verifySeqCompleteIn, 0, sizeof(verifySeqCompleteIn));
@@ -5572,12 +5584,15 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    if (digestSz > (int)sizeof(signDigestIn.digest.buffer)) {
+    if (digestSz <= 0 || digestSz > (int)sizeof(signDigestIn.digest.buffer)) {
         return BUFFER_E;
     }
 
-    if (contextSz > (int)sizeof(signDigestIn.context.buffer)) {
+    if (contextSz < 0 || contextSz > (int)sizeof(signDigestIn.context.buffer)) {
         return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     /* set session auth for key */
@@ -5656,12 +5671,15 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    if (digestSz > (int)sizeof(verifyDigestSigIn.digest.buffer)) {
+    if (digestSz <= 0 || digestSz > (int)sizeof(verifyDigestSigIn.digest.buffer)) {
         return BUFFER_E;
     }
 
-    if (contextSz > (int)sizeof(verifyDigestSigIn.context.buffer)) {
+    if (contextSz < 0 || contextSz > (int)sizeof(verifyDigestSigIn.context.buffer)) {
         return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
     }
 
     XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
