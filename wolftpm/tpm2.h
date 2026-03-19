@@ -117,10 +117,12 @@ typedef enum {
     TPM_ALG_CBC             = 0x0042,
     TPM_ALG_CFB             = 0x0043,
     TPM_ALG_ECB             = 0x0044,
+#ifdef WOLFTPM_V185
     /* Post-Quantum Algorithms - TPM 2.0 Library v185 */
     TPM_ALG_MLKEM           = 0x00A0,
     TPM_ALG_MLDSA           = 0x00A1,
     TPM_ALG_HASH_MLDSA      = 0x00A2,
+#endif
 } TPM_ALG_ID_T;
 typedef UINT16 TPM_ALG_ID;
 
@@ -140,6 +142,7 @@ typedef enum {
 } TPM_ECC_CURVE_T;
 typedef UINT16 TPM_ECC_CURVE;
 
+#ifdef WOLFTPM_V185
 /* ML-KEM Parameter Sets (TCG Algorithm Registry v2.0) */
 typedef UINT16 TPMI_MLKEM_PARAMETER_SET;
 #define TPM_MLKEM_NONE              0x0000
@@ -153,6 +156,7 @@ typedef UINT16 TPMI_MLDSA_PARAMETER_SET;
 #define TPM_MLDSA_44                0x0001
 #define TPM_MLDSA_65                0x0002
 #define TPM_MLDSA_87                0x0003
+#endif /* WOLFTPM_V185 */
 
 /* Command Codes */
 typedef enum {
@@ -269,6 +273,8 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
+#ifdef WOLFTPM_V185
+    /* Post-Quantum Cryptography Commands - TPM 2.0 Library v185 */
     TPM_CC_VerifySequenceComplete   = 0x000001A3,
     TPM_CC_SignSequenceComplete     = 0x000001A4,
     TPM_CC_VerifyDigestSignature    = 0x000001A5,
@@ -278,6 +284,9 @@ typedef enum {
     TPM_CC_VerifySequenceStart      = 0x000001A9,
     TPM_CC_SignSequenceStart        = 0x000001AA,
     TPM_CC_LAST                     = TPM_CC_SignSequenceStart,
+#else
+    TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
+#endif
 
     CC_VEND                         = 0x20000000,
     TPM_CC_Vendor_TCG_Test          = CC_VEND + 0x0000,

@@ -6754,12 +6754,14 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
             return "AES-CFB";
         case TPM_ALG_ECB:
             return "AES-ECB";
+#ifdef WOLFTPM_V185
         case TPM_ALG_MLKEM:
             return "ML-KEM";
         case TPM_ALG_MLDSA:
             return "ML-DSA";
         case TPM_ALG_HASH_MLDSA:
             return "HashML-DSA";
+#endif
         default:
             break;
     }
