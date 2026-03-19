@@ -3610,13 +3610,13 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->ciphertext.size);
-            TPM2_Packet_ParseBytes(&packet, out->ciphertext.buffer,
-                out->ciphertext.size);
-
             TPM2_Packet_ParseU16(&packet, &out->sharedSecret.size);
             TPM2_Packet_ParseBytes(&packet, out->sharedSecret.buffer,
                 out->sharedSecret.size);
+
+            TPM2_Packet_ParseU16(&packet, &out->ciphertext.size);
+            TPM2_Packet_ParseBytes(&packet, out->ciphertext.buffer,
+                out->ciphertext.size);
         }
 
         TPM2_ReleaseLock(ctx);

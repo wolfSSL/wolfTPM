@@ -2771,8 +2771,8 @@ typedef struct {
     TPMI_DH_OBJECT keyHandle;
 } Encapsulate_In;
 typedef struct {
-    TPM2B_KEM_CIPHERTEXT ciphertext;
     TPM2B_SHARED_SECRET sharedSecret;
+    TPM2B_KEM_CIPHERTEXT ciphertext;
 } Encapsulate_Out;
 WOLFTPM_API TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out);
 
