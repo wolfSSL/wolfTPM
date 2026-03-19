@@ -3428,6 +3428,9 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
     }
 #endif
 
+    (void)derBuf;
+    (void)derSz;
+
     return rc;
 }
 
@@ -3545,6 +3548,8 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
 #endif
 
     TPM2_ForceZero(&sens, sizeof(sens));
+    (void)derBuf;
+    (void)derSz;
 
     return rc;
 }
