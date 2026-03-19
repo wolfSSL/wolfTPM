@@ -28,6 +28,9 @@
 #include <wolftpm/tpm2_tis.h>
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     #include <wolftpm/tpm2_linux.h>
+    #if !defined(__UBOOT__)
+        #include <unistd.h>
+    #endif
 #endif
 #ifdef WOLFTPM_SWTPM
     #include <wolftpm/tpm2_swtpm.h>
