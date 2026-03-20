@@ -3469,6 +3469,11 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+            if (out->validation.digest.size >
+                    sizeof(out->validation.digest.buffer)) {
+                out->validation.digest.size =
+                    (UINT16)sizeof(out->validation.digest.buffer);
+            }
             TPM2_Packet_ParseBytes(&packet,
                         out->validation.digest.buffer,
                         out->validation.digest.size);
@@ -3567,6 +3572,11 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+            if (out->validation.digest.size >
+                    sizeof(out->validation.digest.buffer)) {
+                out->validation.digest.size =
+                    (UINT16)sizeof(out->validation.digest.buffer);
+            }
             TPM2_Packet_ParseBytes(&packet,
                         out->validation.digest.buffer,
                         out->validation.digest.size);

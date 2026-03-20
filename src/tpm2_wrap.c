@@ -5515,52 +5515,22 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-    else {
-        /* For ML-DSA try to detect from signature */
-        TPMI_ALG_SIG_SCHEME scheme = TPM_ALG_NULL;
-
-        /* Try to get scheme from key if available */
-        if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
-            /* KEYEDHASH keys may have ML-DSA scheme */
-            /* The scheme is in keyedHashDetail.scheme.scheme */
-            scheme = key->pub.publicArea.parameters.keyedHashDetail.scheme.scheme;
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA ||
+             key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* ML-DSA signature - key type directly indicates algorithm */
+        signature.sigAlg = key->pub.publicArea.type;
+        signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+            return BUFFER_E;
         }
-
-        /* Check if it's an ML-DSA algorithm from key scheme */
-        if (scheme == TPM_ALG_MLDSA || scheme == TPM_ALG_HASH_MLDSA) {
-            signature.sigAlg = scheme;
-            /* ML-DSA signatures use SHA3-256, SHA3-384, or SHA3-512 typically */
-            /* Default to SHA3-256 if not specified */
-            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
-                return BUFFER_E;
-            }
-            signature.signature.mldsa.signature.size = (UINT16)sigSz;
-            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
-        }
-        /* Fallback: detect ML-DSA from signature size if scheme not available */
-        else if (sigSz >= 2000 && sigSz <= 5000) {
-            /* Likely ML-DSA signature based on size */
-            /* ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
-            signature.sigAlg = TPM_ALG_MLDSA;
-            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
-                return BUFFER_E;
-            }
-            signature.signature.mldsa.signature.size = (UINT16)sigSz;
-            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
-        }
-        else {
-            /* Unknown key type and signature doesn't match known formats */
-            return BAD_FUNC_ARG;
-        }
-    }
-#else
-    else {
-        /* For PQ algorithms or unknown types, return error */
-        return BAD_FUNC_ARG;
+        signature.signature.mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
     }
 #endif /* WOLFTPM_V185 */
+    else {
+        /* Unknown key type */
+        return BAD_FUNC_ARG;
+    }
     verifySeqCompleteIn.signature = signature;
 
     XMEMSET(&verifySeqCompleteOut, 0, sizeof(verifySeqCompleteOut));
@@ -5723,54 +5693,22 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-    else {
-        /* For ML-DSA and other PQ algorithms, try to detect from signature */
-        /* ML-DSA signatures are large: ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
-        /* First, check if key has a scheme that indicates ML-DSA */
-        TPMI_ALG_SIG_SCHEME scheme = TPM_ALG_NULL;
-
-        /* Try to get scheme from key if available */
-        if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
-            /* KEYEDHASH keys may have ML-DSA scheme */
-            /* The scheme is in keyedHashDetail.scheme.scheme */
-            scheme = key->pub.publicArea.parameters.keyedHashDetail.scheme.scheme;
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA ||
+             key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* ML-DSA signature - key type directly indicates algorithm */
+        signature.sigAlg = key->pub.publicArea.type;
+        signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+            return BUFFER_E;
         }
-
-        /* Check if it's an ML-DSA algorithm from key scheme */
-        if (scheme == TPM_ALG_MLDSA || scheme == TPM_ALG_HASH_MLDSA) {
-            signature.sigAlg = scheme;
-            /* ML-DSA signatures use SHA3-256, SHA3-384, or SHA3-512 typically */
-            /* Default to SHA3-256 if not specified */
-            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
-                return BUFFER_E;
-            }
-            signature.signature.mldsa.signature.size = (UINT16)sigSz;
-            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
-        }
-        /* Fallback: detect ML-DSA from signature size if scheme not available */
-        else if (sigSz >= 2000 && sigSz <= 5000) {
-            /* Likely ML-DSA signature based on size */
-            /* ML-DSA-44: ~2420 bytes, ML-DSA-65: ~3309 bytes, ML-DSA-87: ~4627 bytes */
-            signature.sigAlg = TPM_ALG_MLDSA;
-            signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-            if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
-                return BUFFER_E;
-            }
-            signature.signature.mldsa.signature.size = (UINT16)sigSz;
-            XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
-        }
-        else {
-            /* Unknown key type and signature doesn't match known formats */
-            return BAD_FUNC_ARG;
-        }
-    }
-#else
-    else {
-        /* For PQ algorithms or unknown types, return error */
-        return BAD_FUNC_ARG;
+        signature.signature.mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
     }
 #endif /* WOLFTPM_V185 */
+    else {
+        /* Unknown key type */
+        return BAD_FUNC_ARG;
+    }
     verifyDigestSigIn.signature = signature;
 
     verifyDigestSigIn.context.size = (UINT16)contextSz;
@@ -5824,6 +5762,9 @@ int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         }
     }
 
+    /* Clear sensitive shared secret from stack */
+    TPM2_ForceZero(&encapsulateOut.sharedSecret, sizeof(encapsulateOut.sharedSecret));
+
     return rc;
 }
 
@@ -5862,6 +5803,9 @@ int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             rc = BUFFER_E;
         }
     }
+
+    /* Clear sensitive shared secret from stack */
+    TPM2_ForceZero(&decapsulateOut.sharedSecret, sizeof(decapsulateOut.sharedSecret));
 
     return rc;
 }
