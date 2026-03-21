@@ -56,7 +56,8 @@ int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
     b = input[idx++];
     if (b >= TPM2_ASN_LONG_LENGTH) {
         word32 bytes = b & 0x7F;
-        if (bytes > 3 || (idx + bytes) > maxIdx) {
+        /* DER does not allow BER indefinite-length (0x80 => bytes == 0) */
+        if (bytes == 0 || bytes > 3 || (idx + bytes) > maxIdx) {
             return TPM_RC_INSUFFICIENT;
         }
         while (bytes--) {
@@ -185,6 +186,12 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
         /* Decode version */
         rc = TPM2_ASN_GetHeader(input, TPM2_ASN_CONTEXT_SPECIFIC | TPM2_ASN_CONSTRUCTED,
                                &idx, &len, inputSz);
+    }
+
+    if (rc >= 0) {
+        if (len <= 0 || idx >= (word32)inputSz) {
+            rc = TPM_RC_VALUE;
+        }
     }
 
     if (rc >= 0) {

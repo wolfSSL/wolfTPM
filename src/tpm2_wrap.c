@@ -3277,7 +3277,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     #endif
     } key;
 
-    if (dev == NULL || tpmKey == NULL || out == NULL || outSz == NULL) {
+    if (dev == NULL || tpmKey == NULL || outSz == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -6293,6 +6293,9 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
     word32 i;
     WOLFTPM2_HANDLE handle;
     if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (handleCount != 0 && handleStart > (word32)0xFFFFFFFF - (handleCount - 1)) {
         return BAD_FUNC_ARG;
     }
     XMEMSET(&handle, 0, sizeof(handle));
