@@ -810,7 +810,7 @@ static int tpm2_ifx_cap_vendor_get(WOLFTPM2_CAPS* cap, uint32_t property,
     if (rc == TPM_RC_SUCCESS) {
         TPM2B_MAX_BUFFER* buf = &out.capabilityData.data.vendor;
         /* 4 bytes=count + 2 bytes=len + vendor value */
-        if (buf->buffer[3] == 1 && buf->buffer[5] == valSz) {
+        if (buf->size >= (int)(6 + valSz) && buf->buffer[3] == 1 && buf->buffer[5] == valSz) {
             XMEMCPY(val, &buf->buffer[6], valSz);
             if (valSz == 2) {
                 *((uint16_t*)val) = be16_to_cpu(*((uint16_t*)val));
@@ -1615,6 +1615,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 
     wc_FreeRsaKey(&rsaKey);
     wc_FreeRng(&rng);
+    TPM2_ForceZero(&rsaKey, sizeof(rsaKey));
+    TPM2_ForceZero(&rng, sizeof(rng));
 
     if (rc > 0) {
         rc = (rc == secret->size) ? 0 /* success */ : BUFFER_E /* fail */;
@@ -1630,13 +1632,13 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
 {
     int rc = NOT_COMPILED_IN;
 
+    if (dev == NULL || data == NULL || secret == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
     /* if a tpmKey is not present then we are using an unsalted session */
     if (tpmKey == NULL) {
         return TPM_RC_SUCCESS;
-    }
-
-    if (dev == NULL || data == NULL || secret == NULL) {
-        return BAD_FUNC_ARG;
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -3275,7 +3277,7 @@ int wolfTPM2_ExportPublicKeyBuffer(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     #endif
     } key;
 
-    if (dev == NULL || tpmKey == NULL) {
+    if (dev == NULL || tpmKey == NULL || outSz == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -4995,9 +4997,6 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     #endif
         return rc;
     }
-    if (rc == TPM_RC_SUCCESS && alreadyExists)
-        rc = TPM_RC_NV_DEFINED;
-
     /* compute NV object with name */
     XMEMSET(nv, 0, sizeof(*nv));
     rctmp = wolfTPM2_NVOpen(dev, nv, nvIndex, auth, authSz);
@@ -5005,7 +5004,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         rc = rctmp;
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%d, Size %d\n",
+    printf("TPM2_NV_DefineSpace: Auth 0x%x, Idx 0x%x, Attribs 0x%x, Size %d\n",
         (word32)in.authHandle,
         (word32)in.publicInfo.nvPublic.nvIndex,
         (word32)in.publicInfo.nvPublic.attributes,
@@ -6291,16 +6290,19 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
     word32 handleCount)
 {
     int rc = TPM_RC_SUCCESS;
-    word32 hndl;
+    word32 i;
     WOLFTPM2_HANDLE handle;
     if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (handleCount != 0 && handleStart > (word32)0xFFFFFFFF - (handleCount - 1)) {
         return BAD_FUNC_ARG;
     }
     XMEMSET(&handle, 0, sizeof(handle));
     wolfTPM2_CopyAuth(&handle.auth, &dev->session[0].auth);
 
-    for (hndl=handleStart; hndl < handleStart+handleCount; hndl++) {
-        handle.hndl = hndl;
+    for (i = 0; i < handleCount; i++) {
+        handle.hndl = handleStart + i;
         /* ignore return code failures */
         (void)wolfTPM2_UnloadHandle(dev, &handle);
     }

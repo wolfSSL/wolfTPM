@@ -5558,7 +5558,8 @@ int TPM2_GPIO_Config(GpioConfig_In* in)
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     UINT32 i;
 
-    if (ctx == NULL || in == NULL || ctx->session == NULL)
+    if (ctx == NULL || in == NULL || ctx->session == NULL ||
+        in->config.count > MAX_GPIO_COUNT)
         return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
