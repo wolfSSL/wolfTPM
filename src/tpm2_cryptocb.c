@@ -268,8 +268,22 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             }
         #ifndef WOLFTPM2_USE_SW_ECDHE
             else {
-                /* Generate ephemeral key - if one isn't already created */
+                /* Generate ephemeral key - if one isn't already created
+                 * or if the curve has changed (e.g. TLS 1.3 key share
+                 * negotiation may generate a key for one curve, then
+                 * fall back to a different curve) */
                 key = tlsCtx->ecdhKey;
+                if (key->handle.hndl != 0 &&
+                    key->handle.hndl != TPM_RH_NULL &&
+                    (int)key->pub.publicArea.parameters.eccDetail.curveID
+                        != curve_id) {
+                    /* curve changed, release old key */
+                    rc = wolfTPM2_UnloadHandle(tlsCtx->dev,
+                        &key->handle);
+                    if (rc != 0) {
+                        return rc;
+                    }
+                }
                 if (key->handle.hndl == 0 ||
                     key->handle.hndl == TPM_RH_NULL) {
                     rc = wolfTPM2_ECDHGenKey(tlsCtx->dev, tlsCtx->ecdhKey,

@@ -410,7 +410,7 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     generate_port
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
     echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
-    ./examples/server/server -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem >> $TPMPWD/run.out 2>&1 &
+    ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem >> $TPMPWD/run.out 2>&1 &
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
     popd >> $TPMPWD/run.out 2>&1
@@ -431,10 +431,10 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tpm tls server $1 $2 failed! $RESULT" && exit 1
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
-    sleep 0.1
+    sleep 1
 
     echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4"
-    ./examples/client/client -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4 >> $TPMPWD/run.out 2>&1
+    ./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "tls client $1 $2 failed! $RESULT" && exit 1
     popd >> $TPMPWD/run.out 2>&1
