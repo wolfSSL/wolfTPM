@@ -28,15 +28,7 @@
 #endif
 #include <wolfssl/wolfcrypt/settings.h>
 
-/* Visibility: when built as part of wolfTPM, use WOLFTPM_API for export */
-#ifdef BUILDING_WOLFTPM
-    #include <wolftpm/visibility.h>
-    #define WOLFSPDM_API WOLFTPM_API
-#else
-    #ifndef WOLFSPDM_API
-    #define WOLFSPDM_API
-    #endif
-#endif
+#include <wolftpm/visibility.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 #include "spdm_internal.h"
 
 /* Left-pad a buffer in-place to targetSz with leading zeros */
@@ -346,3 +352,5 @@ int wolfSPDM_SignHash(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
 
     return (rc == 0) ? WOLFSPDM_SUCCESS : WOLFSPDM_E_CRYPTO_FAIL;
 }
+
+#endif /* WOLFTPM_SPDM */

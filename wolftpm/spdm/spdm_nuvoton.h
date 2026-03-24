@@ -59,11 +59,11 @@ typedef struct WOLFSPDM_NUVOTON_STATUS {
 
 /* ----- Nuvoton-Only Functions ----- */
 
-WOLFSPDM_API int wolfSPDM_Nuvoton_GetStatus(
+WOLFTPM_API int wolfSPDM_Nuvoton_GetStatus(
     WOLFSPDM_CTX* ctx,
     WOLFSPDM_NUVOTON_STATUS* status);
 
-WOLFSPDM_API int wolfSPDM_Nuvoton_SetOnlyMode(
+WOLFTPM_API int wolfSPDM_Nuvoton_SetOnlyMode(
     WOLFSPDM_CTX* ctx,
     int lock);
 

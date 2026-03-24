@@ -74,18 +74,18 @@ typedef struct WOLFSPDM_NATIONS_STATUS {
 
 /* ----- Nations PSK-Mode SPDM Functions ----- */
 
-WOLFSPDM_API int wolfSPDM_Nations_GetStatus(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_Nations_GetStatus(WOLFSPDM_CTX* ctx,
     WOLFSPDM_NATIONS_STATUS* status);
 
-WOLFSPDM_API int wolfSPDM_Nations_SetOnlyMode(WOLFSPDM_CTX* ctx, int lock);
+WOLFTPM_API int wolfSPDM_Nations_SetOnlyMode(WOLFSPDM_CTX* ctx, int lock);
 
-WOLFSPDM_API int wolfSPDM_Nations_PskSet(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_Nations_PskSet(WOLFSPDM_CTX* ctx,
     const byte* psk, word32 pskSz);
 
-WOLFSPDM_API int wolfSPDM_Nations_PskClear(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_Nations_PskClear(WOLFSPDM_CTX* ctx,
     const byte* clearAuth, word32 clearAuthSz);
 
-WOLFSPDM_API int wolfSPDM_Nations_PskClearWithVCA(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_Nations_PskClearWithVCA(WOLFSPDM_CTX* ctx,
     const byte* clearAuth, word32 clearAuthSz);
 
 /* wolfSPDM_ConnectNationsPsk is an alias for wolfSPDM_ConnectPsk (spdm_psk.h) */

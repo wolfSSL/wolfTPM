@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 #include "spdm_internal.h"
 
 /* Callback types for build/parse functions */
@@ -146,3 +152,5 @@ int wolfSPDM_Finish(WOLFSPDM_CTX* ctx)
     wc_ForceZero(decBuf, sizeof(decBuf));
     return rc;
 }
+
+#endif /* WOLFTPM_SPDM */

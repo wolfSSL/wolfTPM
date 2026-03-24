@@ -486,13 +486,6 @@ AC_ARG_WITH([wolfspdm],
     [AS_HELP_STRING([--with-wolfspdm=PATH],[DEPRECATED: Use --enable-spdm instead.])],
     [AC_MSG_ERROR([--with-wolfspdm is no longer needed. Use --enable-spdm instead.])])
 
-# SPDM dynamic memory (default: static/zero-malloc)
-AC_ARG_ENABLE([spdm-dynamic-mem],
-    [AS_HELP_STRING([--enable-spdm-dynamic-mem],[SPDM: Use heap allocation for context (default: static)])],
-    [ ENABLED_SPDM_DYNMEM=$enableval ],
-    [ ENABLED_SPDM_DYNMEM=no ]
-    )
-
 if test "x$ENABLED_SPDM" = "xyes"
 then
     AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support])
@@ -509,11 +502,6 @@ then
     then
         AC_DEFINE([WOLFSPDM_NATIONS], [1], [Enable SPDM Nations Technology support])
         AC_MSG_NOTICE([Nations Technology SPDM vendor commands enabled])
-    fi
-
-    if test "x$ENABLED_SPDM_DYNMEM" = "xyes"
-    then
-        AC_DEFINE([WOLFSPDM_DYNAMIC_MEMORY], [1], [SPDM: Enable dynamic memory allocation])
     fi
 
     if test "x$ax_enable_debug" != "xno"
@@ -689,6 +677,3 @@ echo "   * Nations Tech NS350:        $ENABLED_NATIONS"
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
 echo "   * SPDM Support:              $ENABLED_SPDM"
-if test "x$ENABLED_SPDM" = "xyes"; then
-    echo "   * SPDM Dynamic Mem:          $ENABLED_SPDM_DYNMEM"
-fi

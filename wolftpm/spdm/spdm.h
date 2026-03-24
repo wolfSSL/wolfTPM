@@ -22,8 +22,8 @@
 #ifndef WOLFSPDM_SPDM_H
 #define WOLFSPDM_SPDM_H
 
-#ifndef HAVE_CONFIG_H
-    #include <wolftpm/spdm/options.h>
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
 #endif
 
 #include <wolftpm/spdm/spdm_types.h>
@@ -91,54 +91,54 @@ typedef int (*WOLFSPDM_IO_CB)(
 );
 
 /* Context management */
-WOLFSPDM_API int wolfSPDM_Init(WOLFSPDM_CTX* ctx);
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
-WOLFSPDM_API WOLFSPDM_CTX* wolfSPDM_New(void);
+WOLFTPM_API int wolfSPDM_Init(WOLFSPDM_CTX* ctx);
+#ifdef WOLFTPM_SMALL_STACK
+WOLFTPM_API WOLFSPDM_CTX* wolfSPDM_New(void);
 #endif
-WOLFSPDM_API void wolfSPDM_Free(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API int wolfSPDM_GetCtxSize(void);
-WOLFSPDM_API int wolfSPDM_InitStatic(WOLFSPDM_CTX* ctx, int size);
+WOLFTPM_API void wolfSPDM_Free(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_GetCtxSize(void);
+WOLFTPM_API int wolfSPDM_InitStatic(WOLFSPDM_CTX* ctx, int size);
 
 /* Configuration */
-WOLFSPDM_API int wolfSPDM_SetIO(WOLFSPDM_CTX* ctx, WOLFSPDM_IO_CB ioCb,
+WOLFTPM_API int wolfSPDM_SetIO(WOLFSPDM_CTX* ctx, WOLFSPDM_IO_CB ioCb,
     void* userCtx);
-WOLFSPDM_API int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode);
-WOLFSPDM_API WOLFSPDM_MODE wolfSPDM_GetMode(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode);
+WOLFTPM_API WOLFSPDM_MODE wolfSPDM_GetMode(WOLFSPDM_CTX* ctx);
 /* Set responder pub key for cert-less operation (96 bytes P-384 X||Y) */
-WOLFSPDM_API int wolfSPDM_SetResponderPubKey(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SetResponderPubKey(WOLFSPDM_CTX* ctx,
     const byte* pubKey, word32 pubKeySz);
 /* Set requester key pair for mutual auth (privKey=48, pubKey=96 bytes) */
-WOLFSPDM_API int wolfSPDM_SetRequesterKeyPair(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SetRequesterKeyPair(WOLFSPDM_CTX* ctx,
     const byte* privKey, word32 privKeySz,
     const byte* pubKey, word32 pubKeySz);
 
 /* Session establishment */
-WOLFSPDM_API int wolfSPDM_Connect(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API int wolfSPDM_IsConnected(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API int wolfSPDM_Disconnect(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_Connect(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_IsConnected(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_Disconnect(WOLFSPDM_CTX* ctx);
 
 /* Individual handshake steps (for fine-grained control) */
-WOLFSPDM_API int wolfSPDM_GetVersion(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API int wolfSPDM_KeyExchange(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API int wolfSPDM_Finish(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_GetVersion(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_KeyExchange(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_Finish(WOLFSPDM_CTX* ctx);
 
 /* Secured messaging: encrypt, send, receive, decrypt in one call */
-WOLFSPDM_API int wolfSPDM_SecuredExchange(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SecuredExchange(WOLFSPDM_CTX* ctx,
     const byte* cmdPlain, word32 cmdSz,
     byte* rspPlain, word32* rspSz);
 
 /* Session info */
-WOLFSPDM_API word32 wolfSPDM_GetSessionId(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API byte wolfSPDM_GetNegotiatedVersion(WOLFSPDM_CTX* ctx);
+WOLFTPM_API word32 wolfSPDM_GetSessionId(WOLFSPDM_CTX* ctx);
+WOLFTPM_API byte wolfSPDM_GetNegotiatedVersion(WOLFSPDM_CTX* ctx);
 #if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
-WOLFSPDM_API word32 wolfSPDM_GetConnectionHandle(WOLFSPDM_CTX* ctx);
-WOLFSPDM_API word16 wolfSPDM_GetFipsIndicator(WOLFSPDM_CTX* ctx);
+WOLFTPM_API word32 wolfSPDM_GetConnectionHandle(WOLFSPDM_CTX* ctx);
+WOLFTPM_API word16 wolfSPDM_GetFipsIndicator(WOLFSPDM_CTX* ctx);
 #endif
 
 /* wolfSPDM_SetPSK declared in spdm_psk.h */
 
 /* Debug */
-WOLFSPDM_API void wolfSPDM_SetDebug(WOLFSPDM_CTX* ctx, int enable);
+WOLFTPM_API void wolfSPDM_SetDebug(WOLFSPDM_CTX* ctx, int enable);
 
 #ifdef __cplusplus
 }

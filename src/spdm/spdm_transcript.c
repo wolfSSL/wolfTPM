@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 #include "spdm_internal.h"
 
 /* ----- Transcript Management -----
@@ -95,3 +101,5 @@ int wolfSPDM_TranscriptHash(WOLFSPDM_CTX* ctx, byte* hash)
     return wolfSPDM_Sha384Hash(hash, ctx->transcript, ctx->transcriptLen,
         NULL, 0, NULL, 0);
 }
+
+#endif /* WOLFTPM_SPDM */

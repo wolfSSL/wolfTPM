@@ -44,27 +44,27 @@ extern "C" {
 
 /* ----- PSK Context Setup ----- */
 
-WOLFSPDM_API int wolfSPDM_SetPSK(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SetPSK(WOLFSPDM_CTX* ctx,
     const byte* psk, word32 pskSz,
     const byte* hint, word32 hintSz);
 
 /* ----- PSK Message Builders/Parsers ----- */
 
-WOLFSPDM_API int wolfSPDM_BuildPskExchange(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_BuildPskExchange(WOLFSPDM_CTX* ctx,
     byte* buf, word32* bufSz);
 
-WOLFSPDM_API int wolfSPDM_ParsePskExchangeRsp(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_ParsePskExchangeRsp(WOLFSPDM_CTX* ctx,
     const byte* buf, word32 bufSz);
 
-WOLFSPDM_API int wolfSPDM_BuildPskFinish(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_BuildPskFinish(WOLFSPDM_CTX* ctx,
     byte* buf, word32* bufSz);
 
-WOLFSPDM_API int wolfSPDM_ParsePskFinishRsp(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_ParsePskFinishRsp(WOLFSPDM_CTX* ctx,
     const byte* buf, word32 bufSz);
 
 /* ----- PSK Key Derivation ----- */
 
-WOLFSPDM_API int wolfSPDM_DeriveHandshakeKeysPsk(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_DeriveHandshakeKeysPsk(WOLFSPDM_CTX* ctx,
     const byte* th1Hash);
 
 /* ----- Shared PSK Connection Flow ----- */
@@ -77,7 +77,7 @@ WOLFSPDM_API int wolfSPDM_DeriveHandshakeKeysPsk(WOLFSPDM_CTX* ctx,
  * @param ctx       wolfSPDM context (must have PSK set via wolfSPDM_SetPSK)
  * @return WOLFSPDM_SUCCESS or negative error code
  */
-WOLFSPDM_API int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx);
 
 /* Backward compatibility */
 #define wolfSPDM_ConnectNationsPsk wolfSPDM_ConnectPsk

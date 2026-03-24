@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 /* Shared SPDM PSK protocol code used by Nations (and future Infineon). */
 
 #include "spdm_internal.h"
@@ -435,3 +441,5 @@ int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
 }
 
 #endif /* WOLFTPM_SPDM_PSK */
+
+#endif /* WOLFTPM_SPDM */

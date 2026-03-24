@@ -51,7 +51,7 @@ enum WOLFSPDM_ERROR {
 };
 
 /* Get human-readable error string */
-WOLFSPDM_API const char* wolfSPDM_GetErrorString(int error);
+WOLFTPM_API const char* wolfSPDM_GetErrorString(int error);
 
 #ifdef __cplusplus
 }

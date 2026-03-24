@@ -92,53 +92,53 @@ typedef struct {
 
 /* ----- Vendor Command Helpers ----- */
 
-WOLFSPDM_API int wolfSPDM_TCG_VendorCmdClear(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_TCG_VendorCmdClear(WOLFSPDM_CTX* ctx,
     const char* vdCode, const byte* payload, word32 payloadSz,
     WOLFSPDM_VENDOR_RSP* rsp);
 
-WOLFSPDM_API int wolfSPDM_TCG_VendorCmdSecured(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_TCG_VendorCmdSecured(WOLFSPDM_CTX* ctx,
     const char* vdCode, const byte* payload, word32 payloadSz);
 
 /* ----- TCG Binding Message Framing ----- */
 
-WOLFSPDM_API int wolfSPDM_BuildTcgClearMessage(
+WOLFTPM_API int wolfSPDM_BuildTcgClearMessage(
     WOLFSPDM_CTX* ctx,
     const byte* spdmPayload, word32 spdmPayloadSz,
     byte* outBuf, word32 outBufSz);
 
-WOLFSPDM_API int wolfSPDM_ParseTcgClearMessage(
+WOLFTPM_API int wolfSPDM_ParseTcgClearMessage(
     const byte* inBuf, word32 inBufSz,
     byte* spdmPayload, word32* spdmPayloadSz,
     WOLFSPDM_TCG_CLEAR_HDR* hdr);
 
 /* ----- Vendor-Defined Message Helpers ----- */
 
-WOLFSPDM_API int wolfSPDM_BuildVendorDefined(
+WOLFTPM_API int wolfSPDM_BuildVendorDefined(
     byte spdmVersion, const char* vdCode,
     const byte* payload, word32 payloadSz,
     byte* outBuf, word32 outBufSz);
 
-WOLFSPDM_API int wolfSPDM_ParseVendorDefined(
+WOLFTPM_API int wolfSPDM_ParseVendorDefined(
     const byte* inBuf, word32 inBufSz, char* vdCode,
     byte* payload, word32* payloadSz);
 
 /* ----- Shared TCG SPDM Functions ----- */
 
-WOLFSPDM_API int wolfSPDM_TCG_GetPubKey(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_TCG_GetPubKey(WOLFSPDM_CTX* ctx,
     byte* pubKey, word32* pubKeySz);
 
-WOLFSPDM_API int wolfSPDM_TCG_GivePubKey(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_TCG_GivePubKey(WOLFSPDM_CTX* ctx,
     const byte* pubKey, word32 pubKeySz);
 
-WOLFSPDM_API int wolfSPDM_TCG_GetCapabilities(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_TCG_GetCapabilities(WOLFSPDM_CTX* ctx,
     word32 capsFlags);
 
-WOLFSPDM_API int wolfSPDM_TCG_NegotiateAlgorithms(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_TCG_NegotiateAlgorithms(WOLFSPDM_CTX* ctx);
 
-WOLFSPDM_API int wolfSPDM_SetRequesterKeyTPMT(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SetRequesterKeyTPMT(WOLFSPDM_CTX* ctx,
     const byte* tpmtPub, word32 tpmtPubSz);
 
-WOLFSPDM_API int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx);
 
 /* Backward compatibility aliases */
 #define wolfSPDM_ConnectNuvoton     wolfSPDM_ConnectTCG

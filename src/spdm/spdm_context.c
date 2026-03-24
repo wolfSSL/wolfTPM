@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 #include "spdm_internal.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -53,7 +59,7 @@ int wolfSPDM_Init(WOLFSPDM_CTX* ctx)
     return WOLFSPDM_SUCCESS;
 }
 
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
+#ifdef WOLFTPM_SMALL_STACK
 WOLFSPDM_CTX* wolfSPDM_New(void)
 {
     WOLFSPDM_CTX* ctx;
@@ -72,18 +78,17 @@ WOLFSPDM_CTX* wolfSPDM_New(void)
 
     return ctx;
 }
-#endif /* WOLFSPDM_DYNAMIC_MEMORY */
+#endif /* WOLFTPM_SMALL_STACK */
 
 void wolfSPDM_Free(WOLFSPDM_CTX* ctx)
 {
+    int wasDynamic;
+
     if (ctx == NULL) {
         return;
     }
 
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
-    {
-        int wasDynamic = ctx->flags.isDynamic;
-#endif
+    wasDynamic = ctx->flags.isDynamic;
 
     /* Free RNG */
     if (ctx->flags.rngInitialized) {
@@ -98,11 +103,12 @@ void wolfSPDM_Free(WOLFSPDM_CTX* ctx)
     /* Zero entire struct (covers all sensitive key material) */
     wc_ForceZero(ctx, sizeof(WOLFSPDM_CTX));
 
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
-        if (wasDynamic) {
-            XFREE(ctx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        }
+#ifdef WOLFTPM_SMALL_STACK
+    if (wasDynamic) {
+        XFREE(ctx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
+#else
+    (void)wasDynamic;
 #endif
 }
 
@@ -547,3 +553,5 @@ const char* wolfSPDM_GetErrorString(int error)
         default:                          return "Unknown error";
     }
 }
+
+#endif /* WOLFTPM_SPDM */

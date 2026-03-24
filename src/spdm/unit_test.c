@@ -76,7 +76,7 @@ static int dummy_io_cb(WOLFSPDM_CTX* ctx, const byte* txBuf, word32 txSz,
 
 /* ----- Context Tests ----- */
 
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
+#ifdef WOLFTPM_SMALL_STACK
 static int test_context_new_free(void)
 {
     WOLFSPDM_CTX* ctx;
@@ -93,7 +93,7 @@ static int test_context_new_free(void)
 
     TEST_PASS();
 }
-#endif /* WOLFSPDM_DYNAMIC_MEMORY */
+#endif /* WOLFTPM_SMALL_STACK */
 
 static int test_context_init(void)
 {
@@ -936,7 +936,7 @@ int main(void)
     printf("===========================================\n\n");
 
     /* Context tests */
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
+#ifdef WOLFTPM_SMALL_STACK
     test_context_new_free();
 #endif
     test_context_init();

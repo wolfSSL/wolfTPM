@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 /* Nations Technology NS350 SPDM Functions
  *
  * PSK-mode vendor commands and PSK connection flow.
@@ -172,3 +178,5 @@ int wolfSPDM_Nations_PskClearWithVCA(WOLFSPDM_CTX* ctx,
  * wolfSPDM_ConnectNationsPsk is a backward-compat alias in spdm_psk.h. */
 
 #endif /* WOLFSPDM_NATIONS */
+
+#endif /* WOLFTPM_SPDM */

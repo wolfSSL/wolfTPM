@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 /* Shared TCG SPDM code used by both Nuvoton and Nations Technology TPMs. */
 
 #include "spdm_internal.h"
@@ -570,3 +576,5 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
 }
 
 #endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+
+#endif /* WOLFTPM_SPDM */

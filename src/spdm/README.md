@@ -184,7 +184,7 @@ make
 | `--enable-nuvoton`          | Enable Nuvoton TPM hardware support |
 | `--enable-nations`          | Enable Nations NS350 hardware support |
 | `--enable-debug`            | Debug output with verbose SPDM tracing |
-| `--enable-spdm-dynamic-mem` | Heap-allocated SPDM context (default: static ~32 KB) |
+| `--enable-smallstack`       | Heap-allocated SPDM context (default: static ~32 KB) |
 
 ## Usage
 
@@ -418,7 +418,7 @@ intercepted and routed through SPDM when a session is active.
 **Static (default):** Zero heap allocation. SPDM context uses ~32 KB of
 static memory, ideal for embedded environments.
 
-**Dynamic (`--enable-spdm-dynamic-mem`):** Context is heap-allocated.
+**Small stack (`--enable-smallstack`):** Context is heap-allocated.
 Useful on platforms with small stacks.
 
 ## wolfSPDM API

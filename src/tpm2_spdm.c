@@ -137,8 +137,8 @@ int wolfTPM2_SPDM_InitCtx(
     /* Zero initialize context */
     XMEMSET(ctx, 0, sizeof(WOLFTPM2_SPDM_CTX));
 
-#ifdef WOLFSPDM_DYNAMIC_MEMORY
-    /* Dynamic path: allocate and initialize via wolfSPDM_New() */
+#ifdef WOLFTPM_SMALL_STACK
+    /* Heap path: allocate and initialize via wolfSPDM_New() */
     ctx->spdmCtx = wolfSPDM_New();
     if (ctx->spdmCtx == NULL) {
         return MEMORY_E;

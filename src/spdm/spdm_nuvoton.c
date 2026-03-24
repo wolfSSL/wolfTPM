@@ -19,6 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifdef HAVE_CONFIG_H
+    #include <config.h>
+#endif
+
+#ifdef WOLFTPM_SPDM
+
 /* Nuvoton-specific SPDM functions (GetStatus, SetOnlyMode). */
 
 #include "spdm_internal.h"
@@ -110,3 +116,5 @@ int wolfSPDM_Nuvoton_SetOnlyMode(
 }
 
 #endif /* WOLFSPDM_NUVOTON */
+
+#endif /* WOLFTPM_SPDM */

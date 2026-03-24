@@ -80,10 +80,10 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
             wolftpm_config: --enable-spdm --enable-nuvoton
             needs_swtpm: false
-          # SPDM dynamic memory
-          - name: spdm-dynamic-mem
+          # SPDM small stack (heap-allocated SPDM context)
+          - name: spdm-smallstack
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nuvoton --enable-spdm-dynamic-mem
+            wolftpm_config: --enable-spdm --enable-nuvoton --enable-smallstack
             needs_swtpm: false
           # SPDM debug
           - name: spdm-debug
@@ -100,10 +100,10 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
             wolftpm_config: --enable-spdm --enable-nations --enable-debug
             needs_swtpm: false
-          # SPDM + Nations dynamic memory
-          - name: spdm-nations-dynamic-mem
+          # SPDM + Nations small stack (heap-allocated SPDM context)
+          - name: spdm-nations-smallstack
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nations --enable-spdm-dynamic-mem
+            wolftpm_config: --enable-spdm --enable-nations --enable-smallstack
             needs_swtpm: false
           # Microchip
           - name: microchip
