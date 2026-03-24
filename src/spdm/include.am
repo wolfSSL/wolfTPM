@@ -1,0 +1,37 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+if BUILD_SPDM
+
+src_libwolftpm_la_SOURCES += \
+    src/spdm/spdm_context.c \
+    src/spdm/spdm_crypto.c \
+    src/spdm/spdm_kdf.c \
+    src/spdm/spdm_msg.c \
+    src/spdm/spdm_secured.c \
+    src/spdm/spdm_session.c \
+    src/spdm/spdm_transcript.c
+
+# spdm_tcg.c: shared TCG SPDM code (Nuvoton + Nations)
+if BUILD_NUVOTON
+src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c src/spdm/spdm_nuvoton.c
+endif
+
+if BUILD_NATIONS
+if !BUILD_NUVOTON
+src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c
+endif
+src_libwolftpm_la_SOURCES += src/spdm/spdm_nations.c
+src_libwolftpm_la_SOURCES += src/spdm/spdm_psk.c
+endif
+
+check_PROGRAMS += src/spdm/unit_test
+src_spdm_unit_test_SOURCES  = src/spdm/unit_test.c
+src_spdm_unit_test_LDADD    = src/libwolftpm.la $(LIB_STATIC_ADD)
+src_spdm_unit_test_CFLAGS   = $(AM_CFLAGS)
+
+EXTRA_DIST += src/spdm/spdm_internal.h
+EXTRA_DIST += src/spdm/README.md
+
+endif BUILD_SPDM

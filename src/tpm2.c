@@ -39,6 +39,9 @@
     #include <wolftpm/tpm2_winapi.h>
 #endif
 #include <wolftpm/tpm2_param_enc.h>
+#ifdef WOLFTPM_SPDM
+#include <wolftpm/tpm2_spdm.h>
+#endif
 
 #include <hal/tpm_io.h>
 
@@ -417,6 +420,38 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     return rc;
 }
 
+#ifdef WOLFTPM_SPDM
+/* SPDM intercept: if SPDM session is active, send TPM command through
+ * the encrypted SPDM channel instead of raw SPI/I2C.
+ * Returns TPM_RC_SUCCESS on success, negative if SPDM not active
+ * (caller should use normal transport), or positive error code. */
+static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    WOLFTPM2_SPDM_CTX* spdmCtx;
+    byte tpmResp[WOLFSPDM_MAX_MSG_SIZE];
+    word32 tpmRespSz = sizeof(tpmResp);
+    TPM_RC rc;
+
+    if (ctx->spdmCtx == NULL)
+        return -1; /* SPDM not configured */
+    spdmCtx = (WOLFTPM2_SPDM_CTX*)ctx->spdmCtx;
+    if (spdmCtx->spdmCtx == NULL || !wolfSPDM_IsConnected(spdmCtx->spdmCtx))
+        return -1; /* SPDM not connected */
+
+    rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
+        packet->buf, packet->pos, tpmResp, &tpmRespSz);
+    if (rc != 0)
+        return rc;
+
+    if (tpmRespSz > MAX_RESPONSE_SIZE)
+        return TPM_RC_SIZE;
+    XMEMCPY(packet->buf, tpmResp, tpmRespSz);
+    packet->pos = 0;
+    packet->size = tpmRespSz;
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_SPDM */
+
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info)
 {
@@ -460,7 +495,13 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     packet->pos = cmdSz;
 
     /* submit command and wait for response */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+#ifdef WOLFTPM_SPDM
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc < 0) /* SPDM not active, use normal transport */
+#endif
+    {
+        rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+    }
     if (rc != 0)
         return rc;
 
@@ -489,6 +530,13 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
+
+#ifdef WOLFTPM_SPDM
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc == TPM_RC_SUCCESS)
+        return TPM2_Packet_Parse(rc, packet);
+    /* rc < 0 means SPDM not active, fall through to normal transport */
+#endif
 
     /* submit command and wait for response */
     rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
@@ -1589,6 +1637,7 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
     }
     return rc;
 }
+
 
 TPM_RC TPM2_PolicyRestart(PolicyRestart_In* in)
 {
@@ -5604,6 +5653,7 @@ int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
 
         TPM2_Packet_Init(ctx, &packet);
         /* Process the auth handle for GPIO configuration */
@@ -5647,6 +5697,100 @@ int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
 }
 #endif /* WOLFTPM_NUVOTON */
 
+/* NTC2 PreConfig/GetConfig for runtime vendor detection (WOLFTPM_AUTODETECT).
+ * Identical to the WOLFTPM_NUVOTON implementations above. */
+#if defined(WOLFTPM_AUTODETECT) && !defined(WOLFTPM_NUVOTON) && \
+    !defined(WOLFTPM_ST33)
+
+int TPM2_NTC2_PreConfig(NTC2_PreConfig_In* in)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (in == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
+
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        TPM2_Packet_AppendBytes(&packet, (byte*)&in->preConfig,
+                                sizeof(in->preConfig));
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+                             TPM_CC_NTC2_PreConfig);
+
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+int TPM2_NTC2_GetConfig(NTC2_GetConfig_Out* out)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (out == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
+                             TPM_CC_NTC2_GetConfig);
+
+        rc = TPM2_SendCommand(ctx, &packet);
+        if (rc == TPM_RC_SUCCESS) {
+            TPM2_Packet_ParseBytes(&packet, (byte*)&out->preConfig,
+                                   sizeof(out->preConfig));
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_AUTODETECT && !WOLFTPM_NUVOTON && !WOLFTPM_ST33 */
+
+
+#ifdef WOLFTPM_NATIONS
+/* Nations Technology NS350 Vendor Commands */
+int TPM2_Nations_IdentityKeySet(Nations_IdentityKeySet_In* in)
+{
+    int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (in == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = CMD_FLAG_AUTH_USER1;
+
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU32(&packet, in->authHandle);
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        TPM2_Packet_AppendU32(&packet, in->configuration);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+                             TPM_CC_Nations_IdentityKeySet);
+
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_NATIONS */
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)

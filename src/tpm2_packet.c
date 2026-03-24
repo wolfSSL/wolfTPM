@@ -1045,6 +1045,7 @@ int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
     return cmdSz;
 }
 
+
 /******************************************************************************/
 /* --- END TPM Packet Assembly / Parsing -- */
 /******************************************************************************/

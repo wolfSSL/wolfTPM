@@ -83,6 +83,9 @@
             #elif defined(WOLFTPM_NUVOTON)
                 /* Nuvoton NPCT75x uses CE0 */
                 #define TPM2_SPI_DEV_CS "0"
+            #elif defined(WOLFTPM_NATIONS)
+                /* Nations Technology NS350 uses CE0 */
+                #define TPM2_SPI_DEV_CS "0"
             #else
                 /* OPTIGA SLB9670/SLB9762 and LetsTrust TPM use CE1 */
                 #define TPM2_SPI_DEV_CS "1"

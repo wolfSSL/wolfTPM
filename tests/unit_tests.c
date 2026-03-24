@@ -961,6 +961,107 @@ static void test_wolfTPM2_thread_local_storage(void)
 #endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
 }
 
+#ifdef WOLFTPM_SPDM
+/* Test SPDM wrapper API functions */
+static void test_wolfTPM2_SPDM_Functions(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    printf("Test TPM Wrapper:\tSPDM Functions:\t");
+
+    /* Initialize device */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Failed (Init failed: 0x%x)\n", rc);
+        return;
+    }
+
+    /* Test 1: Parameter validation - NULL args */
+    rc = wolfTPM2_SpdmInit(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmConnect(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_SpdmIsConnected(NULL), 0);
+    AssertIntEQ(wolfTPM2_SpdmGetSessionId(NULL), 0);
+    rc = wolfTPM2_SpdmDisconnect(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmCleanup(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test 2: Context lifecycle - init, check state, cleanup */
+    rc = wolfTPM2_SpdmInit(&dev);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    /* When SPDM-only mode is active, auto-SPDM connects during Init.
+     * Otherwise, just initialized but not yet connected. */
+    if (!dev.ctx.spdmOnlyDetected) {
+        AssertIntEQ(wolfTPM2_SpdmIsConnected(&dev), 0);
+        AssertIntEQ(wolfTPM2_SpdmGetSessionId(&dev), 0);
+    }
+    /* Cleanup */
+    rc = wolfTPM2_SpdmCleanup(&dev);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    /* Idempotent cleanup */
+    rc = wolfTPM2_SpdmCleanup(&dev);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+#ifdef WOLFSPDM_NUVOTON
+    /* Test 3: Nuvoton-specific parameter validation */
+    rc = wolfTPM2_SpdmSetNuvotonMode(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmEnable(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    {
+        WOLFSPDM_NUVOTON_STATUS status;
+        byte pubKey[256];
+        word32 pubKeySz = sizeof(pubKey);
+
+        rc = wolfTPM2_SpdmGetStatus(NULL, &status);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmGetStatus(&dev, NULL);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmSetOnlyMode(NULL, 0);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+#endif /* WOLFSPDM_NUVOTON */
+
+#ifdef WOLFSPDM_NATIONS
+    /* Test 4: Nations-specific parameter validation */
+    rc = wolfTPM2_SpdmSetNationsMode(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmNationsIdentityKeySet(NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    {
+        byte pubKey[256];
+        word32 pubKeySz = sizeof(pubKey);
+
+        rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+    /* Nations PSK wrapper parameter validation */
+    rc = wolfTPM2_SpdmConnectNationsPsk(NULL, NULL, 0, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    {
+        WOLFSPDM_NATIONS_STATUS nStatus;
+        rc = wolfTPM2_SpdmNationsGetStatus(NULL, &nStatus);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmNationsSetOnlyMode(NULL, 0);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmNationsPskSet(NULL, NULL, 0);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+        rc = wolfTPM2_SpdmNationsPskClear(NULL, NULL, 0);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+#endif /* WOLFSPDM_NATIONS */
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Passed\n");
+}
+#endif /* WOLFTPM_SPDM */
+
 /* Test creating key and exporting keyblob as buffer,
  * importing and loading key. */
 static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
@@ -1098,6 +1199,9 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
+#ifdef WOLFTPM_SPDM
+    test_wolfTPM2_SPDM_Functions();
+#endif
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
     return 0;

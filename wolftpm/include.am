@@ -15,5 +15,13 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_socket.h \
                          wolftpm/tpm2_asn.h \
                          wolftpm/version.h \
+                         wolftpm/tpm2_spdm.h \
                          wolftpm/visibility.h \
-                         wolftpm/options.h
+                         wolftpm/options.h \
+                         wolftpm/spdm/spdm.h \
+                         wolftpm/spdm/spdm_types.h \
+                         wolftpm/spdm/spdm_error.h \
+                         wolftpm/spdm/spdm_tcg.h \
+                         wolftpm/spdm/spdm_nuvoton.h \
+                         wolftpm/spdm/spdm_nations.h \
+                         wolftpm/spdm/spdm_psk.h

@@ -1,0 +1,18 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+if BUILD_SPDM
+noinst_PROGRAMS += examples/spdm/spdm_demo
+
+examples_spdm_spdm_demo_SOURCES         = examples/spdm/spdm_demo.c
+examples_spdm_spdm_demo_LDADD           = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_spdm_spdm_demo_DEPENDENCIES    = src/libwolftpm.la
+examples_spdm_spdm_demo_CFLAGS          = $(AM_CFLAGS)
+endif
+endif
+
+example_spdmdir = $(exampledir)/spdm
+dist_example_spdm_DATA = examples/spdm/spdm_demo.c
+
+DISTCLEANFILES+= examples/spdm/.libs/spdm_demo
