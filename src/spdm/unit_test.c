@@ -927,6 +927,975 @@ static int test_key_zeroing(void)
     TEST_PASS();
 }
 
+/* ===== NEW COVERAGE TESTS ===== */
+
+/* ----- Group A: Public API Coverage ----- */
+
+static int test_set_requester_key_pair(void)
+{
+    byte privKey[48], pubKey[96];
+    TEST_CTX_SETUP();
+    printf("test_set_requester_key_pair...\n");
+    XMEMSET(privKey, 0xAA, sizeof(privKey));
+    XMEMSET(pubKey, 0xBB, sizeof(pubKey));
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_SetRequesterKeyPair(NULL, privKey, 48, pubKey, 96)
+        != WOLFSPDM_SUCCESS, "NULL ctx should fail");
+    TEST_ASSERT(wolfSPDM_SetRequesterKeyPair(ctx, NULL, 48, pubKey, 96)
+        != WOLFSPDM_SUCCESS, "NULL privKey should fail");
+    TEST_ASSERT(wolfSPDM_SetRequesterKeyPair(ctx, privKey, 48, NULL, 96)
+        != WOLFSPDM_SUCCESS, "NULL pubKey should fail");
+
+    /* Valid call */
+    ASSERT_SUCCESS(wolfSPDM_SetRequesterKeyPair(ctx, privKey, 48, pubKey, 96));
+    ASSERT_EQ(ctx->flags.hasReqKeyPair, 1, "hasReqKeyPair not set");
+    ASSERT_EQ(ctx->reqPrivKeyLen, 48, "privKey len wrong");
+    TEST_ASSERT(memcmp(ctx->reqPrivKey, privKey, 48) == 0, "privKey mismatch");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_connect_null_args(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_connect_null_args...\n");
+
+    TEST_ASSERT(wolfSPDM_Connect(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    /* No ioCb set */
+    TEST_ASSERT(wolfSPDM_Connect(ctx) != WOLFSPDM_SUCCESS,
+        "No IO should fail");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_get_version_no_io(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_get_version_no_io...\n");
+    TEST_ASSERT(wolfSPDM_GetVersion(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    TEST_ASSERT(wolfSPDM_GetVersion(ctx) != WOLFSPDM_SUCCESS,
+        "No IO should fail");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_key_exchange_no_io(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_key_exchange_no_io...\n");
+    TEST_ASSERT(wolfSPDM_KeyExchange(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    TEST_ASSERT(wolfSPDM_KeyExchange(ctx) != WOLFSPDM_SUCCESS,
+        "No IO should fail");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_finish_no_io(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_finish_no_io...\n");
+    TEST_ASSERT(wolfSPDM_Finish(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    TEST_ASSERT(wolfSPDM_Finish(ctx) != WOLFSPDM_SUCCESS,
+        "No session should fail");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_secured_exchange_null_args(void)
+{
+    byte cmd[4] = {0}, rsp[64];
+    word32 rspSz = sizeof(rsp);
+    TEST_CTX_SETUP();
+    printf("test_secured_exchange_null_args...\n");
+
+    TEST_ASSERT(wolfSPDM_SecuredExchange(NULL, cmd, 4, rsp, &rspSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_SecuredExchange(ctx, NULL, 4, rsp, &rspSz)
+        != WOLFSPDM_SUCCESS, "NULL cmd");
+    TEST_ASSERT(wolfSPDM_SecuredExchange(ctx, cmd, 4, NULL, &rspSz)
+        != WOLFSPDM_SUCCESS, "NULL rsp");
+    TEST_ASSERT(wolfSPDM_SecuredExchange(ctx, cmd, 4, rsp, NULL)
+        != WOLFSPDM_SUCCESS, "NULL rspSz");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_disconnect_states(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_disconnect_states...\n");
+    /* Not connected should still succeed (cleanup is safe) */
+    wolfSPDM_Disconnect(ctx);
+    wolfSPDM_Disconnect(NULL); /* Should not crash */
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+/* ----- Group B: TCG Message Framing ----- */
+
+#ifdef WOLFTPM_SPDM_TCG
+
+static int test_build_tcg_clear_message(void)
+{
+    byte outBuf[64];
+    int rc;
+    TEST_CTX_SETUP();
+    printf("test_build_tcg_clear_message...\n");
+
+    ctx->connectionHandle = 0;
+    ctx->fipsIndicator = 0;
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_BuildTcgClearMessage(NULL, (byte*)"AB", 2, outBuf,
+        sizeof(outBuf)) < 0, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_BuildTcgClearMessage(ctx, NULL, 2, outBuf,
+        sizeof(outBuf)) < 0, "NULL payload");
+    TEST_ASSERT(wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"AB", 2, NULL,
+        sizeof(outBuf)) < 0, "NULL outBuf");
+
+    /* Buffer too small */
+    TEST_ASSERT(wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"AB", 2, outBuf,
+        4) < 0, "small buffer");
+
+    /* Valid build: 16 header + 4 payload = 20 bytes */
+    rc = wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"TEST", 4, outBuf,
+        sizeof(outBuf));
+    TEST_ASSERT(rc == 20, "expected 20 bytes");
+    /* Tag at [0-1] should be 0x8101 big-endian */
+    TEST_ASSERT(outBuf[0] == 0x81 && outBuf[1] == 0x01, "wrong tag");
+    /* Payload at offset 16 */
+    TEST_ASSERT(memcmp(outBuf + 16, "TEST", 4) == 0, "payload mismatch");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_parse_tcg_clear_message(void)
+{
+    byte buf[32], payload[16];
+    word32 payloadSz = sizeof(payload);
+    WOLFSPDM_TCG_CLEAR_HDR hdr;
+    TEST_CTX_SETUP();
+    printf("test_parse_tcg_clear_message...\n");
+
+    /* Build a valid message first */
+    ctx->connectionHandle = 0;
+    ctx->fipsIndicator = 0;
+    {
+        int built = wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"ABCD", 4, buf,
+            sizeof(buf));
+        TEST_ASSERT(built == 20, "build failed");
+    }
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_ParseTcgClearMessage(NULL, 20, payload, &payloadSz,
+        &hdr) != WOLFSPDM_SUCCESS, "NULL inBuf");
+    TEST_ASSERT(wolfSPDM_ParseTcgClearMessage(buf, 20, NULL, &payloadSz,
+        &hdr) != WOLFSPDM_SUCCESS, "NULL payload");
+
+    /* Short buffer */
+    TEST_ASSERT(wolfSPDM_ParseTcgClearMessage(buf, 8, payload, &payloadSz,
+        &hdr) != WOLFSPDM_SUCCESS, "short buffer");
+
+    /* Valid parse (returns payload size on success) */
+    payloadSz = sizeof(payload);
+    {
+        int parsed = wolfSPDM_ParseTcgClearMessage(buf, 20, payload,
+            &payloadSz, &hdr);
+        TEST_ASSERT(parsed >= 0, "parse failed");
+        ASSERT_EQ(payloadSz, 4, "payload size wrong");
+        TEST_ASSERT(memcmp(payload, "ABCD", 4) == 0, "payload mismatch");
+    }
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_vendor_defined(void)
+{
+    byte outBuf[64];
+    int rc;
+    printf("test_build_vendor_defined...\n");
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, NULL,
+        (byte*)"X", 1, outBuf, sizeof(outBuf)) < 0, "NULL vdCode");
+    TEST_ASSERT(wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, "TPM2_CMD",
+        (byte*)"X", 1, NULL, sizeof(outBuf)) < 0, "NULL outBuf");
+
+    /* Buffer too small */
+    TEST_ASSERT(wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, "TPM2_CMD",
+        (byte*)"X", 1, outBuf, 4) < 0, "small buffer");
+
+    /* Valid build with payload */
+    rc = wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, "TPM2_CMD",
+        (byte*)"ABCD", 4, outBuf, sizeof(outBuf));
+    TEST_ASSERT(rc > 0, "build failed");
+    ASSERT_EQ(outBuf[0], SPDM_VERSION_12, "wrong version");
+    TEST_ASSERT(outBuf[1] == 0xFE || outBuf[1] == 0x7E,
+        "wrong opcode");
+
+    /* Build with no payload */
+    rc = wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, "GET_PUBK",
+        NULL, 0, outBuf, sizeof(outBuf));
+    TEST_ASSERT(rc > 0, "no-payload build failed");
+
+    TEST_PASS();
+}
+
+static int test_parse_vendor_defined(void)
+{
+    byte outBuf[64], payload[32];
+    char vdCode[9];
+    word32 payloadSz;
+    int built;
+    printf("test_parse_vendor_defined...\n");
+
+    /* Build, then parse back */
+    built = wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, "TPM2_CMD",
+        (byte*)"HELLO", 5, outBuf, sizeof(outBuf));
+    TEST_ASSERT(built > 0, "build failed");
+
+    payloadSz = sizeof(payload);
+    {
+        int parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built, vdCode,
+            payload, &payloadSz);
+        TEST_ASSERT(parsed >= 0, "parse failed");
+        TEST_ASSERT(memcmp(vdCode, "TPM2_CMD", 8) == 0, "vdCode mismatch");
+        ASSERT_EQ(payloadSz, 5, "payload size wrong");
+        TEST_ASSERT(memcmp(payload, "HELLO", 5) == 0, "payload mismatch");
+    }
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_ParseVendorDefined(NULL, (word32)built, vdCode,
+        payload, &payloadSz) != WOLFSPDM_SUCCESS, "NULL inBuf");
+
+    /* Short buffer */
+    payloadSz = sizeof(payload);
+    TEST_ASSERT(wolfSPDM_ParseVendorDefined(outBuf, 4, vdCode,
+        payload, &payloadSz) != WOLFSPDM_SUCCESS, "short buffer");
+
+    TEST_PASS();
+}
+
+static int test_vendor_defined_roundtrip(void)
+{
+    static const char* codes[] = {"GET_PUBK", "GIVE_PUB", "TPM2_CMD",
+        "GET_STS_", "SPDMONLY"};
+    byte outBuf[64], payload[32];
+    char vdCode[9];
+    word32 payloadSz;
+    int i, built;
+    printf("test_vendor_defined_roundtrip...\n");
+
+    for (i = 0; i < 5; i++) {
+        byte testData[4] = {(byte)i, 0x11, 0x22, 0x33};
+        built = wolfSPDM_BuildVendorDefined(SPDM_VERSION_12, codes[i],
+            testData, 4, outBuf, sizeof(outBuf));
+        TEST_ASSERT(built > 0, "build failed");
+        payloadSz = sizeof(payload);
+        {
+            int parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built,
+                vdCode, payload, &payloadSz);
+            TEST_ASSERT(parsed >= 0, "parse failed");
+            TEST_ASSERT(memcmp(vdCode, codes[i], 8) == 0, "vdCode mismatch");
+            ASSERT_EQ(payloadSz, 4, "payload size");
+            TEST_ASSERT(memcmp(payload, testData, 4) == 0, "payload mismatch");
+        }
+    }
+
+    TEST_PASS();
+}
+
+static int test_tcg_get_pub_key_null_args(void)
+{
+    byte pubKey[256];
+    word32 pubKeySz = sizeof(pubKey);
+    TEST_CTX_SETUP();
+    printf("test_tcg_get_pub_key_null_args...\n");
+    TEST_ASSERT(wolfSPDM_TCG_GetPubKey(NULL, pubKey, &pubKeySz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_TCG_GetPubKey(ctx, NULL, &pubKeySz)
+        != WOLFSPDM_SUCCESS, "NULL pubKey");
+    TEST_ASSERT(wolfSPDM_TCG_GetPubKey(ctx, pubKey, NULL)
+        != WOLFSPDM_SUCCESS, "NULL pubKeySz");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_tcg_give_pub_key_null_args(void)
+{
+    byte pubKey[128];
+    TEST_CTX_SETUP();
+    printf("test_tcg_give_pub_key_null_args...\n");
+    XMEMSET(pubKey, 0xAA, sizeof(pubKey));
+    TEST_ASSERT(wolfSPDM_TCG_GivePubKey(NULL, pubKey, 120)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_TCG_GivePubKey(ctx, NULL, 120)
+        != WOLFSPDM_SUCCESS, "NULL pubKey");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_set_requester_key_tpmt(void)
+{
+    byte tpmt[128];
+    TEST_CTX_SETUP();
+    printf("test_set_requester_key_tpmt...\n");
+    XMEMSET(tpmt, 0x55, sizeof(tpmt));
+
+    TEST_ASSERT(wolfSPDM_SetRequesterKeyTPMT(NULL, tpmt, 120)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_SetRequesterKeyTPMT(ctx, NULL, 120)
+        != WOLFSPDM_SUCCESS, "NULL tpmtPub");
+
+    /* Valid 120-byte TPMT */
+    ASSERT_SUCCESS(wolfSPDM_SetRequesterKeyTPMT(ctx, tpmt, 120));
+    ASSERT_EQ(ctx->reqPubKeyTPMTLen, 120, "tpmt len wrong");
+    TEST_ASSERT(memcmp(ctx->reqPubKeyTPMT, tpmt, 120) == 0, "tpmt mismatch");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_connect_tcg_null_args(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_connect_tcg_null_args...\n");
+    TEST_ASSERT(wolfSPDM_ConnectTCG(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    /* No IO set */
+    TEST_ASSERT(wolfSPDM_ConnectTCG(ctx) != WOLFSPDM_SUCCESS,
+        "No IO should fail");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#endif /* WOLFTPM_SPDM_TCG */
+
+/* ----- Group C: Nuvoton ----- */
+
+#ifdef WOLFSPDM_NUVOTON
+
+static int test_nuvoton_get_status_null_args(void)
+{
+    WOLFSPDM_NUVOTON_STATUS status;
+    TEST_CTX_SETUP();
+    printf("test_nuvoton_get_status_null_args...\n");
+    TEST_ASSERT(wolfSPDM_Nuvoton_GetStatus(NULL, &status)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nuvoton_GetStatus(ctx, NULL)
+        != WOLFSPDM_SUCCESS, "NULL status");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_nuvoton_set_only_mode_null_args(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_nuvoton_set_only_mode_null_args...\n");
+    TEST_ASSERT(wolfSPDM_Nuvoton_SetOnlyMode(NULL, 1)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    /* Not connected */
+    TEST_ASSERT(wolfSPDM_Nuvoton_SetOnlyMode(ctx, 1)
+        != WOLFSPDM_SUCCESS, "not connected");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#endif /* WOLFSPDM_NUVOTON */
+
+/* ----- Group D: Nations ----- */
+
+#ifdef WOLFSPDM_NATIONS
+
+static int test_nations_get_status_null_args(void)
+{
+    WOLFSPDM_NATIONS_STATUS status;
+    TEST_CTX_SETUP();
+    printf("test_nations_get_status_null_args...\n");
+    TEST_ASSERT(wolfSPDM_Nations_GetStatus(NULL, &status)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nations_GetStatus(ctx, NULL)
+        != WOLFSPDM_SUCCESS, "NULL status");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_nations_set_only_mode_null_args(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_nations_set_only_mode_null_args...\n");
+    TEST_ASSERT(wolfSPDM_Nations_SetOnlyMode(NULL, 1)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nations_SetOnlyMode(ctx, 1)
+        != WOLFSPDM_SUCCESS, "not connected");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_nations_psk_set_null_args(void)
+{
+    byte psk[64];
+    TEST_CTX_SETUP();
+    printf("test_nations_psk_set_null_args...\n");
+    XMEMSET(psk, 0xAA, sizeof(psk));
+    TEST_ASSERT(wolfSPDM_Nations_PskSet(NULL, psk, 64)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nations_PskSet(ctx, NULL, 64)
+        != WOLFSPDM_SUCCESS, "NULL psk");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_nations_psk_clear_null_args(void)
+{
+    byte auth[32];
+    TEST_CTX_SETUP();
+    printf("test_nations_psk_clear_null_args...\n");
+    XMEMSET(auth, 0xBB, sizeof(auth));
+    TEST_ASSERT(wolfSPDM_Nations_PskClear(NULL, auth, 32)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nations_PskClear(ctx, NULL, 32)
+        != WOLFSPDM_SUCCESS, "NULL auth");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_nations_psk_clear_vca_null_args(void)
+{
+    byte auth[32];
+    TEST_CTX_SETUP();
+    printf("test_nations_psk_clear_vca_null_args...\n");
+    XMEMSET(auth, 0xCC, sizeof(auth));
+    TEST_ASSERT(wolfSPDM_Nations_PskClearWithVCA(NULL, auth, 32)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_Nations_PskClearWithVCA(ctx, NULL, 32)
+        != WOLFSPDM_SUCCESS, "NULL auth");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#endif /* WOLFSPDM_NATIONS */
+
+/* ----- Group E: PSK Messages ----- */
+
+#ifdef WOLFTPM_SPDM_PSK
+
+static int test_parse_psk_exchange_rsp_null_args(void)
+{
+    byte buf[64];
+    TEST_CTX_SETUP_V12();
+    printf("test_parse_psk_exchange_rsp_null_args...\n");
+    XMEMSET(buf, 0, sizeof(buf));
+    TEST_ASSERT(wolfSPDM_ParsePskExchangeRsp(NULL, buf, sizeof(buf))
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_ParsePskExchangeRsp(ctx, NULL, sizeof(buf))
+        != WOLFSPDM_SUCCESS, "NULL buf");
+    TEST_ASSERT(wolfSPDM_ParsePskExchangeRsp(ctx, buf, 4)
+        != WOLFSPDM_SUCCESS, "short buf");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_psk_finish_null_args(void)
+{
+    byte buf[128];
+    word32 bufSz = sizeof(buf);
+    TEST_CTX_SETUP_V12();
+    printf("test_build_psk_finish_null_args...\n");
+    TEST_ASSERT(wolfSPDM_BuildPskFinish(NULL, buf, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_BuildPskFinish(ctx, NULL, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL buf");
+    TEST_ASSERT(wolfSPDM_BuildPskFinish(ctx, buf, NULL)
+        != WOLFSPDM_SUCCESS, "NULL bufSz");
+    bufSz = 4;
+    TEST_ASSERT(wolfSPDM_BuildPskFinish(ctx, buf, &bufSz)
+        != WOLFSPDM_SUCCESS, "small buffer");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_psk_finish_format(void)
+{
+    byte buf[128];
+    word32 bufSz = sizeof(buf);
+    TEST_CTX_SETUP_V12();
+    printf("test_build_psk_finish_format...\n");
+
+    /* Fill reqFinishedKey with test data */
+    XMEMSET(ctx->reqFinishedKey, 0x5A, WOLFSPDM_HASH_SIZE);
+    /* Need some transcript data for HMAC */
+    wolfSPDM_TranscriptAdd(ctx, (byte*)"test transcript data", 20);
+
+    ASSERT_SUCCESS(wolfSPDM_BuildPskFinish(ctx, buf, &bufSz));
+    ASSERT_EQ(buf[0], SPDM_VERSION_12, "wrong version");
+    ASSERT_EQ(buf[1], 0xE7, "wrong opcode (PSK_FINISH)");
+    ASSERT_EQ(bufSz, 52, "expected 4 header + 48 HMAC");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_parse_psk_finish_rsp(void)
+{
+    byte buf[8];
+    TEST_CTX_SETUP_V12();
+    printf("test_parse_psk_finish_rsp...\n");
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_ParsePskFinishRsp(NULL, buf, 4)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_ParsePskFinishRsp(ctx, NULL, 4)
+        != WOLFSPDM_SUCCESS, "NULL buf");
+    TEST_ASSERT(wolfSPDM_ParsePskFinishRsp(ctx, buf, 2)
+        != WOLFSPDM_SUCCESS, "short buf");
+
+    /* Valid PSK_FINISH_RSP */
+    buf[0] = SPDM_VERSION_12;
+    buf[1] = 0x67; /* PSK_FINISH_RSP */
+    buf[2] = 0x00;
+    buf[3] = 0x00;
+    ASSERT_SUCCESS(wolfSPDM_ParsePskFinishRsp(ctx, buf, 4));
+
+    /* Error response */
+    buf[1] = 0x7F; /* SPDM_ERROR */
+    buf[2] = 0x01;
+    TEST_ASSERT(wolfSPDM_ParsePskFinishRsp(ctx, buf, 4)
+        != WOLFSPDM_SUCCESS, "error not detected");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_connect_psk_null_args(void)
+{
+    TEST_CTX_SETUP();
+    printf("test_connect_psk_null_args...\n");
+    TEST_ASSERT(wolfSPDM_ConnectPsk(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx should fail");
+    /* No PSK set, no IO */
+    TEST_ASSERT(wolfSPDM_ConnectPsk(ctx) != WOLFSPDM_SUCCESS,
+        "No PSK/IO should fail");
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#endif /* WOLFTPM_SPDM_PSK */
+
+/* ----- Group F: Internal Crypto ----- */
+
+static int test_sha384_hash(void)
+{
+    byte hash[48], hash2[48];
+    printf("test_sha384_hash...\n");
+
+    /* Single block */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(hash, (byte*)"abc", 3,
+        NULL, 0, NULL, 0));
+    /* Result should be non-zero */
+    TEST_ASSERT(hash[0] != 0 || hash[1] != 0, "hash is zero");
+
+    /* Multi-block should produce same result as single */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(hash2, (byte*)"a", 1,
+        (byte*)"b", 1, (byte*)"c", 1));
+    TEST_ASSERT(memcmp(hash, hash2, 48) == 0,
+        "split hash should match single");
+
+    TEST_PASS();
+}
+
+static int test_export_ephemeral_pub_key(void)
+{
+    byte pubKeyX[48], pubKeyY[48];
+    word32 xSz = sizeof(pubKeyX), ySz = sizeof(pubKeyY);
+    TEST_CTX_SETUP();
+    printf("test_export_ephemeral_pub_key...\n");
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_ExportEphemeralPubKey(NULL, pubKeyX, &xSz,
+        pubKeyY, &ySz) != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_ExportEphemeralPubKey(ctx, NULL, &xSz,
+        pubKeyY, &ySz) != WOLFSPDM_SUCCESS, "NULL pubKeyX");
+
+    /* No key generated yet */
+    TEST_ASSERT(wolfSPDM_ExportEphemeralPubKey(ctx, pubKeyX, &xSz,
+        pubKeyY, &ySz) != WOLFSPDM_SUCCESS, "no key should fail");
+
+    /* Generate key, then export */
+    ASSERT_SUCCESS(wolfSPDM_GenerateEphemeralKey(ctx));
+    xSz = sizeof(pubKeyX);
+    ySz = sizeof(pubKeyY);
+    ASSERT_SUCCESS(wolfSPDM_ExportEphemeralPubKey(ctx, pubKeyX, &xSz,
+        pubKeyY, &ySz));
+    ASSERT_EQ(xSz, 48, "X size");
+    ASSERT_EQ(ySz, 48, "Y size");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_sign_hash_null_args(void)
+{
+    byte hash[48], sig[128];
+    word32 sigSz = sizeof(sig);
+    TEST_CTX_SETUP();
+    printf("test_sign_hash_null_args...\n");
+    XMEMSET(hash, 0xAA, sizeof(hash));
+
+    TEST_ASSERT(wolfSPDM_SignHash(NULL, hash, 48, sig, &sigSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_SignHash(ctx, NULL, 48, sig, &sigSz)
+        != WOLFSPDM_SUCCESS, "NULL hash");
+    TEST_ASSERT(wolfSPDM_SignHash(ctx, hash, 48, NULL, &sigSz)
+        != WOLFSPDM_SUCCESS, "NULL sig");
+    TEST_ASSERT(wolfSPDM_SignHash(ctx, hash, 48, sig, NULL)
+        != WOLFSPDM_SUCCESS, "NULL sigSz");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_verify_signature_null_args(void)
+{
+    byte hash[48], sig[96];
+    TEST_CTX_SETUP();
+    printf("test_verify_signature_null_args...\n");
+    XMEMSET(hash, 0xAA, sizeof(hash));
+    XMEMSET(sig, 0xBB, sizeof(sig));
+
+    TEST_ASSERT(wolfSPDM_VerifySignature(NULL, hash, 48, sig, 96)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_VerifySignature(ctx, NULL, 48, sig, 96)
+        != WOLFSPDM_SUCCESS, "NULL hash");
+    TEST_ASSERT(wolfSPDM_VerifySignature(ctx, hash, 48, NULL, 96)
+        != WOLFSPDM_SUCCESS, "NULL sig");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_sign_verify_roundtrip(void)
+{
+    byte hash[48], sig[128];
+    word32 sigSz = sizeof(sig);
+    byte privKey[48], pubKeyX[48], pubKeyY[48], pubKey[96];
+    word32 privSz = 48, xSz = 48, ySz = 48;
+    ecc_key ecKey;
+    TEST_CTX_SETUP();
+    printf("test_sign_verify_roundtrip...\n");
+
+    /* Generate a P-384 key pair */
+    ASSERT_SUCCESS(wc_ecc_init(&ecKey));
+    ASSERT_SUCCESS(wc_ecc_make_key(&ctx->rng, 48, &ecKey));
+    ASSERT_SUCCESS(wc_ecc_export_private_only(&ecKey, privKey, &privSz));
+    ASSERT_SUCCESS(wc_ecc_export_public_raw(&ecKey, pubKeyX, &xSz,
+        pubKeyY, &ySz));
+    wc_ecc_free(&ecKey);
+
+    XMEMCPY(pubKey, pubKeyX, 48);
+    XMEMCPY(pubKey + 48, pubKeyY, 48);
+
+    /* Set requester key pair for signing */
+    ASSERT_SUCCESS(wolfSPDM_SetRequesterKeyPair(ctx, privKey, 48, pubKey, 96));
+    /* Set responder pub key for verification */
+    ASSERT_SUCCESS(wolfSPDM_SetResponderPubKey(ctx, pubKey, 96));
+
+    /* Sign */
+    XMEMSET(hash, 0x42, sizeof(hash));
+    ASSERT_SUCCESS(wolfSPDM_SignHash(ctx, hash, 48, sig, &sigSz));
+    ASSERT_EQ(sigSz, 96, "sig should be 96 bytes");
+
+    /* Verify */
+    ASSERT_SUCCESS(wolfSPDM_VerifySignature(ctx, hash, 48, sig, sigSz));
+
+    /* Flip a bit - should fail */
+    sig[10] ^= 0x01;
+    TEST_ASSERT(wolfSPDM_VerifySignature(ctx, hash, 48, sig, sigSz)
+        != WOLFSPDM_SUCCESS, "flipped sig should fail");
+
+    wc_ForceZero(privKey, sizeof(privKey));
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+/* ----- Group G: Internal KDF ----- */
+
+static int test_derive_handshake_keys(void)
+{
+    byte th1[48];
+    byte zeros[48];
+    TEST_CTX_SETUP_V12();
+    printf("test_derive_handshake_keys...\n");
+
+    XMEMSET(th1, 0xAB, sizeof(th1));
+    XMEMSET(zeros, 0, sizeof(zeros));
+
+    /* NULL args */
+    TEST_ASSERT(wolfSPDM_DeriveHandshakeKeys(NULL, th1)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_DeriveHandshakeKeys(ctx, NULL)
+        != WOLFSPDM_SUCCESS, "NULL th1");
+
+    /* Set up shared secret */
+    XMEMSET(ctx->sharedSecret, 0x5A, WOLFSPDM_ECC_KEY_SIZE);
+    ctx->sharedSecretSz = WOLFSPDM_ECC_KEY_SIZE;
+
+    ASSERT_SUCCESS(wolfSPDM_DeriveHandshakeKeys(ctx, th1));
+
+    /* Verify derived keys are non-zero */
+    TEST_ASSERT(memcmp(ctx->handshakeSecret, zeros, 48) != 0,
+        "handshakeSecret is zero");
+    TEST_ASSERT(memcmp(ctx->reqHsSecret, zeros, 48) != 0,
+        "reqHsSecret is zero");
+    TEST_ASSERT(memcmp(ctx->rspHsSecret, zeros, 48) != 0,
+        "rspHsSecret is zero");
+    TEST_ASSERT(memcmp(ctx->reqDataKey, zeros, 32) != 0,
+        "reqDataKey is zero");
+    TEST_ASSERT(memcmp(ctx->rspDataKey, zeros, 32) != 0,
+        "rspDataKey is zero");
+    /* req and rsp keys should differ */
+    TEST_ASSERT(memcmp(ctx->reqDataKey, ctx->rspDataKey, 32) != 0,
+        "req/rsp keys should differ");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_derive_from_handshake_secret(void)
+{
+    byte th1[48];
+    byte zeros[48];
+    TEST_CTX_SETUP_V12();
+    printf("test_derive_from_handshake_secret...\n");
+
+    XMEMSET(th1, 0xCD, sizeof(th1));
+    XMEMSET(zeros, 0, sizeof(zeros));
+    XMEMSET(ctx->handshakeSecret, 0x5A, WOLFSPDM_HASH_SIZE);
+
+    ASSERT_SUCCESS(wolfSPDM_DeriveFromHandshakeSecret(ctx, th1));
+    TEST_ASSERT(memcmp(ctx->reqHsSecret, zeros, 48) != 0,
+        "reqHsSecret is zero");
+    TEST_ASSERT(memcmp(ctx->reqFinishedKey, zeros, 48) != 0,
+        "reqFinishedKey is zero");
+    TEST_ASSERT(memcmp(ctx->rspFinishedKey, zeros, 48) != 0,
+        "rspFinishedKey is zero");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_derive_app_data_keys(void)
+{
+    byte zeros[48];
+    TEST_CTX_SETUP_V12();
+    printf("test_derive_app_data_keys...\n");
+
+    XMEMSET(zeros, 0, sizeof(zeros));
+    TEST_ASSERT(wolfSPDM_DeriveAppDataKeys(NULL) != WOLFSPDM_SUCCESS,
+        "NULL ctx");
+
+    /* Set up handshake secret and transcript */
+    XMEMSET(ctx->handshakeSecret, 0x5A, WOLFSPDM_HASH_SIZE);
+    wolfSPDM_TranscriptAdd(ctx, (byte*)"test data for th2", 17);
+    ctx->reqSeqNum = 99;
+    ctx->rspSeqNum = 99;
+
+    ASSERT_SUCCESS(wolfSPDM_DeriveAppDataKeys(ctx));
+    TEST_ASSERT(memcmp(ctx->reqDataKey, zeros, 32) != 0,
+        "reqDataKey is zero");
+    TEST_ASSERT(memcmp(ctx->rspDataKey, zeros, 32) != 0,
+        "rspDataKey is zero");
+    ASSERT_EQ(ctx->reqSeqNum, 0, "reqSeqNum not reset");
+    ASSERT_EQ(ctx->rspSeqNum, 0, "rspSeqNum not reset");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+/* ----- Group H: Internal Message Building ----- */
+
+static int test_build_key_exchange_null_args(void)
+{
+    byte buf[256];
+    word32 bufSz = sizeof(buf);
+    TEST_CTX_SETUP_V12();
+    printf("test_build_key_exchange_null_args...\n");
+
+    TEST_ASSERT(wolfSPDM_BuildKeyExchange(NULL, buf, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_BuildKeyExchange(ctx, NULL, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL buf");
+    TEST_ASSERT(wolfSPDM_BuildKeyExchange(ctx, buf, NULL)
+        != WOLFSPDM_SUCCESS, "NULL bufSz");
+    bufSz = 4;
+    TEST_ASSERT(wolfSPDM_BuildKeyExchange(ctx, buf, &bufSz)
+        != WOLFSPDM_SUCCESS, "small buffer");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_key_exchange_format(void)
+{
+    byte buf[256];
+    word32 bufSz = sizeof(buf);
+    byte zeros[48];
+    TEST_CTX_SETUP_V12();
+    printf("test_build_key_exchange_format...\n");
+
+    XMEMSET(zeros, 0, sizeof(zeros));
+    ctx->reqSessionId = 0x0001;
+
+    ASSERT_SUCCESS(wolfSPDM_BuildKeyExchange(ctx, buf, &bufSz));
+    ASSERT_EQ(buf[0], SPDM_VERSION_12, "wrong version");
+    ASSERT_EQ(buf[1], 0xE4, "wrong opcode (KEY_EXCHANGE)");
+    TEST_ASSERT(bufSz > 100, "message too small");
+    /* Ephemeral key should be generated */
+    ASSERT_EQ(ctx->flags.ephemeralKeyInit, 1, "ephemeral key not init");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_finish_null_args(void)
+{
+    byte buf[256];
+    word32 bufSz = sizeof(buf);
+    TEST_CTX_SETUP_V12();
+    printf("test_build_finish_null_args...\n");
+
+    TEST_ASSERT(wolfSPDM_BuildFinish(NULL, buf, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_BuildFinish(ctx, NULL, &bufSz)
+        != WOLFSPDM_SUCCESS, "NULL buf");
+    TEST_ASSERT(wolfSPDM_BuildFinish(ctx, buf, NULL)
+        != WOLFSPDM_SUCCESS, "NULL bufSz");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_build_finish_format(void)
+{
+    byte buf[256];
+    word32 bufSz = sizeof(buf);
+    TEST_CTX_SETUP_V12();
+    printf("test_build_finish_format...\n");
+
+    ctx->mutAuthRequested = 0; /* No mutual auth */
+    XMEMSET(ctx->reqFinishedKey, 0x5A, WOLFSPDM_HASH_SIZE);
+    wolfSPDM_TranscriptAdd(ctx, (byte*)"test transcript", 15);
+
+    ASSERT_SUCCESS(wolfSPDM_BuildFinish(ctx, buf, &bufSz));
+    ASSERT_EQ(buf[0], SPDM_VERSION_12, "wrong version");
+    ASSERT_EQ(buf[1], 0xE5, "wrong opcode (FINISH)");
+    ASSERT_EQ(buf[2], 0, "sigIncluded should be 0");
+    ASSERT_EQ(bufSz, 52, "expected 4 header + 48 HMAC");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+/* ----- Group I: Internal Encrypt/Decrypt ----- */
+
+static int test_encrypt_internal_null_args(void)
+{
+    byte plain[16], enc[256];
+    word32 encSz = sizeof(enc);
+    TEST_CTX_SETUP_V12();
+    printf("test_encrypt_internal_null_args...\n");
+
+    TEST_ASSERT(wolfSPDM_EncryptInternal(NULL, plain, 16, enc, &encSz)
+        != WOLFSPDM_SUCCESS, "NULL ctx");
+    TEST_ASSERT(wolfSPDM_EncryptInternal(ctx, NULL, 16, enc, &encSz)
+        != WOLFSPDM_SUCCESS, "NULL plain");
+    TEST_ASSERT(wolfSPDM_EncryptInternal(ctx, plain, 16, NULL, &encSz)
+        != WOLFSPDM_SUCCESS, "NULL enc");
+    TEST_ASSERT(wolfSPDM_EncryptInternal(ctx, plain, 16, enc, NULL)
+        != WOLFSPDM_SUCCESS, "NULL encSz");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+static int test_encrypt_decrypt_roundtrip(void)
+{
+    byte plain[16] = "Hello SPDM test!";
+    static byte enc[512];
+    static byte dec[256];
+    word32 encSz = sizeof(enc);
+    word32 decSz = sizeof(dec);
+    TEST_CTX_SETUP_V12();
+    printf("test_encrypt_decrypt_roundtrip...\n");
+
+    /* Set up session keys (same for req/rsp for self-roundtrip) */
+    ctx->sessionId = 0x00020001;
+    ctx->reqSeqNum = 0;
+    ctx->rspSeqNum = 0;
+    XMEMSET(ctx->reqDataKey, 0x11, WOLFSPDM_AEAD_KEY_SIZE);
+    XMEMSET(ctx->rspDataKey, 0x11, WOLFSPDM_AEAD_KEY_SIZE);
+    XMEMSET(ctx->reqDataIv, 0x22, WOLFSPDM_AEAD_IV_SIZE);
+    XMEMSET(ctx->rspDataIv, 0x22, WOLFSPDM_AEAD_IV_SIZE);
+
+    /* Encrypt */
+    ASSERT_SUCCESS(wolfSPDM_EncryptInternal(ctx, plain, 16, enc, &encSz));
+    TEST_ASSERT(encSz > 16, "encrypted should be larger");
+
+    /* Reset rsp seq to match what was encrypted (req incremented to 1) */
+    ctx->rspSeqNum = 0;
+
+    /* Decrypt */
+    ASSERT_SUCCESS(wolfSPDM_DecryptInternal(ctx, enc, encSz, dec, &decSz));
+    ASSERT_EQ(decSz, 16, "decrypted size mismatch");
+    TEST_ASSERT(memcmp(dec, plain, 16) == 0, "plaintext mismatch");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
+#ifdef WOLFTPM_SPDM_TCG
+static int test_encrypt_decrypt_roundtrip_tcg(void)
+{
+    byte plain[16] = "TCG encrypt tst!";
+    static byte enc[512];
+    static byte dec[256];
+    word32 encSz = sizeof(enc);
+    word32 decSz = sizeof(dec);
+    TEST_CTX_SETUP_V12();
+    printf("test_encrypt_decrypt_roundtrip_tcg...\n");
+
+    wolfSPDM_SetMode(ctx, WOLFSPDM_MODE_NATIONS);
+    ctx->sessionId = 0x00020001;
+    ctx->reqSeqNum = 0;
+    ctx->rspSeqNum = 0;
+    XMEMSET(ctx->reqDataKey, 0x33, WOLFSPDM_AEAD_KEY_SIZE);
+    XMEMSET(ctx->rspDataKey, 0x33, WOLFSPDM_AEAD_KEY_SIZE);
+    XMEMSET(ctx->reqDataIv, 0x44, WOLFSPDM_AEAD_IV_SIZE);
+    XMEMSET(ctx->rspDataIv, 0x44, WOLFSPDM_AEAD_IV_SIZE);
+
+    ASSERT_SUCCESS(wolfSPDM_EncryptInternal(ctx, plain, 16, enc, &encSz));
+    TEST_ASSERT(encSz > 16, "encrypted should be larger");
+
+    ctx->rspSeqNum = 0;
+    ASSERT_SUCCESS(wolfSPDM_DecryptInternal(ctx, enc, encSz, dec, &decSz));
+    ASSERT_EQ(decSz, 16, "decrypted size mismatch");
+    TEST_ASSERT(memcmp(dec, plain, 16) == 0, "plaintext mismatch");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+#endif /* WOLFTPM_SPDM_TCG */
+
 /* ----- Main ----- */
 
 int main(void)
@@ -989,6 +1958,73 @@ int main(void)
     test_constant_time_hmac();
     test_setdebug_truncation();
     test_key_zeroing();
+
+    /* ----- NEW COVERAGE TESTS ----- */
+
+    /* Public API coverage */
+    test_set_requester_key_pair();
+    test_connect_null_args();
+    test_get_version_no_io();
+    test_key_exchange_no_io();
+    test_finish_no_io();
+    test_secured_exchange_null_args();
+    test_disconnect_states();
+
+#ifdef WOLFTPM_SPDM_TCG
+    /* TCG message framing */
+    test_build_tcg_clear_message();
+    test_parse_tcg_clear_message();
+    test_build_vendor_defined();
+    test_parse_vendor_defined();
+    test_vendor_defined_roundtrip();
+    test_tcg_get_pub_key_null_args();
+    test_tcg_give_pub_key_null_args();
+    test_set_requester_key_tpmt();
+    test_connect_tcg_null_args();
+#endif
+#ifdef WOLFSPDM_NUVOTON
+    test_nuvoton_get_status_null_args();
+    test_nuvoton_set_only_mode_null_args();
+#endif
+#ifdef WOLFSPDM_NATIONS
+    test_nations_get_status_null_args();
+    test_nations_set_only_mode_null_args();
+    test_nations_psk_set_null_args();
+    test_nations_psk_clear_null_args();
+    test_nations_psk_clear_vca_null_args();
+#endif
+#ifdef WOLFTPM_SPDM_PSK
+    test_parse_psk_exchange_rsp_null_args();
+    test_build_psk_finish_null_args();
+    test_build_psk_finish_format();
+    test_parse_psk_finish_rsp();
+    test_connect_psk_null_args();
+#endif
+
+    /* Internal crypto */
+    test_sha384_hash();
+    test_export_ephemeral_pub_key();
+    test_sign_hash_null_args();
+    test_verify_signature_null_args();
+    test_sign_verify_roundtrip();
+
+    /* Internal KDF */
+    test_derive_handshake_keys();
+    test_derive_from_handshake_secret();
+    test_derive_app_data_keys();
+
+    /* Internal message building */
+    test_build_key_exchange_null_args();
+    test_build_key_exchange_format();
+    test_build_finish_null_args();
+    test_build_finish_format();
+
+    /* Internal encrypt/decrypt */
+    test_encrypt_internal_null_args();
+    test_encrypt_decrypt_roundtrip();
+#ifdef WOLFTPM_SPDM_TCG
+    test_encrypt_decrypt_roundtrip_tcg();
+#endif
 
     printf("\n===========================================\n");
     printf("Results: %d passed, %d failed\n", g_testsPassed, g_testsFailed);

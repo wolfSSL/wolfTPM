@@ -270,78 +270,78 @@ static WC_INLINE void wolfSPDM_BuildIV(byte* iv, const byte* baseIv,
 
 /* ----- Internal Function Declarations - Transcript ----- */
 
-WOLFTPM_LOCAL void wolfSPDM_TranscriptReset(WOLFSPDM_CTX* ctx);
-WOLFTPM_LOCAL int wolfSPDM_TranscriptAdd(WOLFSPDM_CTX* ctx, const byte* data, word32 len);
-WOLFTPM_LOCAL int wolfSPDM_TranscriptHash(WOLFSPDM_CTX* ctx, byte* hash);
-WOLFTPM_LOCAL int wolfSPDM_Sha384Hash(byte* out,
+WOLFTPM_API void wolfSPDM_TranscriptReset(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_TranscriptAdd(WOLFSPDM_CTX* ctx, const byte* data, word32 len);
+WOLFTPM_API int wolfSPDM_TranscriptHash(WOLFSPDM_CTX* ctx, byte* hash);
+WOLFTPM_API int wolfSPDM_Sha384Hash(byte* out,
     const byte* d1, word32 d1Sz,
     const byte* d2, word32 d2Sz,
     const byte* d3, word32 d3Sz);
 
 /* ----- Internal Function Declarations - Crypto ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_GenerateEphemeralKey(WOLFSPDM_CTX* ctx);
-WOLFTPM_LOCAL int wolfSPDM_ExportEphemeralPubKey(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_GenerateEphemeralKey(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_ExportEphemeralPubKey(WOLFSPDM_CTX* ctx,
     byte* pubKeyX, word32* pubKeyXSz,
     byte* pubKeyY, word32* pubKeyYSz);
-WOLFTPM_LOCAL int wolfSPDM_ComputeSharedSecret(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_ComputeSharedSecret(WOLFSPDM_CTX* ctx,
     const byte* peerPubKeyX, const byte* peerPubKeyY);
-WOLFTPM_LOCAL int wolfSPDM_GetRandom(WOLFSPDM_CTX* ctx, byte* out, word32 outSz);
-WOLFTPM_LOCAL int wolfSPDM_SignHash(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
+WOLFTPM_API int wolfSPDM_GetRandom(WOLFSPDM_CTX* ctx, byte* out, word32 outSz);
+WOLFTPM_API int wolfSPDM_SignHash(WOLFSPDM_CTX* ctx, const byte* hash, word32 hashSz,
     byte* sig, word32* sigSz);
-WOLFTPM_LOCAL int wolfSPDM_VerifySignature(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_VerifySignature(WOLFSPDM_CTX* ctx,
     const byte* hash, word32 hashSz,
     const byte* sig, word32 sigSz);
 
 /* ----- Internal Function Declarations - Key Derivation ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_DeriveHandshakeKeys(WOLFSPDM_CTX* ctx, const byte* th1Hash);
-WOLFTPM_LOCAL int wolfSPDM_DeriveFromHandshakeSecret(WOLFSPDM_CTX* ctx, const byte* th1Hash);
-WOLFTPM_LOCAL int wolfSPDM_DeriveAppDataKeys(WOLFSPDM_CTX* ctx);
-WOLFTPM_LOCAL int wolfSPDM_HkdfExpandLabel(byte spdmVersion, const byte* secret, word32 secretSz,
+WOLFTPM_API int wolfSPDM_DeriveHandshakeKeys(WOLFSPDM_CTX* ctx, const byte* th1Hash);
+WOLFTPM_API int wolfSPDM_DeriveFromHandshakeSecret(WOLFSPDM_CTX* ctx, const byte* th1Hash);
+WOLFTPM_API int wolfSPDM_DeriveAppDataKeys(WOLFSPDM_CTX* ctx);
+WOLFTPM_API int wolfSPDM_HkdfExpandLabel(byte spdmVersion, const byte* secret, word32 secretSz,
     const char* label, const byte* context, word32 contextSz,
     byte* out, word32 outSz);
-WOLFTPM_LOCAL int wolfSPDM_ComputeVerifyData(const byte* finishedKey, const byte* thHash,
+WOLFTPM_API int wolfSPDM_ComputeVerifyData(const byte* finishedKey, const byte* thHash,
     byte* verifyData);
 
 /* ----- Internal Function Declarations - Message Building ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_BuildGetVersion(byte* buf, word32* bufSz);
-WOLFTPM_LOCAL int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
-WOLFTPM_LOCAL int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
-WOLFTPM_LOCAL int wolfSPDM_BuildEndSession(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
+WOLFTPM_API int wolfSPDM_BuildGetVersion(byte* buf, word32* bufSz);
+WOLFTPM_API int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
+WOLFTPM_API int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
+WOLFTPM_API int wolfSPDM_BuildEndSession(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz);
 /* PSK message builders/parsers declared in spdm_psk.h */
 
 /* ----- Internal Function Declarations - Message Parsing ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
-WOLFTPM_LOCAL int wolfSPDM_ParseKeyExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
-WOLFTPM_LOCAL int wolfSPDM_ParseFinishRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
-WOLFTPM_LOCAL int wolfSPDM_CheckError(const byte* buf, word32 bufSz, int* errorCode);
+WOLFTPM_API int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
+WOLFTPM_API int wolfSPDM_ParseKeyExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
+WOLFTPM_API int wolfSPDM_ParseFinishRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz);
+WOLFTPM_API int wolfSPDM_CheckError(const byte* buf, word32 bufSz, int* errorCode);
 
 /* ----- Internal Function Declarations - Secured Messaging ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
     const byte* plain, word32 plainSz,
     byte* enc, word32* encSz);
-WOLFTPM_LOCAL int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
     const byte* enc, word32 encSz,
     byte* plain, word32* plainSz);
 
 /* ----- Internal Utility Functions ----- */
 
-WOLFTPM_LOCAL int wolfSPDM_SendReceive(WOLFSPDM_CTX* ctx,
+WOLFTPM_API int wolfSPDM_SendReceive(WOLFSPDM_CTX* ctx,
     const byte* txBuf, word32 txSz,
     byte* rxBuf, word32* rxSz);
 
 #ifdef DEBUG_WOLFTPM
-WOLFTPM_LOCAL void wolfSPDM_DebugPrint(WOLFSPDM_CTX* ctx, const char* fmt, ...)
+WOLFTPM_API void wolfSPDM_DebugPrint(WOLFSPDM_CTX* ctx, const char* fmt, ...)
 #ifdef __GNUC__
     __attribute__((format(printf, 2, 3)))
 #endif
     ;
 
-WOLFTPM_LOCAL void wolfSPDM_DebugHex(WOLFSPDM_CTX* ctx, const char* label,
+WOLFTPM_API void wolfSPDM_DebugHex(WOLFSPDM_CTX* ctx, const char* label,
     const byte* data, word32 len);
 #else
 #define wolfSPDM_DebugPrint(ctx, fmt, ...) do { (void)(ctx); (void)fmt; } while(0)
