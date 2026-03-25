@@ -24,9 +24,9 @@ make && sudo make install && sudo ldconfig && popd
 ./autogen.sh && ./configure --enable-spdm --enable-nuvoton && make
 
 # Enable SPDM (one-time), reset, connect
-./examples/spdm/spdm_demo --enable
+./examples/spdm/spdm_ctrl --enable
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
-./examples/spdm/spdm_demo --connect
+./examples/spdm/spdm_ctrl --connect
 ```
 
 See [Building](#building) and [Nuvoton NPCT75x Details](#nuvoton-npct75x) for
@@ -44,7 +44,7 @@ make && sudo make install && sudo ldconfig && popd
 ./autogen.sh && ./configure --enable-spdm --enable-nations && make
 
 # Connect (identity key is factory default)
-./examples/spdm/spdm_demo --connect
+./examples/spdm/spdm_ctrl --connect
 ```
 
 See [Building](#building) and [Nations NS350 Details](#nations-ns350) for full
@@ -194,13 +194,13 @@ make
 
 ```bash
 # Enable SPDM on the TPM (persists across resets)
-./examples/spdm/spdm_demo --enable
+./examples/spdm/spdm_ctrl --enable
 
 # GPIO reset
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
 # Verify SPDM is enabled
-./examples/spdm/spdm_demo --status
+./examples/spdm/spdm_ctrl --status
 ```
 
 #### Nations
@@ -209,7 +209,7 @@ Identity key mode is the factory default — no setup required. If previously
 unset, restore with:
 
 ```bash
-./examples/spdm/spdm_demo --identity-key-set
+./examples/spdm/spdm_ctrl --identity-key-set
 ```
 
 ### Establishing a Session
@@ -218,10 +218,10 @@ unset, restore with:
 
 ```bash
 # Establish SPDM session (VERSION → GET_PUBK → KEY_EXCHANGE → GIVE_PUB → FINISH)
-./examples/spdm/spdm_demo --connect
+./examples/spdm/spdm_ctrl --connect
 
 # Query SPDM status
-./examples/spdm/spdm_demo --status
+./examples/spdm/spdm_ctrl --status
 ```
 
 **Note:** `--get-pubkey` retrieves the TPM's identity key as part of the full
@@ -234,7 +234,7 @@ Requires PSK to be provisioned first. See
 
 ```bash
 # Establish PSK session (VERSION → CAPS → ALGO → PSK_EXCHANGE → PSK_FINISH)
-./examples/spdm/spdm_demo --psk <psk_hex_128chars>
+./examples/spdm/spdm_ctrl --psk <psk_hex_128chars>
 ```
 
 ### Lock/Unlock SPDM-Only Mode
@@ -245,7 +245,7 @@ enforcement to take effect.
 **Nuvoton (identity key):**
 
 ```bash
-./examples/spdm/spdm_demo --connect --lock
+./examples/spdm/spdm_ctrl --connect --lock
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 
 # TPM now requires SPDM — all commands auto-encrypted:
@@ -253,27 +253,27 @@ gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 ./tests/unit.test             # full test suite over encrypted bus
 
 # Unlock
-./examples/spdm/spdm_demo --connect --unlock
+./examples/spdm/spdm_ctrl --connect --unlock
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
 ```
 
 **Nations (identity key):**
 
 ```bash
-./examples/spdm/spdm_demo --connect --lock
+./examples/spdm/spdm_ctrl --connect --lock
 # Power cycle required (unplug and re-plug Raspberry Pi)
 
-./examples/spdm/spdm_demo --connect --unlock
+./examples/spdm/spdm_ctrl --connect --unlock
 # Power cycle again
 ```
 
 **Nations (PSK mode):**
 
 ```bash
-./examples/spdm/spdm_demo --psk <hex> --lock
+./examples/spdm/spdm_ctrl --psk <hex> --lock
 # Power cycle required
 
-./examples/spdm/spdm_demo --psk <hex> --unlock
+./examples/spdm/spdm_ctrl --psk <hex> --unlock
 # Power cycle again
 ```
 
@@ -284,20 +284,20 @@ is provisioned by default; it must be unset before PSK can be used.
 
 ```bash
 # 1. Unset identity key (enables PSK mode)
-./examples/spdm/spdm_demo --identity-key-unset
+./examples/spdm/spdm_ctrl --identity-key-unset
 
 # 2. Provision PSK (64-byte PSK + 32-byte ClearAuth)
 #    The demo computes SHA-384(ClearAuth) and sends PSK(64)+Digest(48) = 112 bytes
-./examples/spdm/spdm_demo --psk-set <psk_hex_128chars> <clearauth_hex_64chars>
+./examples/spdm/spdm_ctrl --psk-set <psk_hex_128chars> <clearauth_hex_64chars>
 
 # 3. Establish PSK session
-./examples/spdm/spdm_demo --psk <psk_hex_128chars>
+./examples/spdm/spdm_ctrl --psk <psk_hex_128chars>
 
 # 4. Clear PSK (sends raw 32-byte ClearAuth; TPM verifies SHA-384 internally)
-./examples/spdm/spdm_demo --psk-clear <clearauth_hex_64chars>
+./examples/spdm/spdm_ctrl --psk-clear <clearauth_hex_64chars>
 
 # 5. Restore identity key (factory default)
-./examples/spdm/spdm_demo --identity-key-set
+./examples/spdm/spdm_ctrl --identity-key-set
 ```
 
 **Important:** The ClearAuth must be exactly 32 bytes. PSK_SET stores its SHA-384
@@ -308,13 +308,13 @@ to verify. Using the wrong size makes PSK_CLEAR impossible.
 
 ```bash
 # Nuvoton (identity key — includes GPIO resets between tests)
-./examples/spdm/spdm_test.sh ./examples/spdm/spdm_demo nuvoton
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nuvoton
 
 # Nations (identity key — no GPIO resets)
-./examples/spdm/spdm_test.sh ./examples/spdm/spdm_demo nations
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations
 
 # Nations (PSK — full lifecycle: provision → connect → clear → restore)
-./examples/spdm/spdm_test.sh ./examples/spdm/spdm_demo nations-psk
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl nations-psk
 ```
 
 ## TCG SPDM Vendor Commands
@@ -335,7 +335,7 @@ SPDM `VENDOR_DEFINED_REQUEST` messages with `StandardID=0x0001` (TCG).
 
 ## Command Reference
 
-All `spdm_demo` options in one table:
+All `spdm_ctrl` options in one table:
 
 | Option                        | Vendor  | Description |
 |-------------------------------|---------|-------------|

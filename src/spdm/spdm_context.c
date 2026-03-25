@@ -183,7 +183,7 @@ int wolfSPDM_SetRequesterKeyPair(WOLFSPDM_CTX* ctx,
     return WOLFSPDM_SUCCESS;
 }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 int wolfSPDM_SetRequesterKeyTPMT(WOLFSPDM_CTX* ctx,
     const byte* tpmtPub, word32 tpmtPubSz)
 {
@@ -197,7 +197,7 @@ int wolfSPDM_SetRequesterKeyTPMT(WOLFSPDM_CTX* ctx,
     ctx->reqPubKeyTPMTLen = tpmtPubSz;
     return WOLFSPDM_SUCCESS;
 }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 /* wolfSPDM_SetPSK moved to spdm_psk.c */
 
@@ -275,7 +275,7 @@ byte wolfSPDM_GetNegotiatedVersion(WOLFSPDM_CTX* ctx)
     return ctx->spdmVersion;
 }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 word32 wolfSPDM_GetConnectionHandle(WOLFSPDM_CTX* ctx)
 {
     if (ctx == NULL) {
@@ -309,7 +309,7 @@ int wolfSPDM_Connect(WOLFSPDM_CTX* ctx)
         return WOLFSPDM_E_IO_FAIL;
     }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
         ctx->mode == WOLFSPDM_MODE_NATIONS) {
         return wolfSPDM_ConnectTCG(ctx);
@@ -389,7 +389,7 @@ int wolfSPDM_SendReceive(WOLFSPDM_CTX* ctx,
         return WOLFSPDM_E_IO_FAIL;
     }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
         ctx->mode == WOLFSPDM_MODE_NATIONS ||
         ctx->mode == WOLFSPDM_MODE_NATIONS_PSK) {
@@ -480,7 +480,7 @@ int wolfSPDM_SendReceive(WOLFSPDM_CTX* ctx,
 
         return WOLFSPDM_SUCCESS;
     }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
     rc = ctx->ioCb(ctx, txBuf, txSz, rxBuf, rxSz, ctx->ioUserCtx);
     if (rc != 0) {

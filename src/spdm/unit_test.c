@@ -574,7 +574,7 @@ static int test_invalid_curve_point(void)
     TEST_PASS();
 }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 /* I/O callback that returns a TCG response with msgSize < TCG_HEADER_SIZE */
 static int tcg_underflow_io_cb(WOLFSPDM_CTX* ctx, const byte* txBuf, word32 txSz,
     byte* rxBuf, word32* rxSz, void* userCtx)
@@ -618,7 +618,7 @@ static int test_tcg_underflow(void)
     TEST_CTX_FREE();
     TEST_PASS();
 }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #ifdef WOLFSPDM_NATIONS
 static int test_nations_mode(void)
@@ -975,7 +975,7 @@ int main(void)
     /* Security tests */
     test_mitm_signature_rejected();
     test_invalid_curve_point();
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     test_tcg_underflow();
 #endif
 #ifdef WOLFSPDM_NATIONS

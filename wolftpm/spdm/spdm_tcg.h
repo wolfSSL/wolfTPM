@@ -35,7 +35,7 @@
 
 #include <wolftpm/spdm/spdm_types.h>
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 
 #ifdef __cplusplus
 extern "C" {
@@ -159,6 +159,6 @@ WOLFTPM_API int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx);
 }
 #endif
 
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #endif /* WOLFSPDM_TCG_H */

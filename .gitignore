@@ -92,7 +92,7 @@ examples/firmware/ifx_fw_update
 examples/firmware/st33_fw_update
 examples/endorsement/get_ek_certs
 examples/endorsement/verify_ek_cert
-examples/spdm/spdm_demo
+examples/spdm/spdm_ctrl
 
 # Generated Cert Files
 certs/ca-*.pem

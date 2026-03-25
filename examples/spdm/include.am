@@ -3,16 +3,16 @@
 
 if BUILD_EXAMPLES
 if BUILD_SPDM
-noinst_PROGRAMS += examples/spdm/spdm_demo
+noinst_PROGRAMS += examples/spdm/spdm_ctrl
 
-examples_spdm_spdm_demo_SOURCES         = examples/spdm/spdm_demo.c
-examples_spdm_spdm_demo_LDADD           = src/libwolftpm.la $(LIB_STATIC_ADD)
-examples_spdm_spdm_demo_DEPENDENCIES    = src/libwolftpm.la
-examples_spdm_spdm_demo_CFLAGS          = $(AM_CFLAGS)
+examples_spdm_spdm_ctrl_SOURCES         = examples/spdm/spdm_ctrl.c
+examples_spdm_spdm_ctrl_LDADD           = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_spdm_spdm_ctrl_DEPENDENCIES    = src/libwolftpm.la
+examples_spdm_spdm_ctrl_CFLAGS          = $(AM_CFLAGS)
 endif
 endif
 
 example_spdmdir = $(exampledir)/spdm
-dist_example_spdm_DATA = examples/spdm/spdm_demo.c
+dist_example_spdm_DATA = examples/spdm/spdm_ctrl.c
 
-DISTCLEANFILES+= examples/spdm/.libs/spdm_demo
+DISTCLEANFILES+= examples/spdm/.libs/spdm_ctrl

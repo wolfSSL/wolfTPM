@@ -176,7 +176,7 @@ WOLFTPM_API void wolfTPM2_SPDM_FreeCtx(
 /* Nuvoton-Specific Functions (requires wolfSPDM with --enable-nuvoton)
  * -------------------------------------------------------------------------- */
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 
 /**
  * Set the built-in TIS I/O callback for routing SPDM through TPM SPI/I2C.
@@ -193,7 +193,7 @@ WOLFTPM_API int wolfTPM2_SPDM_SetTisIO(
     WOLFTPM2_SPDM_CTX* ctx
 );
 
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #ifdef __cplusplus
     } /* extern "C" */

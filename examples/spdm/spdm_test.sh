@@ -19,7 +19,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
 
-SPDM_DEMO="${1:-./examples/spdm/spdm_demo}"
+SPDM_DEMO="${1:-./examples/spdm/spdm_ctrl}"
 CAPS_DEMO="./examples/wrap/caps"
 UNIT_TEST="./tests/unit.test"
 GPIO_CHIP="gpiochip0"
@@ -102,7 +102,7 @@ run_test_no_reset() {
 
 if [ ! -x "$SPDM_DEMO" ]; then
     echo "Error: $SPDM_DEMO not found."
-    echo "Usage: $0 [path-to-spdm_demo] [nuvoton|nations|nations-psk]"
+    echo "Usage: $0 [path-to-spdm_ctrl] [nuvoton|nations|nations-psk]"
     exit 1
 fi
 

@@ -498,7 +498,7 @@ WOLFTPM_API int wolfTPM2_SpdmDisconnect(WOLFTPM2_DEV* dev);
 */
 WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Get the TPM's SPDM-Identity public key (shared TCG function).
@@ -512,7 +512,7 @@ WOLFTPM_API int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev);
 */
 WOLFTPM_API int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev,
     byte* pubKey, word32* pubKeySz);
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #ifdef WOLFSPDM_NUVOTON
 /* Nuvoton-specific SPDM functions (requires wolfSPDM with --enable-nuvoton) */

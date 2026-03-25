@@ -78,7 +78,7 @@ int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
         buf[offset++] = ctx->spdmVersion;
         buf[offset++] = SPDM_KEY_EXCHANGE;
         buf[offset++] = 0x00;  /* MeasurementSummaryHashType = None */
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
         buf[offset++] = 0xFF;  /* SlotID = 0xFF (no cert, use provisioned public key) */
 #else
         buf[offset++] = 0x00;  /* SlotID = 0 (certificate slot 0) */
@@ -254,7 +254,7 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
      * and FINISH header. For PUB_KEY_ID mode, Cm = SHA-384(TPMT_PUBLIC)
      * of the requester's public key (matching how Ct is computed for
      * responder per TCG SPDM binding). */
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     if (rc == WOLFSPDM_SUCCESS && mutualAuth && ctx->reqPubKeyTPMTLen > 0) {
         byte cmHash[WOLFSPDM_HASH_SIZE];
         rc = wolfSPDM_Sha384Hash(cmHash, ctx->reqPubKeyTPMT,

@@ -65,7 +65,7 @@ int wolfSPDM_EncryptInternal(WOLFSPDM_CTX* ctx,
         return WOLFSPDM_E_BUFFER_SMALL;
     }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
         ctx->mode == WOLFSPDM_MODE_NATIONS ||
         ctx->mode == WOLFSPDM_MODE_NATIONS_PSK) {
@@ -194,7 +194,7 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
 
     /* ----- Transport-specific header parsing ----- */
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
         ctx->mode == WOLFSPDM_MODE_NATIONS ||
         ctx->mode == WOLFSPDM_MODE_NATIONS_PSK) {
@@ -296,7 +296,7 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
 
     if (rc == 0) {
         appDataLen = SPDM_Get16LE(decrypted);
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
         if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
             ctx->mode == WOLFSPDM_MODE_NATIONS ||
             ctx->mode == WOLFSPDM_MODE_NATIONS_PSK) {

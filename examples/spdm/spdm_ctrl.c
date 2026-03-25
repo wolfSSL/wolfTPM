@@ -1,4 +1,4 @@
-/* spdm_demo.c
+/* spdm_ctrl.c
  *
  * Copyright (C) 2006-2025 wolfSSL Inc.
  *
@@ -40,12 +40,12 @@
 #include <wolftpm/tpm2_spdm.h>
 #include <wolftpm/spdm/spdm.h>
 
-int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[]);
+int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[]);
 
 static void usage(void)
 {
     printf("SPDM Demo - TPM secure session\n\n"
-           "Usage: spdm_demo [options]\n"
+           "Usage: spdm_ctrl [options]\n"
 #ifdef WOLFSPDM_NUVOTON
            "  --enable       Enable SPDM via NTC2_PreConfig\n"
            "  --disable      Disable SPDM via NTC2_PreConfig\n"
@@ -76,7 +76,7 @@ static void usage(void)
 }
 
 #ifdef WOLFSPDM_NUVOTON
-static int demo_enable(WOLFTPM2_DEV* dev)
+static int ctrl_enable(WOLFTPM2_DEV* dev)
 {
     int rc;
     printf("\n=== Enable SPDM ===\n");
@@ -95,7 +95,7 @@ static int demo_enable(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_disable(WOLFTPM2_DEV* dev)
+static int ctrl_disable(WOLFTPM2_DEV* dev)
 {
     int rc;
     printf("\n=== Disable SPDM ===\n");
@@ -113,7 +113,7 @@ static int demo_disable(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_status(WOLFTPM2_DEV* dev)
+static int ctrl_status(WOLFTPM2_DEV* dev)
 {
     int rc;
     WOLFSPDM_NUVOTON_STATUS status;
@@ -143,7 +143,7 @@ static int demo_status(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_get_pubkey(WOLFTPM2_DEV* dev)
+static int ctrl_get_pubkey(WOLFTPM2_DEV* dev)
 {
     int rc;
     byte pubKey[128];
@@ -163,7 +163,7 @@ static int demo_get_pubkey(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_connect(WOLFTPM2_DEV* dev)
+static int ctrl_connect(WOLFTPM2_DEV* dev)
 {
     int rc;
 
@@ -186,7 +186,7 @@ static int demo_connect(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_lock(WOLFTPM2_DEV* dev, int lock)
+static int ctrl_lock(WOLFTPM2_DEV* dev, int lock)
 {
     int rc;
     printf("\n=== SPDM-Only: %s ===\n", lock ? "LOCK" : "UNLOCK");
@@ -220,7 +220,7 @@ static int hex2bin(const char* hex, byte* bin, word32* binSz)
     return 0;
 }
 
-static int demo_nations_status(WOLFTPM2_DEV* dev)
+static int ctrl_nations_status(WOLFTPM2_DEV* dev)
 {
     int rc;
     int isConn;
@@ -277,7 +277,7 @@ static int demo_nations_status(WOLFTPM2_DEV* dev)
     return 0; /* status is informational, don't fail */
 }
 
-static int demo_nations_psk_connect(WOLFTPM2_DEV* dev, const char* pskHex)
+static int ctrl_nations_psk_connect(WOLFTPM2_DEV* dev, const char* pskHex)
 {
     int rc;
     byte psk[128];
@@ -301,7 +301,7 @@ static int demo_nations_psk_connect(WOLFTPM2_DEV* dev, const char* pskHex)
     return rc;
 }
 
-static int demo_nations_psk_set(WOLFTPM2_DEV* dev,
+static int ctrl_nations_psk_set(WOLFTPM2_DEV* dev,
     const char* pskHex, const char* clearAuthHex)
 {
     int rc;
@@ -357,7 +357,7 @@ static int demo_nations_psk_set(WOLFTPM2_DEV* dev,
     return rc;
 }
 
-static int demo_nations_psk_clear(WOLFTPM2_DEV* dev, const char* authHex)
+static int ctrl_nations_psk_clear(WOLFTPM2_DEV* dev, const char* authHex)
 {
     int rc;
     byte clearAuth[256];
@@ -387,7 +387,7 @@ static int demo_nations_psk_clear(WOLFTPM2_DEV* dev, const char* authHex)
     return rc;
 }
 
-static int demo_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
+static int ctrl_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
 {
     int rc;
     printf("\n=== Nations Identity Key %s ===\n", set ? "Set" : "Unset");
@@ -400,7 +400,7 @@ static int demo_nations_identity_key_set(WOLFTPM2_DEV* dev, int set)
     return rc;
 }
 
-static int demo_nations_get_pubkey(WOLFTPM2_DEV* dev)
+static int ctrl_nations_get_pubkey(WOLFTPM2_DEV* dev)
 {
     int rc;
     byte pubKey[128];
@@ -428,7 +428,7 @@ static int demo_nations_get_pubkey(WOLFTPM2_DEV* dev)
     return rc;
 }
 
-static int demo_nations_caps184(WOLFTPM2_DEV* dev)
+static int ctrl_nations_caps184(WOLFTPM2_DEV* dev)
 {
     int rc;
     GetCapability_In capIn;
@@ -505,7 +505,7 @@ static int demo_nations_caps184(WOLFTPM2_DEV* dev)
     return 0;
 }
 
-static int demo_nations_connect(WOLFTPM2_DEV* dev)
+static int ctrl_nations_connect(WOLFTPM2_DEV* dev)
 {
     int rc;
 
@@ -529,7 +529,7 @@ static int demo_nations_connect(WOLFTPM2_DEV* dev)
 }
 #endif /* WOLFSPDM_NATIONS */
 
-int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
+int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
     WOLFTPM2_DEV dev;
@@ -568,42 +568,42 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
     for (i = 1; i < argc; i++) {
 #ifdef WOLFSPDM_NUVOTON
         if (XSTRCMP(argv[i], "--enable") == 0)
-            rc = demo_enable(&dev);
+            rc = ctrl_enable(&dev);
         else if (XSTRCMP(argv[i], "--disable") == 0)
-            rc = demo_disable(&dev);
+            rc = ctrl_disable(&dev);
         else if (XSTRCMP(argv[i], "--status") == 0)
-            rc = demo_status(&dev);
+            rc = ctrl_status(&dev);
         else if (XSTRCMP(argv[i], "--get-pubkey") == 0)
-            rc = demo_get_pubkey(&dev);
+            rc = ctrl_get_pubkey(&dev);
         else if (XSTRCMP(argv[i], "--connect") == 0)
-            rc = demo_connect(&dev);
+            rc = ctrl_connect(&dev);
         else if (XSTRCMP(argv[i], "--lock") == 0)
-            rc = demo_lock(&dev, 1);
+            rc = ctrl_lock(&dev, 1);
         else if (XSTRCMP(argv[i], "--unlock") == 0)
-            rc = demo_lock(&dev, 0);
+            rc = ctrl_lock(&dev, 0);
         else
 #endif
 #ifdef WOLFSPDM_NATIONS
         if (XSTRCMP(argv[i], "--identity-key-set") == 0)
-            rc = demo_nations_identity_key_set(&dev, 1);
+            rc = ctrl_nations_identity_key_set(&dev, 1);
         else if (XSTRCMP(argv[i], "--identity-key-unset") == 0)
-            rc = demo_nations_identity_key_set(&dev, 0);
+            rc = ctrl_nations_identity_key_set(&dev, 0);
         else if (XSTRCMP(argv[i], "--get-pubkey") == 0)
-            rc = demo_nations_get_pubkey(&dev);
+            rc = ctrl_nations_get_pubkey(&dev);
         else if (XSTRCMP(argv[i], "--connect") == 0)
-            rc = demo_nations_connect(&dev);
+            rc = ctrl_nations_connect(&dev);
         else if (XSTRCMP(argv[i], "--status") == 0)
-            rc = demo_nations_status(&dev);
+            rc = ctrl_nations_status(&dev);
         else if (XSTRCMP(argv[i], "--psk") == 0 && i + 1 < argc)
-            rc = demo_nations_psk_connect(&dev, argv[++i]);
+            rc = ctrl_nations_psk_connect(&dev, argv[++i]);
         else if (XSTRCMP(argv[i], "--psk-set") == 0 && i + 2 < argc)
         {
             const char* pskArg = argv[++i];
             const char* authArg = argv[++i];
-            rc = demo_nations_psk_set(&dev, pskArg, authArg);
+            rc = ctrl_nations_psk_set(&dev, pskArg, authArg);
         }
         else if (XSTRCMP(argv[i], "--psk-clear") == 0 && i + 1 < argc)
-            rc = demo_nations_psk_clear(&dev, argv[++i]);
+            rc = ctrl_nations_psk_clear(&dev, argv[++i]);
         else if (XSTRCMP(argv[i], "--lock") == 0)
             rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 1);
         else if (XSTRCMP(argv[i], "--unlock") == 0)
@@ -614,7 +614,7 @@ int TPM2_SPDM_Demo(void* userCtx, int argc, char *argv[])
             printf("  %s (rc=0x%x)\n", rc == 0 ? "Success" : "FAILED", rc);
         }
         else if (XSTRCMP(argv[i], "--caps184") == 0)
-            rc = demo_nations_caps184(&dev);
+            rc = ctrl_nations_caps184(&dev);
         else
 #endif
         { printf("Unknown option: %s\n", argv[i]); usage(); rc = BAD_FUNC_ARG; }
@@ -631,7 +631,7 @@ int main(int argc, char *argv[])
 {
     int rc = -1;
 #ifndef WOLFTPM2_NO_WRAPPER
-    rc = TPM2_SPDM_Demo(NULL, argc, argv);
+    rc = TPM2_SPDM_Ctrl(NULL, argc, argv);
 #else
     printf("Wrapper code not compiled in\n");
     (void)argc; (void)argv;

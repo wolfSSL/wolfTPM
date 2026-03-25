@@ -42,7 +42,7 @@
 #include <wolftpm/tpm2_wrap.h>
 
 /* TIS functions for SPI/I2C TPM transport */
-#if (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)) && \
+#if defined(WOLFTPM_SPDM_TCG) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
     !defined(WOLFTPM_WINAPI)
     #include <wolftpm/tpm2_tis.h>
@@ -205,7 +205,7 @@ int wolfTPM2_SPDM_SecuredExchange(
         return BAD_FUNC_ARG;
     }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     /* In SPDM-only mode, TPM commands must be wrapped in SPDM VENDOR_DEFINED
      * messages with the TPM2_CMD vendor code. The TPM's SPDM layer only
      * accepts SPDM messages (starting with version byte 0x13), not raw TPM
@@ -247,7 +247,7 @@ int wolfTPM2_SPDM_SecuredExchange(
 
         return TPM_RC_SUCCESS;
     }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
     /* Standard SPDM mode: send TPM command as raw app data */
     return wolfSPDM_SecuredExchange(ctx->spdmCtx,
@@ -258,7 +258,7 @@ int wolfTPM2_SPDM_SecuredExchange(
 /* Nuvoton-Specific Functions */
 /* -------------------------------------------------------------------------- */
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 
 /* Set built-in TIS I/O callback for routing SPDM through TPM SPI/I2C.
  * Must be called after wolfTPM2_SPDM_InitCtx() and SetTPMCtx(). */
@@ -381,6 +381,6 @@ int wolfTPM2_SPDM_Disable(WOLFTPM2_SPDM_CTX* ctx)
 
 #endif /* WOLFSPDM_NUVOTON */
 
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #endif /* WOLFTPM_SPDM */

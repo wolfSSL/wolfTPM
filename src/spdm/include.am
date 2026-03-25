@@ -11,17 +11,15 @@ src_libwolftpm_la_SOURCES += \
     src/spdm/spdm_msg.c \
     src/spdm/spdm_secured.c \
     src/spdm/spdm_session.c \
+    src/spdm/spdm_tcg.c \
     src/spdm/spdm_transcript.c
 
-# spdm_tcg.c: shared TCG SPDM code (Nuvoton + Nations)
+# Vendor-specific SPDM code
 if BUILD_NUVOTON
-src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c src/spdm/spdm_nuvoton.c
+src_libwolftpm_la_SOURCES += src/spdm/spdm_nuvoton.c
 endif
 
 if BUILD_NATIONS
-if !BUILD_NUVOTON
-src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c
-endif
 src_libwolftpm_la_SOURCES += src/spdm/spdm_nations.c
 src_libwolftpm_la_SOURCES += src/spdm/spdm_psk.c
 endif

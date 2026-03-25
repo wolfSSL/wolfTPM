@@ -67,7 +67,7 @@ typedef enum {
 struct WOLFSPDM_CTX;
 typedef struct WOLFSPDM_CTX WOLFSPDM_CTX;
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     #include <wolftpm/spdm/spdm_tcg.h>
 #endif
 #ifdef WOLFSPDM_NUVOTON
@@ -130,7 +130,7 @@ WOLFTPM_API int wolfSPDM_SecuredExchange(WOLFSPDM_CTX* ctx,
 /* Session info */
 WOLFTPM_API word32 wolfSPDM_GetSessionId(WOLFSPDM_CTX* ctx);
 WOLFTPM_API byte wolfSPDM_GetNegotiatedVersion(WOLFSPDM_CTX* ctx);
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 WOLFTPM_API word32 wolfSPDM_GetConnectionHandle(WOLFSPDM_CTX* ctx);
 WOLFTPM_API word16 wolfSPDM_GetFipsIndicator(WOLFSPDM_CTX* ctx);
 #endif

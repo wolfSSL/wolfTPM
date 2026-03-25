@@ -1116,7 +1116,7 @@ int wolfTPM2_SpdmCleanup(WOLFTPM2_DEV* dev)
     return TPM_RC_SUCCESS;
 }
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 /* Shared TCG SPDM functions */
 
 int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev, byte* pubKey, word32* pubKeySz)
@@ -1124,7 +1124,7 @@ int wolfTPM2_SpdmGetPubKey(WOLFTPM2_DEV* dev, byte* pubKey, word32* pubKeySz)
     WOLFTPM2_SPDM_CHECK_CTX(dev);
     return wolfSPDM_Nuvoton_GetPubKey(dev->spdmCtx->spdmCtx, pubKey, pubKeySz);
 }
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #ifdef WOLFSPDM_NUVOTON
 /* Nuvoton-specific SPDM functions */

@@ -137,6 +137,14 @@ extern "C" {
 #define WOLFSPDM_PUBKEY_BUF_SZ     256  /* Public key buffer */
 #endif
 
+/* ----- TCG Build Option ----- */
+
+/* Nuvoton or Nations enables TCG SPDM binding; future chips can set directly */
+#if (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)) && \
+    !defined(WOLFTPM_SPDM_TCG)
+    #define WOLFTPM_SPDM_TCG
+#endif
+
 /* ----- PSK Build Option ----- */
 
 /* Nations build enables PSK by default; can also be set independently */

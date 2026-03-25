@@ -29,7 +29,7 @@
 
 #include "spdm_internal.h"
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 
 #include <wolftpm/spdm/spdm_tcg.h>
 
@@ -575,6 +575,6 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
     return WOLFSPDM_SUCCESS;
 }
 
-#endif /* WOLFSPDM_NUVOTON || WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
 
 #endif /* WOLFTPM_SPDM */

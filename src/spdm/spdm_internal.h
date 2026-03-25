@@ -27,12 +27,7 @@
     #include <config.h>
 #endif
 
-/* wolfSSL options MUST be included first */
-#ifndef WOLFSSL_USER_SETTINGS
-    #include <wolfssl/options.h>
-#endif
-#include <wolfssl/wolfcrypt/settings.h>
-
+/* spdm_types.h pulls in wolfSSL options via tpm2_types.h */
 #include <wolftpm/spdm/spdm.h>
 #include <wolftpm/spdm/spdm_types.h>
 #include <wolftpm/spdm/spdm_error.h>
@@ -79,7 +74,7 @@ struct WOLFSPDM_CTX {
     WOLFSPDM_IO_CB ioCb;
     void* ioUserCtx;
 
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
     /* TCG binding fields (shared by Nuvoton + Nations) */
     word32 connectionHandle;    /* Connection handle (usually 0) */
     word16 fipsIndicator;       /* FIPS service indicator */
@@ -213,7 +208,7 @@ static WC_INLINE word64 SPDM_Get64LE(const byte* buf) {
 /* ----- Write TCG SPDM Binding header ----- */
 /* tag(2/BE) + size(4/BE) +
  * connHandle(4/BE) + fips(2/BE) + reserved(4) */
-#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+#ifdef WOLFTPM_SPDM_TCG
 static WC_INLINE void wolfSPDM_WriteTcgHeader(byte* buf, word16 tag,
     word32 totalSz, word32 connHandle, word16 fips)
 {
