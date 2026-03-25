@@ -497,7 +497,11 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* submit command and wait for response */
 #ifdef WOLFTPM_SPDM
     rc = TPM2_SPDM_SendCommand(ctx, packet);
-    if (rc < 0) /* SPDM not active, use normal transport */
+    if (rc >= 0) {
+        if (rc != TPM_RC_SUCCESS)
+            return rc; /* SPDM active but failed, do not retry cleartext */
+    }
+    else /* rc < 0: SPDM not active, use normal transport */
 #endif
     {
         rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
@@ -533,8 +537,11 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
 #ifdef WOLFTPM_SPDM
     rc = TPM2_SPDM_SendCommand(ctx, packet);
-    if (rc == TPM_RC_SUCCESS)
+    if (rc >= 0) {
+        if (rc != TPM_RC_SUCCESS)
+            return rc; /* SPDM active but failed, do not retry cleartext */
         return TPM2_Packet_Parse(rc, packet);
+    }
     /* rc < 0 means SPDM not active, fall through to normal transport */
 #endif
 

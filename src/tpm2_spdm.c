@@ -245,6 +245,12 @@ int wolfTPM2_SPDM_SecuredExchange(
             return rc;
         }
 
+        /* Verify response is for our TPM2_CMD request */
+        if (XMEMCMP(rspVdCode, WOLFSPDM_VDCODE_TPM2_CMD,
+                     WOLFSPDM_VDCODE_LEN) != 0) {
+            return WOLFSPDM_E_PEER_ERROR;
+        }
+
         return TPM_RC_SUCCESS;
     }
 #endif /* WOLFTPM_SPDM_TCG */
