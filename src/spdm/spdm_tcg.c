@@ -495,24 +495,6 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
     }
 #endif
 
-    /* SPDM 1.3+: Replace VCA with Hash(VCA) in transcript.
-     * DSP0274 1.3 section 10.17.1: th = Hash(Hash(A) || Ct || K)
-     * TODO: verify with both Nuvoton and Nations hardware */
-    if (0 && ctx->spdmVersion >= SPDM_VERSION_13 && ctx->transcriptLen > 12) {
-        byte vcaHash[WOLFSPDM_HASH_SIZE];
-        rc = wolfSPDM_TranscriptHash(ctx, vcaHash);
-        if (rc == WOLFSPDM_SUCCESS) {
-            wolfSPDM_TranscriptReset(ctx);
-            rc = wolfSPDM_TranscriptAdd(ctx, vcaHash, WOLFSPDM_HASH_SIZE);
-            wolfSPDM_DebugPrint(ctx, "TCG: VCA hashed (%u -> %u bytes)\n",
-                ctx->transcriptLen, WOLFSPDM_HASH_SIZE);
-        }
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-    }
-
     /* Step 4: GET_PUBK */
     wolfSPDM_DebugPrint(ctx, "TCG Step 4: GET_PUBK\n");
     pubKeySz = sizeof(pubKey);

@@ -414,10 +414,11 @@ int wolfSPDM_SendReceive(WOLFSPDM_CTX* ctx,
                 tcgTx, sizeof(tcgTx));
         } else {
             /* Secured record - prepend TCG secured header (0x8201) */
-            word32 totalSz = WOLFSPDM_TCG_HEADER_SIZE + txSz;
-            if (totalSz > sizeof(tcgTx)) {
+            word32 totalSz;
+            if (txSz > sizeof(tcgTx) - WOLFSPDM_TCG_HEADER_SIZE) {
                 return WOLFSPDM_E_BUFFER_SMALL;
             }
+            totalSz = WOLFSPDM_TCG_HEADER_SIZE + txSz;
             wolfSPDM_WriteTcgHeader(tcgTx, WOLFSPDM_TCG_TAG_SECURED,
                 totalSz, ctx->connectionHandle, ctx->fipsIndicator);
             XMEMCPY(tcgTx + WOLFSPDM_TCG_HEADER_SIZE, txBuf, txSz);
