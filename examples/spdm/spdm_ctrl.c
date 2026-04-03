@@ -621,8 +621,8 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         if (rc != 0) break;
     }
 
-    wolfTPM2_Cleanup(&dev);  /* Shutdown goes through SPDM if session active */
-    wolfTPM2_SpdmCleanup(&dev);
+    wolfTPM2_Cleanup(&dev);  /* TPM2_Shutdown + END_SESSION via SPDM, then free */
+    wolfTPM2_SpdmCleanup(&dev);  /* no-op safety net (already freed by Cleanup) */
     return rc;
 }
 

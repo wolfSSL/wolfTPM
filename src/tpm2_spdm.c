@@ -211,7 +211,8 @@ int wolfTPM2_SPDM_SecuredExchange(
      * accepts SPDM messages (starting with version byte 0x13), not raw TPM
      * commands (starting with tag 0x80 0x01). */
     if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON ||
-        wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS) {
+        wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS ||
+        wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS_PSK) {
         byte vdMsg[WOLFSPDM_MAX_MSG_SIZE];
         byte vdRsp[WOLFSPDM_MAX_MSG_SIZE];
         word32 vdRspSz = sizeof(vdRsp);

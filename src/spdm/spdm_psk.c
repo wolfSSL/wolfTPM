@@ -349,15 +349,11 @@ int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
     SPDM_CONNECT_STEP(ctx, "PSK Step 1: GET_VERSION\n",
         wolfSPDM_GetVersion(ctx));
 
-    /* Step 2: GET_CAPABILITIES (with PSK_CAP flag) */
-    SPDM_CONNECT_STEP(ctx, "PSK Step 2: GET_CAPABILITIES\n",
-        wolfSPDM_TCG_GetCapabilities(ctx, WOLFSPDM_TCG_CAPS_FLAGS_PSK));
+    /* Steps 2-3: GET_CAPABILITIES + NEGOTIATE_ALGORITHMS
+     * Not mandatory for PSK mode per TCG PC Client PSK spec.
+     * NS350 supports direct GET_VERSION -> PSK_EXCHANGE. */
 
-    /* Step 3: NEGOTIATE_ALGORITHMS */
-    SPDM_CONNECT_STEP(ctx, "PSK Step 3: NEGOTIATE_ALGORITHMS\n",
-        wolfSPDM_TCG_NegotiateAlgorithms(ctx));
-
-    /* Step 4: PSK_EXCHANGE / PSK_EXCHANGE_RSP */
+    /* Step 2: PSK_EXCHANGE / PSK_EXCHANGE_RSP */
     {
         byte txBuf[128];
         byte rxBuf[WOLFSPDM_VENDOR_RX_SZ];

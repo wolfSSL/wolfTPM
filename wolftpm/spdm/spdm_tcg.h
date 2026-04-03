@@ -60,6 +60,15 @@ extern "C" {
 #define WOLFSPDM_VDCODE_LEN             8
 
 #define WOLFSPDM_VDCODE_TPM2_CMD        "TPM2_CMD"  /* TPM command over SPDM */
+
+/* Locality-aware TPM command VdCodes (TCG spec Table 11, optional).
+ * Response to all TPM_CMD_L* is TPM_RSP with VdCode "TPM2_CMD".
+ * Not currently used -- our code sends TPM2_CMD for all localities. */
+#define WOLFSPDM_VDCODE_TPM2CMD0        "TPM2CMD0"  /* TPM_CMD_L0: locality 0 */
+#define WOLFSPDM_VDCODE_TPM2CMD1        "TPM2CMD1"  /* TPM_CMD_L1: locality 1 */
+#define WOLFSPDM_VDCODE_TPM2CMD2        "TPM2CMD2"  /* TPM_CMD_L2: locality 2 */
+#define WOLFSPDM_VDCODE_TPM2CMD3        "TPM2CMD3"  /* TPM_CMD_L3: locality 3 */
+#define WOLFSPDM_VDCODE_TPM2CMD4        "TPM2CMD4"  /* TPM_CMD_L4: locality 4 */
 #define WOLFSPDM_VDCODE_GET_PUBK        "GET_PUBK"  /* Get TPM's identity key */
 #define WOLFSPDM_VDCODE_GIVE_PUB        "GIVE_PUB"  /* Give host's identity key */
 #define WOLFSPDM_VDCODE_GET_STS         "GET_STS_"  /* Get SPDM status */

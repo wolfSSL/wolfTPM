@@ -73,8 +73,10 @@ int wolfSPDM_TCG_VendorCmdClear(WOLFSPDM_CTX* ctx, const char* vdCode,
         if (rc < 0) {
             return rc;
         }
-        /* Verify response vendor code matches expected */
+        /* Validate response VdCode matches the request */
         if (XMEMCMP(rsp->vdCode, vdCode, WOLFSPDM_VDCODE_LEN) != 0) {
+            wolfSPDM_DebugPrint(ctx, "%s: unexpected VdCode '%.8s'\n",
+                vdCode, rsp->vdCode);
             return WOLFSPDM_E_PEER_ERROR;
         }
     }

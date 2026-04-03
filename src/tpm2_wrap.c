@@ -317,7 +317,7 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
         }
         rc = TPM_RC_SUCCESS;
     }
-#endif /* WOLFTPM_SPDM && WOLFSPDM_NUVOTON */
+#endif /* WOLFTPM_SPDM && WOLFTPM_SPDM_TCG */
 
     return rc;
 }
@@ -1953,7 +1953,13 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
     }
 
 #ifdef WOLFTPM_SPDM
-    /* Clean up SPDM context if it was auto-established */
+    /* Send END_SESSION to gracefully terminate SPDM session
+     * (TCG spec 5.5.1.6, Table 2: mandatory) */
+    if (dev->spdmCtx != NULL && dev->spdmCtx->spdmCtx != NULL &&
+        wolfSPDM_IsConnected(dev->spdmCtx->spdmCtx)) {
+        (void)wolfTPM2_SpdmDisconnect(dev);
+    }
+    /* Clean up SPDM context */
     wolfTPM2_SpdmCleanup(dev);
 #endif
 
