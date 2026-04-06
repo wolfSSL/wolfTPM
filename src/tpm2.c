@@ -3111,7 +3111,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
 
         TPM2_Packet_Init(ctx, &packet);
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
-        TPM2_Packet_AppendU32(&packet, in->curveID);
+        TPM2_Packet_AppendU16(&packet, in->curveID);
         TPM2_Packet_Finalize(&packet, st, TPM_CC_EC_Ephemeral);
 
         /* send command */
