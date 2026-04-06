@@ -4800,10 +4800,12 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_RSA_Decrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
         return rc;
     }
 
     if (*msgSz < rsaDecOut.message.size) {
+        TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
         return BUFFER_E;
     }
     *msgSz = rsaDecOut.message.size;
@@ -4813,6 +4815,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     printf("TPM2_RSA_Decrypt: %d\n", rsaDecOut.message.size);
 #endif
 
+    TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
     return rc;
 }
 
