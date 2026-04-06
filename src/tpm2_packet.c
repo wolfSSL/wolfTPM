@@ -780,33 +780,79 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
+    UINT16 wireSize;
+
     TPM2_Packet_ParseU16(packet, &pub->size);
     if (pub->size > 0) {
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
         TPM2_Packet_ParseU32(packet, &pub->publicArea.objectAttributes);
-        TPM2_Packet_ParseU16(packet, &pub->publicArea.authPolicy.size);
+
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        pub->publicArea.authPolicy.size = wireSize;
+        if (pub->publicArea.authPolicy.size >
+                (UINT16)sizeof(pub->publicArea.authPolicy.buffer)) {
+            pub->publicArea.authPolicy.size =
+                (UINT16)sizeof(pub->publicArea.authPolicy.buffer);
+        }
         TPM2_Packet_ParseBytes(packet, pub->publicArea.authPolicy.buffer,
             pub->publicArea.authPolicy.size);
+        if (wireSize > pub->publicArea.authPolicy.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - pub->publicArea.authPolicy.size);
+        }
 
         TPM2_Packet_ParsePublicParms(packet, pub->publicArea.type,
             &pub->publicArea.parameters);
 
         switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.keyedHash.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.keyedHash.buffer,
+            TPM2_Packet_ParseU16(packet, &wireSize);
+            pub->publicArea.unique.keyedHash.size = wireSize;
+            if (pub->publicArea.unique.keyedHash.size >
+                    (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer)) {
+                pub->publicArea.unique.keyedHash.size =
+                    (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer);
+            }
+            TPM2_Packet_ParseBytes(packet,
+                pub->publicArea.unique.keyedHash.buffer,
                 pub->publicArea.unique.keyedHash.size);
+            if (wireSize > pub->publicArea.unique.keyedHash.size) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSize - pub->publicArea.unique.keyedHash.size);
+            }
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.sym.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.sym.buffer,
+            TPM2_Packet_ParseU16(packet, &wireSize);
+            pub->publicArea.unique.sym.size = wireSize;
+            if (pub->publicArea.unique.sym.size >
+                    (UINT16)sizeof(pub->publicArea.unique.sym.buffer)) {
+                pub->publicArea.unique.sym.size =
+                    (UINT16)sizeof(pub->publicArea.unique.sym.buffer);
+            }
+            TPM2_Packet_ParseBytes(packet,
+                pub->publicArea.unique.sym.buffer,
                 pub->publicArea.unique.sym.size);
+            if (wireSize > pub->publicArea.unique.sym.size) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSize - pub->publicArea.unique.sym.size);
+            }
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.rsa.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.rsa.buffer,
+            TPM2_Packet_ParseU16(packet, &wireSize);
+            pub->publicArea.unique.rsa.size = wireSize;
+            if (pub->publicArea.unique.rsa.size >
+                    (UINT16)sizeof(pub->publicArea.unique.rsa.buffer)) {
+                pub->publicArea.unique.rsa.size =
+                    (UINT16)sizeof(pub->publicArea.unique.rsa.buffer);
+            }
+            TPM2_Packet_ParseBytes(packet,
+                pub->publicArea.unique.rsa.buffer,
                 pub->publicArea.unique.rsa.size);
+            if (wireSize > pub->publicArea.unique.rsa.size) {
+                TPM2_Packet_ParseBytes(packet, NULL,
+                    wireSize - pub->publicArea.unique.rsa.size);
+            }
             break;
         case TPM_ALG_ECC:
             TPM2_Packet_ParseEccPoint(packet, &pub->publicArea.unique.ecc);
