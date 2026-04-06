@@ -5233,6 +5233,10 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         }
 
         toread = out.data.size;
+        if (toread > dataSz) {
+            rc = BAD_FUNC_ARG;
+            break;
+        }
         if (dataBuf) {
             XMEMCPY(&dataBuf[pos], out.data.buffer, toread);
         }
