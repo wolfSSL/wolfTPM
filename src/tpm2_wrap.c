@@ -5990,6 +5990,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&encDecIn, sizeof(encDecIn));
+        TPM2_ForceZero(&encDecOut, sizeof(encDecOut));
         return rc;
     }
 
@@ -6005,6 +6007,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         inOutSz = encDecOut.outData.size;
     XMEMCPY(out, encDecOut.outData.buffer, inOutSz);
 
+    TPM2_ForceZero(&encDecIn, sizeof(encDecIn));
+    TPM2_ForceZero(&encDecOut, sizeof(encDecOut));
     return rc;
 }
 
