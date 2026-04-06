@@ -4453,19 +4453,26 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
-    int curve_id = 0;
-    int hashAlg = TPM_ALG_NULL;
+    int hashAlg = TPM_ALG_SHA256;
 
-    /* detect hash algorithm based on key curve */
+    /* detect hash algorithm based on key type and parameters */
     if (key != NULL) {
-        curve_id = key->pub.publicArea.parameters.eccDetail.curveID;
+        TPMT_PUBLIC* pub = &key->pub.publicArea;
+        if (pub->type == TPM_ALG_ECC) {
+            int curve_id = pub->parameters.eccDetail.curveID;
+            if (curve_id == TPM_ECC_NIST_P521)
+                hashAlg = TPM_ALG_SHA512;
+            else if (curve_id == TPM_ECC_NIST_P384)
+                hashAlg = TPM_ALG_SHA384;
+            else
+                hashAlg = TPM_ALG_SHA256;
+        }
+        else if (pub->type == TPM_ALG_RSA) {
+            hashAlg = pub->parameters.rsaDetail.scheme.details.anySig.hashAlg;
+            if (hashAlg == TPM_ALG_NULL || hashAlg == 0)
+                hashAlg = TPM_ALG_SHA256;
+        }
     }
-    if (curve_id == TPM_ECC_NIST_P521)
-        hashAlg = TPM_ALG_SHA512;
-    else if (curve_id == TPM_ECC_NIST_P384)
-        hashAlg = TPM_ALG_SHA384;
-    else
-        hashAlg = TPM_ALG_SHA256;
 
     return wolfTPM2_VerifyHashTicket(dev, key, sig, sigSz, digest, digestSz,
         TPM_ALG_NULL, hashAlg, NULL);
