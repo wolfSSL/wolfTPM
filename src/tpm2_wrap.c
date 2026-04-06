@@ -1187,6 +1187,8 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* Capture TPM provided nonce */
         session->nonceTPM.size = tpmSession->nonceTPM.size;
+        if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
+            session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
         XMEMCPY(session->nonceTPM.buffer, tpmSession->nonceTPM.buffer,
             session->nonceTPM.size);
 
