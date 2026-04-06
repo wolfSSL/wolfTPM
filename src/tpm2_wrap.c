@@ -4560,6 +4560,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         ecdhOut.pubPoint.size);
 #endif
 
+    TPM2_ForceZero(&ecdhOut, sizeof(ecdhOut));
     return rc;
 }
 
@@ -4609,6 +4610,7 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
 #endif
 
+    TPM2_ForceZero(&ecdhZOut, sizeof(ecdhZOut));
     return rc;
 }
 
@@ -4699,6 +4701,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
 #endif
 
+    TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
     return rc;
 }
 
