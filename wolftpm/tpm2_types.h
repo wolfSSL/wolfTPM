@@ -674,10 +674,18 @@ typedef int64_t  INT64;
 #define NUM_POLICY_PCR 1
 #endif
 #ifndef MAX_COMMAND_SIZE
-#define MAX_COMMAND_SIZE 8192
+    #ifdef WOLFTPM_V185
+        #define MAX_COMMAND_SIZE 8192
+    #else
+        #define MAX_COMMAND_SIZE 4096
+    #endif
 #endif
 #ifndef MAX_RESPONSE_SIZE
-#define MAX_RESPONSE_SIZE 8192
+    #ifdef WOLFTPM_V185
+        #define MAX_RESPONSE_SIZE 8192
+    #else
+        #define MAX_RESPONSE_SIZE 4096
+    #endif
 #endif
 #ifndef ORDERLY_BITS
 #define ORDERLY_BITS 8
