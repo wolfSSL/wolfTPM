@@ -73,6 +73,10 @@ int wolfSPDM_TCG_VendorCmdClear(WOLFSPDM_CTX* ctx, const char* vdCode,
         if (rc < 0) {
             return rc;
         }
+        /* Verify response vendor code matches expected */
+        if (XMEMCMP(rsp->vdCode, vdCode, WOLFSPDM_VDCODE_LEN) != 0) {
+            return WOLFSPDM_E_PEER_ERROR;
+        }
     }
 
     return WOLFSPDM_SUCCESS;

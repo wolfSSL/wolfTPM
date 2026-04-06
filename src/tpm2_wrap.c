@@ -276,7 +276,7 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     XMEMSET(dev->session, 0, sizeof(dev->session));
     wolfTPM2_SetAuthPassword(dev, 0, NULL);
 
-#if defined(WOLFTPM_SPDM) && defined(WOLFSPDM_NUVOTON)
+#if defined(WOLFTPM_SPDM) && defined(WOLFTPM_SPDM_TCG)
     /* If TPM is in SPDM-only mode, transparently establish an SPDM session
      * so all subsequent TPM commands are encrypted over the bus.
      * This allows existing binaries (caps, wrap_test, unit.test) to work
@@ -292,7 +292,7 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
             return rc;
         }
 
-        rc = wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
+        rc = wolfTPM2_SpdmConnect(dev);
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
             printf("SPDM auto-connect failed: %d\n", rc);
