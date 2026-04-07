@@ -224,8 +224,10 @@ static int ctrl_nations_status(WOLFTPM2_DEV* dev)
 {
     int rc;
     int isConn;
+    int stsRc;
     GetCapability_In capIn;
     GetCapability_Out capOut;
+    WOLFSPDM_NATIONS_STATUS status;
 
     printf("\n=== Nations SPDM Status ===\n");
 
@@ -246,25 +248,20 @@ static int ctrl_nations_status(WOLFTPM2_DEV* dev)
     }
 
     /* 2. Try GET_STS_ vendor command (PSK mode only — may fail) */
-    {
-        WOLFSPDM_NATIONS_STATUS status;
-        int stsRc;
-
-        stsRc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
+    stsRc = wolfSPDM_GetVersion(dev->spdmCtx->spdmCtx);
+    if (stsRc == 0) {
+        XMEMSET(&status, 0, sizeof(status));
+        stsRc = wolfTPM2_SpdmNationsGetStatus(dev, &status);
         if (stsRc == 0) {
-            XMEMSET(&status, 0, sizeof(status));
-            stsRc = wolfTPM2_SpdmNationsGetStatus(dev, &status);
-            if (stsRc == 0) {
-                printf("  PSK: %s  SPDM-Only: %s\n",
-                    status.pskProvisioned ? "provisioned" : "not provisioned",
-                    !status.spdmOnlyLocked ? "disabled" :
-                    status.spdmOnlyPending ? "PENDING_DISABLE" : "ENABLED");
-            } else {
-                printf("  PSK Status: unknown (GET_STS failed)\n");
-            }
+            printf("  PSK: %s  SPDM-Only: %s\n",
+                status.pskProvisioned ? "provisioned" : "not provisioned",
+                !status.spdmOnlyLocked ? "disabled" :
+                status.spdmOnlyPending ? "PENDING_DISABLE" : "ENABLED");
         } else {
-            printf("  PSK Status: GET_VERSION failed\n");
+            printf("  PSK Status: unknown (GET_STS failed)\n");
         }
+    } else {
+        printf("  PSK Status: GET_VERSION failed\n");
     }
 
     /* 3. Local session state */

@@ -967,6 +967,16 @@ static void test_wolfTPM2_SPDM_Functions(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
+#ifdef WOLFSPDM_NUVOTON
+    WOLFSPDM_NUVOTON_STATUS nuvStatus;
+#endif
+#if defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS)
+    byte pubKey[256];
+    word32 pubKeySz;
+#endif
+#ifdef WOLFSPDM_NATIONS
+    WOLFSPDM_NATIONS_STATUS nStatus;
+#endif
 
     printf("Test TPM Wrapper:\tSPDM Functions:\t");
 
@@ -1011,20 +1021,15 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     rc = wolfTPM2_SpdmEnable(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    {
-        WOLFSPDM_NUVOTON_STATUS status;
-        byte pubKey[256];
-        word32 pubKeySz = sizeof(pubKey);
-
-        rc = wolfTPM2_SpdmGetStatus(NULL, &status);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmGetStatus(&dev, NULL);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmSetOnlyMode(NULL, 0);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-    }
+    pubKeySz = sizeof(pubKey);
+    rc = wolfTPM2_SpdmGetStatus(NULL, &nuvStatus);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmGetStatus(&dev, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmSetOnlyMode(NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif /* WOLFSPDM_NUVOTON */
 
 #ifdef WOLFSPDM_NATIONS
@@ -1033,27 +1038,20 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     rc = wolfTPM2_SpdmNationsIdentityKeySet(NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    {
-        byte pubKey[256];
-        word32 pubKeySz = sizeof(pubKey);
-
-        rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-    }
+    pubKeySz = sizeof(pubKey);
+    rc = wolfTPM2_SpdmGetPubKey(NULL, pubKey, &pubKeySz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
     /* Nations PSK wrapper parameter validation */
     rc = wolfTPM2_SpdmConnectNationsPsk(NULL, NULL, 0, NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    {
-        WOLFSPDM_NATIONS_STATUS nStatus;
-        rc = wolfTPM2_SpdmNationsGetStatus(NULL, &nStatus);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmNationsSetOnlyMode(NULL, 0);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmNationsPskSet(NULL, NULL, 0);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-        rc = wolfTPM2_SpdmNationsPskClear(NULL, NULL, 0);
-        AssertIntEQ(rc, BAD_FUNC_ARG);
-    }
+    rc = wolfTPM2_SpdmNationsGetStatus(NULL, &nStatus);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmNationsSetOnlyMode(NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmNationsPskSet(NULL, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SpdmNationsPskClear(NULL, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
 #endif /* WOLFSPDM_NATIONS */
 
     wolfTPM2_Cleanup(&dev);
