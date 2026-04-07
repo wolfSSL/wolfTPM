@@ -545,6 +545,7 @@ static int test_invalid_curve_point(void)
 {
     byte badX[WOLFSPDM_ECC_KEY_SIZE];
     byte badY[WOLFSPDM_ECC_KEY_SIZE];
+    byte zeros[WOLFSPDM_ECC_KEY_SIZE];
     int rc;
     TEST_CTX_SETUP_V12();
 
@@ -562,13 +563,10 @@ static int test_invalid_curve_point(void)
     ASSERT_EQ(rc, WOLFSPDM_E_CRYPTO_FAIL, "Off-curve point must be rejected");
 
     /* Verify shared secret was zeroed on failure */
-    {
-        byte zeros[WOLFSPDM_ECC_KEY_SIZE];
-        memset(zeros, 0, sizeof(zeros));
-        ASSERT_EQ(memcmp(ctx->sharedSecret, zeros, sizeof(ctx->sharedSecret)), 0,
-            "sharedSecret must be zeroed on failure");
-        ASSERT_EQ(ctx->sharedSecretSz, 0, "sharedSecretSz must be 0 on failure");
-    }
+    memset(zeros, 0, sizeof(zeros));
+    ASSERT_EQ(memcmp(ctx->sharedSecret, zeros, sizeof(ctx->sharedSecret)), 0,
+        "sharedSecret must be zeroed on failure");
+    ASSERT_EQ(ctx->sharedSecretSz, 0, "sharedSecretSz must be 0 on failure");
 
     TEST_CTX_FREE();
     TEST_PASS();
@@ -1083,17 +1081,17 @@ static int test_parse_tcg_clear_message(void)
     byte buf[32], payload[16];
     word32 payloadSz = sizeof(payload);
     WOLFSPDM_TCG_CLEAR_HDR hdr;
+    int built;
+    int parsed;
     TEST_CTX_SETUP();
     printf("test_parse_tcg_clear_message...\n");
 
     /* Build a valid message first */
     ctx->connectionHandle = 0;
     ctx->fipsIndicator = 0;
-    {
-        int built = wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"ABCD", 4, buf,
-            sizeof(buf));
-        TEST_ASSERT(built == 20, "build failed");
-    }
+    built = wolfSPDM_BuildTcgClearMessage(ctx, (byte*)"ABCD", 4, buf,
+        sizeof(buf));
+    TEST_ASSERT(built == 20, "build failed");
 
     /* NULL args */
     TEST_ASSERT(wolfSPDM_ParseTcgClearMessage(NULL, 20, payload, &payloadSz,
@@ -1107,13 +1105,11 @@ static int test_parse_tcg_clear_message(void)
 
     /* Valid parse (returns payload size on success) */
     payloadSz = sizeof(payload);
-    {
-        int parsed = wolfSPDM_ParseTcgClearMessage(buf, 20, payload,
-            &payloadSz, &hdr);
-        TEST_ASSERT(parsed >= 0, "parse failed");
-        ASSERT_EQ(payloadSz, 4, "payload size wrong");
-        TEST_ASSERT(memcmp(payload, "ABCD", 4) == 0, "payload mismatch");
-    }
+    parsed = wolfSPDM_ParseTcgClearMessage(buf, 20, payload,
+        &payloadSz, &hdr);
+    TEST_ASSERT(parsed >= 0, "parse failed");
+    ASSERT_EQ(payloadSz, 4, "payload size wrong");
+    TEST_ASSERT(memcmp(payload, "ABCD", 4) == 0, "payload mismatch");
 
     TEST_CTX_FREE();
     TEST_PASS();
@@ -1157,6 +1153,7 @@ static int test_parse_vendor_defined(void)
     char vdCode[9];
     word32 payloadSz;
     int built;
+    int parsed;
     printf("test_parse_vendor_defined...\n");
 
     /* Build, then parse back */
@@ -1165,14 +1162,12 @@ static int test_parse_vendor_defined(void)
     TEST_ASSERT(built > 0, "build failed");
 
     payloadSz = sizeof(payload);
-    {
-        int parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built, vdCode,
-            payload, &payloadSz);
-        TEST_ASSERT(parsed >= 0, "parse failed");
-        TEST_ASSERT(memcmp(vdCode, "TPM2_CMD", 8) == 0, "vdCode mismatch");
-        ASSERT_EQ(payloadSz, 5, "payload size wrong");
-        TEST_ASSERT(memcmp(payload, "HELLO", 5) == 0, "payload mismatch");
-    }
+    parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built, vdCode,
+        payload, &payloadSz);
+    TEST_ASSERT(parsed >= 0, "parse failed");
+    TEST_ASSERT(memcmp(vdCode, "TPM2_CMD", 8) == 0, "vdCode mismatch");
+    ASSERT_EQ(payloadSz, 5, "payload size wrong");
+    TEST_ASSERT(memcmp(payload, "HELLO", 5) == 0, "payload mismatch");
 
     /* NULL args */
     TEST_ASSERT(wolfSPDM_ParseVendorDefined(NULL, (word32)built, vdCode,
@@ -1194,6 +1189,7 @@ static int test_vendor_defined_roundtrip(void)
     char vdCode[9];
     word32 payloadSz;
     int i, built;
+    int parsed;
     printf("test_vendor_defined_roundtrip...\n");
 
     for (i = 0; i < 5; i++) {
@@ -1202,14 +1198,12 @@ static int test_vendor_defined_roundtrip(void)
             testData, 4, outBuf, sizeof(outBuf));
         TEST_ASSERT(built > 0, "build failed");
         payloadSz = sizeof(payload);
-        {
-            int parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built,
-                vdCode, payload, &payloadSz);
-            TEST_ASSERT(parsed >= 0, "parse failed");
-            TEST_ASSERT(memcmp(vdCode, codes[i], 8) == 0, "vdCode mismatch");
-            ASSERT_EQ(payloadSz, 4, "payload size");
-            TEST_ASSERT(memcmp(payload, testData, 4) == 0, "payload mismatch");
-        }
+        parsed = wolfSPDM_ParseVendorDefined(outBuf, (word32)built,
+            vdCode, payload, &payloadSz);
+        TEST_ASSERT(parsed >= 0, "parse failed");
+        TEST_ASSERT(memcmp(vdCode, codes[i], 8) == 0, "vdCode mismatch");
+        ASSERT_EQ(payloadSz, 4, "payload size");
+        TEST_ASSERT(memcmp(payload, testData, 4) == 0, "payload mismatch");
     }
 
     TEST_PASS();

@@ -201,6 +201,7 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
     byte signature[WOLFSPDM_ECC_POINT_SIZE];  /* 96 bytes for P-384 */
     word32 sigSz = sizeof(signature);
     word32 offset = 4;  /* Start after header */
+    word32 minSz;
     int mutualAuth = 0;
     int rc;
 
@@ -220,15 +221,13 @@ int wolfSPDM_BuildFinish(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
 
     /* Check buffer size: header(4) + [OpaqueLength(2) for 1.4+] +
      * [signature(96) for mutual auth] + HMAC(48) */
-    {
-        word32 minSz = 4 + WOLFSPDM_HASH_SIZE;  /* header + HMAC */
-        if (ctx->spdmVersion >= SPDM_VERSION_14)
-            minSz += 2;  /* OpaqueLength */
-        if (mutualAuth)
-            minSz += WOLFSPDM_ECC_POINT_SIZE;  /* Signature */
-        if (*bufSz < minSz)
-            return WOLFSPDM_E_BUFFER_SMALL;
-    }
+    minSz = 4 + WOLFSPDM_HASH_SIZE;  /* header + HMAC */
+    if (ctx->spdmVersion >= SPDM_VERSION_14)
+        minSz += 2;  /* OpaqueLength */
+    if (mutualAuth)
+        minSz += WOLFSPDM_ECC_POINT_SIZE;  /* Signature */
+    if (*bufSz < minSz)
+        return WOLFSPDM_E_BUFFER_SMALL;
 
     /* Build FINISH header */
     buf[0] = ctx->spdmVersion;
@@ -352,6 +351,7 @@ int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
     word16 maxEntries;
     word32 i;
     byte highestVersion = 0;  /* No version found yet */
+    byte maxVer;
 
     SPDM_CHECK_PARSE_ARGS(ctx, buf, bufSz, 6);
     SPDM_CHECK_RESPONSE(ctx, buf, bufSz, SPDM_VERSION, WOLFSPDM_E_VERSION_MISMATCH);
@@ -372,17 +372,15 @@ int wolfSPDM_ParseVersion(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufSz)
      * Per DSP0274, negotiated version must be the highest version
      * that both sides support. We support WOLFSPDM_MIN_SPDM_VERSION
      * through WOLFSPDM_MAX_SPDM_VERSION (or ctx->maxVersion if set). */
-    {
-        byte maxVer = (ctx->maxVersion != 0) ? ctx->maxVersion
-                                              : WOLFSPDM_MAX_SPDM_VERSION;
-        for (i = 0; i < entryCount; i++) {
-            /* Each entry is 2 bytes; high byte (offset +1) is Major.Minor */
-            byte ver = buf[6 + i * 2 + 1];
-            if (ver >= WOLFSPDM_MIN_SPDM_VERSION &&
-                ver <= maxVer &&
-                ver > highestVersion) {
-                highestVersion = ver;
-            }
+    maxVer = (ctx->maxVersion != 0) ? ctx->maxVersion
+                                          : WOLFSPDM_MAX_SPDM_VERSION;
+    for (i = 0; i < entryCount; i++) {
+        /* Each entry is 2 bytes; high byte (offset +1) is Major.Minor */
+        byte ver = buf[6 + i * 2 + 1];
+        if (ver >= WOLFSPDM_MIN_SPDM_VERSION &&
+            ver <= maxVer &&
+            ver > highestVersion) {
+            highestVersion = ver;
         }
     }
 

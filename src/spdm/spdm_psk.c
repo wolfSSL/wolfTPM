@@ -322,6 +322,16 @@ int wolfSPDM_DeriveHandshakeKeysPsk(WOLFSPDM_CTX* ctx, const byte* th1Hash)
 int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
 {
     int rc;
+    byte txBuf[128];
+    byte rxBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
+    byte finBuf[64];
+    byte encBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
+    byte decBuf[64];
+    word32 txSz;
+    word32 rxSz;
+    word32 finSz;
+    word32 encSz;
+    word32 decSz;
 
     if (ctx == NULL) {
         return WOLFSPDM_E_INVALID_ARG;
@@ -354,72 +364,62 @@ int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
      * NS350 supports direct GET_VERSION -> PSK_EXCHANGE. */
 
     /* Step 2: PSK_EXCHANGE / PSK_EXCHANGE_RSP */
-    {
-        byte txBuf[128];
-        byte rxBuf[WOLFSPDM_VENDOR_RX_SZ];
-        word32 txSz = sizeof(txBuf);
-        word32 rxSz = sizeof(rxBuf);
+    txSz = sizeof(txBuf);
+    rxSz = sizeof(rxBuf);
 
-        wolfSPDM_DebugPrint(ctx, "PSK Step 4: PSK_EXCHANGE\n");
-        rc = wolfSPDM_BuildPskExchange(ctx, txBuf, &txSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_TranscriptAdd(ctx, txBuf, txSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_SendReceive(ctx, txBuf, txSz, rxBuf, &rxSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_ParsePskExchangeRsp(ctx, rxBuf, rxSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
+    wolfSPDM_DebugPrint(ctx, "PSK Step 4: PSK_EXCHANGE\n");
+    rc = wolfSPDM_BuildPskExchange(ctx, txBuf, &txSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_TranscriptAdd(ctx, txBuf, txSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_SendReceive(ctx, txBuf, txSz, rxBuf, &rxSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_ParsePskExchangeRsp(ctx, rxBuf, rxSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
     }
 
     /* Step 5: PSK_FINISH / PSK_FINISH_RSP (encrypted) */
-    {
-        byte finBuf[64];
-        byte encBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
-        byte rxBuf[WOLFSPDM_MAX_MSG_SIZE + WOLFSPDM_AEAD_OVERHEAD];
-        byte decBuf[64];
-        word32 finSz = sizeof(finBuf);
-        word32 encSz = sizeof(encBuf);
-        word32 rxSz = sizeof(rxBuf);
-        word32 decSz = sizeof(decBuf);
+    finSz = sizeof(finBuf);
+    encSz = sizeof(encBuf);
+    rxSz = sizeof(rxBuf);
+    decSz = sizeof(decBuf);
 
-        wolfSPDM_DebugPrint(ctx, "PSK Step 5: PSK_FINISH\n");
-        rc = wolfSPDM_BuildPskFinish(ctx, finBuf, &finSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_EncryptInternal(ctx, finBuf, finSz, encBuf, &encSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_SendReceive(ctx, encBuf, encSz, rxBuf, &rxSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_DecryptInternal(ctx, rxBuf, rxSz, decBuf, &decSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
-        rc = wolfSPDM_ParsePskFinishRsp(ctx, decBuf, decSz);
-        if (rc != WOLFSPDM_SUCCESS) {
-            ctx->state = WOLFSPDM_STATE_ERROR;
-            return rc;
-        }
+    wolfSPDM_DebugPrint(ctx, "PSK Step 5: PSK_FINISH\n");
+    rc = wolfSPDM_BuildPskFinish(ctx, finBuf, &finSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_EncryptInternal(ctx, finBuf, finSz, encBuf, &encSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_SendReceive(ctx, encBuf, encSz, rxBuf, &rxSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_DecryptInternal(ctx, rxBuf, rxSz, decBuf, &decSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
+    }
+    rc = wolfSPDM_ParsePskFinishRsp(ctx, decBuf, decSz);
+    if (rc != WOLFSPDM_SUCCESS) {
+        ctx->state = WOLFSPDM_STATE_ERROR;
+        return rc;
     }
 
     /* Derive application data keys */

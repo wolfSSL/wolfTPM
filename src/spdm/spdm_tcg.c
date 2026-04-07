@@ -43,12 +43,11 @@ int wolfSPDM_TCG_VendorCmdClear(WOLFSPDM_CTX* ctx, const char* vdCode,
     byte rxBuf[WOLFSPDM_VENDOR_RX_SZ];
     word32 rxSz;
     int rc;
+    byte ver;
 
-    {
-        byte ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
-        spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
-            payloadSz, spdmMsg, sizeof(spdmMsg));
-    }
+    ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
+    spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
+        payloadSz, spdmMsg, sizeof(spdmMsg));
     if (spdmMsgSz < 0) {
         return spdmMsgSz;
     }
@@ -92,12 +91,11 @@ int wolfSPDM_TCG_VendorCmdSecured(WOLFSPDM_CTX* ctx, const char* vdCode,
     byte decBuf[WOLFSPDM_VENDOR_BUF_SZ];
     word32 decSz;
     int rc;
+    byte ver;
 
-    {
-        byte ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
-        spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
-            payloadSz, spdmMsg, sizeof(spdmMsg));
-    }
+    ver = ctx->spdmVersion ? ctx->spdmVersion : SPDM_VERSION_13;
+    spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
+        payloadSz, spdmMsg, sizeof(spdmMsg));
     if (spdmMsgSz < 0) {
         return spdmMsgSz;
     }
