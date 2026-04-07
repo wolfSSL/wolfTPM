@@ -37,8 +37,8 @@
 #ifdef WOLFTPM_INCLUDE_IO_FILE
 #ifdef WOLFTPM_MMIO
 
-#ifndef MIMO_BASE_ADDRESS
-#define MIMO_BASE_ADDRESS 0xFE000000u
+#ifndef MMIO_BASE_ADDRESS
+#define MMIO_BASE_ADDRESS 0xFE000000u
 #endif
 
 #ifndef WOLFTPM_ADV_IO
@@ -100,13 +100,22 @@ int TPM2_IoCb_Mmio(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 siz
 {
     size_t i;
     word32 effectiveAddr;
+    word32 regOffset;
+    int isFifo;
 
     /* Bounds check to prevent address wrap-around */
     if (addr >= TPM_MMIO_MAX_OFFSET) {
         return TPM_RC_FAILURE;
     }
 
-    effectiveAddr = MIMO_BASE_ADDRESS + addr;
+    effectiveAddr = MMIO_BASE_ADDRESS + addr;
+
+    /* FIFO registers use the same address for every access
+     * (hardware auto-increments internally).
+     * Non-FIFO registers need the address advanced for multi-byte access. */
+    regOffset = addr & 0x0FFFu;
+    isFifo = (regOffset == TPM_TIS_DATA_FIFO_OFFSET ||
+              regOffset == TPM_TIS_XDATA_FIFO_OFFSET);
 
     /* IO for 32-bit aligned */
     for (i = 0; ((size_t)size - i) >= sizeof(word32); i += sizeof(word32)) {
@@ -114,6 +123,8 @@ int TPM2_IoCb_Mmio(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 siz
             TPM2_Mmio_Read32(effectiveAddr, buf + i);
         else
             TPM2_Mmio_Write32(effectiveAddr, buf + i);
+        if (!isFifo)
+            effectiveAddr += sizeof(word32);
     }
 
     /* IO for unaligned remainder */
@@ -122,6 +133,8 @@ int TPM2_IoCb_Mmio(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 siz
             TPM2_Mmio_Read8(effectiveAddr, buf + i);
         else
             TPM2_Mmio_Write8(effectiveAddr, buf + i);
+        if (!isFifo)
+            effectiveAddr++;
     }
 
     (void)ctx;

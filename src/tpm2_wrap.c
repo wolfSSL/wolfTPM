@@ -1187,6 +1187,8 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* Capture TPM provided nonce */
         session->nonceTPM.size = tpmSession->nonceTPM.size;
+        if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
+            session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
         XMEMCPY(session->nonceTPM.buffer, tpmSession->nonceTPM.buffer,
             session->nonceTPM.size);
 
@@ -4453,19 +4455,26 @@ int wolfTPM2_VerifyHash_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* sig, int sigSz, const byte* digest, int digestSz)
 {
-    int curve_id = 0;
-    int hashAlg = TPM_ALG_NULL;
+    int hashAlg = TPM_ALG_SHA256;
 
-    /* detect hash algorithm based on key curve */
+    /* detect hash algorithm based on key type and parameters */
     if (key != NULL) {
-        curve_id = key->pub.publicArea.parameters.eccDetail.curveID;
+        TPMT_PUBLIC* pub = &key->pub.publicArea;
+        if (pub->type == TPM_ALG_ECC) {
+            int curve_id = pub->parameters.eccDetail.curveID;
+            if (curve_id == TPM_ECC_NIST_P521)
+                hashAlg = TPM_ALG_SHA512;
+            else if (curve_id == TPM_ECC_NIST_P384)
+                hashAlg = TPM_ALG_SHA384;
+            else
+                hashAlg = TPM_ALG_SHA256;
+        }
+        else if (pub->type == TPM_ALG_RSA) {
+            hashAlg = pub->parameters.rsaDetail.scheme.details.anySig.hashAlg;
+            if (hashAlg == TPM_ALG_NULL || hashAlg == TPM_ALG_ERROR)
+                hashAlg = TPM_ALG_SHA256;
+        }
     }
-    if (curve_id == TPM_ECC_NIST_P521)
-        hashAlg = TPM_ALG_SHA512;
-    else if (curve_id == TPM_ECC_NIST_P384)
-        hashAlg = TPM_ALG_SHA384;
-    else
-        hashAlg = TPM_ALG_SHA256;
 
     return wolfTPM2_VerifyHashTicket(dev, key, sig, sigSz, digest, digestSz,
         TPM_ALG_NULL, hashAlg, NULL);
@@ -4551,6 +4560,7 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         ecdhOut.pubPoint.size);
 #endif
 
+    TPM2_ForceZero(&ecdhOut, sizeof(ecdhOut));
     return rc;
 }
 
@@ -4600,6 +4610,7 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
 #endif
 
+    TPM2_ForceZero(&ecdhZOut, sizeof(ecdhZOut));
     return rc;
 }
 
@@ -4677,6 +4688,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         printf("TPM2_ZGen_2Phase failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
         return rc;
     }
 
@@ -4690,6 +4702,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
 #endif
 
+    TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
     return rc;
 }
 
@@ -4788,10 +4801,12 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_RSA_Decrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
         return rc;
     }
 
     if (*msgSz < rsaDecOut.message.size) {
+        TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
         return BUFFER_E;
     }
     *msgSz = rsaDecOut.message.size;
@@ -4801,6 +4816,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     printf("TPM2_RSA_Decrypt: %d\n", rsaDecOut.message.size);
 #endif
 
+    TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
     return rc;
 }
 
@@ -5226,6 +5242,10 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         }
 
         toread = out.data.size;
+        if (toread > dataSz) {
+            rc = BAD_FUNC_ARG;
+            break;
+        }
         if (dataBuf) {
             XMEMCPY(&dataBuf[pos], out.data.buffer, toread);
         }
@@ -5971,6 +5991,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_EncryptDecrypt2 failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&encDecIn, sizeof(encDecIn));
+        TPM2_ForceZero(&encDecOut, sizeof(encDecOut));
         return rc;
     }
 
@@ -5986,6 +6008,8 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         inOutSz = encDecOut.outData.size;
     XMEMCPY(out, encDecOut.outData.buffer, inOutSz);
 
+    TPM2_ForceZero(&encDecIn, sizeof(encDecIn));
+    TPM2_ForceZero(&encDecOut, sizeof(encDecOut));
     return rc;
 }
 

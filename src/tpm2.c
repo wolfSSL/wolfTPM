@@ -891,9 +891,16 @@ TPM_RC TPM2_GetTestResult(GetTestResult_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            TPM2_Packet_ParseU16(&packet, &out->outData.size);
+            UINT16 wireSize;
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outData.size = wireSize;
+            if (out->outData.size > (UINT16)sizeof(out->outData.buffer))
+                out->outData.size = (UINT16)sizeof(out->outData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
                 out->outData.size);
+            if (wireSize > out->outData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outData.size);
             TPM2_Packet_ParseU16(&packet, &out->testResult);
         }
 
@@ -1119,9 +1126,16 @@ TPM_RC TPM2_GetRandom(GetRandom_In* in, GetRandom_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            TPM2_Packet_ParseU16(&packet, &out->randomBytes.size);
+            UINT16 wireSize;
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->randomBytes.size = wireSize;
+            if (out->randomBytes.size > (UINT16)sizeof(out->randomBytes.buffer))
+                out->randomBytes.size = (UINT16)sizeof(out->randomBytes.buffer);
             TPM2_Packet_ParseBytes(&packet, out->randomBytes.buffer,
                 out->randomBytes.size);
+            if (wireSize > out->randomBytes.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->randomBytes.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1265,53 +1279,102 @@ TPM_RC TPM2_Create(Create_In* in, Create_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outPrivate.size = wireSize;
+            if (out->outPrivate.size > (UINT16)sizeof(out->outPrivate.buffer))
+                out->outPrivate.size = (UINT16)sizeof(out->outPrivate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
                 out->outPrivate.size);
+            if (wireSize > out->outPrivate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outPrivate.size);
 
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
             TPM2_Packet_ParseU16(&packet, &out->creationData.size);
             TPM2_Packet_ParsePCR(&packet,
                 &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.pcrDigest.size = wireSize;
+            if (out->creationData.creationData.pcrDigest.size >
+                    (UINT16)sizeof(out->creationData.creationData.pcrDigest.buffer))
+                out->creationData.creationData.pcrDigest.size =
+                    (UINT16)sizeof(out->creationData.creationData.pcrDigest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.pcrDigest.buffer,
                 out->creationData.creationData.pcrDigest.size);
+            if (wireSize > out->creationData.creationData.pcrDigest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.pcrDigest.size);
             TPM2_Packet_ParseU8(&packet,
                 &out->creationData.creationData.locality);
             TPM2_Packet_ParseU16(&packet,
                 &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.parentName.size = wireSize;
+            if (out->creationData.creationData.parentName.size >
+                    (UINT16)sizeof(out->creationData.creationData.parentName.name))
+                out->creationData.creationData.parentName.size =
+                    (UINT16)sizeof(out->creationData.creationData.parentName.name);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.parentName.name,
                 out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentQualifiedName.size);
+            if (wireSize > out->creationData.creationData.parentName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.parentQualifiedName.size = wireSize;
+            if (out->creationData.creationData.parentQualifiedName.size >
+                    (UINT16)sizeof(out->creationData.creationData.parentQualifiedName.name))
+                out->creationData.creationData.parentQualifiedName.size =
+                    (UINT16)sizeof(out->creationData.creationData.parentQualifiedName.name);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.parentQualifiedName.name,
                 out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.outsideInfo.size);
+            if (wireSize > out->creationData.creationData.parentQualifiedName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.parentQualifiedName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.outsideInfo.size = wireSize;
+            if (out->creationData.creationData.outsideInfo.size >
+                    (UINT16)sizeof(out->creationData.creationData.outsideInfo.buffer))
+                out->creationData.creationData.outsideInfo.size =
+                    (UINT16)sizeof(out->creationData.creationData.outsideInfo.buffer);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.outsideInfo.buffer,
                 out->creationData.creationData.outsideInfo.size);
+            if (wireSize > out->creationData.creationData.outsideInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.outsideInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationHash.size = wireSize;
+            if (out->creationHash.size > (UINT16)sizeof(out->creationHash.buffer))
+                out->creationHash.size = (UINT16)sizeof(out->creationHash.buffer);
             TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
                 out->creationHash.size);
+            if (wireSize > out->creationHash.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationTicket.digest.size = wireSize;
+            if (out->creationTicket.digest.size >
+                    (UINT16)sizeof(out->creationTicket.digest.buffer))
+                out->creationTicket.digest.size =
+                    (UINT16)sizeof(out->creationTicket.digest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                         out->creationTicket.digest.buffer,
                         out->creationTicket.digest.size);
+            if (wireSize > out->creationTicket.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationTicket.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1345,18 +1408,31 @@ TPM_RC TPM2_CreateLoaded(CreateLoaded_In* in, CreateLoaded_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outPrivate.size = wireSize;
+            if (out->outPrivate.size > (UINT16)sizeof(out->outPrivate.buffer))
+                out->outPrivate.size = (UINT16)sizeof(out->outPrivate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
                 out->outPrivate.size);
+            if (wireSize > out->outPrivate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outPrivate.size);
 
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
-            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->name.size = wireSize;
+            if (out->name.size > (UINT16)sizeof(out->name.name))
+                out->name.size = (UINT16)sizeof(out->name.name);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+            if (wireSize > out->name.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->name.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1395,6 +1471,7 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
 
@@ -1405,44 +1482,92 @@ TPM_RC TPM2_CreatePrimary(CreatePrimary_In* in, CreatePrimary_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->creationData.size);
             TPM2_Packet_ParsePCR(&packet,
                 &out->creationData.creationData.pcrSelect);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.pcrDigest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.pcrDigest.size = wireSize;
+            if (out->creationData.creationData.pcrDigest.size >
+                    (UINT16)sizeof(out->creationData.creationData.pcrDigest.buffer))
+                out->creationData.creationData.pcrDigest.size =
+                    (UINT16)sizeof(out->creationData.creationData.pcrDigest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.pcrDigest.buffer,
                 out->creationData.creationData.pcrDigest.size);
+            if (wireSize > out->creationData.creationData.pcrDigest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.pcrDigest.size);
             TPM2_Packet_ParseU8(&packet,
                 &out->creationData.creationData.locality);
             TPM2_Packet_ParseU16(&packet,
                 &out->creationData.creationData.parentNameAlg);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.parentName.size = wireSize;
+            if (out->creationData.creationData.parentName.size >
+                    (UINT16)sizeof(out->creationData.creationData.parentName.name))
+                out->creationData.creationData.parentName.size =
+                    (UINT16)sizeof(out->creationData.creationData.parentName.name);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.parentName.name,
                 out->creationData.creationData.parentName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.parentQualifiedName.size);
+            if (wireSize > out->creationData.creationData.parentName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.parentName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.parentQualifiedName.size = wireSize;
+            if (out->creationData.creationData.parentQualifiedName.size >
+                    (UINT16)sizeof(out->creationData.creationData.parentQualifiedName.name))
+                out->creationData.creationData.parentQualifiedName.size =
+                    (UINT16)sizeof(out->creationData.creationData.parentQualifiedName.name);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.parentQualifiedName.name,
                 out->creationData.creationData.parentQualifiedName.size);
-            TPM2_Packet_ParseU16(&packet,
-                &out->creationData.creationData.outsideInfo.size);
+            if (wireSize > out->creationData.creationData.parentQualifiedName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.parentQualifiedName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationData.creationData.outsideInfo.size = wireSize;
+            if (out->creationData.creationData.outsideInfo.size >
+                    (UINT16)sizeof(out->creationData.creationData.outsideInfo.buffer))
+                out->creationData.creationData.outsideInfo.size =
+                    (UINT16)sizeof(out->creationData.creationData.outsideInfo.buffer);
             TPM2_Packet_ParseBytes(&packet,
                 out->creationData.creationData.outsideInfo.buffer,
                 out->creationData.creationData.outsideInfo.size);
+            if (wireSize > out->creationData.creationData.outsideInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationData.creationData.outsideInfo.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->creationHash.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationHash.size = wireSize;
+            if (out->creationHash.size > (UINT16)sizeof(out->creationHash.buffer))
+                out->creationHash.size = (UINT16)sizeof(out->creationHash.buffer);
             TPM2_Packet_ParseBytes(&packet, out->creationHash.buffer,
                 out->creationHash.size);
+            if (wireSize > out->creationHash.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->creationTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->creationTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->creationTicket.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->creationTicket.digest.size = wireSize;
+            if (out->creationTicket.digest.size >
+                    (UINT16)sizeof(out->creationTicket.digest.buffer))
+                out->creationTicket.digest.size =
+                    (UINT16)sizeof(out->creationTicket.digest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                         out->creationTicket.digest.buffer,
                         out->creationTicket.digest.size);
+            if (wireSize > out->creationTicket.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->creationTicket.digest.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->name.size = wireSize;
+            if (out->name.size > (UINT16)sizeof(out->name.name))
+                out->name.size = (UINT16)sizeof(out->name.name);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+            if (wireSize > out->name.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->name.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1480,10 +1605,17 @@ TPM_RC TPM2_Load(Load_In* in, Load_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
             TPM2_Packet_ParseU32(&packet, &paramSz);
-            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->name.size = wireSize;
+            if (out->name.size > (UINT16)sizeof(out->name.name))
+                out->name.size = (UINT16)sizeof(out->name.name);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+            if (wireSize > out->name.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->name.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1538,10 +1670,17 @@ TPM_RC TPM2_Unseal(Unseal_In* in, Unseal_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
             TPM2_Packet_ParseU32(&packet, &paramSz);
-            TPM2_Packet_ParseU16(&packet, &out->outData.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outData.size = wireSize;
+            if (out->outData.size > (UINT16)sizeof(out->outData.buffer))
+                out->outData.size = (UINT16)sizeof(out->outData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
                 out->outData.size);
+            if (wireSize > out->outData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1579,10 +1718,17 @@ TPM_RC TPM2_StartAuthSession(StartAuthSession_In* in, StartAuthSession_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
+            UINT16 wireSize;
             TPM2_Packet_ParseU32(&packet, &out->sessionHandle);
-            TPM2_Packet_ParseU16(&packet, &out->nonceTPM.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->nonceTPM.size = wireSize;
+            if (out->nonceTPM.size > (UINT16)sizeof(out->nonceTPM.buffer))
+                out->nonceTPM.size = (UINT16)sizeof(out->nonceTPM.buffer);
             TPM2_Packet_ParseBytes(&packet, out->nonceTPM.buffer,
                 out->nonceTPM.size);
+            if (wireSize > out->nonceTPM.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->nonceTPM.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1673,6 +1819,7 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &out->objectHandle);
 
@@ -1680,8 +1827,14 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->name.size = wireSize;
+            if (out->name.size > (UINT16)sizeof(out->name.name))
+                out->name.size = (UINT16)sizeof(out->name.name);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+            if (wireSize > out->name.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->name.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1707,14 +1860,27 @@ TPM_RC TPM2_ReadPublic(ReadPublic_In* in, ReadPublic_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
+            UINT16 wireSize;
             TPM2_Packet_ParsePublic(&packet, &out->outPublic);
 
-            TPM2_Packet_ParseU16(&packet, &out->name.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->name.size = wireSize;
+            if (out->name.size > (UINT16)sizeof(out->name.name))
+                out->name.size = (UINT16)sizeof(out->name.name);
             TPM2_Packet_ParseBytes(&packet, out->name.name, out->name.size);
+            if (wireSize > out->name.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->name.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->qualifiedName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->qualifiedName.size = wireSize;
+            if (out->qualifiedName.size > (UINT16)sizeof(out->qualifiedName.name))
+                out->qualifiedName.size = (UINT16)sizeof(out->qualifiedName.name);
             TPM2_Packet_ParseBytes(&packet, out->qualifiedName.name,
                 out->qualifiedName.size);
+            if (wireSize > out->qualifiedName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->qualifiedName.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1755,10 +1921,17 @@ TPM_RC TPM2_ActivateCredential(ActivateCredential_In* in,
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
             TPM2_Packet_ParseU32(&packet, &paramSz);
-            TPM2_Packet_ParseU16(&packet, &out->certInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->certInfo.size = wireSize;
+            if (out->certInfo.size > (UINT16)sizeof(out->certInfo.buffer))
+                out->certInfo.size = (UINT16)sizeof(out->certInfo.buffer);
             TPM2_Packet_ParseBytes(&packet, out->certInfo.buffer,
                 out->certInfo.size);
+            if (wireSize > out->certInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->certInfo.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1794,13 +1967,26 @@ TPM_RC TPM2_MakeCredential(MakeCredential_In* in, MakeCredential_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            TPM2_Packet_ParseU16(&packet, &out->credentialBlob.size);
+            UINT16 wireSize;
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->credentialBlob.size = wireSize;
+            if (out->credentialBlob.size > (UINT16)sizeof(out->credentialBlob.buffer))
+                out->credentialBlob.size = (UINT16)sizeof(out->credentialBlob.buffer);
             TPM2_Packet_ParseBytes(&packet, out->credentialBlob.buffer,
                 out->credentialBlob.size);
+            if (wireSize > out->credentialBlob.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->credentialBlob.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->secret.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->secret.size = wireSize;
+            if (out->secret.size > (UINT16)sizeof(out->secret.secret))
+                out->secret.size = (UINT16)sizeof(out->secret.secret);
             TPM2_Packet_ParseBytes(&packet, out->secret.secret,
                 out->secret.size);
+            if (wireSize > out->secret.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->secret.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1839,11 +2025,18 @@ TPM_RC TPM2_ObjectChangeAuth(ObjectChangeAuth_In* in, ObjectChangeAuth_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outPrivate.size = wireSize;
+            if (out->outPrivate.size > (UINT16)sizeof(out->outPrivate.buffer))
+                out->outPrivate.size = (UINT16)sizeof(out->outPrivate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
                 out->outPrivate.size);
+            if (wireSize > out->outPrivate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outPrivate.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1886,20 +2079,39 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->encryptionKeyOut.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->encryptionKeyOut.size = wireSize;
+            if (out->encryptionKeyOut.size > (UINT16)sizeof(out->encryptionKeyOut.buffer))
+                out->encryptionKeyOut.size = (UINT16)sizeof(out->encryptionKeyOut.buffer);
             TPM2_Packet_ParseBytes(&packet, out->encryptionKeyOut.buffer,
                 out->encryptionKeyOut.size);
+            if (wireSize > out->encryptionKeyOut.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->encryptionKeyOut.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->duplicate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->duplicate.size = wireSize;
+            if (out->duplicate.size > (UINT16)sizeof(out->duplicate.buffer))
+                out->duplicate.size = (UINT16)sizeof(out->duplicate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->duplicate.buffer,
                 out->duplicate.size);
+            if (wireSize > out->duplicate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->duplicate.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->outSymSeed.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outSymSeed.size = wireSize;
+            if (out->outSymSeed.size > (UINT16)sizeof(out->outSymSeed.secret))
+                out->outSymSeed.size = (UINT16)sizeof(out->outSymSeed.secret);
             TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret,
                 out->outSymSeed.size);
+            if (wireSize > out->outSymSeed.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outSymSeed.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1945,16 +2157,29 @@ TPM_RC TPM2_Rewrap(Rewrap_In* in, Rewrap_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outDuplicate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outDuplicate.size = wireSize;
+            if (out->outDuplicate.size > (UINT16)sizeof(out->outDuplicate.buffer))
+                out->outDuplicate.size = (UINT16)sizeof(out->outDuplicate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outDuplicate.buffer,
                 out->outDuplicate.size);
+            if (wireSize > out->outDuplicate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outDuplicate.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->outSymSeed.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outSymSeed.size = wireSize;
+            if (out->outSymSeed.size > (UINT16)sizeof(out->outSymSeed.secret))
+                out->outSymSeed.size = (UINT16)sizeof(out->outSymSeed.secret);
             TPM2_Packet_ParseBytes(&packet, out->outSymSeed.secret,
                 out->outSymSeed.size);
+            if (wireSize > out->outSymSeed.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outSymSeed.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -1998,12 +2223,19 @@ TPM_RC TPM2_Import(Import_In* in, Import_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outPrivate.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outPrivate.size = wireSize;
+            if (out->outPrivate.size > (UINT16)sizeof(out->outPrivate.buffer))
+                out->outPrivate.size = (UINT16)sizeof(out->outPrivate.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outPrivate.buffer,
                 out->outPrivate.size);
+            if (wireSize > out->outPrivate.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outPrivate.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2049,14 +2281,21 @@ TPM_RC TPM2_RSA_Encrypt(RSA_Encrypt_In* in, RSA_Encrypt_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->outData.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outData.size = wireSize;
+            if (out->outData.size > (UINT16)sizeof(out->outData.buffer))
+                out->outData.size = (UINT16)sizeof(out->outData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
                 out->outData.size);
+            if (wireSize > out->outData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2102,12 +2341,19 @@ TPM_RC TPM2_RSA_Decrypt(RSA_Decrypt_In* in, RSA_Decrypt_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->message.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->message.size = wireSize;
+            if (out->message.size > (UINT16)sizeof(out->message.buffer))
+                out->message.size = (UINT16)sizeof(out->message.buffer);
             TPM2_Packet_ParseBytes(&packet, out->message.buffer,
                 out->message.size);
+            if (wireSize > out->message.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->message.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2216,6 +2462,7 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
+            UINT16 wireSize;
             TPM2_Packet_ParseU16(&packet, &out->parameters.curveID);
             TPM2_Packet_ParseU16(&packet, &out->parameters.keySize);
 
@@ -2229,33 +2476,75 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
                 TPM2_Packet_ParseU16(&packet,
                     &out->parameters.sign.details.any.hashAlg);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.p.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.p.size = wireSize;
+            if (out->parameters.p.size > (UINT16)sizeof(out->parameters.p.buffer))
+                out->parameters.p.size = (UINT16)sizeof(out->parameters.p.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.p.buffer,
                 out->parameters.p.size);
+            if (wireSize > out->parameters.p.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.p.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.a.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.a.size = wireSize;
+            if (out->parameters.a.size > (UINT16)sizeof(out->parameters.a.buffer))
+                out->parameters.a.size = (UINT16)sizeof(out->parameters.a.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.a.buffer,
                 out->parameters.a.size);
+            if (wireSize > out->parameters.a.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.a.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.b.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.b.size = wireSize;
+            if (out->parameters.b.size > (UINT16)sizeof(out->parameters.b.buffer))
+                out->parameters.b.size = (UINT16)sizeof(out->parameters.b.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.b.buffer,
                 out->parameters.b.size);
+            if (wireSize > out->parameters.b.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.b.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.gX.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.gX.size = wireSize;
+            if (out->parameters.gX.size > (UINT16)sizeof(out->parameters.gX.buffer))
+                out->parameters.gX.size = (UINT16)sizeof(out->parameters.gX.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.gX.buffer,
                 out->parameters.gX.size);
+            if (wireSize > out->parameters.gX.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.gX.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.gY.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.gY.size = wireSize;
+            if (out->parameters.gY.size > (UINT16)sizeof(out->parameters.gY.buffer))
+                out->parameters.gY.size = (UINT16)sizeof(out->parameters.gY.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.gY.buffer,
                 out->parameters.gY.size);
+            if (wireSize > out->parameters.gY.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.gY.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.n.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.n.size = wireSize;
+            if (out->parameters.n.size > (UINT16)sizeof(out->parameters.n.buffer))
+                out->parameters.n.size = (UINT16)sizeof(out->parameters.n.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.n.buffer,
                 out->parameters.n.size);
+            if (wireSize > out->parameters.n.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.n.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.h.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->parameters.h.size = wireSize;
+            if (out->parameters.h.size > (UINT16)sizeof(out->parameters.h.buffer))
+                out->parameters.h.size = (UINT16)sizeof(out->parameters.h.buffer);
             TPM2_Packet_ParseBytes(&packet, out->parameters.h.buffer,
                 out->parameters.h.size);
+            if (wireSize > out->parameters.h.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->parameters.h.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2339,15 +2628,28 @@ TPM_RC TPM2_EncryptDecrypt(EncryptDecrypt_In* in, EncryptDecrypt_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outData.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outData.size = wireSize;
+            if (out->outData.size > (UINT16)sizeof(out->outData.buffer))
+                out->outData.size = (UINT16)sizeof(out->outData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
                 out->outData.size);
+            if (wireSize > out->outData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outData.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->ivOut.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->ivOut.size = wireSize;
+            if (out->ivOut.size > (UINT16)sizeof(out->ivOut.buffer))
+                out->ivOut.size = (UINT16)sizeof(out->ivOut.buffer);
             TPM2_Packet_ParseBytes(&packet, out->ivOut.buffer, out->ivOut.size);
+            if (wireSize > out->ivOut.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->ivOut.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2389,15 +2691,28 @@ TPM_RC TPM2_EncryptDecrypt2(EncryptDecrypt2_In* in, EncryptDecrypt2_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outData.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outData.size = wireSize;
+            if (out->outData.size > (UINT16)sizeof(out->outData.buffer))
+                out->outData.size = (UINT16)sizeof(out->outData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outData.buffer,
                 out->outData.size);
+            if (wireSize > out->outData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outData.size);
 
-            TPM2_Packet_ParseU16(&packet, &out->ivOut.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->ivOut.size = wireSize;
+            if (out->ivOut.size > (UINT16)sizeof(out->ivOut.buffer))
+                out->ivOut.size = (UINT16)sizeof(out->ivOut.buffer);
             TPM2_Packet_ParseBytes(&packet, out->ivOut.buffer, out->ivOut.size);
+            if (wireSize > out->ivOut.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->ivOut.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2436,21 +2751,34 @@ TPM_RC TPM2_Hash(Hash_In* in, Hash_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->outHash.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outHash.size = wireSize;
+            if (out->outHash.size > (UINT16)sizeof(out->outHash.buffer))
+                out->outHash.size = (UINT16)sizeof(out->outHash.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outHash.buffer,
                 out->outHash.size);
+            if (wireSize > out->outHash.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outHash.size);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->validation.digest.size = wireSize;
+            if (out->validation.digest.size > (UINT16)sizeof(out->validation.digest.buffer))
+                out->validation.digest.size = (UINT16)sizeof(out->validation.digest.buffer);
             TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer,
                 out->validation.digest.size);
+            if (wireSize > out->validation.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2489,12 +2817,19 @@ TPM_RC TPM2_HMAC(HMAC_In* in, HMAC_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->outHMAC.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->outHMAC.size = wireSize;
+            if (out->outHMAC.size > (UINT16)sizeof(out->outHMAC.buffer))
+                out->outHMAC.size = (UINT16)sizeof(out->outHMAC.buffer);
             TPM2_Packet_ParseBytes(&packet, out->outHMAC.buffer,
                 out->outHMAC.size);
+            if (wireSize > out->outHMAC.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->outHMAC.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2647,19 +2982,34 @@ TPM_RC TPM2_SequenceComplete(SequenceComplete_In* in, SequenceComplete_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->result.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->result.size = wireSize;
+            if (out->result.size > (UINT16)sizeof(out->result.buffer))
+                out->result.size = (UINT16)sizeof(out->result.buffer);
             TPM2_Packet_ParseBytes(&packet, out->result.buffer,
                 out->result.size);
+            if (wireSize > out->result.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->result.size);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->validation.digest.size = wireSize;
+            if (out->validation.digest.size >
+                    (UINT16)sizeof(out->validation.digest.buffer))
+                out->validation.digest.size =
+                    (UINT16)sizeof(out->validation.digest.buffer);
             TPM2_Packet_ParseBytes(&packet, out->validation.digest.buffer,
                 out->validation.digest.size);
+            if (wireSize > out->validation.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -2760,12 +3110,21 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->certifyInfo.size = wireSize;
+            if (out->certifyInfo.size >
+                    (UINT16)sizeof(out->certifyInfo.attestationData))
+                out->certifyInfo.size =
+                    (UINT16)sizeof(out->certifyInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
                 out->certifyInfo.size);
+            if (wireSize > out->certifyInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2821,12 +3180,21 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->certifyInfo.size = wireSize;
+            if (out->certifyInfo.size >
+                    (UINT16)sizeof(out->certifyInfo.attestationData))
+                out->certifyInfo.size =
+                    (UINT16)sizeof(out->certifyInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
                 out->certifyInfo.size);
+            if (wireSize > out->certifyInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2872,12 +3240,21 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->quoted.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->quoted.size = wireSize;
+            if (out->quoted.size >
+                    (UINT16)sizeof(out->quoted.attestationData))
+                out->quoted.size =
+                    (UINT16)sizeof(out->quoted.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->quoted.attestationData,
                 out->quoted.size);
+            if (wireSize > out->quoted.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->quoted.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2926,12 +3303,21 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->auditInfo.size = wireSize;
+            if (out->auditInfo.size >
+                    (UINT16)sizeof(out->auditInfo.attestationData))
+                out->auditInfo.size =
+                    (UINT16)sizeof(out->auditInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData,
                 out->auditInfo.size);
+            if (wireSize > out->auditInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->auditInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -2979,12 +3365,21 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->auditInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->auditInfo.size = wireSize;
+            if (out->auditInfo.size >
+                    (UINT16)sizeof(out->auditInfo.attestationData))
+                out->auditInfo.size =
+                    (UINT16)sizeof(out->auditInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->auditInfo.attestationData,
                 out->auditInfo.size);
+            if (wireSize > out->auditInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->auditInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -3030,12 +3425,21 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->timeInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->timeInfo.size = wireSize;
+            if (out->timeInfo.size >
+                    (UINT16)sizeof(out->timeInfo.attestationData))
+                out->timeInfo.size =
+                    (UINT16)sizeof(out->timeInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->timeInfo.attestationData,
                 out->timeInfo.size);
+            if (wireSize > out->timeInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->timeInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -3111,7 +3515,7 @@ TPM_RC TPM2_EC_Ephemeral(EC_Ephemeral_In* in, EC_Ephemeral_Out* out)
 
         TPM2_Packet_Init(ctx, &packet);
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
-        TPM2_Packet_AppendU32(&packet, in->curveID);
+        TPM2_Packet_AppendU16(&packet, in->curveID);
         TPM2_Packet_Finalize(&packet, st, TPM_CC_EC_Ephemeral);
 
         /* send command */
@@ -3522,21 +3926,36 @@ TPM_RC TPM2_PolicySigned(PolicySigned_In* in, PolicySigned_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->timeout.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->timeout.size = wireSize;
+            if (out->timeout.size > (UINT16)sizeof(out->timeout.buffer))
+                out->timeout.size = (UINT16)sizeof(out->timeout.buffer);
             TPM2_Packet_ParseBytes(&packet, out->timeout.buffer,
                 out->timeout.size);
+            if (wireSize > out->timeout.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->timeout.size);
 
             TPM2_Packet_ParseU16(&packet, &out->policyTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->policyTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->policyTicket.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->policyTicket.digest.size = wireSize;
+            if (out->policyTicket.digest.size >
+                    (UINT16)sizeof(out->policyTicket.digest.buffer))
+                out->policyTicket.digest.size =
+                    (UINT16)sizeof(out->policyTicket.digest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                         out->policyTicket.digest.buffer,
                         out->policyTicket.digest.size);
+            if (wireSize > out->policyTicket.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->policyTicket.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3586,19 +4005,34 @@ TPM_RC TPM2_PolicySecret(PolicySecret_In* in, PolicySecret_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->timeout.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->timeout.size = wireSize;
+            if (out->timeout.size > (UINT16)sizeof(out->timeout.buffer))
+                out->timeout.size = (UINT16)sizeof(out->timeout.buffer);
             TPM2_Packet_ParseBytes(&packet, out->timeout.buffer,
                 out->timeout.size);
+            if (wireSize > out->timeout.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->timeout.size);
 
             TPM2_Packet_ParseU16(&packet, &out->policyTicket.tag);
             TPM2_Packet_ParseU32(&packet, &out->policyTicket.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->policyTicket.digest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->policyTicket.digest.size = wireSize;
+            if (out->policyTicket.digest.size >
+                    (UINT16)sizeof(out->policyTicket.digest.buffer))
+                out->policyTicket.digest.size =
+                    (UINT16)sizeof(out->policyTicket.digest.buffer);
             TPM2_Packet_ParseBytes(&packet,
                         out->policyTicket.digest.buffer,
                         out->policyTicket.digest.size);
+            if (wireSize > out->policyTicket.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->policyTicket.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -4091,14 +4525,23 @@ TPM_RC TPM2_PolicyGetDigest(PolicyGetDigest_In* in, PolicyGetDigest_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->policyDigest.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->policyDigest.size = wireSize;
+            if (out->policyDigest.size >
+                    (UINT16)sizeof(out->policyDigest.buffer))
+                out->policyDigest.size =
+                    (UINT16)sizeof(out->policyDigest.buffer);
             TPM2_Packet_ParseBytes(&packet, out->policyDigest.buffer,
                 out->policyDigest.size);
+            if (wireSize > out->policyDigest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->policyDigest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -4627,14 +5070,21 @@ TPM_RC TPM2_FirmwareRead(FirmwareRead_In* in, FirmwareRead_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
             }
 
-            TPM2_Packet_ParseU16(&packet, &out->fuData.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->fuData.size = wireSize;
+            if (out->fuData.size > (UINT16)sizeof(out->fuData.buffer))
+                out->fuData.size = (UINT16)sizeof(out->fuData.buffer);
             TPM2_Packet_ParseBytes(&packet, out->fuData.buffer,
                 out->fuData.size);
+            if (wireSize > out->fuData.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->fuData.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -4660,13 +5110,23 @@ TPM_RC TPM2_ContextSave(ContextSave_In* in, ContextSave_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
+            UINT16 wireSize;
+
             TPM2_Packet_ParseU64(&packet, &out->context.sequence);
             TPM2_Packet_ParseU32(&packet, &out->context.savedHandle);
             TPM2_Packet_ParseU32(&packet, &out->context.hierarchy);
 
-            TPM2_Packet_ParseU16(&packet, &out->context.contextBlob.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->context.contextBlob.size = wireSize;
+            if (out->context.contextBlob.size >
+                    (UINT16)sizeof(out->context.contextBlob.buffer))
+                out->context.contextBlob.size =
+                    (UINT16)sizeof(out->context.contextBlob.buffer);
             TPM2_Packet_ParseBytes(&packet, out->context.contextBlob.buffer,
                 out->context.contextBlob.size);
+            if (wireSize > out->context.contextBlob.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->context.contextBlob.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -5009,6 +5469,7 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             if (st == TPM_ST_SESSIONS) {
                 TPM2_Packet_ParseU32(&packet, &paramSz);
@@ -5019,16 +5480,30 @@ TPM_RC TPM2_NV_ReadPublic(NV_ReadPublic_In* in, NV_ReadPublic_Out* out)
             TPM2_Packet_ParseU16(&packet, &out->nvPublic.nvPublic.nameAlg);
             TPM2_Packet_ParseU32(&packet, &out->nvPublic.nvPublic.attributes);
 
-            TPM2_Packet_ParseU16(&packet,
-                &out->nvPublic.nvPublic.authPolicy.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->nvPublic.nvPublic.authPolicy.size = wireSize;
+            if (out->nvPublic.nvPublic.authPolicy.size >
+                    (UINT16)sizeof(out->nvPublic.nvPublic.authPolicy.buffer))
+                out->nvPublic.nvPublic.authPolicy.size =
+                    (UINT16)sizeof(out->nvPublic.nvPublic.authPolicy.buffer);
             TPM2_Packet_ParseBytes(&packet,
                 out->nvPublic.nvPublic.authPolicy.buffer,
                 out->nvPublic.nvPublic.authPolicy.size);
+            if (wireSize > out->nvPublic.nvPublic.authPolicy.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->nvPublic.nvPublic.authPolicy.size);
 
             TPM2_Packet_ParseU16(&packet, &out->nvPublic.nvPublic.dataSize);
 
-            TPM2_Packet_ParseU16(&packet, &out->nvName.size);
-            TPM2_Packet_ParseBytes(&packet, out->nvName.name, out->nvName.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->nvName.size = wireSize;
+            if (out->nvName.size > (UINT16)sizeof(out->nvName.name))
+                out->nvName.size = (UINT16)sizeof(out->nvName.name);
+            TPM2_Packet_ParseBytes(&packet, out->nvName.name,
+                out->nvName.size);
+            if (wireSize > out->nvName.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->nvName.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -5268,11 +5743,18 @@ TPM_RC TPM2_NV_Read(NV_Read_In* in, NV_Read_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->data.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->data.size = wireSize;
+            if (out->data.size > (UINT16)sizeof(out->data.buffer))
+                out->data.size = (UINT16)sizeof(out->data.buffer);
             TPM2_Packet_ParseBytes(&packet, out->data.buffer, out->data.size);
+            if (wireSize > out->data.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->data.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -5383,12 +5865,21 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
+            UINT16 wireSize;
 
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
-            TPM2_Packet_ParseU16(&packet, &out->certifyInfo.size);
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->certifyInfo.size = wireSize;
+            if (out->certifyInfo.size >
+                    (UINT16)sizeof(out->certifyInfo.attestationData))
+                out->certifyInfo.size =
+                    (UINT16)sizeof(out->certifyInfo.attestationData);
             TPM2_Packet_ParseBytes(&packet, out->certifyInfo.attestationData,
                 out->certifyInfo.size);
+            if (wireSize > out->certifyInfo.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->certifyInfo.size);
 
             TPM2_Packet_ParseSignature(&packet, &out->signature);
         }
@@ -5492,9 +5983,19 @@ TPM_RC TPM2_GetRandom2(GetRandom2_In* in, GetRandom2_Out* out)
         /* send command */
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
-            TPM2_Packet_ParseU16(&packet, &out->randomBytes.size);
+            UINT16 wireSize;
+
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->randomBytes.size = wireSize;
+            if (out->randomBytes.size >
+                    (UINT16)sizeof(out->randomBytes.buffer))
+                out->randomBytes.size =
+                    (UINT16)sizeof(out->randomBytes.buffer);
             TPM2_Packet_ParseBytes(&packet, out->randomBytes.buffer,
                 out->randomBytes.size);
+            if (wireSize > out->randomBytes.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->randomBytes.size);
         }
 
         TPM2_ReleaseLock(ctx);

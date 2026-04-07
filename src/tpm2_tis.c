@@ -84,8 +84,8 @@ enum tpm_tis_status {
 #define TPM_INT_STATUS(l)       (TPM_BASE_ADDRESS | 0x0010u | ((l) << 12u))
 #define TPM_STS(l)              (TPM_BASE_ADDRESS | 0x0018u | ((l) << 12u))
 #define TPM_BURST_COUNT(l)      (TPM_BASE_ADDRESS | 0x0019u | ((l) << 12u))
-#define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
-#define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
+#define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | TPM_TIS_DATA_FIFO_OFFSET | ((l) << 12u))
+#define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | TPM_TIS_XDATA_FIFO_OFFSET | ((l) << 12u))
 
 
 /* this option enables named semaphore protection on TIS commands for protected
