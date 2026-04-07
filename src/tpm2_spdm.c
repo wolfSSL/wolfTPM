@@ -213,45 +213,62 @@ int wolfTPM2_SPDM_SecuredExchange(
     if (wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NUVOTON ||
         wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS ||
         wolfSPDM_GetMode(ctx->spdmCtx) == WOLFSPDM_MODE_NATIONS_PSK) {
+    #ifdef WOLFTPM_SMALL_STACK
+        byte* vdMsg = (byte*)XMALLOC(WOLFSPDM_MAX_MSG_SIZE, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+        byte* vdRsp = (byte*)XMALLOC(WOLFSPDM_MAX_MSG_SIZE, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+    #else
         byte vdMsg[WOLFSPDM_MAX_MSG_SIZE];
         byte vdRsp[WOLFSPDM_MAX_MSG_SIZE];
-        word32 vdRspSz = sizeof(vdRsp);
+    #endif
+        word32 vdRspSz = WOLFSPDM_MAX_MSG_SIZE;
         char rspVdCode[WOLFSPDM_VDCODE_LEN + 1];
         int vdMsgSz;
-        int rc;
+        int rc = 0;
         byte ver;
+
+    #ifdef WOLFTPM_SMALL_STACK
+        if (vdMsg == NULL || vdRsp == NULL) {
+            XFREE(vdMsg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            XFREE(vdRsp, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            return MEMORY_E;
+        }
+    #endif
 
         /* Wrap TPM command in SPDM VENDOR_DEFINED_REQUEST("TPM2_CMD") */
         ver = wolfSPDM_GetNegotiatedVersion(ctx->spdmCtx);
         if (ver == 0) ver = SPDM_VERSION_13;
         vdMsgSz = wolfSPDM_BuildVendorDefined(ver,
             WOLFSPDM_VDCODE_TPM2_CMD,
-            cmdPlain, cmdSz, vdMsg, sizeof(vdMsg));
+            cmdPlain, cmdSz, vdMsg, WOLFSPDM_MAX_MSG_SIZE);
         if (vdMsgSz < 0) {
-            return vdMsgSz;
+            rc = vdMsgSz;
         }
 
         /* Send encrypted VENDOR_DEFINED, receive encrypted response */
-        rc = wolfSPDM_SecuredExchange(ctx->spdmCtx,
-            vdMsg, (word32)vdMsgSz, vdRsp, &vdRspSz);
-        if (rc != 0) {
-            return rc;
+        if (rc == 0) {
+            rc = wolfSPDM_SecuredExchange(ctx->spdmCtx,
+                vdMsg, (word32)vdMsgSz, vdRsp, &vdRspSz);
         }
 
         /* Parse VENDOR_DEFINED_RESPONSE to extract TPM response */
-        rc = wolfSPDM_ParseVendorDefined(vdRsp, vdRspSz,
-            rspVdCode, rspPlain, rspSz);
-        if (rc < 0) {
-            return rc;
+        if (rc == 0) {
+            rc = wolfSPDM_ParseVendorDefined(vdRsp, vdRspSz,
+                rspVdCode, rspPlain, rspSz);
         }
 
         /* Verify response is for our TPM2_CMD request */
-        if (XMEMCMP(rspVdCode, WOLFSPDM_VDCODE_TPM2_CMD,
+        if (rc == 0 && XMEMCMP(rspVdCode, WOLFSPDM_VDCODE_TPM2_CMD,
                      WOLFSPDM_VDCODE_LEN) != 0) {
-            return WOLFSPDM_E_PEER_ERROR;
+            rc = WOLFSPDM_E_PEER_ERROR;
         }
 
-        return TPM_RC_SUCCESS;
+    #ifdef WOLFTPM_SMALL_STACK
+        XFREE(vdMsg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        XFREE(vdRsp, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    #endif
+        return rc;
     }
 #endif /* WOLFTPM_SPDM_TCG */
 

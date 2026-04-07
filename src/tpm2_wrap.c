@@ -1290,7 +1290,10 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
-        if (rc != 0) return rc;
+        if (rc != 0) {
+            wc_ForceZero(privKey, sizeof(privKey));
+            return rc;
+        }
 
         /* Set raw key pair (X||Y format) */
         XMEMCPY(rawPubKey, pubKeyX, 48);
