@@ -46,6 +46,7 @@ include tests/include.am
 include docs/include.am
 include wrapper/include.am
 include hal/include.am
+include src/spdm/include.am
 include cmake/include.am
 include zephyr/include.am
 
