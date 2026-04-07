@@ -41,6 +41,10 @@
 
 #define TPM_TIS_READY_MASK 0x01
 
+/* TIS register offsets (without base address or locality) */
+#define TPM_TIS_DATA_FIFO_OFFSET   0x0024u
+#define TPM_TIS_XDATA_FIFO_OFFSET  0x0083u
+
 /* Typically only 0-2 wait states are required */
 #ifndef TPM_TIS_MAX_WAIT
 #define TPM_TIS_MAX_WAIT   3

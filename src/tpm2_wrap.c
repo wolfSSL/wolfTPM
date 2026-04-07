@@ -4471,7 +4471,7 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         }
         else if (pub->type == TPM_ALG_RSA) {
             hashAlg = pub->parameters.rsaDetail.scheme.details.anySig.hashAlg;
-            if (hashAlg == TPM_ALG_NULL || hashAlg == 0)
+            if (hashAlg == TPM_ALG_NULL || hashAlg == TPM_ALG_ERROR)
                 hashAlg = TPM_ALG_SHA256;
         }
     }
@@ -4688,6 +4688,7 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         printf("TPM2_ZGen_2Phase failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
         return rc;
     }
 

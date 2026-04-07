@@ -37,8 +37,8 @@
 #ifdef WOLFTPM_INCLUDE_IO_FILE
 #ifdef WOLFTPM_MMIO
 
-#ifndef MIMO_BASE_ADDRESS
-#define MIMO_BASE_ADDRESS 0xFE000000u
+#ifndef MMIO_BASE_ADDRESS
+#define MMIO_BASE_ADDRESS 0xFE000000u
 #endif
 
 #ifndef WOLFTPM_ADV_IO
@@ -108,14 +108,14 @@ int TPM2_IoCb_Mmio(TPM2_CTX *ctx, int isRead, word32 addr, byte* buf, word16 siz
         return TPM_RC_FAILURE;
     }
 
-    effectiveAddr = MIMO_BASE_ADDRESS + addr;
+    effectiveAddr = MMIO_BASE_ADDRESS + addr;
 
     /* FIFO registers use the same address for every access
      * (hardware auto-increments internally).
-     * Non-FIFO registers need the address advanced for multi-byte access.
-     * TPM_DATA_FIFO offset=0x0024, TPM_XDATA_FIFO offset=0x0083 */
+     * Non-FIFO registers need the address advanced for multi-byte access. */
     regOffset = addr & 0x0FFFu;
-    isFifo = (regOffset == 0x0024u || regOffset == 0x0083u);
+    isFifo = (regOffset == TPM_TIS_DATA_FIFO_OFFSET ||
+              regOffset == TPM_TIS_XDATA_FIFO_OFFSET);
 
     /* IO for 32-bit aligned */
     for (i = 0; ((size_t)size - i) >= sizeof(word32); i += sizeof(word32)) {
