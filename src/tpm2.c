@@ -1069,17 +1069,35 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                 {
                     TPML_TAGGED_PCR_PROPERTY* pcrProp =
                         &out->capabilityData.data.pcrProperties;
-                    TPM2_Packet_ParseU32(&packet, &pcrProp->count);
+                    UINT32 wireCount;
+                    UINT32 tag;
+                    UINT8 wireSizeofSelect;
+                    TPM2_Packet_ParseU32(&packet, &wireCount);
+                    pcrProp->count = wireCount;
                     if (pcrProp->count > MAX_PCR_PROPERTIES)
                         pcrProp->count = MAX_PCR_PROPERTIES;
-                    for (i=0; i<(int)pcrProp->count; i++) {
-                        TPMS_TAGGED_PCR_SELECT* sel = &pcrProp->pcrProperty[i];
-                        TPM2_Packet_ParseU32(&packet, &sel->tag);
-                        TPM2_Packet_ParseU8(&packet, &sel->sizeofSelect);
-                        if (sel->sizeofSelect > PCR_SELECT_MAX)
-                            sel->sizeofSelect = PCR_SELECT_MAX;
-                        TPM2_Packet_ParseBytes(&packet, sel->pcrSelect,
-                            sel->sizeofSelect);
+                    for (i=0; i<(int)wireCount; i++) {
+                        TPM2_Packet_ParseU32(&packet, &tag);
+                        TPM2_Packet_ParseU8(&packet, &wireSizeofSelect);
+                        if (i < (int)pcrProp->count) {
+                            TPMS_TAGGED_PCR_SELECT* sel =
+                                &pcrProp->pcrProperty[i];
+                            sel->tag = tag;
+                            sel->sizeofSelect = wireSizeofSelect;
+                            if (sel->sizeofSelect > PCR_SELECT_MAX)
+                                sel->sizeofSelect = PCR_SELECT_MAX;
+                            TPM2_Packet_ParseBytes(&packet, sel->pcrSelect,
+                                sel->sizeofSelect);
+                            if (wireSizeofSelect > sel->sizeofSelect) {
+                                TPM2_Packet_ParseBytes(&packet, NULL,
+                                    wireSizeofSelect - sel->sizeofSelect);
+                            }
+                        }
+                        else {
+                            /* Skip entries beyond array capacity */
+                            TPM2_Packet_ParseBytes(&packet, NULL,
+                                wireSizeofSelect);
+                        }
                     }
                     break;
                 }
