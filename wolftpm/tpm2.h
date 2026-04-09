@@ -1933,6 +1933,15 @@ typedef int (*TPM2HalIoCb)(struct TPM2_CTX*, const BYTE* txBuf, BYTE* rxBuf,
     UINT16 xferSz, void* userCtx);
 #endif
 
+/* Use local wolfCrypt RNG for nonce generation by default.
+ * This is recommended because nonces generated via TPM2_GetRandom travel over
+ * the SPI/I2C bus unprotected (no session exists yet), making them vulnerable
+ * to physical bus tampering (e.g., an attacker driving MISO to force a known
+ * nonce value). A known or attacker-controlled nonceCaller in an unsalted
+ * session can undermine session security and enable active manipulation.
+ * Even with a salted session, it violates the TPM 2.0
+ * spec assumption that nonces are unpredictable (Part 1, Section 19.6).
+ * Only define WOLFTPM2_USE_HW_RNG if the bus is physically secure. */
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WC_NO_RNG) && \
     !defined(WOLFTPM2_USE_HW_RNG)
     #define WOLFTPM2_USE_WOLF_RNG
@@ -3596,8 +3605,11 @@ WOLFTPM_API TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType);
     \ingroup TPM2_Proprietary
     \brief Generate a fresh nonce of random numbers
     \note Can use the TPM random number generator if WOLFTPM2_USE_HW_RNG is defined.
-        To force use of the TPM's RNG use WOLFTPM2_USE_HW_RNG. Please make sure you
-        have parameter encryption enabled to protect the RNG data over the bus.
+        WARNING: Using WOLFTPM2_USE_HW_RNG exposes nonces to physical bus tampering
+        (SPI/I2C). An attacker with bus access can force a known nonce, which
+        can significantly weaken session security, especially for unsalted
+        sessions. Use the default local wolfCrypt RNG unless the bus is
+        physically secure.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (TPM IO issue or wolfcrypt configuration)

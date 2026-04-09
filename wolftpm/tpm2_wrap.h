@@ -2651,7 +2651,11 @@ WOLFTPM_API struct WC_RNG* wolfTPM2_GetRng(WOLFTPM2_DEV* dev);
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Get a set of random number, generated with the TPM RNG or wolfcrypt RNG
-    \note Define WOLFTPM2_USE_HW_RNG to use the TPM RNG source
+    \note Define WOLFTPM2_USE_HW_RNG to use the TPM RNG source.
+    \warning When using WOLFTPM2_USE_HW_RNG, random data travels over the
+        SPI/I2C bus unprotected. If this data is used for session nonces, an
+        attacker with physical bus access can force known values. Use default
+        local RNG unless the bus is physically secure.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
