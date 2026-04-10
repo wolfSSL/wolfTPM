@@ -6805,6 +6805,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
         return rc;
     }
 
@@ -6827,6 +6828,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createIn.inSensitive,
+            sizeof(createIn.inSensitive));
         return rc;
     }
     key->handle.hndl = loadOut.objectHandle;
@@ -7894,6 +7897,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         printf("wolfTPM2_CreateKeySeal failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
         return rc;
     }
 

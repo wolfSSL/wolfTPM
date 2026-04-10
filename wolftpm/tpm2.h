@@ -4010,7 +4010,7 @@ WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 WOLFTPM_LOCAL void TPM2_ForceZero(void* mem, word32 len);
 
 /* Constant time memory comparison */
-WOLFTPM_LOCAL int TPM2_ConstantCompare(const byte* a, const byte* b, word32 len);
+WOLFTPM_TEST_API int TPM2_ConstantCompare(const byte* a, const byte* b, word32 len);
 
 
 #ifdef DEBUG_WOLFTPM

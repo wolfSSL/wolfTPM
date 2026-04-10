@@ -540,6 +540,291 @@ static void test_TPM2_KDFa(void)
         rc >= 0 ? "Passed" : "Failed");
 }
 
+static void test_TPM2_ConstantCompare(void)
+{
+    const byte a[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+    const byte b[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+    const byte c[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x09};
+    const byte d[] = {0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8};
+
+    /* Identical buffers must return 0 */
+    AssertIntEQ(0, TPM2_ConstantCompare(a, b, sizeof(a)));
+
+    /* Single-byte difference must return non-zero */
+    AssertIntNE(0, TPM2_ConstantCompare(a, c, sizeof(a)));
+
+    /* Completely different buffers must return non-zero */
+    AssertIntNE(0, TPM2_ConstantCompare(a, d, sizeof(a)));
+
+    /* Zero length must return 0 (no bytes to compare) */
+    AssertIntEQ(0, TPM2_ConstantCompare(a, d, 0));
+
+    printf("Test TPM Wrapper:\tConstantCompare:\tPassed\n");
+}
+
+static void test_TPM2_ResponseHmacVerification(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int rc;
+    TPM2B_AUTH auth;
+    TPM2B_DIGEST hash;
+    TPM2B_NONCE nonceNew, nonceOld;
+    TPMA_SESSION sessionAttr = TPMA_SESSION_continueSession;
+    TPM2B_AUTH hmac1, hmac2;
+
+    /* Set up known auth key */
+    auth.size = 8;
+    XMEMSET(auth.buffer, 0xAA, auth.size);
+
+    /* Set up known cpHash/rpHash */
+    hash.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(hash.buffer, 0x55, hash.size);
+
+    /* Set up nonces */
+    nonceNew.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceNew.buffer, 0x11, nonceNew.size);
+    nonceOld.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceOld.buffer, 0x22, nonceOld.size);
+
+    /* Compute valid HMAC */
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceNew, &nonceOld,
+        sessionAttr, &hmac1);
+    AssertIntEQ(0, rc);
+    AssertIntGT(hmac1.size, 0);
+
+    /* Compute same HMAC again — must be identical */
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceNew, &nonceOld,
+        sessionAttr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(0, TPM2_ConstantCompare(hmac1.buffer, hmac2.buffer,
+        hmac1.size));
+
+    /* Tamper one byte of the HMAC — verification must detect mismatch */
+    hmac2.buffer[0] ^= 0xFF;
+    AssertIntNE(0, TPM2_ConstantCompare(hmac1.buffer, hmac2.buffer,
+        hmac1.size));
+
+    printf("Test TPM Wrapper:\tResponseHmacVerification:\tPassed\n");
+#endif
+}
+
+static void test_TPM2_CalcHmac(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int rc;
+    TPM2B_AUTH auth;
+    TPM2B_DIGEST hash;
+    TPM2B_NONCE nonceA, nonceB;
+    TPMA_SESSION attr = TPMA_SESSION_continueSession;
+    TPM2B_AUTH hmac1, hmac2;
+
+    /* Known auth key */
+    auth.size = 4;
+    auth.buffer[0] = 't'; auth.buffer[1] = 'e';
+    auth.buffer[2] = 's'; auth.buffer[3] = 't';
+
+    /* Known cpHash */
+    hash.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(hash.buffer, 0xAB, hash.size);
+
+    /* Two distinct nonces */
+    nonceA.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceA.buffer, 0x11, nonceA.size);
+    nonceB.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceB.buffer, 0x22, nonceB.size);
+
+    /* Compute HMAC with (nonceA, nonceB) order */
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        attr, &hmac1);
+    AssertIntEQ(0, rc);
+
+    /* Compute HMAC with (nonceB, nonceA) — reversed order */
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceB, &nonceA,
+        attr, &hmac2);
+    AssertIntEQ(0, rc);
+
+    /* Reversed nonces MUST produce different HMAC */
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    printf("Test TPM Wrapper:\tCalcHmac:\tPassed\n");
+#endif
+}
+
+static void test_TPM2_ParamEnc_XOR_Vector(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    TPM2_AUTH_SESSION session;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "XOR parameter encryption round-trip test";
+    byte data[sizeof(original)];
+
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xCC, sessKey.size);
+
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x11, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x22, nonceTPM.size);
+
+    XMEMCPY(data, original, sizeof(original));
+
+    /* Encrypt */
+    rc = TPM2_ParamEnc_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+        data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Data must differ from original */
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    /* Encrypt again with same args — XOR is self-inverse */
+    rc = TPM2_ParamEnc_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+        data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Must match original */
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    printf("Test TPM Wrapper:\tParamEnc_XOR:\tPassed\n");
+#endif
+}
+
+static void test_TPM2_ParamEnc_AESCFB_Vector(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPM2_AUTH_SESSION session;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "AES-CFB parameter encryption round-trip test";
+    byte data[sizeof(original)];
+
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+    session.symmetric.keyBits.aes = MAX_AES_KEY_BITS;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xDD, sessKey.size);
+
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x33, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x44, nonceTPM.size);
+
+    XMEMCPY(data, original, sizeof(original));
+
+    /* Encrypt with (nonceCaller, nonceTPM) */
+    rc = TPM2_ParamEnc_AESCFB(&session, &sessKey, NULL, &nonceCaller,
+        &nonceTPM, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Data must differ from original */
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    /* Decrypt: swap nonce args so KDFa produces same key */
+    rc = TPM2_ParamDec_AESCFB(&session, &sessKey, NULL, &nonceTPM,
+        &nonceCaller, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Must match original */
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    printf("Test TPM Wrapper:\tParamEnc_AESCFB:\tPassed\n");
+#endif
+}
+
+static void test_TPM2_ParamDec_XOR_Roundtrip(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    TPM2_AUTH_SESSION session;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "XOR parameter decryption round-trip test";
+    byte data[sizeof(original)];
+
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xEE, sessKey.size);
+
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x55, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x66, nonceTPM.size);
+
+    XMEMCPY(data, original, sizeof(original));
+
+    /* Decrypt direction: XOR with (nonceCaller, nonceTPM) mask */
+    rc = TPM2_ParamDec_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+        data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Data must differ from original */
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    /* Apply same XOR again — self-inverse recovers original */
+    rc = TPM2_ParamDec_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+        data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Must match original */
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    printf("Test TPM Wrapper:\tParamDec_XOR_Roundtrip:\tPassed\n");
+#endif
+}
+
+static void test_TPM2_ParamDec_AESCFB_Roundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPM2_AUTH_SESSION session;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "AES-CFB parameter decryption round-trip test";
+    byte data[sizeof(original)];
+
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+    session.symmetric.keyBits.aes = MAX_AES_KEY_BITS;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xFF, sessKey.size);
+
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x77, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x88, nonceTPM.size);
+
+    XMEMCPY(data, original, sizeof(original));
+
+    /* Encrypt with ParamEnc_AESCFB (command direction) */
+    rc = TPM2_ParamEnc_AESCFB(&session, &sessKey, NULL, &nonceCaller,
+        &nonceTPM, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Data must differ from original */
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    /* Decrypt with ParamDec_AESCFB: swap nonce args so internal KDFa
+     * produces the same key as encryption */
+    rc = TPM2_ParamDec_AESCFB(&session, &sessKey, NULL, &nonceTPM,
+        &nonceCaller, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* Must match original */
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    printf("Test TPM Wrapper:\tParamDec_AESCFB_Roundtrip:\tPassed\n");
+#endif
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -1175,6 +1460,13 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
     test_TPM2_KDFa();
+    test_TPM2_ConstantCompare();
+    test_TPM2_ResponseHmacVerification();
+    test_TPM2_CalcHmac();
+    test_TPM2_ParamEnc_XOR_Vector();
+    test_TPM2_ParamEnc_AESCFB_Vector();
+    test_TPM2_ParamDec_XOR_Roundtrip();
+    test_TPM2_ParamDec_AESCFB_Roundtrip();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();

@@ -49,6 +49,12 @@
         #define WOLFTPM_API
         #define WOLFTPM_LOCAL
     #endif /* HAVE_VISIBILITY */
+
+    #ifdef WOLFTPM_PRIVATE_TEST_VIS
+        #define WOLFTPM_TEST_API WOLFTPM_LOCAL
+    #else
+        #define WOLFTPM_TEST_API WOLFTPM_API
+    #endif
 #else /* BUILDING_WOLFTPM */
     #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__) || \
         defined(_WIN32_WCE)
@@ -62,6 +68,8 @@
         #define WOLFTPM_API
         #define WOLFTPM_LOCAL
     #endif
+
+    #define WOLFTPM_TEST_API WOLFTPM_API
 #endif /* BUILDING_WOLFTPM */
 
 #endif /* WOLFTPM_VISIBILITY_H */

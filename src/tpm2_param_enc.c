@@ -196,7 +196,7 @@ exit:
 
 
 /* Perform XOR encryption over the first parameter of a TPM packet */
-static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
+int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
     BYTE *paramData, UINT32 paramSz)
 {
@@ -259,7 +259,7 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
 }
 
 /* Perform XOR decryption over the first parameter of a TPM packet */
-static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
+int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
     BYTE *paramData, UINT32 paramSz)
 {
@@ -322,7 +322,7 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
 /* Perform AES CFB encryption over the first parameter of a TPM packet */
-static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
+int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
     BYTE *paramData, UINT32 paramSz)
 {
@@ -396,7 +396,7 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
 }
 
 /* Perform AES CFB decryption over the first parameter of a TPM packet */
-static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
+int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_AUTH* bindKey, TPM2B_NONCE* nonceCaller, TPM2B_NONCE* nonceTPM,
     BYTE *paramData, UINT32 paramSz)
 {
