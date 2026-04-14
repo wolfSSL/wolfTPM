@@ -6823,6 +6823,7 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     rc = wolfTPM2_GetKeyTemplate_KeyedHash(&createIn.inPublic.publicArea,
         hashAlg, YES, NO);
     if (rc != 0) {
+        TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
         return rc;
     }
 
