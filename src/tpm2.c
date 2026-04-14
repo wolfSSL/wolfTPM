@@ -2142,9 +2142,8 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->encryptionKeyIn.buffer,
             in->encryptionKeyIn.size);
 
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.algorithm);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.keyBits.sym);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.mode.sym);
+        TPM2_Packet_AppendSymmetric(&packet,
+            (TPMT_SYM_DEF*)&in->symmetricAlg);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Duplicate);
 
