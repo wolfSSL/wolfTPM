@@ -5953,6 +5953,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     }
 #endif
 
+    TPM2_ForceZero(&out, sizeof(out));
     return rc;
 }
 
