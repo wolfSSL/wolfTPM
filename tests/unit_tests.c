@@ -549,6 +549,74 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
 #endif
 }
 
+static void test_TPM2_KDFa_SessionLabels(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    #define TEST_KDFA_LABEL_KEYSZ TPM_SHA256_DIGEST_SIZE
+    TPM2B_DATA keyIn = {
+        .size = 16,
+        .buffer = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                   0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
+    };
+    TPM2B_NONCE nonceTPM = {
+        .size = 16,
+        .buffer = {0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8,
+                   0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0}
+    };
+    TPM2B_NONCE nonceCaller = {
+        .size = 16,
+        .buffer = {0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8,
+                   0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF, 0xD0}
+    };
+    byte key[TEST_KDFA_LABEL_KEYSZ];
+
+    /* Test "ATH" label (session key derivation, TPM 2.0 Part 1 s19.6.8) */
+    {
+        const byte expATH[] = {
+            0x0d, 0x17, 0x5f, 0xf7, 0xac, 0xf9, 0x41, 0x9a,
+            0x73, 0x75, 0x7c, 0xa6, 0x42, 0x82, 0x49, 0x61,
+            0xa2, 0xc9, 0x72, 0xd9, 0x13, 0xdc, 0xbf, 0x72,
+            0x06, 0xe6, 0x73, 0xe7, 0x21, 0x5f, 0x99, 0x6a
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "ATH", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expATH, sizeof(expATH)), 0);
+    }
+
+    /* Test "SECRET" label (salt encryption, TPM 2.0 Part 1 s19.6.8) */
+    {
+        const byte expSECRET[] = {
+            0x1a, 0xc4, 0xc1, 0x34, 0x78, 0x87, 0x67, 0x5e,
+            0x91, 0xd1, 0xa2, 0xcd, 0xcb, 0xac, 0xdb, 0x62,
+            0xed, 0x4e, 0xfe, 0x44, 0xed, 0x52, 0x34, 0x3b,
+            0xf1, 0x87, 0xfb, 0x8b, 0xa9, 0xec, 0x43, 0x59
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "SECRET", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expSECRET, sizeof(expSECRET)), 0);
+    }
+
+    /* Test "DUPLICATE" label (key import, TPM 2.0 Part 1 s23.3) */
+    {
+        const byte expDUPLICATE[] = {
+            0xa3, 0xe5, 0x57, 0xc6, 0x49, 0x4c, 0xe5, 0x4f,
+            0x45, 0xae, 0xf7, 0x19, 0x4d, 0x9e, 0x21, 0xa2,
+            0x91, 0xeb, 0x05, 0x2d, 0x43, 0x06, 0x9f, 0xfb,
+            0x69, 0x67, 0x1f, 0x99, 0x00, 0xb0, 0xcc, 0x39
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "DUPLICATE", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expDUPLICATE, sizeof(expDUPLICATE)), 0);
+    }
+
+#endif
+    printf("Test TPM Wrapper:\tKDFa Session Labels:\tPassed\n");
+}
+
 static void test_wolfTPM2_EncryptSecret(void)
 {
     int rc;
@@ -1582,6 +1650,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
+    test_TPM2_KDFa_SessionLabels();
     test_TPM2_ConstantCompare();
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
