@@ -429,6 +429,55 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:\t\tPolicy NULL Args:\tPassed\n");
 }
 
+static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    const byte testAuth[] = {0x11, 0x22, 0x33, 0x44};
+    int authDigestSz;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* Configure session with SHA-256 auth hash */
+    session.authHash = TPM_ALG_SHA256;
+    authDigestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    AssertIntEQ(authDigestSz, TPM_SHA256_DIGEST_SIZE);
+
+    /* Pre-fill the HMAC key region with a sentinel */
+    XMEMSET(session.handle.auth.buffer, 0xFF, authDigestSz);
+
+    /* Call PolicyAuthValue - ignore return (TPM command may fail without
+     * a real session handle, but auth buffer placement happens first) */
+    (void)wolfTPM2_PolicyAuthValue(&dev, &session, testAuth,
+        (int)sizeof(testAuth));
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(session.handle.auth.size,
+        authDigestSz + (int)sizeof(testAuth));
+
+    /* Verify HMAC key slot [0..authDigestSz-1] is preserved (still 0xFF) */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(session.handle.auth.buffer[i], 0xFF);
+    }
+
+    /* Verify auth placed at offset [authDigestSz..authDigestSz+authSz-1] */
+    AssertIntEQ(XMEMCMP(&session.handle.auth.buffer[authDigestSz],
+        testAuth, sizeof(testAuth)), 0);
+
+    /* Verify policyAuth flag is set */
+    AssertIntEQ(session.handle.policyAuth, 1);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tPolicyAuthValue Offset:\tPassed\n");
+#endif
+}
+
 static void test_wolfTPM2_SensitiveToPrivate(void)
 {
 #ifdef WOLFTPM2_PRIVATE_IMPORT
@@ -1530,6 +1579,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetRandom();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
     test_TPM2_ConstantCompare();
