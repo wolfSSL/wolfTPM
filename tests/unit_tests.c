@@ -2217,6 +2217,51 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         TPM2_GetAlgName(alg), rc == 0 ? "Passed" : "Failed");
 }
 
+/* Test NULL parentKey handling in LoadRsaPrivateKey_ex and LoadEccPrivateKey */
+static void test_wolfTPM2_LoadPrivateKey_NullParent(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+#ifndef NO_RSA
+    /* Dummy RSA key material for testing NULL parentKey handling */
+    byte rsaPub[1] = {0};
+    byte rsaPriv[1] = {0};
+#endif
+#ifdef HAVE_ECC
+    /* Dummy ECC key material for testing NULL parentKey handling */
+    byte eccPubX[32] = {0};
+    byte eccPubY[32] = {0};
+    byte eccPriv[32] = {0};
+#endif
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* Test NULL parentKey does not crash (should not dereference NULL) */
+#ifndef NO_RSA
+    rc = wolfTPM2_LoadRsaPrivateKey_ex(&dev, NULL, &key, rsaPub, sizeof(rsaPub),
+        RSA_DEFAULT_PUBLIC_EXPONENT, rsaPriv, sizeof(rsaPriv),
+        TPM_ALG_NULL, TPM_ALG_NULL);
+    /* rc may fail due to no real TPM, but must not crash */
+    AssertIntNE(rc, BAD_FUNC_ARG);
+#endif
+#ifdef HAVE_ECC
+    XMEMSET(&key, 0, sizeof(key));
+    rc = wolfTPM2_LoadEccPrivateKey(&dev, NULL, &key, TPM_ECC_NIST_P256,
+        eccPubX, sizeof(eccPubX), eccPubY, sizeof(eccPubY),
+        eccPriv, sizeof(eccPriv));
+    /* rc may fail due to no real TPM, but must not crash */
+    AssertIntNE(rc, BAD_FUNC_ARG);
+#endif
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tLoadPrivateKey NullParent:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2267,6 +2312,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PCRPolicy();
     #endif
     test_wolfTPM2_EncryptSecret();
+    test_wolfTPM2_LoadPrivateKey_NullParent();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
