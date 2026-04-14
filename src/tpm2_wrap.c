@@ -5647,7 +5647,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
 {
-    int rc, rctmp, alreadyExists = 0;
+    int rc, rctmp;
     NV_DefineSpace_In in;
 
     if (dev == NULL || nv == NULL) {
@@ -5685,7 +5685,6 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     rc = TPM2_NV_DefineSpace(&in);
     if (rc == TPM_RC_NV_DEFINED) {
-        alreadyExists = 1;
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_NV_DefineSpace: handle already exists\n");
     #endif
@@ -5713,8 +5712,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 #endif
 
     TPM2_ForceZero(&in.auth, sizeof(in.auth));
-    /* if handle already existed then return `TPM_RC_NV_DEFINED` */
-    return (rc == TPM_RC_SUCCESS && alreadyExists) ? TPM_RC_NV_DEFINED : rc;
+    return rc;
 }
 
 int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
