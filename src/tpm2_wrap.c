@@ -3262,7 +3262,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         printf("wolfTPM2_EncryptSecret: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
+        goto exit_import;
     }
 
     /* Encrypt sensitive */
@@ -3274,7 +3274,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         printf("wolfTPM2_SensitiveToPrivate: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
+        goto exit_import;
     }
     rc = TPM2_Import(&importIn, &importOut);
     if (rc != TPM_RC_SUCCESS) {
@@ -3282,7 +3282,7 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         printf("TPM2_Import: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
+        goto exit_import;
     }
 
     wolfTPM2_CopySymmetric(&keyBlob->handle.symmetric,
@@ -3290,6 +3290,8 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     wolfTPM2_CopyPub(&keyBlob->pub, &importIn.objectPublic);
     wolfTPM2_CopyPriv(&keyBlob->priv, &importOut.outPrivate);
 
+exit_import:
+    TPM2_ForceZero(&symSeed, sizeof(symSeed));
     return rc;
 }
 
