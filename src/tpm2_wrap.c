@@ -5689,6 +5689,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         printf("TPM2_NV_DefineSpace failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&in.auth, sizeof(in.auth));
         return rc;
     }
     /* compute NV object with name */
@@ -5705,6 +5706,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         in.publicInfo.nvPublic.dataSize);
 #endif
 
+    TPM2_ForceZero(&in.auth, sizeof(in.auth));
     /* if handle already existed then return `TPM_RC_NV_DEFINED` */
     return (rc == TPM_RC_SUCCESS && alreadyExists) ? TPM_RC_NV_DEFINED : rc;
 }
