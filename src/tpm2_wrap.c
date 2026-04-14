@@ -2767,6 +2767,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Create key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
         return rc;
     }
 
@@ -2783,6 +2784,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyPub(&keyBlob->pub, &createOut.outPublic);
     wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
+    TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
     return rc;
 }
 
