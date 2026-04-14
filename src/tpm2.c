@@ -233,9 +233,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
-            rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
-            rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
+            rc = TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
