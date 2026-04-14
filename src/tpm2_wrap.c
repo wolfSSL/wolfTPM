@@ -2879,6 +2879,8 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         printf("TPM2_CreateLoaded key failed %d: %s\n",
             rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createLoadedIn.inSensitive,
+            sizeof(createLoadedIn.inSensitive));
         return rc;
     }
 
@@ -2899,6 +2901,8 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyPriv(&keyBlob->priv, &createLoadedOut.outPrivate);
     wolfTPM2_CopyName(&keyBlob->handle.name, &createLoadedOut.name);
 
+    TPM2_ForceZero(&createLoadedIn.inSensitive,
+        sizeof(createLoadedIn.inSensitive));
     return rc;
 }
 
