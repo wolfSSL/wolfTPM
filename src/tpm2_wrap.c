@@ -2590,31 +2590,11 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
         TPM2B_AUTH* createPriAuth = &createPriIn.inSensitive.sensitive.userAuth;
-        int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
-        /* Ensure auth size matches the name algorithm digest size */
-        if (nameAlgDigestSz > 0) {
-            /* Truncate if auth is longer than digest size */
-            if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
-            }
-
-            /* Copy auth data to buffer */
-            XMEMCPY(createPriAuth->buffer, auth, authSz);
-
-            /* Pad with zeros if auth is shorter than digest size */
-            if (authSz < nameAlgDigestSz) {
-                XMEMSET(createPriAuth->buffer + authSz, 0, nameAlgDigestSz - authSz);
-                authSz = nameAlgDigestSz;
-            }
-        }
-        else {
-            /* Fallback: copy auth as-is if digest size is invalid */
-            if (authSz > (int)sizeof(createPriAuth->buffer)) {
-                return BUFFER_E;
-            }
-            XMEMCPY(createPriAuth->buffer, auth, authSz);
+        if (authSz > (int)sizeof(createPriAuth->buffer)) {
+            authSz = (int)sizeof(createPriAuth->buffer); /* truncate */
         }
         createPriAuth->size = authSz;
+        XMEMCPY(createPriAuth->buffer, auth, authSz);
     }
     XMEMCPY(&createPriIn.inPublic.publicArea, publicTemplate,
         sizeof(TPMT_PUBLIC));
