@@ -2604,6 +2604,8 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
         printf("TPM2_CreatePrimary: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&createPriIn.inSensitive,
+            sizeof(createPriIn.inSensitive));
         return rc;
     }
     pkey->handle.hndl = createPriOut.objectHandle;
@@ -2636,6 +2638,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
         (word32)pkey->handle.hndl, pkey->pub.size);
 #endif
 
+    TPM2_ForceZero(&createPriIn.inSensitive, sizeof(createPriIn.inSensitive));
     return rc;
 }
 
