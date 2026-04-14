@@ -1133,6 +1133,7 @@ int wolfTPM2_PK_RsaPssSign(WOLFSSL* ssl,
                     inPad, inPadSz,
                     out, (int*)outSz);
             }
+            TPM2_ForceZero(inPad, sizeof(inPad));
         }
         wc_FreeRsaKey(&rsapub);
     }
