@@ -9384,6 +9384,7 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 
     (void)dev;
 
+    TPM2_ForceZero(digest, sizeof(digest));
     return rc;
 }
 
