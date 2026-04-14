@@ -1592,6 +1592,68 @@ static void test_TPM2_ParamDec_AESCFB_Roundtrip(void)
 #endif
 }
 
+/* Test dispatch-level CmdRequest/CmdResponse nonce mapping.
+ * Command direction: host encrypts with KDFa(nonceCaller, nonceTPM).
+ * Response direction: TPM encrypts with KDFa(nonceTPM, nonceCaller),
+ * so host decryption (CmdResponse) must derive the same key.
+ * We simulate the TPM's response encryption using the standalone function
+ * with the response-direction nonce order, then verify CmdResponse decrypts. */
+static void test_TPM2_ParamEncDec_Dispatch_Roundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPM2_AUTH_SESSION session;
+    const byte original[] = "Dispatch-level param enc/dec roundtrip test data";
+    byte data[sizeof(original)];
+
+    /* Set up session with distinct nonces to catch any swap mutation */
+    XMEMSET(&session, 0, sizeof(session));
+    session.authHash = TPM_ALG_SHA256;
+    session.symmetric.algorithm = TPM_ALG_AES;
+    session.symmetric.keyBits.aes = MAX_AES_KEY_BITS;
+    session.symmetric.mode.aes = TPM_ALG_CFB;
+
+    session.auth.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(session.auth.buffer, 0xAA, session.auth.size);
+
+    session.nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(session.nonceCaller.buffer, 0x11, session.nonceCaller.size);
+    session.nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(session.nonceTPM.buffer, 0x22, session.nonceTPM.size);
+
+    XMEMCPY(data, original, sizeof(original));
+
+    /* Test 1: Command direction — CmdRequest enc, TPM-side dec recovers.
+     * Simulate TPM decryption with standalone dec using command-direction
+     * nonce order: KDFa(nonceCaller, nonceTPM) */
+    rc = TPM2_ParamEnc_CmdRequest(&session, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    rc = TPM2_ParamDec_AESCFB(&session, &session.auth, NULL,
+        &session.nonceTPM, &session.nonceCaller, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    /* Test 2: Response direction — TPM-side enc, CmdResponse dec recovers.
+     * Simulate TPM encrypting a response with response-direction nonce order:
+     * KDFa(nonceTPM, nonceCaller) */
+    XMEMCPY(data, original, sizeof(original));
+    rc = TPM2_ParamEnc_AESCFB(&session, &session.auth, NULL,
+        &session.nonceTPM, &session.nonceCaller, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+    AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
+
+    rc = TPM2_ParamDec_CmdResponse(&session, data, sizeof(data));
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+    AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
+
+    printf("Test TPM Wrapper:\tParamEncDec_Dispatch:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tParamEncDec_Dispatch:\tSkipped\n");
+#endif
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2356,6 +2418,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParamEnc_AESCFB_Vector();
     test_TPM2_ParamDec_XOR_Roundtrip();
     test_TPM2_ParamDec_AESCFB_Roundtrip();
+    test_TPM2_ParamEncDec_Dispatch_Roundtrip();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
