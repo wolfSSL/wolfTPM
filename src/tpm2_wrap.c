@@ -1489,7 +1489,10 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
                                        pubKeyY, &ySz);
         wc_ecc_free(&hostKey);
         wc_FreeRng(&rng);
-        if (rc != 0) return rc;
+        if (rc != 0) {
+            wc_ForceZero(privKey, sizeof(privKey));
+            return rc;
+        }
 
         XMEMCPY(rawPubKey, pubKeyX, 48);
         XMEMCPY(rawPubKey + 48, pubKeyY, 48);
