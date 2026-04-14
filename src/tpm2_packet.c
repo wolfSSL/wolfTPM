@@ -433,8 +433,12 @@ void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
 void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
 {
     int i;
+    if (pcr->count > HASH_COUNT)
+        pcr->count = HASH_COUNT;
     TPM2_Packet_AppendU32(packet, pcr->count);
     for (i=0; i<(int)pcr->count; i++) {
+        if (pcr->pcrSelections[i].sizeofSelect > PCR_SELECT_MIN)
+            pcr->pcrSelections[i].sizeofSelect = PCR_SELECT_MIN;
         TPM2_Packet_AppendU16(packet, pcr->pcrSelections[i].hash);
         TPM2_Packet_AppendU8(packet, pcr->pcrSelections[i].sizeofSelect);
         TPM2_Packet_AppendBytes(packet,
