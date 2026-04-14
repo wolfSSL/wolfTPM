@@ -2217,6 +2217,59 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         TPM2_GetAlgName(alg), rc == 0 ? "Passed" : "Failed");
 }
 
+/* Test DecodeRsaDer/DecodeEccDer default attributes for private key imports */
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
+static void test_wolfTPM2_DecodeDer_DefaultAttribs(void)
+{
+#ifdef HAVE_ECC
+    int rc;
+    TPM2B_PUBLIC pub;
+    TPM2B_SENSITIVE sens;
+    TPMA_OBJECT attrs;
+    /* ECC P-256 private key DER (from certs/example-ecc256-key.der) */
+    static const byte eccKeyDer[] = {
+        0x30, 0x77, 0x02, 0x01, 0x01, 0x04, 0x20, 0x45, 0xb6, 0x69, 0x02,
+        0x73, 0x9c, 0x6c, 0x85, 0xa1, 0x38, 0x5b, 0x72, 0xe8, 0xe8, 0xc7,
+        0xac, 0xc4, 0x03, 0x8d, 0x53, 0x35, 0x04, 0xfa, 0x6c, 0x28, 0xdc,
+        0x34, 0x8d, 0xe1, 0xa8, 0x09, 0x8c, 0xa0, 0x0a, 0x06, 0x08, 0x2a,
+        0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0xa1, 0x44, 0x03, 0x42,
+        0x00, 0x04, 0xbb, 0x33, 0xac, 0x4c, 0x27, 0x50, 0x4a, 0xc6, 0x4a,
+        0xa5, 0x04, 0xc3, 0x3c, 0xde, 0x9f, 0x36, 0xdb, 0x72, 0x2d, 0xce,
+        0x94, 0xea, 0x2b, 0xfa, 0xcb, 0x20, 0x09, 0x39, 0x2c, 0x16, 0xe8,
+        0x61, 0x02, 0xe9, 0xaf, 0x4d, 0xd3, 0x02, 0x93, 0x9a, 0x31, 0x5b,
+        0x97, 0x92, 0x21, 0x7f, 0xf0, 0xcf, 0x18, 0xda, 0x91, 0x11, 0x02,
+        0x34, 0x86, 0xe8, 0x20, 0x58, 0x33, 0x0b, 0x80, 0x34, 0x89, 0xd8
+    };
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(&sens, 0, sizeof(sens));
+
+    /* Call with attributes=0 and sens!=NULL (private key import) */
+    rc = wolfTPM2_DecodeEccDer(eccKeyDer, (word32)sizeof(eccKeyDer),
+        &pub, &sens, 0);
+    AssertIntEQ(rc, 0);
+
+    attrs = pub.publicArea.objectAttributes;
+
+    /* For imported private keys, restricted must NOT be set when both
+     * sign and decrypt are set (TPM 2.0 Part 2 Table 31) */
+    AssertIntEQ(attrs & TPMA_OBJECT_restricted, 0);
+
+    /* sensitiveDataOrigin must NOT be set for imported keys */
+    AssertIntEQ(attrs & TPMA_OBJECT_sensitiveDataOrigin, 0);
+
+    /* sign and decrypt should both be set for general-purpose imported keys */
+    AssertTrue(attrs & TPMA_OBJECT_sign);
+    AssertTrue(attrs & TPMA_OBJECT_decrypt);
+
+    /* userWithAuth should be set */
+    AssertTrue(attrs & TPMA_OBJECT_userWithAuth);
+#endif
+
+    printf("Test TPM Wrapper:\tDecodeDer DefaultAttribs:\tPassed\n");
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
+
 /* Test NULL parentKey handling in LoadRsaPrivateKey_ex and LoadEccPrivateKey */
 static void test_wolfTPM2_LoadPrivateKey_NullParent(void)
 {
@@ -2312,6 +2365,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PCRPolicy();
     #endif
     test_wolfTPM2_EncryptSecret();
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
+    test_wolfTPM2_DecodeDer_DefaultAttribs();
+    #endif
     test_wolfTPM2_LoadPrivateKey_NullParent();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);

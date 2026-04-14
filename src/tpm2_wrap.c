@@ -3729,13 +3729,21 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     XMEMSET(q, 0, sizeof(q));
 
     if (attributes == 0) {
-        attributes = (TPMA_OBJECT_restricted |
-                      TPMA_OBJECT_sensitiveDataOrigin |
-                      TPMA_OBJECT_sign |
-                      TPMA_OBJECT_userWithAuth |
-                      TPMA_OBJECT_noDA);
         if (sens != NULL) {
-            attributes |= TPMA_OBJECT_decrypt;
+            /* Imported private keys: restricted must not be set when both
+             * sign and decrypt are set (TPM 2.0 Part 2 Table 31), and
+             * sensitiveDataOrigin must not be set for imported keys */
+            attributes = (TPMA_OBJECT_sign |
+                          TPMA_OBJECT_decrypt |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
+        }
+        else {
+            attributes = (TPMA_OBJECT_restricted |
+                          TPMA_OBJECT_sensitiveDataOrigin |
+                          TPMA_OBJECT_sign |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
         }
     }
 
@@ -3834,13 +3842,21 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
     XMEMSET(qy, 0, sizeof(qy));
 
     if (attributes == 0) {
-        attributes = (TPMA_OBJECT_restricted |
-                      TPMA_OBJECT_sensitiveDataOrigin |
-                      TPMA_OBJECT_sign |
-                      TPMA_OBJECT_userWithAuth |
-                      TPMA_OBJECT_noDA);
         if (sens != NULL) {
-            attributes |= TPMA_OBJECT_decrypt;
+            /* Imported private keys: restricted must not be set when both
+             * sign and decrypt are set (TPM 2.0 Part 2 Table 31), and
+             * sensitiveDataOrigin must not be set for imported keys */
+            attributes = (TPMA_OBJECT_sign |
+                          TPMA_OBJECT_decrypt |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
+        }
+        else {
+            attributes = (TPMA_OBJECT_restricted |
+                          TPMA_OBJECT_sensitiveDataOrigin |
+                          TPMA_OBJECT_sign |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
         }
     }
 
