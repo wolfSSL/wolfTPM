@@ -429,6 +429,77 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:\t\tPolicy NULL Args:\tPassed\n");
 }
 
+static void test_wolfTPM2_SensitiveToPrivate(void)
+{
+#ifdef WOLFTPM2_PRIVATE_IMPORT
+    int rc;
+    TPM2B_SENSITIVE sens;
+    TPM2B_PRIVATE priv;
+    TPM2B_NAME name;
+    TPM2B_DATA symSeed;
+    TPMT_SYM_DEF_OBJECT sym;
+
+    /* Fixed test inputs */
+    XMEMSET(&sens, 0, sizeof(sens));
+    XMEMSET(&priv, 0, sizeof(priv));
+    XMEMSET(&name, 0, sizeof(name));
+    XMEMSET(&symSeed, 0, sizeof(symSeed));
+    XMEMSET(&sym, 0, sizeof(sym));
+
+    /* Set up a minimal sensitive area */
+    sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    sens.sensitiveArea.authValue.size = 4;
+    XMEMSET(sens.sensitiveArea.authValue.buffer, 0xAA, 4);
+    sens.sensitiveArea.seedValue.size = 32;
+    XMEMSET(sens.sensitiveArea.seedValue.buffer, 0xBB, 32);
+
+    /* Set up a name (hash alg + digest) */
+    name.size = 2 + TPM_SHA256_DIGEST_SIZE;
+    /* name[0..1] = TPM_ALG_SHA256 big-endian */
+    name.name[0] = 0x00;
+    name.name[1] = 0x0B; /* TPM_ALG_SHA256 */
+    XMEMSET(&name.name[2], 0xCC, TPM_SHA256_DIGEST_SIZE);
+
+    /* Set up symmetric algorithm (AES-128-CFB) */
+    sym.algorithm = TPM_ALG_AES;
+    sym.keyBits.sym = 128;
+    sym.mode.sym = TPM_ALG_CFB;
+
+    /* Set up a symmetric seed (triggers outer wrap / KDFa) */
+    symSeed.size = 32;
+    XMEMSET(symSeed.buffer, 0xDD, 32);
+
+    /* Expected output - pins KDFa "STORAGE" and "INTEGRITY" labels.
+     * Bytes 0-1: integrity size (0x0020 = 32),
+     * Bytes 2-33: HMAC integrity (via "INTEGRITY" label KDFa),
+     * Bytes 34-79: AES-CFB encrypted sensitive (via "STORAGE" label KDFa) */
+    {
+        const byte expected[] = {
+            0x00, 0x20, 0x2b, 0x59, 0xc0, 0x69, 0xf6, 0x63,
+            0x7c, 0x2a, 0xe0, 0x62, 0xcf, 0x42, 0x37, 0x8b,
+            0x79, 0x5d, 0xb6, 0x61, 0x4f, 0x9f, 0x93, 0x38,
+            0x82, 0x06, 0x2e, 0x28, 0xbf, 0xd3, 0x5c, 0x82,
+            0x1c, 0x03, 0xb5, 0x90, 0x49, 0x7a, 0x93, 0x46,
+            0x31, 0x51, 0xe2, 0xdd, 0x4f, 0x0a, 0x22, 0x9b,
+            0x2e, 0xd7, 0x5d, 0xc6, 0xe3, 0x97, 0xf4, 0x75,
+            0xcf, 0xfd, 0xa9, 0xe9, 0xd3, 0xa4, 0x5f, 0x95,
+            0xa0, 0x70, 0x2f, 0x71, 0x6c, 0xb8, 0x90, 0x39,
+            0x32, 0x54, 0x91, 0x87, 0x34, 0x9b, 0xac, 0xef
+        };
+
+        /* Call with no parent key - uses nameAlg directly */
+        rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
+            TPM_ALG_SHA256, &name, NULL, &sym, &symSeed);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ(priv.size, (int)sizeof(expected));
+        AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
+    }
+
+    printf("Test TPM Wrapper:\tSensitiveToPrivate:\t%s\n",
+        rc == 0 ? "Passed" : "Failed");
+#endif
+}
+
 static void test_wolfTPM2_EncryptSecret(void)
 {
     int rc;
@@ -1459,6 +1530,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetRandom();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
     test_TPM2_ConstantCompare();
     test_TPM2_ResponseHmacVerification();
