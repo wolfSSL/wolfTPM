@@ -2593,11 +2593,25 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
         TPM2B_AUTH* createPriAuth = &createPriIn.inSensitive.sensitive.userAuth;
-        if (authSz > (int)sizeof(createPriAuth->buffer)) {
-            return BUFFER_E;
+        int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        if (nameAlgDigestSz > 0) {
+            if (authSz > nameAlgDigestSz) {
+                authSz = nameAlgDigestSz;
+            }
+            XMEMCPY(createPriAuth->buffer, auth, authSz);
+            if (authSz < nameAlgDigestSz) {
+                XMEMSET(createPriAuth->buffer + authSz, 0,
+                    nameAlgDigestSz - authSz);
+                authSz = nameAlgDigestSz;
+            }
+        }
+        else {
+            if (authSz > (int)sizeof(createPriAuth->buffer)) {
+                return BUFFER_E;
+            }
+            XMEMCPY(createPriAuth->buffer, auth, authSz);
         }
         createPriAuth->size = authSz;
-        XMEMCPY(createPriAuth->buffer, auth, authSz);
     }
     XMEMCPY(&createPriIn.inPublic.publicArea, publicTemplate,
         sizeof(TPMT_PUBLIC));
@@ -2754,11 +2768,25 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     createIn.parentHandle = parent->hndl;
     if (auth) {
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
-        if (authSz > (int)sizeof(pAuth->buffer)) {
-            return BUFFER_E;
+        int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        if (nameAlgDigestSz > 0) {
+            if (authSz > nameAlgDigestSz) {
+                authSz = nameAlgDigestSz;
+            }
+            XMEMCPY(pAuth->buffer, auth, authSz);
+            if (authSz < nameAlgDigestSz) {
+                XMEMSET(pAuth->buffer + authSz, 0,
+                    nameAlgDigestSz - authSz);
+                authSz = nameAlgDigestSz;
+            }
+        }
+        else {
+            if (authSz > (int)sizeof(pAuth->buffer)) {
+                return BUFFER_E;
+            }
+            XMEMCPY(pAuth->buffer, auth, authSz);
         }
         pAuth->size = (UINT16)authSz;
-        XMEMCPY(pAuth->buffer, auth, (size_t)authSz);
     }
     wolfTPM2_CopyPubT(&createIn.inPublic.publicArea, publicTemplate);
 
@@ -2876,11 +2904,25 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     createLoadedIn.parentHandle = parent->hndl;
     if (auth) {
         TPM2B_AUTH* pAuth = &createLoadedIn.inSensitive.sensitive.userAuth;
-        if (authSz > (int)sizeof(pAuth->buffer)) {
-            return BUFFER_E;
+        int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        if (nameAlgDigestSz > 0) {
+            if (authSz > nameAlgDigestSz) {
+                authSz = nameAlgDigestSz;
+            }
+            XMEMCPY(pAuth->buffer, auth, authSz);
+            if (authSz < nameAlgDigestSz) {
+                XMEMSET(pAuth->buffer + authSz, 0,
+                    nameAlgDigestSz - authSz);
+                authSz = nameAlgDigestSz;
+            }
+        }
+        else {
+            if (authSz > (int)sizeof(pAuth->buffer)) {
+                return BUFFER_E;
+            }
+            XMEMCPY(pAuth->buffer, auth, authSz);
         }
         pAuth->size = (UINT16)authSz;
-        XMEMCPY(pAuth->buffer, auth, (size_t)authSz);
     }
     XMEMCPY(&createLoadedIn.inPublic.publicArea, publicTemplate,
         sizeof(TPMT_PUBLIC));
