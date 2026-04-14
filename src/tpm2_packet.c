@@ -702,9 +702,8 @@ void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_AppendKeyedHashScheme(packet, &parameters->keyedHashDetail.scheme);
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_AppendU16(packet, parameters->symDetail.sym.algorithm);
-            TPM2_Packet_AppendU16(packet, parameters->symDetail.sym.keyBits.sym);
-            TPM2_Packet_AppendU16(packet, parameters->symDetail.sym.mode.sym);
+            TPM2_Packet_AppendSymmetric(packet,
+                (TPMT_SYM_DEF*)&parameters->symDetail.sym);
             break;
         case TPM_ALG_RSA:
             TPM2_Packet_AppendSymmetric(packet, &parameters->rsaDetail.symmetric);
@@ -732,9 +731,8 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_ParseKeyedHashScheme(packet, &parameters->keyedHashDetail.scheme);
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &parameters->symDetail.sym.algorithm);
-            TPM2_Packet_ParseU16(packet, &parameters->symDetail.sym.keyBits.sym);
-            TPM2_Packet_ParseU16(packet, &parameters->symDetail.sym.mode.sym);
+            TPM2_Packet_ParseSymmetric(packet,
+                (TPMT_SYM_DEF*)&parameters->symDetail.sym);
             break;
         case TPM_ALG_RSA:
             TPM2_Packet_ParseSymmetric(packet, &parameters->rsaDetail.symmetric);
