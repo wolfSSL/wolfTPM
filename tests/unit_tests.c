@@ -560,41 +560,38 @@ static void test_wolfTPM2_PolicyHash(void)
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
     byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digest0[TPM_SHA256_DIGEST_SIZE];
+    byte digestFirst[TPM_SHA256_DIGEST_SIZE];
     word32 digestSz;
     const byte input[] = {0x01, 0x02, 0x03, 0x04};
 
     /* Test 1: cc=0 (no command code, used by PolicyRefMake) */
-    {
-        byte digest0[TPM_SHA256_DIGEST_SIZE];
-        byte digestFirst[TPM_SHA256_DIGEST_SIZE];
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        0, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(digest0, digest, digestSz);
 
-        XMEMSET(digest, 0xAA, sizeof(digest));
-        digestSz = TPM_SHA256_DIGEST_SIZE;
-        rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
-            0, input, sizeof(input));
-        AssertIntEQ(rc, 0);
-        XMEMCPY(digest0, digest, digestSz);
+    /* Test 2: cc=TPM_CC_FIRST (0x11F boundary) - must differ from cc=0 */
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_FIRST, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(digestFirst, digest, digestSz);
 
-        /* Test 2: cc=TPM_CC_FIRST (0x11F boundary) - must differ from cc=0 */
-        XMEMSET(digest, 0xAA, sizeof(digest));
-        digestSz = TPM_SHA256_DIGEST_SIZE;
-        rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
-            TPM_CC_FIRST, input, sizeof(input));
-        AssertIntEQ(rc, 0);
-        XMEMCPY(digestFirst, digest, digestSz);
+    /* cc=0 and cc=TPM_CC_FIRST must produce different digests */
+    AssertIntNE(XMEMCMP(digest0, digestFirst, digestSz), 0);
 
-        /* cc=0 and cc=TPM_CC_FIRST must produce different digests */
-        AssertIntNE(XMEMCMP(digest0, digestFirst, digestSz), 0);
-
-        /* Test 3: cc=TPM_CC_PolicyPCR (above boundary) - must differ from both */
-        XMEMSET(digest, 0xAA, sizeof(digest));
-        digestSz = TPM_SHA256_DIGEST_SIZE;
-        rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
-            TPM_CC_PolicyPCR, input, sizeof(input));
-        AssertIntEQ(rc, 0);
-        AssertIntNE(XMEMCMP(digest0, digest, digestSz), 0);
-        AssertIntNE(XMEMCMP(digestFirst, digest, digestSz), 0);
-    }
+    /* Test 3: cc=TPM_CC_PolicyPCR (above boundary) - must differ from both */
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_PolicyPCR, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    AssertIntNE(XMEMCMP(digest0, digest, digestSz), 0);
+    AssertIntNE(XMEMCMP(digestFirst, digest, digestSz), 0);
 
     printf("Test TPM Wrapper:\tPolicyHash:\tPassed\n");
 #else
@@ -611,6 +608,18 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
     TPM2B_NAME name;
     TPM2B_DATA symSeed;
     TPMT_SYM_DEF_OBJECT sym;
+    const byte expected[] = {
+        0x00, 0x20, 0x2b, 0x59, 0xc0, 0x69, 0xf6, 0x63,
+        0x7c, 0x2a, 0xe0, 0x62, 0xcf, 0x42, 0x37, 0x8b,
+        0x79, 0x5d, 0xb6, 0x61, 0x4f, 0x9f, 0x93, 0x38,
+        0x82, 0x06, 0x2e, 0x28, 0xbf, 0xd3, 0x5c, 0x82,
+        0x1c, 0x03, 0xb5, 0x90, 0x49, 0x7a, 0x93, 0x46,
+        0x31, 0x51, 0xe2, 0xdd, 0x4f, 0x0a, 0x22, 0x9b,
+        0x2e, 0xd7, 0x5d, 0xc6, 0xe3, 0x97, 0xf4, 0x75,
+        0xcf, 0xfd, 0xa9, 0xe9, 0xd3, 0xa4, 0x5f, 0x95,
+        0xa0, 0x70, 0x2f, 0x71, 0x6c, 0xb8, 0x90, 0x39,
+        0x32, 0x54, 0x91, 0x87, 0x34, 0x9b, 0xac, 0xef
+    };
 
     /* Fixed test inputs */
     XMEMSET(&sens, 0, sizeof(sens));
@@ -623,8 +632,9 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
     sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
     sens.sensitiveArea.authValue.size = 4;
     XMEMSET(sens.sensitiveArea.authValue.buffer, 0xAA, 4);
-    sens.sensitiveArea.seedValue.size = 32;
-    XMEMSET(sens.sensitiveArea.seedValue.buffer, 0xBB, 32);
+    sens.sensitiveArea.seedValue.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sens.sensitiveArea.seedValue.buffer, 0xBB,
+        TPM_SHA256_DIGEST_SIZE);
 
     /* Set up a name (hash alg + digest) */
     name.size = 2 + TPM_SHA256_DIGEST_SIZE;
@@ -639,34 +649,18 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
     sym.mode.sym = TPM_ALG_CFB;
 
     /* Set up a symmetric seed (triggers outer wrap / KDFa) */
-    symSeed.size = 32;
-    XMEMSET(symSeed.buffer, 0xDD, 32);
+    symSeed.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(symSeed.buffer, 0xDD, TPM_SHA256_DIGEST_SIZE);
 
     /* Expected output - pins KDFa "STORAGE" and "INTEGRITY" labels.
      * Bytes 0-1: integrity size (0x0020 = 32),
      * Bytes 2-33: HMAC integrity (via "INTEGRITY" label KDFa),
      * Bytes 34-79: AES-CFB encrypted sensitive (via "STORAGE" label KDFa) */
-    {
-        const byte expected[] = {
-            0x00, 0x20, 0x2b, 0x59, 0xc0, 0x69, 0xf6, 0x63,
-            0x7c, 0x2a, 0xe0, 0x62, 0xcf, 0x42, 0x37, 0x8b,
-            0x79, 0x5d, 0xb6, 0x61, 0x4f, 0x9f, 0x93, 0x38,
-            0x82, 0x06, 0x2e, 0x28, 0xbf, 0xd3, 0x5c, 0x82,
-            0x1c, 0x03, 0xb5, 0x90, 0x49, 0x7a, 0x93, 0x46,
-            0x31, 0x51, 0xe2, 0xdd, 0x4f, 0x0a, 0x22, 0x9b,
-            0x2e, 0xd7, 0x5d, 0xc6, 0xe3, 0x97, 0xf4, 0x75,
-            0xcf, 0xfd, 0xa9, 0xe9, 0xd3, 0xa4, 0x5f, 0x95,
-            0xa0, 0x70, 0x2f, 0x71, 0x6c, 0xb8, 0x90, 0x39,
-            0x32, 0x54, 0x91, 0x87, 0x34, 0x9b, 0xac, 0xef
-        };
-
-        /* Call with no parent key - uses nameAlg directly */
-        rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
-            TPM_ALG_SHA256, &name, NULL, &sym, &symSeed);
-        AssertIntEQ(rc, 0);
-        AssertIntEQ(priv.size, (int)sizeof(expected));
-        AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
-    }
+    rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        TPM_ALG_SHA256, &name, NULL, &sym, &symSeed);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(priv.size, (int)sizeof(expected));
+    AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
 
     printf("Test TPM Wrapper:\tSensitiveToPrivate:\tPassed\n");
 #else
