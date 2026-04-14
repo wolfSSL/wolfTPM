@@ -1218,9 +1218,21 @@ int wolfTPM2_SpdmConnectNuvoton(WOLFTPM2_DEV* dev,
         TPM2_Packet_ParseU16(&pktPub, &pub.type);
         TPM2_Packet_ParseU16(&pktPub, &pub.nameAlg);
         TPM2_Packet_ParseU32(&pktPub, &pub.objectAttributes);
-        TPM2_Packet_ParseU16(&pktPub, &pub.authPolicy.size);
-        TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
-            pub.authPolicy.size);
+        {
+            UINT16 wireSize = 0;
+            TPM2_Packet_ParseU16(&pktPub, &wireSize);
+            pub.authPolicy.size = wireSize;
+            if (pub.authPolicy.size >
+                    (UINT16)sizeof(pub.authPolicy.buffer)) {
+                pub.authPolicy.size =
+                    (UINT16)sizeof(pub.authPolicy.buffer);
+            }
+            TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
+                pub.authPolicy.size);
+            if (wireSize > pub.authPolicy.size)
+                TPM2_Packet_ParseBytes(&pktPub, NULL,
+                    wireSize - pub.authPolicy.size);
+        }
         TPM2_Packet_ParsePublicParms(&pktPub, pub.type, &pub.parameters);
         TPM2_Packet_ParseEccPoint(&pktPub, &pub.unique.ecc);
 
@@ -1393,9 +1405,21 @@ int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
         TPM2_Packet_ParseU16(&pktPub, &pub.type);
         TPM2_Packet_ParseU16(&pktPub, &pub.nameAlg);
         TPM2_Packet_ParseU32(&pktPub, &pub.objectAttributes);
-        TPM2_Packet_ParseU16(&pktPub, &pub.authPolicy.size);
-        TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
-            pub.authPolicy.size);
+        {
+            UINT16 wireSize = 0;
+            TPM2_Packet_ParseU16(&pktPub, &wireSize);
+            pub.authPolicy.size = wireSize;
+            if (pub.authPolicy.size >
+                    (UINT16)sizeof(pub.authPolicy.buffer)) {
+                pub.authPolicy.size =
+                    (UINT16)sizeof(pub.authPolicy.buffer);
+            }
+            TPM2_Packet_ParseBytes(&pktPub, pub.authPolicy.buffer,
+                pub.authPolicy.size);
+            if (wireSize > pub.authPolicy.size)
+                TPM2_Packet_ParseBytes(&pktPub, NULL,
+                    wireSize - pub.authPolicy.size);
+        }
         TPM2_Packet_ParsePublicParms(&pktPub, pub.type, &pub.parameters);
         TPM2_Packet_ParseEccPoint(&pktPub, &pub.unique.ecc);
 
