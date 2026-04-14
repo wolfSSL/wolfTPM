@@ -275,18 +275,17 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Update the Auth Area total size in the command packet */
     i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
 
-#ifdef DEBUG_WOLFTPM
     if ((int)authSz != i) {
         /* actual auth size did not match estimated size from
          * TPM2_Packet_AppendAuth */
+    #ifdef DEBUG_WOLFTPM
         printf("Error: Calculated auth size %d did not match actual %d!\n",
             authSz, i);
+    #endif
         return BUFFER_E;
     }
-#endif
 
     (void)cmdCode;
-    (void)i;
 
     return rc;
 }
