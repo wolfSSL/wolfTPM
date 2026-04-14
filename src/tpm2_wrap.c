@@ -7036,6 +7036,7 @@ int wolfTPM2_UnloadHandles(WOLFTPM2_DEV* dev, word32 handleStart,
         /* ignore return code failures */
         (void)wolfTPM2_UnloadHandle(dev, &handle);
     }
+    TPM2_ForceZero(&handle, sizeof(handle));
     return rc;
 }
 
