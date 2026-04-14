@@ -2546,7 +2546,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         if (session->nonceCaller.size > (UINT16)sizeof(session->nonceCaller.buffer))
             session->nonceCaller.size = (UINT16)sizeof(session->nonceCaller.buffer);
         XMEMCPY(session->nonceCaller.buffer, authSesIn.nonceCaller.buffer,
-            authSesIn.nonceCaller.size);
+            session->nonceCaller.size);
         session->nonceTPM.size = authSesOut.nonceTPM.size;
         if (session->nonceTPM.size > (UINT16)sizeof(session->nonceTPM.buffer))
             session->nonceTPM.size = (UINT16)sizeof(session->nonceTPM.buffer);
