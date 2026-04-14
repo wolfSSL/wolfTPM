@@ -3176,7 +3176,9 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Certify);
 
@@ -3239,7 +3241,9 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
             in->creationHash.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendU16(&packet, in->creationTicket.tag);
         TPM2_Packet_AppendU32(&packet, in->creationTicket.hierarchy);
@@ -3304,7 +3308,9 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendPCR(&packet, &in->PCRselect);
 
@@ -3368,7 +3374,9 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
             TPM_CC_GetSessionAuditDigest);
@@ -3430,7 +3438,9 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
             TPM_CC_GetCommandAuditDigest);
@@ -3491,7 +3501,9 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetTime);
 
@@ -5939,7 +5951,9 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendU16(&packet, in->size);
         TPM2_Packet_AppendU16(&packet, in->offset);
