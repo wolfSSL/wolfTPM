@@ -2840,6 +2840,7 @@ int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* return loaded key */
     XMEMCPY(key, &keyBlob, sizeof(WOLFTPM2_KEY));
 
+    TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
     return rc;
 }
 
@@ -3519,6 +3520,7 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     /* return loaded key */
     wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
+    TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
     return rc;
 }
 
@@ -3693,6 +3695,7 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     /* return loaded key */
     wolfTPM2_CopyKeyFromBlob(key, &keyBlob);
 
+    TPM2_ForceZero(&keyBlob, sizeof(keyBlob));
     return rc;
 }
 
