@@ -1694,14 +1694,14 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     if (auth) {
         session->auth.size = auth->size;
         if (session->auth.size > sizeof(session->auth.buffer)) {
-            session->auth.size = sizeof(session->auth.buffer); /* truncate */
+            return BUFFER_E;
         }
         XMEMCPY(session->auth.buffer, auth->buffer, session->auth.size);
     }
     if (name) {
         session->name.size = name->size;
         if (session->name.size > sizeof(session->name.name)) {
-            session->name.size = sizeof(session->name.name); /* truncate */
+            return BUFFER_E;
         }
         XMEMCPY(session->name.name, name->name, session->name.size);
     }
@@ -1784,7 +1784,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
             /* password based authentication */
             session->auth.size = handle->auth.size;
             if (session->auth.size > sizeof(session->auth.buffer)) {
-                session->auth.size = sizeof(session->auth.buffer); /* truncate */
+                return BUFFER_E;
             }
             XMEMCPY(session->auth.buffer, handle->auth.buffer,
                 session->auth.size);
@@ -1794,7 +1794,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
                 /* use policy password directly */
                 session->auth.size = handle->auth.size;
                 if (session->auth.size > sizeof(session->auth.buffer)) {
-                    session->auth.size = sizeof(session->auth.buffer); /* truncate */
+                    return BUFFER_E;
                 }
                 XMEMCPY(session->auth.buffer, handle->auth.buffer,
                     session->auth.size);
@@ -2591,7 +2591,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
     if (auth && authSz > 0) {
         TPM2B_AUTH* createPriAuth = &createPriIn.inSensitive.sensitive.userAuth;
         if (authSz > (int)sizeof(createPriAuth->buffer)) {
-            authSz = (int)sizeof(createPriAuth->buffer); /* truncate */
+            return BUFFER_E;
         }
         createPriAuth->size = authSz;
         XMEMCPY(createPriAuth->buffer, auth, authSz);
@@ -2677,7 +2677,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     changeIn.parentHandle = parent->hndl;
     if (auth) {
         if (authSz > (int)sizeof(changeIn.newAuth.buffer))
-            authSz = (int)sizeof(changeIn.newAuth.buffer);
+            return BUFFER_E;
         changeIn.newAuth.size = (UINT16)authSz;
         XMEMCPY(changeIn.newAuth.buffer, auth, authSz);
     }
@@ -2746,7 +2746,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (auth) {
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
         if (authSz > (int)sizeof(pAuth->buffer)) {
-            authSz = (int)sizeof(pAuth->buffer); /* truncate */
+            return BUFFER_E;
         }
         pAuth->size = (UINT16)authSz;
         XMEMCPY(pAuth->buffer, auth, (size_t)authSz);
@@ -2865,7 +2865,7 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (auth) {
         TPM2B_AUTH* pAuth = &createLoadedIn.inSensitive.sensitive.userAuth;
         if (authSz > (int)sizeof(pAuth->buffer)) {
-            authSz = (int)sizeof(pAuth->buffer); /* truncate */
+            return BUFFER_E;
         }
         pAuth->size = (UINT16)authSz;
         XMEMCPY(pAuth->buffer, auth, (size_t)authSz);
@@ -8981,7 +8981,7 @@ int wolfTPM2_PolicyPassword(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
 
     if (auth != NULL && authSz >= 0) {
         if (authSz > (int)sizeof(tpmSession->handle.auth.buffer)) {
-            authSz = (int)sizeof(tpmSession->handle.auth.buffer); /* truncate */
+            return BUFFER_E;
         }
         tpmSession->handle.auth.size = authSz;
         tpmSession->handle.policyPass = 1;
