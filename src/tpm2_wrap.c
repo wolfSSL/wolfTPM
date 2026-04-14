@@ -2688,6 +2688,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_ObjectChangeAuth failed %d: %s\n", rc,
                 wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&changeIn, sizeof(changeIn));
         return rc;
     }
 
@@ -2707,6 +2708,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&changeIn, sizeof(changeIn));
         return rc;
     }
     key->handle.hndl = loadOut.objectHandle;
@@ -2718,6 +2720,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         (word32)key->handle.hndl);
 #endif
 
+    TPM2_ForceZero(&changeIn, sizeof(changeIn));
     return rc;
 }
 
