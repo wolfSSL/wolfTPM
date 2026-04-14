@@ -5823,6 +5823,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     }
 #endif
 
+    TPM2_ForceZero(&in, sizeof(in));
     return rc;
 }
 
