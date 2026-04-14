@@ -596,8 +596,9 @@ static void test_wolfTPM2_PolicyHash(void)
         AssertIntNE(XMEMCMP(digestFirst, digest, digestSz), 0);
     }
 
-    printf("Test TPM Wrapper:\tPolicyHash:\t%s\n",
-        rc == 0 ? "Passed" : "Failed");
+    printf("Test TPM Wrapper:\tPolicyHash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tPolicyHash:\tSkipped\n");
 #endif
 }
 
@@ -667,8 +668,9 @@ static void test_wolfTPM2_SensitiveToPrivate(void)
         AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
     }
 
-    printf("Test TPM Wrapper:\tSensitiveToPrivate:\t%s\n",
-        rc == 0 ? "Passed" : "Failed");
+    printf("Test TPM Wrapper:\tSensitiveToPrivate:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tSensitiveToPrivate:\tSkipped\n");
 #endif
 }
 
@@ -736,8 +738,10 @@ static void test_TPM2_KDFa_SessionLabels(void)
         AssertIntEQ(XMEMCMP(key, expDUPLICATE, sizeof(expDUPLICATE)), 0);
     }
 
-#endif
     printf("Test TPM Wrapper:\tKDFa Session Labels:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tKDFa Session Labels:\tSkipped\n");
+#endif
 }
 
 static void test_wolfTPM2_EncryptSecret(void)

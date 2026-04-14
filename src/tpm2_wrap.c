@@ -1695,17 +1695,17 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     session->sessionHandle = sessionHandle;
     session->sessionAttributes = sessionAttributes;
     if (auth) {
-        session->auth.size = auth->size;
-        if (session->auth.size > sizeof(session->auth.buffer)) {
+        if (auth->size > sizeof(session->auth.buffer)) {
             return BUFFER_E;
         }
+        session->auth.size = auth->size;
         XMEMCPY(session->auth.buffer, auth->buffer, session->auth.size);
     }
     if (name) {
-        session->name.size = name->size;
-        if (session->name.size > sizeof(session->name.name)) {
+        if (name->size > sizeof(session->name.name)) {
             return BUFFER_E;
         }
+        session->name.size = name->size;
         XMEMCPY(session->name.name, name->name, session->name.size);
     }
 
@@ -1785,20 +1785,20 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
     if (handle->auth.size > 0) {
         if (session->sessionHandle == TPM_RS_PW) {
             /* password based authentication */
-            session->auth.size = handle->auth.size;
-            if (session->auth.size > sizeof(session->auth.buffer)) {
+            if (handle->auth.size > sizeof(session->auth.buffer)) {
                 return BUFFER_E;
             }
+            session->auth.size = handle->auth.size;
             XMEMCPY(session->auth.buffer, handle->auth.buffer,
                 session->auth.size);
         }
         else {
             if (handle->policyPass) {
                 /* use policy password directly */
-                session->auth.size = handle->auth.size;
-                if (session->auth.size > sizeof(session->auth.buffer)) {
+                if (handle->auth.size > sizeof(session->auth.buffer)) {
                     return BUFFER_E;
                 }
+                session->auth.size = handle->auth.size;
                 XMEMCPY(session->auth.buffer, handle->auth.buffer,
                     session->auth.size);
                 session->policyPass = handle->policyPass;
