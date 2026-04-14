@@ -1654,6 +1654,51 @@ static void test_TPM2_ParamEncDec_Dispatch_Roundtrip(void)
 #endif
 }
 
+/* Known-answer test for TPM2_HashNvPublic serialization and hashing.
+ * Reference: independently computed SHA-256 over the marshaled NV public
+ * area fields in TPM 2.0 canonical order. */
+static void test_TPM2_HashNvPublic(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    TPMS_NV_PUBLIC nvPublic;
+    byte nameBuffer[2 + WC_MAX_DIGEST_SIZE];
+    UINT16 nameSize = 0;
+    /* Expected Name: nameAlg(BE) || SHA256(nvIndex||nameAlg||attributes||
+     *                authPolicy.size||dataSize) */
+    static const byte expectedName[] = {
+        0x00, 0x0b, 0x95, 0x61, 0x47, 0xe5, 0x81, 0xbd, 0xe0, 0xad, 0x4d, 0x95,
+        0x83, 0x8d, 0x2c, 0x6b, 0x7b, 0xa5, 0x1c, 0xc0, 0xad, 0x56, 0xd8, 0xec,
+        0xb7, 0x30, 0x24, 0xfa, 0x34, 0xb9, 0x95, 0x8f, 0xee, 0x45
+    };
+
+    XMEMSET(&nvPublic, 0, sizeof(nvPublic));
+    nvPublic.nvIndex = 0x01500020;
+    nvPublic.nameAlg = TPM_ALG_SHA256;
+    nvPublic.attributes = TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA;
+    nvPublic.authPolicy.size = 0;
+    nvPublic.dataSize = 32;
+
+    XMEMSET(nameBuffer, 0, sizeof(nameBuffer));
+    rc = TPM2_HashNvPublic(&nvPublic, nameBuffer, &nameSize);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(nameSize, (int)sizeof(expectedName));
+    AssertIntEQ(0, XMEMCMP(nameBuffer, expectedName, sizeof(expectedName)));
+
+    /* Test NULL args */
+    rc = TPM2_HashNvPublic(NULL, nameBuffer, &nameSize);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_HashNvPublic(&nvPublic, NULL, &nameSize);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = TPM2_HashNvPublic(&nvPublic, nameBuffer, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tHashNvPublic:\t\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHashNvPublic:\t\tSkipped\n");
+#endif
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2419,6 +2464,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParamDec_XOR_Roundtrip();
     test_TPM2_ParamDec_AESCFB_Roundtrip();
     test_TPM2_ParamEncDec_Dispatch_Roundtrip();
+    test_TPM2_HashNvPublic();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
