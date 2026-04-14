@@ -3616,6 +3616,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPM_ST st;
+    UINT16 wireSize = 0;
 
     if (ctx == NULL || in == NULL || out == NULL)
         return BAD_FUNC_ARG;
@@ -3651,10 +3652,20 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->validation.digest.size = wireSize;
+            if (out->validation.digest.size >
+                    (UINT16)sizeof(out->validation.digest.buffer)) {
+                out->validation.digest.size =
+                    (UINT16)sizeof(out->validation.digest.buffer);
+            }
             TPM2_Packet_ParseBytes(&packet,
                         out->validation.digest.buffer,
                         out->validation.digest.size);
+            if (wireSize > out->validation.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
