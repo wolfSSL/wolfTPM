@@ -478,6 +478,83 @@ static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
 #endif
 }
 
+static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+    int authDigestSz;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&handle, 0, sizeof(handle));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* Configure session 0 with SHA-256 auth hash and a non-PW session handle */
+    dev.session[0].authHash = TPM_ALG_SHA256;
+    dev.session[0].sessionHandle = 0x02000000; /* HMAC session handle */
+    authDigestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    AssertIntEQ(authDigestSz, TPM_SHA256_DIGEST_SIZE);
+
+    /* Pre-fill the HMAC key region with sentinel */
+    XMEMSET(dev.session[0].auth.buffer, 0xFF, authDigestSz);
+
+    /* Set up handle with policyAuth and auth data */
+    handle.policyAuth = 1;
+    handle.auth.size = 4;
+    handle.auth.buffer[0] = 0x11;
+    handle.auth.buffer[1] = 0x22;
+    handle.auth.buffer[2] = 0x33;
+    handle.auth.buffer[3] = 0x44;
+    handle.name.size = 2;
+    handle.name.name[0] = 0xAA;
+    handle.name.name[1] = 0xBB;
+
+    /* Test wolfTPM2_SetAuthHandle policyAuth branch */
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(dev.session[0].auth.size,
+        authDigestSz + (int)handle.auth.size);
+
+    /* Verify HMAC key slot [0..authDigestSz-1] preserved */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(dev.session[0].auth.buffer[i], 0xFF);
+    }
+
+    /* Verify auth at offset [authDigestSz..] */
+    AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
+        handle.auth.buffer, handle.auth.size), 0);
+
+    /* Now test wolfTPM2_SetAuthHandleName policyAuth branch */
+    XMEMSET(dev.session[0].auth.buffer, 0xEE, authDigestSz);
+    dev.session[0].auth.size = 0;
+
+    rc = wolfTPM2_SetAuthHandleName(&dev, 0, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(dev.session[0].auth.size,
+        authDigestSz + (int)handle.auth.size);
+
+    /* Verify HMAC key slot [0..authDigestSz-1] preserved */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(dev.session[0].auth.buffer[i], 0xEE);
+    }
+
+    /* Verify auth at offset [authDigestSz..] */
+    AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
+        handle.auth.buffer, handle.auth.size), 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tSetAuthHandle PolicyAuth:\tPassed\n");
+#endif
+}
+
 static void test_wolfTPM2_SensitiveToPrivate(void)
 {
 #ifdef WOLFTPM2_PRIVATE_IMPORT
@@ -1648,6 +1725,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
+    test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
     test_TPM2_KDFa_SessionLabels();
