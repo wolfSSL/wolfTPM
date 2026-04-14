@@ -1699,6 +1699,61 @@ static void test_TPM2_HashNvPublic(void)
 #endif
 }
 
+/* Known-answer test for wolfTPM2_ComputeName.
+ * Reference: nameAlg(BE) || SHA256(serialized TPMT_PUBLIC) computed
+ * independently for an ECC P-256 key with known field values. */
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+static void test_wolfTPM2_ComputeName(void)
+{
+    int rc;
+    TPM2B_PUBLIC pub;
+    TPM2B_NAME name;
+    static const byte expectedName[] = {
+        0x00, 0x0b, 0x35, 0xc3, 0x57, 0x9d, 0xf1, 0xb5,
+        0x24, 0x6a, 0xb7, 0x9a, 0x0a, 0xf2, 0xd5, 0x44,
+        0xcb, 0x63, 0x2a, 0x80, 0xe2, 0x24, 0x1d, 0xd3,
+        0x84, 0x06, 0x34, 0xe4, 0x38, 0x00, 0x61, 0xc0,
+        0x2e, 0x6f
+    };
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.objectAttributes = (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt |
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
+    pub.publicArea.authPolicy.size = 0;
+    pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_NULL;
+    pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    pub.publicArea.unique.ecc.x.size = 32;
+    XMEMSET(pub.publicArea.unique.ecc.x.buffer, 0x11, 32);
+    pub.publicArea.unique.ecc.y.size = 32;
+    XMEMSET(pub.publicArea.unique.ecc.y.buffer, 0x22, 32);
+
+    XMEMSET(&name, 0, sizeof(name));
+    rc = wolfTPM2_ComputeName(&pub, &name);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(name.size, (int)sizeof(expectedName));
+    AssertIntEQ(0, XMEMCMP(name.name, expectedName, sizeof(expectedName)));
+
+    /* Test NULL args */
+    rc = wolfTPM2_ComputeName(NULL, &name);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_ComputeName(&pub, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test nameAlg = TPM_ALG_NULL returns success with empty name */
+    pub.publicArea.nameAlg = TPM_ALG_NULL;
+    XMEMSET(&name, 0xFF, sizeof(name));
+    rc = wolfTPM2_ComputeName(&pub, &name);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(name.size, 0);
+
+    printf("Test TPM Wrapper:\tComputeName:\t\tPassed\n");
+}
+#endif
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2465,6 +2520,9 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParamDec_AESCFB_Roundtrip();
     test_TPM2_ParamEncDec_Dispatch_Roundtrip();
     test_TPM2_HashNvPublic();
+    #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    test_wolfTPM2_ComputeName();
+    #endif
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
