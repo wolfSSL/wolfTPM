@@ -5650,7 +5650,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     int rc, rctmp;
     NV_DefineSpace_In in;
 
-    if (dev == NULL || nv == NULL) {
+    if (dev == NULL || nv == NULL || parent == NULL) {
         return BAD_FUNC_ARG;
     }
 
