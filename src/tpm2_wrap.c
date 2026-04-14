@@ -9176,7 +9176,7 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
         rc = wc_HashUpdate(&hash_ctx, hashType, digest, inSz);
     }
     /* Command Code (optional) */
-    if (rc == 0 && cc > TPM_CC_FIRST) {
+    if (rc == 0 && cc >= TPM_CC_FIRST) {
         val = TPM2_Packet_SwapU32(cc);
         rc = wc_HashUpdate(&hash_ctx, hashType, (byte*)&val, sizeof(val));
     }
