@@ -6919,6 +6919,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         printf("TPM2_HMAC_Start failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&in.auth, sizeof(in.auth));
         return rc;
     }
 
@@ -6930,6 +6931,7 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
         (word32)out.sequenceHandle);
 #endif
 
+    TPM2_ForceZero(&in.auth, sizeof(in.auth));
     return rc;
 }
 
