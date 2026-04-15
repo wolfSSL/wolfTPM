@@ -97,23 +97,25 @@ int wolfSPDM_TCG_VendorCmdSecured(WOLFSPDM_CTX* ctx, const char* vdCode,
     spdmMsgSz = wolfSPDM_BuildVendorDefined(ver, vdCode, payload,
         payloadSz, spdmMsg, sizeof(spdmMsg));
     if (spdmMsgSz < 0) {
-        return spdmMsgSz;
+        rc = spdmMsgSz;
+    }
+    else {
+        decSz = sizeof(decBuf);
+        rc = wolfSPDM_SecuredExchange(ctx, spdmMsg, (word32)spdmMsgSz,
+            decBuf, &decSz);
     }
 
-    decSz = sizeof(decBuf);
-    rc = wolfSPDM_SecuredExchange(ctx, spdmMsg, (word32)spdmMsgSz,
-        decBuf, &decSz);
-    if (rc != WOLFSPDM_SUCCESS) {
-        return rc;
-    }
-
-    if (decSz >= 4 && decBuf[1] == SPDM_ERROR) {
+    if (rc == WOLFSPDM_SUCCESS && decSz >= 4 && decBuf[1] == SPDM_ERROR) {
         wolfSPDM_DebugPrint(ctx, "%s: SPDM ERROR 0x%02x 0x%02x\n",
             vdCode, decBuf[2], decBuf[3]);
-        return WOLFSPDM_E_PEER_ERROR;
+        rc = WOLFSPDM_E_PEER_ERROR;
     }
 
-    return WOLFSPDM_SUCCESS;
+    /* Always zero sensitive stack buffers */
+    wc_ForceZero(spdmMsg, sizeof(spdmMsg));
+    wc_ForceZero(decBuf, sizeof(decBuf));
+
+    return rc;
 }
 
 /* ----- TCG SPDM Binding Message Framing ----- */
