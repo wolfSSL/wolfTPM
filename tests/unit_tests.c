@@ -1816,6 +1816,20 @@ static void test_TPM2_SchemeSerialize(void)
     printf("Test TPM Wrapper:\tSchemeSerialize:\t\tPassed\n");
 }
 
+static void test_KeySealTemplate(void)
+{
+    int rc;
+    TPMT_PUBLIC tmpl;
+
+    rc = wolfTPM2_GetKeyTemplate_KeySeal(&tmpl, TPM_ALG_SHA256);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Template must include userWithAuth so password-based unseal works */
+    AssertIntNE(tmpl.objectAttributes & TPMA_OBJECT_userWithAuth, 0);
+
+    printf("Test TPM Wrapper:\tKeySealTemplate:\t\tPassed\n");
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2586,6 +2600,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ComputeName();
     #endif
     test_TPM2_SchemeSerialize();
+    test_KeySealTemplate();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
