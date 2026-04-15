@@ -1754,6 +1754,68 @@ static void test_wolfTPM2_ComputeName(void)
 }
 #endif
 
+/* Test ECC ECDAA scheme serialization roundtrip — verifies count field
+ * is preserved, and RSA RSAES scheme produces no spurious hashAlg */
+static void test_TPM2_SchemeSerialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIG_SCHEME eccSchemeIn, eccSchemeOut;
+#ifndef NO_RSA
+    TPMT_RSA_SCHEME rsaSchemeIn, rsaSchemeOut;
+#endif
+
+    /* Test 1: ECDAA scheme roundtrip — count field must survive */
+    XMEMSET(&eccSchemeIn, 0, sizeof(eccSchemeIn));
+    eccSchemeIn.scheme = TPM_ALG_ECDAA;
+    eccSchemeIn.details.ecdaa.hashAlg = TPM_ALG_SHA256;
+    eccSchemeIn.details.ecdaa.count = 5;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendEccScheme(&packet, &eccSchemeIn);
+
+    /* For ECDAA: scheme(2) + hashAlg(2) + count(2) = 6 bytes */
+    AssertIntEQ(packet.pos, 6);
+
+    /* Parse back */
+    packet.pos = 0;
+    XMEMSET(&eccSchemeOut, 0, sizeof(eccSchemeOut));
+    TPM2_Packet_ParseEccScheme(&packet, &eccSchemeOut);
+
+    AssertIntEQ(eccSchemeOut.scheme, TPM_ALG_ECDAA);
+    AssertIntEQ(eccSchemeOut.details.ecdaa.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(eccSchemeOut.details.ecdaa.count, 5);
+
+#ifndef NO_RSA
+    /* Test 2: RSAES scheme roundtrip — no hashAlg field (TPMS_EMPTY) */
+    XMEMSET(&rsaSchemeIn, 0, sizeof(rsaSchemeIn));
+    rsaSchemeIn.scheme = TPM_ALG_RSAES;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendRsaScheme(&packet, &rsaSchemeIn);
+
+    /* For RSAES: scheme(2) only, no hashAlg */
+    AssertIntEQ(packet.pos, 2);
+
+    /* Parse back */
+    packet.pos = 0;
+    XMEMSET(&rsaSchemeOut, 0, sizeof(rsaSchemeOut));
+    TPM2_Packet_ParseRsaScheme(&packet, &rsaSchemeOut);
+
+    AssertIntEQ(rsaSchemeOut.scheme, TPM_ALG_RSAES);
+#endif
+
+    printf("Test TPM Wrapper:\tSchemeSerialize:\t\tPassed\n");
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2523,6 +2585,7 @@ int unit_tests(int argc, char *argv[])
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     test_wolfTPM2_ComputeName();
     #endif
+    test_TPM2_SchemeSerialize();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();

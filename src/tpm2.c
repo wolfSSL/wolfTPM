@@ -3302,6 +3302,10 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
         if (in->inScheme.scheme != TPM_ALG_NULL) {
             TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+            if (in->inScheme.scheme == TPM_ALG_ECDAA) {
+                TPM2_Packet_AppendU16(&packet,
+                    in->inScheme.details.ecdaa.count);
+            }
         }
 
         TPM2_Packet_AppendU16(&packet, in->validation.tag);

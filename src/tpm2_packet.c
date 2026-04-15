@@ -646,26 +646,36 @@ void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 void TPM2_Packet_AppendEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
+        if (scheme->scheme == TPM_ALG_ECDAA) {
+            TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.count);
+        }
+    }
 }
 void TPM2_Packet_ParseEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_ParseU16(packet, &scheme->details.any.hashAlg);
+        if (scheme->scheme == TPM_ALG_ECDAA) {
+            TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.count);
+        }
+    }
 }
 
 void TPM2_Packet_AppendRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL &&
+        scheme->scheme != TPM_ALG_RSAES)
         TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
 }
 void TPM2_Packet_ParseRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL &&
+        scheme->scheme != TPM_ALG_RSAES)
         TPM2_Packet_ParseU16(packet, &scheme->details.anySig.hashAlg);
 }
 
@@ -698,13 +708,15 @@ void TPM2_Packet_ParseKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
 void TPM2_Packet_AppendAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL &&
+        scheme->scheme != TPM_ALG_RSAES)
         TPM2_Packet_AppendU16(packet, scheme->details.anySig.hashAlg);
 }
 void TPM2_Packet_ParseAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme != TPM_ALG_NULL &&
+        scheme->scheme != TPM_ALG_RSAES)
         TPM2_Packet_ParseU16(packet, &scheme->details.anySig.hashAlg);
 }
 
