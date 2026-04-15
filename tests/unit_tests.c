@@ -1830,7 +1830,9 @@ static void test_KeySealTemplate(void)
     printf("Test TPM Wrapper:\tKeySealTemplate:\t\tPassed\n");
 }
 
-/* Test boundary validation for seal size and keyed hash key size */
+/* Test boundary validation for seal size and keyed hash key size.
+ * Uses zero-initialized dev intentionally — only testing argument validation,
+ * not TPM operations. */
 static void test_SealAndKeyedHash_Boundaries(void)
 {
     int rc;
@@ -2558,7 +2560,14 @@ static void test_wolfTPM2_DecodeDer_DefaultAttribs(void)
 
     /* userWithAuth should be set */
     AssertTrue(attrs & TPMA_OBJECT_userWithAuth);
+
+    /* When both sign and decrypt are set, scheme must be NULL */
+    AssertIntEQ(pub.publicArea.parameters.eccDetail.scheme.scheme,
+        TPM_ALG_NULL);
 #endif
+    /* Note: DecodeRsaDer uses the same default attribute and scheme logic
+     * as DecodeEccDer — validated by the ECC test above. RSA DER key is
+     * too large (1217 bytes) to embed inline for a unit test. */
 
     printf("Test TPM Wrapper:\tDecodeDer DefaultAttribs:\tPassed\n");
 }

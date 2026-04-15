@@ -3786,8 +3786,13 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             pub->publicArea.objectAttributes = attributes;
             rsa->keyBits = nSz * 8;
             rsa->exponent = e;
+            /* if both sign and decrypt are set then must use NULL scheme */
             rsa->scheme.scheme =
-                (attributes & TPMA_OBJECT_sign) ? TPM_ALG_RSASSA : TPM_ALG_NULL;
+                ((attributes & TPMA_OBJECT_sign) &&
+                 (attributes & TPMA_OBJECT_decrypt)) ?
+                    TPM_ALG_NULL :
+                ((attributes & TPMA_OBJECT_sign) ? TPM_ALG_RSASSA :
+                    TPM_ALG_NULL);
             rsa->scheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
             pub->publicArea.unique.rsa.size = nSz;
             XMEMCPY(pub->publicArea.unique.rsa.buffer, n, nSz);
@@ -3898,8 +3903,13 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
             pub->publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
             pub->publicArea.objectAttributes = attributes;
             ecc->symmetric.algorithm = TPM_ALG_NULL;
+            /* if both sign and decrypt are set then must use NULL scheme */
             ecc->scheme.scheme =
-                (attributes & TPMA_OBJECT_sign) ? TPM_ALG_ECDSA : TPM_ALG_NULL;
+                ((attributes & TPMA_OBJECT_sign) &&
+                 (attributes & TPMA_OBJECT_decrypt)) ?
+                    TPM_ALG_NULL :
+                ((attributes & TPMA_OBJECT_sign) ? TPM_ALG_ECDSA :
+                    TPM_ALG_NULL);
             ecc->scheme.details.ecdsa.hashAlg = WOLFTPM2_WRAP_DIGEST;
             ecc->curveID = curveId;
             ecc->kdf.scheme = TPM_ALG_NULL;

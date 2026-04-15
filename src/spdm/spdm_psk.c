@@ -356,19 +356,21 @@ int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
     wolfSPDM_TranscriptReset(ctx);
 
     /* Step 1: GET_VERSION */
-    SPDM_CONNECT_STEP(ctx, "PSK Step 1: GET_VERSION\n",
-        wolfSPDM_GetVersion(ctx));
+    wolfSPDM_DebugPrint(ctx, "PSK Step 1: GET_VERSION\n");
+    rc = wolfSPDM_GetVersion(ctx);
 
     /* Steps 2-3: GET_CAPABILITIES + NEGOTIATE_ALGORITHMS
      * Not mandatory for PSK mode per TCG PC Client PSK spec.
      * NS350 supports direct GET_VERSION -> PSK_EXCHANGE. */
 
     /* Step 2: PSK_EXCHANGE / PSK_EXCHANGE_RSP */
-    txSz = sizeof(txBuf);
-    rxSz = sizeof(rxBuf);
+    if (rc == WOLFSPDM_SUCCESS) {
+        txSz = sizeof(txBuf);
+        rxSz = sizeof(rxBuf);
 
-    wolfSPDM_DebugPrint(ctx, "PSK Step 4: PSK_EXCHANGE\n");
-    rc = wolfSPDM_BuildPskExchange(ctx, txBuf, &txSz);
+        wolfSPDM_DebugPrint(ctx, "PSK Step 4: PSK_EXCHANGE\n");
+        rc = wolfSPDM_BuildPskExchange(ctx, txBuf, &txSz);
+    }
     if (rc == WOLFSPDM_SUCCESS) {
         rc = wolfSPDM_TranscriptAdd(ctx, txBuf, txSz);
     }
@@ -417,6 +419,8 @@ int wolfSPDM_ConnectPsk(WOLFSPDM_CTX* ctx)
     }
 
     /* Always zero sensitive stack buffers */
+    wc_ForceZero(txBuf, sizeof(txBuf));
+    wc_ForceZero(rxBuf, sizeof(rxBuf));
     wc_ForceZero(finBuf, sizeof(finBuf));
     wc_ForceZero(encBuf, sizeof(encBuf));
     wc_ForceZero(decBuf, sizeof(decBuf));

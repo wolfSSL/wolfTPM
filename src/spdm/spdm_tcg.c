@@ -89,7 +89,7 @@ int wolfSPDM_TCG_VendorCmdSecured(WOLFSPDM_CTX* ctx, const char* vdCode,
     byte spdmMsg[WOLFSPDM_VENDOR_BUF_SZ];
     int spdmMsgSz;
     byte decBuf[WOLFSPDM_VENDOR_BUF_SZ];
-    word32 decSz;
+    word32 decSz = 0;
     int rc;
     byte ver;
 
