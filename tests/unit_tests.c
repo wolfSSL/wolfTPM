@@ -1830,6 +1830,62 @@ static void test_KeySealTemplate(void)
     printf("Test TPM Wrapper:\tKeySealTemplate:\t\tPassed\n");
 }
 
+/* Test boundary validation for seal size and keyed hash key size */
+static void test_SealAndKeyedHash_Boundaries(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEYBLOB keyBlob;
+    WOLFTPM2_KEY key;
+    WOLFTPM2_HANDLE parent;
+    TPMT_PUBLIC tmpl;
+    byte data[MAX_SYM_DATA + 1];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(&tmpl, 0, sizeof(tmpl));
+    XMEMSET(data, 0xAA, sizeof(data));
+
+    /* NULL arg checks */
+    rc = wolfTPM2_CreateKeySeal_ex(NULL, &keyBlob, &parent, &tmpl,
+        NULL, 0, TPM_ALG_NULL, NULL, 0, data, 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* sealSize = MAX_SYM_DATA+1 (129) must be rejected */
+    rc = wolfTPM2_CreateKeySeal_ex(&dev, &keyBlob, &parent, &tmpl,
+        NULL, 0, TPM_ALG_NULL, NULL, 0, data, MAX_SYM_DATA + 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* sealSize = -1 must be rejected */
+    rc = wolfTPM2_CreateKeySeal_ex(&dev, &keyBlob, &parent, &tmpl,
+        NULL, 0, TPM_ALG_NULL, NULL, 0, data, -1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* sealSize > 0 with NULL sealData must be rejected */
+    rc = wolfTPM2_CreateKeySeal_ex(&dev, &keyBlob, &parent, &tmpl,
+        NULL, 0, TPM_ALG_NULL, NULL, 0, NULL, 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* keySz = MAX_SYM_DATA+1 (129) must be rejected */
+    rc = wolfTPM2_LoadKeyedHashKey(&dev, &key, &parent,
+        TPM_ALG_SHA256, data, MAX_SYM_DATA + 1, NULL, 0);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* keySz = 0 must be rejected */
+    rc = wolfTPM2_LoadKeyedHashKey(&dev, &key, &parent,
+        TPM_ALG_SHA256, data, 0, NULL, 0);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* NULL keyBuf must be rejected */
+    rc = wolfTPM2_LoadKeyedHashKey(&dev, &key, &parent,
+        TPM_ALG_SHA256, NULL, MAX_SYM_DATA, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tSealKeyedHash Boundary:\t\tPassed\n");
+}
+
 static void test_GetAlgId(void)
 {
     TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
@@ -2601,6 +2657,7 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_TPM2_SchemeSerialize();
     test_KeySealTemplate();
+    test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
