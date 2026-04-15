@@ -259,7 +259,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
 
     if (rc >= 0) {
         /* skip leading zero for bit string */
-        if (input[idx] == 0x00) {
+        if (pubkey_len > 0 && input[idx] == 0x00) {
             idx++;
             pubkey_len--;
         }
@@ -293,7 +293,7 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
 
     if (rc >= 0) {
         /* skip leading zero for bit string */
-        if (input[idx] == 0x00) {
+        if (sig_len > 0 && input[idx] == 0x00) {
             idx++;
             sig_len--;
         }

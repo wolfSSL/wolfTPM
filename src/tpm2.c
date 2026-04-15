@@ -233,9 +233,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
-            rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
-            rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
+            rc = TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
@@ -275,18 +277,17 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Update the Auth Area total size in the command packet */
     i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
 
-#ifdef DEBUG_WOLFTPM
     if ((int)authSz != i) {
         /* actual auth size did not match estimated size from
          * TPM2_Packet_AppendAuth */
+    #ifdef DEBUG_WOLFTPM
         printf("Error: Calculated auth size %d did not match actual %d!\n",
             authSz, i);
+    #endif
         return BUFFER_E;
     }
-#endif
 
     (void)cmdCode;
-    (void)i;
 
     return rc;
 }
@@ -2143,9 +2144,8 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->encryptionKeyIn.buffer,
             in->encryptionKeyIn.size);
 
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.algorithm);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.keyBits.sym);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.mode.sym);
+        TPM2_Packet_AppendSymmetric(&packet,
+            (TPMT_SYM_DEF*)&in->symmetricAlg);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Duplicate);
 
@@ -3176,7 +3176,9 @@ TPM_RC TPM2_Certify(Certify_In* in, Certify_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Certify);
 
@@ -3239,7 +3241,9 @@ TPM_RC TPM2_CertifyCreation(CertifyCreation_In* in, CertifyCreation_Out* out)
             in->creationHash.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendU16(&packet, in->creationTicket.tag);
         TPM2_Packet_AppendU32(&packet, in->creationTicket.hierarchy);
@@ -3304,7 +3308,9 @@ TPM_RC TPM2_Quote(Quote_In* in, Quote_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendPCR(&packet, &in->PCRselect);
 
@@ -3368,7 +3374,9 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
             TPM_CC_GetSessionAuditDigest);
@@ -3430,7 +3438,9 @@ TPM_RC TPM2_GetCommandAuditDigest(GetCommandAuditDigest_In* in,
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
             TPM_CC_GetCommandAuditDigest);
@@ -3491,7 +3501,9 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_GetTime);
 
@@ -3616,6 +3628,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
     TPM_ST st;
+    UINT16 wireSize = 0;
 
     if (ctx == NULL || in == NULL || out == NULL)
         return BAD_FUNC_ARG;
@@ -3651,10 +3664,20 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
+
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->validation.digest.size = wireSize;
+            if (out->validation.digest.size >
+                    (UINT16)sizeof(out->validation.digest.buffer)) {
+                out->validation.digest.size =
+                    (UINT16)sizeof(out->validation.digest.buffer);
+            }
             TPM2_Packet_ParseBytes(&packet,
                         out->validation.digest.buffer,
                         out->validation.digest.size);
+            if (wireSize > out->validation.digest.size)
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->validation.digest.size);
         }
 
         TPM2_ReleaseLock(ctx);
@@ -5928,7 +5951,9 @@ TPM_RC TPM2_NV_Certify(NV_Certify_In* in, NV_Certify_Out* out)
             in->qualifyingData.size);
 
         TPM2_Packet_AppendU16(&packet, in->inScheme.scheme);
-        TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        if (in->inScheme.scheme != TPM_ALG_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->inScheme.details.any.hashAlg);
+        }
 
         TPM2_Packet_AppendU16(&packet, in->size);
         TPM2_Packet_AppendU16(&packet, in->offset);

@@ -429,6 +429,315 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:\t\tPolicy NULL Args:\tPassed\n");
 }
 
+static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    const byte testAuth[] = {0x11, 0x22, 0x33, 0x44};
+    int authDigestSz;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* Configure session with SHA-256 auth hash */
+    session.authHash = TPM_ALG_SHA256;
+    authDigestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    AssertIntEQ(authDigestSz, TPM_SHA256_DIGEST_SIZE);
+
+    /* Pre-fill the HMAC key region with a sentinel */
+    XMEMSET(session.handle.auth.buffer, 0xFF, authDigestSz);
+
+    /* Call PolicyAuthValue - ignore return (TPM command may fail without
+     * a real session handle, but auth buffer placement happens first) */
+    (void)wolfTPM2_PolicyAuthValue(&dev, &session, testAuth,
+        (int)sizeof(testAuth));
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(session.handle.auth.size,
+        authDigestSz + (int)sizeof(testAuth));
+
+    /* Verify HMAC key slot [0..authDigestSz-1] is preserved (still 0xFF) */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(session.handle.auth.buffer[i], 0xFF);
+    }
+
+    /* Verify auth placed at offset [authDigestSz..authDigestSz+authSz-1] */
+    AssertIntEQ(XMEMCMP(&session.handle.auth.buffer[authDigestSz],
+        testAuth, sizeof(testAuth)), 0);
+
+    /* Verify policyAuth flag is set */
+    AssertIntEQ(session.handle.policyAuth, 1);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tPolicyAuthValue Offset:\tPassed\n");
+#endif
+}
+
+static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+    int authDigestSz;
+    int i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&handle, 0, sizeof(handle));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* Configure session 0 with SHA-256 auth hash and a non-PW session handle */
+    dev.session[0].authHash = TPM_ALG_SHA256;
+    dev.session[0].sessionHandle = 0x02000000; /* HMAC session handle */
+    authDigestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    AssertIntEQ(authDigestSz, TPM_SHA256_DIGEST_SIZE);
+
+    /* Pre-fill the HMAC key region with sentinel */
+    XMEMSET(dev.session[0].auth.buffer, 0xFF, authDigestSz);
+
+    /* Set up handle with policyAuth and auth data */
+    handle.policyAuth = 1;
+    handle.auth.size = 4;
+    handle.auth.buffer[0] = 0x11;
+    handle.auth.buffer[1] = 0x22;
+    handle.auth.buffer[2] = 0x33;
+    handle.auth.buffer[3] = 0x44;
+    handle.name.size = 2;
+    handle.name.name[0] = 0xAA;
+    handle.name.name[1] = 0xBB;
+
+    /* Test wolfTPM2_SetAuthHandle policyAuth branch */
+    rc = wolfTPM2_SetAuthHandle(&dev, 0, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(dev.session[0].auth.size,
+        authDigestSz + (int)handle.auth.size);
+
+    /* Verify HMAC key slot [0..authDigestSz-1] preserved */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(dev.session[0].auth.buffer[i], 0xFF);
+    }
+
+    /* Verify auth at offset [authDigestSz..] */
+    AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
+        handle.auth.buffer, handle.auth.size), 0);
+
+    /* Now test wolfTPM2_SetAuthHandleName policyAuth branch */
+    XMEMSET(dev.session[0].auth.buffer, 0xEE, authDigestSz);
+    dev.session[0].auth.size = 0;
+
+    rc = wolfTPM2_SetAuthHandleName(&dev, 0, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Verify auth.size = authDigestSz + authSz */
+    AssertIntEQ(dev.session[0].auth.size,
+        authDigestSz + (int)handle.auth.size);
+
+    /* Verify HMAC key slot [0..authDigestSz-1] preserved */
+    for (i = 0; i < authDigestSz; i++) {
+        AssertIntEQ(dev.session[0].auth.buffer[i], 0xEE);
+    }
+
+    /* Verify auth at offset [authDigestSz..] */
+    AssertIntEQ(XMEMCMP(&dev.session[0].auth.buffer[authDigestSz],
+        handle.auth.buffer, handle.auth.size), 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tSetAuthHandle PolicyAuth:\tPassed\n");
+#endif
+}
+
+static void test_wolfTPM2_PolicyHash(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digest0[TPM_SHA256_DIGEST_SIZE];
+    byte digestFirst[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+    const byte input[] = {0x01, 0x02, 0x03, 0x04};
+
+    /* Test 1: cc=0 (no command code, used by PolicyRefMake) */
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        0, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(digest0, digest, digestSz);
+
+    /* Test 2: cc=TPM_CC_FIRST (0x11F boundary) - must differ from cc=0 */
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_FIRST, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    XMEMCPY(digestFirst, digest, digestSz);
+
+    /* cc=0 and cc=TPM_CC_FIRST must produce different digests */
+    AssertIntNE(XMEMCMP(digest0, digestFirst, digestSz), 0);
+
+    /* Test 3: cc=TPM_CC_PolicyPCR (above boundary) - must differ from both */
+    XMEMSET(digest, 0xAA, sizeof(digest));
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    rc = wolfTPM2_PolicyHash(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_PolicyPCR, input, sizeof(input));
+    AssertIntEQ(rc, 0);
+    AssertIntNE(XMEMCMP(digest0, digest, digestSz), 0);
+    AssertIntNE(XMEMCMP(digestFirst, digest, digestSz), 0);
+
+    printf("Test TPM Wrapper:\tPolicyHash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tPolicyHash:\tSkipped\n");
+#endif
+}
+
+static void test_wolfTPM2_SensitiveToPrivate(void)
+{
+#ifdef WOLFTPM2_PRIVATE_IMPORT
+    int rc;
+    TPM2B_SENSITIVE sens;
+    TPM2B_PRIVATE priv;
+    TPM2B_NAME name;
+    TPM2B_DATA symSeed;
+    TPMT_SYM_DEF_OBJECT sym;
+    const byte expected[] = {
+        0x00, 0x20, 0x2b, 0x59, 0xc0, 0x69, 0xf6, 0x63,
+        0x7c, 0x2a, 0xe0, 0x62, 0xcf, 0x42, 0x37, 0x8b,
+        0x79, 0x5d, 0xb6, 0x61, 0x4f, 0x9f, 0x93, 0x38,
+        0x82, 0x06, 0x2e, 0x28, 0xbf, 0xd3, 0x5c, 0x82,
+        0x1c, 0x03, 0xb5, 0x90, 0x49, 0x7a, 0x93, 0x46,
+        0x31, 0x51, 0xe2, 0xdd, 0x4f, 0x0a, 0x22, 0x9b,
+        0x2e, 0xd7, 0x5d, 0xc6, 0xe3, 0x97, 0xf4, 0x75,
+        0xcf, 0xfd, 0xa9, 0xe9, 0xd3, 0xa4, 0x5f, 0x95,
+        0xa0, 0x70, 0x2f, 0x71, 0x6c, 0xb8, 0x90, 0x39,
+        0x32, 0x54, 0x91, 0x87, 0x34, 0x9b, 0xac, 0xef
+    };
+
+    /* Fixed test inputs */
+    XMEMSET(&sens, 0, sizeof(sens));
+    XMEMSET(&priv, 0, sizeof(priv));
+    XMEMSET(&name, 0, sizeof(name));
+    XMEMSET(&symSeed, 0, sizeof(symSeed));
+    XMEMSET(&sym, 0, sizeof(sym));
+
+    /* Set up a minimal sensitive area */
+    sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    sens.sensitiveArea.authValue.size = 4;
+    XMEMSET(sens.sensitiveArea.authValue.buffer, 0xAA, 4);
+    sens.sensitiveArea.seedValue.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sens.sensitiveArea.seedValue.buffer, 0xBB,
+        TPM_SHA256_DIGEST_SIZE);
+
+    /* Set up a name (hash alg + digest) */
+    name.size = 2 + TPM_SHA256_DIGEST_SIZE;
+    /* name[0..1] = TPM_ALG_SHA256 big-endian */
+    name.name[0] = 0x00;
+    name.name[1] = 0x0B; /* TPM_ALG_SHA256 */
+    XMEMSET(&name.name[2], 0xCC, TPM_SHA256_DIGEST_SIZE);
+
+    /* Set up symmetric algorithm (AES-128-CFB) */
+    sym.algorithm = TPM_ALG_AES;
+    sym.keyBits.sym = 128;
+    sym.mode.sym = TPM_ALG_CFB;
+
+    /* Set up a symmetric seed (triggers outer wrap / KDFa) */
+    symSeed.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(symSeed.buffer, 0xDD, TPM_SHA256_DIGEST_SIZE);
+
+    /* Expected output - pins KDFa "STORAGE" and "INTEGRITY" labels.
+     * Bytes 0-1: integrity size (0x0020 = 32),
+     * Bytes 2-33: HMAC integrity (via "INTEGRITY" label KDFa),
+     * Bytes 34-79: AES-CFB encrypted sensitive (via "STORAGE" label KDFa) */
+    rc = wolfTPM2_SensitiveToPrivate(&sens, &priv,
+        TPM_ALG_SHA256, &name, NULL, &sym, &symSeed);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(priv.size, (int)sizeof(expected));
+    AssertIntEQ(XMEMCMP(priv.buffer, expected, sizeof(expected)), 0);
+
+    printf("Test TPM Wrapper:\tSensitiveToPrivate:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tSensitiveToPrivate:\tSkipped\n");
+#endif
+}
+
+static void test_TPM2_KDFa_SessionLabels(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    #define TEST_KDFA_LABEL_KEYSZ TPM_SHA256_DIGEST_SIZE
+    TPM2B_DATA keyIn = {
+        .size = 16,
+        .buffer = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                   0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
+    };
+    TPM2B_NONCE nonceTPM = {
+        .size = 16,
+        .buffer = {0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8,
+                   0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB0}
+    };
+    TPM2B_NONCE nonceCaller = {
+        .size = 16,
+        .buffer = {0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8,
+                   0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF, 0xD0}
+    };
+    byte key[TEST_KDFA_LABEL_KEYSZ];
+
+    /* Test "ATH" label (session key derivation, TPM 2.0 Part 1 s19.6.8) */
+    {
+        const byte expATH[] = {
+            0x0d, 0x17, 0x5f, 0xf7, 0xac, 0xf9, 0x41, 0x9a,
+            0x73, 0x75, 0x7c, 0xa6, 0x42, 0x82, 0x49, 0x61,
+            0xa2, 0xc9, 0x72, 0xd9, 0x13, 0xdc, 0xbf, 0x72,
+            0x06, 0xe6, 0x73, 0xe7, 0x21, 0x5f, 0x99, 0x6a
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "ATH", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expATH, sizeof(expATH)), 0);
+    }
+
+    /* Test "SECRET" label (salt encryption, TPM 2.0 Part 1 s19.6.8) */
+    {
+        const byte expSECRET[] = {
+            0x1a, 0xc4, 0xc1, 0x34, 0x78, 0x87, 0x67, 0x5e,
+            0x91, 0xd1, 0xa2, 0xcd, 0xcb, 0xac, 0xdb, 0x62,
+            0xed, 0x4e, 0xfe, 0x44, 0xed, 0x52, 0x34, 0x3b,
+            0xf1, 0x87, 0xfb, 0x8b, 0xa9, 0xec, 0x43, 0x59
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "SECRET", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expSECRET, sizeof(expSECRET)), 0);
+    }
+
+    /* Test "DUPLICATE" label (key import, TPM 2.0 Part 1 s23.3) */
+    {
+        const byte expDUPLICATE[] = {
+            0xa3, 0xe5, 0x57, 0xc6, 0x49, 0x4c, 0xe5, 0x4f,
+            0x45, 0xae, 0xf7, 0x19, 0x4d, 0x9e, 0x21, 0xa2,
+            0x91, 0xeb, 0x05, 0x2d, 0x43, 0x06, 0x9f, 0xfb,
+            0x69, 0x67, 0x1f, 0x99, 0x00, 0xb0, 0xcc, 0x39
+        };
+        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "DUPLICATE", &nonceTPM, &nonceCaller,
+            key, TEST_KDFA_LABEL_KEYSZ);
+        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+        AssertIntEQ(XMEMCMP(key, expDUPLICATE, sizeof(expDUPLICATE)), 0);
+    }
+
+    printf("Test TPM Wrapper:\tKDFa Session Labels:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tKDFa Session Labels:\tSkipped\n");
+#endif
+}
+
 static void test_wolfTPM2_EncryptSecret(void)
 {
     int rc;
@@ -1459,7 +1768,12 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetRandom();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_PolicyAuthValue_AuthOffset();
+    test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
+    test_wolfTPM2_PolicyHash();
+    test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
+    test_TPM2_KDFa_SessionLabels();
     test_TPM2_ConstantCompare();
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
