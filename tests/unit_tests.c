@@ -91,6 +91,36 @@
 
 #ifndef WOLFTPM2_NO_WRAPPER
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    !defined(WOLFTPM2_NO_ASN)
+/* Query TPM_CAP_ALGS to see if a given algorithm is supported.
+ * Returns 1 if supported, 0 otherwise. Used to skip test iterations on TPMs
+ * that don't implement a given hash (e.g. Nuvoton NPCT75x lacks SHA512).
+ * Guarded by the same ifdef as its only caller (test_wolfTPM2_EccSignVerifyDig)
+ * so non-ECC builds don't trip -Werror=unused-function. */
+static int test_tpm_alg_supported(TPM_ALG_ID alg)
+{
+    GetCapability_In  in;
+    GetCapability_Out out;
+    word32 i;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability    = TPM_CAP_ALGS;
+    in.property      = alg;
+    in.propertyCount = 1;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS) {
+        return 1; /* On error, assume supported and let the real call fail */
+    }
+    for (i = 0; i < out.capabilityData.data.algorithms.count; i++) {
+        if (out.capabilityData.data.algorithms.algProperties[i].alg == alg) {
+            return 1;
+        }
+    }
+    return 0;
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && HAVE_ECC && !WOLFTPM2_NO_ASN */
+
 static void test_wolfTPM2_Init(void)
 {
     int rc;
@@ -1209,6 +1239,15 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
         AssertIntEQ(rc, 0);
     }
 #endif
+
+    /* Skip if this TPM doesn't implement the requested hash alg. Some TPMs
+     * (e.g. Nuvoton NPCT75x) only support a subset of hashes; the TPM rejects
+     * Create with TPM_RC_SIZE param 1, not TPM_RC_HASH, so the existing
+     * post-hoc skip-check can't catch it. Query capabilities up front. */
+    if (!test_tpm_alg_supported(hashAlg)) {
+        printf("Hash alg 0x%x not supported by TPM... Skipping\n", hashAlg);
+        return;
+    }
 
     /* -- Use TPM key to sign and verify with wolfCrypt -- */
     /* Create ECC key for signing */
