@@ -25,34 +25,95 @@
 
 #include <wolftpm/tpm2_packet.h>
 
-/* convert 16 bit integer to opaque */
-static inline void c16toa(word16 wc_u16, byte* c)
-{
-    c[0] = (wc_u16 >> 8) & 0xff;
-    c[1] =  wc_u16 & 0xff;
-}
-/* convert 32 bit integer to opaque */
-static inline void c32toa(word32 wc_u32, byte* c)
-{
-    c[0] = (wc_u32 >> 24) & 0xff;
-    c[1] = (wc_u32 >> 16) & 0xff;
-    c[2] = (wc_u32 >>  8) & 0xff;
-    c[3] =  wc_u32 & 0xff;
-}
-
 /******************************************************************************/
 /* --- BEGIN TPM Packet Assembly / Parsing -- */
 /******************************************************************************/
+
+/* Big-endian byte-array store helpers */
 void TPM2_Packet_U16ToByteArray(UINT16 val, BYTE* b)
 {
-    if (b)
-        c16toa(val, b);
+    if (b) {
+        b[0] = (byte)(val >> 8);
+        b[1] = (byte)(val);
+    }
 }
 void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b)
 {
-    if (b)
-        c32toa(val, b);
+    if (b) {
+        b[0] = (byte)(val >> 24);
+        b[1] = (byte)(val >> 16);
+        b[2] = (byte)(val >> 8);
+        b[3] = (byte)(val);
+    }
 }
+void TPM2_Packet_U64ToByteArray(UINT64 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val >> 56);
+        b[1] = (byte)(val >> 48);
+        b[2] = (byte)(val >> 40);
+        b[3] = (byte)(val >> 32);
+        b[4] = (byte)(val >> 24);
+        b[5] = (byte)(val >> 16);
+        b[6] = (byte)(val >> 8);
+        b[7] = (byte)(val);
+    }
+}
+
+/* Big-endian byte-array load helpers. Mirror the NULL-guard convention of the
+ * U*ToByteArray store helpers above so callers get 0 for a NULL input rather
+ * than a crash. */
+UINT16 TPM2_Packet_ByteArrayToU16(const BYTE* b)
+{
+    if (b == NULL)
+        return 0;
+    return (UINT16)(((UINT16)b[0] << 8) | b[1]);
+}
+UINT32 TPM2_Packet_ByteArrayToU32(const BYTE* b)
+{
+    if (b == NULL)
+        return 0;
+    return ((UINT32)b[0] << 24) | ((UINT32)b[1] << 16) |
+           ((UINT32)b[2] << 8)  | b[3];
+}
+UINT64 TPM2_Packet_ByteArrayToU64(const BYTE* b)
+{
+    if (b == NULL)
+        return 0;
+    return ((UINT64)b[0] << 56) | ((UINT64)b[1] << 48) |
+           ((UINT64)b[2] << 40) | ((UINT64)b[3] << 32) |
+           ((UINT64)b[4] << 24) | ((UINT64)b[5] << 16) |
+           ((UINT64)b[6] << 8)  | (UINT64)b[7];
+}
+
+/* Little-endian byte-array helpers (NV storage format, fwTPM only) */
+#ifdef WOLFTPM_FWTPM
+void TPM2_Packet_U16ToByteArrayLE(UINT16 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val);
+        b[1] = (byte)(val >> 8);
+    }
+}
+void TPM2_Packet_U32ToByteArrayLE(UINT32 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val);
+        b[1] = (byte)(val >> 8);
+        b[2] = (byte)(val >> 16);
+        b[3] = (byte)(val >> 24);
+    }
+}
+UINT16 TPM2_Packet_ByteArrayToU16LE(const BYTE* b)
+{
+    return (UINT16)(b[0] | ((UINT16)b[1] << 8));
+}
+UINT32 TPM2_Packet_ByteArrayToU32LE(const BYTE* b)
+{
+    return (UINT32)(b[0] | ((UINT32)b[1] << 8) |
+           ((UINT32)b[2] << 16) | ((UINT32)b[3] << 24));
+}
+#endif /* WOLFTPM_FWTPM */
 
 UINT16 TPM2_Packet_SwapU16(UINT16 data)
 {
@@ -197,6 +258,38 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
             }
         }
         packet->pos += size;
+    }
+}
+
+/* Parse a UINT16 size followed by that many bytes, clamping to maxBufSz.
+ * Keeps packet position synchronized by skipping any excess bytes. */
+void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size, byte* buf,
+    UINT16 maxBufSz)
+{
+    /* Init to 0 so a NULL packet (TPM2_Packet_ParseU16 is a no-op in that
+     * case) leaves wireSize well-defined for the arithmetic below. */
+    UINT16 wireSize = 0;
+    UINT16 copySz;
+
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    /* Clamp to remaining packet bytes to prevent pos from going past size */
+    if (packet && (packet->pos >= packet->size)) {
+        wireSize = 0;
+    }
+    else if (packet && wireSize > (UINT16)(packet->size - packet->pos)) {
+        wireSize = (UINT16)(packet->size - packet->pos);
+    }
+    copySz = wireSize;
+    if (copySz > maxBufSz) {
+        copySz = maxBufSz;
+    }
+    if (size) {
+        *size = copySz;
+    }
+    TPM2_Packet_ParseBytes(packet, buf, copySz);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > copySz) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - copySz);
     }
 }
 
@@ -451,13 +544,31 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
 {
     int i;
     UINT32 wireCount;
+    UINT32 loopCount;
     UINT16 hash;
     UINT8 wireSizeofSelect;
     TPM2_Packet_ParseU32(packet, &wireCount);
     pcr->count = wireCount;
     if (pcr->count > HASH_COUNT)
         pcr->count = HASH_COUNT;
-    for (i = 0; i < (int)wireCount; i++) {
+    /* Cap loop iterations against an attacker-controlled wireCount: bound by
+     * HASH_COUNT (max legitimate selections) AND remaining packet bytes
+     * (each entry is at least 3 bytes: U16 hash + U8 sizeofSelect). Without
+     * this, a crafted wireCount of e.g. 0x7FFFFFFF would spin in no-op
+     * Parse* calls and trigger fuzzer timeouts. */
+    loopCount = wireCount;
+    if (loopCount > (UINT32)HASH_COUNT)
+        loopCount = (UINT32)HASH_COUNT;
+    if (packet != NULL && packet->pos < packet->size) {
+        UINT32 remaining = (UINT32)(packet->size - packet->pos);
+        UINT32 maxByRemaining = remaining / 3;
+        if (loopCount > maxByRemaining)
+            loopCount = maxByRemaining;
+    }
+    else {
+        loopCount = 0;
+    }
+    for (i = 0; i < (int)loopCount; i++) {
         TPM2_Packet_ParseU16(packet, &hash);
         TPM2_Packet_ParseU8(packet, &wireSizeofSelect);
         if (i < (int)pcr->count) {
@@ -478,6 +589,17 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
             /* Skip entire entry for overflow iterations */
             TPM2_Packet_ParseBytes(packet, NULL, wireSizeofSelect);
         }
+    }
+    /* Skip remaining wire entries beyond the capped loop so packet->pos
+     * stays synchronized with the wire format for subsequent parsing.
+     * Break when the packet is exhausted to avoid spinning on an
+     * attacker-controlled wireCount (same threat as the first loop). */
+    for (; i < (int)wireCount; i++) {
+        if (packet == NULL || packet->pos >= packet->size)
+            break;
+        TPM2_Packet_ParseU16(packet, &hash);
+        TPM2_Packet_ParseU8(packet, &wireSizeofSelect);
+        TPM2_Packet_ParseBytes(packet, NULL, wireSizeofSelect);
     }
 }
 
@@ -695,6 +817,94 @@ void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREA
     TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 
+/* Parse TPM2B_SENSITIVE_CREATE (userAuth + optional data).
+ * Used by Create, CreateLoaded, CreatePrimary.
+ * If sensData is NULL, the data portion is skipped (CreatePrimary). */
+#ifdef WOLFTPM_FWTPM
+TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
+    TPM2B_AUTH* userAuth, byte* sensData, int sensDataBufSz,
+    UINT16* sensDataSize)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 inSensSize;
+    UINT16 dataSz = 0;
+    int sensStartPos;
+
+    if (packet == NULL || userAuth == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (packet->pos + 2 > maxSize) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &inSensSize);
+        sensStartPos = packet->pos;
+        /* Validate outer TPM2B size fits within remaining command */
+        if (inSensSize > 0 &&
+            packet->pos + inSensSize > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        XMEMSET(userAuth, 0, sizeof(*userAuth));
+        if (rc == 0 && packet->pos + 2 > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &userAuth->size);
+        if (userAuth->size > sizeof(userAuth->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0 && userAuth->size > 0) {
+        if (packet->pos + userAuth->size > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseBytes(packet, userAuth->buffer, userAuth->size);
+        }
+    }
+    /* data (TPM2B_SENSITIVE_DATA) */
+    if (rc == 0) {
+        if (packet->pos + 2 > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &dataSz);
+        if (sensData != NULL) {
+            if (dataSz > (UINT16)sensDataBufSz) {
+                rc = TPM_RC_SIZE;
+            }
+        }
+    }
+    if (rc == 0 && dataSz > 0) {
+        if (packet->pos + dataSz > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
+            if (sensData != NULL) {
+                TPM2_Packet_ParseBytes(packet, sensData, dataSz);
+            }
+            else {
+                packet->pos += dataSz; /* skip */
+            }
+        }
+    }
+    if (rc == 0 && sensDataSize != NULL) {
+        *sensDataSize = dataSz;
+    }
+    /* Ensure packet pos is aligned to end of TPM2B_SENSITIVE_CREATE, even if
+     * inner fields didn't consume all bytes (prevents desync on malformed input) */
+    if (rc == 0 && inSensSize > 0) {
+        int expectedEnd = sensStartPos + (int)inSensSize;
+        if (packet->pos < expectedEnd && expectedEnd <= maxSize) {
+            packet->pos = expectedEnd;
+        }
+    }
+    return rc;
+}
+#endif /* WOLFTPM_FWTPM */
+
 void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
     TPMU_PUBLIC_PARMS* parameters)
 {
@@ -800,79 +1010,36 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
-    UINT16 wireSize;
-
     TPM2_Packet_ParseU16(packet, &pub->size);
     if (pub->size > 0) {
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
         TPM2_Packet_ParseU32(packet, &pub->publicArea.objectAttributes);
-
-        TPM2_Packet_ParseU16(packet, &wireSize);
-        pub->publicArea.authPolicy.size = wireSize;
-        if (pub->publicArea.authPolicy.size >
-                (UINT16)sizeof(pub->publicArea.authPolicy.buffer)) {
-            pub->publicArea.authPolicy.size =
-                (UINT16)sizeof(pub->publicArea.authPolicy.buffer);
-        }
-        TPM2_Packet_ParseBytes(packet, pub->publicArea.authPolicy.buffer,
-            pub->publicArea.authPolicy.size);
-        if (wireSize > pub->publicArea.authPolicy.size) {
-            TPM2_Packet_ParseBytes(packet, NULL,
-                wireSize - pub->publicArea.authPolicy.size);
-        }
+        TPM2_Packet_ParseU16Buf(packet, &pub->publicArea.authPolicy.size,
+            pub->publicArea.authPolicy.buffer,
+            (UINT16)sizeof(pub->publicArea.authPolicy.buffer));
 
         TPM2_Packet_ParsePublicParms(packet, pub->publicArea.type,
             &pub->publicArea.parameters);
 
         switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            pub->publicArea.unique.keyedHash.size = wireSize;
-            if (pub->publicArea.unique.keyedHash.size >
-                    (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer)) {
-                pub->publicArea.unique.keyedHash.size =
-                    (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.keyedHash.size,
                 pub->publicArea.unique.keyedHash.buffer,
-                pub->publicArea.unique.keyedHash.size);
-            if (wireSize > pub->publicArea.unique.keyedHash.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - pub->publicArea.unique.keyedHash.size);
-            }
+                (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer));
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            pub->publicArea.unique.sym.size = wireSize;
-            if (pub->publicArea.unique.sym.size >
-                    (UINT16)sizeof(pub->publicArea.unique.sym.buffer)) {
-                pub->publicArea.unique.sym.size =
-                    (UINT16)sizeof(pub->publicArea.unique.sym.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.sym.size,
                 pub->publicArea.unique.sym.buffer,
-                pub->publicArea.unique.sym.size);
-            if (wireSize > pub->publicArea.unique.sym.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - pub->publicArea.unique.sym.size);
-            }
+                (UINT16)sizeof(pub->publicArea.unique.sym.buffer));
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            pub->publicArea.unique.rsa.size = wireSize;
-            if (pub->publicArea.unique.rsa.size >
-                    (UINT16)sizeof(pub->publicArea.unique.rsa.buffer)) {
-                pub->publicArea.unique.rsa.size =
-                    (UINT16)sizeof(pub->publicArea.unique.rsa.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.rsa.size,
                 pub->publicArea.unique.rsa.buffer,
-                pub->publicArea.unique.rsa.size);
-            if (wireSize > pub->publicArea.unique.rsa.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - pub->publicArea.unique.rsa.size);
-            }
+                (UINT16)sizeof(pub->publicArea.unique.rsa.buffer));
             break;
         case TPM_ALG_ECC:
             TPM2_Packet_ParseEccPoint(packet, &pub->publicArea.unique.ecc);
@@ -993,8 +1160,6 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
 
 void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 {
-    UINT16 wireSize;
-
     XMEMSET(out, 0, sizeof(TPMS_ATTEST));
 
     TPM2_Packet_ParseU32(packet, &out->magic);
@@ -1007,33 +1172,13 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 
     TPM2_Packet_ParseU16(packet, &out->type);
 
-    TPM2_Packet_ParseU16(packet, &wireSize);
-    out->qualifiedSigner.size = wireSize;
-    if (out->qualifiedSigner.size >
-            (UINT16)sizeof(out->qualifiedSigner.name)) {
-        out->qualifiedSigner.size =
-            (UINT16)sizeof(out->qualifiedSigner.name);
-    }
-    TPM2_Packet_ParseBytes(packet, out->qualifiedSigner.name,
-        out->qualifiedSigner.size);
-    if (wireSize > out->qualifiedSigner.size) {
-        TPM2_Packet_ParseBytes(packet, NULL,
-            wireSize - out->qualifiedSigner.size);
-    }
+    TPM2_Packet_ParseU16Buf(packet, &out->qualifiedSigner.size,
+        out->qualifiedSigner.name,
+        (UINT16)sizeof(out->qualifiedSigner.name));
 
-    TPM2_Packet_ParseU16(packet, &wireSize);
-    out->extraData.size = wireSize;
-    if (out->extraData.size >
-            (UINT16)sizeof(out->extraData.buffer)) {
-        out->extraData.size =
-            (UINT16)sizeof(out->extraData.buffer);
-    }
-    TPM2_Packet_ParseBytes(packet, out->extraData.buffer,
-        out->extraData.size);
-    if (wireSize > out->extraData.size) {
-        TPM2_Packet_ParseBytes(packet, NULL,
-            wireSize - out->extraData.size);
-    }
+    TPM2_Packet_ParseU16Buf(packet, &out->extraData.size,
+        out->extraData.buffer,
+        (UINT16)sizeof(out->extraData.buffer));
 
     TPM2_Packet_ParseU64(packet, &out->clockInfo.clock);
     TPM2_Packet_ParseU32(packet, &out->clockInfo.resetCount);
@@ -1044,133 +1189,50 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 
     switch (out->type) {
         case TPM_ST_ATTEST_CERTIFY:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.certify.name.size = wireSize;
-            if (out->attested.certify.name.size >
-                    (UINT16)sizeof(out->attested.certify.name.name)) {
-                out->attested.certify.name.size =
-                    (UINT16)sizeof(out->attested.certify.name.name);
-            }
-            TPM2_Packet_ParseBytes(packet, out->attested.certify.name.name,
-                out->attested.certify.name.size);
-            if (wireSize > out->attested.certify.name.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.certify.name.size);
-            }
-
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.certify.qualifiedName.size = wireSize;
-            if (out->attested.certify.qualifiedName.size >
-                    (UINT16)sizeof(out->attested.certify.qualifiedName.name)) {
-                out->attested.certify.qualifiedName.size =
-                    (UINT16)sizeof(out->attested.certify.qualifiedName.name);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.certify.name.size,
+                out->attested.certify.name.name,
+                (UINT16)sizeof(out->attested.certify.name.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.certify.qualifiedName.size,
                 out->attested.certify.qualifiedName.name,
-                out->attested.certify.qualifiedName.size);
-            if (wireSize > out->attested.certify.qualifiedName.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.certify.qualifiedName.size);
-            }
+                (UINT16)sizeof(out->attested.certify.qualifiedName.name));
             break;
         case TPM_ST_ATTEST_CREATION:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.creation.objectName.size = wireSize;
-            if (out->attested.creation.objectName.size >
-                    (UINT16)sizeof(out->attested.creation.objectName.name)) {
-                out->attested.creation.objectName.size =
-                    (UINT16)sizeof(out->attested.creation.objectName.name);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.creation.objectName.size,
                 out->attested.creation.objectName.name,
-                out->attested.creation.objectName.size);
-            if (wireSize > out->attested.creation.objectName.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.creation.objectName.size);
-            }
-
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.creation.creationHash.size = wireSize;
-            if (out->attested.creation.creationHash.size >
-                    (UINT16)sizeof(out->attested.creation.creationHash.buffer)) {
-                out->attested.creation.creationHash.size =
-                    (UINT16)sizeof(out->attested.creation.creationHash.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+                (UINT16)sizeof(out->attested.creation.objectName.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.creation.creationHash.size,
                 out->attested.creation.creationHash.buffer,
-                out->attested.creation.creationHash.size);
-            if (wireSize > out->attested.creation.creationHash.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.creation.creationHash.size);
-            }
+                (UINT16)sizeof(out->attested.creation.creationHash.buffer));
             break;
         case TPM_ST_ATTEST_QUOTE:
             TPM2_Packet_ParsePCR(packet, &out->attested.quote.pcrSelect);
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.quote.pcrDigest.size = wireSize;
-            if (out->attested.quote.pcrDigest.size >
-                    (UINT16)sizeof(out->attested.quote.pcrDigest.buffer)) {
-                out->attested.quote.pcrDigest.size =
-                    (UINT16)sizeof(out->attested.quote.pcrDigest.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.quote.pcrDigest.size,
                 out->attested.quote.pcrDigest.buffer,
-                out->attested.quote.pcrDigest.size);
-            if (wireSize > out->attested.quote.pcrDigest.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.quote.pcrDigest.size);
-            }
+                (UINT16)sizeof(out->attested.quote.pcrDigest.buffer));
             break;
         case TPM_ST_ATTEST_COMMAND_AUDIT:
             TPM2_Packet_ParseU64(packet, &out->attested.commandAudit.auditCounter);
             TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.digestAlg);
-
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.commandAudit.auditDigest.size = wireSize;
-            if (out->attested.commandAudit.auditDigest.size >
-                    (UINT16)sizeof(out->attested.commandAudit.auditDigest.buffer)) {
-                out->attested.commandAudit.auditDigest.size =
-                    (UINT16)sizeof(out->attested.commandAudit.auditDigest.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.commandAudit.auditDigest.size,
                 out->attested.commandAudit.auditDigest.buffer,
-                out->attested.commandAudit.auditDigest.size);
-            if (wireSize > out->attested.commandAudit.auditDigest.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.commandAudit.auditDigest.size);
-            }
-
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.commandAudit.commandDigest.size = wireSize;
-            if (out->attested.commandAudit.commandDigest.size >
-                    (UINT16)sizeof(out->attested.commandAudit.commandDigest.buffer)) {
-                out->attested.commandAudit.commandDigest.size =
-                    (UINT16)sizeof(out->attested.commandAudit.commandDigest.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+                (UINT16)sizeof(out->attested.commandAudit.auditDigest.buffer));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.commandAudit.commandDigest.size,
                 out->attested.commandAudit.commandDigest.buffer,
-                out->attested.commandAudit.commandDigest.size);
-            if (wireSize > out->attested.commandAudit.commandDigest.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.commandAudit.commandDigest.size);
-            }
+                (UINT16)sizeof(out->attested.commandAudit.commandDigest.buffer));
             break;
         case TPM_ST_ATTEST_SESSION_AUDIT:
             TPM2_Packet_ParseU8(packet, &out->attested.sessionAudit.exclusiveSession);
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.sessionAudit.sessionDigest.size = wireSize;
-            if (out->attested.sessionAudit.sessionDigest.size >
-                    (UINT16)sizeof(out->attested.sessionAudit.sessionDigest.buffer)) {
-                out->attested.sessionAudit.sessionDigest.size =
-                    (UINT16)sizeof(out->attested.sessionAudit.sessionDigest.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet,
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.sessionAudit.sessionDigest.size,
                 out->attested.sessionAudit.sessionDigest.buffer,
-                out->attested.sessionAudit.sessionDigest.size);
-            if (wireSize > out->attested.sessionAudit.sessionDigest.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.sessionAudit.sessionDigest.size);
-            }
+                (UINT16)sizeof(out->attested.sessionAudit.sessionDigest.buffer));
             break;
         case TPM_ST_ATTEST_TIME:
             TPM2_Packet_ParseU64(packet, &out->attested.time.time.time);
@@ -1181,35 +1243,15 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
             TPM2_Packet_ParseU64(packet, &out->attested.time.firmwareVersion);
             break;
         case TPM_ST_ATTEST_NV:
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.nv.indexName.size = wireSize;
-            if (out->attested.nv.indexName.size >
-                    (UINT16)sizeof(out->attested.nv.indexName.name)) {
-                out->attested.nv.indexName.size =
-                    (UINT16)sizeof(out->attested.nv.indexName.name);
-            }
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.indexName.name,
-                out->attested.nv.indexName.size);
-            if (wireSize > out->attested.nv.indexName.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.nv.indexName.size);
-            }
-
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nv.indexName.size,
+                out->attested.nv.indexName.name,
+                (UINT16)sizeof(out->attested.nv.indexName.name));
             TPM2_Packet_ParseU16(packet, &out->attested.nv.offset);
-
-            TPM2_Packet_ParseU16(packet, &wireSize);
-            out->attested.nv.nvContents.size = wireSize;
-            if (out->attested.nv.nvContents.size >
-                    (UINT16)sizeof(out->attested.nv.nvContents.buffer)) {
-                out->attested.nv.nvContents.size =
-                    (UINT16)sizeof(out->attested.nv.nvContents.buffer);
-            }
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.nvContents.buffer,
-                out->attested.nv.nvContents.size);
-            if (wireSize > out->attested.nv.nvContents.size) {
-                TPM2_Packet_ParseBytes(packet, NULL,
-                    wireSize - out->attested.nv.nvContents.size);
-            }
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nv.nvContents.size,
+                out->attested.nv.nvContents.buffer,
+                (UINT16)sizeof(out->attested.nv.nvContents.buffer));
             break;
         default:
             /* unknown attestation type */

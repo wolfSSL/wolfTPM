@@ -33,6 +33,7 @@ RemoteSystemsTempFiles
 .vs
 IDE/IAR-EWARM/settings
 wolftpm/options.h
+*.trs
 
 # common cmake build location
 build/
@@ -61,7 +62,9 @@ examples/tls/tls_server
 examples/tls/tls_client_notpm
 tests/unit.test
 tests/unit.log
-unit.trs
+tests/fwtpm_unit.log
+tests/fwtpm_unit.test
+tests/fwtpm_check.sh.log
 examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen
@@ -197,3 +200,15 @@ examples/firmware/*.BIN
 examples/firmware/*.DATA
 examples/firmware/*.MANIFEST
 examples/firmware/*.MANIFESTHASH
+# Firmware TPM files
+src/fwtpm/fwtpm_server
+fwtpm_nv.bin
+
+# Fuzz artifacts (corpus generated at runtime by gen_corpus.py)
+tests/fuzz/corpus/
+tests/fuzz/fwtpm_fuzz
+crash-*
+oom-*
+timeout-*
+fuzz_corpus
+run.out

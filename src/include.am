@@ -2,14 +2,16 @@
 # included from Top Level Makefile.am
 # All paths should be given relative to the root
 
-
+if !BUILD_FWTPM_ONLY
 lib_LTLIBRARIES+=  src/libwolftpm.la
 src_libwolftpm_la_SOURCES      = \
                                 src/tpm2.c \
+                                src/tpm2_util.c \
                                 src/tpm2_packet.c \
                                 src/tpm2_tis.c \
                                 src/tpm2_wrap.c \
                                 src/tpm2_asn.c \
+                                src/tpm2_crypto.c \
                                 src/tpm2_param_enc.c \
                                 src/tpm2_cryptocb.c \
                                 src/tpm2_linux.c
@@ -31,3 +33,7 @@ src_libwolftpm_la_LDFLAGS      = ${AM_LDFLAGS} -no-undefined -version-info ${WOL
 
 #src_libwolftpm_la_DEPENDENCIES =
 #EXTRA_DIST +=
+else
+# Define empty sources so other include.am files can safely use +=
+src_libwolftpm_la_SOURCES =
+endif

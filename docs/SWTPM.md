@@ -29,6 +29,55 @@ Build Options:
 * `TPM2_SWTPM_HOST`: The socket host (default is localhost)
 * `TPM2_SWTPM_PORT`: The socket port (default is 2321)
 
+## wolfTPM SWTPM UART support
+
+To use the SWTPM protocol over a UART serial connection (instead of TCP sockets), use `--enable-swtpm=uart`. This is intended for communicating with a firmware TPM (fwTPM) running on an embedded target such as the wolfTPM fwTPM server on STM32H5.
+
+```sh
+./configure --enable-swtpm=uart
+make
+```
+
+The serial device path and baud rate can be set at compile time or runtime:
+
+```sh
+# Runtime override via environment variable
+TPM2_SWTPM_HOST=/dev/ttyACM0 ./examples/wrap/caps
+```
+
+Build Options:
+
+* `WOLFTPM_SWTPM_UART`: Use UART serial transport (set automatically by `--enable-swtpm=uart`)
+* `TPM2_SWTPM_HOST`: The serial device path (default is `/dev/ttyACM0` on Linux, `/dev/cu.usbmodem` on macOS). Can be overridden at runtime via the `TPM2_SWTPM_HOST` environment variable.
+* `TPM2_SWTPM_PORT`: The baud rate (default is 115200)
+
+The UART transport uses the same mssim protocol as the socket transport. The serial port is configured as 8N1 raw mode with no flow control. Unlike the socket transport, the serial port file descriptor is kept open across commands (no reconnect per command).
+
+#### Security note: environment variable override
+
+The `TPM2_SWTPM_HOST` environment variable is a development convenience that overrides the compile-time serial device path. On systems where untrusted local users share the environment with the TPM client, an attacker could redirect TPM I/O to a rogue device (e.g. a PTY they control). For production / hardened deployments:
+
+* Unset `TPM2_SWTPM_HOST` in the process environment, and
+* Rely on the compile-time default (set via `TPM2_SWTPM_HOST` as a build `-D` macro) to pin the serial path.
+
+The same guidance applies to `TPM2_SWTPM_PORT` (baud rate) and, for the socket transport, to using the env var to redirect the TCP host.
+
+### Example: wolfTPM fwTPM on STM32H5
+
+The wolfTPM project includes a firmware TPM server port for STM32 Cortex-M33 targets with TrustZone support. See [wolftpm-examples/STM32/fwtpm-stm32h5](https://github.com/wolfSSL/wolftpm-examples/pull/1) for build, flash, and test instructions.
+
+```sh
+# Build host client with UART transport
+./configure --enable-swtpm=uart
+make
+
+# Run examples against STM32 fwTPM (adjust device path as needed)
+export TPM2_SWTPM_HOST=/dev/ttyACM0
+./examples/wrap/caps
+./examples/keygen/keygen -ecc
+./examples/seal/seal
+```
+
 ## Using a SWTPM
 
 ### SWTPM Power Up and Startup

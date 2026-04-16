@@ -58,36 +58,95 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #endif
+#if !defined(NO_GETENV) || defined(WOLFTPM_SWTPM_UART)
+#include <stdlib.h> /* getenv / atoi */
+#endif
+#ifdef WOLFTPM_SWTPM_UART
+#include <fcntl.h>
+#include <termios.h>
+#include <sys/stat.h>
+#include <time.h>
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0
+#endif
+/* Cumulative wall-clock timeout for SwTpmReceive. Defends against trickle
+ * senders that repeatedly reset the per-read VMIN/VTIME timer. */
+#ifndef WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS
+#define WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS 30
+#endif
+#endif
 
 #include <wolftpm/tpm2_socket.h>
 
-#ifndef TPM2_SWTPM_HOST
-#define TPM2_SWTPM_HOST         "localhost"
-#endif
-#ifndef TPM2_SWTPM_PORT
-#define TPM2_SWTPM_PORT         2321
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART transport: HOST = device path, PORT = baud rate */
+    #ifndef TPM2_SWTPM_HOST
+        #ifdef __APPLE__
+            #define TPM2_SWTPM_HOST "/dev/cu.usbmodem"
+        #else
+            #define TPM2_SWTPM_HOST "/dev/ttyACM0"
+        #endif
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+        #define TPM2_SWTPM_PORT 115200
+    #endif
+#else
+    /* Socket transport: HOST = hostname, PORT = TCP port */
+    #ifndef TPM2_SWTPM_HOST
+        #define TPM2_SWTPM_HOST "localhost"
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+        #define TPM2_SWTPM_PORT 2321
+    #endif
 #endif
 
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     ssize_t wrc = 0;
+    const char* ptr;
+    ssize_t remaining;
 
-    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
+    if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL || bufSz <= 0) {
         return BAD_FUNC_ARG;
     }
 
-    wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
-    if (bufSz != wrc) {
-        rc = TPM_RC_FAILURE;
+    ptr = (const char*)buffer;
+    remaining = bufSz;
+    while (remaining > 0) {
+        wrc = write(ctx->tcpCtx.fd, ptr, remaining);
+        if (wrc < 0) {
+            /* Retry on EINTR (signal). EAGAIN/EWOULDBLOCK shouldn't normally
+             * happen on the default blocking fd, but treat them as transient. */
+            if (errno == EINTR
+                #ifdef EAGAIN
+                    || errno == EAGAIN
+                #endif
+                #if defined(EWOULDBLOCK) && (!defined(EAGAIN) || EWOULDBLOCK != EAGAIN)
+                    || errno == EWOULDBLOCK
+                #endif
+            ) {
+                continue;
+            }
+        #ifdef WOLFTPM_DEBUG_VERBOSE
+            printf("Failed to send the TPM command to fd %d, got errno %d ="
+                   "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
+        #endif
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+        if (wrc == 0) {
+            /* Defensive: write() returning 0 on a regular fd is unspecified —
+             * treat as failure rather than spinning. */
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+        remaining -= wrc;
+        ptr += wrc;
     }
-
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    if (wrc < 0) {
-        printf("Failed to send the TPM command to fd %d, got errno %d ="
-               "%s\n", ctx->tcpCtx.fd, errno, strerror(errno));
-    }
-#endif
 
     return rc;
 }
@@ -98,6 +157,13 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
     ssize_t wrc = 0;
     size_t bytes_remaining = rxSz;
     char* ptr = (char*)buffer;
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+    struct timespec start, now;
+    int haveStart = 0;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) == 0) {
+        haveStart = 1;
+    }
+#endif
 
     if (ctx == NULL || ctx->tcpCtx.fd < 0 || buffer == NULL) {
         return BAD_FUNC_ARG;
@@ -105,15 +171,28 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 
     while (bytes_remaining > 0) {
         wrc = read(ctx->tcpCtx.fd, ptr, bytes_remaining);
-        if (wrc <= 0) {
+        if (wrc < 0) {
+            /* Retry on EINTR; treat EAGAIN/EWOULDBLOCK as transient too. */
+            if (errno == EINTR
+                #ifdef EAGAIN
+                    || errno == EAGAIN
+                #endif
+                #if defined(EWOULDBLOCK) && (!defined(EAGAIN) || EWOULDBLOCK != EAGAIN)
+                    || errno == EWOULDBLOCK
+                #endif
+            ) {
+                continue;
+            }
             #ifdef DEBUG_WOLFTPM
-            if (wrc == 0) {
-                printf("Failed to read from TPM socket: EOF\n");
-            }
-            else {
-                printf("Failed to read from TPM socket %d, got errno %d"
-                       " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
-            }
+            printf("Failed to read from TPM socket %d, got errno %d"
+                   " = %s\n", ctx->tcpCtx.fd, errno, strerror(errno));
+            #endif
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+        if (wrc == 0) {
+            #ifdef DEBUG_WOLFTPM
+            printf("Failed to read from TPM socket: EOF\n");
             #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -126,6 +205,23 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
         printf("TPM socket received %zd waiting for %zu more\n",
                wrc, bytes_remaining);
         #endif
+
+#if defined(WOLFTPM_SWTPM_UART) && defined(CLOCK_MONOTONIC)
+        /* Enforce cumulative timeout so a trickle sender cannot reset
+         * VMIN/VTIME indefinitely. */
+        if (haveStart && bytes_remaining > 0 &&
+                clock_gettime(CLOCK_MONOTONIC, &now) == 0 &&
+                (now.tv_sec - start.tv_sec) >
+                    WOLFTPM_SWTPM_UART_RX_TIMEOUT_SECS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("SwTpmReceive: cumulative UART timeout after %lds "
+                   "(%zu bytes remaining)\n",
+                   (long)(now.tv_sec - start.tv_sec), bytes_remaining);
+        #endif
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+#endif
     }
 
     return rc;
@@ -134,13 +230,120 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-    int s;
     int fd = -1;
 
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART transport: open serial device with termios */
+    struct termios tty;
+    speed_t baud;
+    int baudInt;
+    struct stat devStat;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    /* Note: TPM2_SWTPM_HOST env var is checked by caller
+     * (TPM2_SWTPM_SendCommand) before invoking SwTpmConnect */
+
+    fd = open(host, O_RDWR | O_NOCTTY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to open UART device %s: %s\n", host, strerror(errno));
+    #endif
+        return TPM_RC_FAILURE;
+    }
+    /* If O_CLOEXEC wasn't available at compile time, set FD_CLOEXEC now. */
+    if (O_CLOEXEC == 0) {
+        int flags = fcntl(fd, F_GETFD);
+        if (flags != -1) {
+            (void)fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
+    /* Verify the opened path is a character device */
+    if (fstat(fd, &devStat) != 0 || !S_ISCHR(devStat.st_mode)) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* Configure serial port: 8N1, raw mode, no flow control */
+    XMEMSET(&tty, 0, sizeof(tty));
+    if (tcgetattr(fd, &tty) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* Baud rate from port string or default */
+    baudInt = (port != NULL) ? atoi(port) : 0;
+    if (baudInt <= 0) {
+        baudInt = TPM2_SWTPM_PORT;
+    }
+    switch (baudInt) {
+        case 9600:   baud = B9600; break;
+        case 19200:  baud = B19200; break;
+        case 38400:  baud = B38400; break;
+        case 57600:  baud = B57600; break;
+        case 115200: baud = B115200; break;
+    #ifdef B230400
+        case 230400: baud = B230400; break;
+    #endif
+    #ifdef B460800
+        case 460800: baud = B460800; break;
+    #endif
+    #ifdef B921600
+        case 921600: baud = B921600; break;
+    #endif
+        default:     baud = B115200; break;
+    }
+    if (cfsetospeed(&tty, baud) != 0 || cfsetispeed(&tty, baud) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to set UART baud rate %d: %s\n",
+            baudInt, strerror(errno));
+    #endif
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* 8N1: 8 data bits, no parity, 1 stop bit */
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+    tty.c_cflag &= ~(PARENB | PARODD | CSTOPB);
+#ifdef CRTSCTS
+    tty.c_cflag &= ~CRTSCTS;
+#endif
+    tty.c_cflag |= (CLOCAL | CREAD);
+
+    /* Raw mode: no special input/output processing */
+    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP |
+                      INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
+    tty.c_oflag &= ~OPOST;
+    tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+
+    /* Read with overall timeout.
+     * RSA key generation on embedded targets can take 10+ seconds,
+     * so use a generous timeout. With VMIN=0 and VTIME>0, read()
+     * returns after the timeout even if no byte is received. */
+    tty.c_cc[VMIN] = 0;    /* allow timeout without requiring first byte */
+    tty.c_cc[VTIME] = 200; /* 20 second timeout (tenths of seconds) */
+
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* Flush any stale data */
+    tcflush(fd, TCIOFLUSH);
+
+    ctx->tcpCtx.fd = fd;
+    rc = TPM_RC_SUCCESS;
+
+#ifdef DEBUG_WOLFTPM
+    printf("UART connected: %s @ %d baud\n", host, baudInt);
+#endif
+
+#elif defined(WOLFTPM_ZEPHYR)
     /* Zephyr doesn't support getaddrinfo;
      * so we need to use Zephyr's socket API
      */
-#ifdef WOLFTPM_ZEPHYR
+    int s;
     struct zsock_addrinfo hints;
     struct zsock_addrinfo *result, *rp;
 
@@ -180,6 +383,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     }
     #endif
 #else /* !WOLFTPM_ZEPHYR */
+    int s;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
 
@@ -243,6 +447,17 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     }
     #endif
 
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART: on success, keep the port open for the next command.
+     * The SESSION_END tells the server the command sequence is done.
+     * Final cleanup of the UART FD is handled in TPM2_SwtpmCloseUART.
+     * On SESSION_END write failure, close and reset the fd so the next
+     * command reconnects instead of reusing a broken connection. */
+    if (rc != TPM_RC_SUCCESS) {
+        close(ctx->tcpCtx.fd);
+        ctx->tcpCtx.fd = -1;
+    }
+#else
     if (0 != close(ctx->tcpCtx.fd)) {
         rc = TPM_RC_FAILURE;
 
@@ -253,6 +468,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     }
 
     ctx->tcpCtx.fd = -1;
+#endif
 
     return rc;
 }
@@ -266,13 +482,29 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     int rc = TPM_RC_SUCCESS;
     int rspSz = 0;
     uint32_t tss_word;
+    const char* swtpmHost = TPM2_SWTPM_HOST;
+    const char* swtpmPort = XSTRINGIFY(TPM2_SWTPM_PORT);
+#ifndef NO_GETENV
+    const char* envVal;
+#endif
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
 
     if (ctx->tcpCtx.fd < 0) {
-        rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, XSTRINGIFY(TPM2_SWTPM_PORT));
+    #ifndef NO_GETENV
+        envVal = getenv("TPM2_SWTPM_HOST");
+        if (envVal != NULL && envVal[0] != '\0')
+            swtpmHost = envVal;
+        envVal = getenv("TPM2_SWTPM_PORT");
+        if (envVal != NULL && envVal[0] != '\0')
+            swtpmPort = envVal;
+    #endif
+        rc = SwTpmConnect(ctx, swtpmHost, swtpmPort);
+    }
+    else {
+        rc = TPM_RC_SUCCESS; /* already connected (e.g. UART persistent fd) */
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -350,4 +582,15 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     return rc;
 }
+
+#ifdef WOLFTPM_SWTPM_UART
+/* Close the persistent UART FD during final TPM context cleanup */
+void TPM2_SwtpmCloseUART(TPM2_CTX* ctx)
+{
+    if (ctx != NULL && ctx->tcpCtx.fd >= 0) {
+        close(ctx->tcpCtx.fd);
+        ctx->tcpCtx.fd = -1;
+    }
+}
+#endif
 #endif /* WOLFTPM_SWTPM */

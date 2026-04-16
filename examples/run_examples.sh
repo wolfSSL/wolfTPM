@@ -25,10 +25,42 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
-
 rm -f run.out
 touch run.out
 
+# Wait for a ready file to appear (created by wolfSSL server -R flag)
+wait_for_ready() {
+    local file="$1" timeout="${2:-500}" elapsed=0
+    while [ ! -f "$file" ] && [ $elapsed -lt $timeout ]; do
+        sleep 0.01
+        elapsed=$((elapsed + 1))
+    done
+    [ -f "$file" ]
+}
+
+# Wait for a TCP port to be listening (for servers without ready-file support)
+# Uses ss to check without connecting (nc -z would consume the accept slot)
+wait_for_port() {
+    local port="$1" timeout="${2:-500}" elapsed=0
+    while [ $elapsed -lt $timeout ]; do
+        if command -v ss >/dev/null 2>&1; then
+            ss -tln 2>/dev/null | grep -q ":${port} " && return 0
+        elif command -v netstat >/dev/null 2>&1; then
+            netstat -tln 2>/dev/null | grep -q ":${port} " && return 0
+        fi
+        sleep 0.01
+        elapsed=$((elapsed + 1))
+    done
+    return 1
+}
+
+# Clean stale key blobs and certs from prior runs.
+# These depend on TPM NV state (SRK seed), so they're invalid after NV wipe.
+rm -f keyblob.bin rsa_test_blob.raw ecc_test_blob.raw
+rm -f ./certs/tpm-rsa-cert.pem ./certs/tpm-ecc-cert.pem
+rm -f ./certs/tpm-rsa-cert.csr ./certs/tpm-ecc-cert.csr
+rm -f ./certs/server-rsa-cert.pem ./certs/server-ecc-cert.pem
+rm -f ./certs/client-rsa-cert.pem ./certs/client-ecc-cert.pem
 
 # Create Primary Tests
 echo -e "Create Primary Tests"
@@ -381,6 +413,11 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     ./certs/certreq.sh 2>&1 >> $TPMPWD/run.out 2>&1
     cp ./certs/ca-ecc-cert.pem $WOLFSSL_PATH/certs/tpm-ca-ecc-cert.pem >> $TPMPWD/run.out 2>&1
     cp ./certs/ca-rsa-cert.pem $WOLFSSL_PATH/certs/tpm-ca-rsa-cert.pem >> $TPMPWD/run.out 2>&1
+
+    # Copy CRL files for wolfSSL CRL verification support (HAVE_CRL)
+    mkdir -p $WOLFSSL_PATH/certs/crl 2>/dev/null
+    cp ./certs/ca-rsa.crl $WOLFSSL_PATH/certs/crl/ca-rsa.crl 2>/dev/null
+    cp ./certs/ca-ecc.crl $WOLFSSL_PATH/certs/crl/ca-ecc.crl 2>/dev/null
 fi
 
 # PKCS7 Tests
@@ -408,13 +445,20 @@ generate_port() {
 run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversion]
     echo -e "TLS test (TPM as client) $1 $2 $3"
     generate_port
+    READY_FILE="/tmp/wolftpm_tls_ready_$$"
+    rm -f "$READY_FILE"
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
-    echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem"
-    ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem >> $TPMPWD/run.out 2>&1 &
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "tls server $1 $2 failed! $RESULT" && exit 1
+    echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R $READY_FILE"
+    ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R "$READY_FILE" >> $TPMPWD/run.out 2>&1 &
+    SERVER_PID=$!
     popd >> $TPMPWD/run.out 2>&1
-    sleep 0.1
+    if ! wait_for_ready "$READY_FILE" 500; then
+        echo -e "wolfSSL server failed to start for $1 $2"
+        kill $SERVER_PID 2>/dev/null
+        rm -f "$READY_FILE"
+        exit 1
+    fi
+    rm -f "$READY_FILE"
 
     echo -e "./examples/tls/tls_client -p=$port -$1 $2"
     ./examples/tls/tls_client -p=$port -$1 $2 >> $TPMPWD/run.out 2>&1
@@ -428,10 +472,13 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
 
     echo -e "./examples/tls/tls_server -p=$port -$1 $2"
     ./examples/tls/tls_server -p=$port -$1 $2 >> $TPMPWD/run.out 2>&1 &
-    RESULT=$?
-    [ $RESULT -ne 0 ] && echo -e "tpm tls server $1 $2 failed! $RESULT" && exit 1
+    SERVER_PID=$!
+    if ! wait_for_port "$port" 500; then
+        echo -e "TPM TLS server failed to start on port $port for $1 $2"
+        kill $SERVER_PID 2>/dev/null
+        exit 1
+    fi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
-    sleep 1
 
     echo -e "./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4"
     ./examples/client/client -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem $4 >> $TPMPWD/run.out 2>&1
@@ -646,7 +693,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "secure rot write ecc384 read! $RESULT" && exit 1
 
-    # Test expected failure case
+    # Test expected failure case - read without auth should fail
     ./examples/boot/secure_rot -nvindex=0x1400201 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -eq 0 ] && echo -e "secure rot write ecc384 read no auth! $RESULT" && exit 1

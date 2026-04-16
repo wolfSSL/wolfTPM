@@ -1,0 +1,95 @@
+name: Fuzz Testing
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'  # Weekly Monday 4am UTC
+  workflow_dispatch:       # Manual trigger
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Full fuzz run (weekly/manual) - 10 minutes
+          - name: fuzz-full
+            fuzz_time: 600
+            smoke_only: false
+          # Quick smoke test (PR) - 60 seconds
+          - name: fuzz-smoke
+            fuzz_time: 60
+            smoke_only: true
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: ASLR workaround
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Build wolfSSL with fuzzer support
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          CC=clang ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING" \
+            LDFLAGS="-fsanitize=address"
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: Build fuzz target
+        run: |
+          ./autogen.sh
+          CC=clang ./configure --enable-fwtpm --enable-fuzz \
+            CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1" \
+            LDFLAGS="-fsanitize=address"
+          make -j$(nproc)
+
+      - name: Generate seed corpus
+        run: python3 tests/fuzz/gen_corpus.py
+
+      - name: Run fuzzer
+        env:
+          ASAN_OPTIONS: "detect_leaks=1:abort_on_error=1:symbolize=1"
+        run: |
+          echo "Fuzzing for ${{ matrix.fuzz_time }} seconds..."
+          timeout ${{ matrix.fuzz_time }} \
+            ./tests/fuzz/fwtpm_fuzz \
+              tests/fuzz/corpus/ \
+              -dict=tests/fuzz/tpm2.dict \
+              -max_len=4096 \
+              -timeout=30 \
+              -rss_limit_mb=2048 \
+              -print_final_stats=1 \
+            || FUZZ_RC=$?
+          # timeout returns 124 on normal expiry, fuzzer returns 0 on no crash
+          if [ "${FUZZ_RC:-0}" -eq 124 ] || [ "${FUZZ_RC:-0}" -eq 0 ]; then
+            echo "Fuzzer completed without crashes"
+          else
+            echo "Fuzzer found crashes (exit code $FUZZ_RC)"
+            ls -la crash-* 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.name }}
+          path: |
+            crash-*
+            oom-*
+            timeout-*
+          retention-days: 30
+          if-no-files-found: ignore

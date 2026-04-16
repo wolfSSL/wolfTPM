@@ -226,7 +226,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* Invalid manifest size (not 177 or 2697) for testing auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
@@ -265,11 +265,11 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     /* ===== Test NULL/invalid parameter combinations ===== */
 
@@ -289,7 +289,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
      * just verify it doesn't crash */
     (void)rc;
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - valid dev, NULL manifest */
     rc = wolfTPM2_FirmwareUpgrade(&dev, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
@@ -309,7 +309,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
             dummy_manifest, sizeof(dummy_manifest), NULL, NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     wolfTPM2_Cleanup(&dev);
 
@@ -836,8 +836,9 @@ static void test_TPM2_KDFa(void)
         0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
 #endif
 
-    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key,
-        keyIn.size);
+    rc = TPM2_KDFa_ex(TPM_ALG_SHA256, keyIn.buffer, keyIn.size, label,
+        contextU.buffer, contextU.size, contextV.buffer, contextV.size,
+        key, keyIn.size);
 #ifdef WOLFTPM2_NO_WOLFCRYPT
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else
@@ -847,6 +848,113 @@ static void test_TPM2_KDFa(void)
 
     printf("Test TPM Wrapper:\tKDFa:\t%s\n",
         rc >= 0 ? "Passed" : "Failed");
+}
+
+static void test_TPM2_KDFe(void)
+{
+    int rc;
+    enum { TEST_KDFE_KEYSZ = 32 };
+    /* Use a simple known Z, label, and party info */
+    const byte Z[TEST_KDFE_KEYSZ] = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20};
+    const char label[] = "IDENTITY";
+    const byte partyU[8] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11};
+    const byte partyV[8] = {0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+    byte key[TEST_KDFE_KEYSZ];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    byte key2[TEST_KDFE_KEYSZ];
+#endif
+
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
+        partyU, sizeof(partyU), partyV, sizeof(partyV),
+        key, sizeof(key));
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+    AssertIntEQ(NOT_COMPILED_IN, rc);
+#else
+    AssertIntEQ((int)sizeof(key), rc);
+    /* Verify deterministic: same inputs produce same output */
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
+        partyU, sizeof(partyU), partyV, sizeof(partyV),
+        key2, sizeof(key2));
+    AssertIntEQ((int)sizeof(key2), rc);
+    AssertIntEQ(0, XMEMCMP(key, key2, sizeof(key)));
+#endif
+
+    printf("Test TPM Wrapper:\tKDFe:\t%s\n",
+        rc >= 0 ? "Passed" : "Failed");
+}
+
+static void test_TPM2_HmacCompute(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    /* RFC 4231 Test Case 2: HMAC-SHA256 with "Jefe" key and "what do ya want
+     * for nothing?" data */
+    const byte hmacKey[] = "Jefe";
+    const byte hmacData[] = "what do ya want for nothing?";
+    const byte hmacExp[] = {
+        0x5b, 0xdc, 0xc1, 0x46, 0xbf, 0x60, 0x75, 0x4e,
+        0x6a, 0x04, 0x24, 0x26, 0x08, 0x95, 0x75, 0xc7,
+        0x5a, 0x00, 0x3f, 0x08, 0x9d, 0x27, 0x39, 0x83,
+        0x9d, 0xec, 0x58, 0xb9, 0x64, 0xec, 0x38, 0x43};
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    word32 digestSz = sizeof(digest);
+
+    rc = TPM2_HmacCompute(TPM_ALG_SHA256,
+        hmacKey, 4, /* "Jefe" without null terminator */
+        hmacData, 28, /* "what do ya want for nothing?" without null */
+        NULL, 0,
+        digest, &digestSz);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(32, (int)digestSz);
+    AssertIntEQ(0, XMEMCMP(digest, hmacExp, sizeof(hmacExp)));
+
+    /* Test HmacVerify with correct expected value */
+    rc = TPM2_HmacVerify(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        hmacExp, sizeof(hmacExp));
+    AssertIntEQ(0, rc);
+
+    /* Test HmacVerify with wrong expected value */
+    digest[0] ^= 0xFF;
+    rc = TPM2_HmacVerify(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        digest, digestSz);
+    AssertIntEQ(TPM_RC_INTEGRITY, rc);
+
+    printf("Test TPM Wrapper:\tHmacCompute:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHmacCompute:\tSkipped\n");
+#endif
+}
+
+static void test_TPM2_HashCompute(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    /* SHA-256 of empty string */
+    const byte hashExp[] = {
+        0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
+        0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+        0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
+        0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55};
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    word32 digestSz = sizeof(digest);
+
+    rc = TPM2_HashCompute(TPM_ALG_SHA256,
+        (const byte*)"", 0,
+        digest, &digestSz);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(32, (int)digestSz);
+    AssertIntEQ(XMEMCMP(digest, hashExp, sizeof(hashExp)), 0);
+
+    printf("Test TPM Wrapper:\tHashCompute:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHashCompute:\tSkipped\n");
+#endif
 }
 
 static void test_TPM2_ConstantCompare(void)
@@ -869,6 +977,318 @@ static void test_TPM2_ConstantCompare(void)
     AssertIntEQ(0, TPM2_ConstantCompare(a, d, 0));
 
     printf("Test TPM Wrapper:\tConstantCompare:\tPassed\n");
+}
+
+static void test_TPM2_AesCfbRoundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_AES) && \
+    defined(WOLFSSL_AES_CFB)
+    int rc;
+    int i;
+    const int keySizes[3] = {16, 24, 32};
+    byte key[32];
+    byte iv[16];
+    byte pt[64];
+    byte ct[64];
+
+    XMEMSET(key, 0xA5, sizeof(key));
+    XMEMSET(iv,  0x5A, sizeof(iv));
+    for (i = 0; i < (int)sizeof(pt); i++) {
+        pt[i] = (byte)i;
+    }
+
+    /* Encrypt -> decrypt round trip for each supported key size */
+    for (i = 0; i < 3; i++) {
+        XMEMCPY(ct, pt, sizeof(pt));
+        rc = TPM2_AesCfbEncrypt(key, keySizes[i], iv, ct, sizeof(ct));
+        AssertIntEQ(0, rc);
+        AssertIntNE(0, XMEMCMP(ct, pt, sizeof(pt)));
+        rc = TPM2_AesCfbDecrypt(key, keySizes[i], iv, ct, sizeof(ct));
+        AssertIntEQ(0, rc);
+        AssertIntEQ(0, XMEMCMP(ct, pt, sizeof(pt)));
+    }
+
+    /* NULL-IV path must be accepted (zero-fill default) */
+    XMEMCPY(ct, pt, sizeof(pt));
+    rc = TPM2_AesCfbEncrypt(key, 16, NULL, ct, sizeof(ct));
+    AssertIntEQ(0, rc);
+    rc = TPM2_AesCfbDecrypt(key, 16, NULL, ct, sizeof(ct));
+    AssertIntEQ(0, rc);
+    AssertIntEQ(0, XMEMCMP(ct, pt, sizeof(pt)));
+
+    /* Reject invalid key size */
+    rc = TPM2_AesCfbEncrypt(key, 15, iv, ct, sizeof(ct));
+    AssertIntNE(0, rc);
+    rc = TPM2_AesCfbDecrypt(key, 15, iv, ct, sizeof(ct));
+    AssertIntNE(0, rc);
+
+    printf("Test TPM Wrapper:\tAesCfbRoundtrip:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tAesCfbRoundtrip:\tSkipped\n");
+#endif
+}
+
+/* Cover KDFa multi-iteration loop (keySz > hash digest size) and
+ * SHA-384 / SHA-512 code paths, with non-empty context inputs. */
+static void test_TPM2_KDFa_MultiHash(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    size_t iAlg;
+    size_t iSz;
+    const UINT32 sizes[] = {1, 31, 32, 33, 64, 96};
+    const byte keyIn[32] = {
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
+    const char label[] = "MULTIHASHLABEL";
+    const byte ctxU[8] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11};
+    const byte ctxV[8] = {0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+    static const TPM_ALG_ID algs[] = {
+        TPM_ALG_SHA256,
+#ifdef WOLFSSL_SHA384
+        TPM_ALG_SHA384,
+#endif
+#ifdef WOLFSSL_SHA512
+        TPM_ALG_SHA512,
+#endif
+    };
+    byte key1[96];
+    byte key2[96];
+
+    for (iAlg = 0; iAlg < sizeof(algs)/sizeof(algs[0]); iAlg++) {
+        for (iSz = 0; iSz < sizeof(sizes)/sizeof(sizes[0]); iSz++) {
+            UINT32 sz = sizes[iSz];
+            rc = TPM2_KDFa_ex(algs[iAlg], keyIn, sizeof(keyIn), label,
+                ctxU, sizeof(ctxU), ctxV, sizeof(ctxV), key1, sz);
+            AssertIntEQ((int)sz, rc);
+            rc = TPM2_KDFa_ex(algs[iAlg], keyIn, sizeof(keyIn), label,
+                ctxU, sizeof(ctxU), ctxV, sizeof(ctxV), key2, sz);
+            AssertIntEQ((int)sz, rc);
+            AssertIntEQ(0, XMEMCMP(key1, key2, sz));
+        }
+    }
+
+    printf("Test TPM Wrapper:\tKDFa multi-hash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tKDFa multi-hash:\tSkipped\n");
+#endif
+}
+
+static void test_TPM2_KDFe_MultiHash(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    size_t iAlg;
+    size_t iSz;
+    const UINT32 sizes[] = {1, 31, 32, 33, 64, 96};
+    const byte Z[32] = {
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+        0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+        0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F};
+    const char label[] = "IDENTITY";
+    const byte partyU[8] = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
+    const byte partyV[8] = {0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87};
+    static const TPM_ALG_ID algs[] = {
+        TPM_ALG_SHA256,
+#ifdef WOLFSSL_SHA384
+        TPM_ALG_SHA384,
+#endif
+#ifdef WOLFSSL_SHA512
+        TPM_ALG_SHA512,
+#endif
+    };
+    byte key1[96];
+    byte key2[96];
+
+    for (iAlg = 0; iAlg < sizeof(algs)/sizeof(algs[0]); iAlg++) {
+        for (iSz = 0; iSz < sizeof(sizes)/sizeof(sizes[0]); iSz++) {
+            UINT32 sz = sizes[iSz];
+            rc = TPM2_KDFe_ex(algs[iAlg], Z, sizeof(Z), label,
+                partyU, sizeof(partyU), partyV, sizeof(partyV), key1, sz);
+            AssertIntEQ((int)sz, rc);
+            rc = TPM2_KDFe_ex(algs[iAlg], Z, sizeof(Z), label,
+                partyU, sizeof(partyU), partyV, sizeof(partyV), key2, sz);
+            AssertIntEQ((int)sz, rc);
+            AssertIntEQ(0, XMEMCMP(key1, key2, sz));
+        }
+    }
+
+    printf("Test TPM Wrapper:\tKDFe multi-hash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tKDFe multi-hash:\tSkipped\n");
+#endif
+}
+
+/* Exercise HmacCompute concat path (data2 != NULL) and multi-hash
+ * branches. Reference result is computed by feeding the same bytes in
+ * one call (data1 || data2) and comparing. */
+static void test_TPM2_HmacCompute_MultiHash(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    int rc;
+    size_t iAlg;
+    static const TPM_ALG_ID algs[] = {
+        TPM_ALG_SHA256,
+#ifdef WOLFSSL_SHA384
+        TPM_ALG_SHA384,
+#endif
+#ifdef WOLFSSL_SHA512
+        TPM_ALG_SHA512,
+#endif
+    };
+    const byte hmacKey[16] = {
+        0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80,
+        0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0, 0x01};
+    const byte data1[] = "concat-HMAC-left-half";
+    const byte data2[] = "concat-HMAC-right-half";
+    byte full[sizeof(data1) - 1 + sizeof(data2) - 1];
+    byte d_split[TPM_MAX_DIGEST_SIZE];
+    byte d_full[TPM_MAX_DIGEST_SIZE];
+    word32 splitSz;
+    word32 fullSz;
+
+    XMEMCPY(full, data1, sizeof(data1) - 1);
+    XMEMCPY(full + sizeof(data1) - 1, data2, sizeof(data2) - 1);
+
+    for (iAlg = 0; iAlg < sizeof(algs)/sizeof(algs[0]); iAlg++) {
+        splitSz = sizeof(d_split);
+        fullSz = sizeof(d_full);
+        rc = TPM2_HmacCompute(algs[iAlg], hmacKey, sizeof(hmacKey),
+            data1, sizeof(data1) - 1,
+            data2, sizeof(data2) - 1,
+            d_split, &splitSz);
+        AssertIntEQ(0, rc);
+        rc = TPM2_HmacCompute(algs[iAlg], hmacKey, sizeof(hmacKey),
+            full, sizeof(full),
+            NULL, 0,
+            d_full, &fullSz);
+        AssertIntEQ(0, rc);
+        AssertIntEQ((int)fullSz, (int)splitSz);
+        AssertIntEQ(0, XMEMCMP(d_split, d_full, splitSz));
+    }
+
+    printf("Test TPM Wrapper:\tHmacCompute multi-hash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHmacCompute multi-hash:\tSkipped\n");
+#endif
+}
+
+static void test_TPM2_HashCompute_MultiHash(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    size_t i;
+    static const struct { TPM_ALG_ID alg; int dsz; } cases[] = {
+        { TPM_ALG_SHA256, 32 },
+#ifdef WOLFSSL_SHA384
+        { TPM_ALG_SHA384, 48 },
+#endif
+#ifdef WOLFSSL_SHA512
+        { TPM_ALG_SHA512, 64 },
+#endif
+    };
+    const byte msg[] = "wolfTPM-unit-test-hash";
+    byte d1[TPM_MAX_DIGEST_SIZE];
+    byte d2[TPM_MAX_DIGEST_SIZE];
+    word32 sz1;
+    word32 sz2;
+
+    for (i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
+        sz1 = sizeof(d1);
+        sz2 = sizeof(d2);
+        rc = TPM2_HashCompute(cases[i].alg, msg, sizeof(msg) - 1, d1, &sz1);
+        AssertIntEQ(0, rc);
+        AssertIntEQ(cases[i].dsz, (int)sz1);
+        rc = TPM2_HashCompute(cases[i].alg, msg, sizeof(msg) - 1, d2, &sz2);
+        AssertIntEQ(0, rc);
+        AssertIntEQ(0, XMEMCMP(d1, d2, sz1));
+    }
+
+    printf("Test TPM Wrapper:\tHashCompute multi-hash:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHashCompute multi-hash:\tSkipped\n");
+#endif
+}
+
+/* Negative / input-validation coverage for KDFa_ex and KDFe_ex. */
+static void test_TPM2_KDF_Errors(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    byte key[32];
+    const byte buf[16] = {0};
+    const char label[] = "LABEL";
+
+    /* KDFa: NULL key returns BAD_FUNC_ARG */
+    rc = TPM2_KDFa_ex(TPM_ALG_SHA256, buf, sizeof(buf), label,
+        NULL, 0, NULL, 0, NULL, sizeof(key));
+    AssertIntEQ(BAD_FUNC_ARG, rc);
+
+    /* KDFa: unsupported hash returns NOT_COMPILED_IN */
+    rc = TPM2_KDFa_ex(TPM_ALG_NULL, buf, sizeof(buf), label,
+        NULL, 0, NULL, 0, key, sizeof(key));
+    AssertIntEQ(NOT_COMPILED_IN, rc);
+
+    /* KDFe: NULL key returns BAD_FUNC_ARG */
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, buf, sizeof(buf), label,
+        NULL, 0, NULL, 0, NULL, sizeof(key));
+    AssertIntEQ(BAD_FUNC_ARG, rc);
+
+    /* KDFe: NULL Z returns BAD_FUNC_ARG */
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, NULL, 0, label,
+        NULL, 0, NULL, 0, key, sizeof(key));
+    AssertIntEQ(BAD_FUNC_ARG, rc);
+
+    /* KDFe: unsupported hash returns NOT_COMPILED_IN */
+    rc = TPM2_KDFe_ex(TPM_ALG_NULL, buf, sizeof(buf), label,
+        NULL, 0, NULL, 0, key, sizeof(key));
+    AssertIntEQ(NOT_COMPILED_IN, rc);
+
+    printf("Test TPM Wrapper:\tKDF error paths:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tKDF error paths:\tSkipped\n");
+#endif
+}
+
+/* Round-trip TPM2_GetHashType -> TPM2_GetTpmHashType for each TPM
+ * hash algorithm compiled into wolfCrypt. Unknown inputs map to
+ * TPM_ALG_ERROR. */
+static void test_TPM2_GetTpmHashType(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    static const TPMI_ALG_HASH algs[] = {
+#ifndef NO_SHA
+        TPM_ALG_SHA1,
+#endif
+        TPM_ALG_SHA256,
+#ifdef WOLFSSL_SHA384
+        TPM_ALG_SHA384,
+#endif
+#ifdef WOLFSSL_SHA512
+        TPM_ALG_SHA512,
+#endif
+    };
+    size_t i;
+    int wcType;
+    TPMI_ALG_HASH roundTrip;
+
+    for (i = 0; i < sizeof(algs)/sizeof(algs[0]); i++) {
+        wcType = TPM2_GetHashType(algs[i]);
+        AssertIntNE((int)WC_HASH_TYPE_NONE, wcType);
+        roundTrip = TPM2_GetTpmHashType(wcType);
+        AssertIntEQ(algs[i], roundTrip);
+    }
+
+    /* Unknown wolfCrypt hash type returns TPM_ALG_ERROR */
+    AssertIntEQ(TPM_ALG_ERROR, TPM2_GetTpmHashType(0xFFFF));
+
+    printf("Test TPM Wrapper:\tGetTpmHashType:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tGetTpmHashType:\tSkipped\n");
+#endif
 }
 
 static void test_TPM2_ResponseHmacVerification(void)
@@ -963,14 +1383,11 @@ static void test_TPM2_ParamEnc_XOR_Vector(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
-    TPM2_AUTH_SESSION session;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
     TPM2B_AUTH sessKey;
     TPM2B_NONCE nonceCaller, nonceTPM;
     const byte original[] = "XOR parameter encryption round-trip test";
     byte data[sizeof(original)];
-
-    XMEMSET(&session, 0, sizeof(session));
-    session.authHash = TPM_ALG_SHA256;
 
     sessKey.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(sessKey.buffer, 0xCC, sessKey.size);
@@ -983,7 +1400,9 @@ static void test_TPM2_ParamEnc_XOR_Vector(void)
     XMEMCPY(data, original, sizeof(original));
 
     /* Encrypt */
-    rc = TPM2_ParamEnc_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
         data, sizeof(data));
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
@@ -991,7 +1410,9 @@ static void test_TPM2_ParamEnc_XOR_Vector(void)
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 
     /* Encrypt again with same args — XOR is self-inverse */
-    rc = TPM2_ParamEnc_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
         data, sizeof(data));
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
@@ -1006,15 +1427,12 @@ static void test_TPM2_ParamEnc_AESCFB_Vector(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
     int rc;
-    TPM2_AUTH_SESSION session;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    UINT16 keyBits = MAX_AES_KEY_BITS;
     TPM2B_AUTH sessKey;
     TPM2B_NONCE nonceCaller, nonceTPM;
     const byte original[] = "AES-CFB parameter encryption round-trip test";
     byte data[sizeof(original)];
-
-    XMEMSET(&session, 0, sizeof(session));
-    session.authHash = TPM_ALG_SHA256;
-    session.symmetric.keyBits.aes = MAX_AES_KEY_BITS;
 
     sessKey.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(sessKey.buffer, 0xDD, sessKey.size);
@@ -1027,16 +1445,22 @@ static void test_TPM2_ParamEnc_AESCFB_Vector(void)
     XMEMCPY(data, original, sizeof(original));
 
     /* Encrypt with (nonceCaller, nonceTPM) */
-    rc = TPM2_ParamEnc_AESCFB(&session, &sessKey, NULL, &nonceCaller,
-        &nonceTPM, data, sizeof(data));
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, sizeof(data), 1);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
     /* Data must differ from original */
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 
-    /* Decrypt: swap nonce args so KDFa produces same key */
-    rc = TPM2_ParamDec_AESCFB(&session, &sessKey, NULL, &nonceTPM,
-        &nonceCaller, data, sizeof(data));
+    /* Decrypt: same nonce order, doEncrypt=0 */
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, sizeof(data), 0);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
     /* Must match original */
@@ -1050,14 +1474,11 @@ static void test_TPM2_ParamDec_XOR_Roundtrip(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     int rc;
-    TPM2_AUTH_SESSION session;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
     TPM2B_AUTH sessKey;
     TPM2B_NONCE nonceCaller, nonceTPM;
     const byte original[] = "XOR parameter decryption round-trip test";
     byte data[sizeof(original)];
-
-    XMEMSET(&session, 0, sizeof(session));
-    session.authHash = TPM_ALG_SHA256;
 
     sessKey.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(sessKey.buffer, 0xEE, sessKey.size);
@@ -1069,8 +1490,11 @@ static void test_TPM2_ParamDec_XOR_Roundtrip(void)
 
     XMEMCPY(data, original, sizeof(original));
 
-    /* Decrypt direction: XOR with (nonceCaller, nonceTPM) mask */
-    rc = TPM2_ParamDec_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+    /* Decrypt direction uses (nonceTPM, nonceCaller) order. XOR is symmetric
+     * so the same TPM2_ParamEnc_XOR call performs decryption. */
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceTPM.buffer, nonceTPM.size,
+        nonceCaller.buffer, nonceCaller.size,
         data, sizeof(data));
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
@@ -1078,7 +1502,9 @@ static void test_TPM2_ParamDec_XOR_Roundtrip(void)
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 
     /* Apply same XOR again — self-inverse recovers original */
-    rc = TPM2_ParamDec_XOR(&session, &sessKey, NULL, &nonceCaller, &nonceTPM,
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceTPM.buffer, nonceTPM.size,
+        nonceCaller.buffer, nonceCaller.size,
         data, sizeof(data));
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
@@ -1093,15 +1519,12 @@ static void test_TPM2_ParamDec_AESCFB_Roundtrip(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
     int rc;
-    TPM2_AUTH_SESSION session;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    UINT16 keyBits = MAX_AES_KEY_BITS;
     TPM2B_AUTH sessKey;
     TPM2B_NONCE nonceCaller, nonceTPM;
     const byte original[] = "AES-CFB parameter decryption round-trip test";
     byte data[sizeof(original)];
-
-    XMEMSET(&session, 0, sizeof(session));
-    session.authHash = TPM_ALG_SHA256;
-    session.symmetric.keyBits.aes = MAX_AES_KEY_BITS;
 
     sessKey.size = TPM_SHA256_DIGEST_SIZE;
     XMEMSET(sessKey.buffer, 0xFF, sessKey.size);
@@ -1113,18 +1536,23 @@ static void test_TPM2_ParamDec_AESCFB_Roundtrip(void)
 
     XMEMCPY(data, original, sizeof(original));
 
-    /* Encrypt with ParamEnc_AESCFB (command direction) */
-    rc = TPM2_ParamEnc_AESCFB(&session, &sessKey, NULL, &nonceCaller,
-        &nonceTPM, data, sizeof(data));
+    /* Encrypt: command direction uses (nonceCaller, nonceTPM), doEncrypt=1 */
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, sizeof(data), 1);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
     /* Data must differ from original */
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 
-    /* Decrypt with ParamDec_AESCFB: swap nonce args so internal KDFa
-     * produces the same key as encryption */
-    rc = TPM2_ParamDec_AESCFB(&session, &sessKey, NULL, &nonceTPM,
-        &nonceCaller, data, sizeof(data));
+    /* Decrypt: same nonce order so KDFa produces the same key, doEncrypt=0 */
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, sizeof(data), 0);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
 
     /* Must match original */
@@ -1774,7 +2202,17 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
     test_TPM2_KDFa_SessionLabels();
+    test_TPM2_KDFe();
+    test_TPM2_HmacCompute();
+    test_TPM2_HashCompute();
     test_TPM2_ConstantCompare();
+    test_TPM2_AesCfbRoundtrip();
+    test_TPM2_KDFa_MultiHash();
+    test_TPM2_KDFe_MultiHash();
+    test_TPM2_HmacCompute_MultiHash();
+    test_TPM2_HashCompute_MultiHash();
+    test_TPM2_KDF_Errors();
+    test_TPM2_GetTpmHashType();
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
     test_TPM2_ParamEnc_XOR_Vector();

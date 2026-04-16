@@ -363,7 +363,8 @@ int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
     uint8_t* sig = *pSig;
     int idx = 0;
 
-    if (*sigSz < 3) return rc;
+    if (*sigSz < 3)
+        return rc;
 
     if (sig[idx++] == 0x00 && sig[idx++] == 0x01) {
         while (idx < *sigSz) {

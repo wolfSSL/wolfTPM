@@ -37,8 +37,29 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
+* Includes a portable firmware TPM 2.0 implementation (fwTPM) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM)](#firmware-tpm-fwtpm) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
+
+
+## Firmware TPM (fwTPM)
+
+wolfTPM includes a portable firmware TPM 2.0 implementation (`fwtpm_server`)
+built entirely on wolfCrypt. It provides a standards-compliant TPM 2.0 command
+processor that can replace a hardware TPM on embedded platforms without a
+discrete TPM chip, or serve as a drop-in development and CI/CD replacement for
+external simulators like swtpm or the Microsoft TPM simulator.
+
+Features:
+* 105 TPM 2.0 commands implemented (93% of v1.38 spec) with wolfCrypt cryptography (RSA, ECC, SHA, AES, HMAC)
+* Socket transport (Microsoft TPM simulator protocol) compatible with `tpm2-tools` and wolfTPM examples
+* TIS register-level transport over shared memory or SPI/I2C for bare-metal integration
+* HAL abstractions for IO transport and NV storage portability
+* File-based or custom NV storage via HAL callbacks
+* Compile-time algorithm and feature selection (e.g., `NO_RSA`, `FWTPM_NO_NV`)
+* `WOLFTPM_SMALL_STACK` support for constrained environments
+
+See [docs/FWTPM.md](docs/FWTPM.md) for build instructions, configuration, and API reference.
 
 
 ## TPM 2.0 Overview
@@ -204,6 +225,9 @@ make install
                         Note: With autodetect (default) this is no longer required on Linux;
                         the kernel driver is tried automatically before SPI.
 --enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: disabled) - WOLFTPM_SWTPM
+--enable-swtpm=uart     Enable using SWTPM protocol over UART serial. For use with fwTPM on
+                        embedded targets (e.g. STM32H5). Uses termios serial I/O instead of
+                        TCP sockets. - WOLFTPM_SWTPM + WOLFTPM_SWTPM_UART
 --enable-winapi         Use Windows TBS API. (default: disabled) - WOLFTPM_WINAPI
 
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.

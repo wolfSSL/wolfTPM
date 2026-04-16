@@ -28,7 +28,10 @@ DISTCLEANFILES+= aminclude.am
 # make sure we pass the correct flags to distcheck
 # SWTPM_PORT can be set via --with-swtpm-port during configure
 # Use @SWTPM_PORT@ substitution from configure.ac
-AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm @DISTCHECK_SWTPM_PORT_FLAG@
+# Explicitly disable fwtpm during distcheck — fwtpm_server requires
+# optional wolfSSL features (WOLFSSL_KEY_GEN, WC_RSA_NO_PADDING) that
+# distcheck runners can't guarantee. Restores pre-auto-enable behavior.
+AM_DISTCHECK_CONFIGURE_FLAGS = --enable-swtpm --disable-fwtpm @DISTCHECK_SWTPM_PORT_FLAG@
 
 exampledir = $(docdir)/example
 dist_example_DATA=
@@ -47,6 +50,7 @@ include docs/include.am
 include wrapper/include.am
 include hal/include.am
 include src/spdm/include.am
+include src/fwtpm/include.am
 include cmake/include.am
 include zephyr/include.am
 
