@@ -354,6 +354,8 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 UINT16 expectedHmacSz = TPM2_GetHashDigestSize(session->authHash);
                 TPM2B_DIGEST hash;
                 TPM2B_AUTH hmac;
+                int sizeMismatch;
+                int diff;
 
                 if (expectedHmacSz == 0 || authRsp.hmac.size != expectedHmacSz) {
                 #ifdef DEBUG_WOLFTPM
@@ -384,10 +386,13 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
 
-                /* Verify HMAC using constant-time comparison */
-                if (hmac.size != authRsp.hmac.size ||
-                    TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
-                        hmac.size) != 0) {
+                /* Verify HMAC using constant-time comparison — always run
+                 * TPM2_ConstantCompare so code path timing doesn't depend on
+                 * whether the size matched. */
+                sizeMismatch = (hmac.size != authRsp.hmac.size);
+                diff = TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
+                    expectedHmacSz);
+                if (sizeMismatch | diff) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Response HMAC verification failed!\n");
                 #endif
