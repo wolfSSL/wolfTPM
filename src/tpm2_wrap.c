@@ -6635,18 +6635,23 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     XMEMSET(&encDecIn, 0, sizeof(encDecIn));
     encDecIn.keyHandle = key->handle.hndl;
+    /* use symmetric algorithm from key */
+    encDecIn.mode = key->pub.publicArea.parameters.symDetail.sym.mode.aes;
     if (iv == NULL || ivSz == 0) {
+        /* Modes other than ECB and NULL require an explicit IV */
+        if (encDecIn.mode != TPM_ALG_ECB && encDecIn.mode != TPM_ALG_NULL) {
+            return BAD_FUNC_ARG;
+        }
         encDecIn.ivIn.size = MAX_AES_BLOCK_SIZE_BYTES; /* zeros */
     }
     else {
+        if (ivSz > sizeof(encDecIn.ivIn.buffer)) {
+            return BUFFER_E;
+        }
         encDecIn.ivIn.size = ivSz;
-        if (encDecIn.ivIn.size > sizeof(encDecIn.ivIn.buffer))
-            encDecIn.ivIn.size = sizeof(encDecIn.ivIn.buffer); /* truncate */
         XMEMCPY(encDecIn.ivIn.buffer, iv, encDecIn.ivIn.size);
     }
     encDecIn.decrypt = isDecrypt;
-    /* use symmetric algorithm from key */
-    encDecIn.mode = key->pub.publicArea.parameters.symDetail.sym.mode.aes;
 
     encDecIn.inData.size = inOutSz;
     XMEMCPY(encDecIn.inData.buffer, in, inOutSz);

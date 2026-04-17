@@ -2626,6 +2626,78 @@ static void test_wolfTPM2_LoadPrivateKey_NullParent(void)
     printf("Test TPM Wrapper:\tLoadPrivateKey NullParent:\tPassed\n");
 }
 
+static void test_wolfTPM2_EncryptDecryptBlock(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte in[MAX_AES_BLOCK_SIZE_BYTES];
+    byte out[MAX_AES_BLOCK_SIZE_BYTES];
+    byte iv[MAX_AES_BLOCK_SIZE_BYTES];
+    byte bigIv[MAX_SYM_BLOCK_SIZE + 1];
+
+    XMEMSET(in, 0, sizeof(in));
+    XMEMSET(out, 0, sizeof(out));
+    XMEMSET(iv, 0, sizeof(iv));
+    XMEMSET(bigIv, 0, sizeof(bigIv));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* CBC mode: NULL IV should return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CBC;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* CBC mode: ivSz == 0 with non-NULL iv should return BAD_FUNC_ARG */
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), iv, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* CFB mode: NULL IV should return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CFB;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* CTR mode: NULL IV should return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CTR;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* OFB mode: NULL IV should return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_OFB;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Oversized IV should return BUFFER_E */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CBC;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), bigIv, sizeof(bigIv), WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* ECB mode: NULL IV should NOT return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_ECB;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    /* NULL mode: NULL IV should NOT return BAD_FUNC_ARG */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_NULL;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tEncryptDecryptBlock IV validate:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2688,6 +2760,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_DecodeDer_DefaultAttribs();
     #endif
     test_wolfTPM2_LoadPrivateKey_NullParent();
+    test_wolfTPM2_EncryptDecryptBlock();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \

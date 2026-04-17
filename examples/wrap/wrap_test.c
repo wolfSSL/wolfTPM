@@ -960,14 +960,16 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
     cipher.size = message.size;
+    XMEMSET(aesIv, 0, sizeof(aesIv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
-        message.size, NULL, 0, WOLFTPM2_ENCRYPT);
+        message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
+    XMEMSET(aesIv, 0, sizeof(aesIv));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
-        cipher.size, NULL, 0, WOLFTPM2_DECRYPT);
+        cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
 
     wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
 
