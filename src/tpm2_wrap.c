@@ -2392,6 +2392,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         session->salt.size = hashDigestSz;
         rc = TPM2_GetNonceNoLock(session->salt.buffer, session->salt.size);
         if (rc != 0) {
+            TPM2_ForceZero(&session->salt, sizeof(session->salt));
             return rc;
         }
 
@@ -2403,6 +2404,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             printf("Building encrypted salt failed %d: %s!\n", rc,
                 wolfTPM2_GetRCString(rc));
         #endif
+            TPM2_ForceZero(&session->salt, sizeof(session->salt));
             return rc;
         }
     }
@@ -2413,6 +2415,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         printf("TPM2_StartAuthSession failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&session->salt, sizeof(session->salt));
         return rc;
     }
 
