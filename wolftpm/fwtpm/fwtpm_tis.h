@@ -56,9 +56,15 @@
 #define FWTPM_TIS_BURST_COUNT   64
 #endif
 
-/* Maximum FIFO buffer size */
+/* Maximum FIFO buffer size. Matches FWTPM_MAX_COMMAND_SIZE; lifted under
+ * v185 for large PQC responses (ML-DSA-87 signature is 4627 bytes). Bare-metal
+ * deployments should revisit board RAM budget — 2x 8 KB buffers vs 2x 4 KB. */
 #ifndef FWTPM_TIS_FIFO_SIZE
-#define FWTPM_TIS_FIFO_SIZE     4096
+    #ifdef WOLFTPM_V185
+        #define FWTPM_TIS_FIFO_SIZE 8192
+    #else
+        #define FWTPM_TIS_FIFO_SIZE 4096
+    #endif
 #endif
 
 /* --- TIS Register Offsets (locality 0, SPI PTP spec) --- */

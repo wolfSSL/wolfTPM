@@ -404,8 +404,11 @@ typedef enum {
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
 #ifdef WOLFTPM_V185
-    /* TPM_RC_EXT_MU: external-Mu is not supported (TCG v185 RC4) */
-    TPM_RC_EXT_MU           = RC_FMT1 + 0x02B,
+    /* v185 rc4 Part 2 §6.6.3 Table 17 */
+    TPM_RC_PARMS              = RC_FMT1 + 0x02A,
+    TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
+    TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
+    TPM_RC_SIGN_CONTEXT_KEY   = RC_FMT1 + 0x02D,
 #endif
     RC_MAX_FMT1             = RC_FMT1 + 0x03F,
 
@@ -683,6 +686,12 @@ typedef enum {
     TPM_PT_NV_BUFFER_MAX        = PT_FIXED + 44,
     TPM_PT_MODES                = PT_FIXED + 45,
     TPM_PT_MAX_CAP_BUFFER       = PT_FIXED + 46,
+#ifdef WOLFTPM_V185
+    /* v185 rc4 Part 2 §6.13 Table 27 */
+    TPM_PT_FIRMWARE_SVN         = PT_FIXED + 47,
+    TPM_PT_FIRMWARE_MAX_SVN     = PT_FIXED + 48,
+    TPM_PT_ML_PARAMETER_SETS    = PT_FIXED + 49,
+#endif
 
     PT_VAR = PT_GROUP * 2,
     TPM_PT_PERMANENT            = PT_VAR + 0,
@@ -914,6 +923,21 @@ enum TPMA_CC_mask {
     TPMA_CC_V            = 0x20000000,
 };
 
+#ifdef WOLFTPM_V185
+/* v185 rc4 Part 2 §8.13 Table 46 — bitfield returned from
+ * TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_ML_PARAMETER_SETS)
+ * indicating which ML-KEM/ML-DSA parameter sets the TPM supports. */
+typedef UINT32 TPMA_ML_PARAMETER_SET;
+enum TPMA_ML_PARAMETER_SET_mask {
+    TPMA_ML_PARAMETER_SET_mlKem_512   = 0x00000001,
+    TPMA_ML_PARAMETER_SET_mlKem_768   = 0x00000002,
+    TPMA_ML_PARAMETER_SET_mlKem_1024  = 0x00000004,
+    TPMA_ML_PARAMETER_SET_mlDsa_44    = 0x00000008,
+    TPMA_ML_PARAMETER_SET_mlDsa_65    = 0x00000010,
+    TPMA_ML_PARAMETER_SET_mlDsa_87    = 0x00000020,
+    TPMA_ML_PARAMETER_SET_extMu       = 0x00000040,
+};
+#endif
 
 
 /* Interface Types */
@@ -1022,6 +1046,14 @@ typedef struct TPM2B_SIGNATURE_CTX {
     BYTE buffer[MAX_SIGNATURE_CTX_SIZE];
 } TPM2B_SIGNATURE_CTX;
 
+/* v185 rc4 Part 2 §11.3.9 Table 221 — TPM2B_SIGNATURE_HINT carries the
+ * encoded R value for EdDSA sequences; for ML-DSA and other schemes the
+ * TPM requires size == 0. Used as a parameter on TPM2_VerifySequenceStart. */
+typedef struct TPM2B_SIGNATURE_HINT {
+    UINT16 size;
+    BYTE buffer[MAX_SIGNATURE_HINT_SIZE];
+} TPM2B_SIGNATURE_HINT;
+
 typedef struct TPM2B_KEM_CIPHERTEXT {
     UINT16 size;
     BYTE buffer[MAX_KEM_CIPHERTEXT_SIZE];
@@ -1102,6 +1134,16 @@ typedef struct TPMT_TK_CREATION {
 typedef struct TPMT_TK_VERIFIED {
     TPM_ST tag;
     TPMI_RH_HIERARCHY hierarchy;
+#ifdef WOLFTPM_V185
+    /* v185 rc4 Part 2 §10.6.5 Table 112 / §10.6.4 Table 110 — [tag]metadata.
+     * Empty on the wire for TPM_ST_VERIFIED and TPM_ST_MESSAGE_VERIFIED.
+     * For TPM_ST_DIGEST_VERIFIED carries the TPM_ALG_ID (hash/XOF used).
+     * Per SPEC_DECISIONS DEC-0003, ML-DSA external-mu uses TPM_ALG_NULL.
+     * Spec note: field formerly named `digest` was renamed to `hmac` in
+     * v185 to reduce ambiguity; we retain `digest` for wolfTPM API stability
+     * since the rename is editorial and does not affect wire bytes. */
+    TPM_ALG_ID metaAlg;
+#endif
     TPM2B_DIGEST digest;
 } TPMT_TK_VERIFIED;
 
@@ -1566,11 +1608,13 @@ typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDSA;
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 
 #ifdef WOLFTPM_V185
-/* ML-DSA (Dilithium) Signature Structure */
-typedef struct TPMS_SIGNATURE_ML_DSA {
+/* v185 rc4 Part 2 §11.2.7.2 Table 208 — TPMS_SIGNATURE_HASH_MLDSA carries
+ * the pre-hash algorithm together with the signature bytes. Used for
+ * TPM_ALG_HASH_MLDSA signatures only. */
+typedef struct TPMS_SIGNATURE_HASH_MLDSA {
     TPMI_ALG_HASH hash;
-    TPM2B_MLDSA_SIGNATURE signature;  /* ML-DSA signature up to 4627 bytes */
-} TPMS_SIGNATURE_ML_DSA;
+    TPM2B_MLDSA_SIGNATURE signature;
+} TPMS_SIGNATURE_HASH_MLDSA;
 #endif /* WOLFTPM_V185 */
 
 typedef union TPMU_SIGNATURE {
@@ -1581,7 +1625,12 @@ typedef union TPMU_SIGNATURE {
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
 #ifdef WOLFTPM_V185
-    TPMS_SIGNATURE_ML_DSA mldsa;
+    /* v185 rc4 Part 2 §11.3.5 Table 217. Note: mldsa arm is TPM2B (bare
+     * signature bytes with no hash field) because Pure ML-DSA does not
+     * select a hash; hash_mldsa arm is TPMS (hash + signature) for the
+     * pre-hashed variant. See Table 217 note. */
+    TPM2B_MLDSA_SIGNATURE mldsa;
+    TPMS_SIGNATURE_HASH_MLDSA hash_mldsa;
 #endif /* WOLFTPM_V185 */
 } TPMU_SIGNATURE;
 
@@ -2717,8 +2766,10 @@ WOLFTPM_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
 #ifdef WOLFTPM_V185
 /* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
 
+/* v185 rc4 Part 3 §17.6.3 Table 89 — {keyHandle, auth, context} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
+    TPM2B_AUTH auth;
     TPM2B_SIGNATURE_CTX context;
 } SignSequenceStart_In;
 typedef struct {
@@ -2727,8 +2778,12 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
     SignSequenceStart_Out* out);
 
+/* v185 rc4 Part 3 §17.6.2 Table 87 — {keyHandle, auth, hint, context}
+ * hint holds the encoded R value for EdDSA; zero-length for other schemes. */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
+    TPM2B_AUTH auth;
+    TPM2B_SIGNATURE_HINT hint;
     TPM2B_SIGNATURE_CTX context;
 } VerifySequenceStart_In;
 typedef struct {
@@ -2760,21 +2815,24 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
     VerifySequenceComplete_Out* out);
 
+/* v185 rc4 Part 3 §20.7.2 Table 126 — {keyHandle, context, digest, validation} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
-    TPM2B_DIGEST digest;
     TPM2B_SIGNATURE_CTX context;
+    TPM2B_DIGEST digest;
+    TPMT_TK_HASHCHECK validation;
 } SignDigest_In;
 typedef struct {
     TPMT_SIGNATURE signature;
 } SignDigest_Out;
 WOLFTPM_API TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out);
 
+/* v185 rc4 Part 3 §20.4.2 Table 120 — {keyHandle, context, digest, signature} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
+    TPM2B_SIGNATURE_CTX context;
     TPM2B_DIGEST digest;
     TPMT_SIGNATURE signature;
-    TPM2B_SIGNATURE_CTX context;
 } VerifyDigestSignature_In;
 typedef struct {
     TPMT_TK_VERIFIED validation;

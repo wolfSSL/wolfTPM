@@ -761,6 +761,14 @@ typedef int64_t  INT64;
 #define MAX_SIGNATURE_CTX_SIZE      255  /* Domain separation context max */
 #endif
 
+/* MAX_SIGNATURE_HINT_SIZE sizes TPM2B_SIGNATURE_HINT. Holds the encoded R
+ * value for EdDSA signatures; zero-length for ML-DSA and other schemes.
+ * Part 2 §11.3.9 Table 221 does not fix a numeric cap; 256 covers Ed25519
+ * and Ed448 encoded R sizes with headroom. */
+#ifndef MAX_SIGNATURE_HINT_SIZE
+#define MAX_SIGNATURE_HINT_SIZE     256
+#endif
+
 #ifndef MAX_KEM_CIPHERTEXT_SIZE
 #define MAX_KEM_CIPHERTEXT_SIZE     2048
 #endif

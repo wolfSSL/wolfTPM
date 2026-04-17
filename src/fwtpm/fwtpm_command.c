@@ -12633,6 +12633,68 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#ifdef WOLFTPM_V185
+/* ================================================================== */
+/* v1.85 PQC Commands (stubs pending real handlers)                    */
+/* ================================================================== */
+
+static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
+    TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
+    TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
+    TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+
+static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
+    return TPM_RC_COMMAND_CODE;
+}
+#endif /* WOLFTPM_V185 */
+
 /* ================================================================== */
 /* Command Dispatch Table                                              */
 /* ================================================================== */
@@ -12803,6 +12865,17 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- Vendor --- */
     { TPM_CC_Vendor_TCG_Test,    FwCmd_Vendor_TCG_Test,      0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#ifdef WOLFTPM_V185
+    /* --- v1.85 PQC (stubs; real handlers in Phase 4/5) --- */
+    { TPM_CC_Encapsulate,            FwCmd_Encapsulate,            1, 0, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Decapsulate,            FwCmd_Decapsulate,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_SignSequenceStart,      FwCmd_SignSequenceStart,      1, 0, 1, FW_CMD_FLAG_ENC },
+    { TPM_CC_VerifySequenceStart,    FwCmd_VerifySequenceStart,    1, 0, 1, FW_CMD_FLAG_ENC },
+    { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, 0 },
+    { TPM_CC_SignDigest,             FwCmd_SignDigest,             1, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_VerifyDigestSignature,  FwCmd_VerifyDigestSignature,  1, 0, 0, FW_CMD_FLAG_ENC },
+#endif
 };
 
 #define FWTPM_CMD_TABLE_SIZE \

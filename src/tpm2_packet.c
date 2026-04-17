@@ -1305,12 +1305,21 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         /* Legitimate zero-payload signature - nothing to append. */
         break;
 #ifdef WOLFTPM_V185
+    /* v185 rc4 Part 2 §11.3.5 Table 217 note: Pure ML-DSA is a TPM2B
+     * (size + bytes, no hash field); HashML-DSA is a TPMS (hash + size + bytes).
+     * The union arms differ in type; the switch dispatches accordingly. */
     case TPM_ALG_MLDSA:
+        TPM2_Packet_AppendU16(packet, sig->signature.mldsa.size);
+        TPM2_Packet_AppendBytes(packet, sig->signature.mldsa.buffer,
+            sig->signature.mldsa.size);
+        break;
     case TPM_ALG_HASH_MLDSA:
-        TPM2_Packet_AppendU16(packet, sig->signature.mldsa.hash);
-        TPM2_Packet_AppendU16(packet, sig->signature.mldsa.signature.size);
-        TPM2_Packet_AppendBytes(packet, sig->signature.mldsa.signature.buffer,
-            sig->signature.mldsa.signature.size);
+        TPM2_Packet_AppendU16(packet, sig->signature.hash_mldsa.hash);
+        TPM2_Packet_AppendU16(packet,
+            sig->signature.hash_mldsa.signature.size);
+        TPM2_Packet_AppendBytes(packet,
+            sig->signature.hash_mldsa.signature.buffer,
+            sig->signature.hash_mldsa.signature.size);
         break;
 #endif /* WOLFTPM_V185 */
     default:
@@ -1393,21 +1402,38 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         break;
 #ifdef WOLFTPM_V185
     case TPM_ALG_MLDSA:
-    case TPM_ALG_HASH_MLDSA:
-        TPM2_Packet_ParseU16(packet, &sig->signature.mldsa.hash);
+        /* Pure ML-DSA signature is a bare TPM2B: size + bytes, no hash. */
         TPM2_Packet_ParseU16(packet, &wireSize);
-        sig->signature.mldsa.signature.size = wireSize;
-        if (sig->signature.mldsa.signature.size >
-                sizeof(sig->signature.mldsa.signature.buffer)) {
-            sig->signature.mldsa.signature.size =
-                sizeof(sig->signature.mldsa.signature.buffer);
+        sig->signature.mldsa.size = wireSize;
+        if (sig->signature.mldsa.size >
+                sizeof(sig->signature.mldsa.buffer)) {
+            sig->signature.mldsa.size =
+                sizeof(sig->signature.mldsa.buffer);
         }
-        TPM2_Packet_ParseBytes(packet, sig->signature.mldsa.signature.buffer,
-            sig->signature.mldsa.signature.size);
+        TPM2_Packet_ParseBytes(packet, sig->signature.mldsa.buffer,
+            sig->signature.mldsa.size);
         /* Skip remaining bytes to keep packet position synchronized */
-        if (wireSize > sig->signature.mldsa.signature.size) {
+        if (wireSize > sig->signature.mldsa.size) {
             TPM2_Packet_ParseBytes(packet, NULL,
-                wireSize - sig->signature.mldsa.signature.size);
+                wireSize - sig->signature.mldsa.size);
+        }
+        break;
+    case TPM_ALG_HASH_MLDSA:
+        /* HashML-DSA: hash alg + TPM2B signature. */
+        TPM2_Packet_ParseU16(packet, &sig->signature.hash_mldsa.hash);
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        sig->signature.hash_mldsa.signature.size = wireSize;
+        if (sig->signature.hash_mldsa.signature.size >
+                sizeof(sig->signature.hash_mldsa.signature.buffer)) {
+            sig->signature.hash_mldsa.signature.size =
+                sizeof(sig->signature.hash_mldsa.signature.buffer);
+        }
+        TPM2_Packet_ParseBytes(packet,
+            sig->signature.hash_mldsa.signature.buffer,
+            sig->signature.hash_mldsa.signature.size);
+        if (wireSize > sig->signature.hash_mldsa.signature.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - sig->signature.hash_mldsa.signature.size);
         }
         break;
 #endif /* WOLFTPM_V185 */

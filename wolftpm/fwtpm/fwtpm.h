@@ -92,7 +92,14 @@
 
 /* Limits */
 #ifndef FWTPM_MAX_COMMAND_SIZE
-#define FWTPM_MAX_COMMAND_SIZE 4096
+    /* ML-DSA-87 signature alone is 4627 bytes; v185 PQC responses can exceed
+     * the classical 4096-byte ceiling. Lift conditionally so non-PQC builds
+     * retain the smaller footprint. */
+    #ifdef WOLFTPM_V185
+        #define FWTPM_MAX_COMMAND_SIZE 8192
+    #else
+        #define FWTPM_MAX_COMMAND_SIZE 4096
+    #endif
 #endif
 
 /* Maximum random bytes per GetRandom call */
@@ -153,10 +160,26 @@
 #define FWTPM_MAX_DATA_BUF     1024  /* HMAC, hash sequences, general data */
 #endif
 #ifndef FWTPM_MAX_PUB_BUF
-#define FWTPM_MAX_PUB_BUF      512   /* Public area, signature, seed, OAEP */
+    /* ML-DSA-87 public key is 2592 bytes; lift conditionally. */
+    #ifdef WOLFTPM_V185
+        #define FWTPM_MAX_PUB_BUF  2720  /* MLDSA-87 pub + slack */
+    #else
+        #define FWTPM_MAX_PUB_BUF  512   /* Public area, signature, seed, OAEP */
+    #endif
 #endif
 #ifndef FWTPM_MAX_DER_SIG_BUF
-#define FWTPM_MAX_DER_SIG_BUF  256   /* DER signature, ECC primes/points */
+    /* ML-DSA-87 signature is 4627 bytes; lift conditionally. */
+    #ifdef WOLFTPM_V185
+        #define FWTPM_MAX_DER_SIG_BUF  4736  /* MLDSA-87 sig + slack */
+    #else
+        #define FWTPM_MAX_DER_SIG_BUF  256   /* DER signature, ECC primes/points */
+    #endif
+#endif
+#ifdef WOLFTPM_V185
+/* KEM ciphertext buffer: MLKEM-1024 ciphertext is 1568 bytes. */
+#ifndef FWTPM_MAX_KEM_CT_BUF
+#define FWTPM_MAX_KEM_CT_BUF   1600
+#endif
 #endif
 #ifndef FWTPM_MAX_ATTEST_BUF
 #define FWTPM_MAX_ATTEST_BUF   1024  /* Attestation info marshaling */

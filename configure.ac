@@ -676,7 +676,7 @@ then
 fi
 
 AC_ARG_ENABLE([v185],
-    [AS_HELP_STRING([--enable-v185],[Enable TPM 2.0 v185 Post-Quantum Cryptography (PQC) support (default: disabled)])],
+    [AS_HELP_STRING([--enable-v185],[Enable TPM 2.0 v1.85 Library Spec features: ML-DSA / ML-KEM post-quantum, sign/verify sequence and digest commands, new RCs and capability properties (default: disabled)])],
     [ ENABLED_V185=$enableval ],
     [ ENABLED_V185=no ]
     )

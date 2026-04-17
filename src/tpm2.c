@@ -3235,6 +3235,11 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* TPM2_VerifySignature produces a TPM_ST_VERIFIED ticket whose
+             * metadata is TPMS_EMPTY (zero bytes on wire). */
+            out->validation.metaAlg = TPM_ALG_NULL;
+#endif
             TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
                 out->validation.digest.buffer,
                 (UINT16)sizeof(out->validation.digest.buffer));
@@ -3320,6 +3325,10 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
+        /* v185 rc4 Part 3 §17.6.3 Table 89 parameter order: auth, context. */
+        TPM2_Packet_AppendU16(&packet, in->auth.size);
+        TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
+
         TPM2_Packet_AppendU16(&packet, in->context.size);
         TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
 
@@ -3362,6 +3371,13 @@ TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* v185 rc4 Part 3 §17.6.2 Table 87 parameter order: auth, hint, context. */
+        TPM2_Packet_AppendU16(&packet, in->auth.size);
+        TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
+
+        TPM2_Packet_AppendU16(&packet, in->hint.size);
+        TPM2_Packet_AppendBytes(&packet, in->hint.buffer, in->hint.size);
 
         TPM2_Packet_AppendU16(&packet, in->context.size);
         TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
@@ -3468,6 +3484,11 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* TPM2_VerifySequenceComplete produces a TPM_ST_MESSAGE_VERIFIED
+             * ticket whose metadata is TPMS_EMPTY (zero bytes on wire). */
+            out->validation.metaAlg = TPM_ALG_NULL;
+#endif
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
             if (out->validation.digest.size >
                     sizeof(out->validation.digest.buffer)) {
@@ -3505,11 +3526,19 @@ TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out)
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
+        /* v185 rc4 Part 3 §20.7.2 Table 126 parameter order:
+         * context, digest, validation. */
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
         TPM2_Packet_AppendU16(&packet, in->digest.size);
         TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
 
-        TPM2_Packet_AppendU16(&packet, in->context.size);
-        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+        TPM2_Packet_AppendU16(&packet, in->validation.tag);
+        TPM2_Packet_AppendU32(&packet, in->validation.hierarchy);
+        TPM2_Packet_AppendU16(&packet, in->validation.digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->validation.digest.buffer,
+            in->validation.digest.size);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SignDigest);
 
@@ -3550,13 +3579,15 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
+        /* v185 rc4 Part 3 §20.4.2 Table 120 parameter order:
+         * context, digest, signature. */
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
         TPM2_Packet_AppendU16(&packet, in->digest.size);
         TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
 
         TPM2_Packet_AppendSignature(&packet, &in->signature);
-
-        TPM2_Packet_AppendU16(&packet, in->context.size);
-        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifyDigestSignature);
 
@@ -3571,6 +3602,18 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* v185 rc4 Part 2 §10.6.4 Table 110 — TPMU_TK_VERIFIED_META.
+             * TPM2_VerifyDigestSignature produces TPM_ST_DIGEST_VERIFIED whose
+             * metadata carries a TPM_ALG_ID (the hash/XOF used). Other tag
+             * values carry TPMS_EMPTY metadata (zero bytes on wire). */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
+#endif
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
             if (out->validation.digest.size >
                     sizeof(out->validation.digest.buffer)) {

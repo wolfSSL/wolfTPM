@@ -5371,12 +5371,27 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
             }
         }
 #ifdef WOLFTPM_V185
-        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_MLDSA ||
-                 signSeqCompleteOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
-            /* ML-DSA signature is a variable-length buffer */
-            int sigOutSz = signSeqCompleteOut.signature.signature.mldsa.signature.size;
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA: bare TPM2B, no hash field. */
+            int sigOutSz = signSeqCompleteOut.signature.signature.mldsa.size;
             if (*sigSz >= sigOutSz) {
-                XMEMCPY(sig, signSeqCompleteOut.signature.signature.mldsa.signature.buffer, sigOutSz);
+                XMEMCPY(sig,
+                    signSeqCompleteOut.signature.signature.mldsa.buffer,
+                    sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
+            /* HashML-DSA: hash + TPM2B signature. */
+            int sigOutSz =
+                signSeqCompleteOut.signature.signature.hash_mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signSeqCompleteOut.signature.signature.hash_mldsa.signature.buffer,
+                    sigOutSz);
                 *sigSz = sigOutSz;
             }
             else {
@@ -5515,16 +5530,26 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-    else if (key->pub.publicArea.type == TPM_ALG_MLDSA ||
-             key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
-        /* ML-DSA signature - key type directly indicates algorithm */
-        signature.sigAlg = key->pub.publicArea.type;
-        signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-        if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        /* Pure ML-DSA: bare TPM2B signature, no hash. */
+        signature.sigAlg = TPM_ALG_MLDSA;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.buffer)) {
             return BUFFER_E;
         }
-        signature.signature.mldsa.signature.size = (UINT16)sigSz;
-        XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        signature.signature.mldsa.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* HashML-DSA: hash alg (from key parms) + TPM2B signature. */
+        signature.sigAlg = TPM_ALG_HASH_MLDSA;
+        signature.signature.hash_mldsa.hash =
+            key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;
+        if (sigSz >
+                (int)sizeof(signature.signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
     }
 #endif /* WOLFTPM_V185 */
     else {
@@ -5606,12 +5631,26 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
             }
         }
 #ifdef WOLFTPM_V185
-        else if (signDigestOut.signature.sigAlg == TPM_ALG_MLDSA ||
-                 signDigestOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
-            /* ML-DSA signature is a variable-length buffer */
-            int sigOutSz = signDigestOut.signature.signature.mldsa.signature.size;
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA: bare TPM2B, no hash field. */
+            int sigOutSz = signDigestOut.signature.signature.mldsa.size;
             if (*sigSz >= sigOutSz) {
-                XMEMCPY(sig, signDigestOut.signature.signature.mldsa.signature.buffer, sigOutSz);
+                XMEMCPY(sig,
+                    signDigestOut.signature.signature.mldsa.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
+            /* HashML-DSA: hash + TPM2B signature. */
+            int sigOutSz =
+                signDigestOut.signature.signature.hash_mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signDigestOut.signature.signature.hash_mldsa.signature.buffer,
+                    sigOutSz);
                 *sigSz = sigOutSz;
             }
             else {
@@ -5693,16 +5732,26 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
 #ifdef WOLFTPM_V185
-    else if (key->pub.publicArea.type == TPM_ALG_MLDSA ||
-             key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
-        /* ML-DSA signature - key type directly indicates algorithm */
-        signature.sigAlg = key->pub.publicArea.type;
-        signature.signature.mldsa.hash = TPM_ALG_SHA3_256;
-        if (sigSz > (int)sizeof(signature.signature.mldsa.signature.buffer)) {
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        /* Pure ML-DSA: bare TPM2B signature, no hash. */
+        signature.sigAlg = TPM_ALG_MLDSA;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.buffer)) {
             return BUFFER_E;
         }
-        signature.signature.mldsa.signature.size = (UINT16)sigSz;
-        XMEMCPY(signature.signature.mldsa.signature.buffer, sig, sigSz);
+        signature.signature.mldsa.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* HashML-DSA: hash alg (from key parms) + TPM2B signature. */
+        signature.sigAlg = TPM_ALG_HASH_MLDSA;
+        signature.signature.hash_mldsa.hash =
+            key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;
+        if (sigSz >
+                (int)sizeof(signature.signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
     }
 #endif /* WOLFTPM_V185 */
     else {
