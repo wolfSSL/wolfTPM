@@ -2778,6 +2778,53 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
 }
 #endif /* HAVE_ECC */
 
+static void test_wolfTPM2_NVStoreKey_BoundaryChecks(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* Owner hierarchy: handle below PERSISTENT_FIRST must fail */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &key,
+        PERSISTENT_FIRST - 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Owner hierarchy: handle above PERSISTENT_LAST must fail */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &key,
+        PERSISTENT_LAST + 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Owner hierarchy: PERSISTENT_FIRST must NOT fail with BAD_FUNC_ARG */
+    key.handle.hndl = 0; /* ensure not already persistent */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &key,
+        PERSISTENT_FIRST);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    /* Owner hierarchy: PERSISTENT_LAST must NOT fail with BAD_FUNC_ARG */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_OWNER, &key,
+        PERSISTENT_LAST);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    /* Platform hierarchy: handle below PLATFORM_PERSISTENT must fail */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_PLATFORM, &key,
+        PLATFORM_PERSISTENT - 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Platform hierarchy: PLATFORM_PERSISTENT must NOT fail with BAD_FUNC_ARG */
+    rc = wolfTPM2_NVStoreKey(&dev, TPM_RH_PLATFORM, &key,
+        PLATFORM_PERSISTENT);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tNVStoreKey boundary checks:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2844,6 +2891,7 @@ int unit_tests(int argc, char *argv[])
     #ifdef HAVE_ECC
     test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
     #endif
+    test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
