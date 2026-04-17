@@ -141,6 +141,15 @@ jobs:
                       LDFLAGS="-L${{ steps.wolfssl.outputs.prefix }}/lib"
           make -j"$(nproc)"
 
+      - name: Reset TPM before detect (shared GPIO 4 reset line)
+        if: steps.health.outcome == 'success'
+        run: |
+          # Mirror spdm_test.sh gpio_reset(): both vendors share this reset line.
+          # Without this, caps sees a chip left in SPDM-locked state or stale TIS
+          # from a prior run and returns all-zero vendor/device IDs.
+          gpioset gpiochip0 4=0 2>/dev/null && sleep 0.1 && gpioset gpiochip0 4=1 2>/dev/null || true
+          sleep 2
+
       - name: Detect ${{ matrix.vendor }} TPM on SPI CS ${{ matrix.spi_cs }}
         id: detect
         if: steps.health.outcome == 'success'
@@ -175,7 +184,7 @@ jobs:
           done
 
       - name: Post-job cleanup
-        if: always() && steps.health.outcome == 'success' && steps.detect.outputs.present == 'true'
+        if: always() && steps.health.outcome == 'success'
         env:
           LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
         run: |
@@ -184,6 +193,7 @@ jobs:
           sleep 1
           gpioset gpiochip0 4=0 2>/dev/null && sleep 0.1 && gpioset gpiochip0 4=1 2>/dev/null || true
           sleep 2
+          # unlock/flush only meaningful if the chip was detected; ignore errors otherwise
           ./examples/spdm/spdm_ctrl --connect --unlock 2>/dev/null || true
           ./examples/management/flush 2>/dev/null || true
           echo "[cleanup] done"
