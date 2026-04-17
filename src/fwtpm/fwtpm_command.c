@@ -9013,6 +9013,9 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 cpHashSz = 0;
     byte cpHashBuf[TPM_MAX_DIGEST_SIZE];
+    int sizeMismatch;
+    int cpDiff;
+    word32 cmpSz;
     (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
@@ -9033,11 +9036,15 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashSz);
 
-        /* If cpHashA already set, must be identical */
+        /* If cpHashA already set, must be identical — always run
+         * TPM2_ConstantCompare so timing doesn't leak size match */
         if (sess->cpHashA.size > 0) {
-            if (sess->cpHashA.size != cpHashSz ||
-                TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
-                    cpHashSz) != 0) {
+            sizeMismatch = (sess->cpHashA.size != cpHashSz);
+            cmpSz = (sess->cpHashA.size < cpHashSz) ?
+                sess->cpHashA.size : cpHashSz;
+            cpDiff = TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
+                cmpSz);
+            if (sizeMismatch | cpDiff) {
                 rc = TPM_RC_CPHASH;
             }
         }
