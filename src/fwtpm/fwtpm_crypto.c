@@ -1781,6 +1781,8 @@ TPM_RC FwImportVerifyAndDecrypt(
     FWTPM_DECLARE_VAR(hmacObj, Hmac);
     byte zeroIV[AES_BLOCK_SIZE];
     enum wc_HashType wcHmacType;
+    int sizeMismatch;
+    int hmacDiff;
 
     FWTPM_ALLOC_VAR(aesObj, Aes);
     FWTPM_ALLOC_VAR(hmacObj, Hmac);
@@ -1833,8 +1835,10 @@ TPM_RC FwImportVerifyAndDecrypt(
         }
     }
     if (rc == 0) {
-        if (integritySize != (UINT16)digestSz ||
-            TPM2_ConstantCompare(integrity, hmacCalc, (word32)digestSz) != 0) {
+        /* Always run TPM2_ConstantCompare so timing doesn't leak size match */
+        sizeMismatch = (integritySize != (UINT16)digestSz);
+        hmacDiff = TPM2_ConstantCompare(integrity, hmacCalc, (word32)digestSz);
+        if (sizeMismatch | hmacDiff) {
             rc = TPM_RC_INTEGRITY;
         }
     }
