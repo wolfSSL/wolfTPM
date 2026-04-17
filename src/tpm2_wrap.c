@@ -3401,7 +3401,10 @@ int wolfTPM2_ImportRsaPrivateKeySeed(WOLFTPM2_DEV* dev,
            ((attributes & TPMA_OBJECT_decrypt) &&
             (attributes & TPMA_OBJECT_restricted))) {
         pub.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
-        pub.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+        /* Scale AES key size to match RSA key strength (matches
+         * GetKeyTemplateRSA pattern) */
+        pub.publicArea.parameters.rsaDetail.symmetric.keyBits.aes =
+            (rsaPubSz * 8 > 2048) ? 256 : 128;
         pub.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
     }
     else {
