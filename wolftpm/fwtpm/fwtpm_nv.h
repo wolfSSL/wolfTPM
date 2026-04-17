@@ -47,8 +47,14 @@
 #define FWTPM_NV_MAX_SIZE  (128 * 1024)
 #endif
 
-/* NV marshal size estimates (conservative upper bounds) */
-#define FWTPM_NV_PUBAREA_EST   600   /* TPMT_PUBLIC max marshaled size */
+/* NV marshal size estimates (conservative upper bounds).
+ * PUBAREA_EST must cover TPMT_PUBLIC including the largest unique arm.
+ * Under v1.85 ML-DSA-87 public keys are 2592 bytes; lift conditionally. */
+#ifdef WOLFTPM_V185
+#define FWTPM_NV_PUBAREA_EST  2720   /* MLDSA-87 pub + TPMT_PUBLIC header */
+#else
+#define FWTPM_NV_PUBAREA_EST   600   /* Classical TPMT_PUBLIC max */
+#endif
 #define FWTPM_NV_NAME_EST       66   /* 2 (alg) + 64 (SHA-512 digest) */
 #define FWTPM_NV_AUTH_EST       68   /* 2 (size) + 2 (alg) + 64 (digest) */
 
