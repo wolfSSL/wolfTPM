@@ -233,9 +233,11 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             }
 
         #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
-            rc =  TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
-            rc |= TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
-            rc |= TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
+            rc = TPM2_GetName(ctx, handleValue1, info->inHandleCnt, 0, &name1);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue2, info->inHandleCnt, 1, &name2);
+            if (rc == TPM_RC_SUCCESS)
+                rc = TPM2_GetName(ctx, handleValue3, info->inHandleCnt, 2, &name3);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error getting names for cpHash!\n");
@@ -275,18 +277,17 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Update the Auth Area total size in the command packet */
     i = TPM2_Packet_PlaceU32(packet, authTotalSzPos);
 
-#ifdef DEBUG_WOLFTPM
     if ((int)authSz != i) {
         /* actual auth size did not match estimated size from
          * TPM2_Packet_AppendAuth */
+    #ifdef DEBUG_WOLFTPM
         printf("Error: Calculated auth size %d did not match actual %d!\n",
             authSz, i);
+    #endif
         return BUFFER_E;
     }
-#endif
 
     (void)cmdCode;
-    (void)i;
 
     return rc;
 }
@@ -1956,9 +1957,8 @@ TPM_RC TPM2_Duplicate(Duplicate_In* in, Duplicate_Out* out)
         TPM2_Packet_AppendBytes(&packet, in->encryptionKeyIn.buffer,
             in->encryptionKeyIn.size);
 
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.algorithm);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.keyBits.sym);
-        TPM2_Packet_AppendU16(&packet, in->symmetricAlg.mode.sym);
+        TPM2_Packet_AppendSymmetric(&packet,
+            (TPMT_SYM_DEF*)&in->symmetricAlg);
 
         TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Duplicate);
 

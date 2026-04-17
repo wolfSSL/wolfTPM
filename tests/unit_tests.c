@@ -1624,23 +1624,31 @@ static void test_TPM2_ParamEncDec_Dispatch_Roundtrip(void)
     XMEMCPY(data, original, sizeof(original));
 
     /* Test 1: Command direction — CmdRequest enc, TPM-side dec recovers.
-     * Simulate TPM decryption with standalone dec using command-direction
-     * nonce order: KDFa(nonceCaller, nonceTPM) */
+     * Simulate TPM decryption with raw AES-CFB using command-direction
+     * nonce order: KDFa(nonceCaller, nonceTPM). doEncrypt=0 */
     rc = TPM2_ParamEnc_CmdRequest(&session, data, sizeof(data));
     AssertIntEQ(TPM_RC_SUCCESS, rc);
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 
-    rc = TPM2_ParamDec_AESCFB(&session, &session.auth, NULL,
-        &session.nonceTPM, &session.nonceCaller, data, sizeof(data));
+    rc = TPM2_ParamEnc_AESCFB(session.authHash,
+        session.symmetric.keyBits.aes,
+        session.auth.buffer, session.auth.size,
+        session.nonceCaller.buffer, session.nonceCaller.size,
+        session.nonceTPM.buffer, session.nonceTPM.size,
+        data, sizeof(data), 0);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
     AssertIntEQ(0, XMEMCMP(data, original, sizeof(original)));
 
     /* Test 2: Response direction — TPM-side enc, CmdResponse dec recovers.
      * Simulate TPM encrypting a response with response-direction nonce order:
-     * KDFa(nonceTPM, nonceCaller) */
+     * KDFa(nonceTPM, nonceCaller). doEncrypt=1 */
     XMEMCPY(data, original, sizeof(original));
-    rc = TPM2_ParamEnc_AESCFB(&session, &session.auth, NULL,
-        &session.nonceTPM, &session.nonceCaller, data, sizeof(data));
+    rc = TPM2_ParamEnc_AESCFB(session.authHash,
+        session.symmetric.keyBits.aes,
+        session.auth.buffer, session.auth.size,
+        session.nonceTPM.buffer, session.nonceTPM.size,
+        session.nonceCaller.buffer, session.nonceCaller.size,
+        data, sizeof(data), 1);
     AssertIntEQ(TPM_RC_SUCCESS, rc);
     AssertIntNE(0, XMEMCMP(data, original, sizeof(original)));
 

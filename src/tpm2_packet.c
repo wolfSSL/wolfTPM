@@ -646,21 +646,23 @@ void TPM2_Packet_ParseSymmetric(TPM2_Packet* packet, TPMT_SYM_DEF* symmetric)
 void TPM2_Packet_AppendEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL) {
+    if (scheme->scheme == TPM_ALG_ECDAA) {
+        TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.hashAlg);
+        TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.count);
+    }
+    else if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_AppendU16(packet, scheme->details.any.hashAlg);
-        if (scheme->scheme == TPM_ALG_ECDAA) {
-            TPM2_Packet_AppendU16(packet, scheme->details.ecdaa.count);
-        }
     }
 }
 void TPM2_Packet_ParseEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL) {
+    if (scheme->scheme == TPM_ALG_ECDAA) {
+        TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.hashAlg);
+        TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.count);
+    }
+    else if (scheme->scheme != TPM_ALG_NULL) {
         TPM2_Packet_ParseU16(packet, &scheme->details.any.hashAlg);
-        if (scheme->scheme == TPM_ALG_ECDAA) {
-            TPM2_Packet_ParseU16(packet, &scheme->details.ecdaa.count);
-        }
     }
 }
 
