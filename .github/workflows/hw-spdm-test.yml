@@ -1,0 +1,199 @@
+name: Hardware SPDM Test
+
+# Runs examples/spdm/spdm_test.sh on the self-hosted Pi with a real TPM.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/spdm/**'
+      - 'wolftpm/spdm/**'
+      - 'examples/spdm/**'
+      - 'src/tpm2_wrap.c'
+      - 'src/tpm2_spdm.c'
+      - 'src/tpm2.c'
+      - 'hal/tpm_io_linux.c'
+      - 'configure.ac'
+      - '.github/workflows/hw-spdm-test.yml'
+      - 'scripts/hw-runner-health-check.sh'
+      - 'tests/unit_tests.c'
+  pull_request_target:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/spdm/**'
+      - 'wolftpm/spdm/**'
+      - 'examples/spdm/**'
+      - 'src/tpm2_wrap.c'
+      - 'src/tpm2_spdm.c'
+      - 'src/tpm2.c'
+      - 'hal/tpm_io_linux.c'
+      - 'configure.ac'
+      - '.github/workflows/hw-spdm-test.yml'
+      - 'scripts/hw-runner-health-check.sh'
+      - 'tests/unit_tests.c'
+
+permissions: read-all
+
+# Serialize runs; hardware state is shared.
+concurrency:
+  group: hw-spdm-runner
+  cancel-in-progress: false
+
+jobs:
+  hw-spdm:
+    if: >
+      github.event_name != 'pull_request_target' ||
+      contains(fromJSON('["OWNER","MEMBER"]'),
+               github.event.pull_request.author_association)
+    runs-on: [self-hosted, Linux, ARM64, wolftpm-spdm]
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - vendor: nuvoton
+            expected_vendor: "NPCT75x"
+            wolftpm_config: "--enable-spdm --enable-nuvoton --enable-debug"
+            spi_cs: "0"
+            modes: "nuvoton"
+          - vendor: nations
+            expected_vendor: "NS350"
+            wolftpm_config: "--enable-spdm --enable-nations --enable-debug"
+            spi_cs: "1"
+            modes: "nations nations-psk"
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df  # v2.18.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout wolfTPM
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Hardware health check
+        id: health
+        continue-on-error: true
+        run: bash scripts/hw-runner-health-check.sh "${{ matrix.spi_cs }}"
+
+      - name: Warn if health check failed
+        if: steps.health.outcome == 'failure'
+        run: echo "::warning::Runner hardware check failed on ${{ runner.name }}. Skipping hardware tests."
+
+      - name: Clean workspace (preserve wolfssl cache dir)
+        if: steps.health.outcome == 'success'
+        run: git clean -xdf
+
+      - name: Resolve wolfSSL SHA and choose prefix
+        id: wolfssl
+        if: steps.health.outcome == 'success'
+        run: |
+          MAX_CACHE_AGE_SECS=86400
+          SHA=$(curl -sf https://api.github.com/repos/wolfssl/wolfssl/commits/master | jq -r .sha)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          HIT=false
+          if [ "${{ github.event_name }}" = "push" ]; then
+              PREFIX="$HOME/wolfssl-install"
+              if [ -f "$PREFIX/.sha" ] && [ "$(cat "$PREFIX/.sha")" = "$SHA" ]; then
+                  AGE=$(( $(date +%s) - $(stat -c %Y "$PREFIX/.sha") ))
+                  [ "$AGE" -lt "$MAX_CACHE_AGE_SECS" ] && HIT=true
+              fi
+          else
+              PREFIX="$RUNNER_TEMP/wolfssl-install"
+              mkdir -p "$PREFIX"
+          fi
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "hit=$HIT" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout wolfSSL
+        if: steps.health.outcome == 'success' && steps.wolfssl.outputs.hit != 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+          ref: ${{ steps.wolfssl.outputs.sha }}
+          persist-credentials: false
+
+      - name: Build & install wolfSSL (user prefix, no sudo)
+        if: steps.health.outcome == 'success' && steps.wolfssl.outputs.hit != 'true'
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --prefix=${{ steps.wolfssl.outputs.prefix }} \
+                      --enable-wolftpm --enable-ecc --enable-sha384 \
+                      --enable-aesgcm --enable-hkdf --enable-sp
+          make -j"$(nproc)"
+          make install
+          echo '${{ steps.wolfssl.outputs.sha }}' > '${{ steps.wolfssl.outputs.prefix }}/.sha'
+
+      - name: Build wolfTPM (${{ matrix.vendor }})
+        if: steps.health.outcome == 'success'
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }} \
+                      CPPFLAGS='-DTPM2_SPI_DEV_CS="${{ matrix.spi_cs }}"' \
+                      CFLAGS="-I${{ steps.wolfssl.outputs.prefix }}/include" \
+                      LDFLAGS="-L${{ steps.wolfssl.outputs.prefix }}/lib"
+          make -j"$(nproc)"
+
+      - name: Detect ${{ matrix.vendor }} TPM on SPI CS ${{ matrix.spi_cs }}
+        id: detect
+        if: steps.health.outcome == 'success'
+        env:
+          LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
+        run: |
+          EXPECTED='${{ matrix.expected_vendor }}'
+          # caps may hang or error if no chip is at this CS; time-bound it.
+          OUT=$(timeout 15 ./examples/wrap/caps 2>&1 || true)
+          echo "$OUT"
+          if echo "$OUT" | grep -q "Vendor ${EXPECTED}"; then
+              echo "present=true" >> "$GITHUB_OUTPUT"
+              echo "[detect] ${EXPECTED} TPM found on CS ${{ matrix.spi_cs }}"
+          else
+              echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Warn if ${{ matrix.vendor }} TPM not present
+        if: steps.health.outcome == 'success' && steps.detect.outputs.present == 'false'
+        run: echo "::warning::${{ matrix.expected_vendor }} not detected on SPI CS ${{ matrix.spi_cs }}. Skipping ${{ matrix.vendor }} SPDM tests — wire the chip and re-run, or ignore if this vendor isn't installed on this runner."
+
+      - name: Run SPDM hardware tests (${{ matrix.vendor }})
+        if: steps.health.outcome == 'success' && steps.detect.outputs.present == 'true'
+        env:
+          LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
+        run: |
+          set -e
+          for mode in ${{ matrix.modes }}; do
+            echo "=== spdm_test.sh mode=$mode ==="
+            ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl "$mode" \
+              2>&1 | tee "spdm-${{ matrix.vendor }}-${mode}.log"
+          done
+
+      - name: Post-job cleanup
+        if: always() && steps.health.outcome == 'success' && steps.detect.outputs.present == 'true'
+        env:
+          LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
+        run: |
+          pgrep -u "$(id -u)" -a | grep -vE '(Runner\.Listener|Runner\.Worker|actions-runner)' || true
+          pkill -u "$(id -u)" -f 'spdm_ctrl|unit\.test|caps$' 2>/dev/null || true
+          sleep 1
+          gpioset gpiochip0 4=0 2>/dev/null && sleep 0.1 && gpioset gpiochip0 4=1 2>/dev/null || true
+          sleep 2
+          ./examples/spdm/spdm_ctrl --connect --unlock 2>/dev/null || true
+          ./examples/management/flush 2>/dev/null || true
+          echo "[cleanup] done"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: hw-spdm-logs-${{ matrix.vendor }}
+          path: |
+            *.log
+            config.log
+          retention-days: 14

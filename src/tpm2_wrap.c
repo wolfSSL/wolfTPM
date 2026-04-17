@@ -292,7 +292,16 @@ int wolfTPM2_Init(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
             return rc;
         }
 
+        /* Vendor-specific connect handles SetTisIO, SetMode, and auto-generates
+         * a host ephemeral key pair for mutual authentication (MutAuth=1).
+         * Plain wolfTPM2_SpdmConnect() skips that setup and FINISH fails. */
+    #if defined(WOLFSPDM_NUVOTON)
+        rc = wolfTPM2_SpdmConnectNuvoton(dev, NULL, 0, NULL, 0);
+    #elif defined(WOLFSPDM_NATIONS)
+        rc = wolfTPM2_SpdmConnectNations(dev, NULL, 0, NULL, 0);
+    #else
         rc = wolfTPM2_SpdmConnect(dev);
+    #endif
         if (rc != 0) {
         #ifdef DEBUG_WOLFTPM
             printf("SPDM auto-connect failed: %d\n", rc);

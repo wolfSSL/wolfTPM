@@ -252,10 +252,15 @@ int wolfTPM2_SPDM_SecuredExchange(
                 vdMsg, (word32)vdMsgSz, vdRsp, &vdRspSz);
         }
 
-        /* Parse VENDOR_DEFINED_RESPONSE to extract TPM response */
+        /* Parse VENDOR_DEFINED_RESPONSE to extract TPM response.
+         * ParseVendorDefined returns payload dataLen (>= 0) on success,
+         * negative WOLFSPDM_E_* on failure. */
         if (rc == 0) {
             rc = wolfSPDM_ParseVendorDefined(vdRsp, vdRspSz,
                 rspVdCode, rspPlain, rspSz);
+            if (rc >= 0) {
+                rc = 0; /* success - convert dataLen to success indicator */
+            }
         }
 
         /* Verify response is for our TPM2_CMD request */
