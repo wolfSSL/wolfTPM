@@ -2866,6 +2866,8 @@ TPM_RC FwCredentialUnwrap(
     const byte* encIdentity;
     int encIdentitySz;
     byte iv[AES_BLOCK_SIZE];
+    int sizeMismatch;
+    int hmacDiff;
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_NV_DATA + 2);
@@ -2910,9 +2912,11 @@ TPM_RC FwCredentialUnwrap(
         }
     }
     if (rc == 0) {
-        if (integrityHmacSz != TPM_SHA256_DIGEST_SIZE ||
-            TPM2_ConstantCompare(computedHmac, integrityHmac,
-                TPM_SHA256_DIGEST_SIZE) != 0) {
+        /* Always run TPM2_ConstantCompare so timing doesn't leak size match */
+        sizeMismatch = (integrityHmacSz != TPM_SHA256_DIGEST_SIZE);
+        hmacDiff = TPM2_ConstantCompare(computedHmac, integrityHmac,
+            TPM_SHA256_DIGEST_SIZE);
+        if (sizeMismatch | hmacDiff) {
             rc = TPM_RC_INTEGRITY;
         }
     }
