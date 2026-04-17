@@ -13072,6 +13072,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             const byte* authVal = NULL;
             int authValSz = 0;
             TPM_HANDLE entityH;
+            int sizeMismatch;
+            int hmacDiff;
+            word32 cmpSz;
 
             /* Compute cpHash = H(commandCode || handleNames || cpBuffer) */
             if (FwComputeCpHash(hSess->authHash, cmdCode,
@@ -13120,9 +13123,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 0, /* isResponse=0 for command HMAC */
                 expectedHmac, &expectedSz);
 
-            if (cmdAuths[hj].cmdHmacSize != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
-                    expectedHmac, (word32)expectedSz) != 0) {
+            /* Always run TPM2_ConstantCompare so timing doesn't leak size */
+            sizeMismatch = (cmdAuths[hj].cmdHmacSize != (UINT16)expectedSz);
+            cmpSz = (cmdAuths[hj].cmdHmacSize < (UINT16)expectedSz) ?
+                cmdAuths[hj].cmdHmacSize : (word32)expectedSz;
+            hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
+                expectedHmac, cmpSz);
+            if (sizeMismatch | hmacDiff) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: HMAC session auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
