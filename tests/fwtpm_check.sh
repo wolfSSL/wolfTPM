@@ -30,12 +30,13 @@ SKIP_EXAMPLES=0
 
 # Wait for a TCP port to be listening
 # Uses ss/netstat to check without connecting (nc -z would consume the accept slot)
+# Port separator in netstat output is ':' on Linux and '.' on macOS.
 wait_for_port() {
     local port="$1" timeout="${2:-500}" elapsed=0
     while [ $elapsed -lt $timeout ]; do
         if command -v ss >/dev/null 2>&1; then
-            ss -tln 2>/dev/null | grep -q ":${port} " && return 0
-        elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
+            ss -tln 2>/dev/null | grep -qE "[:.]${port} " && return 0
+        elif netstat -an 2>/dev/null | grep -qE "[:.]${port} .*LISTEN"; then
             return 0
         fi
         sleep 0.01
@@ -52,10 +53,10 @@ check_port_in_use() {
         nc -z localhost "$port" 2>/dev/null
         return $?
     elif command -v ss >/dev/null 2>&1; then
-        ss -tln 2>/dev/null | grep -q ":${port} "
+        ss -tln 2>/dev/null | grep -qE "[:.]${port} "
         return $?
     elif command -v netstat >/dev/null 2>&1; then
-        netstat -tln 2>/dev/null | grep -q ":${port} "
+        netstat -an 2>/dev/null | grep -qE "[:.]${port} .*LISTEN"
         return $?
     fi
     return 2  # no probe tool — cannot determine
@@ -299,10 +300,14 @@ if [ $IS_FWTPM_MODE -eq 1 ]; then
         done
 
         if [ $HAS_GETENV -eq 1 ] && [ $IS_SWTPM_MODE -eq 1 ]; then
-            FWTPM_PORT=$(pick_available_port)
-            if [ -z "$FWTPM_PORT" ]; then
-                echo "FAIL: Could not find available port"
-                exit 1
+            if [ "${FWTPM_USE_FIXED_PORT:-0}" != "1" ]; then
+                FWTPM_PORT=$(pick_available_port)
+                if [ -z "$FWTPM_PORT" ]; then
+                    echo "FAIL: Could not find available port"
+                    exit 1
+                fi
+            else
+                echo "Using fixed port $FWTPM_PORT (namespace isolation)"
             fi
             FWTPM_PLAT_PORT=$((FWTPM_PORT + 1))
             export TPM2_SWTPM_PORT="$FWTPM_PORT"

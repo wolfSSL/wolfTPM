@@ -11,37 +11,42 @@ jobs:
   # make check — unit tests + examples against fwtpm_server
   # ----------------------------------------------------------------
   fwtpm-examples:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           # fwTPM with socket/swtpm transport
           - name: fwtpm-socket
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm --enable-debug
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
           # fwTPM with TIS/shared-memory transport
           - name: fwtpm-tis
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-debug
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
             build_only: true
 
           # Build-only: fwTPM with ECC disabled
           - name: fwtpm-no-ecc
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-ecc
             build_only: true
 
           # Build-only: fwTPM with SHA-384 disabled
           - name: fwtpm-no-sha384
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha384
             build_only: true
@@ -49,6 +54,7 @@ jobs:
           # Build-only: fwTPM with SHA-1 disabled (verifies !NO_SHA gating
           # for SHA-1 PCR bank and RSA hash conversion)
           - name: fwtpm-no-sha1
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha
             build_only: true
@@ -56,12 +62,14 @@ jobs:
 
           # Build-only: fwTPM server only (no client library)
           - name: fwtpm-only
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm-only --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
 
           # Build-only: fwTPM with attestation and NV disabled
           - name: fwtpm-minimal
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
@@ -69,36 +77,42 @@ jobs:
 
           # Build-only: individual FWTPM_NO_* macro tests
           - name: fwtpm-no-policy
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             extra_cflags: -DFWTPM_NO_POLICY
 
           - name: fwtpm-no-nv
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             extra_cflags: -DFWTPM_NO_NV
 
           - name: fwtpm-no-attestation
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             extra_cflags: -DFWTPM_NO_ATTESTATION
 
           - name: fwtpm-no-credential
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             extra_cflags: -DFWTPM_NO_CREDENTIAL
 
           - name: fwtpm-no-da
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             extra_cflags: -DFWTPM_NO_DA
 
           - name: fwtpm-no-param-enc
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
@@ -106,12 +120,14 @@ jobs:
 
           # Build-only: cross-algorithm + feature macro combinations
           - name: fwtpm-no-rsa-no-policy
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
             build_only: true
             extra_cflags: -DFWTPM_NO_POLICY
 
           - name: fwtpm-no-ecc-no-nv
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-ecc
             build_only: true
@@ -119,6 +135,7 @@ jobs:
 
           # Build-only: WOLFTPM_SMALL_STACK (heap-allocated crypto objects)
           - name: fwtpm-small-stack
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
@@ -126,6 +143,7 @@ jobs:
 
           # Build-only: pedantic warnings with -Werror (GCC)
           - name: fwtpm-pedantic-gcc
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
@@ -133,6 +151,7 @@ jobs:
 
           # Build-only: pedantic warnings with -Werror (clang)
           - name: fwtpm-pedantic-clang
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm --enable-swtpm
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
@@ -141,12 +160,20 @@ jobs:
 
           # Build-only: pedantic fwTPM-only (no client library)
           - name: fwtpm-pedantic-only
+            os: ubuntu-latest
             wolftpm_config: --enable-fwtpm-only
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: true
             make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
 
           # Note: ASan / UBSan / LeakSan coverage moved to sanitizer.yml
+
+          # macOS: fwTPM with socket transport
+          - name: fwtpm-macos-socket
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-debug
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+            os: macos-latest
 
     steps:
       - name: Checkout wolfTPM
@@ -159,10 +186,22 @@ jobs:
           path: wolfssl
 
       - name: Install tpm2-tools
-        if: ${{ !matrix.build_only }}
+        if: ${{ !matrix.build_only && runner.os != 'macOS' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+
+      - name: macOS build deps (skip tpm2-tools)
+        if: ${{ !matrix.build_only && runner.os == 'macOS' }}
+        run: |
+          # wolfSSL's autogen.sh needs autoreconf (autoconf+automake+libtool),
+          # which aren't on the macos-latest runner image by default.
+          # tpm2-tss / tpm2-tools are no longer in homebrew-core and their
+          # source build hits multiple Linux-isms (prctl.h, mremap, endian.h,
+          # uchar.h, -Wl,-z,relro). fwtpm_check.sh treats tpm2-tools as
+          # optional and will SKIP the tpm2_tools_test.sh stage when absent.
+          brew install autoconf automake libtool pkg-config
+          echo "tpm2-tools install skipped on macOS; fwtpm_check.sh handles absence"
 
       - name: Build wolfSSL
         working-directory: ./wolfssl
@@ -182,7 +221,9 @@ jobs:
           CC=${{ matrix.cc || 'gcc' }} eval ./configure $CONFIGURE_ARGS
           make
           sudo make install
-          sudo ldconfig
+          if command -v ldconfig >/dev/null 2>&1; then
+            sudo ldconfig
+          fi
 
       - name: Build wolfTPM
         run: |
@@ -208,7 +249,17 @@ jobs:
         if: ${{ !matrix.build_only }}
         env:
           WOLFSSL_PATH: ./wolfssl
-        run: make check
+        run: |
+          if command -v unshare >/dev/null 2>&1; then
+            FWTPM_USE_FIXED_PORT=1 \
+            sudo -E unshare --net /bin/bash -c '
+              set -e
+              ip link set lo up
+              make check
+            '
+          else
+            make check
+          fi
 
       - name: Print test-suite.log on failure
         if: ${{ failure() && !matrix.build_only }}
@@ -404,27 +455,23 @@ jobs:
               CFLAGS="${{ matrix.extra_cflags }} -g -O1"
           make
 
-      - name: Start fwtpm_server
-        run: |
-          rm -f fwtpm_nv.bin
-          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
-          echo $! > /tmp/fwtpm_server.pid
-          sleep 1
-          kill -0 $(cat /tmp/fwtpm_server.pid)
-
       - name: Run unit.test under valgrind
         run: |
-          valgrind --error-exitcode=1 --leak-check=full \
-                   --errors-for-leak-kinds=definite \
-                   --show-leak-kinds=definite \
-                   ./tests/unit.test
-
-      - name: Stop fwtpm_server
-        if: always()
-        run: |
-          if [ -f /tmp/fwtpm_server.pid ]; then
-            kill $(cat /tmp/fwtpm_server.pid) 2>/dev/null || true
-          fi
+          sudo -E unshare --net /bin/bash -c '
+            ip link set lo up
+            rm -f fwtpm_nv.bin
+            ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+            SERVER_PID=$!
+            sleep 1
+            kill -0 $SERVER_PID
+            valgrind --error-exitcode=1 --leak-check=full \
+                     --errors-for-leak-kinds=definite \
+                     --show-leak-kinds=definite \
+                     ./tests/unit.test
+            RC=$?
+            kill $SERVER_PID 2>/dev/null || true
+            exit $RC
+          '
 
       - name: Upload failure logs
         if: failure()

@@ -424,11 +424,16 @@ typedef struct FWTPM_IO_HAL_S {
 } FWTPM_IO_HAL;
 
 /* IO context for socket transport (default) */
+#ifdef _WIN32
+    #define FWTPM_INVALID_FD INVALID_SOCKET
+#else
+    #define FWTPM_INVALID_FD (-1)
+#endif
 typedef struct FWTPM_IO_CTX {
-    int listenFd;       /* Listening socket for command port */
-    int platListenFd;   /* Listening socket for platform port */
-    int clientFd;       /* Accepted client connection */
-    int platClientFd;   /* Accepted platform client connection */
+    SOCKET_T listenFd;       /* Listening socket for command port */
+    SOCKET_T platListenFd;   /* Listening socket for platform port */
+    SOCKET_T clientFd;       /* Accepted client connection */
+    SOCKET_T platClientFd;   /* Accepted platform client connection */
 } FWTPM_IO_CTX;
 #endif /* !WOLFTPM_FWTPM_TIS */
 
