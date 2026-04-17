@@ -400,13 +400,18 @@ typedef struct FWTPM_SignSeq {
     int isVerifySeq;                /* 0 = sign, 1 = verify */
     TPM_HANDLE keyHandle;           /* Key used at SequenceStart */
     TPM_ALG_ID sigScheme;           /* TPM_ALG_MLDSA / TPM_ALG_HASH_MLDSA */
+    TPMI_ALG_HASH hashAlg;          /* Hash alg for Hash-ML-DSA sequences */
     TPM2B_AUTH authValue;
     TPM2B_SIGNATURE_CTX context;
     int oneShot;                    /* SequenceUpdate not permitted if set */
-    /* Accumulator for verify sequences (Pure ML-DSA). Filled by
-     * TPM2_SequenceUpdate calls; consumed by TPM2_VerifySequenceComplete. */
+    /* Accumulator for Pure ML-DSA sequences (raw message bytes). */
     byte   msgBuf[FWTPM_MAX_DATA_BUF];
     UINT32 msgBufSz;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Hash accumulator for Hash-ML-DSA sequences (sign or verify). */
+    wc_HashAlg hashCtx;
+    int hashCtxInit;                /* 1 when hashCtx is live */
+#endif
 } FWTPM_SignSeq;
 
 #ifndef FWTPM_MAX_SIGN_SEQ
