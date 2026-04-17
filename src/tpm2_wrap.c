@@ -1147,25 +1147,39 @@ int wolfTPM2_SpdmSetNuvotonMode(WOLFTPM2_DEV* dev)
 int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev)
 {
     int rc;
+    TPM2_AUTH_SESSION saveSess;
     if (dev == NULL || dev->spdmCtx == NULL) {
         return BAD_FUNC_ARG;
     }
-    /* NTC2_PreConfig requires platform auth (empty password) */
+    /* Save session[0] — NTC2_PreConfig requires platform auth which
+     * overwrites any existing HMAC/parameter-encryption session. */
+    XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
     rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
-    if (rc != 0) return rc;
-    return wolfTPM2_SPDM_Enable(dev->spdmCtx);
+    if (rc == 0) {
+        rc = wolfTPM2_SPDM_Enable(dev->spdmCtx);
+    }
+    /* Restore previous session[0] state */
+    XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    return rc;
 }
 
 int wolfTPM2_SpdmDisable(WOLFTPM2_DEV* dev)
 {
     int rc;
+    TPM2_AUTH_SESSION saveSess;
     if (dev == NULL || dev->spdmCtx == NULL) {
         return BAD_FUNC_ARG;
     }
-    /* NTC2_PreConfig requires platform auth (empty password) */
+    /* Save session[0] — NTC2_PreConfig requires platform auth which
+     * overwrites any existing HMAC/parameter-encryption session. */
+    XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
     rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
-    if (rc != 0) return rc;
-    return wolfTPM2_SPDM_Disable(dev->spdmCtx);
+    if (rc == 0) {
+        rc = wolfTPM2_SPDM_Disable(dev->spdmCtx);
+    }
+    /* Restore previous session[0] state */
+    XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    return rc;
 }
 
 int wolfTPM2_SpdmGetStatus(WOLFTPM2_DEV* dev, WOLFSPDM_NUVOTON_STATUS* status)
@@ -1540,6 +1554,7 @@ int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set)
 {
     int rc;
     Nations_IdentityKeySet_In in;
+    TPM2_AUTH_SESSION saveSess;
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
@@ -1548,23 +1563,31 @@ int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set)
     /* Mutual exclusion: TPM enforces this by returning TPM_RC_VALUE if PSK
      * is provisioned. The error message helps users understand the failure. */
 
+    /* Save session[0] — platform auth setup overwrites any existing
+     * HMAC/parameter-encryption session. */
+    XMEMCPY(&saveSess, &dev->session[0], sizeof(saveSess));
+
     /* Set platform auth (empty password) with no continueSession.
      * NS350 requires sessionAttributes=0x00, not 0x01 (continueSession). */
     rc = wolfTPM2_SetAuthPassword(dev, 0, NULL);
-    if (rc != 0) return rc;
-    dev->session[0].sessionAttributes = 0;
+    if (rc == 0) {
+        dev->session[0].sessionAttributes = 0;
 
-    XMEMSET(&in, 0, sizeof(in));
-    in.authHandle = TPM_RH_PLATFORM;
-    in.configuration = set ? 1 : 0;
+        XMEMSET(&in, 0, sizeof(in));
+        in.authHandle = TPM_RH_PLATFORM;
+        in.configuration = set ? 1 : 0;
 
-    rc = TPM2_Nations_IdentityKeySet(&in);
-    if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Nations IdentityKeySet(%d) failed: 0x%x: %s\n",
-            set, rc, TPM2_GetRCString(rc));
-    #endif
+        rc = TPM2_Nations_IdentityKeySet(&in);
+        if (rc != TPM_RC_SUCCESS) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Nations IdentityKeySet(%d) failed: 0x%x: %s\n",
+                set, rc, TPM2_GetRCString(rc));
+        #endif
+        }
     }
+
+    /* Restore previous session[0] state */
+    XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
 
     return rc;
 }

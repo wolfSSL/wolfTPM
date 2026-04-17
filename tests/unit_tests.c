@@ -2395,6 +2395,33 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     rc = wolfTPM2_SpdmSetOnlyMode(NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test 3b: SpdmEnable/Disable must preserve session[0] */
+    rc = wolfTPM2_SpdmInit(&dev);
+    if (rc == 0) {
+        TPM2_AUTH_SESSION origSess;
+        /* Set up a distinguishable session[0] state */
+        dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
+        dev.session[0].sessionAttributes = 0x27;
+        dev.session[0].auth.size = 4;
+        XMEMCPY(dev.session[0].auth.buffer, "\x01\x02\x03\x04", 4);
+        XMEMCPY(&origSess, &dev.session[0], sizeof(origSess));
+
+        /* SpdmEnable may fail (no Nuvoton HW) but must restore session[0] */
+        (void)wolfTPM2_SpdmEnable(&dev);
+        AssertIntEQ(dev.session[0].sessionHandle, origSess.sessionHandle);
+        AssertIntEQ(dev.session[0].sessionAttributes, origSess.sessionAttributes);
+        AssertIntEQ(dev.session[0].auth.size, origSess.auth.size);
+
+        /* Restore and test SpdmDisable */
+        XMEMCPY(&dev.session[0], &origSess, sizeof(origSess));
+        (void)wolfTPM2_SpdmDisable(&dev);
+        AssertIntEQ(dev.session[0].sessionHandle, origSess.sessionHandle);
+        AssertIntEQ(dev.session[0].sessionAttributes, origSess.sessionAttributes);
+        AssertIntEQ(dev.session[0].auth.size, origSess.auth.size);
+
+        wolfTPM2_SpdmCleanup(&dev);
+    }
 #endif /* WOLFSPDM_NUVOTON */
 
 #ifdef WOLFSPDM_NATIONS
@@ -2417,6 +2444,22 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
     rc = wolfTPM2_SpdmNationsPskClear(NULL, NULL, 0);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* Test 4b: SpdmNationsIdentityKeySet must preserve session[0] */
+    {
+        TPM2_AUTH_SESSION origSess;
+        dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
+        dev.session[0].sessionAttributes = 0x27;
+        dev.session[0].auth.size = 4;
+        XMEMCPY(dev.session[0].auth.buffer, "\x01\x02\x03\x04", 4);
+        XMEMCPY(&origSess, &dev.session[0], sizeof(origSess));
+
+        /* May fail (no Nations HW) but must restore session[0] */
+        (void)wolfTPM2_SpdmNationsIdentityKeySet(&dev, 1);
+        AssertIntEQ(dev.session[0].sessionHandle, origSess.sessionHandle);
+        AssertIntEQ(dev.session[0].sessionAttributes, origSess.sessionAttributes);
+        AssertIntEQ(dev.session[0].auth.size, origSess.auth.size);
+    }
 #endif /* WOLFSPDM_NATIONS */
 
     wolfTPM2_Cleanup(&dev);
