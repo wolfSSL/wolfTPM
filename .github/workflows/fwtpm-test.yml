@@ -210,6 +210,19 @@ jobs:
           WOLFSSL_PATH: ./wolfssl
         run: make check
 
+      - name: Print test-suite.log on failure
+        if: ${{ failure() && !matrix.build_only }}
+        run: |
+          if [ -f test-suite.log ]; then
+            echo "=== test-suite.log ==="
+            cat test-suite.log
+          fi
+          for f in tests/*.log; do
+            [ -f "$f" ] || continue
+            echo "=== $f ==="
+            cat "$f"
+          done
+
       - name: Upload failure logs
         if: ${{ failure() && !matrix.build_only }}
         uses: actions/upload-artifact@v4
@@ -217,6 +230,8 @@ jobs:
           name: fwtpm-logs-${{ matrix.name }}
           path: |
             /tmp/fwtpm_check_*.log
+            test-suite.log
+            tests/*.log
           retention-days: 5
 
   # ----------------------------------------------------------------

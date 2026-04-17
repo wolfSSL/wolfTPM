@@ -429,9 +429,11 @@ elif [ -x "$TPM2_TOOLS_SCRIPT" ]; then
             sleep 0.3
         fi
         rm -f "$BUILD_DIR/fwtpm_nv.bin"
+        echo "--- fwtpm_server restart for tpm2-tools ---" \
+            >> /tmp/fwtpm_check_$$.log
         "$FWTPM_SERVER" --port "$FWTPM_PORT" \
             --platform-port "$FWTPM_PLAT_PORT" \
-            > /tmp/fwtpm_check_$$.log 2>&1 &
+            >> /tmp/fwtpm_check_$$.log 2>&1 &
         echo $! > "$PID_FILE"
         if ! wait_for_port "$FWTPM_PORT" 500; then
             echo "FAIL: fwtpm_server restart failed before tpm2-tools tests"

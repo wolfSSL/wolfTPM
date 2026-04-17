@@ -108,7 +108,7 @@ int main(int argc, char* argv[])
     /* Delete NV state file if --clear was requested */
     if (clearNv) {
         printf("Clearing NV state file: %s\n", FWTPM_NV_FILE);
-        remove(FWTPM_NV_FILE);
+        (void)remove(FWTPM_NV_FILE);
     }
 
     /* Initialize fwTPM */

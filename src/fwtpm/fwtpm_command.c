@@ -3587,7 +3587,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
                 if (rc == 0 && sensDataSize > 0) {
                     /* Use caller-supplied key material */
-                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
@@ -4090,7 +4090,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
             qSz > 0) {
         /* For SYMCIPHER, qBuf contains the raw AES key bytes */
-        if (qSz > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
+        if (qSz > (UINT16)FWTPM_MAX_DER_SIG_BUF) {
             rc = TPM_RC_SIZE;
         }
         if (rc == 0) {
@@ -5459,7 +5459,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
@@ -5496,7 +5496,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
 
                 if (rc == 0 && sensDataSize > 0) {
-                    if (sensDataSize > (UINT16)FWTPM_MAX_PRIVKEY_DER) {
+                    if (sensDataSize > (UINT16)FWTPM_MAX_DATA_BUF) {
                         rc = TPM_RC_SIZE;
                     }
                     if (rc == 0) {
@@ -7339,7 +7339,10 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     XMEMCPY(&bindAuth, &bindObj->authValue, sizeof(TPM2B_AUTH));
                 }
             }
-            if (bindAuth.size > 0) {
+            if (bindAuth.size > sizeof(bindAuth.buffer)) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0 && bindAuth.size > 0) {
                 if (keyInSz + bindAuth.size <= (int)sizeof(keyIn)) {
                     XMEMCPY(keyIn + keyInSz, bindAuth.buffer, bindAuth.size);
                     keyInSz += bindAuth.size;
@@ -11108,31 +11111,46 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         wcH = FwGetWcHashType(pcrHashAlg);
         dSz = TPM2_GetHashDigestSize(pcrHashAlg);
         if (wcH != WC_HASH_TYPE_NONE && dSz > 0) {
-            wc_HashInit(hashCtx, wcH);
-            for (s = 0; s < numSel; s++) {
-                int bank = FwGetPcrBankIndex(selections[s].hashAlg);
-                int bankDSz = TPM2_GetHashDigestSize(
-                    selections[s].hashAlg);
-                UINT32 j;
-                if (bank < 0 || bankDSz == 0)
-                    continue;
-                for (j = 0; j < selections[s].sizeOfSelect; j++) {
-                    int pcr;
-                    for (pcr = 0; pcr < 8; pcr++) {
-                        if (selections[s].pcrSelect[j] & (1 << pcr)) {
-                            int pcrIdx = j * 8 + pcr;
-                            if (pcrIdx < IMPLEMENTATION_PCR) {
-                                wc_HashUpdate(hashCtx, wcH,
-                                    ctx->pcrDigest[pcrIdx][bank],
-                                    bankDSz);
+            if (wc_HashInit(hashCtx, wcH) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0) {
+                for (s = 0; s < numSel && rc == 0; s++) {
+                    int bank = FwGetPcrBankIndex(selections[s].hashAlg);
+                    int bankDSz = TPM2_GetHashDigestSize(
+                        selections[s].hashAlg);
+                    UINT32 j;
+                    if (bank < 0 || bankDSz == 0)
+                        continue;
+                    for (j = 0; j < selections[s].sizeOfSelect &&
+                            rc == 0; j++) {
+                        int pcr;
+                        for (pcr = 0; pcr < 8; pcr++) {
+                            if (selections[s].pcrSelect[j] & (1 << pcr)) {
+                                int pcrIdx = j * 8 + pcr;
+                                if (pcrIdx < IMPLEMENTATION_PCR) {
+                                    if (wc_HashUpdate(hashCtx, wcH,
+                                            ctx->pcrDigest[pcrIdx][bank],
+                                            bankDSz) != 0) {
+                                        rc = TPM_RC_FAILURE;
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                if (rc == 0) {
+                    if (wc_HashFinal(hashCtx, wcH,
+                            pcrDigestBuf) != 0) {
+                        rc = TPM_RC_FAILURE;
+                    }
+                    else {
+                        pcrDigestSz = dSz;
+                    }
+                }
+                wc_HashFree(hashCtx, wcH);
             }
-            wc_HashFinal(hashCtx, wcH, pcrDigestBuf);
-            wc_HashFree(hashCtx, wcH);
-            pcrDigestSz = dSz;
         }
         TPM2_Packet_AppendU16(&attestPkt, (UINT16)pcrDigestSz);
         TPM2_Packet_AppendBytes(&attestPkt, pcrDigestBuf, pcrDigestSz);
@@ -11547,8 +11565,13 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         dSz = TPM2_GetHashDigestSize(nv->nvPublic.nameAlg);
         if (wcH != WC_HASH_TYPE_NONE && dSz > 0) {
             FwStoreU16BE(nvName.name, nv->nvPublic.nameAlg);
-            wc_Hash(wcH, nvPubBuf, tmpPkt.pos, nvName.name + 2, dSz);
-            nvName.size = (UINT16)(2 + dSz);
+            if (wc_Hash(wcH, nvPubBuf, tmpPkt.pos,
+                    nvName.name + 2, dSz) == 0) {
+                nvName.size = (UINT16)(2 + dSz);
+            }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
         }
     }
 
@@ -11738,7 +11761,7 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* patch blob size */
         blobSz = rsp->pos - blobStart;
         if (blobSz < 0 || blobSz > 0xFFFF ||
-            encSeedSz < 0 || encSeedSz > 0xFFFF) {
+            encSeedSz < 0 || encSeedSz > (int)FWTPM_MAX_PUB_BUF) {
             rc = TPM_RC_SIZE;
         }
         if (rc == 0) {
@@ -11913,6 +11936,9 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             blobBuf, blobSz,
             objName->name, objName->size,
             credOut, (int)sizeof(credOut), &credSz);
+    }
+    if (rc == 0 && credSz > (UINT16)sizeof(credOut)) {
+        rc = TPM_RC_SIZE;
     }
 
     /* Build response: TPM2B_DIGEST */
@@ -12849,7 +12875,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     cmdAuthCnt++;
                 }
 
-                cmdPkt.pos = authEnd;
                 cpStart = authEnd; /* cpBuffer starts after auth area */
             }
         }

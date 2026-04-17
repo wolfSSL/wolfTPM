@@ -61,6 +61,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     int i;
+    int hexRet;
     byte digest[32];
     word32 digestLen = 0;
     union {
@@ -108,7 +109,13 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            digestLen = hexToByte(digestStr, digest, digestLen / 2);
+            hexRet = hexToByte(digestStr, digest, digestLen / 2);
+            if (hexRet < 0) {
+                printf("Invalid hex digest string\n");
+                usage();
+                return 0;
+            }
+            digestLen = (word32)hexRet;
         }
         else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */

@@ -2095,7 +2095,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     printf("fwTPM Unit Tests\n");
 
     /* Remove stale NV state to ensure clean test runs */
-    remove(FWTPM_NV_FILE);
+    (void)remove(FWTPM_NV_FILE);
 
     /* Lifecycle */
     test_fwtpm_init_cleanup();
@@ -2142,7 +2142,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
      * state, so remove FWTPM_NV_FILE afterwards. */
     test_fwtpm_clock_sethal();
     test_fwtpm_nv_sethal_mock();
-    remove(FWTPM_NV_FILE);
+    (void)remove(FWTPM_NV_FILE);
 
     /* Key operations */
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN)
