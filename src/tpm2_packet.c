@@ -1084,6 +1084,8 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
+    case TPM_ALG_ECSCHNORR:
+    case TPM_ALG_SM2:
         TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.hash);
 
         TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.signatureR.size);
@@ -1121,6 +1123,8 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
+    case TPM_ALG_ECSCHNORR:
+    case TPM_ALG_SM2:
         TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.hash);
 
         TPM2_Packet_ParseU16(packet, &wireSize);

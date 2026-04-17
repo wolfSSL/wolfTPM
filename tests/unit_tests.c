@@ -1886,6 +1886,64 @@ static void test_TPM2_KeyedHashScheme_XorSerialize(void)
     printf("Test TPM Wrapper:\tKeyedHashScheme XOR serialize:\tPassed\n");
 }
 
+static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIGNATURE sigIn, sigOut;
+    const byte rBuf[8] = {0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88};
+    const byte sBuf[8] = {0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff,0x00};
+
+    /* ECSCHNORR: sigAlg(2) + hashAlg(2) + rSz(2) + r(8) + sSz(2) + s(8) = 24 */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_ECSCHNORR;
+    sigIn.signature.ecdsa.hash = TPM_ALG_SHA256;
+    sigIn.signature.ecdsa.signatureR.size = sizeof(rBuf);
+    XMEMCPY(sigIn.signature.ecdsa.signatureR.buffer, rBuf, sizeof(rBuf));
+    sigIn.signature.ecdsa.signatureS.size = sizeof(sBuf);
+    XMEMCPY(sigIn.signature.ecdsa.signatureS.buffer, sBuf, sizeof(sBuf));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 24);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_ECSCHNORR);
+    AssertIntEQ(sigOut.signature.ecdsa.hash, TPM_ALG_SHA256);
+    AssertIntEQ(sigOut.signature.ecdsa.signatureR.size, sizeof(rBuf));
+    AssertIntEQ(XMEMCMP(sigOut.signature.ecdsa.signatureR.buffer,
+        rBuf, sizeof(rBuf)), 0);
+    AssertIntEQ(sigOut.signature.ecdsa.signatureS.size, sizeof(sBuf));
+    AssertIntEQ(XMEMCMP(sigOut.signature.ecdsa.signatureS.buffer,
+        sBuf, sizeof(sBuf)), 0);
+
+    /* SM2: same wire format */
+    sigIn.sigAlg = TPM_ALG_SM2;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 24);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_SM2);
+    AssertIntEQ(sigOut.signature.ecdsa.signatureR.size, sizeof(rBuf));
+    AssertIntEQ(sigOut.signature.ecdsa.signatureS.size, sizeof(sBuf));
+
+    printf("Test TPM Wrapper:\tSignature ECSCHNORR/SM2 serialize:\tPassed\n");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -3035,6 +3093,7 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_TPM2_SchemeSerialize();
     test_TPM2_KeyedHashScheme_XorSerialize();
+    test_TPM2_Signature_EcSchnorrSm2Serialize();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();
