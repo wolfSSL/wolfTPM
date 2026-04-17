@@ -831,6 +831,149 @@ TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
     FWTPM_FREE_VAR(mlkemKey);
     return rc;
 }
+
+/** \brief Perform ML-KEM encapsulation with a loaded public key.
+ *  Decodes the TPM's public-key bytes into an MlKemKey, runs FIPS 203
+ *  Encapsulate using the context RNG, and returns the 32-byte shared secret
+ *  plus the variable-length ciphertext. */
+TPM_RC FwEncapsulateMlkem(WC_RNG* rng,
+    TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLKEM* pubIn,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(mlkemKey, MlKemKey);
+    int type;
+    word32 ctSz = 0, ssSz = 0;
+    int wcRet;
+    int keyInit = 0;
+
+    FWTPM_ALLOC_VAR(mlkemKey, MlKemKey);
+
+    type = FwGetWcMlkemType(parameterSet);
+    if (type < 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_Init(mlkemKey, type, NULL, INVALID_DEVID);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_MlKemKey_DecodePublicKey(mlkemKey,
+            pubIn->buffer, pubIn->size);
+        if (wcRet != 0) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_CipherTextSize(mlkemKey, &ctSz);
+        if (wcRet == 0) {
+            wcRet = wc_MlKemKey_SharedSecretSize(mlkemKey, &ssSz);
+        }
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (ctSz > sizeof(ciphertextOut->buffer) ||
+                ssSz > sizeof(sharedSecretOut->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_Encapsulate(mlkemKey,
+            ciphertextOut->buffer, sharedSecretOut->buffer, rng);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            ciphertextOut->size = (UINT16)ctSz;
+            sharedSecretOut->size = (UINT16)ssSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_MlKemKey_Free(mlkemKey);
+    }
+    FWTPM_FREE_VAR(mlkemKey);
+    return rc;
+}
+
+/** \brief Perform ML-KEM decapsulation given the stored 64-byte seed and
+ *  an incoming ciphertext. Regenerates the keypair from the seed (no
+ *  expanded private key is persisted), then runs FIPS 203 Decapsulate.
+ *  Returns the 32-byte shared secret. */
+TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(mlkemKey, MlKemKey);
+    int type;
+    word32 expectedCtSz = 0, ssSz = 0;
+    int wcRet;
+    int keyInit = 0;
+
+    FWTPM_ALLOC_VAR(mlkemKey, MlKemKey);
+
+    type = FwGetWcMlkemType(parameterSet);
+    if (type < 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_Init(mlkemKey, type, NULL, INVALID_DEVID);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        /* Regenerate full keypair deterministically from stored seed. */
+        wcRet = wc_MlKemKey_MakeKeyWithRandom(mlkemKey, seedDZ,
+            MAX_MLKEM_PRIV_SEED_SIZE);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_CipherTextSize(mlkemKey, &expectedCtSz);
+        if (wcRet == 0) {
+            wcRet = wc_MlKemKey_SharedSecretSize(mlkemKey, &ssSz);
+        }
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0 && ctSize != (UINT16)expectedCtSz) {
+        rc = TPM_RC_SIZE;
+    }
+    if (rc == 0 && ssSz > sizeof(sharedSecretOut->buffer)) {
+        rc = TPM_RC_SIZE;
+    }
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_Decapsulate(mlkemKey,
+            sharedSecretOut->buffer, ctBuf, ctSize);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            sharedSecretOut->size = (UINT16)ssSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_MlKemKey_Free(mlkemKey);
+    }
+    FWTPM_FREE_VAR(mlkemKey);
+    return rc;
+}
 #endif /* WOLFTPM_V185 */
 
 #ifndef NO_RSA

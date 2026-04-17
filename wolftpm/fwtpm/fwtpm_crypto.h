@@ -159,6 +159,20 @@ TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
 TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
     const byte* seedDZ,
     TPM2B_PUBLIC_KEY_MLKEM* pubOut);
+
+/* v1.85 ML-KEM Encapsulate / Decapsulate (Part 3 §14.10, §14.11).
+ * Decapsulate regenerates the keypair from the 64-byte stored seed; no
+ * expanded private key is persisted. */
+TPM_RC FwEncapsulateMlkem(WC_RNG* rng,
+    TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLKEM* pubIn,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut);
+
+TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut);
 #endif /* WOLFTPM_V185 */
 
 /* --- Key wrapping --- */

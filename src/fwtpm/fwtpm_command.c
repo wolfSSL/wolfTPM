@@ -12723,18 +12723,141 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* v1.85 PQC Commands (stubs pending real handlers)                    */
 /* ================================================================== */
 
+/* --- TPM2_Encapsulate (CC 0x01A7) --- */
 static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    TPMI_MLKEM_PARAMETER_SET ps = TPM_MLKEM_NONE;
+    TPM2B_SHARED_SECRET sharedSecret;
+    FWTPM_DECLARE_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+    int paramSzPos, paramStart;
+
+    FWTPM_CALLOC_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+    XMEMSET(&sharedSecret, 0, sizeof(sharedSecret));
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    /* Phase 4 scope: MLKEM only. ECDH KEM path (v1.85 Table 100 ecdh arm)
+     * is not yet implemented; TPM_RC_KEY is the spec response for
+     * key-type-not-supported on this command. */
+    if (rc == 0) {
+        if (obj->pub.type != TPM_ALG_MLKEM) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0) {
+        ps = obj->pub.parameters.mlkemDetail.parameterSet;
+    }
+
+    if (rc == 0) {
+        rc = FwEncapsulateMlkem(&ctx->rng, ps, &obj->pub.unique.mlkem,
+            &sharedSecret, ciphertext);
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* sharedSecret (TPM2B_SHARED_SECRET) */
+        TPM2_Packet_AppendU16(rsp, sharedSecret.size);
+        TPM2_Packet_AppendBytes(rsp, sharedSecret.buffer, sharedSecret.size);
+
+        /* ciphertext (TPM2B_KEM_CIPHERTEXT) */
+        TPM2_Packet_AppendU16(rsp, ciphertext->size);
+        TPM2_Packet_AppendBytes(rsp, ciphertext->buffer, ciphertext->size);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    TPM2_ForceZero(&sharedSecret, sizeof(sharedSecret));
+    FWTPM_FREE_VAR(ciphertext);
+    return rc;
 }
 
+/* --- TPM2_Decapsulate (CC 0x01A8) --- */
 static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    TPMI_MLKEM_PARAMETER_SET ps = TPM_MLKEM_NONE;
+    TPM2B_SHARED_SECRET sharedSecret;
+    FWTPM_DECLARE_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+    int paramSzPos, paramStart;
+
+    FWTPM_CALLOC_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+    XMEMSET(&sharedSecret, 0, sizeof(sharedSecret));
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    if (rc == 0) {
+        if (obj->pub.type != TPM_ALG_MLKEM) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    /* Part 3 §14.11.1: keyHandle must have restricted CLEAR and decrypt SET. */
+    if (rc == 0) {
+        if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+            (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
+            rc = TPM_RC_ATTRIBUTES;
+        }
+    }
+    if (rc == 0) {
+        if (obj->privKeySize != MAX_MLKEM_PRIV_SEED_SIZE) {
+            rc = TPM_RC_KEY;
+        }
+    }
+
+    /* Skip auth area */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
+    /* Parse ciphertext (TPM2B_KEM_CIPHERTEXT) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &ciphertext->size);
+        if (ciphertext->size > sizeof(ciphertext->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, ciphertext->buffer, ciphertext->size);
+        ps = obj->pub.parameters.mlkemDetail.parameterSet;
+        rc = FwDecapsulateMlkem(ps, obj->privKey,
+            ciphertext->buffer, ciphertext->size, &sharedSecret);
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        TPM2_Packet_AppendU16(rsp, sharedSecret.size);
+        TPM2_Packet_AppendBytes(rsp, sharedSecret.buffer, sharedSecret.size);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    TPM2_ForceZero(&sharedSecret, sizeof(sharedSecret));
+    FWTPM_FREE_VAR(ciphertext);
+    return rc;
 }
 
 static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
