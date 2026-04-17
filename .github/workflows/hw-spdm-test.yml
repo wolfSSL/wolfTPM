@@ -35,33 +35,36 @@ on:
 
 permissions: read-all
 
-# Serialize runs; hardware state is shared.
-concurrency:
-  group: hw-spdm-runner
-  cancel-in-progress: false
-
 jobs:
   hw-spdm:
     if: >
       github.event_name != 'pull_request_target' ||
       contains(fromJSON('["OWNER","MEMBER"]'),
                github.event.pull_request.author_association)
-    runs-on: [self-hosted, Linux, ARM64, wolftpm-spdm]
+    runs-on: [self-hosted, Linux, ARM64, "${{ matrix.runner_label }}"]
     timeout-minutes: 25
+
+    # Serialize per-vendor only — nuvoton and nations now run on separate
+    # physical Pis, so they can execute in parallel. Group prefixed with
+    # github.workflow to avoid collisions with other workflows' concurrency
+    # groups (groups are repo-wide).
+    concurrency:
+      group: ${{ github.workflow }}-hw-spdm-runner-${{ matrix.vendor }}
+      cancel-in-progress: false
 
     strategy:
       fail-fast: false
       matrix:
         include:
           - vendor: nuvoton
-            expected_vendor: "NPCT75x"
+            runner_label: wolftpm-nuvoton
             wolftpm_config: "--enable-spdm --enable-nuvoton --enable-debug"
             spi_cs: "0"
             modes: "nuvoton"
           - vendor: nations
-            expected_vendor: "NS350"
+            runner_label: wolftpm-nations
             wolftpm_config: "--enable-spdm --enable-nations --enable-debug"
-            spi_cs: "1"
+            spi_cs: "0"
             modes: "nations nations-psk"
 
     steps:
@@ -141,41 +144,14 @@ jobs:
                       LDFLAGS="-L${{ steps.wolfssl.outputs.prefix }}/lib"
           make -j"$(nproc)"
 
-      - name: Reset TPM before detect (shared GPIO 4 reset line)
-        if: steps.health.outcome == 'success'
-        run: |
-          # Mirror spdm_test.sh gpio_reset(): both vendors share this reset line.
-          # Without this, caps sees a chip left in SPDM-locked state or stale TIS
-          # from a prior run and returns all-zero vendor/device IDs.
-          gpioset gpiochip0 4=0 2>/dev/null && sleep 0.1 && gpioset gpiochip0 4=1 2>/dev/null || true
-          sleep 2
-
-      - name: Detect ${{ matrix.vendor }} TPM on SPI CS ${{ matrix.spi_cs }}
-        id: detect
-        if: steps.health.outcome == 'success'
-        env:
-          LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
-        run: |
-          EXPECTED='${{ matrix.expected_vendor }}'
-          # caps may hang or error if no chip is at this CS; time-bound it.
-          OUT=$(timeout 15 ./examples/wrap/caps 2>&1 || true)
-          echo "$OUT"
-          if echo "$OUT" | grep -q "Vendor ${EXPECTED}"; then
-              echo "present=true" >> "$GITHUB_OUTPUT"
-              echo "[detect] ${EXPECTED} TPM found on CS ${{ matrix.spi_cs }}"
-          else
-              echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Warn if ${{ matrix.vendor }} TPM not present
-        if: steps.health.outcome == 'success' && steps.detect.outputs.present == 'false'
-        run: echo "::warning::${{ matrix.expected_vendor }} not detected on SPI CS ${{ matrix.spi_cs }}. Skipping ${{ matrix.vendor }} SPDM tests — wire the chip and re-run, or ignore if this vendor isn't installed on this runner."
-
       - name: Run SPDM hardware tests (${{ matrix.vendor }})
-        if: steps.health.outcome == 'success' && steps.detect.outputs.present == 'true'
+        if: steps.health.outcome == 'success'
         env:
           LD_LIBRARY_PATH: ${{ steps.wolfssl.outputs.prefix }}/lib
         run: |
+          # spdm_test.sh handles vendor-specific reset (gpio_reset for nuvoton,
+          # no-reset for nations) and SPDM-lock state internally. No pre-detect
+          # needed: each runner is dedicated to a single known chip.
           set -e
           for mode in ${{ matrix.modes }}; do
             echo "=== spdm_test.sh mode=$mode ==="
