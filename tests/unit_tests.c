@@ -2905,6 +2905,26 @@ static void test_wolfTPM2_UnloadHandle_PersistentGuard(void)
     printf("Test TPM Wrapper:\tUnloadHandle persistent guard:\tPassed\n");
 }
 
+static void test_TPM2_GetHashDigestSize_AllAlgs(void)
+{
+    /* Standard algorithms already supported */
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA1),   TPM_SHA_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA256), TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA384), TPM_SHA384_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA512), TPM_SHA512_DIGEST_SIZE);
+
+    /* SM3 and SHA3 must return correct non-zero digest sizes */
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SM3_256),  TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA3_256), TPM_SHA256_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA3_384), TPM_SHA384_DIGEST_SIZE);
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_SHA3_512), TPM_SHA512_DIGEST_SIZE);
+
+    /* Unknown algorithm must return 0 */
+    AssertIntEQ(TPM2_GetHashDigestSize(TPM_ALG_NULL), 0);
+
+    printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2974,6 +2994,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
+    test_TPM2_GetHashDigestSize_AllAlgs();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \

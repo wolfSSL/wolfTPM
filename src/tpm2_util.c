@@ -42,10 +42,14 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         case TPM_ALG_SHA1:
             return TPM_SHA_DIGEST_SIZE;
         case TPM_ALG_SHA256:
+        case TPM_ALG_SM3_256:
+        case TPM_ALG_SHA3_256:
             return TPM_SHA256_DIGEST_SIZE;
         case TPM_ALG_SHA384:
+        case TPM_ALG_SHA3_384:
             return TPM_SHA384_DIGEST_SIZE;
         case TPM_ALG_SHA512:
+        case TPM_ALG_SHA3_512:
             return TPM_SHA512_DIGEST_SIZE;
         default:
             break;
