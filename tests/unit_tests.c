@@ -2861,6 +2861,50 @@ static void test_wolfTPM2_NVDeleteKey_BoundaryChecks(void)
     printf("Test TPM Wrapper:\tNVDeleteKey boundary checks:\tPassed\n");
 }
 
+static void test_wolfTPM2_UnloadHandle_PersistentGuard(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&handle, 0, sizeof(handle));
+
+    /* Persistent handles must be skipped (return SUCCESS, no FlushContext) */
+    handle.hndl = PERSISTENT_FIRST;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    handle.hndl = PERSISTENT_LAST;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Null handle must be skipped */
+    handle.hndl = TPM_RH_NULL;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Zero handle must be skipped */
+    handle.hndl = 0;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Handle just outside persistent range: NOT skipped (attempts flush) */
+    handle.hndl = PERSISTENT_FIRST - 1;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    handle.hndl = PERSISTENT_LAST + 1;
+    rc = wolfTPM2_UnloadHandle(&dev, &handle);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tUnloadHandle persistent guard:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2929,6 +2973,7 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
+    test_wolfTPM2_UnloadHandle_PersistentGuard();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
