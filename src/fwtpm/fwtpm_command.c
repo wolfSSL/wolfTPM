@@ -9660,6 +9660,9 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     UINT32 cc = TPM_CC_PolicyAuthorizeNV;
     int hashInit = 0;
+    int nvSizeMismatch;
+    int sessSizeMismatch;
+    int policyDiff;
 
     (void)cmdSize;
 
@@ -9695,12 +9698,14 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HASH;
     }
 
-    /* For policy sessions (not trial): verify policyDigest == NV data */
+    /* For policy sessions (not trial): verify policyDigest == NV data.
+     * Always run TPM2_ConstantCompare so timing doesn't leak size match. */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
-        if ((int)nv->nvPublic.dataSize != dSz ||
-            (int)sess->policyDigest.size != dSz ||
-            TPM2_ConstantCompare(sess->policyDigest.buffer,
-                nv->data, (word32)dSz) != 0) {
+        nvSizeMismatch = ((int)nv->nvPublic.dataSize != dSz);
+        sessSizeMismatch = ((int)sess->policyDigest.size != dSz);
+        policyDiff = TPM2_ConstantCompare(sess->policyDigest.buffer,
+            nv->data, (word32)dSz);
+        if (nvSizeMismatch | sessSizeMismatch | policyDiff) {
             rc = TPM_RC_POLICY_FAIL;
         }
     }
