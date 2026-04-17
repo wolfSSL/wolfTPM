@@ -6724,6 +6724,9 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 dataSize = 0;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
     FWTPM_HashSeq* seq;
+#ifdef WOLFTPM_V185
+    FWTPM_SignSeq* signSeq = NULL;
+#endif
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
 
@@ -6737,18 +6740,19 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq = FwFindHashSeq(ctx, seqHandle);
 #ifdef WOLFTPM_V185
         if (seq == NULL) {
-            /* Not a hash sequence — check sign/verify sequence slots.
-             * Part 3 §17.5 and §20.6: Pure ML-DSA (and EdDSA) sequences
-             * are one-shot; SequenceUpdate rejects with
-             * TPM_RC_ONE_SHOT_SIGNATURE. */
-            FWTPM_SignSeq* signSeq = FwFindSignSeq(ctx, seqHandle);
-            if (signSeq != NULL) {
-                rc = signSeq->oneShot
-                    ? TPM_RC_ONE_SHOT_SIGNATURE
-                    : TPM_RC_SCHEME; /* Hash-MLDSA accumulation Phase 5b */
-            }
-            else {
+            /* Not a hash sequence — check sign/verify sequence slots. */
+            signSeq = FwFindSignSeq(ctx, seqHandle);
+            if (signSeq == NULL) {
                 rc = TPM_RC_HANDLE;
+            }
+            else if (signSeq->oneShot) {
+                /* Part 3 §17.5 / §20.6: Pure ML-DSA sign sequences are
+                 * one-shot — reject SequenceUpdate. */
+                rc = TPM_RC_ONE_SHOT_SIGNATURE;
+            }
+            else if (!signSeq->isVerifySeq) {
+                /* Hash-ML-DSA sign-sequence accumulation is Phase 5b+. */
+                rc = TPM_RC_SCHEME;
             }
         }
 #else
@@ -6776,15 +6780,32 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
 
+#ifdef WOLFTPM_V185
+        if (signSeq != NULL) {
+            /* Verify sequence (Pure ML-DSA): accumulate into msgBuf. */
+            if (signSeq->msgBufSz + dataSize > sizeof(signSeq->msgBuf)) {
+                rc = TPM_RC_MEMORY;
+            }
+            else {
+                XMEMCPY(signSeq->msgBuf + signSeq->msgBufSz,
+                    dataBuf, dataSize);
+                signSeq->msgBufSz += dataSize;
+            }
+        }
+        else
+#endif
         if (seq->isHmac) {
             rc = wc_HmacUpdate(&seq->ctx.hmac, dataBuf, dataSize);
+            if (rc != 0) {
+                rc = TPM_RC_FAILURE;
+            }
         }
         else {
             rc = wc_HashUpdate(&seq->ctx.hash, FwGetWcHashType(seq->hashAlg),
                 dataBuf, dataSize);
-        }
-        if (rc != 0) {
-            rc = TPM_RC_FAILURE;
+            if (rc != 0) {
+                rc = TPM_RC_FAILURE;
+            }
         }
     }
 
@@ -12978,7 +12999,10 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->isVerifySeq = 0;
         seq->keyHandle = keyHandle;
         seq->sigScheme = obj->pub.type;
-        /* Pure ML-DSA is one-shot; HashML-DSA allows SequenceUpdate. */
+        /* Per Part 3 §17.5 + §20.6 TPM_RC_ONE_SHOT_SIGNATURE applies only
+         * to sign sequences. For Pure ML-DSA the message is delivered via
+         * the buffer parameter of SignSequenceComplete so SequenceUpdate
+         * is rejected. Hash-ML-DSA sign sequences allow SequenceUpdate. */
         seq->oneShot = (obj->pub.type == TPM_ALG_MLDSA) ? 1 : 0;
     }
 
@@ -13062,7 +13086,10 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->isVerifySeq = 1;
         seq->keyHandle = keyHandle;
         seq->sigScheme = obj->pub.type;
-        seq->oneShot = (obj->pub.type == TPM_ALG_MLDSA) ? 1 : 0;
+        /* Verify sequences always accept SequenceUpdate — the message has
+         * to accumulate somewhere since VerifySequenceComplete carries no
+         * buffer parameter (Part 3 §20.3 Table 118). */
+        seq->oneShot = 0;
     }
 
     if (rc == 0) {
@@ -13180,9 +13207,6 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 sigAlg = 0, wireSize = 0;
     FWTPM_DECLARE_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
     int sigSz = 0;
-    TPMI_RH_HIERARCHY hierarchy;
-    byte hmacOut[TPM_MAX_DIGEST_SIZE];
-    int hmacSz = 0;
     int paramSzPos, paramStart;
 
     FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
@@ -13231,31 +13255,32 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sigSz = wireSize;
         TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
 
-        /* Pure ML-DSA verify: sequence holds no message buffer because
-         * SequenceUpdate is rejected one-shot. The verified "message" is
-         * whatever the caller subsequently supplies — but per Part 3 §20.3,
-         * Verify*Complete takes only the signature. Phase 5 scope note:
-         * Pure ML-DSA verify over a pre-accumulated message is deferred to
-         * Phase 5b; return TPM_RC_SCHEME until SequenceUpdate accumulation
-         * is wired up for hash-based verify sequences. */
-        rc = TPM_RC_SCHEME;
+        /* Verify accumulated message against the provided signature. */
+        rc = FwVerifyMldsaMessage(
+            keyObj->pub.parameters.mldsaDetail.parameterSet,
+            &keyObj->pub.unique.mldsa,
+            seq->context.buffer, seq->context.size,
+            seq->msgBuf, (int)seq->msgBufSz,
+            sigBuf, sigSz);
     }
 
     if (rc == 0) {
-        hierarchy = keyObj->pub.objectAttributes; /* placeholder */
-        (void)hierarchy; (void)hmacOut; (void)hmacSz;
-
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
-        /* Placeholder — not reached in Phase 5 due to TPM_RC_SCHEME above. */
-        TPM2_Packet_AppendU16(rsp, TPM_ST_MESSAGE_VERIFIED);
-        TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
-        TPM2_Packet_AppendU16(rsp, 0);
-        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
 
-        FwFreeSignSeq(seq);
+        /* TPMT_TK_VERIFIED with tag = TPM_ST_MESSAGE_VERIFIED and
+         * TPMS_EMPTY metadata. Ticket hmac binds (tag || message || keyName)
+         * per Part 2 §10.6.5. NULL hierarchy produces an empty-buffer hmac. */
+        rc = FwAppendTicket(ctx, rsp,
+            TPM_ST_MESSAGE_VERIFIED,
+            TPM_RH_NULL, /* keys loaded transiently use NULL hierarchy */
+            keyObj->pub.nameAlg,
+            seq->msgBuf, (int)seq->msgBufSz);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
-    else if (seq != NULL && rc != TPM_RC_HANDLE &&
-             rc != TPM_RC_SIGN_CONTEXT_KEY) {
+
+    if (seq != NULL && rc != TPM_RC_HANDLE &&
+        rc != TPM_RC_SIGN_CONTEXT_KEY) {
         FwFreeSignSeq(seq);
     }
 

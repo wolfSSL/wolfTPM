@@ -403,6 +403,10 @@ typedef struct FWTPM_SignSeq {
     TPM2B_AUTH authValue;
     TPM2B_SIGNATURE_CTX context;
     int oneShot;                    /* SequenceUpdate not permitted if set */
+    /* Accumulator for verify sequences (Pure ML-DSA). Filled by
+     * TPM2_SequenceUpdate calls; consumed by TPM2_VerifySequenceComplete. */
+    byte   msgBuf[FWTPM_MAX_DATA_BUF];
+    UINT32 msgBufSz;
 } FWTPM_SignSeq;
 
 #ifndef FWTPM_MAX_SIGN_SEQ
