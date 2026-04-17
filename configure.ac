@@ -176,12 +176,27 @@ fi
 AC_MSG_NOTICE([wolfCrypt path: ${wcpath}])
 
 
+# SPI transport — this is the default when no other bus is selected.
+# The flag itself is an intent signal (so hardware-builds can say
+# --enable-spi explicitly); no macro is needed since the SPI HAL is
+# compiled whenever WOLFTPM_I2C isn't set.
+AC_ARG_ENABLE([spi],
+    [AS_HELP_STRING([--enable-spi],[Intent signal for SPI hardware build. SPI is the default transport when --enable-i2c is not set; this flag adds no compile-time macro but disables the auto-enabled swTPM/fwTPM defaults. (default: not set)])],
+    [ ENABLED_SPI=$enableval ],
+    [ ENABLED_SPI=no ]
+    )
+
 # I2C Support
 AC_ARG_ENABLE([i2c],
     [AS_HELP_STRING([--enable-i2c],[Enable I2C TPM Support (default: disabled)])],
     [ ENABLED_I2C=$enableval ],
     [ ENABLED_I2C=no ]
     )
+
+if test "x$ENABLED_SPI" = "xyes" && test "x$ENABLED_I2C" = "xyes"
+then
+    AC_MSG_ERROR([Cannot enable both --enable-spi and --enable-i2c])
+fi
 
 if test "x$ENABLED_I2C" = "xyes"
 then
@@ -225,29 +240,43 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_LINUX_DEV"
 fi
 
-# Native host defaults — auto-enable fwTPM and swTPM on Linux/BSD x86_64 / aarch64
-# so `make check` provides full coverage out of the box. Users can still
-# explicitly disable with --disable-fwtpm / --disable-swtpm.
+# If the user explicitly picked any hardware path (vendor, bus, kernel
+# driver, autodetect), don't default-enable the software TPMs — the SPI HAL
+# in hal/tpm_io_linux.c is excluded when WOLFTPM_SWTPM is defined.
+WOLFTPM_HW_SELECTED=no
+for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
+             "$enable_microchip" "$enable_mchp" \
+             "$enable_nuvoton" "$enable_nations" \
+             "$enable_spi" "$enable_i2c" "$enable_mmio" \
+             "$enable_devtpm" "$enable_autodetect" \
+             "$enable_winapi" "$enable_wintbs"; do
+    if test -n "$_wt_v" && test "x$_wt_v" != "xno"; then
+        WOLFTPM_HW_SELECTED=yes
+    fi
+done
+
+# Auto-enable fwTPM + swTPM on Linux/BSD x86_64/aarch64 so `make check`
+# works out of the box — unless a hardware path was explicitly selected.
 WOLFTPM_DEFAULT_FWTPM=no
 WOLFTPM_DEFAULT_SWTPM=no
-case $host_cpu in
-    x86_64|amd64|aarch64)
-        # Defensive exclusion: fwtpm_server uses POSIX sockets and is not
-        # currently portable to Windows / Darwin. Auto-enable on Linux/BSD only.
-        case $host_os in
-            *mingw*|*cygwin*|*msys*|*darwin*|*win32*)
-                ;;
-            *)
-                WOLFTPM_DEFAULT_FWTPM=yes
-                WOLFTPM_DEFAULT_SWTPM=yes
-                ;;
-        esac
-        ;;
-esac
+if test "x$WOLFTPM_HW_SELECTED" = "xno"; then
+    case $host_cpu in
+        x86_64|amd64|aarch64)
+            case $host_os in
+                *mingw*|*cygwin*|*msys*|*darwin*|*win32*)
+                    ;;
+                *)
+                    WOLFTPM_DEFAULT_FWTPM=yes
+                    WOLFTPM_DEFAULT_SWTPM=yes
+                    ;;
+            esac
+            ;;
+    esac
+fi
 
 # SW TPM device Support
 AC_ARG_ENABLE([swtpm],
-    [AS_HELP_STRING([--enable-swtpm],[Enable use of TPM through the SW socket driver (default: enabled on Linux x86_64/aarch64, disabled elsewhere)])],
+    [AS_HELP_STRING([--enable-swtpm],[Enable use of TPM through the SW socket driver (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-autodetect is explicitly set)])],
     [ ENABLED_SWTPM=$enableval ],
     [ ENABLED_SWTPM=$WOLFTPM_DEFAULT_SWTPM ]
     )
@@ -299,7 +328,7 @@ AC_SUBST([DISTCHECK_SWTPM_PORT_FLAG])
 
 # Firmware TPM (fwTPM) - software TPM 2.0 simulator
 AC_ARG_ENABLE([fwtpm],
-    [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: enabled on Linux x86_64/aarch64, disabled elsewhere)])],
+    [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: enabled on Linux x86_64/aarch64, disabled elsewhere or when any --enable-<vendor>/--enable-spi/--enable-i2c/--enable-mmio/--enable-devtpm/--enable-autodetect is explicitly set)])],
     [ ENABLED_FWTPM=$enableval ],
     [ ENABLED_FWTPM=$WOLFTPM_DEFAULT_FWTPM ]
     )
@@ -472,6 +501,11 @@ then
     else
         if test "x$ENABLED_INFINEON" = "xslb9673"
         then
+            # slb9673 is I2C-only; reject combos that imply SPI.
+            if test "x$ENABLED_SPI" = "xyes"
+            then
+                AC_MSG_ERROR([--enable-infineon=slb9673 is I2C-only; use --enable-i2c --enable-advio (not --enable-spi)])
+            fi
             enable_i2c=yes
             AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SLB9673"
         else
@@ -787,6 +821,19 @@ echo "   * Wrappers:                  $ENABLED_WRAPPER"
 echo "   * Examples:                  $ENABLED_EXAMPLES"
 echo "   * wolfCrypt:                 $ENABLED_WOLFCRYPT"
 echo "   * Advanced IO:               $ENABLED_ADVIO"
+
+# SPI HAL is actually compiled when no other transport claims the bus.
+# Mirror the #if guards in hal/tpm_io_linux.c so the summary reflects
+# the real build state, matching how ENABLED_I2C is reported below.
+SPI_ACTUAL=yes
+if test "x$ENABLED_I2C" = "xyes"     || \
+   test "x$ENABLED_SWTPM" = "xyes"   || test "x$ENABLED_SWTPM" = "xuart" || \
+   test "x$ENABLED_DEVTPM" = "xyes"  || \
+   test "x$ENABLED_WINAPI" = "xyes"
+then
+    SPI_ACTUAL=no
+fi
+echo "   * SPI:                       $SPI_ACTUAL"
 echo "   * I2C:                       $ENABLED_I2C"
 echo "   * Linux kernel TPM device:   $ENABLED_DEVTPM"
 echo "   * SWTPM:                     $ENABLED_SWTPM"

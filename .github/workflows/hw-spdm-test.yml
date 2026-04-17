@@ -152,11 +152,14 @@ jobs:
           # spdm_test.sh handles vendor-specific reset (gpio_reset for nuvoton,
           # no-reset for nations) and SPDM-lock state internally. No pre-detect
           # needed: each runner is dedicated to a single known chip.
-          set -e
+          # pipefail so `spdm_test.sh | tee` propagates spdm_test.sh's non-zero
+          # exit — without it, tee always returns 0 and internal test failures
+          # silently pass CI.
+          set -eo pipefail
           for mode in ${{ matrix.modes }}; do
             echo "=== spdm_test.sh mode=$mode ==="
-            ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl "$mode" \
-              2>&1 | tee "spdm-${{ matrix.vendor }}-${mode}.log"
+            ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl "$mode" 2>&1 \
+              | tee "spdm-${{ matrix.vendor }}-${mode}.log"
           done
 
       - name: Post-job cleanup

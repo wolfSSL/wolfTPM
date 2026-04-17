@@ -207,7 +207,10 @@ make install
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT
 --enable-advio          Enable Advanced IO (default: disabled) - WOLFTPM_ADV_IO
+--enable-spi            Intent signal for SPI hardware build. SPI is the default transport when --enable-i2c is not set;
+                        this flag adds no compile-time macro but disables the auto-enabled swTPM/fwTPM defaults. (default: not set)
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
+--enable-mmio           Enable built-in MMIO callbacks (default: disabled) - WOLFTPM_MMIO
 --enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
 --enable-smallstack     Enable options to reduce stack usage
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
@@ -220,14 +223,21 @@ make install
 --enable-st             Enable ST ST33 Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
+--enable-nations        Enable Nations Technology NS350 Support (default: disabled) - WOLFTPM_NATIONS
 
 --enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
                         Note: With autodetect (default) this is no longer required on Linux;
                         the kernel driver is tried automatically before SPI.
---enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: disabled) - WOLFTPM_SWTPM
+--enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: enabled on Linux x86_64/aarch64,
+                        disabled elsewhere or when a hardware path is selected via any of
+                        --enable-spi/--enable-i2c/--enable-mmio/--enable-nuvoton/--enable-nations/
+                        --enable-infineon/--enable-st/--enable-microchip/--enable-devtpm/--enable-autodetect) - WOLFTPM_SWTPM
 --enable-swtpm=uart     Enable using SWTPM protocol over UART serial. For use with fwTPM on
                         embedded targets (e.g. STM32H5). Uses termios serial I/O instead of
                         TCP sockets. - WOLFTPM_SWTPM + WOLFTPM_SWTPM_UART
+--enable-fwtpm          Enable firmware TPM (fwTPM) server. Same default behavior as --enable-swtpm
+                        (auto-enabled on Linux x86_64/aarch64, auto-disabled when a hardware
+                        path is selected). - WOLFTPM_FWTPM_SERVER
 --enable-winapi         Use Windows TBS API. (default: disabled) - WOLFTPM_WINAPI
 
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
