@@ -1024,6 +1024,9 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
         break;
     }
 }
+/* Serializes pub into packet and writes the encoded size back to pub->size
+ * as a side effect. Callers (TPM2_AppendPublic, wolfTPM2_GetKeyBlobAsBuffer)
+ * rely on this side effect to determine the serialized public-area size. */
 void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
     int tmpSz = 0;
