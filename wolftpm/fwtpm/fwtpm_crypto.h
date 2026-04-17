@@ -173,6 +173,35 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     const byte* seedDZ,
     const byte* ctBuf, UINT16 ctSize,
     TPM2B_SHARED_SECRET* sharedSecretOut);
+
+/* v1.85 ML-DSA sign/verify helpers. Sign helpers rebuild the keypair
+ * deterministically from the stored 32-byte xi seed (no expanded private
+ * key persisted). Verify helpers import the public-key bytes. */
+TPM_RC FwSignMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut);
+
+TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    const byte* sig, int sigSz);
+
+TPM_RC FwSignMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut);
+
+TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    const byte* sig, int sigSz);
 #endif /* WOLFTPM_V185 */
 
 /* --- Key wrapping --- */

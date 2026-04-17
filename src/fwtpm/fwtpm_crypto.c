@@ -974,6 +974,251 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     FWTPM_FREE_VAR(mlkemKey);
     return rc;
 }
+
+/* Internal helper: rebuild a deterministic ML-DSA keypair from its stored
+ * 32-byte xi seed and return a ready-to-use dilithium_key plus wcLevel. */
+static TPM_RC FwLoadMldsaFromSeed(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi, dilithium_key* keyOut, int* keyInitOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int level;
+    int wcRet;
+
+    *keyInitOut = 0;
+
+    level = FwGetWcMldsaLevel(parameterSet);
+    if (level < 0) {
+        return TPM_RC_VALUE;
+    }
+
+    wcRet = wc_dilithium_init(keyOut);
+    if (wcRet != 0) {
+        return TPM_RC_FAILURE;
+    }
+    *keyInitOut = 1;
+
+    wcRet = wc_dilithium_set_level(keyOut, (byte)level);
+    if (wcRet != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_make_key_from_seed(keyOut, seedXi);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    return rc;
+}
+
+/** \brief Pure ML-DSA sign: full-message signing per FIPS 204 ML-DSA.Sign.
+ *  Takes the stored 32-byte xi seed and the raw message. The TPM computes
+ *  mu internally. */
+TPM_RC FwSignMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut)
+{
+    TPM_RC rc;
+    FWTPM_DECLARE_VAR(keyVar, dilithium_key);
+    int keyInit = 0;
+    word32 sigSz;
+    int wcRet;
+
+    FWTPM_ALLOC_VAR(keyVar, dilithium_key);
+
+    rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+
+    if (rc == 0) {
+        sigSz = (word32)sizeof(sigOut->buffer);
+        wcRet = wc_dilithium_sign_ctx_msg(
+            context, (byte)contextSz,
+            msg, (word32)msgSz,
+            sigOut->buffer, &sigSz,
+            keyVar, NULL /* deterministic when available */);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            sigOut->size = (UINT16)sigSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_dilithium_free(keyVar);
+    }
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
+
+/** \brief Pure ML-DSA verify: checks a signature over the raw message. */
+TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    const byte* sig, int sigSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(keyVar, dilithium_key);
+    int level;
+    int keyInit = 0;
+    int verifyRes = 0;
+    int wcRet;
+
+    FWTPM_ALLOC_VAR(keyVar, dilithium_key);
+
+    level = FwGetWcMldsaLevel(parameterSet);
+    if (level < 0) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_init(keyVar);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_dilithium_set_level(keyVar, (byte)level);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_import_public(pubIn->buffer, pubIn->size, keyVar);
+        if (wcRet != 0) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_verify_ctx_msg(
+            sig, (word32)sigSz,
+            context, (byte)contextSz,
+            msg, (word32)msgSz,
+            &verifyRes, keyVar);
+        if (wcRet != 0 || verifyRes != 1) {
+            rc = TPM_RC_SIGNATURE;
+        }
+    }
+
+    if (keyInit) {
+        wc_dilithium_free(keyVar);
+    }
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
+
+/** \brief Hash-ML-DSA sign: pre-hashed variant per FIPS 204 Algorithm 4. */
+TPM_RC FwSignMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut)
+{
+    TPM_RC rc;
+    FWTPM_DECLARE_VAR(keyVar, dilithium_key);
+    int keyInit = 0;
+    word32 sigSz;
+    int wcHash;
+    int wcRet;
+
+    FWTPM_ALLOC_VAR(keyVar, dilithium_key);
+
+    wcHash = FwGetWcHashType(hashAlg);
+    if (wcHash == WC_HASH_TYPE_NONE) {
+        rc = TPM_RC_HASH;
+    }
+    else {
+        rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
+    }
+
+    if (rc == 0) {
+        sigSz = (word32)sizeof(sigOut->buffer);
+        wcRet = wc_dilithium_sign_ctx_hash(
+            context, (byte)contextSz,
+            wcHash, digest, (word32)digestSz,
+            sigOut->buffer, &sigSz,
+            keyVar, NULL);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            sigOut->size = (UINT16)sigSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_dilithium_free(keyVar);
+    }
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
+
+/** \brief Hash-ML-DSA verify: verifies a signature over a pre-hashed digest. */
+TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    const byte* sig, int sigSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(keyVar, dilithium_key);
+    int level;
+    int keyInit = 0;
+    int verifyRes = 0;
+    int wcHash;
+    int wcRet;
+
+    FWTPM_ALLOC_VAR(keyVar, dilithium_key);
+
+    wcHash = FwGetWcHashType(hashAlg);
+    if (wcHash == WC_HASH_TYPE_NONE) {
+        rc = TPM_RC_HASH;
+    }
+
+    level = FwGetWcMldsaLevel(parameterSet);
+    if (rc == 0 && level < 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        wcRet = wc_dilithium_init(keyVar);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_dilithium_set_level(keyVar, (byte)level);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_import_public(pubIn->buffer, pubIn->size, keyVar);
+        if (wcRet != 0) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_verify_ctx_hash(
+            sig, (word32)sigSz,
+            context, (byte)contextSz,
+            wcHash, digest, (word32)digestSz,
+            &verifyRes, keyVar);
+        if (wcRet != 0 || verifyRes != 1) {
+            rc = TPM_RC_SIGNATURE;
+        }
+    }
+
+    if (keyInit) {
+        wc_dilithium_free(keyVar);
+    }
+    FWTPM_FREE_VAR(keyVar);
+    return rc;
+}
 #endif /* WOLFTPM_V185 */
 
 #ifndef NO_RSA

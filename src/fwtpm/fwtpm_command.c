@@ -71,6 +71,9 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
 static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
+#ifdef WOLFTPM_V185
+static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
+#endif
 static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 
 /* Command table accessors (fwCmdTable is defined near end of file) */
@@ -6732,9 +6735,27 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &seqHandle);
 
         seq = FwFindHashSeq(ctx, seqHandle);
+#ifdef WOLFTPM_V185
+        if (seq == NULL) {
+            /* Not a hash sequence — check sign/verify sequence slots.
+             * Part 3 §17.5 and §20.6: Pure ML-DSA (and EdDSA) sequences
+             * are one-shot; SequenceUpdate rejects with
+             * TPM_RC_ONE_SHOT_SIGNATURE. */
+            FWTPM_SignSeq* signSeq = FwFindSignSeq(ctx, seqHandle);
+            if (signSeq != NULL) {
+                rc = signSeq->oneShot
+                    ? TPM_RC_ONE_SHOT_SIGNATURE
+                    : TPM_RC_SCHEME; /* Hash-MLDSA accumulation Phase 5b */
+            }
+            else {
+                rc = TPM_RC_HANDLE;
+            }
+        }
+#else
         if (seq == NULL) {
             rc = TPM_RC_HANDLE;
         }
+#endif
     }
 
     /* Skip auth area */
@@ -12860,46 +12881,617 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     return rc;
 }
 
+/* --- Sign/Verify sequence slot helpers --- */
+static FWTPM_SignSeq* FwAllocSignSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle)
+{
+    int i;
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        if (!ctx->signSeq[i].used) {
+            XMEMSET(&ctx->signSeq[i], 0, sizeof(ctx->signSeq[i]));
+            ctx->signSeq[i].used = 1;
+            /* Use a separate handle range above hash sequences to avoid
+             * collisions in FwCmd_SequenceUpdate dispatch. */
+            ctx->signSeq[i].handle = TRANSIENT_FIRST +
+                FWTPM_MAX_OBJECTS + FWTPM_MAX_HASH_SEQ + (TPM_HANDLE)i;
+            *handle = ctx->signSeq[i].handle;
+            return &ctx->signSeq[i];
+        }
+    }
+    return NULL;
+}
+
+static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    int i;
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        if (ctx->signSeq[i].used && ctx->signSeq[i].handle == handle) {
+            return &ctx->signSeq[i];
+        }
+    }
+    return NULL;
+}
+
+static void FwFreeSignSeq(FWTPM_SignSeq* seq)
+{
+    XMEMSET(seq, 0, sizeof(*seq));
+}
+
+/* --- TPM2_SignSequenceStart (CC 0x01AA) --- */
 static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    FWTPM_SignSeq* seq = NULL;
+    TPM_HANDLE seqHandle = 0;
+    UINT16 authSz = 0, ctxSz = 0;
+    int paramSzPos, paramStart;
+
+    (void)cmdSize;
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    if (rc == 0) {
+        /* Phase 5 scope: Pure ML-DSA and Hash-ML-DSA signing keys. */
+        if (obj->pub.type != TPM_ALG_MLDSA &&
+            obj->pub.type != TPM_ALG_HASH_MLDSA) {
+            rc = TPM_RC_KEY;
+        }
+    }
+
+    /* Parse auth (TPM2B_AUTH) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &authSz);
+        if (authSz > sizeof(((TPM2B_AUTH*)0)->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    /* Parse context (TPM2B_SIGNATURE_CTX) */
+    if (rc == 0) {
+        seq = FwAllocSignSeq(ctx, &seqHandle);
+        if (seq == NULL) {
+            rc = TPM_RC_OBJECT_MEMORY;
+        }
+    }
+    if (rc == 0) {
+        seq->authValue.size = authSz;
+        TPM2_Packet_ParseBytes(cmd, seq->authValue.buffer, authSz);
+
+        TPM2_Packet_ParseU16(cmd, &ctxSz);
+        if (ctxSz > sizeof(seq->context.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        seq->context.size = ctxSz;
+        TPM2_Packet_ParseBytes(cmd, seq->context.buffer, ctxSz);
+        seq->isVerifySeq = 0;
+        seq->keyHandle = keyHandle;
+        seq->sigScheme = obj->pub.type;
+        /* Pure ML-DSA is one-shot; HashML-DSA allows SequenceUpdate. */
+        seq->oneShot = (obj->pub.type == TPM_ALG_MLDSA) ? 1 : 0;
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        TPM2_Packet_AppendU32(rsp, seqHandle);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+    else if (seq != NULL) {
+        FwFreeSignSeq(seq);
+    }
+    return rc;
 }
 
+/* --- TPM2_VerifySequenceStart (CC 0x01A9) --- */
 static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    FWTPM_SignSeq* seq = NULL;
+    TPM_HANDLE seqHandle = 0;
+    UINT16 authSz = 0, hintSz = 0, ctxSz = 0;
+    byte hintScratch[MAX_SIGNATURE_HINT_SIZE];
+    int paramSzPos, paramStart;
+
+    (void)cmdSize;
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    if (rc == 0) {
+        if (obj->pub.type != TPM_ALG_MLDSA &&
+            obj->pub.type != TPM_ALG_HASH_MLDSA) {
+            rc = TPM_RC_KEY;
+        }
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &authSz);
+        if (authSz > sizeof(((TPM2B_AUTH*)0)->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        seq = FwAllocSignSeq(ctx, &seqHandle);
+        if (seq == NULL) {
+            rc = TPM_RC_OBJECT_MEMORY;
+        }
+    }
+    if (rc == 0) {
+        seq->authValue.size = authSz;
+        TPM2_Packet_ParseBytes(cmd, seq->authValue.buffer, authSz);
+
+        TPM2_Packet_ParseU16(cmd, &hintSz);
+        /* Part 2 §11.3.9: hint MUST be zero-length for non-EdDSA schemes. */
+        if (hintSz > 0) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, hintScratch, hintSz);
+
+        TPM2_Packet_ParseU16(cmd, &ctxSz);
+        if (ctxSz > sizeof(seq->context.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        seq->context.size = ctxSz;
+        TPM2_Packet_ParseBytes(cmd, seq->context.buffer, ctxSz);
+        seq->isVerifySeq = 1;
+        seq->keyHandle = keyHandle;
+        seq->sigScheme = obj->pub.type;
+        seq->oneShot = (obj->pub.type == TPM_ALG_MLDSA) ? 1 : 0;
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        TPM2_Packet_AppendU32(rsp, seqHandle);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+    else if (seq != NULL) {
+        FwFreeSignSeq(seq);
+    }
+    return rc;
 }
 
+/* --- TPM2_SignSequenceComplete (CC 0x01A4) --- */
 static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 sequenceHandle, keyHandle;
+    FWTPM_SignSeq* seq = NULL;
+    FWTPM_Object* keyObj = NULL;
+    UINT16 bufSize = 0;
+    FWTPM_DECLARE_BUF(msgBuf, FWTPM_MAX_DATA_BUF);
+    FWTPM_DECLARE_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+    int paramSzPos, paramStart;
+
+    FWTPM_ALLOC_BUF(msgBuf, FWTPM_MAX_DATA_BUF);
+    FWTPM_CALLOC_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+
+    if (cmdSize < TPM2_HEADER_SIZE + 8) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &sequenceHandle);
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        seq = FwFindSignSeq(ctx, sequenceHandle);
+        if (seq == NULL || seq->isVerifySeq) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    if (rc == 0 && keyHandle != seq->keyHandle) {
+        rc = TPM_RC_SIGN_CONTEXT_KEY;
+    }
+    if (rc == 0) {
+        keyObj = FwFindObject(ctx, keyHandle);
+        if (keyObj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    /* Part 3 §20.6 specifies x509sign must be CLEAR; v1.85 adds that bit but
+     * it is not yet modeled in this build's TPMA_OBJECT enum. Revisit once
+     * the attribute lands. */
+
+    /* Skip auth area */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
+    /* Parse buffer (TPM2B_MAX_BUFFER) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &bufSize);
+        if (bufSize > (UINT16)FWTPM_MAX_DATA_BUF) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, msgBuf, bufSize);
+
+        if (keyObj->pub.type == TPM_ALG_MLDSA) {
+            rc = FwSignMldsaMessage(
+                keyObj->pub.parameters.mldsaDetail.parameterSet,
+                keyObj->privKey,
+                seq->context.buffer, seq->context.size,
+                msgBuf, bufSize, sigOut);
+        }
+        else {
+            /* Hash-ML-DSA via sequence: deferred to Phase 5b. */
+            rc = TPM_RC_SCHEME;
+        }
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* signature (TPMT_SIGNATURE): sigAlg + TPM2B_SIGNATURE_MLDSA */
+        TPM2_Packet_AppendU16(rsp, TPM_ALG_MLDSA);
+        TPM2_Packet_AppendU16(rsp, sigOut->size);
+        TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+
+        FwFreeSignSeq(seq);
+    }
+    else if (seq != NULL && rc != TPM_RC_HANDLE &&
+             rc != TPM_RC_SIGN_CONTEXT_KEY) {
+        /* Free slot on permanent failure; leave alone on client-recoverable
+         * handle/key errors so caller can retry with correct args. */
+        FwFreeSignSeq(seq);
+    }
+
+    FWTPM_FREE_BUF(msgBuf);
+    FWTPM_FREE_VAR(sigOut);
+    return rc;
 }
 
+/* --- TPM2_VerifySequenceComplete (CC 0x01A3) --- */
 static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 sequenceHandle, keyHandle;
+    FWTPM_SignSeq* seq = NULL;
+    FWTPM_Object* keyObj = NULL;
+    UINT16 sigAlg = 0, wireSize = 0;
+    FWTPM_DECLARE_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+    int sigSz = 0;
+    TPMI_RH_HIERARCHY hierarchy;
+    byte hmacOut[TPM_MAX_DIGEST_SIZE];
+    int hmacSz = 0;
+    int paramSzPos, paramStart;
+
+    FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+
+    if (cmdSize < TPM2_HEADER_SIZE + 8) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &sequenceHandle);
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        seq = FwFindSignSeq(ctx, sequenceHandle);
+        if (seq == NULL || !seq->isVerifySeq) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+    if (rc == 0 && keyHandle != seq->keyHandle) {
+        rc = TPM_RC_SIGN_CONTEXT_KEY;
+    }
+    if (rc == 0) {
+        keyObj = FwFindObject(ctx, keyHandle);
+        if (keyObj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+
+    /* Skip auth area */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
+    /* Parse signature (TPMT_SIGNATURE) — Pure ML-DSA: sigAlg + TPM2B */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &sigAlg);
+        if (sigAlg != TPM_ALG_MLDSA) {
+            rc = TPM_RC_SCHEME;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &wireSize);
+        if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        sigSz = wireSize;
+        TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
+
+        /* Pure ML-DSA verify: sequence holds no message buffer because
+         * SequenceUpdate is rejected one-shot. The verified "message" is
+         * whatever the caller subsequently supplies — but per Part 3 §20.3,
+         * Verify*Complete takes only the signature. Phase 5 scope note:
+         * Pure ML-DSA verify over a pre-accumulated message is deferred to
+         * Phase 5b; return TPM_RC_SCHEME until SequenceUpdate accumulation
+         * is wired up for hash-based verify sequences. */
+        rc = TPM_RC_SCHEME;
+    }
+
+    if (rc == 0) {
+        hierarchy = keyObj->pub.objectAttributes; /* placeholder */
+        (void)hierarchy; (void)hmacOut; (void)hmacSz;
+
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        /* Placeholder — not reached in Phase 5 due to TPM_RC_SCHEME above. */
+        TPM2_Packet_AppendU16(rsp, TPM_ST_MESSAGE_VERIFIED);
+        TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
+        TPM2_Packet_AppendU16(rsp, 0);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+
+        FwFreeSignSeq(seq);
+    }
+    else if (seq != NULL && rc != TPM_RC_HANDLE &&
+             rc != TPM_RC_SIGN_CONTEXT_KEY) {
+        FwFreeSignSeq(seq);
+    }
+
+    FWTPM_FREE_BUF(sigBuf);
+    return rc;
 }
 
+/* --- TPM2_SignDigest (CC 0x01A6) --- */
 static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    FWTPM_DECLARE_VAR(sigCtx, TPM2B_SIGNATURE_CTX);
+    FWTPM_DECLARE_VAR(digest, TPM2B_DIGEST);
+    FWTPM_DECLARE_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+    UINT16 validationTag;
+    UINT32 validationHier;
+    UINT16 validationDigestSz;
+    byte validationDigest[TPM_MAX_DIGEST_SIZE];
+    int paramSzPos, paramStart;
+
+    FWTPM_CALLOC_VAR(sigCtx, TPM2B_SIGNATURE_CTX);
+    FWTPM_CALLOC_VAR(digest, TPM2B_DIGEST);
+    FWTPM_CALLOC_VAR(sigOut, TPM2B_MLDSA_SIGNATURE);
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+
+    /* Skip auth area */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
+    /* Parse context (TPM2B_SIGNATURE_CTX) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &sigCtx->size);
+        if (sigCtx->size > sizeof(sigCtx->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, sigCtx->buffer, sigCtx->size);
+        /* Parse digest (TPM2B_DIGEST) */
+        TPM2_Packet_ParseU16(cmd, &digest->size);
+        if (digest->size > sizeof(digest->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, digest->buffer, digest->size);
+
+        /* Parse validation (TPMT_TK_HASHCHECK) — we do not enforce it here
+         * because Phase 5 scope restricts SignDigest to non-restricted keys. */
+        TPM2_Packet_ParseU16(cmd, &validationTag);
+        TPM2_Packet_ParseU32(cmd, &validationHier);
+        TPM2_Packet_ParseU16(cmd, &validationDigestSz);
+        if (validationDigestSz > (UINT16)sizeof(validationDigest)) {
+            rc = TPM_RC_SIZE;
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseBytes(cmd, validationDigest, validationDigestSz);
+        }
+        (void)validationTag; (void)validationHier;
+    }
+
+    if (rc == 0) {
+        if (obj->pub.type == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA + allowExternalMu: treat digest as 64-byte mu.
+             * wolfCrypt does not currently expose a mu-direct sign API;
+             * defer with TPM_RC_SCHEME (DEC-0006). If allowExternalMu is
+             * NO, return TPM_RC_EXT_MU per Part 2 §12.2.3.7. */
+            if (obj->pub.parameters.mldsaDetail.allowExternalMu != YES) {
+                rc = TPM_RC_EXT_MU;
+            }
+            else {
+                rc = TPM_RC_SCHEME;
+            }
+        }
+        else if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
+            rc = FwSignMldsaHash(
+                obj->pub.parameters.hash_mldsaDetail.parameterSet,
+                obj->privKey,
+                sigCtx->buffer, sigCtx->size,
+                obj->pub.parameters.hash_mldsaDetail.hashAlg,
+                digest->buffer, digest->size,
+                sigOut);
+        }
+        else {
+            rc = TPM_RC_KEY;
+        }
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* signature: sigAlg + hash + TPM2B (Hash-ML-DSA is TPMS shape) */
+        TPM2_Packet_AppendU16(rsp, TPM_ALG_HASH_MLDSA);
+        TPM2_Packet_AppendU16(rsp,
+            obj->pub.parameters.hash_mldsaDetail.hashAlg);
+        TPM2_Packet_AppendU16(rsp, sigOut->size);
+        TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    FWTPM_FREE_VAR(sigCtx);
+    FWTPM_FREE_VAR(digest);
+    FWTPM_FREE_VAR(sigOut);
+    return rc;
 }
 
+/* --- TPM2_VerifyDigestSignature (CC 0x01A5) --- */
 static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)rsp; (void)cmdTag;
-    return TPM_RC_COMMAND_CODE;
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+    FWTPM_DECLARE_VAR(sigCtx, TPM2B_SIGNATURE_CTX);
+    FWTPM_DECLARE_VAR(digest, TPM2B_DIGEST);
+    FWTPM_DECLARE_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+    UINT16 sigAlg = 0, sigHashAlg = 0, wireSize = 0;
+    int sigSz = 0;
+    int paramSzPos, paramStart;
+
+    FWTPM_CALLOC_VAR(sigCtx, TPM2B_SIGNATURE_CTX);
+    FWTPM_CALLOC_VAR(digest, TPM2B_DIGEST);
+    FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &keyHandle);
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+    }
+
+    /* Skip auth area (no mandatory auth — Part 3 §20.4 Auth Index: None) */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &sigCtx->size);
+        if (sigCtx->size > sizeof(sigCtx->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, sigCtx->buffer, sigCtx->size);
+        TPM2_Packet_ParseU16(cmd, &digest->size);
+        if (digest->size > sizeof(digest->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, digest->buffer, digest->size);
+
+        /* Parse signature (TPMT_SIGNATURE) */
+        TPM2_Packet_ParseU16(cmd, &sigAlg);
+        if (sigAlg == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA with ext-mu — deferred (DEC-0006). */
+            if (obj->pub.type != TPM_ALG_MLDSA) {
+                rc = TPM_RC_SCHEME;
+            }
+            else if (obj->pub.parameters.mldsaDetail.allowExternalMu != YES) {
+                rc = TPM_RC_EXT_MU;
+            }
+            else {
+                rc = TPM_RC_SCHEME; /* wolfCrypt ext-mu pending */
+            }
+        }
+        else if (sigAlg == TPM_ALG_HASH_MLDSA) {
+            TPM2_Packet_ParseU16(cmd, &sigHashAlg);
+            TPM2_Packet_ParseU16(cmd, &wireSize);
+            if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
+                rc = TPM_RC_SIZE;
+            }
+            else {
+                sigSz = wireSize;
+                TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
+            }
+        }
+        else {
+            rc = TPM_RC_SCHEME;
+        }
+    }
+
+    if (rc == 0 && sigAlg == TPM_ALG_HASH_MLDSA) {
+        if (obj->pub.type != TPM_ALG_HASH_MLDSA) {
+            rc = TPM_RC_SCHEME;
+        }
+        else {
+            rc = FwVerifyMldsaHash(
+                obj->pub.parameters.hash_mldsaDetail.parameterSet,
+                &obj->pub.unique.mldsa,
+                sigCtx->buffer, sigCtx->size,
+                sigHashAlg,
+                digest->buffer, digest->size,
+                sigBuf, sigSz);
+        }
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* validation (TPMT_TK_VERIFIED): tag + hierarchy + metadata + hmac */
+        TPM2_Packet_AppendU16(rsp, TPM_ST_DIGEST_VERIFIED);
+        TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
+        /* metadata = TPM_ALG_ID — hash alg used (Hash-ML-DSA case). */
+        TPM2_Packet_AppendU16(rsp, sigHashAlg);
+        /* hmac: NULL hierarchy → Empty Buffer per Part 3 §20.4. */
+        TPM2_Packet_AppendU16(rsp, 0);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    FWTPM_FREE_VAR(sigCtx);
+    FWTPM_FREE_VAR(digest);
+    FWTPM_FREE_BUF(sigBuf);
+    return rc;
 }
 #endif /* WOLFTPM_V185 */
 

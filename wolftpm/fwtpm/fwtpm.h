@@ -387,6 +387,29 @@ typedef struct FWTPM_HashSeq {
 #endif
 } FWTPM_HashSeq;
 
+#ifdef WOLFTPM_V185
+/* ML-DSA sign/verify sequence slot (v1.85 Part 3 §17.5, §17.6). Pure ML-DSA
+ * is one-shot — the message arrives via the `buffer` parameter of
+ * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
+ * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 §20.6). Hash-ML-DSA digest signing is
+ * handled via TPM2_SignDigest / TPM2_VerifyDigestSignature, not through
+ * this slot. */
+typedef struct FWTPM_SignSeq {
+    int used;
+    TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
+    int isVerifySeq;                /* 0 = sign, 1 = verify */
+    TPM_HANDLE keyHandle;           /* Key used at SequenceStart */
+    TPM_ALG_ID sigScheme;           /* TPM_ALG_MLDSA / TPM_ALG_HASH_MLDSA */
+    TPM2B_AUTH authValue;
+    TPM2B_SIGNATURE_CTX context;
+    int oneShot;                    /* SequenceUpdate not permitted if set */
+} FWTPM_SignSeq;
+
+#ifndef FWTPM_MAX_SIGN_SEQ
+#define FWTPM_MAX_SIGN_SEQ 4
+#endif
+#endif /* WOLFTPM_V185 */
+
 /* Auth session slot */
 typedef struct FWTPM_Session {
     int used;
@@ -535,6 +558,9 @@ typedef struct FWTPM_CTX {
 
     /* Hash sequence slots */
     FWTPM_HashSeq hashSeq[FWTPM_MAX_HASH_SEQ];
+#ifdef WOLFTPM_V185
+    FWTPM_SignSeq signSeq[FWTPM_MAX_SIGN_SEQ];
+#endif
 
     /* Auth session slots */
     FWTPM_Session sessions[FWTPM_MAX_SESSIONS];
