@@ -1944,6 +1944,77 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
     printf("Test TPM Wrapper:\tSignature ECSCHNORR/SM2 serialize:\tPassed\n");
 }
 
+static void test_TPM2_Sensitive_Roundtrip(void)
+{
+    TPM2_Packet packet;
+    byte buf[512];
+    TPM2B_SENSITIVE sensIn, sensOut;
+    const byte authBuf[4] = {0x01, 0x02, 0x03, 0x04};
+    const byte seedBuf[8] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11};
+    const byte rsaPriv[16] = {
+        0xde, 0xad, 0xbe, 0xef, 0x11, 0x22, 0x33, 0x44,
+        0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc
+    };
+
+    /* RSA sensitive roundtrip */
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    sensIn.sensitiveArea.authValue.size = sizeof(authBuf);
+    XMEMCPY(sensIn.sensitiveArea.authValue.buffer, authBuf, sizeof(authBuf));
+    sensIn.sensitiveArea.seedValue.size = sizeof(seedBuf);
+    XMEMCPY(sensIn.sensitiveArea.seedValue.buffer, seedBuf, sizeof(seedBuf));
+    sensIn.sensitiveArea.sensitive.rsa.size = sizeof(rsaPriv);
+    XMEMCPY(sensIn.sensitiveArea.sensitive.rsa.buffer, rsaPriv,
+        sizeof(rsaPriv));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_RSA);
+    AssertIntEQ(sensOut.sensitiveArea.authValue.size, sizeof(authBuf));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.authValue.buffer,
+        authBuf, sizeof(authBuf)), 0);
+    AssertIntEQ(sensOut.sensitiveArea.seedValue.size, sizeof(seedBuf));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.seedValue.buffer,
+        seedBuf, sizeof(seedBuf)), 0);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.rsa.size, sizeof(rsaPriv));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.rsa.buffer,
+        rsaPriv, sizeof(rsaPriv)), 0);
+
+    /* ECC sensitive roundtrip */
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_ECC;
+    sensIn.sensitiveArea.sensitive.ecc.size = sizeof(rsaPriv);
+    XMEMCPY(sensIn.sensitiveArea.sensitive.ecc.buffer, rsaPriv,
+        sizeof(rsaPriv));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_ECC);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.ecc.size, sizeof(rsaPriv));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.ecc.buffer,
+        rsaPriv, sizeof(rsaPriv)), 0);
+
+    printf("Test TPM Wrapper:\tSensitive roundtrip:\t\tPassed\n");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -3094,6 +3165,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_SchemeSerialize();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
+    test_TPM2_Sensitive_Roundtrip();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();

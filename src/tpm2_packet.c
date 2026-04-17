@@ -825,6 +825,45 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
     TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 
+void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
+{
+    TPMU_SENSITIVE_COMPOSITE* sens = &sensitive->sensitiveArea.sensitive;
+
+    TPM2_Packet_ParseU16(packet, &sensitive->size);
+    if (sensitive->size == 0) {
+        return;
+    }
+
+    TPM2_Packet_ParseU16(packet, &sensitive->sensitiveArea.sensitiveType);
+
+    TPM2_Packet_ParseU16Buf(packet, &sensitive->sensitiveArea.authValue.size,
+        sensitive->sensitiveArea.authValue.buffer,
+        (UINT16)sizeof(sensitive->sensitiveArea.authValue.buffer));
+
+    TPM2_Packet_ParseU16Buf(packet, &sensitive->sensitiveArea.seedValue.size,
+        sensitive->sensitiveArea.seedValue.buffer,
+        (UINT16)sizeof(sensitive->sensitiveArea.seedValue.buffer));
+
+    switch (sensitive->sensitiveArea.sensitiveType) {
+    case TPM_ALG_RSA:
+        TPM2_Packet_ParseU16Buf(packet, &sens->rsa.size,
+            sens->rsa.buffer, (UINT16)sizeof(sens->rsa.buffer));
+        break;
+    case TPM_ALG_ECC:
+        TPM2_Packet_ParseU16Buf(packet, &sens->ecc.size,
+            sens->ecc.buffer, (UINT16)sizeof(sens->ecc.buffer));
+        break;
+    case TPM_ALG_KEYEDHASH:
+        TPM2_Packet_ParseU16Buf(packet, &sens->bits.size,
+            sens->bits.buffer, (UINT16)sizeof(sens->bits.buffer));
+        break;
+    case TPM_ALG_SYMCIPHER:
+        TPM2_Packet_ParseU16Buf(packet, &sens->sym.size,
+            sens->sym.buffer, (UINT16)sizeof(sens->sym.buffer));
+        break;
+    }
+}
+
 void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive)
 {
     int tmpSz = 0;
