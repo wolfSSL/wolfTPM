@@ -8228,6 +8228,10 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int expectedSz = 0;
             wc_HashAlg aCtx;
             enum wc_HashType aWcHash;
+            int hmacRc;
+            int sizeMismatch;
+            int ticketDiff;
+            word32 cmpSz;
 
             /* Step 1: aHash = H(approvedPolicy || policyRef)
              * Hash algorithm comes from signing key's nameAlg */
@@ -8254,20 +8258,24 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 ticketInputSz += keySignNameSz;
             }
 
-            /* Step 3: verify ticket HMAC */
-            if (rc == 0 &&
-                (FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
-                    ticketInput, ticketInputSz,
-                    expectedHmac, &expectedSz) != 0 ||
-                ticketDigestSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0)) {
-            #ifdef DEBUG_WOLFTPM
-                printf("fwTPM: PolicyAuthorize ticket verify failed "
-                    "(tag=0x%x, hier=0x%x, ticketSz=%d, expectedSz=%d)\n",
-                    ticketTag, ticketHier, ticketDigestSz, expectedSz);
-            #endif
-                rc = TPM_RC_POLICY_FAIL;
+            /* Step 3: verify ticket HMAC — always run TPM2_ConstantCompare
+             * so timing doesn't leak size match */
+            if (rc == 0) {
+                hmacRc = FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
+                    ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+                sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
+                cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
+                    ticketDigestSz : (word32)expectedSz;
+                ticketDiff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                    cmpSz);
+                if (hmacRc != 0 || (sizeMismatch | ticketDiff)) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("fwTPM: PolicyAuthorize ticket verify failed "
+                        "(tag=0x%x, hier=0x%x, ticketSz=%d, expectedSz=%d)\n",
+                        ticketTag, ticketHier, ticketDigestSz, expectedSz);
+                #endif
+                    rc = TPM_RC_POLICY_FAIL;
+                }
             }
             TPM2_ForceZero(aHash, sizeof(aHash));
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -9522,6 +9530,10 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         enum wc_HashType aWcHash;
         int aHashSz;
         byte expBuf[4];
+        int hmacRc;
+        int sizeMismatch;
+        int ticketDiff;
+        word32 cmpSz;
 
         aWcHash = FwGetWcHashType(sess->authHash);
         aHashSz = TPM2_GetHashDigestSize(sess->authHash);
@@ -9551,15 +9563,19 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             ticketInputSz += authNameSz;
         }
 
-        /* Verify HMAC */
-        if (rc == 0 &&
-            (FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
-                ticketInput, ticketInputSz,
-                expectedHmac, &expectedSz) != 0 ||
-            ticketDigestSz != (UINT16)expectedSz ||
-            TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                (word32)expectedSz) != 0)) {
-            rc = TPM_RC_POLICY_FAIL;
+        /* Verify HMAC — always run TPM2_ConstantCompare so timing doesn't
+         * leak whether size matched */
+        if (rc == 0) {
+            hmacRc = FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
+                ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+            sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
+            cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
+                ticketDigestSz : (word32)expectedSz;
+            ticketDiff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                cmpSz);
+            if (hmacRc != 0 || (sizeMismatch | ticketDiff)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
         TPM2_ForceZero(aHash, sizeof(aHash));
         TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
