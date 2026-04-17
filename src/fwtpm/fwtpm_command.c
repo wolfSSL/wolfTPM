@@ -2367,6 +2367,50 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 #endif /* HAVE_ECC */
 
+#ifdef WOLFTPM_V185
+            /* ML-DSA primary key: derive 32-byte seed xi via KDFa, then run
+             * FIPS 204 deterministic keygen. Private material on the wire
+             * is the seed itself per TCG Part 2 Table 210. */
+            case TPM_ALG_MLDSA:
+            case TPM_ALG_HASH_MLDSA: {
+                const char* label = (inPublic->publicArea.type == TPM_ALG_MLDSA)
+                    ? "MLDSA" : "HASH_MLDSA";
+                TPMI_MLDSA_PARAMETER_SET ps =
+                    (inPublic->publicArea.type == TPM_ALG_MLDSA)
+                        ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
+                        : inPublic->publicArea.parameters.hash_mldsaDetail
+                              .parameterSet;
+
+                rc = FwDeriveMldsaPrimaryKeySeed(inPublic->publicArea.nameAlg,
+                    seed, hashUnique, hashUniqueSz,
+                    label, obj->privKey);
+                if (rc == 0) {
+                    obj->privKeySize = MAX_MLDSA_PRIV_SEED_SIZE;
+                    rc = FwGenerateMldsaKey(ps, obj->privKey,
+                        &obj->pub.unique.mldsa);
+                }
+                break;
+            }
+
+            /* ML-KEM primary key: derive 64-byte seed (d||z) via KDFa, then
+             * run FIPS 203 deterministic keygen. Private material on the
+             * wire is the seed per TCG Part 2 Table 206. */
+            case TPM_ALG_MLKEM: {
+                TPMI_MLKEM_PARAMETER_SET ps =
+                    inPublic->publicArea.parameters.mlkemDetail.parameterSet;
+
+                rc = FwDeriveMlkemPrimaryKeySeed(inPublic->publicArea.nameAlg,
+                    seed, hashUnique, hashUniqueSz,
+                    obj->privKey);
+                if (rc == 0) {
+                    obj->privKeySize = MAX_MLKEM_PRIV_SEED_SIZE;
+                    rc = FwGenerateMlkemKey(ps, obj->privKey,
+                        &obj->pub.unique.mlkem);
+                }
+                break;
+            }
+#endif /* WOLFTPM_V185 */
+
             case TPM_ALG_KEYEDHASH: {
                 /* HMAC key or sealed data object.
                  * If caller supplied sensitive.data, use it directly;
@@ -3606,6 +3650,47 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
 #endif /* HAVE_ECC */
+#ifdef WOLFTPM_V185
+            /* ML-DSA ordinary key: seed is random bytes (Part 1 §24.6.2);
+             * FIPS 204 keygen is then deterministic from the seed. */
+            case TPM_ALG_MLDSA:
+            case TPM_ALG_HASH_MLDSA: {
+                TPMI_MLDSA_PARAMETER_SET ps =
+                    (inPublic->publicArea.type == TPM_ALG_MLDSA)
+                        ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
+                        : inPublic->publicArea.parameters.hash_mldsaDetail
+                              .parameterSet;
+
+                rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
+                    MAX_MLDSA_PRIV_SEED_SIZE);
+                if (rc != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                if (rc == 0) {
+                    privKeyDerSz = MAX_MLDSA_PRIV_SEED_SIZE;
+                    rc = FwGenerateMldsaKey(ps, privKeyDer,
+                        &inPublic->publicArea.unique.mldsa);
+                }
+                break;
+            }
+
+            case TPM_ALG_MLKEM: {
+                TPMI_MLKEM_PARAMETER_SET ps =
+                    inPublic->publicArea.parameters.mlkemDetail.parameterSet;
+
+                rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
+                    MAX_MLKEM_PRIV_SEED_SIZE);
+                if (rc != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                if (rc == 0) {
+                    privKeyDerSz = MAX_MLKEM_PRIV_SEED_SIZE;
+                    rc = FwGenerateMlkemKey(ps, privKeyDer,
+                        &inPublic->publicArea.unique.mlkem);
+                }
+                break;
+            }
+#endif /* WOLFTPM_V185 */
             case TPM_ALG_KEYEDHASH: {
                 /* HMAC key or data object.
                  * If caller supplied sensitive.data, use it as the key

@@ -135,6 +135,32 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
 #endif /* WOLFSSL_KEY_GEN */
 #endif /* !NO_RSA */
 
+#ifdef WOLFTPM_V185
+/* v1.85 PQC primary-key derivation.
+ * Per SPEC_DECISIONS DEC-0001 the KDFa labels are:
+ *   "MLDSA"       for TPM_ALG_MLDSA (Pure ML-DSA)
+ *   "HASH_MLDSA"  for TPM_ALG_HASH_MLDSA (pre-hash variant)
+ *   "MLKEM"       for TPM_ALG_MLKEM
+ * The derived seed is fed into FIPS 203/204 deterministic keygen.
+ * Private key on the wire is the seed itself (32 B Xi / 64 B d||z)
+ * per TCG v1.85 Part 2 Tables 206 and 210. */
+TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    const char* label, byte* seedXiOut);
+
+TPM_RC FwDeriveMlkemPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    byte* seedDZOut);
+
+TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    TPM2B_PUBLIC_KEY_MLDSA* pubOut);
+
+TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    TPM2B_PUBLIC_KEY_MLKEM* pubOut);
+#endif /* WOLFTPM_V185 */
+
 /* --- Key wrapping --- */
 
 int FwDeriveWrapKey(const FWTPM_Object* parent,

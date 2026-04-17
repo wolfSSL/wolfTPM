@@ -59,6 +59,10 @@
 #include <wolfssl/wolfcrypt/aes.h>
 #endif
 #include <wolfssl/wolfcrypt/hmac.h>
+#ifdef WOLFTPM_V185
+#include <wolfssl/wolfcrypt/dilithium.h>
+#include <wolfssl/wolfcrypt/mlkem.h>
+#endif
 
 /* ================================================================== */
 /* Small utility helpers                                               */
@@ -641,6 +645,193 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     return rc;
 }
 #endif /* HAVE_ECC */
+
+#ifdef WOLFTPM_V185
+/* ================================================================== */
+/* v1.85 PQC primary-key derivation (ML-DSA / ML-KEM)                  */
+/* ================================================================== */
+
+/* Map TPM v1.85 ML-DSA parameter set to wolfCrypt dilithium level. */
+static int FwGetWcMldsaLevel(TPMI_MLDSA_PARAMETER_SET ps)
+{
+    switch (ps) {
+        case TPM_MLDSA_44: return WC_ML_DSA_44;
+        case TPM_MLDSA_65: return WC_ML_DSA_65;
+        case TPM_MLDSA_87: return WC_ML_DSA_87;
+        default:           return -1;
+    }
+}
+
+/* Map TPM v1.85 ML-KEM parameter set to wolfCrypt ML-KEM type. */
+static int FwGetWcMlkemType(TPMI_MLKEM_PARAMETER_SET ps)
+{
+    switch (ps) {
+        case TPM_MLKEM_512:  return WC_ML_KEM_512;
+        case TPM_MLKEM_768:  return WC_ML_KEM_768;
+        case TPM_MLKEM_1024: return WC_ML_KEM_1024;
+        default:             return -1;
+    }
+}
+
+/** \brief Derive 32-byte ML-DSA seed xi from hierarchy primary seed via KDFa.
+ *  Per SPEC_DECISIONS DEC-0001 the label is "MLDSA" for TPM_ALG_MLDSA or
+ *  "HASH_MLDSA" for TPM_ALG_HASH_MLDSA. The derived seed is fed into
+ *  FIPS 204 deterministic keygen. */
+TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    const char* label, byte* seedXiOut)
+{
+    int kdfRet;
+
+    kdfRet = TPM2_KDFa_ex(nameAlg, seed, FWTPM_SEED_SIZE,
+        label, hashUnique, (UINT32)hashUniqueSz,
+        NULL, 0, seedXiOut, MAX_MLDSA_PRIV_SEED_SIZE);
+    if (kdfRet != MAX_MLDSA_PRIV_SEED_SIZE) {
+        return TPM_RC_FAILURE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/** \brief Derive 64-byte ML-KEM seed (d || z) from hierarchy primary seed
+ *  via KDFa. Per SPEC_DECISIONS DEC-0001 the label is "MLKEM". The derived
+ *  seed is fed into FIPS 203 deterministic keygen (ML-KEM.KeyGen_internal). */
+TPM_RC FwDeriveMlkemPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    byte* seedDZOut)
+{
+    int kdfRet;
+
+    kdfRet = TPM2_KDFa_ex(nameAlg, seed, FWTPM_SEED_SIZE,
+        "MLKEM", hashUnique, (UINT32)hashUniqueSz,
+        NULL, 0, seedDZOut, MAX_MLKEM_PRIV_SEED_SIZE);
+    if (kdfRet != MAX_MLKEM_PRIV_SEED_SIZE) {
+        return TPM_RC_FAILURE;
+    }
+    return TPM_RC_SUCCESS;
+}
+
+/** \brief Generate ML-DSA keypair deterministically from a 32-byte seed xi
+ *  (FIPS 204 Algorithm 1 ML-DSA.KeyGen). Exports public key to pubOut.
+ *  The expanded private key is not returned — callers hold the 32-byte seed
+ *  in TPM2B_PRIVATE_KEY_MLDSA and re-expand on every use per TCG Table 210. */
+TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    TPM2B_PUBLIC_KEY_MLDSA* pubOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(dilithiumKey, dilithium_key);
+    int level;
+    word32 outSz;
+    int wcRet;
+    int keyInit = 0;
+
+    FWTPM_ALLOC_VAR(dilithiumKey, dilithium_key);
+
+    level = FwGetWcMldsaLevel(parameterSet);
+    if (level < 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        wcRet = wc_dilithium_init(dilithiumKey);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_dilithium_set_level(dilithiumKey, (byte)level);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_dilithium_make_key_from_seed(dilithiumKey, seedXi);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        outSz = (word32)sizeof(pubOut->buffer);
+        wcRet = wc_dilithium_export_public(dilithiumKey, pubOut->buffer, &outSz);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            pubOut->size = (UINT16)outSz;
+        }
+    }
+
+    if (keyInit) {
+        wc_dilithium_free(dilithiumKey);
+    }
+    FWTPM_FREE_VAR(dilithiumKey);
+    return rc;
+}
+
+/** \brief Generate ML-KEM keypair deterministically from a 64-byte seed (d||z)
+ *  (FIPS 203 Algorithm 16 ML-KEM.KeyGen_internal). Exports public key to
+ *  pubOut. Private key on the wire is the 64-byte seed per TCG Table 206. */
+TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    TPM2B_PUBLIC_KEY_MLKEM* pubOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_DECLARE_VAR(mlkemKey, MlKemKey);
+    int type;
+    word32 outSz = 0;
+    int wcRet;
+    int keyInit = 0;
+
+    FWTPM_ALLOC_VAR(mlkemKey, MlKemKey);
+
+    type = FwGetWcMlkemType(parameterSet);
+    if (type < 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_Init(mlkemKey, type, NULL, INVALID_DEVID);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        keyInit = 1;
+        wcRet = wc_MlKemKey_MakeKeyWithRandom(mlkemKey, seedDZ,
+            MAX_MLKEM_PRIV_SEED_SIZE);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        wcRet = wc_MlKemKey_PublicKeySize(mlkemKey, &outSz);
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        if (outSz > sizeof(pubOut->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+        else {
+            wcRet = wc_MlKemKey_EncodePublicKey(mlkemKey, pubOut->buffer, outSz);
+            if (wcRet != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                pubOut->size = (UINT16)outSz;
+            }
+        }
+    }
+
+    if (keyInit) {
+        wc_MlKemKey_Free(mlkemKey);
+    }
+    FWTPM_FREE_VAR(mlkemKey);
+    return rc;
+}
+#endif /* WOLFTPM_V185 */
 
 #ifndef NO_RSA
 #ifdef WOLFSSL_KEY_GEN
