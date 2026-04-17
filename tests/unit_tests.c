@@ -1824,6 +1824,68 @@ static void test_TPM2_SchemeSerialize(void)
     printf("Test TPM Wrapper:\tSchemeSerialize:\t\tPassed\n");
 }
 
+static void test_TPM2_KeyedHashScheme_XorSerialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[64];
+    TPMT_KEYEDHASH_SCHEME schemeIn, schemeOut;
+
+    /* XOR scheme roundtrip: scheme(2) + hashAlg(2) + kdf(2) = 6 bytes */
+    XMEMSET(&schemeIn, 0, sizeof(schemeIn));
+    schemeIn.scheme = TPM_ALG_XOR;
+    schemeIn.details.xorr.hashAlg = TPM_ALG_SHA256;
+    schemeIn.details.xorr.kdf = TPM_ALG_KDF1_SP800_108;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendKeyedHashScheme(&packet, &schemeIn);
+    AssertIntEQ(packet.pos, 6);
+
+    packet.pos = 0;
+    XMEMSET(&schemeOut, 0, sizeof(schemeOut));
+    TPM2_Packet_ParseKeyedHashScheme(&packet, &schemeOut);
+
+    AssertIntEQ(schemeOut.scheme, TPM_ALG_XOR);
+    AssertIntEQ(schemeOut.details.xorr.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(schemeOut.details.xorr.kdf, TPM_ALG_KDF1_SP800_108);
+
+    /* HMAC scheme still works: scheme(2) + hashAlg(2) = 4 bytes */
+    XMEMSET(&schemeIn, 0, sizeof(schemeIn));
+    schemeIn.scheme = TPM_ALG_HMAC;
+    schemeIn.details.hmac.hashAlg = TPM_ALG_SHA384;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendKeyedHashScheme(&packet, &schemeIn);
+    AssertIntEQ(packet.pos, 4);
+
+    packet.pos = 0;
+    XMEMSET(&schemeOut, 0, sizeof(schemeOut));
+    TPM2_Packet_ParseKeyedHashScheme(&packet, &schemeOut);
+    AssertIntEQ(schemeOut.scheme, TPM_ALG_HMAC);
+    AssertIntEQ(schemeOut.details.hmac.hashAlg, TPM_ALG_SHA384);
+
+    /* NULL scheme: scheme(2) only */
+    XMEMSET(&schemeIn, 0, sizeof(schemeIn));
+    schemeIn.scheme = TPM_ALG_NULL;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendKeyedHashScheme(&packet, &schemeIn);
+    AssertIntEQ(packet.pos, 2);
+
+    printf("Test TPM Wrapper:\tKeyedHashScheme XOR serialize:\tPassed\n");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -2972,6 +3034,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ComputeName();
     #endif
     test_TPM2_SchemeSerialize();
+    test_TPM2_KeyedHashScheme_XorSerialize();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();

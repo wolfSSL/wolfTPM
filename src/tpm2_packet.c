@@ -684,14 +684,24 @@ void TPM2_Packet_ParseRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme)
 void TPM2_Packet_AppendKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme == TPM_ALG_HMAC) {
         TPM2_Packet_AppendU16(packet, scheme->details.hmac.hashAlg);
+    }
+    else if (scheme->scheme == TPM_ALG_XOR) {
+        TPM2_Packet_AppendU16(packet, scheme->details.xorr.hashAlg);
+        TPM2_Packet_AppendU16(packet, scheme->details.xorr.kdf);
+    }
 }
 void TPM2_Packet_ParseKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme == TPM_ALG_HMAC) {
         TPM2_Packet_ParseU16(packet, &scheme->details.hmac.hashAlg);
+    }
+    else if (scheme->scheme == TPM_ALG_XOR) {
+        TPM2_Packet_ParseU16(packet, &scheme->details.xorr.hashAlg);
+        TPM2_Packet_ParseU16(packet, &scheme->details.xorr.kdf);
+    }
 }
 
 void TPM2_Packet_AppendKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
