@@ -2825,6 +2825,42 @@ static void test_wolfTPM2_NVStoreKey_BoundaryChecks(void)
     printf("Test TPM Wrapper:\tNVStoreKey boundary checks:\tPassed\n");
 }
 
+static void test_wolfTPM2_NVDeleteKey_BoundaryChecks(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&key, 0, sizeof(key));
+
+    /* Handle below PERSISTENT_FIRST: not persistent, early-return success */
+    key.handle.hndl = PERSISTENT_FIRST - 1;
+    rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &key);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Handle above PERSISTENT_LAST: not persistent, early-return success */
+    key.handle.hndl = PERSISTENT_LAST + 1;
+    rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &key);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Handle equal to PERSISTENT_FIRST: IS persistent, must NOT early-return */
+    key.handle.hndl = PERSISTENT_FIRST;
+    rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &key);
+    AssertIntNE(rc, TPM_RC_SUCCESS); /* will fail at TPM, but not early-return */
+
+    /* Handle equal to PERSISTENT_LAST: IS persistent, must NOT early-return */
+    key.handle.hndl = PERSISTENT_LAST;
+    rc = wolfTPM2_NVDeleteKey(&dev, TPM_RH_OWNER, &key);
+    AssertIntNE(rc, TPM_RC_SUCCESS); /* will fail at TPM, but not early-return */
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tNVDeleteKey boundary checks:\tPassed\n");
+}
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2892,6 +2928,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
     #endif
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
+    test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
