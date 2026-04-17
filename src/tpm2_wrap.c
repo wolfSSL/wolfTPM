@@ -6363,6 +6363,8 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     wolfTPM2_CopyAuth(&in.auth, &hash->handle.auth);
     in.hashAlg = hashAlg;
     rc = TPM2_HashSequenceStart(&in, &out);
+    /* Clear auth copy on stack regardless of outcome */
+    TPM2_ForceZero(&in.auth, sizeof(in.auth));
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_HashSequenceStart failed 0x%x: %s\n", rc,
