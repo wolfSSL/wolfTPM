@@ -1713,8 +1713,6 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
         sessionAttributes);
     if (auth) {
         printf("\tAuth Sz %d -> %d\n", session->auth.size, auth->size);
-        TPM2_PrintBin(session->auth.buffer, session->auth.size);
-        TPM2_PrintBin(auth->buffer, auth->size);
     }
     if (name) {
         printf("\tName Sz %d -> %d\n", session->name.size, name->size);
@@ -1776,8 +1774,6 @@ int wolfTPM2_SetAuthHandle(WOLFTPM2_DEV* dev, int index,
                 session->policyAuth, handle->policyAuth);
             printf("\tAuth Sz %d -> %d\n", session->auth.size,
                 authDigestSz + handle->auth.size);
-            TPM2_PrintBin(session->auth.buffer, session->auth.size);
-            TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
             printf("\tName Sz %d -> %d\n", session->name.size, handle->name.size);
             TPM2_PrintBin(session->name.name, session->name.size);
             TPM2_PrintBin(handle->name.name, handle->name.size);
@@ -2312,7 +2308,6 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Encrypt Secret %d: %d bytes\n", rc, data->size);
-    TPM2_PrintBin(data->buffer, data->size);
 #endif
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
@@ -2479,7 +2474,6 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     if (rc == TPM_RC_SUCCESS) {
 #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("Session Key %d\n", session->handle.auth.size);
-        TPM2_PrintBin(session->handle.auth.buffer, session->handle.auth.size);
 #endif
 
         /* return session */
@@ -7101,7 +7095,6 @@ int wolfTPM2_ChangeHierarchyAuth(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         printf("%s auth set to %d bytes of random\n", desc, in.newAuth.size);
         #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("\tAuth Sz %d\n", in.newAuth.size);
-            TPM2_PrintBin(in.newAuth.buffer, in.newAuth.size);
         #endif
     } else {
         printf("Error %d setting %s auth! %s\n",
@@ -9414,7 +9407,6 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
         XMEMCPY(handle->auth.buffer, &digest[16], 16);
     #ifdef DEBUG_WOLFTPM
         printf("Handle 0x%x, Auth %d\n", handle->hndl, handle->auth.size);
-        TPM2_PrintBin(handle->auth.buffer, handle->auth.size);
     #endif
     }
     else {
