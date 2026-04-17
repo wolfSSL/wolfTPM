@@ -2133,10 +2133,10 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             r, &a, &prime, 1);
     }
     if (rc == 0) {
-        /* export shared secret x - zero pad to key size */
-        secretPoint.point.x.size = mp_unsigned_bin_size(r->x);
-        rc = mp_to_unsigned_bin(r->x,
-            &secretPoint.point.x.buffer[keySz-secretPoint.point.x.size]);
+        /* export shared secret x - constant-time fixed-size export avoids
+         * leaking the leading-zero count of the ECDH shared secret via
+         * data-dependent offsets */
+        rc = mp_to_unsigned_bin_len_ct(r->x, secretPoint.point.x.buffer, keySz);
         secretPoint.point.x.size = keySz;
     }
     if (rc == 0) {
