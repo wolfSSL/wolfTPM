@@ -13140,13 +13140,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
 
             /* PolicyPassword with no sessionKey (unsalted/unbound):
-             * HMAC field contains plaintext authValue per spec Section 19.6.13 */
+             * HMAC field contains plaintext authValue per spec Section 19.6.13.
+             * Always run TPM2_ConstantCompare so timing doesn't leak auth
+             * length match. */
             if (hSess->sessionType == TPM_SE_POLICY &&
                 hSess->isPasswordPolicy &&
                 hSess->sessionKey.size == 0) {
-                if ((int)cmdAuths[hj].cmdHmacSize != authValSz ||
-                    TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
-                        authVal, (word32)authValSz) != 0) {
+                sizeMismatch = ((int)cmdAuths[hj].cmdHmacSize != authValSz);
+                cmpSz = (cmdAuths[hj].cmdHmacSize < (UINT16)authValSz) ?
+                    cmdAuths[hj].cmdHmacSize : (word32)authValSz;
+                hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
+                    authVal, cmpSz);
+                if (sizeMismatch | hmacDiff) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
