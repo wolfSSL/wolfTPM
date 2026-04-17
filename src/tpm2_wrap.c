@@ -2366,7 +2366,8 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     authSesIn.sessionType = sesType;
     if (encDecAlg == TPM_ALG_CFB) {
         authSesIn.symmetric.algorithm = TPM_ALG_AES;
-        authSesIn.symmetric.keyBits.aes = 128;
+        /* Scale AES key size to match session hash strength */
+        authSesIn.symmetric.keyBits.aes = (hashDigestSz > 32) ? 256 : 128;
         authSesIn.symmetric.mode.aes = TPM_ALG_CFB;
     }
     else if (encDecAlg == TPM_ALG_XOR) {
