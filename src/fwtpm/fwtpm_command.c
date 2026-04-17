@@ -9079,6 +9079,9 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 nameHashSz = 0;
     byte nameHashBuf[TPM_MAX_DIGEST_SIZE];
+    int sizeMismatch;
+    int nameDiff;
+    word32 cmpSz;
     (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
@@ -9099,11 +9102,15 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, nameHashBuf, nameHashSz);
 
-        /* If nameHash already set, must be identical */
+        /* If nameHash already set, must be identical — always run
+         * TPM2_ConstantCompare so timing doesn't leak size match */
         if (sess->nameHash.size > 0) {
-            if (sess->nameHash.size != nameHashSz ||
-                TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
-                    nameHashSz) != 0) {
+            sizeMismatch = (sess->nameHash.size != nameHashSz);
+            cmpSz = (sess->nameHash.size < nameHashSz) ?
+                sess->nameHash.size : nameHashSz;
+            nameDiff = TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
+                cmpSz);
+            if (sizeMismatch | nameDiff) {
                 rc = TPM_RC_CPHASH;
             }
         }
