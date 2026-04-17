@@ -24,7 +24,7 @@ jobs:
       run: ./autogen.sh
     - name: wolfssl configure
       working-directory: ./wolfssl
-      run: ./configure --enable-wolftpm
+      run: ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
     - name: wolfssl make
       working-directory: ./wolfssl
       run: make

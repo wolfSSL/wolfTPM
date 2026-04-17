@@ -12,6 +12,7 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_swtpm.h \
                          wolftpm/tpm2_winapi.h \
                          wolftpm/tpm2_param_enc.h \
+                         wolftpm/tpm2_crypto.h \
                          wolftpm/tpm2_socket.h \
                          wolftpm/tpm2_asn.h \
                          wolftpm/version.h \
@@ -24,4 +25,10 @@ nobase_include_HEADERS+= \
                          wolftpm/spdm/spdm_tcg.h \
                          wolftpm/spdm/spdm_nuvoton.h \
                          wolftpm/spdm/spdm_nations.h \
-                         wolftpm/spdm/spdm_psk.h
+                         wolftpm/spdm/spdm_psk.h \
+                         wolftpm/fwtpm/fwtpm.h \
+                         wolftpm/fwtpm/fwtpm_io.h \
+                         wolftpm/fwtpm/fwtpm_command.h \
+                         wolftpm/fwtpm/fwtpm_crypto.h \
+                         wolftpm/fwtpm/fwtpm_nv.h \
+                         wolftpm/fwtpm/fwtpm_tis.h

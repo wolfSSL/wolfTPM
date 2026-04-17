@@ -4459,6 +4459,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
     \note Upgrades TPM firmware using provided manifest and data callback
+    \note Requires WOLFSSL_SHA384; returns NOT_COMPILED_IN otherwise
     \note For ST33KTPM: LMS vs non-LMS format is auto-detected from manifest size:
           - 177 bytes: Non-LMS format (firmware < 512, e.g., 9.257)
           - 2697 bytes: LMS format (firmware >= 512, e.g., 9.512)
@@ -4466,6 +4467,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
+    \return NOT_COMPILED_IN: wolfSSL not built with WOLFSSL_SHA384
 
     \param dev pointer to a TPM2_DEV struct
     \param manifest pointer to firmware manifest data

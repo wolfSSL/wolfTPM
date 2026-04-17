@@ -873,6 +873,12 @@ INPUT                  = ./docs/README.md \
                          ./hal/README.md \
                          ./wolftpm/tpm2.h \
                          ./wolftpm/tpm2_wrap.h \
+                         ./wolftpm/tpm2_crypto.h \
+                         ./wolftpm/fwtpm/fwtpm.h \
+                         ./wolftpm/fwtpm/fwtpm_command.h \
+                         ./wolftpm/fwtpm/fwtpm_io.h \
+                         ./wolftpm/fwtpm/fwtpm_tis.h \
+                         ./wolftpm/fwtpm/fwtpm_nv.h \
                          ./hal/tpm_io.h
 
 # This tag can be used to specify the character encoding of the source files

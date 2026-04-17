@@ -1,0 +1,425 @@
+name: fwTPM Tests
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  # ----------------------------------------------------------------
+  # make check — unit tests + examples against fwtpm_server
+  # ----------------------------------------------------------------
+  fwtpm-examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # fwTPM with socket/swtpm transport
+          - name: fwtpm-socket
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-debug
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+
+          # fwTPM with TIS/shared-memory transport
+          - name: fwtpm-tis
+            wolftpm_config: --enable-fwtpm --enable-debug
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+
+          # Build-only: fwTPM with RSA disabled
+          - name: fwtpm-no-rsa
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
+            build_only: true
+
+          # Build-only: fwTPM with ECC disabled
+          - name: fwtpm-no-ecc
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-ecc
+            build_only: true
+
+          # Build-only: fwTPM with SHA-384 disabled
+          - name: fwtpm-no-sha384
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha384
+            build_only: true
+
+          # Build-only: fwTPM with SHA-1 disabled (verifies !NO_SHA gating
+          # for SHA-1 PCR bank and RSA hash conversion)
+          - name: fwtpm-no-sha1
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha
+            build_only: true
+            extra_cflags: -DNO_SHA
+
+          # Build-only: fwTPM server only (no client library)
+          - name: fwtpm-only
+            wolftpm_config: --enable-fwtpm-only --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+
+          # Build-only: fwTPM with attestation and NV disabled
+          - name: fwtpm-minimal
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_ATTESTATION -DFWTPM_NO_NV -DFWTPM_NO_POLICY -DFWTPM_NO_CREDENTIAL -DFWTPM_NO_DA -DFWTPM_NO_PARAM_ENC
+
+          # Build-only: individual FWTPM_NO_* macro tests
+          - name: fwtpm-no-policy
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_POLICY
+
+          - name: fwtpm-no-nv
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_NV
+
+          - name: fwtpm-no-attestation
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_ATTESTATION
+
+          - name: fwtpm-no-credential
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_CREDENTIAL
+
+          - name: fwtpm-no-da
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_DA
+
+          - name: fwtpm-no-param-enc
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_PARAM_ENC
+
+          # Build-only: cross-algorithm + feature macro combinations
+          - name: fwtpm-no-rsa-no-policy
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
+            build_only: true
+            extra_cflags: -DFWTPM_NO_POLICY
+
+          - name: fwtpm-no-ecc-no-nv
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-ecc
+            build_only: true
+            extra_cflags: -DFWTPM_NO_NV
+
+          # Build-only: WOLFTPM_SMALL_STACK (heap-allocated crypto objects)
+          - name: fwtpm-small-stack
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DWOLFTPM_SMALL_STACK
+
+          # Build-only: pedantic warnings with -Werror (GCC)
+          - name: fwtpm-pedantic-gcc
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
+
+          # Build-only: pedantic warnings with -Werror (clang)
+          - name: fwtpm-pedantic-clang
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            cc: clang
+            make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
+
+          # Build-only: pedantic fwTPM-only (no client library)
+          - name: fwtpm-pedantic-only
+            wolftpm_config: --enable-fwtpm-only
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            make_cflags: "-Wall -Wextra -Wpedantic -Werror -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2"
+
+          # Note: ASan / UBSan / LeakSan coverage moved to sanitizer.yml
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Install tpm2-tools
+        if: ${{ !matrix.build_only }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+
+      - name: Build wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          CONFIGURE_ARGS="${{ matrix.wolfssl_config }}"
+          EXTRA_CFLAGS="${{ matrix.extra_cflags }}"
+          EXTRA_LDFLAGS="${{ matrix.extra_ldflags }}"
+          WOLFSSL_CFLAGS="-DWC_RSA_NO_PADDING"
+          if [ -n "$EXTRA_CFLAGS" ]; then
+            WOLFSSL_CFLAGS="$WOLFSSL_CFLAGS $EXTRA_CFLAGS"
+          fi
+          CONFIGURE_ARGS="$CONFIGURE_ARGS CFLAGS=\"$WOLFSSL_CFLAGS\""
+          if [ -n "$EXTRA_LDFLAGS" ]; then
+            CONFIGURE_ARGS="$CONFIGURE_ARGS LDFLAGS=\"$EXTRA_LDFLAGS\""
+          fi
+          CC=${{ matrix.cc || 'gcc' }} eval ./configure $CONFIGURE_ARGS
+          make
+          sudo make install
+          sudo ldconfig
+
+      - name: Build wolfTPM
+        run: |
+          ./autogen.sh
+          EXTRA_CFLAGS="${{ matrix.extra_cflags }}"
+          EXTRA_LDFLAGS="${{ matrix.extra_ldflags }}"
+          CONFIGURE_ARGS="${{ matrix.wolftpm_config }}"
+          if [ -n "$EXTRA_CFLAGS" ]; then
+            CONFIGURE_ARGS="$CONFIGURE_ARGS CFLAGS=\"$EXTRA_CFLAGS\""
+          fi
+          if [ -n "$EXTRA_LDFLAGS" ]; then
+            CONFIGURE_ARGS="$CONFIGURE_ARGS LDFLAGS=\"$EXTRA_LDFLAGS\""
+          fi
+          CC=${{ matrix.cc || 'gcc' }} eval ./configure $CONFIGURE_ARGS
+          MAKE_CFLAGS="${{ matrix.make_cflags }}"
+          if [ -n "$MAKE_CFLAGS" ]; then
+            make CFLAGS="$MAKE_CFLAGS"
+          else
+            make
+          fi
+
+      - name: Run tests (make check)
+        if: ${{ !matrix.build_only }}
+        env:
+          WOLFSSL_PATH: ./wolfssl
+        run: make check
+
+      - name: Upload failure logs
+        if: ${{ failure() && !matrix.build_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fwtpm-logs-${{ matrix.name }}
+          path: |
+            /tmp/fwtpm_check_*.log
+          retention-days: 5
+
+  # ----------------------------------------------------------------
+  # tpm2-tools compatibility test against IBM SW TPM
+  # Validates that tpm2_tools_test.sh works on a reference TPM.
+  #
+  # NOTE: tpm2-tools compatibility against fwtpm_server is now exercised
+  # by the fwtpm-examples matrix entries (fwtpm-socket, fwtpm-asan,
+  # fwtpm-ubsan) via `make check` — the standalone fwtpm-tpm2tools job
+  # was removed to eliminate duplication.
+  # ----------------------------------------------------------------
+  ibmswtpm-tpm2tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Build IBM SW TPM
+        run: |
+          git clone --depth=1 https://github.com/kgoldman/ibmswtpm2.git
+          cd ibmswtpm2/src
+          # Increase transient object slots — tpm2-tools ESYS creates
+          # transient salt keys for HMAC sessions which consume extra slots
+          sed -i 's/#define MAX_LOADED_OBJECTS.*/#define MAX_LOADED_OBJECTS 7/' \
+              TpmProfile_Misc.h
+          make -j$(nproc)
+
+      - name: Install tpm2-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+
+      - name: Start IBM SW TPM
+        run: |
+          ibmswtpm2/src/tpm_server &
+          echo $! > /tmp/tpm_server.pid
+          sleep 1
+          kill -0 $(cat /tmp/tpm_server.pid)
+
+      - name: Run tpm2-tools tests
+        run: scripts/tpm2_tools_test.sh --no-start
+
+      - name: Stop IBM SW TPM
+        if: always()
+        run: |
+          if [ -f /tmp/tpm_server.pid ]; then
+            kill $(cat /tmp/tpm_server.pid) 2>/dev/null || true
+          fi
+
+  # ----------------------------------------------------------------
+  # fwTPM STM32 emulator test (m33mu Cortex-M33 simulator)
+  # ----------------------------------------------------------------
+  fwtpm-emulator:
+    runs-on: ubuntu-latest
+    container: ghcr.io/wolfssl/m33mu-ci:1.9
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Checkout wolftpm-examples
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolftpm-examples
+          ref: fwtpm_stm32h5
+          path: wolftpm-examples
+
+      - name: Install build dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq autoconf automake libtool
+
+      - name: Install STM32Cube H5 SDK
+        run: |
+          SDK=$HOME/STM32Cube/Repository/STM32Cube_FW_H5_V1.5.1
+          mkdir -p $SDK/Drivers
+          git clone --depth 1 --branch v1.5.0 \
+            https://github.com/STMicroelectronics/stm32h5xx_hal_driver.git \
+            $SDK/Drivers/STM32H5xx_HAL_Driver
+          git clone --depth 1 --branch v1.4.0 \
+            https://github.com/STMicroelectronics/cmsis_device_h5.git \
+            $SDK/Drivers/CMSIS/Device/ST/STM32H5xx
+          git clone --depth 1 --branch v5.9.0 \
+            https://github.com/STMicroelectronics/cmsis_core.git \
+            /tmp/cmsis_core
+          cp -a /tmp/cmsis_core/Include $SDK/Drivers/CMSIS/Include
+
+      - name: Build wolfSSL (for fwTPM STM32 port)
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              CFLAGS="-DWC_RSA_NO_PADDING"
+          make
+          make install
+          ldconfig
+
+      - name: Copy wolfSSL to /tmp/wolfssl-fwtpm
+        run: cp -a wolfssl /tmp/wolfssl-fwtpm
+
+      - name: Run fwTPM emulator test (non-TZ)
+        env:
+          WOLFSSL_DIR: /tmp/wolfssl-fwtpm
+          WOLFTPM_EXAMPLES_DIR: ${{ github.workspace }}/wolftpm-examples
+        run: scripts/fwtpm_emu_test.sh
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fwtpm-emulator-logs
+          path: |
+            /tmp/fwtpm_emu_test.log
+            /tmp/fwtpm_emu_build.log
+          retention-days: 5
+
+  # ----------------------------------------------------------------
+  # Valgrind memory-safety check
+  # Runs the unit test under valgrind for three FWTPM_DECLARE_VAR
+  # configurations (default, SMALL_STACK, NO_HEAP) so the
+  # stack-vs-heap allocation paths are all exercised.
+  # ----------------------------------------------------------------
+  fwtpm-valgrind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fwtpm-valgrind-default
+            extra_cflags: ""
+          - name: fwtpm-valgrind-smallstack
+            extra_cflags: "-DWOLFTPM_SMALL_STACK"
+          - name: fwtpm-valgrind-noheap
+            extra_cflags: "-DWOLFTPM2_NO_HEAP"
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Install valgrind + tpm2-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind tpm2-tools libtss2-tcti-mssim0
+
+      - name: Build wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              CFLAGS="-DWC_RSA_NO_PADDING -g -O1"
+          make
+          sudo make install
+          sudo ldconfig
+
+      - name: Build wolfTPM (${{ matrix.name }})
+        run: |
+          ./autogen.sh
+          ./configure --enable-fwtpm --enable-swtpm --enable-debug \
+              CFLAGS="${{ matrix.extra_cflags }} -g -O1"
+          make
+
+      - name: Start fwtpm_server
+        run: |
+          rm -f fwtpm_nv.bin
+          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+          echo $! > /tmp/fwtpm_server.pid
+          sleep 1
+          kill -0 $(cat /tmp/fwtpm_server.pid)
+
+      - name: Run unit.test under valgrind
+        run: |
+          valgrind --error-exitcode=1 --leak-check=full \
+                   --errors-for-leak-kinds=definite \
+                   --show-leak-kinds=definite \
+                   ./tests/unit.test
+
+      - name: Stop fwtpm_server
+        if: always()
+        run: |
+          if [ -f /tmp/fwtpm_server.pid ]; then
+            kill $(cat /tmp/fwtpm_server.pid) 2>/dev/null || true
+          fi
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fwtpm-valgrind-logs-${{ matrix.name }}
+          path: |
+            /tmp/fwtpm_check_*.log
+            /tmp/fwtpm_server.log
+            test-suite.log
+            tests/*.log
+            config.log
+          retention-days: 5

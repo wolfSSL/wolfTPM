@@ -4006,10 +4006,34 @@ typedef enum {
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);
 
 
-/* Internal helper API for ensuring memory is forcefully zero'd */
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Forcefully zero a memory region. Unlike memset, this call is not
+    subject to dead-store elimination, so it is safe to use for erasing
+    sensitive material (keys, intermediate HMAC state, etc.) just before
+    the memory goes out of scope.
+
+    \param mem pointer to the buffer to zero (may be NULL; call is a no-op)
+    \param len number of bytes to zero
+
+    \sa TPM2_ConstantCompare
+*/
 WOLFTPM_LOCAL void TPM2_ForceZero(void* mem, word32 len);
 
-/* Constant time memory comparison */
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Constant-time memory comparison. Returns 0 on byte-for-byte
+    match and non-zero on mismatch. Timing is independent of where the
+    first differing byte is located, which is required when comparing
+    HMAC digests or authentication values.
+
+    \return 0 if len bytes of a and b are identical
+    \return non-zero on any mismatch
+
+    \param a first buffer
+    \param b second buffer
+    \param len number of bytes to compare
+*/
 WOLFTPM_TEST_API int TPM2_ConstantCompare(const byte* a, const byte* b, word32 len);
 
 

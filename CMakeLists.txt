@@ -26,6 +26,32 @@ project(wolfTPM VERSION 3.10.0 LANGUAGES C)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(WOLFTPM_DEFINITIONS)
 
+# Firmware TPM (fwTPM) server
+set(WOLFTPM_FWTPM "no" CACHE STRING
+    "Enable firmware TPM (fwTPM) server (default: disabled)")
+set_property(CACHE WOLFTPM_FWTPM
+    PROPERTY STRINGS "yes;no")
+set(WOLFTPM_FWTPM_ONLY "no" CACHE STRING
+    "Build only the fwTPM server, skip client library and examples (default: disabled)")
+set_property(CACHE WOLFTPM_FWTPM_ONLY
+    PROPERTY STRINGS "yes;no")
+set(WOLFTPM_FWTPM_FUZZ "no" CACHE STRING
+    "Enable fwTPM fuzz target (requires libFuzzer, default: disabled)")
+set_property(CACHE WOLFTPM_FWTPM_FUZZ
+    PROPERTY STRINGS "yes;no")
+
+# fwtpm-only forces fwtpm on
+if(WOLFTPM_FWTPM_ONLY)
+    set(WOLFTPM_FWTPM "yes" CACHE STRING "" FORCE)
+endif()
+
+# Build wolftpm client library unless fwtpm-only mode
+if(WOLFTPM_FWTPM_ONLY)
+    set(BUILD_WOLFTPM_LIB OFF)
+else()
+    set(BUILD_WOLFTPM_LIB ON)
+endif()
+
 set(TPM_SOURCES
     src/tpm2.c
     src/tpm2_linux.c
@@ -36,6 +62,8 @@ set(TPM_SOURCES
     src/tpm2_winapi.c
     src/tpm2_wrap.c
     src/tpm2_asn.c
+    src/tpm2_crypto.c
+    src/tpm2_util.c
     src/tpm2_cryptocb.c
     hal/tpm_io.c
     )
@@ -43,10 +71,12 @@ set(TPM_SOURCES
 
 # default to build shared library
 option(BUILD_SHARED_LIBS "Build shared libraries (.dll/.so) instead of static ones (.lib/.a)" ON)
-add_library(wolftpm ${TPM_SOURCES})
-target_compile_definitions(wolftpm PRIVATE
-    "BUILDING_WOLFTPM"
-    )
+if(BUILD_WOLFTPM_LIB)
+    add_library(wolftpm ${TPM_SOURCES})
+    target_compile_definitions(wolftpm PRIVATE
+        "BUILDING_WOLFTPM"
+        )
+endif()
 
 include(CheckIncludeFile)
 check_include_file("fcntl.h" HAVE_FCNTL_H)
@@ -158,11 +188,11 @@ if("${WOLFTPM_INTERFACE}" STREQUAL "auto")
 endif("${WOLFTPM_INTERFACE}" STREQUAL "auto")
 
 
-if(WIN32)
+if(WIN32 AND BUILD_WOLFTPM_LIB)
     target_compile_definitions(wolftpm PRIVATE
         "WOLFTPM_DLL"
         )
-endif(WIN32)
+endif()
 
 if("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_SWTPM")
@@ -177,7 +207,9 @@ elseif("${WOLFTPM_INTERFACE}" STREQUAL "DEVTPM")
 
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "WINAPI")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_WINAPI")
-    target_link_libraries(wolftpm PRIVATE tbs)
+    if(BUILD_WOLFTPM_LIB)
+        target_link_libraries(wolftpm PRIVATE tbs)
+    endif()
 
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "SPI")
     # SPI interface
@@ -342,61 +374,207 @@ if(WOLFTPM_FIRMWARE)
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_FIRMWARE_UPGRADE")
 endif()
 
+# fwTPM definitions (after interface detection)
+if(WOLFTPM_FWTPM)
+    # WOLFTPM_FWTPM_BUILD goes into options.h for build detection
+    # Note: WOLFTPM_FWTPM itself is only set per-target on fwtpm_server/unit_test
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_FWTPM_BUILD")
+    # Determine TIS vs socket transport
+    if(NOT "${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_FWTPM_HAL")
+        list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_ADV_IO")
+        set(WOLFTPM_FWTPM_TIS ON)
+    else()
+        set(WOLFTPM_FWTPM_TIS OFF)
+    endif()
+endif()
+
+# If fwtpm-only, force examples off and disable wrapper
+if(WOLFTPM_FWTPM_ONLY)
+    set(WOLFTPM_EXAMPLES OFF CACHE BOOL "" FORCE)
+    list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WRAPPER")
+endif()
+
 # Examples
 set(WOLFTPM_EXAMPLES "yes" CACHE BOOL
     "Build examples")
 
-target_include_directories(wolftpm
-    PUBLIC
-    $<INSTALL_INTERFACE:include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-    )
+if(BUILD_WOLFTPM_LIB)
+    target_include_directories(wolftpm
+        PUBLIC
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+        )
+endif()
 
+# wolfSSL/wolfCrypt dependency (shared between wolftpm library and fwtpm targets)
+add_library(wolftpm_wolfssl_dep INTERFACE)
+set(WOLFCRYPT_AVAILABLE OFF)
 
 if (WITH_WOLFSSL)
-    target_link_libraries(wolftpm PUBLIC wolfssl)
-    target_include_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/include)
-    target_link_directories(wolftpm PUBLIC ${WITH_WOLFSSL}/lib)
+    target_link_libraries(wolftpm_wolfssl_dep INTERFACE wolfssl)
+    target_include_directories(wolftpm_wolfssl_dep INTERFACE ${WITH_WOLFSSL}/include)
+    target_link_directories(wolftpm_wolfssl_dep INTERFACE ${WITH_WOLFSSL}/lib)
+    set(WOLFCRYPT_AVAILABLE ON)
 elseif (WITH_WOLFSSL_TREE)
     set(WOLFSSL_TPM "yes" CACHE STRING "")
     set(WOLFSSL_EXAMPLES "no" CACHE STRING "")
     set(WOLFSSL_CRYPT_TESTS "no" CACHE STRING "")
     add_subdirectory(${WITH_WOLFSSL_TREE} wolfssl)
-    target_link_libraries(wolftpm PUBLIC wolfssl)
+    target_link_libraries(wolftpm_wolfssl_dep INTERFACE wolfssl)
+    set(WOLFCRYPT_AVAILABLE ON)
 else()
     find_package(PkgConfig)
     pkg_check_modules(WOLFSSL wolfssl)
 
     if (WOLFSSL_FOUND)
-        target_link_libraries(wolftpm PUBLIC ${WOLFSSL_LIBRARIES})
-        target_include_directories(wolftpm PUBLIC ${WOLFSSL_INCLUDE_DIRS})
-        target_link_directories(wolftpm PUBLIC ${WOLFSSL_LIBRARY_DIRS})
-        target_compile_options(wolftpm PUBLIC ${WOLFSSL_CFLAGS_OTHER})
+        target_link_libraries(wolftpm_wolfssl_dep INTERFACE ${WOLFSSL_LIBRARIES})
+        target_include_directories(wolftpm_wolfssl_dep INTERFACE ${WOLFSSL_INCLUDE_DIRS})
+        target_link_directories(wolftpm_wolfssl_dep INTERFACE ${WOLFSSL_LIBRARY_DIRS})
+        target_compile_options(wolftpm_wolfssl_dep INTERFACE ${WOLFSSL_CFLAGS_OTHER})
+        set(WOLFCRYPT_AVAILABLE ON)
     else()
         # For support with vcpkg
         find_package(wolfssl CONFIG REQUIRED)
         if (wolfssl_FOUND)
-            target_link_libraries(wolftpm PUBLIC wolfssl::wolfssl)
+            target_link_libraries(wolftpm_wolfssl_dep INTERFACE wolfssl::wolfssl)
+            set(WOLFCRYPT_AVAILABLE ON)
         else()
             list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM2_NO_WOLFCRYPT")
         endif()
     endif()
 endif()
 
-if (WOLFTPM_EXAMPLES)
+# Link wolftpm library to wolfSSL.
+# PRIVATE so the wolftpm_wolfssl_dep INTERFACE helper does not become part
+# of wolftpm's export set (it is build-tree-only). Downstream consumers of
+# wolftpm should `find_package(wolfssl)` themselves before find_package(wolftpm).
+if(BUILD_WOLFTPM_LIB)
+    target_link_libraries(wolftpm PRIVATE wolftpm_wolfssl_dep)
+endif()
+
+# fwTPM requires wolfCrypt
+if(WOLFTPM_FWTPM AND NOT WOLFCRYPT_AVAILABLE)
+    message(FATAL_ERROR
+        "fwTPM requires wolfCrypt. Provide wolfSSL via -DWITH_WOLFSSL=<path>, "
+        "-DWITH_WOLFSSL_TREE=<path>, or install it system-wide.")
+endif()
+
+if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
     add_library(tpm_test_lib STATIC
         examples/tpm_test_keys.c
         )
-    target_link_libraries(tpm_test_lib wolftpm)
+    # wolftpm_wolfssl_dep is needed explicitly because wolftpm now links it
+    # PRIVATE (so wolfSSL does not leak into wolftpm's installed export set).
+    target_link_libraries(tpm_test_lib PRIVATE wolftpm wolftpm_wolfssl_dep)
 endif()
 
 function(add_tpm_example name src)
     add_executable(${name}
         examples/${src}
         )
-    target_link_libraries(${name} wolftpm tpm_test_lib)
+    target_link_libraries(${name} PRIVATE wolftpm tpm_test_lib wolftpm_wolfssl_dep)
 endfunction()
+
+####################################################
+# fwTPM targets
+####################################################
+
+if(WOLFTPM_FWTPM)
+    # Core fwTPM sources (shared between server, unit test, and fuzz)
+    set(FWTPM_CORE_SOURCES
+        src/fwtpm/fwtpm.c
+        src/fwtpm/fwtpm_command.c
+        src/fwtpm/fwtpm_crypto.c
+        src/fwtpm/fwtpm_nv.c
+        src/tpm2_util.c
+        src/tpm2_packet.c
+        src/tpm2_crypto.c
+        src/tpm2_param_enc.c
+    )
+
+    # Server-specific sources
+    set(FWTPM_SERVER_SOURCES
+        ${FWTPM_CORE_SOURCES}
+        src/fwtpm/fwtpm_io.c
+        src/fwtpm/fwtpm_main.c
+    )
+
+    # TIS sources (when not using SWTPM socket transport)
+    if(WOLFTPM_FWTPM_TIS)
+        list(APPEND FWTPM_SERVER_SOURCES
+            src/fwtpm/fwtpm_tis.c
+            src/fwtpm/fwtpm_tis_shm.c
+        )
+    endif()
+
+    # fwtpm_server executable
+    add_executable(fwtpm_server ${FWTPM_SERVER_SOURCES})
+    target_compile_definitions(fwtpm_server PRIVATE "WOLFTPM_FWTPM")
+    if(WOLFTPM_FWTPM_TIS)
+        target_compile_definitions(fwtpm_server PRIVATE "WOLFTPM_FWTPM_TIS")
+    endif()
+    target_link_libraries(fwtpm_server PRIVATE wolftpm_wolfssl_dep)
+    target_include_directories(fwtpm_server PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(fwtpm_server PRIVATE pthread rt)
+    endif()
+
+    # fwtpm_unit_test executable
+    add_executable(fwtpm_unit_test
+        tests/fwtpm_unit_tests.c
+        ${FWTPM_CORE_SOURCES}
+    )
+    target_compile_definitions(fwtpm_unit_test PRIVATE
+        "WOLFTPM_FWTPM"
+        "FWTPM_NV_FILE=\"fwtpm_test_nv.bin\""
+    )
+    target_link_libraries(fwtpm_unit_test PRIVATE wolftpm_wolfssl_dep)
+    target_include_directories(fwtpm_unit_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(fwtpm_unit_test PRIVATE pthread)
+    endif()
+
+    # fwTPM fuzz target (libFuzzer)
+    if(WOLFTPM_FWTPM_FUZZ)
+        add_executable(fwtpm_fuzz
+            tests/fuzz/fwtpm_fuzz.c
+            ${FWTPM_CORE_SOURCES}
+        )
+        target_compile_definitions(fwtpm_fuzz PRIVATE "WOLFTPM_FWTPM")
+        target_link_libraries(fwtpm_fuzz PRIVATE wolftpm_wolfssl_dep)
+        target_include_directories(fwtpm_fuzz PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}
+        )
+        target_compile_options(fwtpm_fuzz PRIVATE "-fsanitize=fuzzer-no-link")
+        target_link_options(fwtpm_fuzz PRIVATE "-fsanitize=fuzzer")
+    endif()
+
+    # CTest integration
+    enable_testing()
+    add_test(NAME fwtpm_unit_test
+        COMMAND fwtpm_unit_test
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+
+    message(STATUS "fwTPM server: enabled")
+    if(WOLFTPM_FWTPM_TIS)
+        message(STATUS "fwTPM transport: TIS/shared-memory")
+    else()
+        message(STATUS "fwTPM transport: socket (SWTPM)")
+    endif()
+    if(WOLFTPM_FWTPM_ONLY)
+        message(STATUS "fwTPM mode: server-only (no client library)")
+    endif()
+endif()
 
 function(add_to_options_file DEFINITIONS OPTION_FILE)
     list(REMOVE_DUPLICATES DEFINITIONS)
@@ -491,7 +669,7 @@ endif()
 
 
 
-if (WOLFTPM_EXAMPLES)
+if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
     add_tpm_example(activate_credential attestation/activate_credential.c)
     add_tpm_example(certify attestation/certify.c)
     add_tpm_example(make_credential attestation/make_credential.c)
@@ -546,18 +724,31 @@ endif()
 
 include(GNUInstallDirs)
 
-install(TARGETS wolftpm
-        EXPORT  wolftpm-targets
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-        )
+if(BUILD_WOLFTPM_LIB)
+    # Note: wolftpm_wolfssl_dep is an INTERFACE helper used only at build
+    # time to share wolfSSL include/link settings. It is intentionally NOT
+    # installed/exported — downstream `find_package(wolftpm)` should only
+    # see the real wolftpm target and discover wolfSSL via its own config.
+    install(TARGETS wolftpm
+            EXPORT  wolftpm-targets
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib
+            RUNTIME DESTINATION bin
+            )
 
-# Install the export set
-install(EXPORT wolftpm-targets
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm
-        FILE wolftpm-config.cmake
-        NAMESPACE wolfssl::)
+    # Install the export set
+    install(EXPORT wolftpm-targets
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/wolftpm
+            FILE wolftpm-config.cmake
+            NAMESPACE wolfssl::)
+endif()
+
+# Install fwTPM server
+if(WOLFTPM_FWTPM)
+    install(TARGETS fwtpm_server
+            RUNTIME DESTINATION bin
+            )
+endif()
 
 # Install the headers
 install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/wolftpm/

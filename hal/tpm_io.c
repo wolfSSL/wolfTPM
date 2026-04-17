@@ -51,7 +51,9 @@
 /* Set WOLFTPM_INCLUDE_IO_FILE so each .c is built here and not compiled directly */
 #define WOLFTPM_INCLUDE_IO_FILE
 
-#if defined(WOLFTPM_MMIO)
+#if defined(WOLFTPM_FWTPM_HAL)
+#include "hal/tpm_io_fwtpm.c"
+#elif defined(WOLFTPM_MMIO)
 #include "tpm_io_mmio.c"
 #elif defined(__UBOOT__)
 #include "hal/tpm_io_uboot.c"
@@ -77,7 +79,7 @@
 #include "hal/tpm_io_zephyr.c"
 #endif
 
-#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
+#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO) && !defined(WOLFTPM_FWTPM_HAL)
 static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx)
 {
@@ -127,7 +129,7 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     BYTE* buf, UINT16 size, void* userCtx)
 {
     int ret = TPM_RC_FAILURE;
-#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
+#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO) && !defined(WOLFTPM_FWTPM_HAL)
     byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
     byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
 #endif
@@ -141,7 +143,11 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     }
 #endif
 
-#ifdef WOLFTPM_MMIO
+#ifdef WOLFTPM_FWTPM_HAL
+
+    ret = TPM2_IoCb_FwTPM(ctx, isRead, addr, buf, size, userCtx);
+
+#elif defined(WOLFTPM_MMIO)
 
     ret = TPM2_IoCb_Mmio(ctx, isRead, addr, buf, size, userCtx);
 

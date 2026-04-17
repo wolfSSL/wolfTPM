@@ -235,6 +235,10 @@ typedef int64_t  INT64;
 
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
+#ifndef WC_RSA_EXPONENT
+    #define WC_RSA_EXPONENT 65537L
+#endif
+
 #ifndef OFFSETOF
     #if defined(__clang__) || (defined(__GNUC__) && (__GNUC__ >= 4))
         #define OFFSETOF(type, field) __builtin_offsetof(type, field)
@@ -393,7 +397,7 @@ typedef int64_t  INT64;
 /* On Linux with autodetect, also try /dev/tpm0 kernel driver at runtime */
 #if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-    !defined(WOLFTPM_WINAPI)
+    !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL)
     #define WOLFTPM_LINUX_DEV_AUTODETECT
 #endif
 

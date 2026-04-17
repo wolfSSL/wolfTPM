@@ -16,7 +16,7 @@ jobs:
         # wolfssl_config: --enable-wolftpm --enable-pkcallbacks
         # wolfssl_cflags: ""
         # wolfssl_ref: master
-        # wolftpm_config: --enable-swtpm
+        # wolftpm_config: --enable-swtpm --disable-fwtpm
         # wolftpm_cflags: ""
         # test_command: "true"
         # needs_swtpm: true
@@ -41,137 +41,137 @@ jobs:
 
           # No wolfCrypt
           - name: no-wolfcrypt
-            wolftpm_config: --enable-swtpm --disable-wolfcrypt
+            wolftpm_config: --enable-swtpm --disable-wolfcrypt --disable-fwtpm
             test_command: "make check && WOLFSSL_PATH=./wolfssl WOLFCRYPT_ENABLE=0 ./examples/run_examples.sh"
 
           # No wrapper
           - name: no-wrapper
-            wolftpm_config: --enable-swtpm --disable-wrapper
+            wolftpm_config: --enable-swtpm --disable-wrapper --disable-fwtpm
             test_command: "./examples/native/native_test"
 
           # Small stack
           - name: smallstack
-            wolftpm_config: --enable-swtpm --enable-smallstack
+            wolftpm_config: --enable-swtpm --enable-smallstack --disable-fwtpm
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
           # Infineon SLB9670
           - name: slb9670
-            wolftpm_config: --enable-infineon=slb9670
+            wolftpm_config: --enable-infineon=slb9670 --disable-fwtpm
           # Infineon SLB9672
           - name: slb9672
-            wolftpm_config: --enable-infineon=slb9672
+            wolftpm_config: --enable-infineon=slb9672 --disable-fwtpm
           # Infineon SLB9673
           - name: slb9673
-            wolftpm_config: --enable-infineon=slb9673 --enable-i2c
+            wolftpm_config: --enable-infineon=slb9673 --enable-i2c --disable-fwtpm
           # Cert sign callback (wc_SignCert_cb)
           - name: certsigncb
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-certsigncb
-            wolftpm_config: --enable-swtpm --enable-certgen
+            wolftpm_config: --enable-swtpm --enable-certgen --disable-fwtpm
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh && ./examples/csr/csr -signcb && ./examples/csr/csr -signcb -cert"
 
           # STMicro ST33KTPM2
           - name: st33ktpm2
-            wolftpm_config: --enable-st33
+            wolftpm_config: --enable-st33 --disable-fwtpm
           # STMicro ST33KTPM2
           - name: st33ktpm2 firmware
-            wolftpm_config: --enable-st33 --enable-firmware
+            wolftpm_config: --enable-st33 --enable-firmware --disable-fwtpm
           # SPDM + Nuvoton (compile-only, no hardware in CI)
           - name: spdm-nuvoton
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nuvoton
+            wolftpm_config: --enable-spdm --enable-nuvoton --disable-fwtpm
             needs_swtpm: false
           # SPDM small stack (heap-allocated SPDM context)
           - name: spdm-smallstack
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nuvoton --enable-smallstack
+            wolftpm_config: --enable-spdm --enable-nuvoton --enable-smallstack --disable-fwtpm
             needs_swtpm: false
           # SPDM debug
           - name: spdm-debug
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nuvoton --enable-debug
+            wolftpm_config: --enable-spdm --enable-nuvoton --enable-debug --disable-fwtpm
             needs_swtpm: false
           # SPDM + Nations (compile-only, no hardware in CI)
           - name: spdm-nations
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nations
+            wolftpm_config: --enable-spdm --enable-nations --disable-fwtpm
             needs_swtpm: false
           # SPDM + Nations debug
           - name: spdm-nations-debug
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nations --enable-debug
+            wolftpm_config: --enable-spdm --enable-nations --enable-debug --disable-fwtpm
             needs_swtpm: false
           # SPDM + Nations small stack (heap-allocated SPDM context)
           - name: spdm-nations-smallstack
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
-            wolftpm_config: --enable-spdm --enable-nations --enable-smallstack
+            wolftpm_config: --enable-spdm --enable-nations --enable-smallstack --disable-fwtpm
             needs_swtpm: false
           # Microchip
           - name: microchip
-            wolftpm_config: --enable-microchip
+            wolftpm_config: --enable-microchip --disable-fwtpm
           # Nuvoton
           - name: nuvoton
-            wolftpm_config: --enable-nuvoton
+            wolftpm_config: --enable-nuvoton --disable-fwtpm
 
           # TIS lock
           - name: tislock
-            wolftpm_config: --enable-tislock
+            wolftpm_config: --enable-tislock --disable-fwtpm
             needs_swtpm: false
 
           # Debug
           - name: debug
-            wolftpm_config: --enable-debug
+            wolftpm_config: --enable-debug --disable-fwtpm
             needs_swtpm: false
 
           # Debug verbose
           - name: debug-verbose
-            wolftpm_config: --enable-debug=verbose
+            wolftpm_config: --enable-debug=verbose --disable-fwtpm
             needs_swtpm: false
 
           # Debug IO
           - name: debug-io
-            wolftpm_config: --enable-debug=io
+            wolftpm_config: --enable-debug=io --disable-fwtpm
             wolftpm_cflags: "-DWOLFTPM_DEBUG_TIMEOUT"
             needs_swtpm: false
 
           # AdvIO
           - name: advio
-            wolftpm_config: --enable-advio
+            wolftpm_config: --enable-advio --disable-fwtpm
             needs_swtpm: false
 
           # Autodetect (default configure, /dev/tpm0 + SPI dual support)
           - name: autodetect
-            wolftpm_config: ""
+            wolftpm_config: "--disable-fwtpm"
             needs_swtpm: false
 
           # Autodetect with debug
           - name: autodetect-debug
-            wolftpm_config: --enable-debug
+            wolftpm_config: "--enable-debug --disable-fwtpm"
             needs_swtpm: false
-
-          # Clang ASAN
-          - name: clang-asan
-            wolftpm_cflags: "-fsanitize=address -fno-omit-frame-pointer -g"
-            wolftpm_cc: clang
-            test_command: "make check && ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
           # Pedantic
           - name: pedantic
-            wolftpm_config: ""
             wolftpm_cflags: "-Wpedantic"
             needs_swtpm: false
 
-          # Not provisioning
+          # No provisioning
           - name: no-provisioning
-            wolftpm_config: --disable-provisioning
+            wolftpm_config: --disable-provisioning --disable-fwtpm
+            needs_swtpm: false
+
+          # SWTPM UART transport (compile-only; no UART peer in CI)
+          - name: swtpm-uart
+            wolftpm_config: --enable-swtpm=uart --disable-fwtpm
             needs_swtpm: false
 
           # Symmetric encryption
           - name: symmetric
+            wolftpm_config: "--enable-swtpm --disable-fwtpm"
             wolftpm_cflags: "-DWOLFTPM_USE_SYMMETRIC"
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
           # Software ECDHE
           - name: swecdhe
+            wolftpm_config: "--enable-swtpm --disable-fwtpm"
             wolftpm_cflags: "-DWOLFTPM2_USE_SW_ECDHE"
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
@@ -204,6 +204,7 @@ jobs:
           # Builds latest wolfSSL for examples/client/client and examples/server/server
           # Builds old wolfSSL (v4.7.0) for linking wolfTPM against older shared library
           - name: old-wolfssl
+            wolftpm_config: "--enable-swtpm --disable-fwtpm"
             test_command: "make check && WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh"
             needs_install: true
 
@@ -290,7 +291,7 @@ jobs:
       - name: Build wolfTPM
         run: |
           ./autogen.sh
-          WOLFTPM_CONFIG="${{ matrix.wolftpm_config || '--enable-swtpm' }}"
+          WOLFTPM_CONFIG="${{ matrix.wolftpm_config || '--enable-swtpm --disable-fwtpm' }}"
           WOLFTPM_CFLAGS="${{ matrix.wolftpm_cflags || '' }}"
           WOLFTPM_CC="${{ matrix.wolftpm_cc || '' }}"
           # Add TPM port to configure if SWTPM is needed

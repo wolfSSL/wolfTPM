@@ -36,6 +36,8 @@ extern "C" {
 #undef WOLFTPM_ZEPHYR
 #define WOLFTPM_ZEPHYR
 
+#define NO_GETENV   /* Zephyr libc does not provide getenv() */
+
 /* -- WOLFSSL SETTINGS -- */
 #undef  WOLFSSL_USER_SETTINGS
 #define WOLFSSL_USER_SETTINGS

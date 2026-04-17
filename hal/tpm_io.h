@@ -139,6 +139,12 @@ WOLFTPM_LOCAL int TPM2_IoCb_Mmio(TPM2_CTX* ctx, int isRead, word32 addr, byte* b
     word16 size, void* userCtx);
 #endif
 
+#if defined(WOLFTPM_FWTPM_HAL)
+/* fwTPM TIS/shared-memory transport (requires WOLFTPM_ADV_IO) */
+WOLFTPM_LOCAL int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
+#endif
+
 #endif /* WOLFTPM_EXAMPLE_HAL */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 

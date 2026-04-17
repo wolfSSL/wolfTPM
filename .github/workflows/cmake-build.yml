@@ -84,6 +84,15 @@ jobs:
           # Test combination of options
           - name: "Combined Options"
             options: "-DWOLFTPM_INTERFACE=I2C -DWOLFTPM_MODULE=st33 -DWOLFTPM_ADVIO=yes -DWOLFTPM_CHECK_WAIT_STATE=yes"
+          # fwTPM server with socket transport
+          - name: "fwTPM Socket"
+            options: "-DWOLFTPM_FWTPM=yes -DWOLFTPM_INTERFACE=SWTPM"
+          # fwTPM server with TIS/shared-memory transport
+          - name: "fwTPM TIS"
+            options: "-DWOLFTPM_FWTPM=yes -DWOLFTPM_INTERFACE=SPI"
+          # fwTPM server-only mode (no client library or examples)
+          - name: "fwTPM Only"
+            options: "-DWOLFTPM_FWTPM_ONLY=yes -DWOLFTPM_INTERFACE=SWTPM"
 
     steps:
 #pull wolfTPM
@@ -107,7 +116,7 @@ jobs:
         mkdir build
         cd build
         # wolfSSL PR 7188 broke "make install" unless WOLFSSL_INSTALL is set
-        cmake -DWOLFSSL_TPM=yes -DWOLFSSL_INSTALL=yes -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" ..
+        cmake -DWOLFSSL_TPM=yes -DWOLFSSL_INSTALL=yes -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" -DCMAKE_C_FLAGS="-DWC_RSA_NO_PADDING" ..
         cmake --build .
         cmake --install .
 
@@ -119,3 +128,9 @@ jobs:
         cmake ${{ matrix.config.options }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" -DWITH_WOLFSSL="$GITHUB_WORKSPACE/install" ..
         cmake --build .
         cmake --install .
+
+    - name: Test fwTPM
+      if: contains(matrix.config.options, 'WOLFTPM_FWTPM')
+      run: |
+        cd build
+        LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install/lib" ctest --output-on-failure

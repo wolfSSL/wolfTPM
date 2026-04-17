@@ -24,6 +24,7 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_asn.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER)
@@ -886,7 +887,10 @@ int wolfTPM2_PK_RsaSignCheck(WOLFSSL* ssl,
     (void)keyDer;
     (void)keySz;
     (void)tlsCtx;
-    /* We used sign hardware, so assume sign is good */
+    /* Accepted risk: TPM hardware performed the signing operation.
+     * Signature verification is not repeated here because the TPM is a
+     * trusted component. A faulty TPM or bus error would be detected by
+     * the TLS peer during handshake verification. */
     return 0;
 }
 
@@ -926,10 +930,7 @@ static int RsaMGF1(wc_HashAlg* hash, enum wc_HashType hType,
         XMEMCPY(tmp, seed, seedSz);
 
         /* counter to byte array appended to tmp */
-        tmp[seedSz]     = (byte)((counter >> 24) & 0xFF);
-        tmp[seedSz + 1] = (byte)((counter >> 16) & 0xFF);
-        tmp[seedSz + 2] = (byte)((counter >>  8) & 0xFF);
-        tmp[seedSz + 3] = (byte)((counter)       & 0xFF);
+        TPM2_Packet_U32ToByteArray(counter, tmp + seedSz);
 
         /* hash and append to existing output */
         ret = wc_HashUpdate(hash, hType, tmp, (seedSz + 4));
@@ -1169,7 +1170,10 @@ int wolfTPM2_PK_RsaPssSignCheck(WOLFSSL* ssl,
     (void)keyDer;
     (void)keySz;
     (void)tlsCtx;
-    /* We used sign hardware, so assume sign is good */
+    /* Accepted risk: TPM hardware performed the PSS signing operation.
+     * Signature verification is not repeated here because the TPM is a
+     * trusted component. A faulty TPM or bus error would be detected by
+     * the TLS peer during handshake verification. */
     return 0;
 }
 

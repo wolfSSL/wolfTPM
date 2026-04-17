@@ -11,41 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build_wolfssl:
-    name: Build wolfSSL
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
-      - name: Build wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
-
-      - name: tar build-dir
-        run: tar -zcf wolfssl-install.tgz /usr/local/lib/libwolfssl* /usr/local/include/wolfssl
-
-      - name: Upload built lib
-        uses: actions/upload-artifact@v4
-        with:
-          name: wolfssl-install
-          path: wolfssl-install.tgz
-          retention-days: 5
-
   sanitizer_test:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: build_wolfssl
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -53,9 +22,11 @@ jobs:
           - name: "ASan"
             cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1"
             ldflags: "-fsanitize=address"
+            asan_options: "detect_leaks=0"
           - name: "UBSan"
             cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=undefined"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
           - name: "LeakSan"
             cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=leak"
@@ -67,37 +38,46 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Download wolfSSL
-        uses: actions/download-artifact@v4
-        with:
-          name: wolfssl-install
-
-      - name: Install wolfSSL
-        run: |
-          sudo tar -xzf wolfssl-install.tgz -C /
-          sudo ldconfig
-
-      - name: Setup ibmswtpm2
+      - name: Checkout wolfSSL
         uses: actions/checkout@v4
         with:
-          repository: kgoldman/ibmswtpm2
-          path: ibmswtpm2
+          repository: wolfssl/wolfssl
+          path: wolfssl
 
-      - name: Build and start TPM simulator
-        working-directory: ./ibmswtpm2/src
+      - name: Install tpm2-tools
         run: |
-          make -j$(nproc)
-          ./tpm_server &
-          sleep 2
+          sudo apt-get update
+          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
 
-      - name: Build wolfTPM with ${{ matrix.name }}
+      - name: Build and install wolfSSL with ${{ matrix.name }}
+        working-directory: ./wolfssl
         run: |
           ./autogen.sh
-          ./configure --enable-swtpm \
-            CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
-          make -j$(nproc)
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              --prefix=/tmp/wolfssl-install \
+              CFLAGS="-DWC_RSA_NO_PADDING ${{ matrix.cflags }}" \
+              LDFLAGS="${{ matrix.ldflags }}"
+          make
+          make install
 
-      - name: Run tests
+      - name: Build wolfTPM with fwTPM + ${{ matrix.name }}
+        run: |
+          ./autogen.sh
+          ./configure --enable-fwtpm --enable-swtpm --enable-debug \
+              --with-wolfcrypt=/tmp/wolfssl-install \
+              CFLAGS="${{ matrix.cflags }}" \
+              LDFLAGS="${{ matrix.ldflags }}"
+          make
+
+      - name: Run tests (make check)
+        env:
+          # WOLFSSL_PATH must point at the wolfSSL *source tree* (with built
+          # examples/server/server), not the install prefix — run_examples.sh
+          # `pushd $WOLFSSL_PATH && ./examples/server/server ...` for TLS tests.
+          WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
+          LD_LIBRARY_PATH: /tmp/wolfssl-install/lib
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
         run: make check
 
       - name: Upload failure logs
@@ -106,7 +86,8 @@ jobs:
         with:
           name: wolftpm-${{ matrix.name }}-logs
           path: |
-            run.out
+            /tmp/fwtpm_check_*.log
             test-suite.log
+            tests/*.log
             config.log
           retention-days: 5

@@ -47,6 +47,11 @@
 /* TPM2 IO for using TPM through a Socket connection */
 WOLFTPM_LOCAL int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
+#ifdef WOLFTPM_SWTPM_UART
+/* Close the persistent UART FD during final TPM context cleanup */
+WOLFTPM_LOCAL void TPM2_SwtpmCloseUART(TPM2_CTX* ctx);
+#endif
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

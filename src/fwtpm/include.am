@@ -1,0 +1,48 @@
+# vim:ft=automake
+# included from Top Level Makefile.am
+# All paths should be given relative to the root
+
+if BUILD_FWTPM
+# fwTPM server binary
+bin_PROGRAMS += src/fwtpm/fwtpm_server
+src_fwtpm_fwtpm_server_SOURCES = \
+    src/fwtpm/fwtpm.c \
+    src/fwtpm/fwtpm_command.c \
+    src/fwtpm/fwtpm_crypto.c \
+    src/fwtpm/fwtpm_io.c \
+    src/fwtpm/fwtpm_nv.c \
+    src/tpm2_util.c \
+    src/fwtpm/fwtpm_main.c \
+    src/tpm2_packet.c \
+    src/tpm2_crypto.c \
+    src/tpm2_param_enc.c
+src_fwtpm_fwtpm_server_CFLAGS  = -DWOLFTPM_FWTPM $(AM_CFLAGS)
+src_fwtpm_fwtpm_server_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
+src_fwtpm_fwtpm_server_LDADD   = $(LIB_STATIC_ADD)
+if BUILD_FWTPM_TIS
+src_fwtpm_fwtpm_server_SOURCES += src/fwtpm/fwtpm_tis.c \
+    src/fwtpm/fwtpm_tis_shm.c
+src_fwtpm_fwtpm_server_CFLAGS  += -DWOLFTPM_FWTPM_TIS
+src_fwtpm_fwtpm_server_CPPFLAGS += -DWOLFTPM_FWTPM_TIS
+endif
+
+# Fuzz target (libFuzzer)
+if BUILD_FUZZ
+noinst_PROGRAMS += tests/fuzz/fwtpm_fuzz
+tests_fuzz_fwtpm_fuzz_SOURCES = \
+    tests/fuzz/fwtpm_fuzz.c \
+    src/fwtpm/fwtpm.c \
+    src/fwtpm/fwtpm_command.c \
+    src/fwtpm/fwtpm_crypto.c \
+    src/fwtpm/fwtpm_nv.c \
+    src/tpm2_util.c \
+    src/tpm2_packet.c \
+    src/tpm2_crypto.c \
+    src/tpm2_param_enc.c
+tests_fuzz_fwtpm_fuzz_CFLAGS   = -DWOLFTPM_FWTPM $(AM_CFLAGS)
+tests_fuzz_fwtpm_fuzz_CPPFLAGS = -DWOLFTPM_FWTPM $(AM_CPPFLAGS)
+tests_fuzz_fwtpm_fuzz_LDFLAGS  = -fsanitize=fuzzer $(AM_LDFLAGS)
+tests_fuzz_fwtpm_fuzz_LDADD    = $(LIB_STATIC_ADD)
+endif
+
+endif

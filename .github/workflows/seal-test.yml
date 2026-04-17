@@ -8,6 +8,7 @@ on:
       - 'examples/nvram/seal_nv.c'
       - 'examples/nvram/nvram.h'
       - 'src/tpm2_wrap.c'
+      - 'src/fwtpm/**'
       - 'wolftpm/tpm2_wrap.h'
   pull_request:
     branches: [ '*' ]
@@ -16,6 +17,7 @@ on:
       - 'examples/nvram/seal_nv.c'
       - 'examples/nvram/nvram.h'
       - 'src/tpm2_wrap.c'
+      - 'src/fwtpm/**'
       - 'wolftpm/tpm2_wrap.h'
 
 jobs:
@@ -36,36 +38,51 @@ jobs:
         working-directory: ./wolfssl
         run: |
           ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks
-          make -j
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              CFLAGS="-DWC_RSA_NO_PADDING"
+          make
           sudo make install
           sudo ldconfig
 
-      - name: Checkout ibmswtpm2
-        uses: actions/checkout@v4
-        with:
-          repository: kgoldman/ibmswtpm2
-          path: ibmswtpm2
-
-      - name: Build and start SWTPM
-        working-directory: ./ibmswtpm2/src
-        run: |
-          make
-          ./tpm_server &
-
-      - name: Build wolfTPM
+      - name: Build wolfTPM with fwTPM
         run: |
           ./autogen.sh
-          ./configure --enable-swtpm --enable-debug
-          make -j
+          ./configure --enable-fwtpm --enable-swtpm --enable-debug
+          make
+
+      - name: Start fwtpm_server
+        run: |
+          rm -f fwtpm_nv.bin
+          ./src/fwtpm/fwtpm_server > /tmp/seal_fwtpm.log 2>&1 &
+          echo $! > /tmp/seal_fwtpm.pid
+          for i in $(seq 1 500); do
+              ss -tln 2>/dev/null | grep -q ':2321 ' && break
+              sleep 0.01
+          done
+          if ! ss -tln 2>/dev/null | grep -q ':2321 '; then
+              echo "fwtpm_server failed to start"
+              cat /tmp/seal_fwtpm.log
+              exit 1
+          fi
 
       - name: Run seal tests
         run: bash examples/seal/seal_test.sh
+
+      - name: Stop fwtpm_server
+        if: always()
+        run: |
+          if [ -f /tmp/seal_fwtpm.pid ]; then
+              kill "$(cat /tmp/seal_fwtpm.pid)" 2>/dev/null || true
+              rm -f /tmp/seal_fwtpm.pid
+          fi
+          rm -f fwtpm_nv.bin
 
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: seal-test-logs
-          path: seal_test.log
+          path: |
+            seal_test.log
+            /tmp/seal_fwtpm.log
           retention-days: 5

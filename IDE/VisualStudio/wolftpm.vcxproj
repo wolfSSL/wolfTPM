@@ -44,9 +44,12 @@
     <ClCompile Include="..\..\src\tpm2_tis.c" />
     <ClCompile Include="..\..\src\tpm2_winapi.c" />
     <ClCompile Include="..\..\src\tpm2_wrap.c" />
+    <ClCompile Include="..\..\src\tpm2_crypto.c" />
+    <ClCompile Include="..\..\src\tpm2_util.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\wolftpm\tpm2.h" />
+    <ClInclude Include="..\..\wolftpm\tpm2_crypto.h" />
     <ClInclude Include="..\..\wolftpm\tpm2_linux.h" />
     <ClInclude Include="..\..\wolftpm\tpm2_packet.h" />
     <ClInclude Include="..\..\wolftpm\tpm2_param_enc.h" />
