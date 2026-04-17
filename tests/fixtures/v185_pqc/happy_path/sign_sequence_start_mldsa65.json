@@ -1,0 +1,52 @@
+{
+  "fixture_id": "sign_sequence_start_mldsa65",
+  "spec_basis": "TCG TPM 2.0 Library v185 rc4 (2025-12-11)",
+  "citations": [
+    "Part 3 §17.5 TPM2_SignSequenceStart (General Description)",
+    "Part 3 §17.6.3 Table 89 (Command)",
+    "Part 3 §17.6.3 Table 90 (Response)",
+    "Part 2 §6.5.2 Table 11 (TPM_CC_SignSequenceStart = 0x000001AA)",
+    "Part 2 §10.3.5 TPM2B_AUTH",
+    "Part 2 §11.3.7 Table 219 (TPMU_SIGNATURE_CTX — MLDSA/HASH_MLDSA arm, MAX_SIG_CTX_BYTES ≥ 255)",
+    "Part 2 §11.3.8 Table 220 (TPM2B_SIGNATURE_CTX)"
+  ],
+  "notes": "Exercises Bug M-3 fix: Command per Table 89 is {keyHandle, auth, context}. PR #445 currently sends {keyHandle, context} with auth MISSING. This fixture's cmd_bytes_hex encodes the spec-correct 3-parameter form and will fail against current client marshaling until M-3 is fixed in Phase 2.",
+
+  "cmd_header": {
+    "tag": "TPM_ST_NO_SESSIONS or TPM_ST_SESSIONS (audit/encrypt permitted)",
+    "commandCode": "TPM_CC_SignSequenceStart (0x000001AA)",
+    "handles": [
+      { "name": "keyHandle", "value_hex": "80000002", "auth_role": "None", "auth_index": "None" }
+    ],
+    "parameters": [
+      { "name": "auth", "type": "TPM2B_AUTH", "size_u16": "0x0000", "buffer": "empty for fixture" },
+      { "name": "context", "type": "TPM2B_SIGNATURE_CTX", "size_u16": "0x0000", "buffer": "empty for fixture" }
+    ]
+  },
+
+  "cmd_bytes_hex": "80010000001200 0001AA 80000002 0000 0000",
+  "cmd_annotation": [
+    { "offset": 0,  "size": 2, "field": "tag (TPM_ST_NO_SESSIONS)",               "value_hex": "8001" },
+    { "offset": 2,  "size": 4, "field": "commandSize (18 bytes total)",           "value_hex": "00000012" },
+    { "offset": 6,  "size": 4, "field": "commandCode (TPM_CC_SignSequenceStart)", "value_hex": "000001AA" },
+    { "offset": 10, "size": 4, "field": "keyHandle",                              "value_hex": "80000002" },
+    { "offset": 14, "size": 2, "field": "auth.size (empty TPM2B_AUTH)",           "value_hex": "0000" },
+    { "offset": 16, "size": 2, "field": "context.size (empty TPM2B_SIGNATURE_CTX)","value_hex": "0000" }
+  ],
+
+  "note_cmd_bytes_spaces": "cmd_bytes_hex includes spaces for readability; runner must strip whitespace before byte comparison",
+
+  "rsp_schema": [
+    { "field": "tag",            "type": "UINT16", "value_hex": "8001" },
+    { "field": "responseSize",   "type": "UINT32", "value_hex": "0000000E" },
+    { "field": "responseCode",   "type": "UINT32", "value_hex": "00000000" },
+    { "field": "sequenceHandle", "type": "TPMI_DH_OBJECT (UINT32)", "value_hex": "TBD_PHASE_5" }
+  ],
+
+  "expected_behavior": {
+    "client_marshal": "MUST emit exactly 18 bytes (currently emits 16 — Bug M-3)",
+    "server_dispatch": "FwCmd_SignSequenceStart allocates sequence slot, stores {keyHandle, auth, context}, returns new sequenceHandle"
+  },
+
+  "status": "skeleton — sequenceHandle value TBD Phase 5; fixture intentionally fails on unfixed client (Bug M-3 regression-proof)"
+}

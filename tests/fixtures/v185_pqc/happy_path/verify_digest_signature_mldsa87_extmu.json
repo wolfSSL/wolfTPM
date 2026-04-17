@@ -1,0 +1,56 @@
+{
+  "fixture_id": "verify_digest_signature_mldsa87_extmu",
+  "spec_basis": "TCG TPM 2.0 Library v185 rc4 (2025-12-11)",
+  "citations": [
+    "Part 3 §20.4 TPM2_VerifyDigestSignature",
+    "Part 3 §20.4.2 Table 120 (Command)",
+    "Part 3 §20.4.2 Table 121 (Response)",
+    "Part 2 §6.5.2 Table 11 (TPM_CC_VerifyDigestSignature = 0x000001A5)",
+    "Part 2 §6.9 Table 20 (TPM_ST_DIGEST_VERIFIED = 0x8027)",
+    "Part 2 §10.6.4 Table 110 (TPMU_TK_VERIFIED_META — digestVerified arm carries TPM_ALG_ID)",
+    "Part 2 §10.6.5 Table 112 (TPMT_TK_VERIFIED — [tag]metadata field; hmac field)",
+    "docs/v185_pqc/SPEC_DECISIONS.md DEC-0003 (metadata TPM_ALG_ID for ext-μ = TPM_ALG_NULL)",
+    "docs/v185_pqc/SPEC_DECISIONS.md DEC-0006 (ext-μ = 64 bytes)"
+  ],
+  "notes": "Highest-value fixture for the validation-ticket rework. Pins BOTH the new [tag]metadata field (Bug M-4) AND the DEC-0003 decision that ext-μ validates with metadata = TPM_ALG_NULL. The response ticket wire format for a successful ext-μ verify is: {tag=0x8027, hierarchy_u32, metadata_u16=0x0010, hmac_size_u16, hmac_bytes}.",
+
+  "cmd_header": {
+    "tag": "TPM_ST_SESSIONS (if audit/encrypt session); else TPM_ST_NO_SESSIONS",
+    "commandCode": "TPM_CC_VerifyDigestSignature (0x000001A5)",
+    "handles": [
+      { "name": "keyHandle", "auth_role": "None", "auth_index": "None" }
+    ],
+    "parameters": [
+      { "name": "context",   "type": "TPM2B_SIGNATURE_CTX", "notes": "may be zero-length" },
+      { "name": "digest",    "type": "TPM2B_DIGEST",        "size_u16": "0x0040", "notes": "64-byte ext-μ" },
+      { "name": "signature", "type": "TPMT_SIGNATURE",      "notes": "MLDSA-87 signature, 4627 bytes" }
+    ]
+  },
+
+  "cmd_bytes_hex": "TBD_PHASE_5 (requires valid signature for pinned digest)",
+
+  "rsp_schema": [
+    { "field": "tag",                  "type": "UINT16", "value_hex": "8001 or 8002" },
+    { "field": "responseSize",         "type": "UINT32" },
+    { "field": "responseCode",         "type": "UINT32", "value_hex": "00000000" },
+    { "field": "validation.tag",       "type": "UINT16 (TPM_ST_DIGEST_VERIFIED)", "value_hex": "8027" },
+    { "field": "validation.hierarchy", "type": "UINT32", "value_hex": "TBD (key's hierarchy)" },
+    { "field": "validation.metadata.digestVerified", "type": "TPM_ALG_ID (UINT16)", "value_hex": "0010 (TPM_ALG_NULL per DEC-0003)" },
+    { "field": "validation.hmac.size", "type": "UINT16", "value_hex": "0020 (SHA-256 context hash)" },
+    { "field": "validation.hmac.buffer","type": "BYTE[32]", "value_hex": "TBD_PHASE_5" }
+  ],
+
+  "expected_behavior": {
+    "sig_check_fail": "TPM_RC_SIGNATURE",
+    "scheme_mismatch": "TPM_RC_SCHEME if signature.sigAlg does not match keyHandle's scheme",
+    "metadata_alg_id": "TPM_ALG_NULL for ext-μ (DEC-0003); TPM_ALG_SHA256 etc. for HashMLDSA",
+    "ticket_binds_to_digest": "Part 2 §10.6.5 Eq.5: hmac = HMAC_contextAlg(proof, tag ‖ digest ‖ keyName ‖ metadata)"
+  },
+
+  "regression_coverage": {
+    "bug_M_4": "If the client parser drops [tag]metadata, it will read the hmac.size from what's actually the metadata TPM_ALG_ID bytes, corrupting the ticket.",
+    "dec_0003": "Pins the choice of TPM_ALG_NULL for ext-μ metadata."
+  },
+
+  "status": "skeleton — hmac bytes pending Phase 5"
+}
