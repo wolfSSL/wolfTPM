@@ -9458,6 +9458,9 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     INT32 expiration = 0;
     UINT32 extendCC;
+    int cpaSizeMismatch;
+    int cpaDiff;
+    word32 cpaCmpSz;
     (void)cmdSize;
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
@@ -9612,13 +9615,18 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Store cpHashA constraint if provided */
+    /* Store cpHashA constraint if provided — always run TPM2_ConstantCompare
+     * so timing doesn't leak size match */
     if (rc == 0 && cpHashASz > 0) {
-        if (sess->cpHashA.size > 0 &&
-            (sess->cpHashA.size != cpHashASz ||
-             TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
-                cpHashASz) != 0)) {
-            rc = TPM_RC_CPHASH;
+        if (sess->cpHashA.size > 0) {
+            cpaSizeMismatch = (sess->cpHashA.size != cpHashASz);
+            cpaCmpSz = (sess->cpHashA.size < cpHashASz) ?
+                sess->cpHashA.size : cpHashASz;
+            cpaDiff = TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
+                cpaCmpSz);
+            if (cpaSizeMismatch | cpaDiff) {
+                rc = TPM_RC_CPHASH;
+            }
         }
         if (rc == 0) {
             sess->cpHashA.size = cpHashASz;
