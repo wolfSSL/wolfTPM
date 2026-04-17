@@ -61,9 +61,9 @@ WOLFTPM_LOCAL int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
     BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash);
 
 /* Perform encryption over the first parameter of a TPM packet */
-WOLFTPM_LOCAL TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
+WOLFTPM_TEST_API TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz);
-WOLFTPM_LOCAL TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
+WOLFTPM_TEST_API TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
                                 BYTE *paramData, UINT32 paramSz);
 
 #ifdef __cplusplus

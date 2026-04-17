@@ -216,7 +216,8 @@ int TPM2_Seal_PCR_Example(void* userCtx, int argc, char *argv[])
 
         /* Step 2: Create seal template with PCR policy */
         wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, pcrAlg);
-        /* Do NOT set TPMA_OBJECT_userWithAuth - policy-only access */
+        /* Clear userWithAuth - policy-only access */
+        sealTemplate.objectAttributes &= ~TPMA_OBJECT_userWithAuth;
         sealTemplate.authPolicy.size = policyDigestSz;
         XMEMCPY(sealTemplate.authPolicy.buffer, policyDigest, policyDigestSz);
 

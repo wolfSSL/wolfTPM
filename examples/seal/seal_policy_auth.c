@@ -265,7 +265,8 @@ int TPM2_Seal_PolicyAuth_Example(void* userCtx, int argc, char *argv[])
 
         /* Step 3: Create seal template with PolicyAuthorize digest */
         wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, pcrAlg);
-        /* Do NOT set TPMA_OBJECT_userWithAuth - policy-only access */
+        /* Clear userWithAuth - policy-only access */
+        sealTemplate.objectAttributes &= ~TPMA_OBJECT_userWithAuth;
         sealTemplate.authPolicy.size = policyDigestSz;
         XMEMCPY(sealTemplate.authPolicy.buffer, policyDigest, policyDigestSz);
 

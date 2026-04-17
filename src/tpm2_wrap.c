@@ -3467,8 +3467,15 @@ int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     rc = wolfTPM2_ImportRsaPrivateKey(dev, parentKey, &keyBlob, rsaPub, rsaPubSz,
         exponent, rsaPriv, rsaPrivSz, scheme, hashAlg);
     if (rc == 0) {
-        rc = wolfTPM2_LoadKey(dev, &keyBlob,
-            (WOLFTPM2_HANDLE*)&parentKey->handle);
+        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
+        if (parentKey != NULL) {
+            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
+        }
+        else {
+            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
+            parentHandle->hndl = TPM_RH_OWNER;
+        }
+        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
     }
 
     /* return loaded key */
@@ -3640,8 +3647,15 @@ int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
     rc = wolfTPM2_ImportEccPrivateKey(dev, parentKey, &keyBlob, curveId,
         eccPubX, eccPubXSz, eccPubY, eccPubYSz, eccPriv, eccPrivSz);
     if (rc == 0) {
-        rc = wolfTPM2_LoadKey(dev, &keyBlob,
-            (WOLFTPM2_HANDLE*)&parentKey->handle);
+        WOLFTPM2_HANDLE parentHandle_lcl, *parentHandle = &parentHandle_lcl;
+        if (parentKey != NULL) {
+            parentHandle = (WOLFTPM2_HANDLE*)&parentKey->handle;
+        }
+        else {
+            XMEMSET(parentHandle, 0, sizeof(*parentHandle));
+            parentHandle->hndl = TPM_RH_OWNER;
+        }
+        rc = wolfTPM2_LoadKey(dev, &keyBlob, parentHandle);
     }
 
     /* return loaded key */
@@ -3715,13 +3729,21 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
     XMEMSET(q, 0, sizeof(q));
 
     if (attributes == 0) {
-        attributes = (TPMA_OBJECT_restricted |
-                      TPMA_OBJECT_sensitiveDataOrigin |
-                      TPMA_OBJECT_sign |
-                      TPMA_OBJECT_userWithAuth |
-                      TPMA_OBJECT_noDA);
         if (sens != NULL) {
-            attributes |= TPMA_OBJECT_decrypt;
+            /* Imported private keys: restricted must not be set when both
+             * sign and decrypt are set (TPM 2.0 Part 2 Table 31), and
+             * sensitiveDataOrigin must not be set for imported keys */
+            attributes = (TPMA_OBJECT_sign |
+                          TPMA_OBJECT_decrypt |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
+        }
+        else {
+            attributes = (TPMA_OBJECT_restricted |
+                          TPMA_OBJECT_sensitiveDataOrigin |
+                          TPMA_OBJECT_sign |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
         }
     }
 
@@ -3764,8 +3786,13 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             pub->publicArea.objectAttributes = attributes;
             rsa->keyBits = nSz * 8;
             rsa->exponent = e;
+            /* if both sign and decrypt are set then must use NULL scheme */
             rsa->scheme.scheme =
-                (attributes & TPMA_OBJECT_sign) ? TPM_ALG_RSASSA : TPM_ALG_NULL;
+                ((attributes & TPMA_OBJECT_sign) &&
+                 (attributes & TPMA_OBJECT_decrypt)) ?
+                    TPM_ALG_NULL :
+                ((attributes & TPMA_OBJECT_sign) ? TPM_ALG_RSASSA :
+                    TPM_ALG_NULL);
             rsa->scheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
             pub->publicArea.unique.rsa.size = nSz;
             XMEMCPY(pub->publicArea.unique.rsa.buffer, n, nSz);
@@ -3820,13 +3847,21 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
     XMEMSET(qy, 0, sizeof(qy));
 
     if (attributes == 0) {
-        attributes = (TPMA_OBJECT_restricted |
-                      TPMA_OBJECT_sensitiveDataOrigin |
-                      TPMA_OBJECT_sign |
-                      TPMA_OBJECT_userWithAuth |
-                      TPMA_OBJECT_noDA);
         if (sens != NULL) {
-            attributes |= TPMA_OBJECT_decrypt;
+            /* Imported private keys: restricted must not be set when both
+             * sign and decrypt are set (TPM 2.0 Part 2 Table 31), and
+             * sensitiveDataOrigin must not be set for imported keys */
+            attributes = (TPMA_OBJECT_sign |
+                          TPMA_OBJECT_decrypt |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
+        }
+        else {
+            attributes = (TPMA_OBJECT_restricted |
+                          TPMA_OBJECT_sensitiveDataOrigin |
+                          TPMA_OBJECT_sign |
+                          TPMA_OBJECT_userWithAuth |
+                          TPMA_OBJECT_noDA);
         }
     }
 
@@ -3868,8 +3903,13 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
             pub->publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
             pub->publicArea.objectAttributes = attributes;
             ecc->symmetric.algorithm = TPM_ALG_NULL;
+            /* if both sign and decrypt are set then must use NULL scheme */
             ecc->scheme.scheme =
-                (attributes & TPMA_OBJECT_sign) ? TPM_ALG_ECDSA : TPM_ALG_NULL;
+                ((attributes & TPMA_OBJECT_sign) &&
+                 (attributes & TPMA_OBJECT_decrypt)) ?
+                    TPM_ALG_NULL :
+                ((attributes & TPMA_OBJECT_sign) ? TPM_ALG_ECDSA :
+                    TPM_ALG_NULL);
             ecc->scheme.details.ecdsa.hashAlg = WOLFTPM2_WRAP_DIGEST;
             ecc->curveID = curveId;
             ecc->kdf.scheme = TPM_ALG_NULL;
@@ -7217,7 +7257,7 @@ int wolfTPM2_GetKeyTemplate_KeySeal(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID name
     publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
-        TPMA_OBJECT_noDA);
+        TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
     publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_NULL;
     return TPM_RC_SUCCESS;
 }
@@ -9353,7 +9393,6 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 
     (void)dev;
 
-    TPM2_ForceZero(digest, sizeof(digest));
     return rc;
 }
 

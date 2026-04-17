@@ -268,6 +268,8 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
 
     /* Create a new key for sealing using signing auth for external key */
     wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, pcrAlg);
+    /* Clear userWithAuth - policy-only access */
+    sealTemplate.objectAttributes &= ~TPMA_OBJECT_userWithAuth;
     sealTemplate.authPolicy.size = policyDigestSz;
     XMEMCPY(sealTemplate.authPolicy.buffer, policyDigest, policyDigestSz);
     rc = wolfTPM2_CreateKeySeal_ex(&dev, &sealBlob, &storage.handle,
