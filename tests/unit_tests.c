@@ -2741,6 +2741,43 @@ static void test_wolfTPM2_EncryptDecryptBlock(void)
     printf("Test TPM Wrapper:\tEncryptDecryptBlock IV validate:\tPassed\n");
 }
 
+#ifdef HAVE_ECC
+static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY parentKey;
+    WOLFTPM2_KEYBLOB keyBlob;
+    byte eccPubX[32];
+    byte eccPubY[32];
+    byte eccPriv[32];
+    /* Wrong-size seed to trigger seed size mismatch error path.
+     * WOLFTPM2_WRAP_DIGEST is SHA256 (digestSz=32), so seedSz=1 mismatches. */
+    byte seed[1] = {0x42};
+    TPMA_OBJECT attrs = (TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA);
+
+    XMEMSET(eccPubX, 0x01, sizeof(eccPubX));
+    XMEMSET(eccPubY, 0x02, sizeof(eccPubY));
+    XMEMSET(eccPriv, 0x03, sizeof(eccPriv));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&parentKey, 0, sizeof(parentKey));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+
+    /* Seed size mismatch must return BAD_FUNC_ARG (and zero sens) */
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, eccPubX, sizeof(eccPubX), eccPubY, sizeof(eccPubY),
+        eccPriv, sizeof(eccPriv), attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tImportEccSeed error paths:\tPassed\n");
+}
+#endif /* HAVE_ECC */
+
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
 #ifndef NO_MAIN_DRIVER
@@ -2804,6 +2841,9 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_wolfTPM2_LoadPrivateKey_NullParent();
     test_wolfTPM2_EncryptDecryptBlock();
+    #ifdef HAVE_ECC
+    test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
+    #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \

@@ -3611,25 +3611,30 @@ int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* pare
     #ifdef DEBUG_WOLFTPM
         printf("Import ECC name alg size invalid! %d\n", digestSz);
     #endif
-        return BUFFER_E;
+        rc = BUFFER_E;
     }
-    if (seed != NULL) {
-        /* use custom seed */
-        if (seedSz != digestSz) {
-        #ifdef DEBUG_WOLFTPM
-            printf("Import ECC seed size invalid! %d != %d\n",
-                seedSz, digestSz);
-        #endif
-            return BAD_FUNC_ARG;
+
+    if (rc == 0) {
+        if (seed != NULL) {
+            /* use custom seed */
+            if (seedSz != digestSz) {
+            #ifdef DEBUG_WOLFTPM
+                printf("Import ECC seed size invalid! %d != %d\n",
+                    seedSz, digestSz);
+            #endif
+                rc = BAD_FUNC_ARG;
+            }
+            else {
+                sens.sensitiveArea.seedValue.size = seedSz;
+                XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
+            }
         }
-        sens.sensitiveArea.seedValue.size = seedSz;
-        XMEMCPY(sens.sensitiveArea.seedValue.buffer, seed, seedSz);
-    }
-    else {
-        /* assign random seed */
-        sens.sensitiveArea.seedValue.size = digestSz;
-        rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
-            sens.sensitiveArea.seedValue.size);
+        else {
+            /* assign random seed */
+            sens.sensitiveArea.seedValue.size = digestSz;
+            rc = TPM2_GetNonceNoLock(sens.sensitiveArea.seedValue.buffer,
+                sens.sensitiveArea.seedValue.size);
+        }
     }
 
     if (rc == 0) {
