@@ -1158,8 +1158,9 @@ int wolfTPM2_SpdmEnable(WOLFTPM2_DEV* dev)
     if (rc == 0) {
         rc = wolfTPM2_SPDM_Enable(dev->spdmCtx);
     }
-    /* Restore previous session[0] state */
+    /* Restore previous session[0] state and clear the stack copy */
     XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
     return rc;
 }
 
@@ -1177,8 +1178,9 @@ int wolfTPM2_SpdmDisable(WOLFTPM2_DEV* dev)
     if (rc == 0) {
         rc = wolfTPM2_SPDM_Disable(dev->spdmCtx);
     }
-    /* Restore previous session[0] state */
+    /* Restore previous session[0] state and clear the stack copy */
     XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
     return rc;
 }
 
@@ -1586,8 +1588,9 @@ int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set)
         }
     }
 
-    /* Restore previous session[0] state */
+    /* Restore previous session[0] state and clear the stack copy */
     XMEMCPY(&dev->session[0], &saveSess, sizeof(dev->session[0]));
+    TPM2_ForceZero(&saveSess, sizeof(saveSess));
 
     return rc;
 }
@@ -2133,10 +2136,14 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
             r, &a, &prime, 1);
     }
     if (rc == 0) {
-        /* export shared secret x - constant-time fixed-size export avoids
-         * leaking the leading-zero count of the ECDH shared secret via
-         * data-dependent offsets */
+        /* export shared secret x - fixed-size export avoids leaking the
+         * leading-zero count of the ECDH shared secret via data-dependent
+         * offsets */
+    #ifdef WOLFSSL_HAVE_SP_ECC
         rc = mp_to_unsigned_bin_len_ct(r->x, secretPoint.point.x.buffer, keySz);
+    #else
+        rc = mp_to_unsigned_bin_len(r->x, secretPoint.point.x.buffer, keySz);
+    #endif
         secretPoint.point.x.size = keySz;
     }
     if (rc == 0) {

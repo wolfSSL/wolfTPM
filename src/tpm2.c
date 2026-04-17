@@ -386,9 +386,11 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                     return rc;
                 }
 
-                /* Verify HMAC using constant-time comparison — always run
-                 * TPM2_ConstantCompare so code path timing doesn't depend on
-                 * whether the size matched. */
+                /* Verify HMAC using constant-time comparison. The wire-format
+                 * size was already validated above; this branch-free pattern
+                 * hardens the tail check in case a future refactor removes
+                 * that gate (hmac.size and authRsp.hmac.size are both
+                 * algorithm-derived and non-secret at this point). */
                 sizeMismatch = (hmac.size != authRsp.hmac.size);
                 diff = TPM2_ConstantCompare(hmac.buffer, authRsp.hmac.buffer,
                     expectedHmacSz);

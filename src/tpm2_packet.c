@@ -833,6 +833,11 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
     if (sensitive->size == 0) {
         return;
     }
+    /* Clamp outer size to remaining packet bytes so inner parses are bounded */
+    if (packet != NULL && packet->pos < packet->size &&
+            sensitive->size > (UINT16)(packet->size - packet->pos)) {
+        sensitive->size = (UINT16)(packet->size - packet->pos);
+    }
 
     TPM2_Packet_ParseU16(packet, &sensitive->sensitiveArea.sensitiveType);
 

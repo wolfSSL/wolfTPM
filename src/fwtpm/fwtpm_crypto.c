@@ -1835,9 +1835,12 @@ TPM_RC FwImportVerifyAndDecrypt(
         }
     }
     if (rc == 0) {
-        /* Always run TPM2_ConstantCompare so timing doesn't leak size match */
+        /* Always run TPM2_ConstantCompare over min(sizes) so timing doesn't
+         * leak size match and we don't read past integrity[integritySize] */
+        word32 cmpSz = (integritySize < (UINT16)digestSz) ?
+            (word32)integritySize : (word32)digestSz;
         sizeMismatch = (integritySize != (UINT16)digestSz);
-        hmacDiff = TPM2_ConstantCompare(integrity, hmacCalc, (word32)digestSz);
+        hmacDiff = TPM2_ConstantCompare(integrity, hmacCalc, cmpSz);
         if (sizeMismatch | hmacDiff) {
             rc = TPM_RC_INTEGRITY;
         }
@@ -2543,17 +2546,28 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                         (enum wc_HashType)wcHash);
                     int expSz = wc_EncodeSignature(expDI,
                         digest, digestSz, oid);
+                    int sizeMismatch;
+                    int sigDiff;
+                    word32 cmpSz;
 
                     FWTPM_ALLOC_BUF(decSig, FWTPM_MAX_PUB_BUF);
                     wcRc = wc_RsaSSL_Verify(
                         sig->signature.rsassa.sig.buffer,
                         sig->signature.rsassa.sig.size,
                         decSig, (word32)FWTPM_MAX_PUB_BUF, rsaKey);
-                    if (wcRc >= 0) {
-                        if (wcRc != expSz || expSz <= 0 ||
-                            TPM2_ConstantCompare(decSig, expDI, expSz) != 0) {
+                    if (wcRc >= 0 && expSz > 0) {
+                        /* Always run TPM2_ConstantCompare so timing doesn't
+                         * leak decoded-length vs expected-length match */
+                        sizeMismatch = (wcRc != expSz);
+                        cmpSz = (wcRc < expSz) ? (word32)wcRc :
+                            (word32)expSz;
+                        sigDiff = TPM2_ConstantCompare(decSig, expDI, cmpSz);
+                        if (sizeMismatch | sigDiff) {
                             wcRc = -1;
                         }
+                    }
+                    else if (wcRc >= 0) {
+                        wcRc = -1;
                     }
                     FWTPM_FREE_BUF(decSig);
                 }
@@ -2875,6 +2889,9 @@ TPM_RC FwCredentialUnwrap(
     FWTPM_DECLARE_VAR(aes, Aes);
     FWTPM_DECLARE_VAR(hmac, Hmac);
     FWTPM_DECLARE_BUF(decBuf, FWTPM_MAX_NV_DATA + 2);
+
+    /* Zero-init so tail bytes are deterministic when integrityHmacSz < 32 */
+    TPM2_ForceZero(integrityHmac, sizeof(integrityHmac));
 
     FWTPM_ALLOC_VAR(aes, Aes);
     FWTPM_ALLOC_VAR(hmac, Hmac);
