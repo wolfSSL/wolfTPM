@@ -214,10 +214,8 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("CmdEnc Session Key %d\n", session->auth.size);
-    TPM2_PrintBin(session->auth.buffer, session->auth.size);
     if (session->bind != NULL) {
         printf("CmdEnc Extra Key %d\n", session->bind->size);
-        TPM2_PrintBin(session->bind->buffer, session->bind->size);
     }
     printf("CmdEnc Nonce caller %d\n", session->nonceCaller.size);
     TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
@@ -261,10 +259,8 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("RspDec Session Key %d\n", session->auth.size);
-    TPM2_PrintBin(session->auth.buffer, session->auth.size);
     if (session->bind != NULL) {
         printf("RspDec Extra Key %d\n", session->bind->size);
-        TPM2_PrintBin(session->bind->buffer, session->bind->size);
     }
     printf("RspDec Nonce caller %d\n", session->nonceCaller.size);
     TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
@@ -451,7 +447,6 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     if (auth) {
     #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("HMAC Key: %d\n", auth->size);
-        TPM2_PrintBin(auth->buffer, auth->size);
     #endif
         rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
     }
