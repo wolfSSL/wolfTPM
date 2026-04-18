@@ -112,6 +112,92 @@ jobs:
           - name: nuvoton
             wolftpm_config: --enable-nuvoton --disable-fwtpm
 
+          # --- Auto-disable-on-HW tests: verify that hardware-path flags
+          # (vendor/bus/autodetect) disable the swtpm + fwtpm defaults on
+          # Linux aarch64/x86_64 without the user needing --disable-swtpm
+          # or --disable-fwtpm. See configure.ac WOLFTPM_HW_SELECTED. ---
+
+          # Vendor flag alone — no --disable-fwtpm / --disable-swtpm needed.
+          - name: nuvoton-autodisable
+            wolftpm_config: --enable-nuvoton
+            needs_swtpm: false
+          - name: nations-autodisable
+            wolftpm_config: --enable-nations
+            needs_swtpm: false
+
+          # New --enable-spi intent flag.
+          - name: spi
+            wolftpm_config: --enable-spi
+            needs_swtpm: false
+
+          # Explicit --enable-swtpm wins over the vendor auto-disable.
+          - name: nuvoton-explicit-swtpm
+            wolftpm_config: --enable-swtpm --enable-nuvoton --disable-fwtpm
+
+          # SPDM + vendor without any --disable flags (CI-path mirror of
+          # the hw-spdm-test.yml build line).
+          - name: spdm-nuvoton-autodisable
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-nuvoton --enable-debug
+            needs_swtpm: false
+          - name: spdm-nations-autodisable
+            wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
+            wolftpm_config: --enable-spdm --enable-nations --enable-debug
+            needs_swtpm: false
+
+          # Explicit --enable-fwtpm wins over the vendor auto-disable.
+          - name: nuvoton-explicit-fwtpm
+            wolftpm_config: --enable-nuvoton --enable-fwtpm
+            needs_swtpm: false
+
+          # --enable-spi + explicit --enable-swtpm (explicit sw wins).
+          - name: spi-explicit-swtpm
+            wolftpm_config: --enable-spi --enable-swtpm --disable-fwtpm
+
+          # MMIO (no existing matrix entry covered this).
+          - name: mmio
+            wolftpm_config: --enable-mmio --disable-fwtpm
+            needs_swtpm: false
+
+          # Linux kernel TPM driver (build-only; CI runner has no /dev/tpm*).
+          - name: devtpm
+            wolftpm_config: --enable-devtpm
+            needs_swtpm: false
+            test_command: "true"
+
+          # Negative tests: configure must error on conflicting flag combos,
+          # and we verify the SPECIFIC error message (not just a non-zero
+          # exit). wolfSSL is installed by the earlier `Setup wolfSSL` step,
+          # so configure gets past its wolfSSL check and hits the real
+          # conflict detection.
+          - name: config-conflicts
+            wolftpm_config: --disable-fwtpm
+            needs_swtpm: false
+            test_command: |-
+              set -e
+              check_conflict() {
+                local flags="$1" expected_err="$2"
+                echo "=== expect failure: ./configure $flags ==="
+                echo "    expected error substring: '$expected_err'"
+                make distclean >/dev/null 2>&1 || true
+                ./autogen.sh >/dev/null 2>&1
+                local out
+                out=$(./configure $flags 2>&1 || true)
+                if echo "$out" | grep -qF "$expected_err"; then
+                    echo "    PASS"
+                else
+                    echo "    FAIL — actual output:"
+                    echo "$out" | tail -20 | sed 's/^/      /'
+                    exit 1
+                fi
+              }
+              check_conflict "--enable-spi --enable-i2c" \
+                             "Cannot enable both --enable-spi and --enable-i2c"
+              check_conflict "--enable-swtpm --enable-devtpm" \
+                             "Cannot enable both swtpm and devtpm"
+              check_conflict "--enable-infineon=slb9673 --enable-spi" \
+                             "slb9673 is I2C-only"
+
           # TIS lock
           - name: tislock
             wolftpm_config: --enable-tislock --disable-fwtpm
