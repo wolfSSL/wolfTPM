@@ -1013,7 +1013,8 @@ static TPM_RC FwLoadMldsaFromSeed(TPMI_MLDSA_PARAMETER_SET parameterSet,
 /** \brief Pure ML-DSA sign: full-message signing per FIPS 204 ML-DSA.Sign.
  *  Takes the stored 32-byte xi seed and the raw message. The TPM computes
  *  mu internally. */
-TPM_RC FwSignMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+TPM_RC FwSignMldsaMessage(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
     const byte* seedXi,
     const byte* context, int contextSz,
     const byte* msg, int msgSz,
@@ -1031,11 +1032,14 @@ TPM_RC FwSignMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     if (rc == 0) {
         sigSz = (word32)sizeof(sigOut->buffer);
+        /* FIPS 204 Algorithm 2 hedged sign: wolfCrypt requires a non-NULL
+         * RNG to source the 32-byte `rnd` value. Passing the TPM's internal
+         * RNG matches normal TPM signing practice (side-channel hedging). */
         wcRet = wc_dilithium_sign_ctx_msg(
             context, (byte)contextSz,
             msg, (word32)msgSz,
             sigOut->buffer, &sigSz,
-            keyVar, NULL /* deterministic when available */);
+            keyVar, rng);
         if (wcRet != 0) {
             rc = TPM_RC_FAILURE;
         }
@@ -1109,7 +1113,8 @@ TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
 }
 
 /** \brief Hash-ML-DSA sign: pre-hashed variant per FIPS 204 Algorithm 4. */
-TPM_RC FwSignMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+TPM_RC FwSignMldsaHash(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
     const byte* seedXi,
     const byte* context, int contextSz,
     TPMI_ALG_HASH hashAlg,
@@ -1135,11 +1140,12 @@ TPM_RC FwSignMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     if (rc == 0) {
         sigSz = (word32)sizeof(sigOut->buffer);
+        /* Hedged sign (FIPS 204 Alg 2 step 7) — wolfCrypt requires RNG. */
         wcRet = wc_dilithium_sign_ctx_hash(
             context, (byte)contextSz,
             wcHash, digest, (word32)digestSz,
             sigOut->buffer, &sigSz,
-            keyVar, NULL);
+            keyVar, rng);
         if (wcRet != 0) {
             rc = TPM_RC_FAILURE;
         }

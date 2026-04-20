@@ -13207,7 +13207,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, msgBuf, bufSize);
 
         if (keyObj->pub.type == TPM_ALG_MLDSA) {
-            rc = FwSignMldsaMessage(
+            rc = FwSignMldsaMessage(&ctx->rng,
                 keyObj->pub.parameters.mldsaDetail.parameterSet,
                 keyObj->privKey,
                 seq->context.buffer, seq->context.size,
@@ -13240,7 +13240,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (rc == 0) {
                     digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
-                    rc = FwSignMldsaHash(
+                    rc = FwSignMldsaHash(&ctx->rng,
                         keyObj->pub.parameters.hash_mldsaDetail.parameterSet,
                         keyObj->privKey,
                         seq->context.buffer, seq->context.size,
@@ -13524,7 +13524,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         }
         else if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
-            rc = FwSignMldsaHash(
+            rc = FwSignMldsaHash(&ctx->rng,
                 obj->pub.parameters.hash_mldsaDetail.parameterSet,
                 obj->privKey,
                 sigCtx->buffer, sigCtx->size,
