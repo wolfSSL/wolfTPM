@@ -160,6 +160,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     double start;
     TPMT_PUBLIC publicTemplate;
     WOLFTPM2_KEY aesKey;
+    byte iv[MAX_AES_BLOCK_SIZE_BYTES];
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
     rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
@@ -175,8 +176,9 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
 
     bench_stats_start(&count, &start);
     do {
-        rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, NULL, 0,
-            isDecrypt);
+        XMEMSET(iv, 0, sizeof(iv));
+        rc = wolfTPM2_EncryptDecrypt(dev, &aesKey, in, out, inOutSz, iv,
+            sizeof(iv), isDecrypt);
         if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
             printf("Encrypt/Decrypt unavailable\n");
             break;

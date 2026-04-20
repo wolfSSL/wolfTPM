@@ -91,6 +91,23 @@ typedef int64_t  INT64;
     #define DEBUG_WOLFTPM
 #endif
 
+/* WOLFTPM_DEBUG_SECRETS is an opt-in developer-only flag that enables
+ * printing of sensitive material (auth values, session keys, bind keys,
+ * HMAC keys, hierarchy auth, encryption secrets) to stdout when combined
+ * with DEBUG_WOLFTPM / WOLFTPM_DEBUG_VERBOSE. It is NOT enabled by any
+ * configure option and must be defined manually.
+ *
+ * WARNING: Never enable WOLFTPM_DEBUG_SECRETS in production builds, on
+ * devices that log stdout to persistent storage, or in any build where
+ * the output could be captured by an untrusted party. */
+#ifdef WOLFTPM_DEBUG_SECRETS
+    #ifdef _MSC_VER
+        #pragma message("WARNING: WOLFTPM_DEBUG_SECRETS enabled — sensitive material will be printed to stdout. Disable for production.")
+    #else
+        #warning "WOLFTPM_DEBUG_SECRETS enabled — sensitive material will be printed to stdout. Disable for production."
+    #endif
+#endif
+
 /* ---------------------------------------------------------------------------*/
 /* WOLFCRYPT */
 /* ---------------------------------------------------------------------------*/

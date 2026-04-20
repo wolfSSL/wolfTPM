@@ -461,6 +461,8 @@ int TPM2_HmacVerify(
     int rc;
     byte computed[WC_MAX_DIGEST_SIZE];
     word32 computedSz = (word32)sizeof(computed);
+    int neq, diff;
+    word32 cmpSz;
 
     if (expected == NULL || expectedSz == 0) {
         return BAD_FUNC_ARG;
@@ -469,8 +471,11 @@ int TPM2_HmacVerify(
     rc = TPM2_HmacCompute(hashAlg, key, keySz,
         data, dataSz, data2, data2Sz, computed, &computedSz);
     if (rc == 0) {
-        if (expectedSz != computedSz ||
-            TPM2_ConstantCompare(computed, expected, computedSz) != 0) {
+        /* Always run TPM2_ConstantCompare so timing doesn't leak size match */
+        neq = (expectedSz != computedSz);
+        cmpSz = (expectedSz < computedSz) ? expectedSz : computedSz;
+        diff = TPM2_ConstantCompare(computed, expected, cmpSz);
+        if (neq | diff) {
             rc = TPM_RC_INTEGRITY;
         }
     }

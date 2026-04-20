@@ -42,10 +42,14 @@ int TPM2_GetHashDigestSize(TPMI_ALG_HASH hashAlg)
         case TPM_ALG_SHA1:
             return TPM_SHA_DIGEST_SIZE;
         case TPM_ALG_SHA256:
+        case TPM_ALG_SM3_256:
+        case TPM_ALG_SHA3_256:
             return TPM_SHA256_DIGEST_SIZE;
         case TPM_ALG_SHA384:
+        case TPM_ALG_SHA3_384:
             return TPM_SHA384_DIGEST_SIZE;
         case TPM_ALG_SHA512:
+        case TPM_ALG_SHA3_512:
             return TPM_SHA512_DIGEST_SIZE;
         default:
             break;
@@ -65,6 +69,18 @@ TPMI_ALG_HASH TPM2_GetTpmHashType(int hashType)
             return TPM_ALG_SHA384;
         case (int)WC_HASH_TYPE_SHA512:
             return TPM_ALG_SHA512;
+    #ifdef WOLFSSL_SHA3
+        case (int)WC_HASH_TYPE_SHA3_256:
+            return TPM_ALG_SHA3_256;
+        case (int)WC_HASH_TYPE_SHA3_384:
+            return TPM_ALG_SHA3_384;
+        case (int)WC_HASH_TYPE_SHA3_512:
+            return TPM_ALG_SHA3_512;
+    #endif
+    #ifdef WOLFSSL_SM3
+        case (int)WC_HASH_TYPE_SM3:
+            return TPM_ALG_SM3_256;
+    #endif
         default:
             break;
     }
@@ -85,6 +101,18 @@ int TPM2_GetHashType(TPMI_ALG_HASH hashAlg)
             return (int)WC_HASH_TYPE_SHA384;
         case TPM_ALG_SHA512:
             return (int)WC_HASH_TYPE_SHA512;
+    #ifdef WOLFSSL_SHA3
+        case TPM_ALG_SHA3_256:
+            return (int)WC_HASH_TYPE_SHA3_256;
+        case TPM_ALG_SHA3_384:
+            return (int)WC_HASH_TYPE_SHA3_384;
+        case TPM_ALG_SHA3_512:
+            return (int)WC_HASH_TYPE_SHA3_512;
+    #endif
+    #ifdef WOLFSSL_SM3
+        case TPM_ALG_SM3_256:
+            return (int)WC_HASH_TYPE_SM3;
+    #endif
         default:
             break;
     }

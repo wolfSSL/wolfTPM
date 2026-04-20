@@ -169,8 +169,9 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
 }
 
 #else /* If not I2C, it must be SPI  */
-    /* TODO implement SPI */
-    #error TPM2 SPI support on zephyr yet
+    #error "TPM2 SPI transport is not implemented on Zephyr. \
+Define WOLFTPM_I2C to use the I2C transport, or supply your own SPI \
+TPM2_IoCb callback via wolfTPM2_Init()."
 #endif
 
 #endif /* WOLFSSL_ZEPHYR */

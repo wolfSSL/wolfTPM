@@ -8228,6 +8228,10 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int expectedSz = 0;
             wc_HashAlg aCtx;
             enum wc_HashType aWcHash;
+            int hmacRc;
+            int sizeMismatch;
+            int ticketDiff;
+            word32 cmpSz;
 
             /* Step 1: aHash = H(approvedPolicy || policyRef)
              * Hash algorithm comes from signing key's nameAlg */
@@ -8254,20 +8258,24 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 ticketInputSz += keySignNameSz;
             }
 
-            /* Step 3: verify ticket HMAC */
-            if (rc == 0 &&
-                (FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
-                    ticketInput, ticketInputSz,
-                    expectedHmac, &expectedSz) != 0 ||
-                ticketDigestSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0)) {
-            #ifdef DEBUG_WOLFTPM
-                printf("fwTPM: PolicyAuthorize ticket verify failed "
-                    "(tag=0x%x, hier=0x%x, ticketSz=%d, expectedSz=%d)\n",
-                    ticketTag, ticketHier, ticketDigestSz, expectedSz);
-            #endif
-                rc = TPM_RC_POLICY_FAIL;
+            /* Step 3: verify ticket HMAC — always run TPM2_ConstantCompare
+             * so timing doesn't leak size match */
+            if (rc == 0) {
+                hmacRc = FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
+                    ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+                sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
+                cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
+                    ticketDigestSz : (word32)expectedSz;
+                ticketDiff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                    cmpSz);
+                if (hmacRc != 0 || (sizeMismatch | ticketDiff)) {
+                #ifdef DEBUG_WOLFTPM
+                    printf("fwTPM: PolicyAuthorize ticket verify failed "
+                        "(tag=0x%x, hier=0x%x, ticketSz=%d, expectedSz=%d)\n",
+                        ticketTag, ticketHier, ticketDigestSz, expectedSz);
+                #endif
+                    rc = TPM_RC_POLICY_FAIL;
+                }
             }
             TPM2_ForceZero(aHash, sizeof(aHash));
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -9005,6 +9013,9 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 cpHashSz = 0;
     byte cpHashBuf[TPM_MAX_DIGEST_SIZE];
+    int sizeMismatch;
+    int cpDiff;
+    word32 cmpSz;
     (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
@@ -9025,11 +9036,15 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashSz);
 
-        /* If cpHashA already set, must be identical */
+        /* If cpHashA already set, must be identical — always run
+         * TPM2_ConstantCompare so timing doesn't leak size match */
         if (sess->cpHashA.size > 0) {
-            if (sess->cpHashA.size != cpHashSz ||
-                TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
-                    cpHashSz) != 0) {
+            sizeMismatch = (sess->cpHashA.size != cpHashSz);
+            cmpSz = (sess->cpHashA.size < cpHashSz) ?
+                sess->cpHashA.size : cpHashSz;
+            cpDiff = TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
+                cmpSz);
+            if (sizeMismatch | cpDiff) {
                 rc = TPM_RC_CPHASH;
             }
         }
@@ -9064,6 +9079,9 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     UINT16 nameHashSz = 0;
     byte nameHashBuf[TPM_MAX_DIGEST_SIZE];
+    int sizeMismatch;
+    int nameDiff;
+    word32 cmpSz;
     (void)cmdSize;
 
     sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
@@ -9084,11 +9102,15 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, nameHashBuf, nameHashSz);
 
-        /* If nameHash already set, must be identical */
+        /* If nameHash already set, must be identical — always run
+         * TPM2_ConstantCompare so timing doesn't leak size match */
         if (sess->nameHash.size > 0) {
-            if (sess->nameHash.size != nameHashSz ||
-                TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
-                    nameHashSz) != 0) {
+            sizeMismatch = (sess->nameHash.size != nameHashSz);
+            cmpSz = (sess->nameHash.size < nameHashSz) ?
+                sess->nameHash.size : nameHashSz;
+            nameDiff = TPM2_ConstantCompare(sess->nameHash.buffer, nameHashBuf,
+                cmpSz);
+            if (sizeMismatch | nameDiff) {
                 rc = TPM_RC_CPHASH;
             }
         }
@@ -9436,6 +9458,9 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Session* sess;
     INT32 expiration = 0;
     UINT32 extendCC;
+    int cpaSizeMismatch;
+    int cpaDiff;
+    word32 cpaCmpSz;
     (void)cmdSize;
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
@@ -9522,6 +9547,10 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         enum wc_HashType aWcHash;
         int aHashSz;
         byte expBuf[4];
+        int hmacRc;
+        int sizeMismatch;
+        int ticketDiff;
+        word32 cmpSz;
 
         aWcHash = FwGetWcHashType(sess->authHash);
         aHashSz = TPM2_GetHashDigestSize(sess->authHash);
@@ -9551,15 +9580,19 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             ticketInputSz += authNameSz;
         }
 
-        /* Verify HMAC */
-        if (rc == 0 &&
-            (FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
-                ticketInput, ticketInputSz,
-                expectedHmac, &expectedSz) != 0 ||
-            ticketDigestSz != (UINT16)expectedSz ||
-            TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                (word32)expectedSz) != 0)) {
-            rc = TPM_RC_POLICY_FAIL;
+        /* Verify HMAC — always run TPM2_ConstantCompare so timing doesn't
+         * leak whether size matched */
+        if (rc == 0) {
+            hmacRc = FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
+                ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+            sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
+            cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
+                ticketDigestSz : (word32)expectedSz;
+            ticketDiff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                cmpSz);
+            if (hmacRc != 0 || (sizeMismatch | ticketDiff)) {
+                rc = TPM_RC_POLICY_FAIL;
+            }
         }
         TPM2_ForceZero(aHash, sizeof(aHash));
         TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -9582,13 +9615,18 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Store cpHashA constraint if provided */
+    /* Store cpHashA constraint if provided — always run TPM2_ConstantCompare
+     * so timing doesn't leak size match */
     if (rc == 0 && cpHashASz > 0) {
-        if (sess->cpHashA.size > 0 &&
-            (sess->cpHashA.size != cpHashASz ||
-             TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
-                cpHashASz) != 0)) {
-            rc = TPM_RC_CPHASH;
+        if (sess->cpHashA.size > 0) {
+            cpaSizeMismatch = (sess->cpHashA.size != cpHashASz);
+            cpaCmpSz = (sess->cpHashA.size < cpHashASz) ?
+                sess->cpHashA.size : cpHashASz;
+            cpaDiff = TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashABuf,
+                cpaCmpSz);
+            if (cpaSizeMismatch | cpaDiff) {
+                rc = TPM_RC_CPHASH;
+            }
         }
         if (rc == 0) {
             sess->cpHashA.size = cpHashASz;
@@ -9622,6 +9660,10 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     UINT32 cc = TPM_CC_PolicyAuthorizeNV;
     int hashInit = 0;
+    int nvSizeMismatch;
+    int sessSizeMismatch;
+    int policyDiff;
+    word32 policyCmpSz;
 
     (void)cmdSize;
 
@@ -9657,12 +9699,19 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HASH;
     }
 
-    /* For policy sessions (not trial): verify policyDigest == NV data */
+    /* For policy sessions (not trial): verify policyDigest == NV data.
+     * Always run TPM2_ConstantCompare over min(sizes) so timing doesn't
+     * leak size match. */
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
-        if ((int)nv->nvPublic.dataSize != dSz ||
-            (int)sess->policyDigest.size != dSz ||
-            TPM2_ConstantCompare(sess->policyDigest.buffer,
-                nv->data, (word32)dSz) != 0) {
+        nvSizeMismatch = ((int)nv->nvPublic.dataSize != dSz);
+        sessSizeMismatch = ((int)sess->policyDigest.size != dSz);
+        policyCmpSz = (sess->policyDigest.size < nv->nvPublic.dataSize) ?
+            sess->policyDigest.size : nv->nvPublic.dataSize;
+        if (policyCmpSz > (word32)dSz)
+            policyCmpSz = (word32)dSz;
+        policyDiff = TPM2_ConstantCompare(sess->policyDigest.buffer,
+            nv->data, policyCmpSz);
+        if (nvSizeMismatch | sessSizeMismatch | policyDiff) {
             rc = TPM_RC_POLICY_FAIL;
         }
     }
@@ -12902,6 +12951,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             FWTPM_Session* pSess = cmdAuths[pj].sess;
             TPM_HANDLE entityH = cmdHandles[pj];
             TPM2B_DIGEST* authPolicy = NULL;
+            int sizeMismatch;
+            int policyDiff;
+            word32 cmpSz;
 
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV
@@ -12943,9 +12995,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
             /* If entity has a non-empty authPolicy, it must match */
             if (authPolicy != NULL && authPolicy->size > 0) {
-                if (pSess->policyDigest.size != authPolicy->size ||
-                    TPM2_ConstantCompare(pSess->policyDigest.buffer,
-                        authPolicy->buffer, authPolicy->size) != 0) {
+                /* Always run TPM2_ConstantCompare so timing doesn't leak size */
+                sizeMismatch = (pSess->policyDigest.size != authPolicy->size);
+                cmpSz = (pSess->policyDigest.size < authPolicy->size) ?
+                    pSess->policyDigest.size : authPolicy->size;
+                policyDiff = TPM2_ConstantCompare(pSess->policyDigest.buffer,
+                    authPolicy->buffer, cmpSz);
+                if (sizeMismatch | policyDiff) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: Policy digest mismatch for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
@@ -13072,6 +13128,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             const byte* authVal = NULL;
             int authValSz = 0;
             TPM_HANDLE entityH;
+            int sizeMismatch;
+            int hmacDiff;
+            word32 cmpSz;
 
             /* Compute cpHash = H(commandCode || handleNames || cpBuffer) */
             if (FwComputeCpHash(hSess->authHash, cmdCode,
@@ -13087,13 +13146,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
 
             /* PolicyPassword with no sessionKey (unsalted/unbound):
-             * HMAC field contains plaintext authValue per spec Section 19.6.13 */
+             * HMAC field contains plaintext authValue per spec Section 19.6.13.
+             * Always run TPM2_ConstantCompare so timing doesn't leak auth
+             * length match. */
             if (hSess->sessionType == TPM_SE_POLICY &&
                 hSess->isPasswordPolicy &&
                 hSess->sessionKey.size == 0) {
-                if ((int)cmdAuths[hj].cmdHmacSize != authValSz ||
-                    TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
-                        authVal, (word32)authValSz) != 0) {
+                sizeMismatch = ((int)cmdAuths[hj].cmdHmacSize != authValSz);
+                cmpSz = (cmdAuths[hj].cmdHmacSize < (UINT16)authValSz) ?
+                    cmdAuths[hj].cmdHmacSize : (word32)authValSz;
+                hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
+                    authVal, cmpSz);
+                if (sizeMismatch | hmacDiff) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
@@ -13120,9 +13184,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 0, /* isResponse=0 for command HMAC */
                 expectedHmac, &expectedSz);
 
-            if (cmdAuths[hj].cmdHmacSize != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
-                    expectedHmac, (word32)expectedSz) != 0) {
+            /* Always run TPM2_ConstantCompare so timing doesn't leak size */
+            sizeMismatch = (cmdAuths[hj].cmdHmacSize != (UINT16)expectedSz);
+            cmpSz = (cmdAuths[hj].cmdHmacSize < (UINT16)expectedSz) ?
+                cmdAuths[hj].cmdHmacSize : (word32)expectedSz;
+            hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
+                expectedHmac, cmpSz);
+            if (sizeMismatch | hmacDiff) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: HMAC session auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);

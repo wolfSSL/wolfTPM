@@ -684,14 +684,24 @@ void TPM2_Packet_ParseRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme)
 void TPM2_Packet_AppendKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme)
 {
     TPM2_Packet_AppendU16(packet, scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme == TPM_ALG_HMAC) {
         TPM2_Packet_AppendU16(packet, scheme->details.hmac.hashAlg);
+    }
+    else if (scheme->scheme == TPM_ALG_XOR) {
+        TPM2_Packet_AppendU16(packet, scheme->details.xorr.hashAlg);
+        TPM2_Packet_AppendU16(packet, scheme->details.xorr.kdf);
+    }
 }
 void TPM2_Packet_ParseKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme)
 {
     TPM2_Packet_ParseU16(packet, &scheme->scheme);
-    if (scheme->scheme != TPM_ALG_NULL)
+    if (scheme->scheme == TPM_ALG_HMAC) {
         TPM2_Packet_ParseU16(packet, &scheme->details.hmac.hashAlg);
+    }
+    else if (scheme->scheme == TPM_ALG_XOR) {
+        TPM2_Packet_ParseU16(packet, &scheme->details.xorr.hashAlg);
+        TPM2_Packet_ParseU16(packet, &scheme->details.xorr.kdf);
+    }
 }
 
 void TPM2_Packet_AppendKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme)
@@ -813,6 +823,64 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
     }
 
     TPM2_Packet_PlaceU16(packet, tmpSz);
+}
+
+void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
+{
+    TPMU_SENSITIVE_COMPOSITE* sens = &sensitive->sensitiveArea.sensitive;
+    int sensStartPos;
+
+    TPM2_Packet_ParseU16(packet, &sensitive->size);
+    if (sensitive->size == 0) {
+        return;
+    }
+    /* Clamp outer size to remaining packet bytes so inner parses are bounded */
+    if (packet != NULL && packet->pos < packet->size &&
+            sensitive->size > (UINT16)(packet->size - packet->pos)) {
+        sensitive->size = (UINT16)(packet->size - packet->pos);
+    }
+    sensStartPos = (packet != NULL) ? packet->pos : 0;
+
+    TPM2_Packet_ParseU16(packet, &sensitive->sensitiveArea.sensitiveType);
+
+    TPM2_Packet_ParseU16Buf(packet, &sensitive->sensitiveArea.authValue.size,
+        sensitive->sensitiveArea.authValue.buffer,
+        (UINT16)sizeof(sensitive->sensitiveArea.authValue.buffer));
+
+    TPM2_Packet_ParseU16Buf(packet, &sensitive->sensitiveArea.seedValue.size,
+        sensitive->sensitiveArea.seedValue.buffer,
+        (UINT16)sizeof(sensitive->sensitiveArea.seedValue.buffer));
+
+    switch (sensitive->sensitiveArea.sensitiveType) {
+    case TPM_ALG_RSA:
+        TPM2_Packet_ParseU16Buf(packet, &sens->rsa.size,
+            sens->rsa.buffer, (UINT16)sizeof(sens->rsa.buffer));
+        break;
+    case TPM_ALG_ECC:
+        TPM2_Packet_ParseU16Buf(packet, &sens->ecc.size,
+            sens->ecc.buffer, (UINT16)sizeof(sens->ecc.buffer));
+        break;
+    case TPM_ALG_KEYEDHASH:
+        TPM2_Packet_ParseU16Buf(packet, &sens->bits.size,
+            sens->bits.buffer, (UINT16)sizeof(sens->bits.buffer));
+        break;
+    case TPM_ALG_SYMCIPHER:
+        TPM2_Packet_ParseU16Buf(packet, &sens->sym.size,
+            sens->sym.buffer, (UINT16)sizeof(sens->sym.buffer));
+        break;
+    default:
+        /* Unknown sensitiveType — skip composite to keep packet position
+         * synchronized with the declared outer size */
+        break;
+    }
+
+    /* Resync packet position to end of declared outer size so inner parses
+     * can't cause field drift if declared size and actual inner consumption
+     * disagree */
+    if (packet != NULL &&
+            sensStartPos + sensitive->size <= packet->size) {
+        packet->pos = sensStartPos + sensitive->size;
+    }
 }
 
 void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive)
@@ -1014,6 +1082,9 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
         break;
     }
 }
+/* Serializes pub into packet and writes the encoded size back to pub->size
+ * as a side effect. Callers (TPM2_AppendPublic, wolfTPM2_GetKeyBlobAsBuffer)
+ * rely on this side effect to determine the serialized public-area size. */
 void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
     int tmpSz = 0;
@@ -1074,6 +1145,8 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
+    case TPM_ALG_ECSCHNORR:
+    case TPM_ALG_SM2:
         TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.hash);
 
         TPM2_Packet_AppendU16(packet, sig->signature.ecdsa.signatureR.size);
@@ -1111,6 +1184,8 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     switch (sig->sigAlg) {
     case TPM_ALG_ECDSA:
     case TPM_ALG_ECDAA:
+    case TPM_ALG_ECSCHNORR:
+    case TPM_ALG_SM2:
         TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.hash);
 
         TPM2_Packet_ParseU16(packet, &wireSize);

@@ -187,8 +187,8 @@ WOLFTPM_TEST_API void TPM2_Packet_AppendEccScheme(TPM2_Packet* packet, TPMT_SIG_
 WOLFTPM_TEST_API void TPM2_Packet_ParseEccScheme(TPM2_Packet* packet, TPMT_SIG_SCHEME* scheme);
 WOLFTPM_TEST_API void TPM2_Packet_AppendRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme);
 WOLFTPM_TEST_API void TPM2_Packet_ParseRsaScheme(TPM2_Packet* packet, TPMT_RSA_SCHEME* scheme);
-WOLFTPM_LOCAL void TPM2_Packet_AppendKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme);
-WOLFTPM_LOCAL void TPM2_Packet_ParseKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme);
+WOLFTPM_TEST_API void TPM2_Packet_AppendKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme);
+WOLFTPM_TEST_API void TPM2_Packet_ParseKeyedHashScheme(TPM2_Packet* packet, TPMT_KEYEDHASH_SCHEME* scheme);
 WOLFTPM_LOCAL void TPM2_Packet_AppendKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme);
 WOLFTPM_LOCAL void TPM2_Packet_ParseKdfScheme(TPM2_Packet* packet, TPMT_KDF_SCHEME* scheme);
 WOLFTPM_LOCAL void TPM2_Packet_AppendAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* scheme);
@@ -197,7 +197,8 @@ WOLFTPM_LOCAL void TPM2_Packet_AppendEccPoint(TPM2_Packet* packet, TPMS_ECC_POIN
 WOLFTPM_LOCAL void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point);
 WOLFTPM_LOCAL void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point);
 WOLFTPM_LOCAL void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point);
-WOLFTPM_LOCAL void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive);
+WOLFTPM_TEST_API void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive);
+WOLFTPM_TEST_API void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive);
 WOLFTPM_LOCAL void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREATE* sensitive);
 #ifdef WOLFTPM_FWTPM
 /*!
@@ -233,8 +234,8 @@ WOLFTPM_LOCAL void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PU
 WOLFTPM_LOCAL void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea);
 WOLFTPM_LOCAL void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub);
 WOLFTPM_LOCAL void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub);
-WOLFTPM_LOCAL void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
-WOLFTPM_LOCAL void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
+WOLFTPM_TEST_API void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
+WOLFTPM_TEST_API void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig);
 WOLFTPM_LOCAL void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out);
 
 
