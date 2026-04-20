@@ -203,6 +203,11 @@ make install
 
 ```text
 --enable-debug          Add debug code/turns off optimizations (yes|no|verbose|io) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
+                        WARNING: Define WOLFTPM_DEBUG_SECRETS manually (NOT enabled by default and NOT
+                        exposed via configure) to additionally print sensitive material — auth values,
+                        session keys, bind keys, HMAC keys, hierarchy auth, and encryption secrets.
+                        For developer debugging only. NEVER enable in production builds or on devices
+                        that log stdout to persistent storage.
 --enable-examples       Enable Examples (default: enabled)
 --enable-wrapper        Enable wrapper code (default: enabled) - WOLFTPM2_NO_WRAPPER
 --enable-wolfcrypt      Enable wolfCrypt hooks for RNG, Auth Sessions and Parameter encryption (default: enabled) - WOLFTPM2_NO_WOLFCRYPT

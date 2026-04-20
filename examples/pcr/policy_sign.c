@@ -194,16 +194,13 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 if (rc == 0) {
                     word32 keySz = key.ecc.dp->size;
                     *sigSz = keySz * 2;
-                    /* fixed-width export of r and s avoids leaking the
-                     * leading-zero count of each component via data-dependent
-                     * offsets */
-                #ifdef WOLFSSL_HAVE_SP_ECC
+                    /* Pre-zero in case mp export fails and leaves the buffer
+                     * partially written. Constant-time fixed-width export of
+                     * r and s avoids leaking the leading-zero count via
+                     * data-dependent wire offsets. */
+                    XMEMSET(sig, 0, *sigSz);
                     mp_to_unsigned_bin_len_ct(&r, &sig[0], keySz);
                     mp_to_unsigned_bin_len_ct(&s, &sig[keySz], keySz);
-                #else
-                    mp_to_unsigned_bin_len(&r, &sig[0], keySz);
-                    mp_to_unsigned_bin_len(&s, &sig[keySz], keySz);
-                #endif
                     mp_clear(&r);
                     mp_clear(&s);
                 }

@@ -828,6 +828,7 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
 void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
 {
     TPMU_SENSITIVE_COMPOSITE* sens = &sensitive->sensitiveArea.sensitive;
+    int sensStartPos;
 
     TPM2_Packet_ParseU16(packet, &sensitive->size);
     if (sensitive->size == 0) {
@@ -838,6 +839,7 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
             sensitive->size > (UINT16)(packet->size - packet->pos)) {
         sensitive->size = (UINT16)(packet->size - packet->pos);
     }
+    sensStartPos = (packet != NULL) ? packet->pos : 0;
 
     TPM2_Packet_ParseU16(packet, &sensitive->sensitiveArea.sensitiveType);
 
@@ -866,6 +868,18 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
         TPM2_Packet_ParseU16Buf(packet, &sens->sym.size,
             sens->sym.buffer, (UINT16)sizeof(sens->sym.buffer));
         break;
+    default:
+        /* Unknown sensitiveType — skip composite to keep packet position
+         * synchronized with the declared outer size */
+        break;
+    }
+
+    /* Resync packet position to end of declared outer size so inner parses
+     * can't cause field drift if declared size and actual inner consumption
+     * disagree */
+    if (packet != NULL &&
+            sensStartPos + sensitive->size <= packet->size) {
+        packet->pos = sensStartPos + sensitive->size;
     }
 }
 
