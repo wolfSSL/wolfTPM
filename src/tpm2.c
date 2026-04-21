@@ -2310,10 +2310,7 @@ TPM_RC TPM2_ECC_Parameters(ECC_Parameters_In* in,
                 TPM2_Packet_ParseU16(&packet,
                     &out->parameters.kdf.details.any.hashAlg);
 
-            TPM2_Packet_ParseU16(&packet, &out->parameters.sign.scheme);
-            if (out->parameters.sign.scheme != TPM_ALG_NULL)
-                TPM2_Packet_ParseU16(&packet,
-                    &out->parameters.sign.details.any.hashAlg);
+            TPM2_Packet_ParseEccScheme(&packet, &out->parameters.sign);
 
             TPM2_Packet_ParseU16Buf(&packet, &out->parameters.p.size,
                 out->parameters.p.buffer,

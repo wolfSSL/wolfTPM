@@ -1824,6 +1824,53 @@ static void test_TPM2_SchemeSerialize(void)
     printf("Test TPM Wrapper:\tSchemeSerialize:\t\tPassed\n");
 }
 
+/* Exercise the parse sequence used by TPM2_ECC_Parameters response: sign
+ * scheme = ECDAA (scheme + hashAlg + count) followed by a trailing U16
+ * size field. Ensures the ECDAA count byte is consumed so the next read
+ * lands at the correct offset. The wire bytes are built by hand to avoid
+ * relying on non-exported packet helpers. */
+static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
+{
+    TPM2_Packet packet;
+    byte buf[32];
+    TPMT_SIG_SCHEME signOut;
+    UINT16 pSizeOut = 0;
+
+    /* Hand-built wire: TPM2B wire is big-endian.
+     *   [0-1] sign.scheme    = TPM_ALG_ECDAA (0x001A)
+     *   [2-3] sign.hashAlg   = TPM_ALG_SHA256 (0x000B)
+     *   [4-5] sign.count     = 0x0007
+     *   [6-7] p.size sentinel= 0x0030
+     */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[0] = 0x00; buf[1] = (byte)TPM_ALG_ECDAA;
+    buf[2] = 0x00; buf[3] = (byte)TPM_ALG_SHA256;
+    buf[4] = 0x00; buf[5] = 0x07;
+    buf[6] = 0x00; buf[7] = 0x30;
+
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    packet.pos = 0;
+
+    XMEMSET(&signOut, 0, sizeof(signOut));
+    TPM2_Packet_ParseEccScheme(&packet, &signOut);
+    AssertIntEQ(signOut.scheme, TPM_ALG_ECDAA);
+    AssertIntEQ(signOut.details.ecdaa.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(signOut.details.ecdaa.count, 7);
+
+    /* After parsing the ECDAA scheme, packet.pos must be at byte 6 so the
+     * next U16 read returns the sentinel 0x0030 (the simulated p.size).
+     * The buggy inline parser in TPM2_ECC_Parameters consumed only
+     * scheme+hashAlg (4 bytes) and left the count on the wire, which
+     * would make p.size read 0x0007 instead. */
+    AssertIntEQ(packet.pos, 6);
+    pSizeOut = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
+    AssertIntEQ(pSizeOut, 0x0030);
+
+    printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
+}
+
 static void test_TPM2_KeyedHashScheme_XorSerialize(void)
 {
     TPM2_Packet packet;
@@ -3163,6 +3210,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ComputeName();
     #endif
     test_TPM2_SchemeSerialize();
+    test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
     test_TPM2_Sensitive_Roundtrip();
