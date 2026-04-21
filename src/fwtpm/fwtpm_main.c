@@ -69,7 +69,9 @@ int main(int argc, char* argv[])
     static FWTPM_CTX ctx;
     int i;
     int clearNv = 0;
+#ifndef _WIN32
     struct sigaction sa;
+#endif
 
     /* Zero context before init (required so HAL save/restore works) */
     XMEMSET(&ctx, 0, sizeof(ctx));
@@ -155,11 +157,16 @@ int main(int argc, char* argv[])
     printf("  Model:         %s\n", FWTPM_MODEL);
 
     /* Install signal handler for graceful shutdown with NV save */
+#ifdef _WIN32
+    signal(SIGTERM, sigterm_handler);
+    signal(SIGINT, sigterm_handler);
+#else
     sa.sa_handler = sigterm_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT, &sa, NULL);
+#endif
 
     /* Initialize socket transport */
     rc = FWTPM_IO_Init(&ctx);

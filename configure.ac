@@ -263,7 +263,7 @@ if test "x$WOLFTPM_HW_SELECTED" = "xno"; then
     case $host_cpu in
         x86_64|amd64|aarch64)
             case $host_os in
-                *mingw*|*cygwin*|*msys*|*darwin*|*win32*)
+                *mingw*|*cygwin*|*msys*|*win32*)
                     ;;
                 *)
                     WOLFTPM_DEFAULT_FWTPM=yes
@@ -370,7 +370,13 @@ then
     # as a compile flag only for the fwtpm_server target in src/fwtpm/include.am.
     if test "x$ENABLED_SWTPM" != "xyes" && test "x$ENABLED_SWTPM" != "xuart"
     then
-        # TIS/shared-memory transport for fwTPM (instead of socket)
+        # TIS/shared-memory transport uses POSIX mmap/sem_open — not available
+        # on Windows. Require socket transport (--enable-swtpm) on Windows.
+        case $host_os in
+            *mingw*|*cygwin*|*msys*|*win32*)
+                AC_MSG_ERROR([fwTPM TIS/SHM transport is not supported on Windows. Use --enable-fwtpm --enable-swtpm for socket transport.])
+                ;;
+        esac
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO"
         ENABLED_FWTPM_TIS=yes
     fi

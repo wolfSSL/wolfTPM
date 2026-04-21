@@ -78,7 +78,13 @@ jobs:
           LD_LIBRARY_PATH: /tmp/wolfssl-install/lib
           ASAN_OPTIONS: ${{ matrix.asan_options }}
           UBSAN_OPTIONS: ${{ matrix.ubsan_options }}
-        run: make check
+        run: |
+          FWTPM_USE_FIXED_PORT=1 \
+          sudo -E unshare --net /bin/bash -c '
+            set -e
+            ip link set lo up
+            make check
+          '
 
       - name: Upload failure logs
         if: failure()

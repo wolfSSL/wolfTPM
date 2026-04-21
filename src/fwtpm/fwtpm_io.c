@@ -80,18 +80,30 @@ int FWTPM_IO_IsStopRequested(void)
 #ifndef WOLFTPM_FWTPM_TIS
 /* --- Low-level socket helpers --- */
 
-static int SocketSend(int fd, const void* buf, int sz)
+static int SocketSend(SOCKET_T fd, const void* buf, int sz)
 {
     const char* ptr = (const char*)buf;
     int remaining = sz;
     while (remaining > 0) {
+    #ifdef _WIN32
+        int sent = send(fd, ptr, remaining, 0);
+    #else
         int sent = (int)write(fd, ptr, remaining);
+    #endif
         if (sent <= 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+        #ifdef _WIN32
+            if (WSAGetLastError() == WSAEINTR) continue;
+        #else
+            if (errno == EINTR) continue;
+        #endif
         #ifdef DEBUG_WOLFTPM
-            printf("fwTPM: send error %d (%s)\n", errno, strerror(errno));
+            printf("fwTPM: send error %d\n",
+            #ifdef _WIN32
+                WSAGetLastError()
+            #else
+                errno
+            #endif
+            );
         #endif
             return TPM_RC_FAILURE;
         }
@@ -101,22 +113,34 @@ static int SocketSend(int fd, const void* buf, int sz)
     return TPM_RC_SUCCESS;
 }
 
-static int SocketRecv(int fd, void* buf, int sz)
+static int SocketRecv(SOCKET_T fd, void* buf, int sz)
 {
     char* ptr = (char*)buf;
     int remaining = sz;
     while (remaining > 0) {
+    #ifdef _WIN32
+        int got = recv(fd, ptr, remaining, 0);
+    #else
         int got = (int)read(fd, ptr, remaining);
+    #endif
         if (got <= 0) {
-            if (got < 0 && errno == EINTR) {
-                continue;
-            }
+        #ifdef _WIN32
+            if (got < 0 && WSAGetLastError() == WSAEINTR) continue;
+        #else
+            if (got < 0 && errno == EINTR) continue;
+        #endif
         #ifdef DEBUG_WOLFTPM
             if (got == 0) {
                 printf("fwTPM: recv EOF\n");
             }
             else {
-                printf("fwTPM: recv error %d (%s)\n", errno, strerror(errno));
+                printf("fwTPM: recv error %d\n",
+                #ifdef _WIN32
+                    WSAGetLastError()
+                #else
+                    errno
+                #endif
+                );
             }
         #endif
             return TPM_RC_FAILURE;
@@ -127,43 +151,42 @@ static int SocketRecv(int fd, void* buf, int sz)
     return TPM_RC_SUCCESS;
 }
 
-static int CreateListenSocket(int port)
+static SOCKET_T CreateListenSocket(int port)
 {
-    int fd;
+    SOCKET_T fd;
     int optval = 1;
     struct sockaddr_in addr;
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
+    if (fd == FWTPM_INVALID_FD) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: socket() failed: %d (%s)\n", errno, strerror(errno));
+        printf("fwTPM: socket() failed\n");
     #endif
-        return -1;
+        return FWTPM_INVALID_FD;
     }
 
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+        (const char*)&optval, sizeof(optval));
 
     XMEMSET(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons((unsigned short)port);
 
-    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: bind(%d) failed: %d (%s)\n", port, errno,
-            strerror(errno));
+        printf("fwTPM: bind(%d) failed\n", port);
     #endif
-        close(fd);
-        return -1;
+        CloseSocket(fd);
+        return FWTPM_INVALID_FD;
     }
 
-    if (listen(fd, 1) < 0) {
+    if (listen(fd, 1) != 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: listen(%d) failed: %d (%s)\n", port, errno,
-            strerror(errno));
+        printf("fwTPM: listen(%d) failed\n", port);
     #endif
-        close(fd);
-        return -1;
+        CloseSocket(fd);
+        return FWTPM_INVALID_FD;
     }
 
     return fd;
@@ -476,27 +499,42 @@ int FWTPM_IO_Init(FWTPM_CTX* ctx)
 #ifdef WOLFTPM_FWTPM_TIS
     return FWTPM_TIS_Init(ctx);
 #else
+#ifdef _WIN32
+    {
+        WSADATA wsaData;
+        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+            fprintf(stderr, "fwTPM: WSAStartup failed\n");
+            return TPM_RC_FAILURE;
+        }
+    }
+#endif
     XMEMSET(&ctx->io, 0, sizeof(ctx->io));
-    ctx->io.listenFd = -1;
-    ctx->io.platListenFd = -1;
-    ctx->io.clientFd = -1;
-    ctx->io.platClientFd = -1;
+    ctx->io.listenFd = FWTPM_INVALID_FD;
+    ctx->io.platListenFd = FWTPM_INVALID_FD;
+    ctx->io.clientFd = FWTPM_INVALID_FD;
+    ctx->io.platClientFd = FWTPM_INVALID_FD;
 
     /* Create command port listener */
     ctx->io.listenFd = CreateListenSocket(ctx->cmdPort);
-    if (ctx->io.listenFd < 0) {
+    if (ctx->io.listenFd == FWTPM_INVALID_FD) {
         fprintf(stderr, "fwTPM: Failed to listen on command port %d\n",
             ctx->cmdPort);
+    #ifdef _WIN32
+        WSACleanup();
+    #endif
         return TPM_RC_FAILURE;
     }
 
     /* Create platform port listener */
     ctx->io.platListenFd = CreateListenSocket(ctx->platPort);
-    if (ctx->io.platListenFd < 0) {
+    if (ctx->io.platListenFd == FWTPM_INVALID_FD) {
         fprintf(stderr, "fwTPM: Failed to listen on platform port %d\n",
             ctx->platPort);
-        close(ctx->io.listenFd);
-        ctx->io.listenFd = -1;
+        CloseSocket(ctx->io.listenFd);
+        ctx->io.listenFd = FWTPM_INVALID_FD;
+    #ifdef _WIN32
+        WSACleanup();
+    #endif
         return TPM_RC_FAILURE;
     }
 
@@ -516,22 +554,25 @@ void FWTPM_IO_Cleanup(FWTPM_CTX* ctx)
 #ifdef WOLFTPM_FWTPM_TIS
     FWTPM_TIS_Cleanup(ctx);
 #else
-    if (ctx->io.clientFd >= 0) {
-        close(ctx->io.clientFd);
-        ctx->io.clientFd = -1;
+    if (ctx->io.clientFd != FWTPM_INVALID_FD) {
+        CloseSocket(ctx->io.clientFd);
+        ctx->io.clientFd = FWTPM_INVALID_FD;
     }
-    if (ctx->io.platClientFd >= 0) {
-        close(ctx->io.platClientFd);
-        ctx->io.platClientFd = -1;
+    if (ctx->io.platClientFd != FWTPM_INVALID_FD) {
+        CloseSocket(ctx->io.platClientFd);
+        ctx->io.platClientFd = FWTPM_INVALID_FD;
     }
-    if (ctx->io.listenFd >= 0) {
-        close(ctx->io.listenFd);
-        ctx->io.listenFd = -1;
+    if (ctx->io.listenFd != FWTPM_INVALID_FD) {
+        CloseSocket(ctx->io.listenFd);
+        ctx->io.listenFd = FWTPM_INVALID_FD;
     }
-    if (ctx->io.platListenFd >= 0) {
-        close(ctx->io.platListenFd);
-        ctx->io.platListenFd = -1;
+    if (ctx->io.platListenFd != FWTPM_INVALID_FD) {
+        CloseSocket(ctx->io.platListenFd);
+        ctx->io.platListenFd = FWTPM_INVALID_FD;
     }
+#ifdef _WIN32
+    WSACleanup();
+#endif
 #endif /* !WOLFTPM_FWTPM_TIS */
 }
 
@@ -541,8 +582,8 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
     int rc = TPM_RC_SUCCESS;
     fd_set readFds;
     int maxFd;
-    int cmdFd = -1;   /* active command client fd */
-    int platFd = -1;  /* active platform client fd */
+    SOCKET_T cmdFd = FWTPM_INVALID_FD;   /* active command client fd */
+    SOCKET_T platFd = FWTPM_INVALID_FD;  /* active platform client fd */
     struct timeval tv;
     int selRc;
 #ifndef _WIN32
@@ -588,11 +629,11 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             maxFd = ctx->io.platListenFd;
 
         /* Watch active client connections for incoming data */
-        if (cmdFd >= 0) {
+        if (cmdFd != FWTPM_INVALID_FD) {
             FD_SET(cmdFd, &readFds);
             if (cmdFd > maxFd) maxFd = cmdFd;
         }
-        if (platFd >= 0) {
+        if (platFd != FWTPM_INVALID_FD) {
             FD_SET(platFd, &readFds);
             if (platFd > maxFd) maxFd = platFd;
         }
@@ -601,11 +642,13 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
         tv.tv_usec = 0;
         selRc = select(maxFd + 1, &readFds, NULL, NULL, &tv);
         if (selRc < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
+        #ifdef _WIN32
+            if (WSAGetLastError() == WSAEINTR) continue;
+        #else
+            if (errno == EINTR) continue;
+        #endif
         #ifdef DEBUG_WOLFTPM
-            printf("fwTPM: select error %d (%s)\n", errno, strerror(errno));
+            printf("fwTPM: select error\n");
         #endif
             rc = TPM_RC_FAILURE;
             break;
@@ -616,13 +659,13 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
 
         /* Accept new platform connection */
         if (FD_ISSET(ctx->io.platListenFd, &readFds)) {
-            int newFd = accept(ctx->io.platListenFd, NULL, NULL);
-            if (newFd >= 0) {
-                if (platFd >= 0) {
+            SOCKET_T newFd = accept(ctx->io.platListenFd, NULL, NULL);
+            if (newFd != FWTPM_INVALID_FD) {
+                if (platFd != FWTPM_INVALID_FD) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: platform connection replaced\n");
                 #endif
-                    close(platFd);
+                    CloseSocket(platFd);
                 }
                 platFd = newFd;
             }
@@ -630,37 +673,37 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
 
         /* Accept new command connection */
         if (FD_ISSET(ctx->io.listenFd, &readFds)) {
-            int newFd = accept(ctx->io.listenFd, NULL, NULL);
-            if (newFd >= 0) {
-                if (cmdFd >= 0) {
+            SOCKET_T newFd = accept(ctx->io.listenFd, NULL, NULL);
+            if (newFd != FWTPM_INVALID_FD) {
+                if (cmdFd != FWTPM_INVALID_FD) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: command connection replaced\n");
                 #endif
-                    close(cmdFd);
+                    CloseSocket(cmdFd);
                 }
                 cmdFd = newFd;
             }
         }
 
         /* Handle one message from active platform client */
-        if (platFd >= 0 && FD_ISSET(platFd, &readFds)) {
+        if (platFd != FWTPM_INVALID_FD && FD_ISSET(platFd, &readFds)) {
             if (HandlePlatformCommand(ctx, platFd) != TPM_RC_SUCCESS) {
-                close(platFd);
-                platFd = -1;
+                CloseSocket(platFd);
+                platFd = FWTPM_INVALID_FD;
             }
         }
 
         /* Handle one message from active command client */
-        if (cmdFd >= 0 && FD_ISSET(cmdFd, &readFds)) {
+        if (cmdFd != FWTPM_INVALID_FD && FD_ISSET(cmdFd, &readFds)) {
             if (HandleCommandConnection(ctx, cmdFd) != TPM_RC_SUCCESS) {
-                close(cmdFd);
-                cmdFd = -1;
+                CloseSocket(cmdFd);
+                cmdFd = FWTPM_INVALID_FD;
             }
         }
     }
 
-    if (cmdFd >= 0)  close(cmdFd);
-    if (platFd >= 0) close(platFd);
+    if (cmdFd != FWTPM_INVALID_FD)  CloseSocket(cmdFd);
+    if (platFd != FWTPM_INVALID_FD) CloseSocket(platFd);
 
     return rc;
 #endif /* !WOLFTPM_FWTPM_TIS */

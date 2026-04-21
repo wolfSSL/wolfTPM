@@ -202,6 +202,11 @@ if("${WOLFTPM_INTERFACE}" STREQUAL "SWTPM")
         "Set SWTPM socket port (default: 2321)")
     list(APPEND WOLFTPM_DEFINITIONS "-DTPM2_SWTPM_PORT=${WOLFTPM_SWTPM_PORT}")
 
+    # Link Winsock for socket transport on Windows
+    if(WIN32 AND BUILD_WOLFTPM_LIB)
+        target_link_libraries(wolftpm PRIVATE ws2_32)
+    endif()
+
 elseif("${WOLFTPM_INTERFACE}" STREQUAL "DEVTPM")
     list(APPEND WOLFTPM_DEFINITIONS "-DWOLFTPM_LINUX_DEV")
 
@@ -475,6 +480,9 @@ function(add_tpm_example name src)
         examples/${src}
         )
     target_link_libraries(${name} PRIVATE wolftpm tpm_test_lib wolftpm_wolfssl_dep)
+    if(WIN32)
+        target_link_libraries(${name} PRIVATE ws2_32)
+    endif()
 endfunction()
 
 ####################################################
@@ -520,8 +528,13 @@ if(WOLFTPM_FWTPM)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}
     )
-    if(UNIX AND NOT APPLE)
-        target_link_libraries(fwtpm_server PRIVATE pthread rt)
+    if(UNIX)
+        target_link_libraries(fwtpm_server PRIVATE pthread)
+        if(NOT APPLE)
+            target_link_libraries(fwtpm_server PRIVATE rt)
+        endif()
+    elseif(WIN32)
+        target_link_libraries(fwtpm_server PRIVATE ws2_32)
     endif()
 
     # fwtpm_unit_test executable
@@ -538,7 +551,7 @@ if(WOLFTPM_FWTPM)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_BINARY_DIR}
     )
-    if(UNIX AND NOT APPLE)
+    if(UNIX)
         target_link_libraries(fwtpm_unit_test PRIVATE pthread)
     endif()
 

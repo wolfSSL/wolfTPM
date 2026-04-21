@@ -1195,13 +1195,21 @@ if check_tool tpm2_certifycreation; then
             -f plain -s rsassa
 
     # Negative: tamper with the creation ticket and confirm the TPM rejects
-    # it with TPM_RC_TICKET (HMAC verification fails). Flip a byte in the
-    # middle of the ticket so headers/sizes stay valid.
+    # it with TPM_RC_TICKET (HMAC verification fails). tpm2-tools may save
+    # the ticket with a leading marshaling header, so tampering a single
+    # byte at a fixed offset isn't reliable across tool versions. Overwrite
+    # the trailing half of the file with 0xAA — the HMAC digest lives at
+    # the end of the TPMT_TK_CREATION structure and is always included in
+    # verification, so corrupting it guarantees TPM_RC_TICKET regardless
+    # of any wrapper framing.
     cp "$TEST_TMPDIR/cc_creation.ticket" "$TEST_TMPDIR/cc_creation.ticket.bad"
-    # The TPMT_TK_CREATION layout starts with tag(2)+hierarchy(4); tamper
-    # at offset 16 which lands inside the digest body.
-    printf '\xAA' | dd of="$TEST_TMPDIR/cc_creation.ticket.bad" \
-        bs=1 count=1 seek=16 conv=notrunc 2>/dev/null
+    TICKET_SIZE=$(wc -c < "$TEST_TMPDIR/cc_creation.ticket.bad")
+    TAMPER_OFFSET=$((TICKET_SIZE / 2))
+    TAMPER_LEN=$((TICKET_SIZE - TAMPER_OFFSET))
+    dd if=/dev/zero bs=1 count="$TAMPER_LEN" 2>/dev/null \
+        | tr '\000' '\252' \
+        | dd of="$TEST_TMPDIR/cc_creation.ticket.bad" \
+            bs=1 seek="$TAMPER_OFFSET" conv=notrunc 2>/dev/null
     run_test_fail "certifycreation rejects tampered ticket (TPM_RC_TICKET)" \
         tpm2_certifycreation -C "$TEST_TMPDIR/cc_sign.ctx" \
             -c "$TEST_TMPDIR/cc_primary.ctx" \

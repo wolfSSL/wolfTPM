@@ -981,7 +981,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_TPM_PROPERTIES: {
-            static const struct {
+            const struct {
                 UINT32 prop;
                 UINT32 val;
             } allProps[] = {
@@ -4427,6 +4427,9 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (symKeySz <= 0) {
             symKeySz = 16;
         }
+        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+            rc = TPM_RC_SYMMETRIC;
+        }
         digestSz = TPM2_GetHashDigestSize(parentNameAlg);
         wcHash = FwGetWcHashType(parentNameAlg);
         if (digestSz <= 0 || wcHash == WC_HASH_TYPE_NONE) {
@@ -4767,6 +4770,9 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (symKeySz <= 0) {
                     symKeySz = 16; /* default AES-128 */
+                }
+                if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+                    rc = TPM_RC_SYMMETRIC;
                 }
             }
 
@@ -5188,6 +5194,9 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             symKeySz = (int)(oldParent->pub.parameters.eccDetail.symmetric.keyBits.sym / 8);
         }
         if (symKeySz <= 0) symKeySz = 16;
+        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+            rc = TPM_RC_SYMMETRIC;
+        }
         digestSz = TPM2_GetHashDigestSize(parentNameAlg);
         if (digestSz <= 0) {
             rc = TPM_RC_HASH;
@@ -5247,6 +5256,9 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             symKeySz = (int)(newParent->pub.parameters.eccDetail.symmetric.keyBits.sym / 8);
         }
         if (symKeySz <= 0) symKeySz = 16;
+        if (symKeySz > FWTPM_MAX_SYM_KEY_SIZE) {
+            rc = TPM_RC_SYMMETRIC;
+        }
         digestSz = TPM2_GetHashDigestSize(parentNameAlg);
         if (digestSz <= 0)
             rc = TPM_RC_HASH;
