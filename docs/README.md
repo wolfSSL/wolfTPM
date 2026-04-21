@@ -37,6 +37,20 @@ Platform Configuration Registers (PCRs) are one of the essential features of a T
 
 wolfTPM contains hash digests for SHA-1 and SHA-256 with an index 0-23. These hash digests can be extended to prove the integrity of a boot sequence (secure boot).
 
+### Post-Quantum Cryptography (TPM 2.0 v1.85)
+
+wolfTPM implements the post-quantum additions from **TCG TPM 2.0 Library Specification v1.85** when built with `--enable-v185`. Supported algorithms:
+
+* **ML-DSA** (Module-Lattice-Based Digital Signature, NIST FIPS 204) at parameter sets 44, 65, and 87 — for signing and verification.
+* **Hash-ML-DSA** (pre-hashed ML-DSA variant) at the same parameter sets — for signing arbitrary digests.
+* **ML-KEM** (Module-Lattice-Based Key-Encapsulation Mechanism, NIST FIPS 203) at parameter sets 512, 768, and 1024 — for key encapsulation and decapsulation.
+
+Eight new TPM 2.0 commands are supported: `TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM2_SignDigest`, `TPM2_VerifyDigestSignature`, `TPM2_SignSequenceStart`, `TPM2_SignSequenceComplete`, `TPM2_VerifySequenceStart`, `TPM2_VerifySequenceComplete`.
+
+Algorithm behavior matches FIPS 203 / FIPS 204 via wolfCrypt's ML-KEM and ML-DSA (Dilithium) modules, validated against NIST ACVP test vectors.
+
+The firmware TPM (fwTPM) server also implements v1.85 PQC — see [FWTPM.md](FWTPM.md#tpm-20-v185-post-quantum-support) for algorithm, command, primary-key derivation, and sequence-handler details.
+
 ## Building wolfTPM
 
 To build the wolfTPM library, it's required to first build and install the wolfSSL library. This can be downloaded from the download page, or through a "git clone" command, shown below:

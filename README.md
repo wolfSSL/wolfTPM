@@ -38,6 +38,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
+* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-v185`. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [docs/FWTPM.md](docs/FWTPM.md#tpm-20-v185-post-quantum-support) for details.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 

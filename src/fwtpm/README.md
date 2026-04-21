@@ -9,6 +9,11 @@ examples and tpm2-tools) and TIS register-level transport over shared memory or
 SPI/I2C for bare-metal integration. Implements 105 of 113 TPM 2.0 v1.38 commands
 (93% coverage) with HAL abstractions for IO and NV storage portability.
 
+Post-quantum cryptography support is available with `--enable-v185`, adding
+ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation per TCG
+TPM 2.0 Library Specification v1.85. See [`docs/FWTPM.md`](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support)
+for algorithm and command details.
+
 ## Building
 
 wolfSSL must be built with `--enable-keygen` and `WC_RSA_NO_PADDING`:
