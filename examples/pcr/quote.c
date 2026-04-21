@@ -98,12 +98,17 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 
         /* Advanced usage */
         if (argv[1][0] != '-') {
-            if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
+            if (*argv[1] < '0' || *argv[1] > '9') {
                 printf("PCR index is out of range (0-23)\n");
                 usage();
                 return 0;
             }
             pcrIndex = XATOI(argv[1]);
+            if (pcrIndex < 0 || pcrIndex > 23) {
+                printf("PCR index is out of range (0-23)\n");
+                usage();
+                return 0;
+            }
         }
         if (argc >= 3 && argv[2][0] != '-')
             outputFile = argv[2];

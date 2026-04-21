@@ -170,7 +170,7 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
         else {
             printf("Success: Please reset or power cycle TPM\n");
         }
-        return rc;
+        goto exit;
     }
 
     if (manifest_file == NULL || firmware_file == NULL) {

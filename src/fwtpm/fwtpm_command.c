@@ -429,6 +429,46 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
     }
 }
 
+/* Constant-time password vs authValue comparison.
+ * Iterates a fixed upper bound (TPM_MAX_DIGEST_SIZE) with bitwise masks so
+ * neither the trip count nor per-iteration work depends on the secret
+ * authValSz. Trailing zeros on either side are treated as insignificant
+ * (matches TCG reference for authValues padded to nameAlg digest size).
+ * Returns 1 on mismatch, 0 on match. Precondition: pwSz and avSz must
+ * each be <= TPM_MAX_DIGEST_SIZE; out-of-range inputs fail closed. */
+static int FwCtAuthCompare(const byte* password, int pwSz,
+    const byte* authVal, int avSz)
+{
+    byte zeroAuth[TPM_MAX_DIGEST_SIZE];
+    const byte* avPtr;
+    volatile byte diff = 0;
+    int ci;
+
+    if (pwSz < 0 || avSz < 0 ||
+            pwSz > TPM_MAX_DIGEST_SIZE || avSz > TPM_MAX_DIGEST_SIZE) {
+        return 1;
+    }
+
+    XMEMSET(zeroAuth, 0, sizeof(zeroAuth));
+    avPtr = (authVal != NULL) ? authVal : zeroAuth;
+
+    for (ci = 0; ci < TPM_MAX_DIGEST_SIZE; ci++) {
+        /* 0xFF if ci < bound, else 0x00. Use UINT32 (guaranteed 32-bit
+         * wolfTPM typedef) so the >> 31 shift is always well-defined. */
+        byte pwMask = (byte)-((UINT32)(ci - pwSz) >> 31);
+        byte avMask = (byte)-((UINT32)(ci - avSz) >> 31);
+        byte overlap = (byte)(pwMask & avMask);
+        /* Overlap region: bytes must match */
+        diff |= (byte)((password[ci] ^ avPtr[ci]) & overlap);
+        /* Trailing bytes of pw past avSz must be zero */
+        diff |= (byte)(password[ci] & (pwMask & (byte)~avMask));
+        /* Trailing bytes of av past pwSz must be zero */
+        diff |= (byte)(avPtr[ci] & (avMask & (byte)~pwMask));
+    }
+
+    return ((int)diff != 0) ? 1 : 0;
+}
+
 /* Compute cpHash = H(commandCode || name1 || ... || cpBuffer)
  * Per TPM 2.0 Part 1 Section 18.7 */
 static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
@@ -9975,6 +10015,7 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspNoParams(rsp, cmdTag);
     }
 
+    TPM2_ForceZero(&auth, sizeof(auth));
     return rc;
 }
 
@@ -12719,9 +12760,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
     int pj, hj;                     /* Loop indices for auth validation */
-    int pwSz, avSz, maxSz, minSz, authFail; /* Password comparison */
-    volatile byte diff;
-    int ci;
+    int authFail;                   /* Password comparison result */
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
@@ -13085,29 +13124,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
             FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
 
-            /* Compare password with authValue in constant time.
-             * Per TCG reference implementation, trailing zeros are
-             * insignificant (handles authValues padded to nameAlg
-             * digest size). We compare up to the max of both sizes
-             * and verify trailing bytes are zero, all in constant
-             * time to avoid leaking the effective auth length. */
-            diff = 0;
-            pwSz = (int)cmdAuths[pj].passwordSize;
-            avSz = authValSz;
-            maxSz = (pwSz > avSz) ? pwSz : avSz;
-            minSz = (pwSz < avSz) ? pwSz : avSz;
-            /* Compare overlapping portion */
-            for (ci = 0; ci < minSz; ci++) {
-                diff |= cmdAuths[pj].password[ci] ^ authVal[ci];
-            }
-            /* Verify trailing bytes of the longer buffer are zero */
-            for (ci = minSz; ci < maxSz; ci++) {
-                if (ci < pwSz)
-                    diff |= cmdAuths[pj].password[ci];
-                if (ci < avSz)
-                    diff |= authVal[ci];
-            }
-            authFail = ((int)diff != 0);
+            authFail = FwCtAuthCompare(cmdAuths[pj].password,
+                (int)cmdAuths[pj].passwordSize, authVal, authValSz);
             if (authFail) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password auth failed for handle "

@@ -186,7 +186,7 @@
     #include <Qspi/SpiMaster/IfxQspi_SpiMaster.h>
 
     /* externally declared SPI master channel */
-    extern IfxQspi_SpiMaster_Channel spiMasterChannel
+    extern IfxQspi_SpiMaster_Channel spiMasterChannel;
 
     static int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBuf,
         byte* rxBuf, word16 xferSz, void* userCtx)

@@ -540,6 +540,178 @@ static int test_mitm_signature_rejected(void)
     TEST_PASS();
 }
 
+/* Drive wolfSPDM_ParseKeyExchangeRsp past the signature check and exercise
+ * the ResponderVerifyData HMAC compare. The fixture reuses a single P-384
+ * key pair as both requester and responder identity so the test can
+ * produce a signature that the parse path will accept; everything after
+ * (ECDH, KDF, HMAC) then runs on real inputs. */
+static int test_key_exchange_rsp_hmac_check(void)
+{
+    byte keRsp[300];
+    const word32 keRspLen = 282;
+    const word32 keRspPartialLen = 138;
+    ecc_key ltKey;
+    ecc_key respEphem;
+    ecc_key ourPubKey;
+    byte ltPriv[48], ltPubX[48], ltPubY[48], ltPub[96];
+    word32 ltPrivSz = 48, ltPubXSz = 48, ltPubYSz = 48;
+    byte respPubX[48], respPubY[48];
+    word32 respPubXSz = 48, respPubYSz = 48;
+    byte ourPubX[48], ourPubY[48];
+    word32 ourXSz = 48, ourYSz = 48;
+    byte sharedSecret[64];
+    word32 sharedSz = sizeof(sharedSecret);
+    byte signMsg[160];
+    word32 signMsgLen = 0;
+    byte th1SigHash[WOLFSPDM_HASH_SIZE];
+    byte signMsgHash[WOLFSPDM_HASH_SIZE];
+    byte th1[WOLFSPDM_HASH_SIZE];
+    byte sigRaw[WOLFSPDM_ECC_SIG_SIZE];
+    word32 sigRawSz = WOLFSPDM_ECC_SIG_SIZE;
+    byte expectedHmac[WOLFSPDM_HASH_SIZE];
+    const char* ctxStr = "responder-key_exchange_rsp signing";
+    const word32 ctxStrLen = 34;
+    word32 zeroPadLen;
+    int i, rc;
+    WOLFSPDM_CTX helperBuf;
+    WOLFSPDM_CTX* helper = &helperBuf;
+    TEST_CTX_SETUP_V12();
+
+    printf("test_key_exchange_rsp_hmac_check...\n");
+
+    /* Long-term P-384 key, shared between requester (for test signing)
+     * and responder (for parse verification) */
+    ASSERT_SUCCESS(wc_ecc_init(&ltKey));
+    ASSERT_SUCCESS(wc_ecc_make_key(&ctx->rng, 48, &ltKey));
+    ASSERT_SUCCESS(wc_ecc_export_private_only(&ltKey, ltPriv, &ltPrivSz));
+    ASSERT_SUCCESS(wc_ecc_export_public_raw(&ltKey,
+        ltPubX, &ltPubXSz, ltPubY, &ltPubYSz));
+    if (ltPrivSz < 48) {
+        XMEMMOVE(ltPriv + (48 - ltPrivSz), ltPriv, ltPrivSz);
+        XMEMSET(ltPriv, 0, 48 - ltPrivSz);
+    }
+    if (ltPubXSz < 48) {
+        XMEMMOVE(ltPubX + (48 - ltPubXSz), ltPubX, ltPubXSz);
+        XMEMSET(ltPubX, 0, 48 - ltPubXSz);
+    }
+    if (ltPubYSz < 48) {
+        XMEMMOVE(ltPubY + (48 - ltPubYSz), ltPubY, ltPubYSz);
+        XMEMSET(ltPubY, 0, 48 - ltPubYSz);
+    }
+    XMEMCPY(ltPub, ltPubX, 48);
+    XMEMCPY(ltPub + 48, ltPubY, 48);
+    ASSERT_SUCCESS(wolfSPDM_SetRequesterKeyPair(ctx, ltPriv, 48, ltPub, 96));
+    ASSERT_SUCCESS(wolfSPDM_SetResponderPubKey(ctx, ltPub, 96));
+
+    /* Our ephemeral ECDH key (requester side). Some wolfSSL builds
+     * (e.g. ECC_TIMING_RESISTANT) require an RNG on the ECDH private
+     * key for blinding; ensure one is attached for wc_ecc_shared_secret. */
+    ASSERT_SUCCESS(wolfSPDM_GenerateEphemeralKey(ctx));
+    ASSERT_SUCCESS(wc_ecc_set_rng(&ctx->ephemeralKey, &ctx->rng));
+    ASSERT_SUCCESS(wolfSPDM_ExportEphemeralPubKey(ctx,
+        ourPubX, &ourXSz, ourPubY, &ourYSz));
+
+    /* Responder ephemeral ECDH key (simulated responder side) */
+    ASSERT_SUCCESS(wc_ecc_init(&respEphem));
+    ASSERT_SUCCESS(wc_ecc_make_key(&ctx->rng, 48, &respEphem));
+    ASSERT_SUCCESS(wc_ecc_set_rng(&respEphem, &ctx->rng));
+    ASSERT_SUCCESS(wc_ecc_export_public_raw(&respEphem,
+        respPubX, &respPubXSz, respPubY, &respPubYSz));
+    if (respPubXSz < 48) {
+        XMEMMOVE(respPubX + (48 - respPubXSz), respPubX, respPubXSz);
+        XMEMSET(respPubX, 0, 48 - respPubXSz);
+    }
+    if (respPubYSz < 48) {
+        XMEMMOVE(respPubY + (48 - respPubYSz), respPubY, respPubYSz);
+        XMEMSET(respPubY, 0, 48 - respPubYSz);
+    }
+
+    /* Build partial KE_RSP (bytes 0..137) */
+    XMEMSET(keRsp, 0, sizeof(keRsp));
+    keRsp[0] = SPDM_VERSION_12;
+    keRsp[1] = SPDM_KEY_EXCHANGE_RSP;
+    SPDM_Set16LE(&keRsp[4], 0x1234);
+    XMEMSET(&keRsp[8], 0x5A, 32);
+    XMEMCPY(&keRsp[40], respPubX, 48);
+    XMEMCPY(&keRsp[88], respPubY, 48);
+    SPDM_Set16LE(&keRsp[136], 0);
+
+    /* th1SigHash = Hash(transcript + partial KE_RSP); transcript starts empty */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(th1SigHash,
+        keRsp, keRspPartialLen, NULL, 0, NULL, 0));
+
+    /* Replicate wolfSPDM_BuildSignedHash for SPDM 1.2 over th1SigHash */
+    signMsgLen = 0;
+    for (i = 0; i < 4; i++) {
+        XMEMCPY(&signMsg[signMsgLen], "dmtf-spdm-v1.2.*", 16);
+        signMsgLen += 16;
+    }
+    zeroPadLen = 36 - ctxStrLen;
+    XMEMSET(&signMsg[signMsgLen], 0, zeroPadLen);
+    signMsgLen += zeroPadLen;
+    XMEMCPY(&signMsg[signMsgLen], ctxStr, ctxStrLen);
+    signMsgLen += ctxStrLen;
+    XMEMCPY(&signMsg[signMsgLen], th1SigHash, WOLFSPDM_HASH_SIZE);
+    signMsgLen += WOLFSPDM_HASH_SIZE;
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(signMsgHash,
+        signMsg, signMsgLen, NULL, 0, NULL, 0));
+
+    /* Sign with long-term key; wolfSPDM_SignHash pads R||S to 96 bytes */
+    sigRawSz = WOLFSPDM_ECC_SIG_SIZE;
+    ASSERT_SUCCESS(wolfSPDM_SignHash(ctx, signMsgHash, WOLFSPDM_HASH_SIZE,
+        sigRaw, &sigRawSz));
+    XMEMCPY(&keRsp[138], sigRaw, WOLFSPDM_ECC_SIG_SIZE);
+
+    /* TH1 = Hash(partial || signature) */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(th1,
+        keRsp, keRspPartialLen + WOLFSPDM_ECC_SIG_SIZE, NULL, 0, NULL, 0));
+
+    /* Shared secret from responder ephemeral and our public key (mirrors
+     * ECDH(our_priv, resp_pub) that parse will compute on ctx) */
+    ASSERT_SUCCESS(wc_ecc_init(&ourPubKey));
+    ASSERT_SUCCESS(wc_ecc_import_unsigned(&ourPubKey,
+        ourPubX, ourPubY, NULL, ECC_SECP384R1));
+    ASSERT_SUCCESS(wc_ecc_shared_secret(&respEphem, &ourPubKey,
+        sharedSecret, &sharedSz));
+    wc_ecc_free(&ourPubKey);
+    if (sharedSz < 48) {
+        XMEMMOVE(sharedSecret + (48 - sharedSz), sharedSecret, sharedSz);
+        XMEMSET(sharedSecret, 0, 48 - sharedSz);
+    }
+    sharedSz = 48;
+
+    /* Derive rspFinishedKey via a throwaway helper ctx */
+    ASSERT_SUCCESS(wolfSPDM_Init(helper));
+    helper->spdmVersion = SPDM_VERSION_12;
+    XMEMCPY(helper->sharedSecret, sharedSecret, 48);
+    helper->sharedSecretSz = 48;
+    ASSERT_SUCCESS(wolfSPDM_DeriveHandshakeKeys(helper, th1));
+    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(
+        helper->rspFinishedKey, th1, expectedHmac));
+    wolfSPDM_Free(helper);
+
+    /* Positive: valid HMAC must succeed and advance state to KEY_EX */
+    XMEMCPY(&keRsp[234], expectedHmac, WOLFSPDM_HASH_SIZE);
+    rc = wolfSPDM_ParseKeyExchangeRsp(ctx, keRsp, keRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_SUCCESS, "valid HMAC should succeed");
+    ASSERT_EQ(ctx->state, WOLFSPDM_STATE_KEY_EX,
+        "state should advance to KEY_EX on valid parse");
+
+    /* Negative: a single bit flip in rspVerifyData must be rejected.
+     * Reset transcript/state only; keep ephemeral key so ECDH reproduces. */
+    wolfSPDM_TranscriptReset(ctx);
+    ctx->state = WOLFSPDM_STATE_INIT;
+    keRsp[234] ^= 0x01;
+    rc = wolfSPDM_ParseKeyExchangeRsp(ctx, keRsp, keRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_HMAC,
+        "flipped rspVerifyData byte must return BAD_HMAC");
+
+    wc_ecc_free(&ltKey);
+    wc_ecc_free(&respEphem);
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
 /* Test Fix 4: Invalid curve point must be rejected by ComputeSharedSecret */
 static int test_invalid_curve_point(void)
 {
@@ -1400,6 +1572,71 @@ static int test_parse_psk_exchange_rsp_null_args(void)
     TEST_PASS();
 }
 
+/* Drive wolfSPDM_ParsePskExchangeRsp through key derivation to exercise
+ * the PSK ResponderVerifyData HMAC compare. Previously only NULL/short-
+ * buffer paths were covered, so mutations of the `if (diff != 0)` block
+ * or of `diff |= ...` → `diff &= ...` survived every test. */
+static int test_parse_psk_exchange_rsp_hmac_check(void)
+{
+    byte pskRsp[64];
+    const word32 pskRspLen = 60;           /* 12-byte partial + 48 HMAC */
+    const word32 pskRspPartialLen = 12;
+    byte psk[48];
+    byte th1[WOLFSPDM_HASH_SIZE];
+    byte expectedHmac[WOLFSPDM_HASH_SIZE];
+    int rc;
+    WOLFSPDM_CTX helperBuf;
+    WOLFSPDM_CTX* helper = &helperBuf;
+    TEST_CTX_SETUP_V12();
+
+    printf("test_parse_psk_exchange_rsp_hmac_check...\n");
+
+    XMEMSET(psk, 0xA5, sizeof(psk));
+
+    /* Build PSK_EXCHANGE_RSP partial (12 bytes): rspContextLen=0, opaqueLen=0 */
+    XMEMSET(pskRsp, 0, sizeof(pskRsp));
+    pskRsp[0] = SPDM_VERSION_12;
+    pskRsp[1] = SPDM_PSK_EXCHANGE_RSP;
+    SPDM_Set16LE(&pskRsp[4], 0x1234);      /* RspSessionID */
+    SPDM_Set16LE(&pskRsp[8], 0);           /* RspContextLength */
+    SPDM_Set16LE(&pskRsp[10], 0);          /* OpaqueDataLength */
+
+    /* TH1 = Hash(transcript + partial); transcript starts empty */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(th1,
+        pskRsp, pskRspPartialLen, NULL, 0, NULL, 0));
+
+    /* Derive rspFinishedKey on a throwaway helper ctx */
+    ASSERT_SUCCESS(wolfSPDM_Init(helper));
+    helper->spdmVersion = SPDM_VERSION_12;
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(helper, psk, sizeof(psk), NULL, 0));
+    ASSERT_SUCCESS(wolfSPDM_DeriveHandshakeKeysPsk(helper, th1));
+    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(
+        helper->rspFinishedKey, th1, expectedHmac));
+    wolfSPDM_Free(helper);
+
+    /* Positive: correct HMAC must succeed and advance state to KEY_EX */
+    XMEMCPY(&pskRsp[12], expectedHmac, WOLFSPDM_HASH_SIZE);
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(ctx, psk, sizeof(psk), NULL, 0));
+    rc = wolfSPDM_ParsePskExchangeRsp(ctx, pskRsp, pskRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_SUCCESS, "valid PSK HMAC should succeed");
+    ASSERT_EQ(ctx->state, WOLFSPDM_STATE_KEY_EX,
+        "state should advance to KEY_EX on valid PSK parse");
+
+    /* Negative: flip one byte — must return BAD_HMAC.
+     * Parse scrubs ctx->psk after derivation, so re-set it; also reset
+     * transcript because the successful parse appended 60 bytes. */
+    wolfSPDM_TranscriptReset(ctx);
+    ctx->state = WOLFSPDM_STATE_INIT;
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(ctx, psk, sizeof(psk), NULL, 0));
+    pskRsp[12] ^= 0x01;
+    rc = wolfSPDM_ParsePskExchangeRsp(ctx, pskRsp, pskRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_HMAC,
+        "flipped PSK rspVerifyData byte must return BAD_HMAC");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
 static int test_build_psk_finish_null_args(void)
 {
     byte buf[128];
@@ -1937,6 +2174,7 @@ int main(void)
 
     /* Security tests */
     test_mitm_signature_rejected();
+    test_key_exchange_rsp_hmac_check();
     test_invalid_curve_point();
 #ifdef WOLFTPM_SPDM_TCG
     test_tcg_underflow();
@@ -1989,6 +2227,7 @@ int main(void)
 #endif
 #ifdef WOLFTPM_SPDM_PSK
     test_parse_psk_exchange_rsp_null_args();
+    test_parse_psk_exchange_rsp_hmac_check();
     test_build_psk_finish_null_args();
     test_build_psk_finish_format();
     test_parse_psk_finish_rsp();
