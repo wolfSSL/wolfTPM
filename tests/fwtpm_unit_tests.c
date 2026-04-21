@@ -1574,9 +1574,9 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
      * is not set), so VerifyDigestSignature would return TPM_RC_EXT_MU per
      * Part 2 §12.2.3.7 since allowExternalMu=NO. This LoadExternal test
      * proves the PQC pub area round-trips through fwTPM's handler; full
-     * Pure-MLDSA verify via VerifySequenceComplete was already covered in
-     * Phase 8a. Skipping the verify half here — the LoadExternal success
-     * is the spec-conformance win. */
+     * Pure-MLDSA verify via VerifySequenceComplete is covered by the
+     * sequence round-trip test. Skipping the verify half here — the
+     * LoadExternal success is the spec-conformance win. */
 
     /* Flush */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
@@ -1589,7 +1589,11 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     printf("Test fwTPM:\tMLDSA LoadExternal (NIST pub):\t\tPassed\n");
 }
 
-/* ---- Phase 12 Tr1 Task 2: PQC negative-RC pass ----------------------- */
+/* Forward decls for helpers defined later in the file but used by the
+ * PQC test block that appears first in source order. */
+static int AppendPwAuth(byte* buf, int pos, const byte* pw, int pwSz);
+
+/* ---- PQC negative-RC pass -------------------------------------------- */
 /* Each handler's error-path emissions must return the exact spec RC.
  * Pattern mirrors wolfCrypt's BAD_FUNC_ARG coverage (test_mldsa.c /
  * test_mlkem.c) translated to TPM command-level errors. Every assertion
@@ -2027,6 +2031,103 @@ static void test_fwtpm_sequenceupdate_neg(void)
     printf("Test fwTPM:\tSequenceUpdate neg (ONE_SHOT_SIG):\tPassed\n");
 }
 
+/* ---- NV persistence round-trip for PQC primary -----------------------
+ * An MLDSA-65 persistent key must survive a full FWTPM_Init / Cleanup
+ * cycle with only the NV backing file as handoff. Exercises the
+ * FWTPM_NV_Save / Load path end-to-end for a PQC object; verifies the
+ * FWTPM_NV_PUBAREA_EST lift (2720 bytes) is large enough for the MLDSA
+ * public area. */
+static void test_fwtpm_pqc_nv_persistence(void)
+{
+    FWTPM_CTX ctx1, ctx2;
+    int rc, rspSize, pos;
+    UINT32 transientH;
+    UINT32 persistentH = 0x81000010u;
+    UINT16 pubSz1, pubSz2;
+    byte pubBytes1[MAX_MLDSA_PUB_SIZE];
+    byte pubBytes2[MAX_MLDSA_PUB_SIZE];
+    int pubOff;
+
+    /* Clean NV so the only persistent state is what we create here. */
+    (void)remove(FWTPM_NV_FILE);
+
+    /* Phase A: create MLDSA-65 primary, persist it, capture pub bytes. */
+    memset(&ctx1, 0, sizeof(ctx1));
+    AssertIntEQ(fwtpm_test_startup(&ctx1), 0);
+    transientH = fwtpm_neg_mk_mldsa_primary(&ctx1);
+
+    /* Extract unique.mldsa from the outPublic still in gRsp. Same layout
+     * derived in test_fwtpm_mldsa_primary_determinism: offset 33. */
+    pubOff = TPM2_HEADER_SIZE + 4 + 4 + 2 + 2 + 2 + 4 + 2 + 3;
+    pubSz1 = GetU16BE(gRsp + pubOff);
+    AssertIntGT(pubSz1, 0);
+    AssertTrue(pubSz1 <= (int)sizeof(pubBytes1));
+    memcpy(pubBytes1, gRsp + pubOff + 2, pubSz1);
+
+    /* EvictControl: transient -> persistent. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, transientH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persistentH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx1, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Cleanup -> FWTPM_NV_Save -> file on disk. */
+    FWTPM_Cleanup(&ctx1);
+
+    /* Phase B: new ctx, load NV from disk, resolve persistent handle. */
+    memset(&ctx2, 0, sizeof(ctx2));
+    AssertIntEQ(fwtpm_test_startup(&ctx2), 0);
+
+    /* ReadPublic on the persistent handle. Response body:
+     * header(10) + TPM2B_PUBLIC.size(2) + TPMT_PUBLIC. Unique.size
+     * offset within TPMT_PUBLIC for MLDSA = type(2)+nameAlg(2)+attrs(4)
+     * +authPolicy(2)+parameters(3) = 13 bytes. Total: 10+2+13 = 25. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ReadPublic); pos += 4;
+    PutU32BE(gCmd + pos, persistentH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx2, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pubOff = TPM2_HEADER_SIZE + 2 + 2 + 2 + 4 + 2 + 3;
+    pubSz2 = GetU16BE(gRsp + pubOff);
+    AssertTrue(pubSz2 <= (int)sizeof(pubBytes2));
+    memcpy(pubBytes2, gRsp + pubOff + 2, pubSz2);
+
+    /* Same serialized public bytes across the restart. */
+    AssertIntEQ(pubSz1, pubSz2);
+    AssertIntEQ(XMEMCMP(pubBytes1, pubBytes2, pubSz1), 0);
+
+    /* Clean up: remove persistent slot so subsequent tests start fresh. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persistentH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persistentH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx2, gCmd, pos, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx2);
+    (void)remove(FWTPM_NV_FILE);
+
+    printf("Test fwTPM:\tMLDSA NV persistence round-trip:\tPassed\n");
+}
+
 /* ---- Determinism tests (Gap 7 / DEC-0001) ---------------------------- */
 /* Same hierarchy seed + same template -> same PQC primary key.
  * TPM-specific test; no direct wolfCrypt analog. Verifies the deterministic
@@ -2034,7 +2135,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
 
 /* TPM_CAP_TPM_PROPERTIES returning TPM_PT_ML_PARAMETER_SETS must report the
  * TPMA_ML_PARAMETER_SET bitfield (Part 2 §8.13 Table 46). TPM_CAP_ALGS must
- * list TPM_ALG_MLKEM / _MLDSA / _HASH_MLDSA. Validates Phase 12 Tr1 Task 3. */
+ * list TPM_ALG_MLKEM / _MLDSA / _HASH_MLDSA. */
 static void test_fwtpm_getcap_pqc(void)
 {
     FWTPM_CTX ctx;
@@ -3775,7 +3876,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mlkem_roundtrip();
     test_fwtpm_mldsa_digest_roundtrip();
     test_fwtpm_mldsa_sequence_roundtrip();
-    /* KAT tests (Phase 10) */
+    /* NIST / wolfSSL KAT validation */
     test_fwtpm_mldsa_nist_kat_verify();
     test_fwtpm_mldsa_wolfssl_keygen_kat();
     test_fwtpm_mlkem_nist_kat_encap();
@@ -3793,6 +3894,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signdigest_neg();
     test_fwtpm_verifydigestsig_neg();
     test_fwtpm_sequenceupdate_neg();
+    test_fwtpm_pqc_nv_persistence();
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();

@@ -12819,7 +12819,7 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_HANDLE;
         }
     }
-    /* Phase 4 scope: MLKEM only. ECDH KEM path (v1.85 Table 100 ecdh arm)
+    /* Current scope: MLKEM only. ECDH KEM path (v1.85 Table 100 ecdh arm)
      * is not yet implemented; TPM_RC_KEY is the spec response for
      * key-type-not-supported on this command. */
     if (rc == 0) {
@@ -13015,7 +13015,7 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* Phase 5 scope: Pure ML-DSA and Hash-ML-DSA signing keys. */
+        /* Scope: Pure ML-DSA and Hash-ML-DSA signing keys. */
         if (obj->pub.type != TPM_ALG_MLDSA &&
             obj->pub.type != TPM_ALG_HASH_MLDSA) {
             rc = TPM_RC_KEY;
@@ -13515,7 +13515,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_ParseBytes(cmd, digest->buffer, digest->size);
 
         /* Parse validation (TPMT_TK_HASHCHECK) — we do not enforce it here
-         * because Phase 5 scope restricts SignDigest to non-restricted keys. */
+         * because current scope restricts SignDigest to non-restricted keys. */
         TPM2_Packet_ParseU16(cmd, &validationTag);
         TPM2_Packet_ParseU32(cmd, &validationHier);
         TPM2_Packet_ParseU16(cmd, &validationDigestSz);
@@ -13862,7 +13862,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Vendor --- */
     { TPM_CC_Vendor_TCG_Test,    FwCmd_Vendor_TCG_Test,      0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifdef WOLFTPM_V185
-    /* --- v1.85 PQC (stubs; real handlers in Phase 4/5) --- */
+    /* --- v1.85 PQC handlers --- */
     { TPM_CC_Encapsulate,            FwCmd_Encapsulate,            1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_Decapsulate,            FwCmd_Decapsulate,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_SignSequenceStart,      FwCmd_SignSequenceStart,      1, 0, 1, FW_CMD_FLAG_ENC },
