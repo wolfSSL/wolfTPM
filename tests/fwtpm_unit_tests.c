@@ -148,6 +148,15 @@ static TPM_RC GetRspRC(const byte* rsp)
 static byte gCmd[FWTPM_MAX_COMMAND_SIZE];
 static byte gRsp[FWTPM_MAX_COMMAND_SIZE];
 
+/* Print a test result with column-aligned output. If is_pqc is non-zero
+ * the line is tagged "[PQC]" so v1.85 post-quantum tests are visually
+ * distinguishable from the classical fwTPM suite at a glance. */
+static void fwtpm_pass(const char* name, int is_pqc)
+{
+    printf("Test fwTPM: %-6s %-42s Passed\n",
+        is_pqc ? "[PQC]" : "", name);
+}
+
 /* Initialize fwTPM context and send Startup + SelfTest */
 static int fwtpm_test_startup(FWTPM_CTX* ctx)
 {
@@ -194,7 +203,7 @@ static void test_fwtpm_init_cleanup(void)
     AssertIntEQ(rc, 0);
     FWTPM_Cleanup(&ctx);
 
-    printf("Test fwTPM:\tInit/Cleanup:\t\t\tPassed\n");
+    fwtpm_pass("Init/Cleanup:", 0);
 }
 
 static void test_fwtpm_startup_clear(void)
@@ -219,7 +228,7 @@ static void test_fwtpm_startup_clear(void)
     AssertIntGT(rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tStartup(CLEAR):\t\t\tPassed\n");
+    fwtpm_pass("Startup(CLEAR):", 0);
 }
 
 static void test_fwtpm_double_startup(void)
@@ -244,7 +253,7 @@ static void test_fwtpm_double_startup(void)
     AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tDouble Startup:\t\t\tPassed\n");
+    fwtpm_pass("Double Startup:", 0);
 }
 
 static void test_fwtpm_selftest(void)
@@ -257,7 +266,7 @@ static void test_fwtpm_selftest(void)
     AssertIntEQ(rc, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSelfTest:\t\t\tPassed\n");
+    fwtpm_pass("SelfTest:", 0);
 }
 
 static void test_fwtpm_shutdown(void)
@@ -281,7 +290,7 @@ static void test_fwtpm_shutdown(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tShutdown:\t\t\tPassed\n");
+    fwtpm_pass("Shutdown:", 0);
 }
 
 /* ================================================================== */
@@ -305,7 +314,7 @@ static void test_fwtpm_undersized_command(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tUndersized command:\t\tPassed\n");
+    fwtpm_pass("Undersized command:", 0);
 }
 
 static void test_fwtpm_bad_tag(void)
@@ -325,7 +334,7 @@ static void test_fwtpm_bad_tag(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_TAG);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tBad tag:\t\t\tPassed\n");
+    fwtpm_pass("Bad tag:", 0);
 }
 
 static void test_fwtpm_size_mismatch(void)
@@ -346,7 +355,7 @@ static void test_fwtpm_size_mismatch(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSize mismatch:\t\t\tPassed\n");
+    fwtpm_pass("Size mismatch:", 0);
 }
 
 static void test_fwtpm_unknown_command(void)
@@ -366,7 +375,7 @@ static void test_fwtpm_unknown_command(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tUnknown command code:\t\tPassed\n");
+    fwtpm_pass("Unknown command code:", 0);
 }
 
 static void test_fwtpm_no_startup(void)
@@ -403,7 +412,7 @@ static void test_fwtpm_no_startup(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_INITIALIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tNo startup (INITIALIZE):\t\tPassed\n");
+    fwtpm_pass("No startup (INITIALIZE):", 0);
 }
 
 /* ================================================================== */
@@ -439,7 +448,7 @@ static void test_fwtpm_auth_area_oversize(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTHSIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tAuth area oversize (MEDIUM-1):\tPassed\n");
+    fwtpm_pass("Auth area oversize (MEDIUM-1):", 0);
 }
 
 /* Test MEDIUM-4: zero-size command should be caught */
@@ -459,7 +468,7 @@ static void test_fwtpm_zero_size_command(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tZero-size command (MEDIUM-4):\tPassed\n");
+    fwtpm_pass("Zero-size command (MEDIUM-4):", 0);
 }
 
 /* ================================================================== */
@@ -497,7 +506,7 @@ static void test_fwtpm_getrandom(void)
     AssertIntEQ((int)rspSizeHdr, TPM2_HEADER_SIZE + 2 + 32);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetRandom(32):\t\t\tPassed\n");
+    fwtpm_pass("GetRandom(32):", 0);
 }
 
 static void test_fwtpm_getrandom_zero(void)
@@ -521,7 +530,7 @@ static void test_fwtpm_getrandom_zero(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetRandom(0):\t\t\tPassed\n");
+    fwtpm_pass("GetRandom(0):", 0);
 }
 
 static void test_fwtpm_stirrandom(void)
@@ -547,7 +556,7 @@ static void test_fwtpm_stirrandom(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tStirRandom:\t\t\tPassed\n");
+    fwtpm_pass("StirRandom:", 0);
 }
 
 /* ================================================================== */
@@ -577,7 +586,7 @@ static void test_fwtpm_getcap_algorithms(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetCapability(ALGS):\t\tPassed\n");
+    fwtpm_pass("GetCapability(ALGS):", 0);
 }
 
 static void test_fwtpm_getcap_commands(void)
@@ -603,7 +612,7 @@ static void test_fwtpm_getcap_commands(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetCapability(COMMANDS):\t\tPassed\n");
+    fwtpm_pass("GetCapability(COMMANDS):", 0);
 }
 
 static void test_fwtpm_getcap_properties(void)
@@ -628,7 +637,7 @@ static void test_fwtpm_getcap_properties(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetCapability(PROPERTIES):\tPassed\n");
+    fwtpm_pass("GetCapability(PROPERTIES):", 0);
 }
 
 static void test_fwtpm_getcap_pcrs(void)
@@ -653,7 +662,7 @@ static void test_fwtpm_getcap_pcrs(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetCapability(PCRS):\t\tPassed\n");
+    fwtpm_pass("GetCapability(PCRS):", 0);
 }
 
 /* ================================================================== */
@@ -697,7 +706,7 @@ static void test_fwtpm_pcr_read(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPCR_Read(0):\t\t\tPassed\n");
+    fwtpm_pass("PCR_Read(0):", 0);
 }
 
 static void test_fwtpm_pcr_extend_and_read(void)
@@ -779,7 +788,7 @@ static void test_fwtpm_pcr_extend_and_read(void)
     AssertFalse(allZero); /* After extend, PCR should not be all zeros */
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPCR_Extend + Read(16):\t\tPassed\n");
+    fwtpm_pass("PCR_Extend + Read(16):", 0);
 }
 
 /* ================================================================== */
@@ -806,7 +815,7 @@ static void test_fwtpm_readclock(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE + 8);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tReadClock:\t\t\tPassed\n");
+    fwtpm_pass("ReadClock:", 0);
 }
 
 /* ================================================================== */
@@ -970,7 +979,7 @@ static void test_fwtpm_create_primary_rsa(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tCreatePrimary(RSA-2048):\t\tPassed\n");
+    fwtpm_pass("CreatePrimary(RSA-2048):", 0);
 }
 #endif /* !NO_RSA && WOLFSSL_KEY_GEN */
 
@@ -1005,7 +1014,7 @@ static void test_fwtpm_create_primary_ecc(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tCreatePrimary(ECC-P256):\t\tPassed\n");
+    fwtpm_pass("CreatePrimary(ECC-P256):", 0);
 }
 #endif /* HAVE_ECC */
 
@@ -1037,7 +1046,7 @@ static void test_fwtpm_create_primary_mlkem(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tCreatePrimary(MLKEM-768):\t\tPassed\n");
+    fwtpm_pass("CreatePrimary(MLKEM-768):", 1);
 }
 
 static void test_fwtpm_create_primary_mldsa(void)
@@ -1067,7 +1076,7 @@ static void test_fwtpm_create_primary_mldsa(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tCreatePrimary(MLDSA-65):\t\tPassed\n");
+    fwtpm_pass("CreatePrimary(MLDSA-65):", 1);
 }
 
 /* End-to-end Layer D: CreatePrimary MLKEM → Encapsulate → Decapsulate.
@@ -1160,7 +1169,7 @@ static void test_fwtpm_mlkem_roundtrip(void)
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(ct1);
-    printf("Test fwTPM:\tMLKEM Encap/Decap Roundtrip:\t\tPassed\n");
+    fwtpm_pass("MLKEM Encap/Decap Roundtrip:", 1);
 }
 
 /* Layer D: Hash-MLDSA-65 SignDigest → VerifyDigestSignature round-trip.
@@ -1270,7 +1279,7 @@ static void test_fwtpm_mldsa_digest_roundtrip(void)
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sig);
-    printf("Test fwTPM:\tMLDSA SignDigest/Verify Roundtrip:\tPassed\n");
+    fwtpm_pass("MLDSA SignDigest/Verify Roundtrip:", 1);
 }
 
 /* Layer D: Pure MLDSA-65 sign/verify sequence round-trip.
@@ -1419,7 +1428,7 @@ static void test_fwtpm_mldsa_sequence_roundtrip(void)
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sig);
-    printf("Test fwTPM:\tMLDSA Sign/Verify Sequence:\t\tPassed\n");
+    fwtpm_pass("MLDSA Sign/Verify Sequence:", 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1452,7 +1461,7 @@ static void test_fwtpm_mldsa_nist_kat_verify(void)
     AssertIntEQ(rc, 0);
     AssertIntEQ(res, 1);
     wc_dilithium_free(&key);
-    printf("Test fwTPM:\tMLDSA NIST KAT Verify (wolfCrypt):\tPassed\n");
+    fwtpm_pass("MLDSA NIST KAT Verify (wolfCrypt):", 1);
 }
 
 /* Layer A: wolfCrypt-only keygen determinism against wolfSSL MLDSA-44 vector. */
@@ -1474,7 +1483,7 @@ static void test_fwtpm_mldsa_wolfssl_keygen_kat(void)
     AssertIntEQ(pubSz, sizeof(gWolfSslMldsa44Pk));
     AssertIntEQ(XMEMCMP(pub, gWolfSslMldsa44Pk, pubSz), 0);
     wc_dilithium_free(&key);
-    printf("Test fwTPM:\tMLDSA wolfSSL keygen KAT:\t\tPassed\n");
+    fwtpm_pass("MLDSA wolfSSL keygen KAT:", 1);
 }
 
 /* Layer A: MLKEM-512 encap with pinned randomness against NIST expected (c,k). */
@@ -1496,7 +1505,7 @@ static void test_fwtpm_mlkem_nist_kat_encap(void)
     AssertIntEQ(XMEMCMP(c, gNistMlkem512C, sizeof(c)), 0);
     AssertIntEQ(XMEMCMP(k, gNistMlkem512K, sizeof(k)), 0);
     wc_MlKemKey_Free(&key);
-    printf("Test fwTPM:\tMLKEM NIST KAT Encap (wolfCrypt):\tPassed\n");
+    fwtpm_pass("MLKEM NIST KAT Encap (wolfCrypt):", 1);
 }
 
 /* Layer A: MLKEM-512 keygen determinism against wolfSSL (seed, ek) vector. */
@@ -1519,7 +1528,7 @@ static void test_fwtpm_mlkem_wolfssl_keygen_kat(void)
     AssertIntEQ(rc, 0);
     AssertIntEQ(XMEMCMP(ek, gWolfSslMlkem512Ek, sizeof(ek)), 0);
     wc_MlKemKey_Free(&key);
-    printf("Test fwTPM:\tMLKEM wolfSSL keygen KAT:\t\tPassed\n");
+    fwtpm_pass("MLKEM wolfSSL keygen KAT:", 1);
 }
 
 /* Layer C: Load NIST MLDSA-44 pub into fwTPM via LoadExternal, then
@@ -1586,7 +1595,7 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     (void)valTag; (void)cmdSz;
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tMLDSA LoadExternal (NIST pub):\t\tPassed\n");
+    fwtpm_pass("MLDSA LoadExternal (NIST pub):", 1);
 }
 
 /* Forward decls for helpers defined later in the file but used by the
@@ -1651,7 +1660,7 @@ static void test_fwtpm_encapsulate_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tEncapsulate negatives (HANDLE/KEY):\tPassed\n");
+    fwtpm_pass("Encapsulate negatives (HANDLE/KEY):", 1);
 }
 
 /* Handler 2: TPM2_Decapsulate. Part 3 §14.11. */
@@ -1706,7 +1715,7 @@ static void test_fwtpm_decapsulate_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tDecapsulate negatives (KEY/SIZE):\tPassed\n");
+    fwtpm_pass("Decapsulate negatives (KEY/SIZE):", 1);
 }
 
 /* Handler 3: TPM2_SignSequenceStart. Part 3 §17.5 Table 89. */
@@ -1749,7 +1758,7 @@ static void test_fwtpm_signseqstart_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSignSeqStart negatives (KEY/HANDLE):\tPassed\n");
+    fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
 }
 
 /* Handler 4: TPM2_VerifySequenceStart. Part 3 §17.6 Table 87. */
@@ -1783,7 +1792,7 @@ static void test_fwtpm_verifyseqstart_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tVerifySeqStart negatives (VALUE):\tPassed\n");
+    fwtpm_pass("VerifySeqStart negatives (VALUE):", 1);
 }
 
 /* Handler 5: TPM2_SignSequenceComplete. Part 3 §20.6. */
@@ -1854,7 +1863,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     /* Clean up the allocated sequence slot. */
     (void)seqHandle;
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSignSeqComplete negatives (HANDLE):\tPassed\n");
+    fwtpm_pass("SignSeqComplete negatives (HANDLE):", 1);
 }
 
 /* Handler 6: TPM2_VerifySequenceComplete. Part 3 §20.3. */
@@ -1885,7 +1894,7 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tVerifySeqComplete negatives (HANDLE):\tPassed\n");
+    fwtpm_pass("VerifySeqComplete negatives (HANDLE):", 1);
 }
 
 /* Handler 7: TPM2_SignDigest. Part 3 §20.7. */
@@ -1946,7 +1955,7 @@ static void test_fwtpm_signdigest_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSignDigest negatives (EXT_MU/KEY):\tPassed\n");
+    fwtpm_pass("SignDigest negatives (EXT_MU/KEY):", 1);
 }
 
 /* Handler 8: TPM2_VerifyDigestSignature. Part 3 §20.4. */
@@ -1979,7 +1988,7 @@ static void test_fwtpm_verifydigestsig_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tVerifyDigestSig negatives (SCHEME):\tPassed\n");
+    fwtpm_pass("VerifyDigestSig negatives (SCHEME):", 1);
 }
 
 /* Handler 9: TPM2_SequenceUpdate on Pure-MLDSA sign seq. Part 3 §17.5/§20.6. */
@@ -2028,7 +2037,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ONE_SHOT_SIGNATURE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSequenceUpdate neg (ONE_SHOT_SIG):\tPassed\n");
+    fwtpm_pass("SequenceUpdate neg (ONE_SHOT_SIG):", 1);
 }
 
 #ifdef WOLFTPM_V185
@@ -2175,7 +2184,7 @@ static void test_fwtpm_mldsa87_maxbuf(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tMLDSA-87 max-buffer roundtrip:\t\tPassed\n");
+    fwtpm_pass("MLDSA-87 max-buffer roundtrip:", 1);
 }
 
 /* ---- Hash-ML-DSA sequence round-trip across 44/65/87 -----------------
@@ -2273,11 +2282,11 @@ static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
 static void test_fwtpm_hash_mldsa_seq_all_params(void)
 {
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_44, 2420);
-    printf("Test fwTPM:\tHashMLDSA-44 seq roundtrip:\t\tPassed\n");
+    fwtpm_pass("HashMLDSA-44 seq roundtrip:", 1);
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_65, 3309);
-    printf("Test fwTPM:\tHashMLDSA-65 seq roundtrip:\t\tPassed\n");
+    fwtpm_pass("HashMLDSA-65 seq roundtrip:", 1);
     hash_mldsa_seq_roundtrip_one(TPM_MLDSA_87, 4627);
-    printf("Test fwTPM:\tHashMLDSA-87 seq roundtrip:\t\tPassed\n");
+    fwtpm_pass("HashMLDSA-87 seq roundtrip:", 1);
 }
 
 static void test_fwtpm_mlkem1024_maxbuf(void)
@@ -2318,7 +2327,7 @@ static void test_fwtpm_mlkem1024_maxbuf(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tMLKEM-1024 max-buffer roundtrip:\tPassed\n");
+    fwtpm_pass("MLKEM-1024 max-buffer roundtrip:", 1);
 }
 #endif /* WOLFTPM_V185 */
 
@@ -2368,7 +2377,7 @@ static void test_fwtpm_signseq_slot_exhaustion(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_OBJECT_MEMORY);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSignSeq slot exhaustion:\t\tPassed\n");
+    fwtpm_pass("SignSeq slot exhaustion:", 1);
 }
 
 /* ---- Long-message accumulation boundary for Pure-MLDSA verify seq ----
@@ -2438,7 +2447,7 @@ static void test_fwtpm_signseq_longmsg_boundary(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_MEMORY);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tSignSeq long-msg boundary:\t\tPassed\n");
+    fwtpm_pass("SignSeq long-msg boundary:", 1);
 }
 
 /* ---- NV persistence round-trip for PQC primary -----------------------
@@ -2535,7 +2544,7 @@ static void test_fwtpm_pqc_nv_persistence(void)
     FWTPM_Cleanup(&ctx2);
     (void)remove(FWTPM_NV_FILE);
 
-    printf("Test fwTPM:\tMLDSA NV persistence round-trip:\tPassed\n");
+    fwtpm_pass("MLDSA NV persistence round-trip:", 1);
 }
 
 /* ---- Determinism tests (Gap 7 / DEC-0001) ---------------------------- */
@@ -2618,7 +2627,7 @@ static void test_fwtpm_getcap_pqc(void)
     AssertIntEQ(foundHashMldsa, 1);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tGetCapability PQC (ML params + algs):\tPassed\n");
+    fwtpm_pass("GetCapability PQC (ML params + algs):", 1);
 }
 
 static void test_fwtpm_mldsa_primary_determinism(void)
@@ -2682,7 +2691,7 @@ static void test_fwtpm_mldsa_primary_determinism(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tMLDSA Primary Determinism:\t\tPassed\n");
+    fwtpm_pass("MLDSA Primary Determinism:", 1);
 }
 
 static void test_fwtpm_mlkem_primary_determinism(void)
@@ -2739,7 +2748,7 @@ static void test_fwtpm_mlkem_primary_determinism(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tMLKEM Primary Determinism:\t\tPassed\n");
+    fwtpm_pass("MLKEM Primary Determinism:", 1);
 }
 #endif /* WOLFTPM_V185 */
 
@@ -2789,7 +2798,7 @@ static void test_fwtpm_hash(void)
     }
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tHash(SHA256, \"abc\"):\t\tPassed\n");
+    fwtpm_pass("Hash(SHA256, \"abc\"):", 0);
 }
 
 /* ================================================================== */
@@ -2823,7 +2832,7 @@ static void test_fwtpm_null_args(void)
     rc = FWTPM_Init(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
-    printf("Test fwTPM:\tNULL arg checks:\t\tPassed\n");
+    fwtpm_pass("NULL arg checks:", 0);
 }
 
 /* ================================================================== */
@@ -3032,7 +3041,7 @@ static void test_fwtpm_start_hmac_session(void)
     AssertIntNE(sessH, 0);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tStartAuthSession(HMAC):\t\tPassed\n");
+    fwtpm_pass("StartAuthSession(HMAC):", 0);
 }
 
 static void test_fwtpm_start_policy_session(void)
@@ -3045,7 +3054,7 @@ static void test_fwtpm_start_policy_session(void)
     AssertIntNE(sessH, 0);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tStartAuthSession(POLICY):\tPassed\n");
+    fwtpm_pass("StartAuthSession(POLICY):", 0);
 }
 
 static void test_fwtpm_start_trial_session(void)
@@ -3058,7 +3067,7 @@ static void test_fwtpm_start_trial_session(void)
     AssertIntNE(sessH, 0);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tStartAuthSession(TRIAL):\t\tPassed\n");
+    fwtpm_pass("StartAuthSession(TRIAL):", 0);
 }
 
 /* ================================================================== */
@@ -3077,7 +3086,7 @@ static void test_fwtpm_policy_password(void)
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyPassword, sessH), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyPassword:\t\t\tPassed\n");
+    fwtpm_pass("PolicyPassword:", 0);
 }
 
 static void test_fwtpm_policy_auth_value(void)
@@ -3091,7 +3100,7 @@ static void test_fwtpm_policy_auth_value(void)
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyAuthValue, sessH), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyAuthValue:\t\tPassed\n");
+    fwtpm_pass("PolicyAuthValue:", 0);
 }
 
 static void test_fwtpm_policy_get_digest(void)
@@ -3105,7 +3114,7 @@ static void test_fwtpm_policy_get_digest(void)
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyGetDigest:\t\tPassed\n");
+    fwtpm_pass("PolicyGetDigest:", 0);
 }
 
 static void test_fwtpm_policy_restart(void)
@@ -3120,7 +3129,7 @@ static void test_fwtpm_policy_restart(void)
     AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyRestart, sessH), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyRestart:\t\t\tPassed\n");
+    fwtpm_pass("PolicyRestart:", 0);
 }
 
 static void test_fwtpm_policy_command_code(void)
@@ -3146,7 +3155,7 @@ static void test_fwtpm_policy_command_code(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyCommandCode:\t\tPassed\n");
+    fwtpm_pass("PolicyCommandCode:", 0);
 }
 
 static void test_fwtpm_policy_locality(void)
@@ -3172,7 +3181,7 @@ static void test_fwtpm_policy_locality(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyLocality:\t\t\tPassed\n");
+    fwtpm_pass("PolicyLocality:", 0);
 }
 
 static void test_fwtpm_policy_pcr(void)
@@ -3199,7 +3208,7 @@ static void test_fwtpm_policy_pcr(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
     FlushHandle(&ctx, sessH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPolicyPCR:\t\t\tPassed\n");
+    fwtpm_pass("PolicyPCR:", 0);
 }
 #endif /* !FWTPM_NO_POLICY */
 
@@ -3270,7 +3279,7 @@ static void test_fwtpm_nv_define_write_read(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tNV Define/Write/Read/Undef:\tPassed\n");
+    fwtpm_pass("NV Define/Write/Read/Undef:", 0);
 }
 
 static void test_fwtpm_nv_read_public(void)
@@ -3310,7 +3319,7 @@ static void test_fwtpm_nv_read_public(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tNV_ReadPublic:\t\t\tPassed\n");
+    fwtpm_pass("NV_ReadPublic:", 0);
 }
 
 static void test_fwtpm_nv_counter(void)
@@ -3355,7 +3364,7 @@ static void test_fwtpm_nv_counter(void)
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tNV_Increment (counter):\t\tPassed\n");
+    fwtpm_pass("NV_Increment (counter):", 0);
 }
 
 #ifndef FWTPM_NO_ATTESTATION
@@ -3663,7 +3672,7 @@ static void test_fwtpm_test_parms(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tTestParms(RSA-2048):\t\tPassed\n");
+    fwtpm_pass("TestParms(RSA-2048):", 0);
 }
 
 static void test_fwtpm_incremental_selftest(void)
@@ -3690,7 +3699,7 @@ static void test_fwtpm_incremental_selftest(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tIncrementalSelfTest/GetResult:\tPassed\n");
+    fwtpm_pass("IncrementalSelfTest/GetResult:", 0);
 }
 
 static void test_fwtpm_pcr_reset(void)
@@ -3704,7 +3713,7 @@ static void test_fwtpm_pcr_reset(void)
         TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPCR_Reset(16):\t\t\tPassed\n");
+    fwtpm_pass("PCR_Reset(16):", 0);
 }
 
 static void test_fwtpm_pcr_event(void)
@@ -3729,7 +3738,7 @@ static void test_fwtpm_pcr_event(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tPCR_Event(16):\t\t\tPassed\n");
+    fwtpm_pass("PCR_Event(16):", 0);
 }
 
 static void test_fwtpm_hierarchy_change_auth(void)
@@ -3768,7 +3777,7 @@ static void test_fwtpm_hierarchy_change_auth(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tHierarchyChangeAuth:\t\tPassed\n");
+    fwtpm_pass("HierarchyChangeAuth:", 0);
 }
 
 static void test_fwtpm_clear(void)
@@ -3781,7 +3790,7 @@ static void test_fwtpm_clear(void)
         TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tClear(LOCKOUT):\t\t\tPassed\n");
+    fwtpm_pass("Clear(LOCKOUT):", 0);
 }
 
 static void test_fwtpm_change_eps(void)
@@ -3794,7 +3803,7 @@ static void test_fwtpm_change_eps(void)
         TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tChangeEPS:\t\t\tPassed\n");
+    fwtpm_pass("ChangeEPS:", 0);
 }
 
 static void test_fwtpm_change_pps(void)
@@ -3807,7 +3816,7 @@ static void test_fwtpm_change_pps(void)
         TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tChangePPS:\t\t\tPassed\n");
+    fwtpm_pass("ChangePPS:", 0);
 }
 
 #ifndef FWTPM_NO_DA
@@ -3838,7 +3847,7 @@ static void test_fwtpm_da_parameters_and_reset(void)
         TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tDA Parameters/LockReset:\t\tPassed\n");
+    fwtpm_pass("DA Parameters/LockReset:", 0);
 }
 #endif /* !FWTPM_NO_DA */
 
@@ -3868,7 +3877,7 @@ static void test_fwtpm_read_public(void)
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tReadPublic:\t\t\tPassed\n");
+    fwtpm_pass("ReadPublic:", 0);
 }
 
 /* ================================================================== */
@@ -3923,7 +3932,7 @@ static void test_fwtpm_hash_sequence(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tHashSequence (Start/Upd/Comp):\tPassed\n");
+    fwtpm_pass("HashSequence (Start/Upd/Comp):", 0);
 }
 
 #ifdef HAVE_ECC
@@ -3944,7 +3953,7 @@ static void test_fwtpm_ecc_parameters(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tECC_Parameters(P256):\t\tPassed\n");
+    fwtpm_pass("ECC_Parameters(P256):", 0);
 }
 #endif
 
@@ -3973,7 +3982,7 @@ static void test_fwtpm_context_save(void)
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tContextSave:\t\t\tPassed\n");
+    fwtpm_pass("ContextSave:", 0);
 }
 
 static void test_fwtpm_evict_control(void)
@@ -4024,7 +4033,7 @@ static void test_fwtpm_evict_control(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tEvictControl (persist/remove):\tPassed\n");
+    fwtpm_pass("EvictControl (persist/remove):", 0);
 }
 
 static void test_fwtpm_clock_set(void)
@@ -4063,7 +4072,7 @@ static void test_fwtpm_clock_set(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tClockSet/ClockRateAdjust:\tPassed\n");
+    fwtpm_pass("ClockSet/ClockRateAdjust:", 0);
 }
 
 /* ================================================================== */
@@ -4119,7 +4128,7 @@ static void test_fwtpm_clock_sethal(void)
     AssertIntNE(rc, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tClock HAL:\t\t\tPassed\n");
+    fwtpm_pass("Clock HAL:", 0);
 }
 
 #ifndef FWTPM_NO_NV
@@ -4202,9 +4211,9 @@ static void test_fwtpm_nv_sethal_mock(void)
     AssertIntNE(rc, 0);
 
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tNV HAL (mock backend):\t\tPassed\n");
+    fwtpm_pass("NV HAL (mock backend):", 0);
 #else
-    printf("Test fwTPM:\tNV HAL (mock backend):\t\tSkipped\n");
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "", "NV HAL (mock backend):");
 #endif
 }
 
