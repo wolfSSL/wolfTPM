@@ -5706,7 +5706,7 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     in.authHandle = parent->hndl;
     if (auth != NULL && authSz > 0) {
         if (authSz > (int)sizeof(in.auth.buffer))
-            authSz = (int)sizeof(in.auth.buffer);
+            return BUFFER_E;
         in.auth.size = authSz;
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
@@ -6375,10 +6375,10 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         (usageAuthSz > 0 && usageAuth == NULL)) {
         return BAD_FUNC_ARG;
     }
+    if (usageAuthSz > sizeof(hash->handle.auth.buffer))
+        return BUFFER_E;
 
     /* Capture usage auth */
-    if (usageAuthSz > sizeof(hash->handle.auth.buffer))
-        usageAuthSz = sizeof(hash->handle.auth.buffer);
     XMEMSET(hash, 0, sizeof(WOLFTPM2_HASH));
     hash->handle.auth.size = usageAuthSz;
     if (usageAuth != NULL)
@@ -6833,6 +6833,10 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (keySz == 0 || keySz > MAX_SYM_DATA) {
         return BUFFER_E;
     }
+    if (usageAuth != NULL && usageAuthSz >
+            sizeof(createIn.inSensitive.sensitive.userAuth.buffer)) {
+        return BUFFER_E;
+    }
 
     hashAlgDigSz = TPM2_GetHashDigestSize(hashAlg);
     if (hashAlgDigSz <= 0) {
@@ -6848,11 +6852,6 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMSET(&createIn, 0, sizeof(createIn));
     createIn.parentHandle = parent->hndl;
     if (usageAuth) {
-        if (usageAuthSz >
-                sizeof(createIn.inSensitive.sensitive.userAuth.buffer)) {
-            usageAuthSz =
-                sizeof(createIn.inSensitive.sensitive.userAuth.buffer); /* truncate */
-        }
         createIn.inSensitive.sensitive.userAuth.size = usageAuthSz;
         XMEMCPY(createIn.inSensitive.sensitive.userAuth.buffer, usageAuth,
             usageAuthSz);
@@ -6925,11 +6924,13 @@ int wolfTPM2_HmacStart(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     if (dev == NULL || hmac == NULL || hashAlg == TPM_ALG_NULL) {
         return BAD_FUNC_ARG;
     }
+    if (usageAuth != NULL &&
+            usageAuthSz > sizeof(hmac->hash.handle.auth.buffer)) {
+        return BUFFER_E;
+    }
 
     if (usageAuth != NULL) {
         /* Capture usage auth */
-        if (usageAuthSz > sizeof(hmac->hash.handle.auth.buffer))
-            usageAuthSz = sizeof(hmac->hash.handle.auth.buffer); /* truncate */
         hmac->hash.handle.auth.size = usageAuthSz;
         XMEMCPY(hmac->hash.handle.auth.buffer, usageAuth, usageAuthSz);
     }
