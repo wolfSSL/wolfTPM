@@ -2031,6 +2031,416 @@ static void test_fwtpm_sequenceupdate_neg(void)
     printf("Test fwTPM:\tSequenceUpdate neg (ONE_SHOT_SIG):\tPassed\n");
 }
 
+#ifdef WOLFTPM_V185
+/* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
+ * parameter set (BuildCreatePrimaryCmd uses 65/768). Used by max-buffer
+ * tests to exercise MLDSA-87 (sig=4627) and MLKEM-1024 (ct=1568). */
+static int BuildCreatePrimaryCmdParam(byte* buf, TPM_ALG_ID algType,
+    UINT16 paramSet)
+{
+    int pos = 0, pubAreaStart, pubAreaLen, sensStart, sensLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+
+    sensStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    sensLen = pos - sensStart - 2;
+    PutU16BE(buf + sensStart, (UINT16)sensLen);
+
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+
+    if (algType == TPM_ALG_MLKEM) {
+        PutU16BE(buf + pos, TPM_ALG_MLKEM); pos += 2;
+        PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+        PutU32BE(buf + pos, 0x00020072); pos += 4;
+        PutU16BE(buf + pos, 0); pos += 2;
+        PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;
+        PutU16BE(buf + pos, paramSet); pos += 2;
+        PutU16BE(buf + pos, 0); pos += 2;
+    }
+    else if (algType == TPM_ALG_MLDSA) {
+        PutU16BE(buf + pos, TPM_ALG_MLDSA); pos += 2;
+        PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+        PutU32BE(buf + pos, 0x00040072); pos += 4;
+        PutU16BE(buf + pos, 0); pos += 2;
+        PutU16BE(buf + pos, paramSet); pos += 2;
+        buf[pos++] = NO;
+        PutU16BE(buf + pos, 0); pos += 2;
+    }
+    else if (algType == TPM_ALG_HASH_MLDSA) {
+        PutU16BE(buf + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+        PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+        PutU32BE(buf + pos, 0x00040072); pos += 4;
+        PutU16BE(buf + pos, 0); pos += 2;
+        PutU16BE(buf + pos, paramSet); pos += 2;
+        PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2; /* pre-hash alg */
+        PutU16BE(buf + pos, 0); pos += 2;
+    }
+    else {
+        return -1;
+    }
+
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* ---- Max-buffer round-trips at MLDSA-87 and MLKEM-1024 ---------------
+ * These exercise FWTPM_MAX_DER_SIG_BUF (4736 bytes) and
+ * FWTPM_MAX_COMMAND_SIZE (8192 bytes) at their intended ceilings.
+ * MLDSA-87 sig = 4627 bytes, MLKEM-1024 ct = 1568 bytes per Table 204/207. */
+static void test_fwtpm_mldsa87_maxbuf(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 handle;
+    UINT16 sigAlg, sigSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* CreatePrimary MLDSA-87. */
+    cmdSz = BuildCreatePrimaryCmdParam(gCmd, TPM_ALG_MLDSA, TPM_MLDSA_87);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Start a Pure-MLDSA sign sequence with a short message, complete it,
+     * assert the resulting sig is exactly 4627 bytes. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    {
+        UINT32 seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        byte msg[16];
+        memset(msg, 0xAB, sizeof(msg));
+
+        /* SignSequenceComplete: 2 auth handles + small buffer. */
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+        PutU32BE(gCmd + pos, seqHandle); pos += 4;
+        PutU32BE(gCmd + pos, handle); pos += 4;
+        PutU32BE(gCmd + pos, 18); pos += 4;
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU16BE(gCmd + pos, sizeof(msg)); pos += 2;
+        memcpy(gCmd + pos, msg, sizeof(msg)); pos += sizeof(msg);
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+        /* Response: hdr | paramSize | sigAlg | TPM2B { size, bytes }. */
+        pos = TPM2_HEADER_SIZE + 4;
+        sigAlg = GetU16BE(gRsp + pos); pos += 2;
+        AssertIntEQ(sigAlg, TPM_ALG_MLDSA);
+        sigSz = GetU16BE(gRsp + pos);
+        AssertIntEQ(sigSz, 4627);
+    }
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tMLDSA-87 max-buffer roundtrip:\t\tPassed\n");
+}
+
+/* ---- Hash-ML-DSA sequence round-trip across 44/65/87 -----------------
+ * SignSequenceStart -> SequenceUpdate(chunked) -> SignSequenceComplete
+ * exercises the hash accumulator path (wc_HashUpdate) through all three
+ * parameter sets. Mirrors test_wc_dilithium_sign_vfy in wolfCrypt, but
+ * through the TPM sequence-handler surface rather than direct crypto. */
+static void hash_mldsa_seq_roundtrip_one(UINT16 paramSet, UINT16 expectedSigSz)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos, i;
+    UINT32 handle, seqHandle;
+    UINT16 sigAlg, sigHash, sigSz;
+    byte chunk[64];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmdParam(gCmd, TPM_ALG_HASH_MLDSA, paramSet);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceStart. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Feed 4 * 64 = 256 bytes via SequenceUpdate — Hash-MLDSA allows this. */
+    for (i = 0; i < 4; i++) {
+        memset(chunk, (byte)(0x10 + i), sizeof(chunk));
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+        PutU32BE(gCmd + pos, seqHandle); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, sizeof(chunk)); pos += 2;
+        memcpy(gCmd + pos, chunk, sizeof(chunk)); pos += sizeof(chunk);
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    /* SignSequenceComplete — empty buffer (all data fed via Update). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response: hdr | paramSize | sigAlg | hashAlg | TPM2B. */
+    pos = TPM2_HEADER_SIZE + 4;
+    sigAlg = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigAlg, TPM_ALG_HASH_MLDSA);
+    sigHash = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigHash, TPM_ALG_SHA256);
+    sigSz = GetU16BE(gRsp + pos);
+    AssertIntEQ(sigSz, expectedSigSz);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+}
+
+static void test_fwtpm_hash_mldsa_seq_all_params(void)
+{
+    hash_mldsa_seq_roundtrip_one(TPM_MLDSA_44, 2420);
+    printf("Test fwTPM:\tHashMLDSA-44 seq roundtrip:\t\tPassed\n");
+    hash_mldsa_seq_roundtrip_one(TPM_MLDSA_65, 3309);
+    printf("Test fwTPM:\tHashMLDSA-65 seq roundtrip:\t\tPassed\n");
+    hash_mldsa_seq_roundtrip_one(TPM_MLDSA_87, 4627);
+    printf("Test fwTPM:\tHashMLDSA-87 seq roundtrip:\t\tPassed\n");
+}
+
+static void test_fwtpm_mlkem1024_maxbuf(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 handle;
+    UINT16 ssSz, ctSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmdParam(gCmd, TPM_ALG_MLKEM, TPM_MLKEM_1024);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Encapsulate — response must carry ct size 1568 per Table 204. */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_Encapsulate);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE;
+    ssSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(ssSz, 32);
+    pos += ssSz;
+    ctSz = GetU16BE(gRsp + pos);
+    AssertIntEQ(ctSz, 1568);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tMLKEM-1024 max-buffer roundtrip:\tPassed\n");
+}
+#endif /* WOLFTPM_V185 */
+
+/* ---- Sign-seq slot exhaustion ----------------------------------------
+ * FWTPM_CTX holds FWTPM_MAX_SIGN_SEQ (4) slots for sign+verify sequences.
+ * Starting more than that must return TPM_RC_OBJECT_MEMORY from
+ * FwAllocSignSeq per Part 3 §17.5. */
+static void test_fwtpm_signseq_slot_exhaustion(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, i;
+    UINT32 mldsaHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+
+    /* Fill all FWTPM_MAX_SIGN_SEQ slots with Pure-MLDSA sign-seq starts. */
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+        PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    /* One more — slot table is full, must return TPM_RC_OBJECT_MEMORY. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_OBJECT_MEMORY);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tSignSeq slot exhaustion:\t\tPassed\n");
+}
+
+/* ---- Long-message accumulation boundary for Pure-MLDSA verify seq ----
+ * msgBuf is FWTPM_MAX_DATA_BUF (1024) bytes. Accumulating across
+ * SequenceUpdate calls past that limit must return TPM_RC_MEMORY per
+ * fwtpm_command.c FwCmd_SequenceUpdate PQC branch. One exact-fit run
+ * succeeds; one overflow run fails. */
+static void test_fwtpm_signseq_longmsg_boundary(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, i;
+    UINT32 mldsaHandle, seqHandle;
+    const int chunk = 256;           /* 4 chunks = exactly 1024. */
+    const int overflow = 4;          /* one extra byte past the limit. */
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+
+    /* Start a Pure-MLDSA VERIFY sequence (accepts SequenceUpdate into msgBuf). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* 4 * 256 = exactly FWTPM_MAX_DATA_BUF (1024): every update succeeds. */
+    for (i = 0; i < FWTPM_MAX_DATA_BUF / chunk; i++) {
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+        PutU32BE(gCmd + pos, seqHandle); pos += 4;
+        pos = AppendPwAuth(gCmd, pos, NULL, 0);
+        PutU16BE(gCmd + pos, (UINT16)chunk); pos += 2;
+        memset(gCmd + pos, (byte)(0x50 + i), chunk); pos += chunk;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    /* One more update: msgBuf is full, any additional bytes overflow. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)overflow); pos += 2;
+    memset(gCmd + pos, 0xFF, overflow); pos += overflow;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_MEMORY);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tSignSeq long-msg boundary:\t\tPassed\n");
+}
+
 /* ---- NV persistence round-trip for PQC primary -----------------------
  * An MLDSA-65 persistent key must survive a full FWTPM_Init / Cleanup
  * cycle with only the NV backing file as handoff. Exercises the
@@ -3895,6 +4305,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_verifydigestsig_neg();
     test_fwtpm_sequenceupdate_neg();
     test_fwtpm_pqc_nv_persistence();
+    test_fwtpm_signseq_slot_exhaustion();
+    test_fwtpm_signseq_longmsg_boundary();
+    test_fwtpm_mldsa87_maxbuf();
+    test_fwtpm_mlkem1024_maxbuf();
+    test_fwtpm_hash_mldsa_seq_all_params();
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();
