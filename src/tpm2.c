@@ -1307,11 +1307,15 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
         info.inHandleCnt = 1;
         info.flags = (CMD_FLAG_AUTH_USER1);
 
+        UINT32 count = in->digests.count;
+        if (count > HASH_COUNT)
+            count = HASH_COUNT;
+
         TPM2_Packet_Init(ctx, &packet);
         TPM2_Packet_AppendU32(&packet, in->pcrHandle);
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
-        TPM2_Packet_AppendU32(&packet, in->digests.count);
-        for (i=0; i<(int)in->digests.count; i++) {
+        TPM2_Packet_AppendU32(&packet, count);
+        for (i=0; i<(int)count; i++) {
             UINT16 hashAlg = in->digests.digests[i].hashAlg;
             int digestSz = TPM2_GetHashDigestSize(hashAlg);
             TPM2_Packet_AppendU16(&packet, hashAlg);
@@ -3331,15 +3335,22 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
+        UINT32 setCount = in->setList.count;
+        UINT32 clearCount = in->clearList.count;
+        if (setCount > MAX_CAP_CC)
+            setCount = MAX_CAP_CC;
+        if (clearCount > MAX_CAP_CC)
+            clearCount = MAX_CAP_CC;
+
         TPM2_Packet_AppendU16(&packet, in->auditAlg);
 
-        TPM2_Packet_AppendU32(&packet, in->setList.count);
-        for (i=0; i<(int)in->setList.count; i++) {
+        TPM2_Packet_AppendU32(&packet, setCount);
+        for (i=0; i<(int)setCount; i++) {
             TPM2_Packet_AppendU32(&packet, in->setList.commandCodes[i]);
         }
 
-        TPM2_Packet_AppendU32(&packet, in->clearList.count);
-        for (i=0; i<(int)in->clearList.count; i++) {
+        TPM2_Packet_AppendU32(&packet, clearCount);
+        for (i=0; i<(int)clearCount; i++) {
             TPM2_Packet_AppendU32(&packet, in->clearList.commandCodes[i]);
         }
 
@@ -3739,12 +3750,19 @@ TPM_RC TPM2_PolicyOR(PolicyOR_In* in)
     if (rc == TPM_RC_SUCCESS) {
         int i;
         TPM2_Packet packet;
+        const UINT32 digestsMax =
+            (UINT32)(sizeof(in->pHashList.digests) /
+                     sizeof(in->pHashList.digests[0]));
+        UINT32 count = in->pHashList.count;
+        if (count > digestsMax)
+            count = digestsMax;
+
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->policySession);
 
-        TPM2_Packet_AppendU32(&packet, in->pHashList.count);
-        for (i=0; i<(int)in->pHashList.count; i++) {
+        TPM2_Packet_AppendU32(&packet, count);
+        for (i=0; i<(int)count; i++) {
             TPM2_Packet_AppendU16(&packet, in->pHashList.digests[i].size);
             TPM2_Packet_AppendBytes(&packet,
                 in->pHashList.digests[i].buffer,
