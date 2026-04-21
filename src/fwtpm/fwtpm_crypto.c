@@ -729,7 +729,7 @@ TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     level = FwGetWcMldsaLevel(parameterSet);
     if (level < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
 
     if (rc == 0) {
@@ -787,7 +787,7 @@ TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
 
     type = FwGetWcMlkemType(parameterSet);
     if (type < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
 
     if (rc == 0) {
@@ -853,7 +853,7 @@ TPM_RC FwEncapsulateMlkem(WC_RNG* rng,
 
     type = FwGetWcMlkemType(parameterSet);
     if (type < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
 
     if (rc == 0) {
@@ -924,7 +924,7 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
 
     type = FwGetWcMlkemType(parameterSet);
     if (type < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
 
     if (rc == 0) {
@@ -988,7 +988,7 @@ static TPM_RC FwLoadMldsaFromSeed(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     level = FwGetWcMldsaLevel(parameterSet);
     if (level < 0) {
-        return TPM_RC_VALUE;
+        return TPM_RC_PARMS;
     }
 
     wcRet = wc_dilithium_init(keyOut);
@@ -1073,7 +1073,7 @@ TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     level = FwGetWcMldsaLevel(parameterSet);
     if (level < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
     if (rc == 0) {
         wcRet = wc_dilithium_init(keyVar);
@@ -1186,7 +1186,7 @@ TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
 
     level = FwGetWcMldsaLevel(parameterSet);
     if (rc == 0 && level < 0) {
-        rc = TPM_RC_VALUE;
+        rc = TPM_RC_PARMS;
     }
 
     if (rc == 0) {

@@ -1594,6 +1594,84 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
  * TPM-specific test; no direct wolfCrypt analog. Verifies the deterministic
  * KDFa-derived seed property that makes fwTPM's cold-boot recovery work. */
 
+/* TPM_CAP_TPM_PROPERTIES returning TPM_PT_ML_PARAMETER_SETS must report the
+ * TPMA_ML_PARAMETER_SET bitfield (Part 2 §8.13 Table 46). TPM_CAP_ALGS must
+ * list TPM_ALG_MLKEM / _MLDSA / _HASH_MLDSA. Validates Phase 12 Tr1 Task 3. */
+static void test_fwtpm_getcap_pqc(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 expected = TPMA_ML_PARAMETER_SET_mlKem_512 |
+                      TPMA_ML_PARAMETER_SET_mlKem_768 |
+                      TPMA_ML_PARAMETER_SET_mlKem_1024 |
+                      TPMA_ML_PARAMETER_SET_mlDsa_44 |
+                      TPMA_ML_PARAMETER_SET_mlDsa_65 |
+                      TPMA_ML_PARAMETER_SET_mlDsa_87 |
+                      TPMA_ML_PARAMETER_SET_extMu;
+    UINT32 got, count, prop;
+    UINT32 foundMlkem = 0, foundMldsa = 0, foundHashMldsa = 0;
+    UINT32 i;
+    int off;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Query TPM_PT_ML_PARAMETER_SETS. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_ML_PARAMETER_SETS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response body: moreData(1) | capability(4) | count(4) | {prop(4) val(4)}.
+     * Offset of first property = header(10) + 1 + 4 + 4 = 19. */
+    off = TPM2_HEADER_SIZE + 1 + 4;
+    count = GetU32BE(gRsp + off);
+    AssertIntEQ(count, 1);
+    off += 4;
+    prop = GetU32BE(gRsp + off);
+    got  = GetU32BE(gRsp + off + 4);
+    AssertIntEQ(prop, TPM_PT_ML_PARAMETER_SETS);
+    AssertIntEQ(got, expected);
+
+    /* Query TPM_CAP_ALGS starting at 0 for 256 entries; expect the three PQC
+     * algs somewhere in the list. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_ALGS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 256); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* ALGS response: moreData(1) | capability(4) | count(4) | {alg(2) attrs(4)}. */
+    off = TPM2_HEADER_SIZE + 1 + 4;
+    count = GetU32BE(gRsp + off);
+    off += 4;
+    for (i = 0; i < count; i++) {
+        UINT16 alg = GetU16BE(gRsp + off);
+        off += 6; /* alg(2) + attrs(4) */
+        if (alg == TPM_ALG_MLKEM)      foundMlkem++;
+        if (alg == TPM_ALG_MLDSA)      foundMldsa++;
+        if (alg == TPM_ALG_HASH_MLDSA) foundHashMldsa++;
+    }
+    AssertIntEQ(foundMlkem, 1);
+    AssertIntEQ(foundMldsa, 1);
+    AssertIntEQ(foundHashMldsa, 1);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tGetCapability PQC (ML params + algs):\tPassed\n");
+}
+
 static void test_fwtpm_mldsa_primary_determinism(void)
 {
     FWTPM_CTX ctx;
@@ -3267,6 +3345,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mldsa_loadexternal_verify();
     test_fwtpm_mldsa_primary_determinism();
     test_fwtpm_mlkem_primary_determinism();
+    test_fwtpm_getcap_pqc();
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();

@@ -1001,6 +1001,12 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #ifndef NO_AES
                 { TPM_ALG_SYMCIPHER, 0x0060 },
             #endif
+            #ifdef WOLFTPM_V185
+                /* v1.85 PQC object types (asymmetric|object). */
+                { TPM_ALG_MLKEM,      0x0009 },
+                { TPM_ALG_MLDSA,      0x0009 },
+                { TPM_ALG_HASH_MLDSA, 0x0009 },
+            #endif
                 { TPM_ALG_NULL,      0x0000 },
             };
             int numAlgs = (int)(sizeof(algList) / sizeof(algList[0]));
@@ -1064,6 +1070,18 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #endif
                 { TPM_PT_TOTAL_COMMANDS,    0 }, /* patched to FwGetCmdCount() at emission */
                 { TPM_PT_MODES,             0 },
+            #ifdef WOLFTPM_V185
+                /* v1.85 Part 2 §8.13 TPMA_ML_PARAMETER_SET: bits 0-5 for
+                 * MLKEM-512/768/1024 and MLDSA-44/65/87; bit 6 for allowExternalMu. */
+                { TPM_PT_ML_PARAMETER_SETS,
+                  TPMA_ML_PARAMETER_SET_mlKem_512  |
+                  TPMA_ML_PARAMETER_SET_mlKem_768  |
+                  TPMA_ML_PARAMETER_SET_mlKem_1024 |
+                  TPMA_ML_PARAMETER_SET_mlDsa_44   |
+                  TPMA_ML_PARAMETER_SET_mlDsa_65   |
+                  TPMA_ML_PARAMETER_SET_mlDsa_87   |
+                  TPMA_ML_PARAMETER_SET_extMu },
+            #endif
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
                 { TPM_PT_HR_TRANSIENT_AVAIL, 0 },
