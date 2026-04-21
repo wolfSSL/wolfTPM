@@ -1572,6 +1572,71 @@ static int test_parse_psk_exchange_rsp_null_args(void)
     TEST_PASS();
 }
 
+/* Drive wolfSPDM_ParsePskExchangeRsp through key derivation to exercise
+ * the PSK ResponderVerifyData HMAC compare. Previously only NULL/short-
+ * buffer paths were covered, so mutations of the `if (diff != 0)` block
+ * or of `diff |= ...` → `diff &= ...` survived every test. */
+static int test_parse_psk_exchange_rsp_hmac_check(void)
+{
+    byte pskRsp[64];
+    const word32 pskRspLen = 60;           /* 12-byte partial + 48 HMAC */
+    const word32 pskRspPartialLen = 12;
+    byte psk[48];
+    byte th1[WOLFSPDM_HASH_SIZE];
+    byte expectedHmac[WOLFSPDM_HASH_SIZE];
+    int rc;
+    WOLFSPDM_CTX helperBuf;
+    WOLFSPDM_CTX* helper = &helperBuf;
+    TEST_CTX_SETUP_V12();
+
+    printf("test_parse_psk_exchange_rsp_hmac_check...\n");
+
+    XMEMSET(psk, 0xA5, sizeof(psk));
+
+    /* Build PSK_EXCHANGE_RSP partial (12 bytes): rspContextLen=0, opaqueLen=0 */
+    XMEMSET(pskRsp, 0, sizeof(pskRsp));
+    pskRsp[0] = SPDM_VERSION_12;
+    pskRsp[1] = SPDM_PSK_EXCHANGE_RSP;
+    SPDM_Set16LE(&pskRsp[4], 0x1234);      /* RspSessionID */
+    SPDM_Set16LE(&pskRsp[8], 0);           /* RspContextLength */
+    SPDM_Set16LE(&pskRsp[10], 0);          /* OpaqueDataLength */
+
+    /* TH1 = Hash(transcript + partial); transcript starts empty */
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(th1,
+        pskRsp, pskRspPartialLen, NULL, 0, NULL, 0));
+
+    /* Derive rspFinishedKey on a throwaway helper ctx */
+    ASSERT_SUCCESS(wolfSPDM_Init(helper));
+    helper->spdmVersion = SPDM_VERSION_12;
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(helper, psk, sizeof(psk), NULL, 0));
+    ASSERT_SUCCESS(wolfSPDM_DeriveHandshakeKeysPsk(helper, th1));
+    ASSERT_SUCCESS(wolfSPDM_ComputeVerifyData(
+        helper->rspFinishedKey, th1, expectedHmac));
+    wolfSPDM_Free(helper);
+
+    /* Positive: correct HMAC must succeed and advance state to KEY_EX */
+    XMEMCPY(&pskRsp[12], expectedHmac, WOLFSPDM_HASH_SIZE);
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(ctx, psk, sizeof(psk), NULL, 0));
+    rc = wolfSPDM_ParsePskExchangeRsp(ctx, pskRsp, pskRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_SUCCESS, "valid PSK HMAC should succeed");
+    ASSERT_EQ(ctx->state, WOLFSPDM_STATE_KEY_EX,
+        "state should advance to KEY_EX on valid PSK parse");
+
+    /* Negative: flip one byte — must return BAD_HMAC.
+     * Parse scrubs ctx->psk after derivation, so re-set it; also reset
+     * transcript because the successful parse appended 60 bytes. */
+    wolfSPDM_TranscriptReset(ctx);
+    ctx->state = WOLFSPDM_STATE_INIT;
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(ctx, psk, sizeof(psk), NULL, 0));
+    pskRsp[12] ^= 0x01;
+    rc = wolfSPDM_ParsePskExchangeRsp(ctx, pskRsp, pskRspLen);
+    ASSERT_EQ(rc, WOLFSPDM_E_BAD_HMAC,
+        "flipped PSK rspVerifyData byte must return BAD_HMAC");
+
+    TEST_CTX_FREE();
+    TEST_PASS();
+}
+
 static int test_build_psk_finish_null_args(void)
 {
     byte buf[128];
@@ -2162,6 +2227,7 @@ int main(void)
 #endif
 #ifdef WOLFTPM_SPDM_PSK
     test_parse_psk_exchange_rsp_null_args();
+    test_parse_psk_exchange_rsp_hmac_check();
     test_build_psk_finish_null_args();
     test_build_psk_finish_format();
     test_parse_psk_finish_rsp();
