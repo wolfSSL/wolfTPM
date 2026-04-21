@@ -223,6 +223,8 @@
                 return -1;
             }
 
+            busy_retry = TPM_I2C_TRIES;
+
             while (I2C_BB_IsBusy() && --busy_retry > 0) {
                 microchip_wait(250);
             }
