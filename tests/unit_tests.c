@@ -1826,7 +1826,7 @@ static void test_TPM2_SchemeSerialize(void)
 
 /* Exercise the parse sequence used by TPM2_ECC_Parameters response: sign
  * scheme = ECDAA (scheme + hashAlg + count) followed by a trailing U16
- * size field. Ensures the ECDAA count byte is consumed so the next read
+ * size field. Ensures the ECDAA count field is consumed so the next read
  * lands at the correct offset. The wire bytes are built by hand to avoid
  * relying on non-exported packet helpers. */
 static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
@@ -2057,6 +2057,52 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_ECC);
     AssertIntEQ(sensOut.sensitiveArea.sensitive.ecc.size, sizeof(rsaPriv));
     AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.ecc.buffer,
+        rsaPriv, sizeof(rsaPriv)), 0);
+
+    /* KEYEDHASH sensitive roundtrip */
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_KEYEDHASH;
+    sensIn.sensitiveArea.sensitive.bits.size = sizeof(rsaPriv);
+    XMEMCPY(sensIn.sensitiveArea.sensitive.bits.buffer, rsaPriv,
+        sizeof(rsaPriv));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_KEYEDHASH);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.bits.size, sizeof(rsaPriv));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.bits.buffer,
+        rsaPriv, sizeof(rsaPriv)), 0);
+
+    /* SYMCIPHER sensitive roundtrip */
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
+    sensIn.sensitiveArea.sensitive.sym.size = sizeof(rsaPriv);
+    XMEMCPY(sensIn.sensitiveArea.sensitive.sym.buffer, rsaPriv,
+        sizeof(rsaPriv));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_SYMCIPHER);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.sym.size, sizeof(rsaPriv));
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.sym.buffer,
         rsaPriv, sizeof(rsaPriv)), 0);
 
     printf("Test TPM Wrapper:\tSensitive roundtrip:\t\tPassed\n");

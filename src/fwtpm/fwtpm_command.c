@@ -434,7 +434,8 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
  * neither the trip count nor per-iteration work depends on the secret
  * authValSz. Trailing zeros on either side are treated as insignificant
  * (matches TCG reference for authValues padded to nameAlg digest size).
- * Returns 1 on mismatch, 0 on match. */
+ * Returns 1 on mismatch, 0 on match. Precondition: pwSz and avSz must
+ * each be <= TPM_MAX_DIGEST_SIZE; out-of-range inputs fail closed. */
 static int FwCtAuthCompare(const byte* password, int pwSz,
     const byte* authVal, int avSz)
 {
@@ -443,13 +444,19 @@ static int FwCtAuthCompare(const byte* password, int pwSz,
     volatile byte diff = 0;
     int ci;
 
+    if (pwSz < 0 || avSz < 0 ||
+            pwSz > TPM_MAX_DIGEST_SIZE || avSz > TPM_MAX_DIGEST_SIZE) {
+        return 1;
+    }
+
     XMEMSET(zeroAuth, 0, sizeof(zeroAuth));
     avPtr = (authVal != NULL) ? authVal : zeroAuth;
 
     for (ci = 0; ci < TPM_MAX_DIGEST_SIZE; ci++) {
-        /* 0xFF if ci < bound, else 0x00 (bounds are at most 64) */
-        byte pwMask = (byte)-(((unsigned)(ci - pwSz)) >> 31);
-        byte avMask = (byte)-(((unsigned)(ci - avSz)) >> 31);
+        /* 0xFF if ci < bound, else 0x00. Use UINT32 (guaranteed 32-bit
+         * wolfTPM typedef) so the >> 31 shift is always well-defined. */
+        byte pwMask = (byte)-((UINT32)(ci - pwSz) >> 31);
+        byte avMask = (byte)-((UINT32)(ci - avSz) >> 31);
         byte overlap = (byte)(pwMask & avMask);
         /* Overlap region: bytes must match */
         diff |= (byte)((password[ci] ^ avPtr[ci]) & overlap);

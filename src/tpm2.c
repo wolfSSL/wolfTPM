@@ -1304,10 +1304,11 @@ TPM_RC TPM2_PCR_Extend(PCR_Extend_In* in)
         int i;
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
+        UINT32 count;
         info.inHandleCnt = 1;
         info.flags = (CMD_FLAG_AUTH_USER1);
 
-        UINT32 count = in->digests.count;
+        count = in->digests.count;
         if (count > HASH_COUNT)
             count = HASH_COUNT;
 
@@ -1723,34 +1724,14 @@ TPM_RC TPM2_LoadExternal(LoadExternal_In* in, LoadExternal_Out* out)
         TPM2_Packet_Init(ctx, &packet);
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        /* Reading sensitive.any.size is valid regardless of sensitiveType:
+         * every TPM2B variant in TPMU_SENSITIVE_COMPOSITE has UINT16 size
+         * at offset 0, so the .any view reliably reflects the populated
+         * typed member (common-initial-sequence aliasing). */
         if (in->inPrivate.sensitiveArea.authValue.size > 0 ||
             in->inPrivate.sensitiveArea.seedValue.size > 0 ||
             in->inPrivate.sensitiveArea.sensitive.any.size > 0) {
-
-            in->inPrivate.size = 2 + /* sensitiveType */
-                2 + in->inPrivate.sensitiveArea.authValue.size +
-                2 + in->inPrivate.sensitiveArea.seedValue.size +
-                2 + in->inPrivate.sensitiveArea.sensitive.any.size;
-            TPM2_Packet_AppendU16(&packet, in->inPrivate.size);
-
-            TPM2_Packet_AppendU16(&packet,
-                in->inPrivate.sensitiveArea.sensitiveType);
-            TPM2_Packet_AppendU16(&packet,
-                in->inPrivate.sensitiveArea.authValue.size);
-            TPM2_Packet_AppendBytes(&packet,
-                in->inPrivate.sensitiveArea.authValue.buffer,
-                in->inPrivate.sensitiveArea.authValue.size);
-            TPM2_Packet_AppendU16(&packet,
-                in->inPrivate.sensitiveArea.seedValue.size);
-            TPM2_Packet_AppendBytes(&packet,
-                in->inPrivate.sensitiveArea.seedValue.buffer,
-                in->inPrivate.sensitiveArea.seedValue.size);
-
-            TPM2_Packet_AppendU16(&packet,
-                in->inPrivate.sensitiveArea.sensitive.any.size);
-            TPM2_Packet_AppendBytes(&packet,
-                in->inPrivate.sensitiveArea.sensitive.any.buffer,
-                in->inPrivate.sensitiveArea.sensitive.any.size);
+            TPM2_Packet_AppendSensitive(&packet, &in->inPrivate);
         }
         else {
             TPM2_Packet_AppendU16(&packet, 0);
@@ -3326,21 +3307,23 @@ TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
         int i;
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
+        UINT32 setCount;
+        UINT32 clearCount;
         info.inHandleCnt = 1;
         info.flags = (CMD_FLAG_AUTH_USER1);
+
+        setCount = in->setList.count;
+        clearCount = in->clearList.count;
+        if (setCount > MAX_CAP_CC)
+            setCount = MAX_CAP_CC;
+        if (clearCount > MAX_CAP_CC)
+            clearCount = MAX_CAP_CC;
 
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->auth);
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
-
-        UINT32 setCount = in->setList.count;
-        UINT32 clearCount = in->clearList.count;
-        if (setCount > MAX_CAP_CC)
-            setCount = MAX_CAP_CC;
-        if (clearCount > MAX_CAP_CC)
-            clearCount = MAX_CAP_CC;
 
         TPM2_Packet_AppendU16(&packet, in->auditAlg);
 

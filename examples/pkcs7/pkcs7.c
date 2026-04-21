@@ -117,7 +117,10 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
 
     rc = wc_HashGetDigestSize(hashType);
     if (rc <= 0) {
-        return BAD_FUNC_ARG;
+        /* Preserve the wolfCrypt error on negatives; for a 0 return
+         * (not currently produced by wolfCrypt), report BAD_FUNC_ARG
+         * rather than masquerading as success. */
+        return (rc < 0) ? rc : BAD_FUNC_ARG;
     }
     hashSz = (word32)rc;
 
