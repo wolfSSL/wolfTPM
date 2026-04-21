@@ -1588,6 +1588,132 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tMLDSA LoadExternal (NIST pub):\t\tPassed\n");
 }
+
+/* ---- Determinism tests (Gap 7 / DEC-0001) ---------------------------- */
+/* Same hierarchy seed + same template -> same PQC primary key.
+ * TPM-specific test; no direct wolfCrypt analog. Verifies the deterministic
+ * KDFa-derived seed property that makes fwTPM's cold-boot recovery work. */
+
+static void test_fwtpm_mldsa_primary_determinism(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 handleA, handleB;
+    UINT16 pubSzA, pubSzB;
+    byte pubA[MAX_MLDSA_PUB_SIZE];
+    byte pubB[MAX_MLDSA_PUB_SIZE];
+    int pubOffA, pubOffB;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* First CreatePrimary MLDSA-65 */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handleA = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    /* Extract unique.mldsa from outPublic:
+     * header(10) | handle(4) | paramSize(4) | outPublic TPM2B_PUBLIC =
+     *   size(2) | type(2) | nameAlg(2) | attrs(4) | authPolicy.size(2) |
+     *   parameters(MLDSA: parameterSet(2)+allowExtMu(1)=3) |
+     *   unique.size(2) | unique.bytes.
+     * Offset of unique.size = 10+4+4+2+2+2+4+2+3 = 33. */
+    pubOffA = TPM2_HEADER_SIZE + 4 + 4 + 2 + 2 + 2 + 4 + 2 + 3;
+    pubSzA = GetU16BE(gRsp + pubOffA);
+    AssertIntGT(pubSzA, 0);
+    AssertTrue(pubSzA <= (int)sizeof(pubA));
+    memcpy(pubA, gRsp + pubOffA + 2, pubSzA);
+
+    /* Flush first instance */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handleA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    /* Second CreatePrimary with identical template */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handleB = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    pubOffB = TPM2_HEADER_SIZE + 4 + 4 + 2 + 2 + 2 + 4 + 2 + 3;
+    pubSzB = GetU16BE(gRsp + pubOffB);
+    memcpy(pubB, gRsp + pubOffB + 2, pubSzB);
+
+    /* Same seed + same template -> byte-identical public key. */
+    AssertIntEQ(pubSzA, pubSzB);
+    AssertIntEQ(XMEMCMP(pubA, pubB, pubSzA), 0);
+
+    /* Flush */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handleB);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tMLDSA Primary Determinism:\t\tPassed\n");
+}
+
+static void test_fwtpm_mlkem_primary_determinism(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 handleA, handleB;
+    UINT16 pubSzA, pubSzB;
+    byte pubA[MAX_MLKEM_PUB_SIZE];
+    byte pubB[MAX_MLKEM_PUB_SIZE];
+    int pubOff;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Offset of unique.size in MLKEM outPublic:
+     * header(10) + handle(4) + paramSize(4) + pub2b_size(2) + type(2) +
+     * nameAlg(2) + attrs(4) + authPolicy.size(2) +
+     * MLKEM parameters (symmetric.algorithm(2) + parameterSet(2) = 4). */
+    pubOff = TPM2_HEADER_SIZE + 4 + 4 + 2 + 2 + 2 + 4 + 2 + 4;
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLKEM);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handleA = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    pubSzA = GetU16BE(gRsp + pubOff);
+    AssertIntGT(pubSzA, 0);
+    AssertTrue(pubSzA <= (int)sizeof(pubA));
+    memcpy(pubA, gRsp + pubOff + 2, pubSzA);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handleA);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLKEM);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handleB = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    pubSzB = GetU16BE(gRsp + pubOff);
+    memcpy(pubB, gRsp + pubOff + 2, pubSzB);
+
+    AssertIntEQ(pubSzA, pubSzB);
+    AssertIntEQ(XMEMCMP(pubA, pubB, pubSzA), 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handleB);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tMLKEM Primary Determinism:\t\tPassed\n");
+}
 #endif /* WOLFTPM_V185 */
 
 /* ================================================================== */
@@ -3139,6 +3265,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mlkem_nist_kat_encap();
     test_fwtpm_mlkem_wolfssl_keygen_kat();
     test_fwtpm_mldsa_loadexternal_verify();
+    test_fwtpm_mldsa_primary_determinism();
+    test_fwtpm_mlkem_primary_determinism();
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();
