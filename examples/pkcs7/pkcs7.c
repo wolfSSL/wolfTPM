@@ -115,10 +115,11 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
 
     XMEMSET(&pkcs7, 0, sizeof(pkcs7));
 
-    hashSz = wc_HashGetDigestSize(hashType);
-    if (hashSz <= 0) {
-        return hashSz;
+    rc = wc_HashGetDigestSize(hashType);
+    if (rc <= 0) {
+        return BAD_FUNC_ARG;
     }
+    hashSz = (word32)rc;
 
     /* calculate hash for content */
     rc = wc_HashInit(&hash, hashType);
