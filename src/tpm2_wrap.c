@@ -5695,6 +5695,15 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (dev == NULL || nv == NULL || parent == NULL) {
         return BAD_FUNC_ARG;
     }
+    if (auth != NULL && authSz > 0 &&
+            authSz > (int)sizeof(in.auth.buffer)) {
+        return BUFFER_E;
+    }
+    if (authPolicy != NULL && authPolicySz > 0 &&
+            authPolicySz >
+                (int)sizeof(in.publicInfo.nvPublic.authPolicy.buffer)) {
+        return BUFFER_E;
+    }
 
     /* set session auth for key */
     if (dev->ctx.session && !parent->policyAuth) {
@@ -5705,8 +5714,6 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     XMEMSET(&in, 0, sizeof(in));
     in.authHandle = parent->hndl;
     if (auth != NULL && authSz > 0) {
-        if (authSz > (int)sizeof(in.auth.buffer))
-            return BUFFER_E;
         in.auth.size = authSz;
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
@@ -5715,11 +5722,6 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     in.publicInfo.nvPublic.attributes = nvAttributes;
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
     if (authPolicy != NULL && authPolicySz > 0) {
-        if (authPolicySz >
-                (int)sizeof(in.publicInfo.nvPublic.authPolicy.buffer)) {
-            authPolicySz =
-                (int)sizeof(in.publicInfo.nvPublic.authPolicy.buffer);
-        }
         in.publicInfo.nvPublic.authPolicy.size = authPolicySz;
         XMEMCPY(in.publicInfo.nvPublic.authPolicy.buffer, authPolicy,
             in.publicInfo.nvPublic.authPolicy.size);
