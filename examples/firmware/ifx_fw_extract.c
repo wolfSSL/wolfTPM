@@ -63,7 +63,7 @@
 #define LOG(t) { printf(__FILE__":%i: %s\n", __LINE__, t); }
 
 #define READ_BE16(dest, buf, size, off) { \
-    if (off + sizeof(dest) >= size) { \
+    if (off + sizeof(dest) > size) { \
         LOG("FW file too short"); \
         return -1; \
     } \
@@ -73,7 +73,7 @@
 }
 
 #define READ_BE32(dest, buf, size, off) { \
-    if (off + sizeof(dest) >= size) { \
+    if (off + sizeof(dest) > size) { \
         LOG("FW file too short"); \
         return -1; \
     } \
@@ -172,7 +172,7 @@ static int extractFW(
     }
 
     READ_BE32(size32, fw, fw_size, offset);
-    if (offset + size32 >= fw_size) {
+    if (offset + size32 > fw_size) {
         LOG("FW file too short");
         return -1;
     }
