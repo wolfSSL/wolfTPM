@@ -48,6 +48,25 @@ gpio_reset() {
     sleep 2
 }
 
+# normalize_nations_chip: bring NS350 to canonical clean state
+# (identity-key=1, no PSK). Idempotent — safe to call multiple times.
+# NS350 IdentityKeySet returns TPM_RC_VALUE when setting to current value,
+# so "already in target state" is indistinguishable from real errors; we
+# probe by trying both transitions rather than trusting a single call.
+normalize_nations_chip() {
+    echo "--- Normalizing NS350 to clean state (identity-key=1, no PSK) ---"
+    gpio_reset
+    # Clear PSK if set. PSKNotSet (0xffA3) means already clean — that's fine.
+    # Any other failure is also non-fatal here; the identity-key-set below
+    # will surface the real problem if state is unrecoverable.
+    "$SPDM_DEMO" --psk-clear "$NATIONS_CLEARAUTH" >/dev/null 2>&1 || true
+    # Now try to set identity key. Succeeds if at 0, benign-fails with
+    # TPM_RC_VALUE if already at 1. Either outcome = state is 1.
+    "$SPDM_DEMO" --identity-key-set >/dev/null 2>&1 || true
+    echo "--- Normalization complete ---"
+    echo ""
+}
+
 run_test() {
     local name="$1"; shift
     TOTAL=$((TOTAL + 1))
@@ -132,7 +151,12 @@ if [ "$VENDOR" = "nuvoton" ]; then
 
 elif [ "$VENDOR" = "nations" ]; then
     # Nations NS350 identity key mode — full lifecycle test
-    # Note: GPIO 4 is NOT wired to TPM_RST on NS350 daughter boards.
+    # GPIO 4 is wired to TPM_RST on NS350 and clears volatile state, but
+    # identity-key/PSK are NV-persistent across reset. The entry/exit
+    # normalization ensures the chip is always at a known starting state
+    # and always left clean, regardless of prior runs or mid-test failures.
+    normalize_nations_chip
+    trap 'normalize_nations_chip' EXIT
 
     run_test_no_reset "Unset identity key" "$SPDM_DEMO" --identity-key-unset
     run_test_no_reset "Set identity key" "$SPDM_DEMO" --identity-key-set
@@ -156,8 +180,10 @@ elif [ "$VENDOR" = "nations-psk" ]; then
     # Uses NSING reference test data (PSK_DEMO_3 from Vision's traces).
     # ClearAuth is always exactly 32 bytes per TCG spec.
 
-    # Note: GPIO 4 is NOT wired to TPM_RST on NS350 daughter boards.
-    # Use run_test_no_reset instead of run_test.
+    # Entry/exit normalization: always start clean (identity-key=1, no PSK)
+    # and always end clean, regardless of prior state or mid-test failures.
+    normalize_nations_chip
+    trap 'normalize_nations_chip' EXIT
 
     # Step 1: Ensure identity key is unset (required for PSK mode)
     run_test_no_reset "Unset identity key" "$SPDM_DEMO" --identity-key-unset
