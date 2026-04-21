@@ -264,7 +264,7 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         else {
             printf("Success: Please reset or power cycle TPM\n");
         }
-        return rc;
+        goto exit;
     }
 
     if (fi_file == NULL) {
