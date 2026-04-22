@@ -5624,6 +5624,47 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
 #endif /* HAVE_ECC */
+#ifdef WOLFTPM_V185
+            /* ML-DSA ordinary key: seed is random bytes (Part 1 §24.6.2);
+             * FIPS 204 keygen is then deterministic from the seed. */
+            case TPM_ALG_MLDSA:
+            case TPM_ALG_HASH_MLDSA: {
+                TPMI_MLDSA_PARAMETER_SET ps =
+                    (inPublic->publicArea.type == TPM_ALG_MLDSA)
+                        ? inPublic->publicArea.parameters.mldsaDetail.parameterSet
+                        : inPublic->publicArea.parameters.hash_mldsaDetail
+                              .parameterSet;
+
+                rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
+                    MAX_MLDSA_PRIV_SEED_SIZE);
+                if (rc != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                if (rc == 0) {
+                    privKeyDerSz = MAX_MLDSA_PRIV_SEED_SIZE;
+                    rc = FwGenerateMldsaKey(ps, privKeyDer,
+                        &inPublic->publicArea.unique.mldsa);
+                }
+                break;
+            }
+
+            case TPM_ALG_MLKEM: {
+                TPMI_MLKEM_PARAMETER_SET ps =
+                    inPublic->publicArea.parameters.mlkemDetail.parameterSet;
+
+                rc = wc_RNG_GenerateBlock(&ctx->rng, privKeyDer,
+                    MAX_MLKEM_PRIV_SEED_SIZE);
+                if (rc != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+                if (rc == 0) {
+                    privKeyDerSz = MAX_MLKEM_PRIV_SEED_SIZE;
+                    rc = FwGenerateMlkemKey(ps, privKeyDer,
+                        &inPublic->publicArea.unique.mlkem);
+                }
+                break;
+            }
+#endif /* WOLFTPM_V185 */
             case TPM_ALG_KEYEDHASH: {
                 TPMI_ALG_HASH hashAlg;
                 TPMI_ALG_KEYEDHASH_SCHEME scheme =

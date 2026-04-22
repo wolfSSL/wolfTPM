@@ -1079,6 +1079,119 @@ static void test_fwtpm_create_primary_mldsa(void)
     fwtpm_pass("CreatePrimary(MLDSA-65):", 1);
 }
 
+#ifdef WOLFTPM_V185
+/* Build a TPM2_CreateLoaded command reusing the TPMT_PUBLIC portion of
+ * BuildCreatePrimaryCmd but emitting TPM_CC_CreateLoaded under a caller-
+ * supplied parent handle. Server's FwCmd_CreateLoaded requires a loaded
+ * object as parent (not a hierarchy), so the test must first create a
+ * storage SRK and pass its handle here. No outsideInfo or creationPCR —
+ * CreateLoaded omits those per Part 3 §30.2. */
+static int BuildCreateLoadedCmd(byte* buf, TPM_ALG_ID algType,
+    UINT32 parentHandle)
+{
+    int cmdSz = BuildCreatePrimaryCmd(buf, algType);
+    if (cmdSz < 0) return -1;
+
+    /* Rewrite command code: CreatePrimary -> CreateLoaded. */
+    PutU32BE(buf + 6, TPM_CC_CreateLoaded);
+    /* Rewrite parent handle: TPM_RH_OWNER -> caller-supplied. */
+    PutU32BE(buf + 10, parentHandle);
+
+    /* Strip the trailing outsideInfo (2 bytes) + creationPCR (4 bytes)
+     * that CreatePrimary has but CreateLoaded does not. */
+    cmdSz -= 6;
+    PutU32BE(buf + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* Create a fresh RSA SRK under owner hierarchy and return its transient
+ * handle, used as the parent for PQC CreateLoaded tests below. */
+static UINT32 make_srk_parent(FWTPM_CTX* ctx)
+{
+    int rc, rspSize, cmdSz;
+    UINT32 handle;
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_RSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(handle, 0);
+    return handle;
+}
+
+static void test_fwtpm_create_loaded_mldsa(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 srk, child;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    srk = make_srk_parent(&ctx);
+    cmdSz = BuildCreateLoadedCmd(gCmd, TPM_ALG_MLDSA, srk);
+    AssertIntGT(cmdSz, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntGT(rspSize, TPM2_HEADER_SIZE + 4);
+
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(child, 0);
+
+    /* Flush both */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, child);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    PutU32BE(gCmd + 10, srk);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreateLoaded(MLDSA-65):", 1);
+}
+
+static void test_fwtpm_create_loaded_mlkem(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 srk, child;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    srk = make_srk_parent(&ctx);
+    cmdSz = BuildCreateLoadedCmd(gCmd, TPM_ALG_MLKEM, srk);
+    AssertIntGT(cmdSz, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntGT(rspSize, TPM2_HEADER_SIZE + 4);
+
+    child = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(child, 0);
+
+    /* Flush both */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, child);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    PutU32BE(gCmd + 10, srk);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreateLoaded(MLKEM-768):", 1);
+}
+#endif /* WOLFTPM_V185 */
+
 /* End-to-end Layer D: CreatePrimary MLKEM → Encapsulate → Decapsulate.
  * Asserts that the two shared secrets match, proving FIPS 203 is wired
  * correctly from keygen through encaps and decaps. */
@@ -4292,6 +4405,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifdef WOLFTPM_V185
     test_fwtpm_create_primary_mlkem();
     test_fwtpm_create_primary_mldsa();
+    test_fwtpm_create_loaded_mldsa();
+    test_fwtpm_create_loaded_mlkem();
     test_fwtpm_mlkem_roundtrip();
     test_fwtpm_mldsa_digest_roundtrip();
     test_fwtpm_mldsa_sequence_roundtrip();
