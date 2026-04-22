@@ -9,7 +9,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
 * Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672/SLB9673, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
-* On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime — a simple `./configure && make` works with either interface.
+* On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime - a simple `./configure && make` works with either interface.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
 * The design allows for easy portability to different platforms:
@@ -204,7 +204,7 @@ make install
 ```text
 --enable-debug          Add debug code/turns off optimizations (yes|no|verbose|io) - DEBUG_WOLFTPM, WOLFTPM_DEBUG_VERBOSE, WOLFTPM_DEBUG_IO
                         WARNING: Define WOLFTPM_DEBUG_SECRETS manually (NOT enabled by default and NOT
-                        exposed via configure) to additionally print sensitive material — auth values,
+                        exposed via configure) to additionally print sensitive material - auth values,
                         session keys, bind keys, HMAC keys, hierarchy auth, and encryption secrets.
                         For developer debugging only. NEVER enable in production builds or on devices
                         that log stdout to persistent storage.

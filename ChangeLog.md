@@ -1,5 +1,109 @@
 # Release Notes
 
+## wolfTPM Release 4.0.0 (Apr 22, 2026)
+
+**Summary**
+
+Major release with three new features:
+
+1. Firmware TPM 2.0 (fwTPM): a portable TPM 2.0 command processor built on wolfCrypt, usable as a replacement for a discrete TPM chip or as a CI/development replacement for external simulators.
+2. SPDM secured transport: secure vendor-defined TCG command communication with Nuvoton NPCT75x and Nations NS350 TPM modules.
+3. ST33KTPM2X firmware update: automatic format detection for both Generation 1 (non-LMS) and Generation 2 (LMS-signed) ST33KTPM firmware.
+
+Also includes new seal/unseal examples, additional platform/HAL support, extensive security hardening (Fenrir and Coverity), CI sanitizer coverage, and deprecation of OPENSTM32.
+
+**Detail**
+
+* Firmware TPM 2.0 (fwTPM) implementation (PR #474)
+  - Portable TPM 2.0 server built on wolfCrypt (RSA, ECC, SHA, AES, HMAC)
+  - 105/113 TPM 2.0 v1.38 commands implemented (93%)
+  - Socket transport (Microsoft TPM simulator protocol) and TIS transport
+  - File-based or HAL-callback NV storage; HAL abstraction for IO
+  - New configure options: `--enable-fwtpm` and `--enable-fwtpm-only`
+  - New feature macros: `FWTPM_NO_NV`, `FWTPM_NO_ATTESTATION`, `FWTPM_NO_POLICY`, `FWTPM_NO_DA`
+  - Full CI coverage: `fwtpm-test.yml` (11 matrix entries), `fuzz.yml` (weekly + per-PR smoke)
+  - macOS and Windows build support with network-namespace isolation for Linux CI
+* SPDM secured transport for Nuvoton NPCT75x and Nations NS350 (PR #458)
+  - Generic `WOLFTPM_SPDM_TCG` guard replaces per-vendor conditionals
+  - Vendor-defined TCG commands with VdCode validation
+  - PSK mode and identity-key mode with auto-connect
+  - Hardware test CI workflow split across self-hosted runners
+  - Added `spdm_ctrl` utility (renamed from `spdm_demo`)
+* STMicro ST33KTPM2X firmware update with LMS support (PR #446)
+  - New `st33_fw_update` example tool for ST33KTPM firmware updates
+  - Automatic firmware format detection based on TPM firmware version from `fwVerMinor`
+  - Generation 1 firmware (< 512, e.g. 9.257): Non-LMS format, 177-byte manifest, ECC-only
+  - Generation 2 firmware (>= 512, e.g. 9.512): LMS format, 2697-byte manifest with embedded LMS signature (LMS mandatory)
+  - No manual format selection required - manifest size chosen automatically
+  - See `examples/firmware/README.md` "ST33 Firmware Update" for usage
+* Seal/unseal examples with PCR, PolicyAuthorize, and NV policies (PR #464)
+  - Seal/unseal with PCR and policy authorization
+  - NV-based seal example with real parameter encryption (XOR and AES-CFB)
+  - New `seal-test.yml` CI workflow
+* Platform and HAL additions
+  - Raspberry Pi 4 hardware SPI support (PR #451)
+  - U-Boot HAL (`tpm_io_uboot.c`)
+  - Espressif ESP-IDF HAL SPI
+  - Linux auto-detection between `/dev/tpmX` and direct SPI at runtime
+* Configure behavior change
+  - On Linux x86_64/aarch64, `--enable-fwtpm` and `--enable-swtpm` now
+    default to enabled when no hardware path is selected, so plain
+    `./configure && make check` works out of the box without external
+    simulators
+  - New `--enable-spi` intent flag: pass it for hardware SPI builds to
+    suppress the swTPM/fwTPM auto-enable defaults (mutually exclusive
+    with `--enable-i2c`)
+  - `--disable-wolfcrypt` now auto-disables fwTPM (fwTPM requires
+    wolfCrypt) so the legacy `./configure --disable-wolfcrypt && make`
+    works without also passing `--disable-fwtpm`
+* Crypto callback and signing
+  - TPM support for `wc_SignCert_cb` callback API (PR #450)
+  - Fix for `wolfTPM2_SignHash` to return padded r/s, improved ECDSA P521 handling, added ECDSA tests with crypto callbacks (ZD20777)
+* Security hardening
+  - Fenrir findings addressed across tpm2_wrap, tpm2_packet, tpm2_asn, NV, session auth, SPDM, and fwtpm paths
+  - `ForceZero` on sensitive stack buffers (auth passwords, keyBlob, ECC/RSA private material, symmetric seeds, derived identity digests, NV read/write buffers, PSS padded buffers, session auth)
+  - Constant-time export for ECDH shared secret and ECC signature r/s
+  - Removed short-circuit OR in auth paths (HMAC verification, policy digest checks, ticket HMAC, ticket cpHashA, policy NV, PolicyPassword, credential unwrap, RSA-PKCS1v1.5)
+  - Bounds checks for `TPM2_Packet_AppendPCR` count/sizeofSelect, ASN.1 BIT STRING length, X.509 version, BER indefinite length, `wolfTPM2_UnloadHandles` handle-range overflow
+  - NULL-deref guards in `wolfTPM2_LoadRsaPrivateKey_ex`, `wolfTPM2_LoadEccPrivateKey`, `wolfTPM2_NVCreateAuthPolicy`, `wolfTPM2_EncryptDecryptBlock` (reject NULL IV for non-ECB, oversized IV)
+  - Scaled AES key size to RSA key strength in `wolfTPM2_ImportRsaPrivateKeySeed`; scaled session AES key size to match authHash in `wolfTPM2_StartSession`
+  - Return `BUFFER_E` instead of silently truncating auth values in `wolfTPM2_SetAuth`, `wolfTPM2_CreateKey`, `wolfTPM2_ChangeAuthKey`, `wolfTPM2_SetAuthHandleName`, `wolfTPM2_CreatePrimaryKey_ex`, `wolfTPM2_CreateLoadedKey`, `wolfTPM2_PolicyPassword`
+  - Removed sensitive auth and key material from debug output; added `WOLFTPM_DEBUG_SECRETS` opt-in macro for developer-only printing
+  - Moved auth size mismatch check outside `DEBUG_WOLFTPM` guard so it executes in all builds
+* Coverity and static analysis
+  - New Coverity CI workflow (PR #444)
+  - Fixed H-35, M-74, M-75 (PR #465)
+  - DEADCODE CID 900621 and related fixes
+* CI improvements
+  - Added ASan and UBSan sanitizers (PR #454)
+  - Pedantic gcc and pedantic clang build matrices
+  - macOS CI for fwTPM
+  - Windows build support for fwTPM
+  - Split hardware SPDM CI across multiple self-hosted runners
+  - Added unit tests for name/hash KATs, KDFa test vectors (ATH/SECRET/DUPLICATE labels), ParamEnc/Dec roundtrip, persistent-handle range checks, `ComputeName`, `HashNvPublic`, `PolicyHash` boundary, policy auth value offset
+* Marshaling and packet fixes
+  - `TPM_ALG_NULL` handling for `inScheme` serialization in Certify, CertifyCreation, Quote, GetSessionAuditDigest, GetCommandAuditDigest, GetTime, NV_Certify
+  - Added `TPM2_Packet_AppendSymmetric`/`ParseSymmetric` for SYMCIPHER case
+  - Fixed ECC ECDAA scheme serialization missing count field, RSA RSAES spurious hashAlg, `TPM2_Sign` ECDAA count
+  - Added SM3_256 and SHA3 digest sizes to `TPM2_GetHashDigestSize`
+  - Added ECSCHNORR and SM2 signature serialization
+  - Added `kdf` field to `TPMT_KEYEDHASH_SCHEME` XOR serialization
+  - Added `TPM2_Packet_ParseSensitive` counterpart and roundtrip test
+  - Documented `pub->size` mutation side effect in `TPM2_Packet_AppendPublic`
+* Bug fixes
+  - Fixed TLS ECDH curve mismatch in CI (PR #473)
+  - Added missing `unistd.h` include causing regressions in wolfBoot tpmtools (PR #471)
+  - Avoid nanosleep on non-Linux builds (PR #472)
+  - Fixed MAX_CONTEXT_SIZE stack buffer in CSR PEM using heap for small-stack builds (PR #460)
+  - Fixed AddressSanitizer warning for overlapping memcpy (use memmove) in wolfTPM2_USE_SW_ECDHE path
+  - Proper guarding for `LINUX_DEV`, `SWTPM`, and `WINAPI` (PR #466)
+  - Added error returns in `TPM2_IoCb_Zephyr_I2C`
+  - Improved error logging when `wolfTPM2_Init` fails
+  - Used `mp_to_unsigned_bin_len` (not `_ct`) for portability across wolfSSL builds
+* Deprecated / removed
+  - OPENSTM32 platform support removed (PR #479)
+
+
 ## wolfTPM Release 3.10.0 (Dec 4, 2025)
 
 **Summary**
