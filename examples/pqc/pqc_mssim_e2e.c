@@ -36,6 +36,25 @@
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_V185)
 
+/* Guard against the CopyPubT-class bug where the server-side key exists
+ * and the handle works, but the client-side TPM2B buffer is zero-filled
+ * (Part 2 Table 225 unique arm never copied). */
+static int check_pub_populated(const char* label, const byte* buf,
+    UINT16 gotSize, UINT16 wantSize)
+{
+    int i;
+    if (gotSize != wantSize) {
+        printf("%s.size = %u (expected %u)\n", label, gotSize, wantSize);
+        return -1;
+    }
+    for (i = 0; i < wantSize; i++) {
+        if (buf[i] != 0) return 0;
+    }
+    printf("%s.buffer is all zero (client-side unique-arm copy dropped)\n",
+        label);
+    return -1;
+}
+
 static int test_mlkem_roundtrip(WOLFTPM2_DEV* dev)
 {
     WOLFTPM2_KEY mlkem;
@@ -63,6 +82,11 @@ static int test_mlkem_roundtrip(WOLFTPM2_DEV* dev)
         printf("CreatePrimary(MLKEM-768) rc=%d\n", rc);
         return rc;
     }
+
+    rc = check_pub_populated("mlkem.unique",
+        mlkem.pub.publicArea.unique.mlkem.buffer,
+        mlkem.pub.publicArea.unique.mlkem.size, 1184);
+    if (rc != 0) goto cleanup;
 
     rc = wolfTPM2_Encapsulate(dev, &mlkem, ct, &ctSz, ss1, &ss1Sz);
     if (rc != 0) {
@@ -125,6 +149,12 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
         printf("CreatePrimary(HashMLDSA-65) rc=%d\n", rc);
         return rc;
     }
+
+    /* HashMLDSA shares the mldsa arm of TPMU_PUBLIC_ID. */
+    rc = check_pub_populated("mldsa.unique",
+        mldsa.pub.publicArea.unique.mldsa.buffer,
+        mldsa.pub.publicArea.unique.mldsa.size, 1952);
+    if (rc != 0) goto cleanup;
 
     rc = wolfTPM2_SignDigest(dev, &mldsa,
         digest, sizeof(digest),

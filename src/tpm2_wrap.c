@@ -8482,6 +8482,31 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
         case TPM_ALG_SYMCIPHER:
             ret = publicTemplate->parameters.symDetail.sym.keyBits.sym / 8;
             break;
+    #ifdef WOLFTPM_V185
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA: {
+            TPMI_MLDSA_PARAMETER_SET ps =
+                (publicTemplate->type == TPM_ALG_MLDSA)
+                    ? publicTemplate->parameters.mldsaDetail.parameterSet
+                    : publicTemplate->parameters.hash_mldsaDetail.parameterSet;
+            /* Per Part 2 Table 207 MLDSA public-key sizes. */
+            if (ps == TPM_MLDSA_44)      ret = 1312;
+            else if (ps == TPM_MLDSA_65) ret = 1952;
+            else if (ps == TPM_MLDSA_87) ret = 2592;
+            else                          ret = BAD_FUNC_ARG;
+            break;
+        }
+        case TPM_ALG_MLKEM: {
+            TPMI_MLKEM_PARAMETER_SET ps =
+                publicTemplate->parameters.mlkemDetail.parameterSet;
+            /* Per Part 2 Table 204 MLKEM public-key sizes. */
+            if (ps == TPM_MLKEM_512)       ret = 800;
+            else if (ps == TPM_MLKEM_768)  ret = 1184;
+            else if (ps == TPM_MLKEM_1024) ret = 1568;
+            else                            ret = BAD_FUNC_ARG;
+            break;
+        }
+    #endif /* WOLFTPM_V185 */
         case TPM_ALG_KEYEDHASH:
         default:
             ret = BAD_FUNC_ARG;
@@ -8565,6 +8590,49 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             }
             publicTemplate->unique.sym.size = uniqueSz;
             break;
+#ifdef WOLFTPM_V185
+        /* TPMU_PUBLIC_ID shares the mldsa arm between MLDSA and HASH_MLDSA
+         * (Part 2 Table 225 note — one union field, two selectors). */
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA:
+            if (uniqueSz == 0) {
+                uniqueSz = keySz;
+            }
+            else if (uniqueSz > keySz) {
+                uniqueSz = keySz;
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.mldsa.buffer)) {
+                uniqueSz =
+                    (int)sizeof(publicTemplate->unique.mldsa.buffer); /* truncate */
+            }
+            if (unique == NULL) {
+                XMEMSET(publicTemplate->unique.mldsa.buffer, 0, uniqueSz);
+            }
+            else {
+                XMEMCPY(publicTemplate->unique.mldsa.buffer, unique, uniqueSz);
+            }
+            publicTemplate->unique.mldsa.size = uniqueSz;
+            break;
+        case TPM_ALG_MLKEM:
+            if (uniqueSz == 0) {
+                uniqueSz = keySz;
+            }
+            else if (uniqueSz > keySz) {
+                uniqueSz = keySz;
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.mlkem.buffer)) {
+                uniqueSz =
+                    (int)sizeof(publicTemplate->unique.mlkem.buffer); /* truncate */
+            }
+            if (unique == NULL) {
+                XMEMSET(publicTemplate->unique.mlkem.buffer, 0, uniqueSz);
+            }
+            else {
+                XMEMCPY(publicTemplate->unique.mlkem.buffer, unique, uniqueSz);
+            }
+            publicTemplate->unique.mlkem.size = uniqueSz;
+            break;
+#endif /* WOLFTPM_V185 */
         case TPM_ALG_KEYEDHASH:
             /* not supported */
             ret = BAD_FUNC_ARG;
@@ -8946,6 +9014,46 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
             &in->unique.ecc.y);
         break;
+#ifdef WOLFTPM_V185
+    case TPM_ALG_MLDSA:
+        out->parameters.mldsaDetail.parameterSet =
+            in->parameters.mldsaDetail.parameterSet;
+        out->parameters.mldsaDetail.allowExternalMu =
+            in->parameters.mldsaDetail.allowExternalMu;
+        out->unique.mldsa.size = in->unique.mldsa.size;
+        if (out->unique.mldsa.size > (UINT16)sizeof(out->unique.mldsa.buffer)) {
+            out->unique.mldsa.size = (UINT16)sizeof(out->unique.mldsa.buffer);
+        }
+        XMEMCPY(out->unique.mldsa.buffer, in->unique.mldsa.buffer,
+            out->unique.mldsa.size);
+        break;
+    case TPM_ALG_HASH_MLDSA:
+        out->parameters.hash_mldsaDetail.parameterSet =
+            in->parameters.hash_mldsaDetail.parameterSet;
+        out->parameters.hash_mldsaDetail.hashAlg =
+            in->parameters.hash_mldsaDetail.hashAlg;
+        /* TPMU_PUBLIC_ID shares the mldsa arm between MLDSA and HASH_MLDSA
+         * (Part 2 Table 225 note — one union field, two selectors). */
+        out->unique.mldsa.size = in->unique.mldsa.size;
+        if (out->unique.mldsa.size > (UINT16)sizeof(out->unique.mldsa.buffer)) {
+            out->unique.mldsa.size = (UINT16)sizeof(out->unique.mldsa.buffer);
+        }
+        XMEMCPY(out->unique.mldsa.buffer, in->unique.mldsa.buffer,
+            out->unique.mldsa.size);
+        break;
+    case TPM_ALG_MLKEM:
+        wolfTPM2_CopySymmetric(&out->parameters.mlkemDetail.symmetric,
+            &in->parameters.mlkemDetail.symmetric);
+        out->parameters.mlkemDetail.parameterSet =
+            in->parameters.mlkemDetail.parameterSet;
+        out->unique.mlkem.size = in->unique.mlkem.size;
+        if (out->unique.mlkem.size > (UINT16)sizeof(out->unique.mlkem.buffer)) {
+            out->unique.mlkem.size = (UINT16)sizeof(out->unique.mlkem.buffer);
+        }
+        XMEMCPY(out->unique.mlkem.buffer, in->unique.mlkem.buffer,
+            out->unique.mlkem.size);
+        break;
+#endif /* WOLFTPM_V185 */
     default:
         wolfTPM2_CopySymmetric(&out->parameters.asymDetail.symmetric,
             &in->parameters.asymDetail.symmetric);

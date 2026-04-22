@@ -1312,6 +1312,11 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         #endif
             case TPM_ALG_HMAC:
             case TPM_ALG_NULL:
+        #ifdef WOLFTPM_V185
+            case TPM_ALG_MLDSA:
+            case TPM_ALG_HASH_MLDSA:
+            case TPM_ALG_MLKEM:
+        #endif
                 /* Supported - skip remaining type-specific params */
                 break;
             default:
@@ -2289,6 +2294,24 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 uBuf = inPublic->publicArea.unique.sym.buffer;
                 uSz = (int)inPublic->publicArea.unique.sym.size;
                 break;
+#ifdef WOLFTPM_V185
+            /* MLDSA / HASH_MLDSA / MLKEM: only feed user-supplied unique
+             * bytes into hashUnique, not the raw buffer. A size==0 arm
+             * must not read the uninitialized buffer pointer. */
+            case TPM_ALG_MLDSA:
+            case TPM_ALG_HASH_MLDSA:
+                if (inPublic->publicArea.unique.mldsa.size > 0) {
+                    uBuf = inPublic->publicArea.unique.mldsa.buffer;
+                    uSz = (int)inPublic->publicArea.unique.mldsa.size;
+                }
+                break;
+            case TPM_ALG_MLKEM:
+                if (inPublic->publicArea.unique.mlkem.size > 0) {
+                    uBuf = inPublic->publicArea.unique.mlkem.buffer;
+                    uSz = (int)inPublic->publicArea.unique.mlkem.size;
+                }
+                break;
+#endif /* WOLFTPM_V185 */
             default:
                 break;
         }
@@ -13022,6 +13045,15 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Skip auth area when the client used ST_SESSIONS. SignSequenceStart
+     * has no mandatory auth (Table 89 Auth Index: None) but clients may
+     * still emit a password session. Without skipping, the 4-byte
+     * authAreaSize prefix gets mis-parsed as the TPM2B_AUTH and
+     * TPM2B_SIGNATURE_CTX size fields. */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+
     /* Parse auth (TPM2B_AUTH) */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &authSz);
@@ -13067,8 +13099,11 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        /* sequenceHandle is an output handle per Table 89 — must be
+         * emitted BEFORE the parameterSize field, not inside the
+         * parameter area. */
         TPM2_Packet_AppendU32(rsp, seqHandle);
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
     else if (seq != NULL) {
@@ -13108,6 +13143,13 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             obj->pub.type != TPM_ALG_HASH_MLDSA) {
             rc = TPM_RC_KEY;
         }
+    }
+
+    /* Skip auth area when tag is ST_SESSIONS — Table 87 Auth Index: None,
+     * but clients may still emit a password session that otherwise
+     * desynchronises the auth / hint / context TPM2B parse. */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
     }
 
     if (rc == 0) {
@@ -13158,8 +13200,10 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        /* sequenceHandle is an output handle per Table 87 — emitted
+         * before parameterSize. */
         TPM2_Packet_AppendU32(rsp, seqHandle);
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
     else if (seq != NULL) {

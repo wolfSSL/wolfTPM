@@ -3414,7 +3414,10 @@ TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
+        /* Part 3 §20.6 Table 124: both @sequenceHandle and @keyHandle
+         * require USER authorization. */
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1 |
+            CMD_FLAG_AUTH_USER2);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3457,7 +3460,10 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        info.flags = (CMD_FLAG_ENC2);
+        /* Part 3 §20.3 Table 118: @sequenceHandle requires USER auth;
+         * keyHandle has no auth. The framework needs the USER1 flag so
+         * the auth area matches what the server parses under ST_SESSIONS. */
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
 
         TPM2_Packet_Init(ctx, &packet);
 
@@ -3466,9 +3472,8 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        TPM2_Packet_AppendU16(&packet, in->buffer.size);
-        TPM2_Packet_AppendBytes(&packet, in->buffer.buffer, in->buffer.size);
-
+        /* Part 3 §20.3 Table 118: parameters are {signature} only — no
+         * buffer field. Message was accumulated via SequenceUpdate. */
         TPM2_Packet_AppendSignature(&packet, &in->signature);
 
         TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifySequenceComplete);
@@ -7326,6 +7331,31 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             TPM2_PrintBin(pub->publicArea.unique.ecc.y.buffer, pub->publicArea.unique.ecc.y.size);
             #endif
             break;
+#ifdef WOLFTPM_V185
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA:
+            printf("  %s: parameterSet 0x%X, unique size %d\n",
+                (pub->publicArea.type == TPM_ALG_MLDSA)
+                    ? "ML-DSA" : "Hash-ML-DSA",
+                (pub->publicArea.type == TPM_ALG_MLDSA)
+                    ? pub->publicArea.parameters.mldsaDetail.parameterSet
+                    : pub->publicArea.parameters.hash_mldsaDetail.parameterSet,
+                pub->publicArea.unique.mldsa.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
+            TPM2_PrintBin(pub->publicArea.unique.mldsa.buffer,
+                pub->publicArea.unique.mldsa.size);
+            #endif
+            break;
+        case TPM_ALG_MLKEM:
+            printf("  ML-KEM: parameterSet 0x%X, unique size %d\n",
+                pub->publicArea.parameters.mlkemDetail.parameterSet,
+                pub->publicArea.unique.mlkem.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
+            TPM2_PrintBin(pub->publicArea.unique.mlkem.buffer,
+                pub->publicArea.unique.mlkem.size);
+            #endif
+            break;
+#endif /* WOLFTPM_V185 */
         default:
             /* derive does not seem to have specific fields in the parameters struct */
             printf("Derive Type: unique label size %d, context size %d\n",
