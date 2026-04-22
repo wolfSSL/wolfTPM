@@ -2257,13 +2257,18 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
     if (rc == 0)
         rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a, &prime, 1);
 
+    /* Export x and y with fixed-size left-zero padding to the curve byte
+     * length. Using mp_unsigned_bin_size/mp_to_unsigned_bin here would drop
+     * leading zero bytes (~1/256 per coordinate for a random point), which
+     * both breaks ZGen_2Phase callers that expect curve-length outputs and
+     * leaks the leading-zero count of the shared point. */
     if (rc == 0) {
-        *xSz = (word32)mp_unsigned_bin_size(R->x);
-        rc = mp_to_unsigned_bin(R->x, xBuf);
+        *xSz = (word32)dp->size;
+        rc = mp_to_unsigned_bin_len(R->x, xBuf, dp->size);
     }
     if (rc == 0) {
-        *ySz = (word32)mp_unsigned_bin_size(R->y);
-        rc = mp_to_unsigned_bin(R->y, yBuf);
+        *ySz = (word32)dp->size;
+        rc = mp_to_unsigned_bin_len(R->y, yBuf, dp->size);
     }
 
     if (aInit)
