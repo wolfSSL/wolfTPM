@@ -96,4 +96,117 @@ write_seed("readpublic", tpm_cmd(0x0173, struct.pack(">I", 0x80000000)))
 # --- ContextSave ---
 write_seed("contextsave", tpm_cmd(0x0162, struct.pack(">I", 0x80000000)))
 
+# --- v1.85 PQC command seeds ---
+# These provide libFuzzer with starting shapes for the 8 new v1.85 commands.
+# They are intentionally minimal / partially malformed in places — the fuzzer
+# mutates them toward interesting inputs. Command codes per Part 2 §6.5.2
+# Table 11.
+pw_auth = (struct.pack(">I", 9) +                 # authAreaSize
+           struct.pack(">I", 0x40000009) +         # TPM_RS_PW
+           struct.pack(">H", 0) +                  # nonce size
+           struct.pack(">B", 0) +                  # attributes
+           struct.pack(">H", 0))                   # hmac size
+
+# Encapsulate (no auth): just keyHandle.
+write_seed("pqc_encapsulate_mlkem",
+    tpm_cmd(0x000001A7, struct.pack(">I", 0x80000001)))
+
+# Decapsulate (USER auth on key): handle + auth + TPM2B_KEM_CIPHERTEXT.
+# Include a tiny 8-byte ciphertext to exercise the parse path.
+write_seed("pqc_decapsulate_mlkem",
+    tpm_cmd(0x000001A8,
+        struct.pack(">I", 0x80000001) + pw_auth +
+        struct.pack(">H", 8) + b"\x00" * 8,
+        TPM_ST_SESSIONS))
+
+# SignSequenceStart: handle + auth + TPM2B_AUTH + TPM2B_SIGNATURE_HINT +
+# TPM2B_SIGNATURE_CTX. All empty.
+write_seed("pqc_signseqstart_mldsa",
+    tpm_cmd(0x000001AA,
+        struct.pack(">I", 0x80000001) + pw_auth +
+        struct.pack(">H", 0) + struct.pack(">H", 0) + struct.pack(">H", 0),
+        TPM_ST_SESSIONS))
+
+# SignSequenceComplete: seqHandle + keyHandle + 2 auths + TPM2B_MAX_BUFFER.
+write_seed("pqc_signseqcomplete_mldsa",
+    tpm_cmd(0x000001A4,
+        struct.pack(">I", 0x80000002) + struct.pack(">I", 0x80000001) +
+        struct.pack(">I", 18) +                   # 2 auths stacked
+        struct.pack(">I", 0x40000009) + struct.pack(">H", 0) +
+        struct.pack(">B", 0) + struct.pack(">H", 0) +
+        struct.pack(">I", 0x40000009) + struct.pack(">H", 0) +
+        struct.pack(">B", 0) + struct.pack(">H", 0) +
+        struct.pack(">H", 4) + b"test",            # message buffer
+        TPM_ST_SESSIONS))
+
+# VerifySequenceStart: handle + auth + TPM2B_AUTH + TPM2B_SIGNATURE_HINT +
+# TPM2B_SIGNATURE_CTX. All empty.
+write_seed("pqc_verifyseqstart_mldsa",
+    tpm_cmd(0x000001A9,
+        struct.pack(">I", 0x80000001) + pw_auth +
+        struct.pack(">H", 0) + struct.pack(">H", 0) + struct.pack(">H", 0),
+        TPM_ST_SESSIONS))
+
+# VerifySequenceComplete: seqHandle + keyHandle + auth + TPMT_SIGNATURE.
+# sigAlg=TPM_ALG_MLDSA, empty sig body (fuzzer will grow).
+write_seed("pqc_verifyseqcomplete_mldsa",
+    tpm_cmd(0x000001A3,
+        struct.pack(">I", 0x80000002) + struct.pack(">I", 0x80000001) +
+        pw_auth +
+        struct.pack(">H", 0x00A1) + struct.pack(">H", 0),  # TPM_ALG_MLDSA + empty
+        TPM_ST_SESSIONS))
+
+# SignDigest: keyHandle + auth + context + digest + validation (null ticket).
+write_seed("pqc_signdigest_mldsa",
+    tpm_cmd(0x000001A6,
+        struct.pack(">I", 0x80000001) + pw_auth +
+        struct.pack(">H", 0) +                     # ctx = empty
+        struct.pack(">H", 32) + b"\x00" * 32 +     # 32-byte digest
+        struct.pack(">H", 0x8001) +                # TPM_ST_HASHCHECK
+        struct.pack(">I", 0x40000007) +            # hierarchy = owner
+        struct.pack(">H", 0),                      # digest = empty
+        TPM_ST_SESSIONS))
+
+# VerifyDigestSignature: keyHandle + context + digest + TPMT_SIGNATURE.
+write_seed("pqc_verifydigestsig_mldsa",
+    tpm_cmd(0x000001A5,
+        struct.pack(">I", 0x80000001) +
+        struct.pack(">H", 0) +                     # ctx = empty
+        struct.pack(">H", 32) + b"\x00" * 32 +     # 32-byte digest
+        struct.pack(">H", 0x00A1) + struct.pack(">H", 0)))  # MLDSA + empty sig
+
+# CreatePrimary MLKEM-768: minimal TPMT_PUBLIC template.
+mlkem_tmpl = (struct.pack(">H", 0x00A0) +          # type=TPM_ALG_MLKEM
+              struct.pack(">H", 0x000B) +          # nameAlg=SHA256
+              struct.pack(">I", 0x00020072) +      # attrs decrypt/etc
+              struct.pack(">H", 0) +               # authPolicy=empty
+              struct.pack(">H", 0x0010) +          # sym=NULL
+              struct.pack(">H", 0x0002) +          # param set = MLKEM-768
+              struct.pack(">H", 0))                # unique=empty
+write_seed("pqc_createprimary_mlkem",
+    tpm_cmd(0x00000131,
+        struct.pack(">I", 0x40000001) + pw_auth +  # owner + empty auth
+        struct.pack(">H", 4) + struct.pack(">HH", 0, 0) +   # sensitive=empty
+        struct.pack(">H", len(mlkem_tmpl)) + mlkem_tmpl +
+        struct.pack(">H", 0) +                     # outsideInfo=empty
+        struct.pack(">I", 0),                      # creationPCR=empty
+        TPM_ST_SESSIONS))
+
+# CreatePrimary MLDSA-65: minimal template.
+mldsa_tmpl = (struct.pack(">H", 0x00A1) +          # type=TPM_ALG_MLDSA
+              struct.pack(">H", 0x000B) +
+              struct.pack(">I", 0x00040072) +      # attrs sign/etc
+              struct.pack(">H", 0) +
+              struct.pack(">H", 0x0002) +          # param set = MLDSA-65
+              struct.pack(">B", 0) +               # allowExternalMu=NO
+              struct.pack(">H", 0))
+write_seed("pqc_createprimary_mldsa",
+    tpm_cmd(0x00000131,
+        struct.pack(">I", 0x40000001) + pw_auth +
+        struct.pack(">H", 4) + struct.pack(">HH", 0, 0) +
+        struct.pack(">H", len(mldsa_tmpl)) + mldsa_tmpl +
+        struct.pack(">H", 0) +
+        struct.pack(">I", 0),
+        TPM_ST_SESSIONS))
+
 print(f"Generated {len(os.listdir(CORPUS_DIR))} seed corpus files in {CORPUS_DIR}")

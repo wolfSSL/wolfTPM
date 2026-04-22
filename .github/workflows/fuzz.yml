@@ -15,14 +15,34 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Full fuzz run (weekly/manual) - 10 minutes
+          # Classical (v1.38) full fuzz run (weekly/manual) - 10 minutes
           - name: fuzz-full
             fuzz_time: 600
             smoke_only: false
-          # Quick smoke test (PR) - 60 seconds
+            wolfssl_extra_flags: ""
+            wolftpm_extra_flags: ""
+            max_len: 4096
+          # Classical (v1.38) quick smoke test (PR) - 60 seconds
           - name: fuzz-smoke
             fuzz_time: 60
             smoke_only: true
+            wolfssl_extra_flags: ""
+            wolftpm_extra_flags: ""
+            max_len: 4096
+          # v1.85 PQC full fuzz run (weekly/manual) - 10 minutes
+          - name: fuzz-full-pqc
+            fuzz_time: 600
+            smoke_only: false
+            wolfssl_extra_flags: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+            wolftpm_extra_flags: "--enable-v185"
+            max_len: 8192
+          # v1.85 PQC quick smoke test (PR) - 60 seconds
+          - name: fuzz-smoke-pqc
+            fuzz_time: 60
+            smoke_only: true
+            wolfssl_extra_flags: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+            wolftpm_extra_flags: "--enable-v185"
+            max_len: 8192
 
     steps:
       - name: Checkout wolfTPM
@@ -42,6 +62,7 @@ jobs:
         run: |
           ./autogen.sh
           CC=clang ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            ${{ matrix.wolfssl_extra_flags }} \
             CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING" \
             LDFLAGS="-fsanitize=address"
           make -j$(nproc)
@@ -52,6 +73,7 @@ jobs:
         run: |
           ./autogen.sh
           CC=clang ./configure --enable-fwtpm --enable-fuzz \
+            ${{ matrix.wolftpm_extra_flags }} \
             CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1" \
             LDFLAGS="-fsanitize=address"
           make -j$(nproc)
@@ -68,7 +90,7 @@ jobs:
             ./tests/fuzz/fwtpm_fuzz \
               tests/fuzz/corpus/ \
               -dict=tests/fuzz/tpm2.dict \
-              -max_len=4096 \
+              -max_len=${{ matrix.max_len }} \
               -timeout=30 \
               -rss_limit_mb=2048 \
               -print_final_stats=1 \

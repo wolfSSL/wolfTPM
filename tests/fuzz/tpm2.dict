@@ -40,6 +40,16 @@ cc_encdec="\x00\x00\x01\x64"
 cc_rsaenc="\x00\x00\x01\x74"
 cc_rsadec="\x00\x00\x01\x59"
 
+# v1.85 PQC command codes (Part 2 §6.5.2 Table 11)
+cc_verifyseqcomplete="\x00\x00\x01\xA3"
+cc_signseqcomplete="\x00\x00\x01\xA4"
+cc_verifydigestsig="\x00\x00\x01\xA5"
+cc_signdigest="\x00\x00\x01\xA6"
+cc_encapsulate="\x00\x00\x01\xA7"
+cc_decapsulate="\x00\x00\x01\xA8"
+cc_verifyseqstart="\x00\x00\x01\xA9"
+cc_signseqstart="\x00\x00\x01\xAA"
+
 # Algorithm IDs
 alg_rsa="\x00\x01"
 alg_aes="\x00\x06"
@@ -50,6 +60,24 @@ alg_rsassa="\x00\x14"
 alg_ecdsa="\x00\x18"
 alg_ecc="\x00\x23"
 alg_cfb="\x00\x43"
+
+# v1.85 PQC algorithm IDs (Part 2 §6.3 Table 8)
+alg_mlkem="\x00\xA0"
+alg_mldsa="\x00\xA1"
+alg_hash_mldsa="\x00\xA2"
+
+# v1.85 PQC parameter sets (Part 2 §11.2.6 / §11.2.7)
+ps_mlkem_512="\x00\x01"
+ps_mlkem_768="\x00\x02"
+ps_mlkem_1024="\x00\x03"
+ps_mldsa_44="\x00\x01"
+ps_mldsa_65="\x00\x02"
+ps_mldsa_87="\x00\x03"
+
+# v1.85 PQC response codes (Part 2 §6.6.3 Table 17)
+rc_ext_mu="\x00\x00\x00\xAB"
+rc_one_shot_sig="\x00\x00\x00\xAC"
+rc_sign_ctx_key="\x00\x00\x00\xAD"
 
 # Hierarchy handles
 rh_owner="\x40\x00\x00\x07"
