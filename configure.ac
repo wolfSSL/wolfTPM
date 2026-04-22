@@ -167,7 +167,14 @@ then
     LDFLAGS="$LDFLAGS -L${wcpath}/lib"
     CPPFLAGS="$CPPFLAGS -I${wcpath}/include"
 
-    AC_CHECK_LIB([wolfssl],[wolfCrypt_Init],,
+    # Use AC_LINK_IFELSE with proper headers so the probe works under both C
+    # and C++ (CC=g++). AC_CHECK_LIB synthesizes a bare declaration that gets
+    # name-mangled by C++ and fails to link against libwolfssl's C symbols.
+    AC_LINK_IFELSE([AC_LANG_PROGRAM(
+        [[#include <wolfssl/options.h>
+          #include <wolfssl/wolfcrypt/wc_port.h>]],
+        [[wolfCrypt_Init();]])],
+        [],
         [AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
         If its already installed, specify its path using --with-wolfcrypt=/dir or --prefix=/dir])])
 else
@@ -256,10 +263,11 @@ for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
 done
 
 # Auto-enable fwTPM + swTPM on Linux/BSD x86_64/aarch64 so `make check`
-# works out of the box — unless a hardware path was explicitly selected.
+# works out of the box -- unless a hardware path was explicitly selected,
+# or wolfCrypt was explicitly disabled (fwTPM requires wolfCrypt).
 WOLFTPM_DEFAULT_FWTPM=no
 WOLFTPM_DEFAULT_SWTPM=no
-if test "x$WOLFTPM_HW_SELECTED" = "xno"; then
+if test "x$WOLFTPM_HW_SELECTED" = "xno" && test "x$ENABLED_WOLFCRYPT" = "xyes"; then
     case $host_cpu in
         x86_64|amd64|aarch64)
             case $host_os in

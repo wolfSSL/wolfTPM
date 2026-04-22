@@ -287,7 +287,6 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     else if (offset == 0xC) indexType = "EK Low Range (ECC P256 Template)";
                 }
                 else if (offset >= 0x12 && offset < 0x100) {
-                    indexType = "EK High Range";
                     if (offset == 0x12) indexType = "EK High Range (RSA 2048 Cert)";
                     else if (offset == 0x14) indexType = "EK High Range (ECC P256 Cert)";
                     else if (offset == 0x16) indexType = "EK High Range (ECC P384 Cert)";

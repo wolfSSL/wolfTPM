@@ -919,9 +919,10 @@ static void test_fwtpm_create_primary_rsa(void)
 
     /* Flush the key */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
-    PutU32BE(gCmd + 10, handle);
+    PutU32BE(gCmd + cmdSz, handle);
+    cmdSz += 4;
     rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tCreatePrimary(RSA-2048):\t\tPassed\n");
@@ -951,9 +952,10 @@ static void test_fwtpm_create_primary_ecc(void)
 
     /* Flush */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
-    PutU32BE(gCmd + 10, handle);
+    PutU32BE(gCmd + cmdSz, handle);
+    cmdSz += 4;
     rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
 
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tCreatePrimary(ECC-P256):\t\tPassed\n");

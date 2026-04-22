@@ -2397,7 +2397,7 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                 if (pad == WC_RSA_PSS_PAD) {
                     int mgf = FwGetMgfType(sigHashAlg);
                     wcRc = wc_RsaPSS_Sign_ex(digest, digestSz,
-                        sigBuf, sigSz, wcHashType, mgf,
+                        sigBuf, sigSz, (enum wc_HashType)wcHashType, mgf,
                         RSA_PSS_SALT_LEN_DEFAULT, rsaKey, &ctx->rng);
                 }
                 else {
@@ -2532,7 +2532,7 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                         sig->signature.rsapss.sig.size,
                         decSig, (word32)FWTPM_MAX_PUB_BUF,
                         digest, digestSz,
-                        wcHashType, mgf,
+                        (enum wc_HashType)wcHashType, mgf,
                         rsaKey);
                     FWTPM_FREE_BUF(decSig);
                 }

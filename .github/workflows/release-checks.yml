@@ -1,0 +1,135 @@
+name: Release Checks
+
+# Gates intended to mirror the wolfTPM release procedure:
+#   - C++ build with CC=g++ (proves headers are C++-safe for consumers)
+#   - scan-build --status-bugs (Clang static analysis)
+# Both run on every PR and every push to release branches so regressions are
+# caught at PR time instead of during release prep.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**', 'rel_v*_prep' ]
+  pull_request:
+    branches: [ '*' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_wolfssl:
+    name: Build wolfSSL
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+          ref: master
+
+      - name: Build wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              --prefix=/tmp/wolfssl-install \
+              CFLAGS="-DWC_RSA_NO_PADDING"
+          make -j$(nproc)
+          make install
+
+      - name: Tar install dir
+        run: tar -zcf wolfssl-install.tgz -C /tmp wolfssl-install
+
+      - name: Upload wolfSSL install
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfssl-release-checks
+          path: wolfssl-install.tgz
+          retention-days: 1
+
+  cxx_build:
+    name: C++ build (CC=g++)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build_wolfssl
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Download wolfSSL
+        uses: actions/download-artifact@v4
+        with:
+          name: wolfssl-release-checks
+
+      - name: Install wolfSSL
+        run: |
+          sudo tar -xzf wolfssl-install.tgz -C /tmp
+          sudo ldconfig /tmp/wolfssl-install/lib
+
+      - name: Build wolfTPM with g++ (default config)
+        run: |
+          ./autogen.sh
+          ./configure CC=g++ \
+              --with-wolfcrypt=/tmp/wolfssl-install
+          make -j$(nproc)
+
+      - name: Build wolfTPM with g++ (--enable-fwtpm)
+        run: |
+          make distclean
+          ./configure CC=g++ --enable-fwtpm \
+              --with-wolfcrypt=/tmp/wolfssl-install
+          make -j$(nproc)
+
+      - name: Show log on errors
+        if: failure()
+        run: cat config.log
+
+  scan_build:
+    name: scan-build (clang static analysis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build_wolfssl
+    steps:
+      - name: Install clang tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tools
+
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Download wolfSSL
+        uses: actions/download-artifact@v4
+        with:
+          name: wolfssl-release-checks
+
+      - name: Install wolfSSL
+        run: |
+          sudo tar -xzf wolfssl-install.tgz -C /tmp
+          sudo ldconfig /tmp/wolfssl-install/lib
+
+      - name: scan-build default configuration
+        run: |
+          ./autogen.sh
+          scan-build --status-bugs ./configure \
+              --with-wolfcrypt=/tmp/wolfssl-install
+          scan-build --status-bugs -o scan-results-default make -j$(nproc)
+
+      - name: scan-build with --enable-fwtpm
+        run: |
+          make distclean
+          scan-build --status-bugs ./configure --enable-fwtpm \
+              --with-wolfcrypt=/tmp/wolfssl-install
+          scan-build --status-bugs -o scan-results-fwtpm make -j$(nproc)
+
+      - name: Upload scan reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-build-reports
+          path: |
+            scan-results-default/
+            scan-results-fwtpm/
+          retention-days: 7

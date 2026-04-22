@@ -1830,7 +1830,8 @@ static TPM_RC FwCmd_PCR_SetAuthPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (policySz > 0) {
             XMEMCPY(ctx->pcrPolicy[pcrIndex].buffer, policyBuf, policySz);
         }
-        ctx->pcrPolicyAlg[pcrIndex] = (policySz > 0) ? hashAlg : TPM_ALG_NULL;
+        ctx->pcrPolicyAlg[pcrIndex] = (policySz > 0) ?
+                                      hashAlg : (TPMI_ALG_HASH)TPM_ALG_NULL;
         FWTPM_NV_SavePcrAuth(ctx);
         FwRspNoParams(rsp, cmdTag);
     }
@@ -5488,7 +5489,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 #endif /* HAVE_ECC */
             case TPM_ALG_KEYEDHASH: {
-                TPMI_ALG_HASH hashAlg = inPublic->publicArea.nameAlg;
+                TPMI_ALG_HASH hashAlg;
                 TPMI_ALG_KEYEDHASH_SCHEME scheme =
                     inPublic->publicArea.parameters.keyedHashDetail
                         .scheme.scheme;
@@ -5994,13 +5995,13 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         if (encScheme == TPM_ALG_OAEP) {
-            int wcHashType = FwGetRsaHashOid(
-                (encHashAlg != TPM_ALG_NULL) ? encHashAlg : TPM_ALG_SHA256);
+            TPMI_ALG_HASH oaepHash = (encHashAlg != TPM_ALG_NULL) ?
+                encHashAlg : (TPMI_ALG_HASH)TPM_ALG_SHA256;
+            int wcHashType = FwGetRsaHashOid(oaepHash);
             outSz = wc_RsaPublicEncrypt_ex(message->buffer, message->size,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey, &ctx->rng,
-                WC_RSA_OAEP_PAD, wcHashType,
-                FwGetMgfType((encHashAlg != TPM_ALG_NULL) ?
-                    encHashAlg : TPM_ALG_SHA256),
+                WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
+                FwGetMgfType(oaepHash),
                 NULL, 0);
         }
         else if (encScheme == TPM_ALG_NULL) {
@@ -6147,13 +6148,13 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         if (decScheme == TPM_ALG_OAEP) {
-            int wcHashType = FwGetRsaHashOid(
-                (decHashAlg != TPM_ALG_NULL) ? decHashAlg : TPM_ALG_SHA256);
+            TPMI_ALG_HASH oaepHash = (decHashAlg != TPM_ALG_NULL) ?
+                decHashAlg : (TPMI_ALG_HASH)TPM_ALG_SHA256;
+            int wcHashType = FwGetRsaHashOid(oaepHash);
             outSz = wc_RsaPrivateDecrypt_ex(cipherText->buffer, cipherText->size,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey,
-                WC_RSA_OAEP_PAD, wcHashType,
-                FwGetMgfType((decHashAlg != TPM_ALG_NULL) ?
-                    decHashAlg : TPM_ALG_SHA256),
+                WC_RSA_OAEP_PAD, (enum wc_HashType)wcHashType,
+                FwGetMgfType(oaepHash),
                 NULL, 0);
         }
         else if (decScheme == TPM_ALG_NULL) {
