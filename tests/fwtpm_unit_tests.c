@@ -922,7 +922,9 @@ static void test_fwtpm_create_primary_rsa(void)
     PutU32BE(gCmd + cmdSz, handle);
     cmdSz += 4;
     rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tCreatePrimary(RSA-2048):\t\tPassed\n");
@@ -955,7 +957,9 @@ static void test_fwtpm_create_primary_ecc(void)
     PutU32BE(gCmd + cmdSz, handle);
     cmdSz += 4;
     rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tCreatePrimary(ECC-P256):\t\tPassed\n");

@@ -10,7 +10,7 @@ on:
   push:
     branches: [ 'master', 'main', 'release/**', 'rel_v*_prep' ]
   pull_request:
-    branches: [ '*' ]
+    branches: [ '**' ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
