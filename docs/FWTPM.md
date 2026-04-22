@@ -730,8 +730,9 @@ hierarchy seed + template → KDFa-derived seed → FIPS 203/204 key expansion.
   `wc_MlKemKey_MakeKeyWithRandom` → (ek, dk). Wire format stores only 64-byte
   seed per TCG Part 2 Table 206.
 
-All three labels are logged in `docs/v185_pqc/SPEC_DECISIONS.md` as DEC-0001
-(interpretation, pending TCG Part 4 v185 publication).
+These label strings are an interpretation — TCG Part 4 v185 (which would
+normatively specify them) is unpublished, so they are subject to change
+if rc5 / Part 4 v185 prescribe different labels.
 
 ### Sign / Verify Sequences
 
@@ -773,7 +774,7 @@ Three v1.85 features are deferred with documented reasons:
    Part 2 §11.4.2 Table 222 defines the `mlkem` arm of `TPMU_ENCRYPTED_SECRET`.
    Part 4 v185 (which would normatively specify this) is not yet published.
    Current behavior: `TPM2_StartAuthSession` returns `TPM_RC_KEY` for ML-KEM
-   tpmKey. See `SPEC_DECISIONS.md` DEC-0002.
+   tpmKey; revisit when Part 4 v185 lands.
 2. **External-μ ML-DSA signing** — wolfCrypt has no μ-direct sign API. Part 2
    §12.2.3.7 text says "512-byte external Mu" but FIPS 204 Algorithm 7 Line 6
    produces 64 bytes (SHAKE256 output). Pending wolfCrypt API addition and

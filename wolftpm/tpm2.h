@@ -1138,7 +1138,8 @@ typedef struct TPMT_TK_VERIFIED {
     /* v185 rc4 Part 2 §10.6.5 Table 112 / §10.6.4 Table 110 — [tag]metadata.
      * Empty on the wire for TPM_ST_VERIFIED and TPM_ST_MESSAGE_VERIFIED.
      * For TPM_ST_DIGEST_VERIFIED carries the TPM_ALG_ID (hash/XOF used).
-     * Per SPEC_DECISIONS DEC-0003, ML-DSA external-mu uses TPM_ALG_NULL.
+     * For ML-DSA external-mu wolfTPM emits TPM_ALG_NULL here (hash-less
+     * mu-direct path; interpretation pending Part 4 v185 publication).
      * Spec note: field formerly named `digest` was renamed to `hmac` in
      * v185 to reduce ambiguity; we retain `digest` for wolfTPM API stability
      * since the rename is editorial and does not affect wire bytes. */

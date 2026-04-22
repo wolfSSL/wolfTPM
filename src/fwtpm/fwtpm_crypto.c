@@ -674,9 +674,9 @@ static int FwGetWcMlkemType(TPMI_MLKEM_PARAMETER_SET ps)
 }
 
 /** \brief Derive 32-byte ML-DSA seed xi from hierarchy primary seed via KDFa.
- *  Per SPEC_DECISIONS DEC-0001 the label is "MLDSA" for TPM_ALG_MLDSA or
- *  "HASH_MLDSA" for TPM_ALG_HASH_MLDSA. The derived seed is fed into
- *  FIPS 204 deterministic keygen. */
+ *  Caller selects label: "MLDSA" for TPM_ALG_MLDSA or "HASH_MLDSA" for
+ *  TPM_ALG_HASH_MLDSA (interpretation, pending Part 4 v185 publication).
+ *  The derived seed is fed into FIPS 204 deterministic keygen. */
 TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
     const char* label, byte* seedXiOut)
@@ -693,8 +693,9 @@ TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
 }
 
 /** \brief Derive 64-byte ML-KEM seed (d || z) from hierarchy primary seed
- *  via KDFa. Per SPEC_DECISIONS DEC-0001 the label is "MLKEM". The derived
- *  seed is fed into FIPS 203 deterministic keygen (ML-KEM.KeyGen_internal). */
+ *  via KDFa using the label "MLKEM" (interpretation, pending Part 4 v185
+ *  publication). The derived seed is fed into FIPS 203 deterministic
+ *  keygen (ML-KEM.KeyGen_internal). */
 TPM_RC FwDeriveMlkemPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
     const byte* seed, const byte* hashUnique, int hashUniqueSz,
     byte* seedDZOut)

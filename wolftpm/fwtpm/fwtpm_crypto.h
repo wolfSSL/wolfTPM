@@ -137,7 +137,8 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
 
 #ifdef WOLFTPM_V185
 /* v1.85 PQC primary-key derivation.
- * Per SPEC_DECISIONS DEC-0001 the KDFa labels are:
+ * KDFa labels used here (interpretation — Part 4 v185 is unpublished
+ * so these may change if the final normative text differs):
  *   "MLDSA"       for TPM_ALG_MLDSA (Pure ML-DSA)
  *   "HASH_MLDSA"  for TPM_ALG_HASH_MLDSA (pre-hash variant)
  *   "MLKEM"       for TPM_ALG_MLKEM
