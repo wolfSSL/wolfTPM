@@ -2,8 +2,8 @@
 # Copyright (C) 2025 wolfSSL Inc.
 # All right reserved.
 
-AC_COPYRIGHT([Copyright (C) 2014-2025 wolfSSL Inc.])
-AC_INIT([wolftpm],[3.10.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_COPYRIGHT([Copyright (C) 2014-2026 wolfSSL Inc.])
+AC_INIT([wolftpm],[4.0.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[https://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -29,7 +29,7 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=16:8:0
+WOLFTPM_LIBRARY_VERSION=17:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -141,7 +141,7 @@ else
     wcpath=$prefix
 fi
 AC_MSG_NOTICE([prefix ${prefix}])
-WOLFSSL_URL="http://www.wolfssl.com/download.html"
+WOLFSSL_URL="https://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
   [AS_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
   [
@@ -745,7 +745,7 @@ rm -f $OPTION_FILE
 echo "/* wolftpm options.h" > $OPTION_FILE
 echo " * generated from configure options" >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
-echo " * Copyright (C) 2006-2025 wolfSSL Inc." >> $OPTION_FILE
+echo " * Copyright (C) 2006-2026 wolfSSL Inc." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
 echo " * * This file is part of wolfTPM." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
