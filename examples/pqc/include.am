@@ -9,6 +9,11 @@ examples_pqc_pqc_mssim_e2e_SOURCES      = examples/pqc/pqc_mssim_e2e.c
 examples_pqc_pqc_mssim_e2e_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_pqc_pqc_mssim_e2e_DEPENDENCIES = src/libwolftpm.la
 
+noinst_PROGRAMS += examples/pqc/mlkem_encap
+examples_pqc_mlkem_encap_SOURCES      = examples/pqc/mlkem_encap.c
+examples_pqc_mlkem_encap_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_pqc_mlkem_encap_DEPENDENCIES = src/libwolftpm.la
+
 EXTRA_DIST += examples/pqc/README.md
 
 endif

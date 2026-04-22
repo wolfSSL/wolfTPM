@@ -25,6 +25,14 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
+# Detect WOLFTPM_V185 (post-quantum keys) from installed config header.
+if [ -z "$ENABLE_V185" ]; then
+    if grep -q "WOLFTPM_V185 1" config.h 2>/dev/null; then
+        ENABLE_V185=1
+    else
+        ENABLE_V185=0
+    fi
+fi
 rm -f run.out
 touch run.out
 
@@ -266,6 +274,34 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     fi
 fi
 rm -f ececcblob.bin
+
+if [ $ENABLE_V185 -eq 1 ]; then
+    echo -e "PQC Key Generation Tests (v1.85)"
+    for PS in 44 65 87; do
+        ./examples/keygen/keygen pqcblob.bin -mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen mldsa=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload mldsa=$PS failed! $RESULT" && exit 1
+
+        ./examples/keygen/keygen pqcblob.bin -hash_mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen hash_mldsa=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload hash_mldsa=$PS failed! $RESULT" && exit 1
+    done
+    for PS in 512 768 1024; do
+        ./examples/keygen/keygen pqcblob.bin -mlkem=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen mlkem=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload mlkem=$PS failed! $RESULT" && exit 1
+    done
+    rm -f pqcblob.bin
+fi
 
 
 # KeyGen AES Tests

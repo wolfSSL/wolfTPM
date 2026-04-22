@@ -75,6 +75,13 @@ static void usage(void)
     printf("* -sym: Use Symmetric Cipher for key generation\n");
     printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
     printf("* -keyedhash: Use Keyed Hash for key generation\n");
+#ifdef WOLFTPM_V185
+    printf("* -mldsa[=44|65|87]: Use ML-DSA for signing (v1.85, default 65)\n");
+    printf("* -hash_mldsa[=44|65|87]: Use Hash-ML-DSA for signing "
+           "(v1.85, default 65 with SHA-256 pre-hash)\n");
+    printf("* -mlkem[=512|768|1024]: Use ML-KEM for key encapsulation "
+           "(v1.85, default 768)\n");
+#endif
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -unique=[value]\n");
@@ -95,7 +102,41 @@ static void usage(void)
     printf("\t* Symmetric key, AES, CBC mode, 128 bits, "\
            "with XOR parameter encryption\n");
     printf("\t\t keygen -sym=aescbc256 -xor\n");
+#ifdef WOLFTPM_V185
+    printf("\t* ML-DSA-65 signing key\n");
+    printf("\t\t keygen -mldsa\n");
+    printf("\t* Hash-ML-DSA-87 with SHA-256 pre-hash\n");
+    printf("\t\t keygen -hash_mldsa=87\n");
+    printf("\t* ML-KEM-1024 key encapsulation key\n");
+    printf("\t\t keygen -mlkem=1024\n");
+#endif
 }
+
+#ifdef WOLFTPM_V185
+static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
+{
+    int n = XATOI(optVal);
+    switch (n) {
+        case 0:  /* missing or empty suffix, use default */
+        case 65: *ps = TPM_MLDSA_65; return TPM_RC_SUCCESS;
+        case 44: *ps = TPM_MLDSA_44; return TPM_RC_SUCCESS;
+        case 87: *ps = TPM_MLDSA_87; return TPM_RC_SUCCESS;
+        default: return TPM_RC_FAILURE;
+    }
+}
+
+static int mlkemParamSet(const char* optVal, TPMI_MLKEM_PARAMETER_SET* ps)
+{
+    int n = XATOI(optVal);
+    switch (n) {
+        case 0:    /* missing or empty suffix, use default */
+        case 768:  *ps = TPM_MLKEM_768;  return TPM_RC_SUCCESS;
+        case 512:  *ps = TPM_MLKEM_512;  return TPM_RC_SUCCESS;
+        case 1024: *ps = TPM_MLKEM_1024; return TPM_RC_SUCCESS;
+        default:   return TPM_RC_FAILURE;
+    }
+}
+#endif /* WOLFTPM_V185 */
 
 static int symChoice(const char* symMode, TPM_ALG_ID* algSym, int* keyBits)
 {
@@ -135,6 +176,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c / keyload.c */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
+#ifdef WOLFTPM_V185
+    TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65;   /* default */
+    TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
+    TPMI_ALG_HASH hashMldsaHash = TPM_ALG_SHA256;      /* pre-hash alg */
+#endif
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
     int endorseKey = 0;
@@ -183,6 +229,44 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_KEYEDHASH;
             bAIK = 0;
         }
+#ifdef WOLFTPM_V185
+        else if (XSTRCMP(argv[argc-1], "-mldsa") == 0 ||
+                 XSTRNCMP(argv[argc-1], "-mldsa=",
+                     XSTRLEN("-mldsa=")) == 0) {
+            const char* optVal = (argv[argc-1][6] == '=') ?
+                argv[argc-1] + 7 : "";
+            if (mldsaParamSet(optVal, &mldsaPs) != TPM_RC_SUCCESS) {
+                usage();
+                return 0;
+            }
+            alg = TPM_ALG_MLDSA;
+            bAIK = 0;
+        }
+        else if (XSTRCMP(argv[argc-1], "-hash_mldsa") == 0 ||
+                 XSTRNCMP(argv[argc-1], "-hash_mldsa=",
+                     XSTRLEN("-hash_mldsa=")) == 0) {
+            const char* optVal = (argv[argc-1][11] == '=') ?
+                argv[argc-1] + 12 : "";
+            if (mldsaParamSet(optVal, &mldsaPs) != TPM_RC_SUCCESS) {
+                usage();
+                return 0;
+            }
+            alg = TPM_ALG_HASH_MLDSA;
+            bAIK = 0;
+        }
+        else if (XSTRCMP(argv[argc-1], "-mlkem") == 0 ||
+                 XSTRNCMP(argv[argc-1], "-mlkem=",
+                     XSTRLEN("-mlkem=")) == 0) {
+            const char* optVal = (argv[argc-1][6] == '=') ?
+                argv[argc-1] + 7 : "";
+            if (mlkemParamSet(optVal, &mlkemPs) != TPM_RC_SUCCESS) {
+                usage();
+                return 0;
+            }
+            alg = TPM_ALG_MLKEM;
+            bAIK = 0;
+        }
+#endif /* WOLFTPM_V185 */
         else if (XSTRCMP(argv[argc-1], "-t") == 0) {
             bAIK = 0;
         }
@@ -316,6 +400,14 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 "not symmetric or keyedhash keys.\n");
             rc = BAD_FUNC_ARG;
         }
+#ifdef WOLFTPM_V185
+        else if (alg == TPM_ALG_MLDSA || alg == TPM_ALG_HASH_MLDSA ||
+                 alg == TPM_ALG_MLKEM) {
+            printf("AIK template is RSA or ECC only; PQC keys use their "
+                "own template (pass -t to skip AIK).\n");
+            rc = BAD_FUNC_ARG;
+        }
+#endif
         else {
             rc = BAD_FUNC_ARG;
         }
@@ -357,6 +449,35 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPM_ALG_SHA256, YES, NO);
             publicTemplate.objectAttributes |= TPMA_OBJECT_sensitiveDataOrigin;
         }
+#ifdef WOLFTPM_V185
+        else if (alg == TPM_ALG_MLDSA) {
+            printf("ML-DSA template (parameter set %u)\n",
+                (unsigned)mldsaPs);
+            rc = wolfTPM2_GetKeyTemplate_MLDSA(&publicTemplate,
+                TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
+                TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+                TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+                mldsaPs, 1 /* allowExternalMu */);
+        }
+        else if (alg == TPM_ALG_HASH_MLDSA) {
+            printf("Hash-ML-DSA template (parameter set %u, pre-hash %s)\n",
+                (unsigned)mldsaPs, TPM2_GetAlgName(hashMldsaHash));
+            rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&publicTemplate,
+                TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
+                TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+                TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+                mldsaPs, hashMldsaHash);
+        }
+        else if (alg == TPM_ALG_MLKEM) {
+            printf("ML-KEM template (parameter set %u)\n",
+                (unsigned)mlkemPs);
+            rc = wolfTPM2_GetKeyTemplate_MLKEM(&publicTemplate,
+                TPMA_OBJECT_decrypt | TPMA_OBJECT_fixedTPM |
+                TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+                TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+                mlkemPs);
+        }
+#endif /* WOLFTPM_V185 */
         else {
             rc = BAD_FUNC_ARG;
         }
