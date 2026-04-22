@@ -80,6 +80,22 @@ the shared secrets match.
 ./examples/pqc/mlkem_encap -mlkem=1024
 ```
 
+### `mldsa_sign`
+
+Pure ML-DSA sign+verify round-trip. Creates a primary ML-DSA key, signs
+a fixed message via `SignSequenceStart` + `SignSequenceComplete` (Pure
+ML-DSA is one-shot per Part 3 §17.5, so the message rides on the
+Complete buffer), then verifies via `VerifySequenceStart` +
+`VerifySequenceUpdate` + `VerifySequenceComplete` (§20.3 allows Update
+on verify sequences). Asserts the returned validation ticket tag is
+`TPM_ST_MESSAGE_VERIFIED`.
+
+```
+./examples/pqc/mldsa_sign                 # default: MLDSA-65
+./examples/pqc/mldsa_sign -mldsa=44
+./examples/pqc/mldsa_sign -mldsa=87
+```
+
 ### PQC keys via `keygen` / `keyload`
 
 `examples/keygen/keygen` accepts v1.85 PQC options alongside `-rsa`,
