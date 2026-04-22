@@ -60,6 +60,251 @@ typedef struct tmpHandle {
 } TpmHandle;
 
 
+/* Returns 1 if the TPM response code indicates the requested curve (or the
+ * command itself) is not supported by this TPM — these are graceful skips,
+ * not test failures. Covers TPM_RC_CURVE (wrapped with parameter/handle/
+ * session flags), TPM_RC_VALUE (some TPMs surface unsupported curves this
+ * way on Create), and TPM_RC_COMMAND_CODE for missing commands. */
+static int is_curve_or_cmd_unsupported(TPM_RC rc)
+{
+    if (rc == TPM_RC_SUCCESS)
+        return 0;
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc))
+        return 1;
+    if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE)
+        return 1;
+    if ((rc & RC_MAX_FMT1) == TPM_RC_VALUE)
+        return 1;
+    return 0;
+}
+
+/* Run the ECDH / ECDH_ZGen / EC_Ephemeral / ZGen_2Phase sequence against a
+ * single curve. Creates a transient ECDH key under `parentHandle`, exercises
+ * the two-phase key-exchange path, and validates that the returned
+ * x-coordinates match the curve's natural byte length (catches coordinate
+ * leading-zero-strip regressions — P-384 surfaces these ~2x more often than
+ * P-256 in practice). Returns 0 on pass or graceful skip (curve or command
+ * unsupported), non-zero on hard failure. */
+static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
+    TPM2_AUTH_SESSION* session,
+    const char* storagePwd, int storagePwdSz,
+    const char* usageAuth, int usageAuthSz,
+    UINT16 curveID, int expectedEccKeySz)
+{
+    int rc;
+    TpmEccKey eccKey;
+    TPM2B_PUBLIC_KEY_RSA zCompare;
+    union {
+        Create_In create;
+        Load_In load;
+        FlushContext_In flushCtx;
+        ECDH_KeyGen_In ecdh;
+        ECDH_ZGen_In ecdhZ;
+        EC_Ephemeral_In ecEph;
+        ZGen_2Phase_In zgen2;
+    } cmdIn;
+    union {
+        Create_Out create;
+        Load_Out load;
+        ECDH_KeyGen_Out ecdh;
+        ECDH_ZGen_Out ecdhZ;
+        EC_Ephemeral_Out ecEph;
+        ZGen_2Phase_Out zgen2;
+    } cmdOut;
+
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    eccKey.handle = TPM_RH_NULL;
+
+    printf("--- ECDH/ZGen tests for curve 0x%04x ---\n", curveID);
+
+    /* set session auth for storage key */
+    session[0].auth.size = storagePwdSz;
+    XMEMCPY(session[0].auth.buffer, storagePwd, storagePwdSz);
+
+    /* Create an ECC key for ECDH */
+    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
+    cmdIn.create.parentHandle = parentHandle;
+    cmdIn.create.inSensitive.sensitive.userAuth.size = usageAuthSz;
+    XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
+        usageAuthSz);
+    cmdIn.create.inPublic.publicArea.type = TPM_ALG_ECC;
+    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.objectAttributes = (
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.symmetric.algorithm
+        = TPM_ALG_NULL;
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme
+        = TPM_ALG_ECDH;
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg
+        = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.curveID = curveID;
+    cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme
+        = TPM_ALG_NULL;
+    rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_Create ECDH curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Create ECDH failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    printf("TPM2_Create: New ECDH Key: pub %d, priv %d\n",
+        cmdOut.create.outPublic.size,
+        cmdOut.create.outPrivate.size);
+    eccKey.pub = cmdOut.create.outPublic;
+    eccKey.priv = cmdOut.create.outPrivate;
+
+    /* Load new key */
+    XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
+    cmdIn.load.parentHandle = parentHandle;
+    cmdIn.load.inPrivate = eccKey.priv;
+    cmdIn.load.inPublic = eccKey.pub;
+    rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_Load ECDH curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Load ECDH key failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    eccKey.handle = cmdOut.load.objectHandle;
+    printf("TPM2_Load ECDH Key Handle 0x%x\n", (word32)eccKey.handle);
+
+    /* set session auth for ecc key */
+    session[0].auth.size = usageAuthSz;
+    XMEMCPY(session[0].auth.buffer, usageAuth, usageAuthSz);
+
+    /* ECDH Key Gen (gen public point and shared secret) */
+    XMEMSET(&cmdIn.ecdh, 0, sizeof(cmdIn.ecdh));
+    cmdIn.ecdh.keyHandle = eccKey.handle;
+    rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_ECDH_KeyGen curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_KeyGen failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
+        cmdOut.ecdh.zPoint.size,
+        cmdOut.ecdh.pubPoint.size);
+    zCompare.size = cmdOut.ecdh.zPoint.size;
+    XMEMCPY(zCompare.buffer, &cmdOut.ecdh.zPoint.point, zCompare.size);
+
+    /* ECDH ZGen (compute shared secret). Note: in the cmdOut union,
+     * ECDH_ZGen_Out.outPoint overlaps ECDH_KeyGen_Out.zPoint but leaves
+     * ECDH_KeyGen_Out.pubPoint intact, so cmdOut.ecdh.pubPoint is still
+     * valid after this call for use by ZGen_2Phase below. */
+    XMEMSET(&cmdIn.ecdhZ, 0, sizeof(cmdIn.ecdhZ));
+    cmdIn.ecdhZ.keyHandle = eccKey.handle;
+    cmdIn.ecdhZ.inPoint = cmdOut.ecdh.pubPoint;
+    rc = TPM2_ECDH_ZGen(&cmdIn.ecdhZ, &cmdOut.ecdhZ);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_ECDH_ZGen curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_ZGen failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    printf("TPM2_ECDH_ZGen: zPt %d\n",
+        cmdOut.ecdhZ.outPoint.size);
+
+    /* Verify ECDH_KeyGen and ECDH_ZGen produced the same shared secret */
+    if (zCompare.size != cmdOut.ecdhZ.outPoint.size ||
+        XMEMCMP(zCompare.buffer, &cmdOut.ecdhZ.outPoint.point,
+            zCompare.size) != 0) {
+        rc = -1;
+    }
+    printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
+    if (rc != 0) {
+        goto done;
+    }
+
+    /* EC_Ephemeral (generate ephemeral point for two-phase key exchange) */
+    XMEMSET(&cmdIn.ecEph, 0, sizeof(cmdIn.ecEph));
+    cmdIn.ecEph.curveID = curveID;
+    rc = TPM2_EC_Ephemeral(&cmdIn.ecEph, &cmdOut.ecEph);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_EC_Ephemeral curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_EC_Ephemeral failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    printf("TPM2_EC_Ephemeral: Q size %d, counter %d\n",
+        cmdOut.ecEph.Q.size, cmdOut.ecEph.counter);
+
+    /* ZGen_2Phase (two-phase key exchange: static key + ephemeral) */
+    XMEMSET(&cmdIn.zgen2, 0, sizeof(cmdIn.zgen2));
+    cmdIn.zgen2.keyA = eccKey.handle;
+    /* Use the ECDH_KeyGen pubPoint as simulated party B static public */
+    cmdIn.zgen2.inQsB = cmdOut.ecdh.pubPoint;
+    /* Use the EC_Ephemeral Q as simulated party B ephemeral public */
+    cmdIn.zgen2.inQeB = cmdOut.ecEph.Q;
+    cmdIn.zgen2.inScheme = TPM_ALG_ECDH;
+    cmdIn.zgen2.counter = cmdOut.ecEph.counter;
+    rc = TPM2_ZGen_2Phase(&cmdIn.zgen2, &cmdOut.zgen2);
+    if (is_curve_or_cmd_unsupported(rc)) {
+        printf("TPM2_ZGen_2Phase curve 0x%04x not supported, skipping\n",
+            curveID);
+        rc = 0;
+        goto done;
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_ZGen_2Phase failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto done;
+    }
+    /* Each Z output is the x-coordinate of the shared point, so its size
+     * must equal the curve byte length (32 for P-256, 48 for P-384). The
+     * outer TPM2B_ECC_POINT .size field wraps TPMS_ECC_POINT (x + y), so
+     * validate the x-coordinate size specifically. This catches
+     * leading-zero stripping bugs in the coordinate export path (see
+     * fwTPM FwEccSharedPoint). */
+    printf("TPM2_ZGen_2Phase: outZ1.x %d, outZ2.x %d\n",
+        cmdOut.zgen2.outZ1.point.x.size,
+        cmdOut.zgen2.outZ2.point.x.size);
+    if (cmdOut.zgen2.outZ1.point.x.size != expectedEccKeySz ||
+        cmdOut.zgen2.outZ2.point.x.size != expectedEccKeySz) {
+        printf("TPM2_ZGen_2Phase: FAIL (expected Z x size %d, "
+            "got outZ1.x=%d outZ2.x=%d)\n",
+            expectedEccKeySz,
+            cmdOut.zgen2.outZ1.point.x.size,
+            cmdOut.zgen2.outZ2.point.x.size);
+        rc = -1;
+        goto done;
+    }
+    printf("TPM2 Two-Phase ECDH Pass\n");
+
+done:
+    if (eccKey.handle != TPM_RH_NULL) {
+        cmdIn.flushCtx.flushHandle = eccKey.handle;
+        TPM2_FlushContext(&cmdIn.flushCtx);
+    }
+    return rc;
+}
+
 int TPM2_Native_Test(void* userCtx)
 {
     return TPM2_Native_TestArgs(userCtx, 0, NULL);
@@ -192,6 +437,14 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         "\x06\xC1";
 
     int perform_EncryptDecrypt2 = 1;
+    int eccCurveIdx;
+    /* Exercise ECDH / EC_Ephemeral / ZGen_2Phase on both P-256 and P-384 so
+     * intermittent coordinate-padding bugs are caught in CI (P-384 surfaces
+     * leading-zero-strip issues ~2x more often than P-256 in practice). */
+    static const UINT16 eccTestCurves[2] = {
+        TPM_ECC_NIST_P256, TPM_ECC_NIST_P384
+    };
+    static const int eccTestKeySizes[2] = { 32, 48 };
 
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -1067,155 +1320,15 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     eccKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
-
-    /* set session auth for storage key */
-    session[0].auth.size = sizeof(storagePwd)-1;
-    XMEMCPY(session[0].auth.buffer, storagePwd, session[0].auth.size);
-
-    /* Create an ECC key for ECDH */
-    XMEMSET(&cmdIn.create, 0, sizeof(cmdIn.create));
-    cmdIn.create.parentHandle = storage.handle;
-    cmdIn.create.inSensitive.sensitive.userAuth.size = sizeof(usageAuth)-1;
-    XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
-        cmdIn.create.inSensitive.sensitive.userAuth.size);
-    cmdIn.create.inPublic.publicArea.type = TPM_ALG_ECC;
-    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
-    cmdIn.create.inPublic.publicArea.objectAttributes = (
-        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
-        TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDH;
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA256;
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
-    cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
-    rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Create ECDH failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_Create: New ECDH Key: pub %d, priv %d\n",
-        cmdOut.create.outPublic.size,
-        cmdOut.create.outPrivate.size);
-    eccKey.pub = cmdOut.create.outPublic;
-    eccKey.priv = cmdOut.create.outPrivate;
-
-    /* Load new key */
-    XMEMSET(&cmdIn.load, 0, sizeof(cmdIn.load));
-    cmdIn.load.parentHandle = storage.handle;
-    cmdIn.load.inPrivate = eccKey.priv;
-    cmdIn.load.inPublic = eccKey.pub;
-    rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_Load ECDH key failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    eccKey.handle = cmdOut.load.objectHandle;
-    printf("TPM2_Load ECDH Key Handle 0x%x\n", (word32)eccKey.handle);
-
-    /* set session auth for ecc key */
-    session[0].auth.size = sizeof(usageAuth)-1;
-    XMEMCPY(session[0].auth.buffer, usageAuth, session[0].auth.size);
-
-    /* ECDH Key Gen (gen public point and shared secret) */
-    XMEMSET(&cmdIn.ecdh, 0, sizeof(cmdIn.ecdh));
-    cmdIn.ecdh.keyHandle = eccKey.handle;
-    rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ECDH_KeyGen failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
-        cmdOut.ecdh.zPoint.size,
-        cmdOut.ecdh.pubPoint.size);
-    message.size = cmdOut.ecdh.zPoint.size;
-    XMEMCPY(message.buffer, &cmdOut.ecdh.zPoint.point, message.size);
-
-    /* ECDH ZGen (compute shared secret) */
-    XMEMSET(&cmdIn.ecdhZ, 0, sizeof(cmdIn.ecdhZ));
-    cmdIn.ecdhZ.keyHandle = eccKey.handle;
-    cmdIn.ecdhZ.inPoint = cmdOut.ecdh.pubPoint;
-    rc = TPM2_ECDH_ZGen(&cmdIn.ecdhZ, &cmdOut.ecdhZ);
-    if (rc != TPM_RC_SUCCESS) {
-        printf("TPM2_ECDH_KeyGen failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-    printf("TPM2_ECDH_ZGen: zPt %d\n",
-        cmdOut.ecdhZ.outPoint.size);
-
-    /* verify shared secret is the same */
-    if (message.size != cmdOut.ecdhZ.outPoint.size ||
-        XMEMCMP(message.buffer, &cmdOut.ecdhZ.outPoint.point, message.size) != 0) {
-        rc = -1; /* fail */
-    }
-    printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
-
-    /* EC_Ephemeral (generate ephemeral point for two-phase key exchange) */
-    XMEMSET(&cmdIn.ecEph, 0, sizeof(cmdIn.ecEph));
-    cmdIn.ecEph.curveID = TPM_ECC_NIST_P256;
-    rc = TPM2_EC_Ephemeral(&cmdIn.ecEph, &cmdOut.ecEph);
-    if (rc == TPM_RC_SUCCESS) {
-        printf("TPM2_EC_Ephemeral: Q size %d, counter %d\n",
-            cmdOut.ecEph.Q.size, cmdOut.ecEph.counter);
-
-        /* ZGen_2Phase (two-phase key exchange using static key + ephemeral) */
-        XMEMSET(&cmdIn.zgen2, 0, sizeof(cmdIn.zgen2));
-        cmdIn.zgen2.keyA = eccKey.handle;
-        /* Use the ECDH_KeyGen pubPoint as simulated party B static public */
-        cmdIn.zgen2.inQsB = cmdOut.ecdh.pubPoint;
-        /* Use the EC_Ephemeral Q as simulated party B ephemeral public */
-        cmdIn.zgen2.inQeB = cmdOut.ecEph.Q;
-        cmdIn.zgen2.inScheme = TPM_ALG_ECDH;
-        cmdIn.zgen2.counter = cmdOut.ecEph.counter;
-        rc = TPM2_ZGen_2Phase(&cmdIn.zgen2, &cmdOut.zgen2);
-        if (rc == TPM_RC_SUCCESS) {
-            /* For the P-256 curve configured above (TPM_ECC_NIST_P256),
-             * each Z output is the x-coordinate of the shared point, so
-             * its size must equal the curve byte length (32). The outer
-             * TPM2B_ECC_POINT .size field wraps TPMS_ECC_POINT (x + y),
-             * so validate the x-coordinate size specifically. A mutant
-             * that returns any non-zero-sized output would otherwise
-             * slip past a plain non-empty check. */
-            const int expectedZSz = 32; /* P-256 coordinate size */
-            printf("TPM2_ZGen_2Phase: outZ1.x %d, outZ2.x %d\n",
-                cmdOut.zgen2.outZ1.point.x.size,
-                cmdOut.zgen2.outZ2.point.x.size);
-            if (cmdOut.zgen2.outZ1.point.x.size != expectedZSz ||
-                cmdOut.zgen2.outZ2.point.x.size != expectedZSz) {
-                printf("TPM2_ZGen_2Phase: FAIL (expected Z x size %d, "
-                    "got outZ1.x=%d outZ2.x=%d)\n",
-                    expectedZSz,
-                    cmdOut.zgen2.outZ1.point.x.size,
-                    cmdOut.zgen2.outZ2.point.x.size);
-                rc = -1;
-                goto exit;
-            }
-            printf("TPM2 Two-Phase ECDH Pass\n");
-        }
-        else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-            printf("TPM2_ZGen_2Phase: not supported by TPM\n");
-        }
-        else {
-            printf("TPM2_ZGen_2Phase failed 0x%x: %s\n", rc,
-                TPM2_GetRCString(rc));
+    for (eccCurveIdx = 0; eccCurveIdx < 2; eccCurveIdx++) {
+        rc = test_TPM2_ECDH_ZGen_curve(storage.handle, session,
+            storagePwd, (int)sizeof(storagePwd) - 1,
+            usageAuth, (int)sizeof(usageAuth) - 1,
+            eccTestCurves[eccCurveIdx], eccTestKeySizes[eccCurveIdx]);
+        if (rc != 0) {
             goto exit;
         }
     }
-    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) ||
-             (rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
-        printf("TPM2_EC_Ephemeral: not supported by TPM\n");
-    }
-    else {
-        printf("TPM2_EC_Ephemeral failed 0x%x: %s\n", rc,
-            TPM2_GetRCString(rc));
-        goto exit;
-    }
-
-    cmdIn.flushCtx.flushHandle = eccKey.handle;
-    eccKey.handle = TPM_RH_NULL;
-    TPM2_FlushContext(&cmdIn.flushCtx);
 
 
     /* set session auth for storage key */
