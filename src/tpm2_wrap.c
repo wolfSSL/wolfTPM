@@ -2282,6 +2282,77 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
 
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+/* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 §24
+ * (p.316): caller encapsulates under the TPM's ML-KEM public key; the
+ * ML-KEM shared secret becomes the session salt; the ML-KEM ciphertext
+ * is carried on the wire as encryptedSalt.bytes. The TPM decapsulates
+ * internally to recover the same shared secret. Unlike RSA-OAEP /
+ * ECDH, ML-KEM generates the shared secret as part of encapsulation —
+ * the caller does not supply their own salt.
+ */
+static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA* data, TPM2B_ENCRYPTED_SECRET* secret)
+{
+    int rc;
+    int wcType;
+    WC_RNG rng;
+    MlKemKey mlkemKey;
+    const TPMS_MLKEM_PARMS* parms;
+    const TPM2B_PUBLIC_KEY_MLKEM* pubIn;
+    word32 ctSz = 0, ssSz = 0;
+
+    parms = &tpmKey->pub.publicArea.parameters.mlkemDetail;
+    pubIn = &tpmKey->pub.publicArea.unique.mlkem;
+
+    switch (parms->parameterSet) {
+        case TPM_MLKEM_512:  wcType = WC_ML_KEM_512;  break;
+        case TPM_MLKEM_768:  wcType = WC_ML_KEM_768;  break;
+        case TPM_MLKEM_1024: wcType = WC_ML_KEM_1024; break;
+        default:             return TPM_RC_VALUE;
+    }
+
+    XMEMSET(&rng, 0, sizeof(rng));
+    XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+
+    rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_MlKemKey_Init(&mlkemKey, wcType, NULL, INVALID_DEVID);
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_DecodePublicKey(&mlkemKey, pubIn->buffer,
+            pubIn->size);
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_CipherTextSize(&mlkemKey, &ctSz);
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_SharedSecretSize(&mlkemKey, &ssSz);
+    }
+    if (rc == 0 &&
+        (ctSz > sizeof(secret->secret) || ssSz > sizeof(data->buffer))) {
+        rc = BUFFER_E;
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_Encapsulate(&mlkemKey, secret->secret,
+            data->buffer, &rng);
+    }
+    if (rc == 0) {
+        secret->size = (UINT16)ctSz;
+        data->size   = (UINT16)ssSz;
+    }
+
+    wc_MlKemKey_Free(&mlkemKey);
+    TPM2_ForceZero(&mlkemKey, sizeof(mlkemKey));
+    wc_FreeRng(&rng);
+    TPM2_ForceZero(&rng, sizeof(rng));
+
+    return rc;
+}
+#endif /* WOLFTPM_V185 && ML-KEM enabled */
+
 int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
@@ -2312,6 +2383,14 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     #if !defined(NO_RSA) && !defined(WC_NO_RNG)
         case TPM_ALG_RSA:
             rc = wolfTPM2_EncryptSecret_RSA(dev, tpmKey, data, secret, label);
+            break;
+    #endif
+    #if defined(WOLFTPM_V185) && \
+        (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+         defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+        case TPM_ALG_MLKEM:
+            rc = wolfTPM2_EncryptSecret_MLKEM(tpmKey, data, secret);
+            (void)label; /* ML-KEM.Encaps does not take a KDF label */
             break;
     #endif
         default:

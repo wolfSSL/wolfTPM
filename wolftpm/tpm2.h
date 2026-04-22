@@ -1647,6 +1647,9 @@ typedef union TPMU_ENCRYPTED_SECRET {
     BYTE rsa[MAX_RSA_KEY_BYTES];          /* TPM_ALG_RSA */
     BYTE symmetric[sizeof(TPM2B_DIGEST)]; /* TPM_ALG_SYMCIPHER */
     BYTE keyedHash[sizeof(TPM2B_DIGEST)]; /* TPM_ALG_KEYEDHASH */
+#ifdef WOLFTPM_V185
+    BYTE mlkem[MAX_MLKEM_CT_SIZE];        /* TPM_ALG_MLKEM (v1.85 T222) */
+#endif
 } TPMU_ENCRYPTED_SECRET;
 
 typedef struct TPM2B_ENCRYPTED_SECRET {

@@ -816,6 +816,12 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY tpmKey;
     TPM2B_DATA data;
     TPM2B_ENCRYPTED_SECRET secret;
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+    WOLFTPM2_KEY mlkemKey;
+    TPMT_PUBLIC mlkemPub;
+#endif
 
     XMEMSET(&tpmKey, 0, sizeof(tpmKey));
     XMEMSET(&data, 0, sizeof(data));
@@ -840,10 +846,48 @@ static void test_wolfTPM2_EncryptSecret(void)
     rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, &data, NULL, "SECRET");
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+    /* MLKEM path (v1.85 Part 1 §24): caller encapsulates under the TPM's
+     * ML-KEM public key; the shared secret (32 bytes) becomes the session
+     * salt, the ciphertext (1088 bytes for MLKEM-768) goes on the wire. */
+    XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+    XMEMSET(&mlkemPub, 0, sizeof(mlkemPub));
+    XMEMSET(&data, 0, sizeof(data));
+    XMEMSET(&secret, 0, sizeof(secret));
+
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(&mlkemPub,
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_fixedTPM |
+        TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+        TPMA_OBJECT_userWithAuth, TPM_MLKEM_768);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &mlkemKey, TPM_RH_OWNER,
+        &mlkemPub, NULL, 0);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "EncryptSecret MLKEM:");
+    }
+    else {
+        AssertIntEQ(rc, 0);
+
+        rc = wolfTPM2_EncryptSecret(&dev, &mlkemKey, &data, &secret,
+            "SECRET");
+        AssertIntEQ(rc, 0);
+        AssertIntEQ(data.size, 32);      /* MLKEM shared secret */
+        AssertIntEQ(secret.size, 1088);  /* MLKEM-768 ciphertext */
+        printf("Test TPM Wrapper: %-40s Passed\n",
+            "EncryptSecret MLKEM:");
+
+        wolfTPM2_UnloadHandle(&dev, &mlkemKey.handle);
+    }
+#endif
+
     wolfTPM2_Cleanup(&dev);
 
     printf("Test TPM Wrapper: %-40s %s\n", "EncryptSecret:",
-        rc == BAD_FUNC_ARG ? "Passed" : "Failed");
+        rc == 0 || rc == BAD_FUNC_ARG ? "Passed" : "Failed");
 }
 
 static void test_wolfTPM2_Cleanup(void)
