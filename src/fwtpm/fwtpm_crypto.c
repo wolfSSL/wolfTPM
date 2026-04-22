@@ -1,6 +1,6 @@
 /* fwtpm_crypto.c
  *
- * Copyright (C) 2006-2025 wolfSSL Inc.
+ * Copyright (C) 2006-2026 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -2257,13 +2257,18 @@ int FwEccSharedPoint(ecc_key* priv, ecc_key* peer,
     if (rc == 0)
         rc = wc_ecc_mulmod(ecc_get_k(priv), &peer->pubkey, R, &a, &prime, 1);
 
+    /* Export x and y with fixed-size left-zero padding to the curve byte
+     * length. Using mp_unsigned_bin_size/mp_to_unsigned_bin here would drop
+     * leading zero bytes (~1/256 per coordinate for a random point), which
+     * both breaks ZGen_2Phase callers that expect curve-length outputs and
+     * leaks the leading-zero count of the shared point. */
     if (rc == 0) {
-        *xSz = (word32)mp_unsigned_bin_size(R->x);
-        rc = mp_to_unsigned_bin(R->x, xBuf);
+        *xSz = (word32)dp->size;
+        rc = mp_to_unsigned_bin_len(R->x, xBuf, dp->size);
     }
     if (rc == 0) {
-        *ySz = (word32)mp_unsigned_bin_size(R->y);
-        rc = mp_to_unsigned_bin(R->y, yBuf);
+        *ySz = (word32)dp->size;
+        rc = mp_to_unsigned_bin_len(R->y, yBuf, dp->size);
     }
 
     if (aInit)
@@ -2397,7 +2402,7 @@ TPM_RC FwSignDigestAndAppend(FWTPM_CTX* ctx, FWTPM_Object* obj,
                 if (pad == WC_RSA_PSS_PAD) {
                     int mgf = FwGetMgfType(sigHashAlg);
                     wcRc = wc_RsaPSS_Sign_ex(digest, digestSz,
-                        sigBuf, sigSz, wcHashType, mgf,
+                        sigBuf, sigSz, (enum wc_HashType)wcHashType, mgf,
                         RSA_PSS_SALT_LEN_DEFAULT, rsaKey, &ctx->rng);
                 }
                 else {
@@ -2532,7 +2537,7 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                         sig->signature.rsapss.sig.size,
                         decSig, (word32)FWTPM_MAX_PUB_BUF,
                         digest, digestSz,
-                        wcHashType, mgf,
+                        (enum wc_HashType)wcHashType, mgf,
                         rsaKey);
                     FWTPM_FREE_BUF(decSig);
                 }

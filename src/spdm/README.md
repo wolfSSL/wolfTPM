@@ -471,4 +471,4 @@ standalone library.
 
 ## License
 
-GPLv3 — see LICENSE file. Copyright (C) 2006-2025 wolfSSL Inc.
+GPLv3 — see LICENSE file. Copyright (C) 2006-2026 wolfSSL Inc.

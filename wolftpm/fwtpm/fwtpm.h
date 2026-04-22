@@ -1,6 +1,6 @@
 /* fwtpm.h
  *
- * Copyright (C) 2006-2025 wolfSSL Inc.
+ * Copyright (C) 2006-2026 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -437,6 +437,23 @@ typedef struct FWTPM_IO_CTX {
 } FWTPM_IO_CTX;
 #endif /* !WOLFTPM_FWTPM_TIS */
 
+/* NV HAL callbacks - defined at file scope (not nested in FWTPM_CTX) so it
+ * is portable across C and C++. FWTPM_NV_HAL is the typedef alias (see
+ * fwtpm_nv.h). */
+struct FWTPM_NV_HAL_S {
+    int (*read)(void* ctx, word32 offset, byte* buf, word32 size);
+    int (*write)(void* ctx, word32 offset, const byte* buf, word32 size);
+    int (*erase)(void* ctx, word32 offset, word32 size); /* Optional */
+    void* ctx;
+    word32 maxSize;     /* Total NV region size */
+};
+
+/* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
+struct FWTPM_CLOCK_HAL_S {
+    UINT64 (*get_ms)(void* ctx);  /* Return milliseconds since boot */
+    void* ctx;
+};
+
 /* fwTPM context - holds all TPM state */
 typedef struct FWTPM_CTX {
     volatile int running;       /* Server running flag (volatile for signal handler) */
@@ -534,19 +551,10 @@ typedef struct FWTPM_CTX {
 #endif
 
     /* NV HAL callbacks */
-    struct FWTPM_NV_HAL_S {
-        int (*read)(void* ctx, word32 offset, byte* buf, word32 size);
-        int (*write)(void* ctx, word32 offset, const byte* buf, word32 size);
-        int (*erase)(void* ctx, word32 offset, word32 size); /* Optional */
-        void* ctx;
-        word32 maxSize;     /* Total NV region size */
-    } nvHal;
+    struct FWTPM_NV_HAL_S nvHal;
 
     /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
-    struct FWTPM_CLOCK_HAL_S {
-        UINT64 (*get_ms)(void* ctx);  /* Return milliseconds since boot */
-        void* ctx;
-    } clockHal;
+    struct FWTPM_CLOCK_HAL_S clockHal;
 
     /* NV journal write position (next append offset) */
     word32 nvWritePos;

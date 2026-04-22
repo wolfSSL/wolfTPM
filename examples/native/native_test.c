@@ -1,6 +1,6 @@
 /* native_test.c
  *
- * Copyright (C) 2006-2025 wolfSSL Inc.
+ * Copyright (C) 2006-2026 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -1196,7 +1196,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         }
         else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
             printf("TPM2_ZGen_2Phase: not supported by TPM\n");
-            rc = TPM_RC_SUCCESS;
         }
         else {
             printf("TPM2_ZGen_2Phase failed 0x%x: %s\n", rc,
@@ -1207,7 +1206,6 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) ||
              (rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
         printf("TPM2_EC_Ephemeral: not supported by TPM\n");
-        rc = TPM_RC_SUCCESS;
     }
     else {
         printf("TPM2_EC_Ephemeral failed 0x%x: %s\n", rc,

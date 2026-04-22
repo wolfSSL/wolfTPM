@@ -2,8 +2,8 @@
 # Copyright (C) 2025 wolfSSL Inc.
 # All right reserved.
 
-AC_COPYRIGHT([Copyright (C) 2014-2025 wolfSSL Inc.])
-AC_INIT([wolftpm],[3.10.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[http://www.wolfssl.com])
+AC_COPYRIGHT([Copyright (C) 2014-2026 wolfSSL Inc.])
+AC_INIT([wolftpm],[4.0.0],[https://github.com/wolfssl/wolfTPM/issues],[wolftpm],[https://www.wolfssl.com])
 
 AC_PREREQ([2.63])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -29,7 +29,7 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=16:8:0
+WOLFTPM_LIBRARY_VERSION=17:0:0
 #                        | | |
 #                 +------+ | +---+
 #                 |        |     |
@@ -141,7 +141,7 @@ else
     wcpath=$prefix
 fi
 AC_MSG_NOTICE([prefix ${prefix}])
-WOLFSSL_URL="http://www.wolfssl.com/download.html"
+WOLFSSL_URL="https://www.wolfssl.com/download.html"
 AC_ARG_WITH(wolfcrypt,
   [AS_HELP_STRING([--with-wolfcrypt=PATH], [PATH to wolfssl install (default /usr/local)])],
   [
@@ -167,7 +167,14 @@ then
     LDFLAGS="$LDFLAGS -L${wcpath}/lib"
     CPPFLAGS="$CPPFLAGS -I${wcpath}/include"
 
-    AC_CHECK_LIB([wolfssl],[wolfCrypt_Init],,
+    # Use AC_LINK_IFELSE with proper headers so the probe works under both C
+    # and C++ (CC=g++). AC_CHECK_LIB synthesizes a bare declaration that gets
+    # name-mangled by C++ and fails to link against libwolfssl's C symbols.
+    AC_LINK_IFELSE([AC_LANG_PROGRAM(
+        [[#include <wolfssl/options.h>
+          #include <wolfssl/wolfcrypt/wc_port.h>]],
+        [[wolfCrypt_Init();]])],
+        [],
         [AC_MSG_ERROR([WolfSSL library not found. You can get it from $WOLFSSL_URL
         If its already installed, specify its path using --with-wolfcrypt=/dir or --prefix=/dir])])
 else
@@ -256,10 +263,11 @@ for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
 done
 
 # Auto-enable fwTPM + swTPM on Linux/BSD x86_64/aarch64 so `make check`
-# works out of the box — unless a hardware path was explicitly selected.
+# works out of the box -- unless a hardware path was explicitly selected,
+# or wolfCrypt was explicitly disabled (fwTPM requires wolfCrypt).
 WOLFTPM_DEFAULT_FWTPM=no
 WOLFTPM_DEFAULT_SWTPM=no
-if test "x$WOLFTPM_HW_SELECTED" = "xno"; then
+if test "x$WOLFTPM_HW_SELECTED" = "xno" && test "x$ENABLED_WOLFCRYPT" = "xyes"; then
     case $host_cpu in
         x86_64|amd64|aarch64)
             case $host_os in
@@ -745,7 +753,7 @@ rm -f $OPTION_FILE
 echo "/* wolftpm options.h" > $OPTION_FILE
 echo " * generated from configure options" >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
-echo " * Copyright (C) 2006-2025 wolfSSL Inc." >> $OPTION_FILE
+echo " * Copyright (C) 2006-2026 wolfSSL Inc." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
 echo " * * This file is part of wolfTPM." >> $OPTION_FILE
 echo " *" >> $OPTION_FILE
