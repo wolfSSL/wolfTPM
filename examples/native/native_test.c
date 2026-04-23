@@ -60,20 +60,22 @@ typedef struct tmpHandle {
 } TpmHandle;
 
 
-/* Returns 1 if the TPM response code indicates the requested curve (or the
- * command itself) is not supported by this TPM — these are graceful skips,
- * not test failures. Covers TPM_RC_CURVE (wrapped with parameter/handle/
- * session flags), TPM_RC_VALUE (some TPMs surface unsupported curves this
- * way on Create), and TPM_RC_COMMAND_CODE for missing commands. */
-static int is_curve_or_cmd_unsupported(TPM_RC rc)
+/* Returns 1 if the TPM response code indicates a graceful skip (not a test
+ * failure). TPM_RC_COMMAND_CODE always skips — the command is a TPM-wide
+ * capability and many shipping TPMs (e.g. Infineon SLB9670) don't implement
+ * EC_Ephemeral / ZGen_2Phase regardless of curve. TPM_RC_CURVE only skips
+ * when curveMayBeUnsupported is set; P-256 is mandatory in every TPM 2.0
+ * device, so a TPM_RC_CURVE on P-256 must be treated as a hard failure.
+ * Note: TPM_RC_VALUE is NOT included here — it is too broad (also signals
+ * genuine input bugs). The one site where some TPM stacks surface an
+ * unsupported curve as TPM_RC_VALUE (TPM2_Create) handles that inline. */
+static int is_curve_or_cmd_unsupported(TPM_RC rc, int curveMayBeUnsupported)
 {
     if (rc == TPM_RC_SUCCESS)
         return 0;
     if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc))
         return 1;
-    if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE)
-        return 1;
-    if ((rc & RC_MAX_FMT1) == TPM_RC_VALUE)
+    if (curveMayBeUnsupported && (rc & RC_MAX_FMT1) == TPM_RC_CURVE)
         return 1;
     return 0;
 }
@@ -89,11 +91,12 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     TPM2_AUTH_SESSION* session,
     const char* storagePwd, int storagePwdSz,
     const char* usageAuth, int usageAuthSz,
-    UINT16 curveID, int expectedEccKeySz)
+    UINT16 curveID, int expectedEccKeySz, TPM_ALG_ID hashAlg)
 {
     int rc;
+    int mayBeUnsupported;
     TpmEccKey eccKey;
-    TPM2B_PUBLIC_KEY_RSA zCompare;
+    TPM2B_ECC_POINT zCompare;
     union {
         Create_In create;
         Load_In load;
@@ -112,10 +115,15 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
         ZGen_2Phase_Out zgen2;
     } cmdOut;
 
+    /* P-256 is mandatory in every TPM 2.0 device — never silently skip it.
+     * Any other curve may legitimately be unsupported by the target TPM. */
+    mayBeUnsupported = (curveID != TPM_ECC_NIST_P256);
+
     XMEMSET(&eccKey, 0, sizeof(eccKey));
     eccKey.handle = TPM_RH_NULL;
 
-    printf("--- ECDH/ZGen tests for curve 0x%04x ---\n", curveID);
+    printf("--- ECDH/ZGen tests for curve 0x%04x (hash 0x%04x) ---\n",
+        curveID, hashAlg);
 
     /* set session auth for storage key */
     session[0].auth.size = storagePwdSz;
@@ -128,7 +136,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     XMEMCPY(cmdIn.create.inSensitive.sensitive.userAuth.buffer, usageAuth,
         usageAuthSz);
     cmdIn.create.inPublic.publicArea.type = TPM_ALG_ECC;
-    cmdIn.create.inPublic.publicArea.nameAlg = TPM_ALG_SHA256;
+    cmdIn.create.inPublic.publicArea.nameAlg = hashAlg;
     cmdIn.create.inPublic.publicArea.objectAttributes = (
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
@@ -137,14 +145,34 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.scheme
         = TPM_ALG_ECDH;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg
-        = TPM_ALG_SHA256;
+        = hashAlg;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.curveID = curveID;
     cmdIn.create.inPublic.publicArea.parameters.eccDetail.kdf.scheme
         = TPM_ALG_NULL;
     rc = TPM2_Create(&cmdIn.create, &cmdOut.create);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_Create ECDH curve 0x%04x not supported, skipping\n",
             curveID);
+        rc = 0;
+        goto done;
+    }
+    /* Some TPM stacks reject an unsupported curve at Create with the generic
+     * TPM_RC_VALUE rather than TPM_RC_CURVE. Treat that as a graceful skip
+     * here only — TPM_RC_VALUE on later calls is treated as a hard failure. */
+    if (mayBeUnsupported && (rc & RC_MAX_FMT1) == TPM_RC_VALUE) {
+        printf("TPM2_Create ECDH curve 0x%04x rejected (TPM_RC_VALUE), "
+            "likely unsupported, skipping\n", curveID);
+        rc = 0;
+        goto done;
+    }
+    /* TPM_RC_HASH at Create means the TPM does not support the natural hash
+     * for this curve (e.g. Infineon SLB9670 does not implement SHA-384, so
+     * P-384 + SHA-384 is rejected). This is a per-curve capability gap, so
+     * treat as a graceful skip — only here at Create, only for non-mandatory
+     * curves. */
+    if (mayBeUnsupported && (rc & RC_MAX_FMT1) == TPM_RC_HASH) {
+        printf("TPM2_Create ECDH curve 0x%04x hash 0x%04x rejected "
+            "(TPM_RC_HASH), skipping\n", curveID, hashAlg);
         rc = 0;
         goto done;
     }
@@ -165,7 +193,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     cmdIn.load.inPrivate = eccKey.priv;
     cmdIn.load.inPublic = eccKey.pub;
     rc = TPM2_Load(&cmdIn.load, &cmdOut.load);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_Load ECDH curve 0x%04x not supported, skipping\n",
             curveID);
         rc = 0;
@@ -187,7 +215,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     XMEMSET(&cmdIn.ecdh, 0, sizeof(cmdIn.ecdh));
     cmdIn.ecdh.keyHandle = eccKey.handle;
     rc = TPM2_ECDH_KeyGen(&cmdIn.ecdh, &cmdOut.ecdh);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_ECDH_KeyGen curve 0x%04x not supported, skipping\n",
             curveID);
         rc = 0;
@@ -201,8 +229,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
         cmdOut.ecdh.zPoint.size,
         cmdOut.ecdh.pubPoint.size);
-    zCompare.size = cmdOut.ecdh.zPoint.size;
-    XMEMCPY(zCompare.buffer, &cmdOut.ecdh.zPoint.point, zCompare.size);
+    zCompare = cmdOut.ecdh.zPoint;
 
     /* ECDH ZGen (compute shared secret). Note: in the cmdOut union,
      * ECDH_ZGen_Out.outPoint overlaps ECDH_KeyGen_Out.zPoint but leaves
@@ -212,7 +239,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     cmdIn.ecdhZ.keyHandle = eccKey.handle;
     cmdIn.ecdhZ.inPoint = cmdOut.ecdh.pubPoint;
     rc = TPM2_ECDH_ZGen(&cmdIn.ecdhZ, &cmdOut.ecdhZ);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_ECDH_ZGen curve 0x%04x not supported, skipping\n",
             curveID);
         rc = 0;
@@ -228,8 +255,8 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
 
     /* Verify ECDH_KeyGen and ECDH_ZGen produced the same shared secret */
     if (zCompare.size != cmdOut.ecdhZ.outPoint.size ||
-        XMEMCMP(zCompare.buffer, &cmdOut.ecdhZ.outPoint.point,
-            zCompare.size) != 0) {
+        XMEMCMP(&zCompare.point, &cmdOut.ecdhZ.outPoint.point,
+            sizeof(TPMS_ECC_POINT)) != 0) {
         rc = -1;
     }
     printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
@@ -241,7 +268,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     XMEMSET(&cmdIn.ecEph, 0, sizeof(cmdIn.ecEph));
     cmdIn.ecEph.curveID = curveID;
     rc = TPM2_EC_Ephemeral(&cmdIn.ecEph, &cmdOut.ecEph);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_EC_Ephemeral curve 0x%04x not supported, skipping\n",
             curveID);
         rc = 0;
@@ -265,7 +292,7 @@ static int test_TPM2_ECDH_ZGen_curve(TPM_HANDLE parentHandle,
     cmdIn.zgen2.inScheme = TPM_ALG_ECDH;
     cmdIn.zgen2.counter = cmdOut.ecEph.counter;
     rc = TPM2_ZGen_2Phase(&cmdIn.zgen2, &cmdOut.zgen2);
-    if (is_curve_or_cmd_unsupported(rc)) {
+    if (is_curve_or_cmd_unsupported(rc, mayBeUnsupported)) {
         printf("TPM2_ZGen_2Phase curve 0x%04x not supported, skipping\n",
             curveID);
         rc = 0;
@@ -440,11 +467,17 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     int eccCurveIdx;
     /* Exercise ECDH / EC_Ephemeral / ZGen_2Phase on both P-256 and P-384 so
      * intermittent coordinate-padding bugs are caught in CI (P-384 surfaces
-     * leading-zero-strip issues ~2x more often than P-256 in practice). */
-    static const UINT16 eccTestCurves[2] = {
-        TPM_ECC_NIST_P256, TPM_ECC_NIST_P384
+     * leading-zero-strip issues ~2x more often than P-256 in practice).
+     * Each entry pairs the curve with its expected x-coordinate byte length
+     * and the natural hash (used for both nameAlg and the ECDH scheme hash). */
+    static const struct {
+        UINT16     curveID;
+        int        keySize;
+        TPM_ALG_ID hashAlg;
+    } eccTestCurves[] = {
+        { TPM_ECC_NIST_P256, 32, TPM_ALG_SHA256 },
+        { TPM_ECC_NIST_P384, 48, TPM_ALG_SHA384 },
     };
-    static const int eccTestKeySizes[2] = { 32, 48 };
 
     TPM2_AUTH_SESSION session[MAX_SESSION_NUM];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -1320,11 +1353,15 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     eccKey.handle = TPM_RH_NULL;
     TPM2_FlushContext(&cmdIn.flushCtx);
 
-    for (eccCurveIdx = 0; eccCurveIdx < 2; eccCurveIdx++) {
+    for (eccCurveIdx = 0;
+         eccCurveIdx < (int)(sizeof(eccTestCurves)/sizeof(eccTestCurves[0]));
+         eccCurveIdx++) {
         rc = test_TPM2_ECDH_ZGen_curve(storage.handle, session,
             storagePwd, (int)sizeof(storagePwd) - 1,
             usageAuth, (int)sizeof(usageAuth) - 1,
-            eccTestCurves[eccCurveIdx], eccTestKeySizes[eccCurveIdx]);
+            eccTestCurves[eccCurveIdx].curveID,
+            eccTestCurves[eccCurveIdx].keySize,
+            eccTestCurves[eccCurveIdx].hashAlg);
         if (rc != 0) {
             goto exit;
         }
