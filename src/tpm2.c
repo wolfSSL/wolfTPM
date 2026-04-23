@@ -3307,8 +3307,9 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
 
-    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+    if (ctx == NULL || in == NULL || out == NULL)
         return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
@@ -3317,13 +3318,17 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
         info.outHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
+        /* Part 3 §17.6.3 Auth Index: None — keyHandle has no mandatory auth.
+         * Mirror TPM2_VerifySequenceStart: ENC2 only, dynamic tag from
+         * AppendAuth so the caller can drive ST_NO_SESSIONS or ST_SESSIONS
+         * (the fwTPM handler accepts both). */
+        info.flags = (CMD_FLAG_ENC2);
 
         TPM2_Packet_Init(ctx, &packet);
 
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
 
-        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
         /* v185 rc4 Part 3 §17.6.3 Table 89 parameter order: auth, context. */
         TPM2_Packet_AppendU16(&packet, in->auth.size);
@@ -3332,7 +3337,7 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
         TPM2_Packet_AppendU16(&packet, in->context.size);
         TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
 
-        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SignSequenceStart);
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_SignSequenceStart);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
@@ -3340,7 +3345,9 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
             UINT32 paramSz = 0;
 
             TPM2_Packet_ParseU32(&packet, &out->sequenceHandle);
-            TPM2_Packet_ParseU32(&packet, &paramSz);
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
         }
 
         TPM2_ReleaseLock(ctx);

@@ -457,6 +457,12 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 | `FWTPM_MAX_PUB_BUF` | 512 | Internal buffer for public area, signatures |
 | `FWTPM_MAX_DER_SIG_BUF` | 256 | Internal buffer for DER signatures, ECC points |
 | `FWTPM_MAX_ATTEST_BUF` | 1024 | Internal buffer for attestation marshaling |
+| `FWTPM_MAX_CMD_AUTHS` | 3 | Maximum authorization sessions per command (TPM-spec hard cap) |
+| `FWTPM_MAX_SENSITIVE_SIZE` | `FWTPM_MAX_PRIVKEY_DER + 128` | Maximum marshaled sensitive area (private key + auth + nonce headroom) |
+| `FWTPM_MAX_SIGN_SEQ` | 4 | Maximum concurrent v1.85 PQC sign/verify sequences |
+| `FWTPM_MAX_SYM_KEY_SIZE` | 32 | Symmetric key buffer (sized for AES-256) |
+| `FWTPM_MAX_HMAC_KEY_SIZE` | 64 | HMAC key buffer (sized for SHA-512 block) |
+| `FWTPM_MAX_HMAC_DIGEST_SIZE` | 64 | HMAC output buffer (sized for SHA-512) |
 | `FWTPM_CMD_PORT` | 2321 | Default TCP command port |
 | `FWTPM_PLAT_PORT` | 2322 | Default TCP platform port |
 | `FWTPM_NV_FILE` | `"fwtpm_nv.bin"` | Default NV storage file path |

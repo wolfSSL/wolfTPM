@@ -864,6 +864,14 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_restricted          = 0x00010000,
     TPMA_OBJECT_decrypt             = 0x00020000,
     TPMA_OBJECT_sign                = 0x00040000,
+#ifdef WOLFTPM_V185
+    /* Part 2 v1.85 §8.3.3 (bit 19): x509sign restricts the digests this
+     * key can sign so the signature is suitable for use as an X.509
+     * Certificate signature. Part 3 §20.6.1 / §20.7.1 mandate
+     * TPM_RC_ATTRIBUTES if SET on a key passed to TPM2_SignSequenceComplete
+     * or TPM2_SignDigest. */
+    TPMA_OBJECT_x509sign            = 0x00080000,
+#endif
 };
 
 typedef BYTE TPMA_SESSION;
@@ -2807,10 +2815,12 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
     SignSequenceComplete_Out* out);
 
+/* v185 rc4 Part 3 §20.3 Table 118 — {sequenceHandle, keyHandle, signature}.
+ * The accumulated message lives in the sequence object on the TPM (built up
+ * via TPM2_SequenceUpdate calls); there is no per-command buffer field. */
 typedef struct {
     TPMI_DH_OBJECT sequenceHandle;
     TPMI_DH_OBJECT keyHandle;
-    TPM2B_MAX_BUFFER buffer;
     TPMT_SIGNATURE signature;
 } VerifySequenceComplete_In;
 typedef struct {

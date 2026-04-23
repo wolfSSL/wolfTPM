@@ -81,6 +81,28 @@ jobs:
       - name: Generate seed corpus
         run: python3 tests/fuzz/gen_corpus.py
 
+      - name: Verify v1.85 PQC opcode coverage in corpus
+        if: contains(matrix.name, 'pqc')
+        run: |
+          # Without this guard, fuzz-*-pqc could spend 10 minutes fuzzing
+          # classical paths with -DWOLFTPM_V185 set and never exercise an
+          # Encapsulate or SignSequenceComplete opcode. Fail fast if any of
+          # the 8 new v1.85 command codes is absent from the seed corpus.
+          MISSING=()
+          for cc in 0x000001A3 0x000001A4 0x000001A5 0x000001A6 \
+                    0x000001A7 0x000001A8 0x000001A9 0x000001AA; do
+            if ! grep -rqi "$cc" tests/fuzz/corpus/ 2>/dev/null; then
+              MISSING+=("$cc")
+            fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "ERROR: PQC seed corpus missing the following command codes:"
+            printf '  %s\n' "${MISSING[@]}"
+            echo "Update tests/fuzz/gen_corpus.py to emit a seed for each."
+            exit 1
+          fi
+          echo "All 8 v1.85 PQC opcodes (0x1A3-0x1AA) present in seed corpus."
+
       - name: Run fuzzer
         env:
           ASAN_OPTIONS: "detect_leaks=1:abort_on_error=1:symbolize=1"

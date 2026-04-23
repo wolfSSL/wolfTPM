@@ -1,0 +1,129 @@
+name: PQC Examples (v1.85)
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  pqc-examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+          ref: master
+
+      - name: Install build deps + tpm2-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+
+      - name: Build wolfSSL with PQC
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                      --enable-dilithium --enable-mlkem --enable-experimental \
+                      --enable-harden \
+                      CFLAGS="-DWC_RSA_NO_PADDING"
+          make
+          sudo make install
+          sudo ldconfig
+
+      - name: Build wolfTPM with v1.85 + fwTPM + debug
+        run: |
+          ./autogen.sh
+          # --enable-swtpm omitted: it's the Linux configure default
+          # (configure.ac:287). Passing it explicitly was redundant.
+          ./configure --enable-v185 --enable-fwtpm --enable-debug
+          make
+
+      # ----- Tier 1: make check -----
+      # Runs unit.test (wrapper) + fwtpm_unit.test (handler) + tpm2-tools
+      # compatibility + tests/pqc_mssim_e2e.sh in one shot via fwtpm_check.sh.
+      - name: make check (unit + fwtpm_unit + tpm2-tools + pqc_mssim_e2e.sh)
+        env:
+          WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
+        run: |
+          FWTPM_USE_FIXED_PORT=1 \
+          sudo -E unshare --net /bin/bash -c '
+            set -e
+            ip link set lo up
+            make check
+          '
+
+      # ----- Tier 2: per-example standalone runs -----
+      # Each example gets its own GitHub Actions check so a regression
+      # surfaces with a clear failure signal — not buried inside make check.
+      - name: Start fwtpm_server for standalone example runs
+        run: |
+          rm -f fwtpm_nv.bin
+          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+          echo $! > /tmp/fwtpm_server.pid
+          sleep 1
+          kill -0 $(cat /tmp/fwtpm_server.pid)
+
+      - name: PQC keygen — every parameter set
+        run: |
+          for ps in 44 65 87; do
+            ./examples/keygen/keygen mldsa_sk.bin -mldsa=$ps      || exit 1
+            ./examples/keygen/keygen hmldsa_sk.bin -hash_mldsa=$ps || exit 1
+          done
+          for ps in 512 768 1024; do
+            ./examples/keygen/keygen mlkem_sk.bin -mlkem=$ps || exit 1
+          done
+
+      - name: ML-DSA sign + verify example (standalone)
+        run: ./examples/pqc/mldsa_sign
+
+      - name: ML-KEM encap + decap example (standalone)
+        run: ./examples/pqc/mlkem_encap
+
+      - name: PQC mssim E2E (MLKEM-768 + HashMLDSA-65 round-trips)
+        run: ./tests/pqc_mssim_e2e.sh
+
+      - name: Doc constants parity check
+        run: |
+          ./tests/check_doc_constants.sh
+          rc=$?
+          if [ $rc -eq 77 ]; then
+            echo "Step skipped (exit 77 — header or doc missing)"
+            exit 0
+          fi
+          exit $rc
+
+      # ----- Tier 5: full run_examples.sh sweep -----
+      - name: Stop fwtpm_server before run_examples.sh re-spawns its own
+        if: always()
+        run: |
+          if [ -f /tmp/fwtpm_server.pid ]; then
+            kill $(cat /tmp/fwtpm_server.pid) 2>/dev/null || true
+            rm -f /tmp/fwtpm_server.pid
+          fi
+
+      - name: run_examples.sh full pass (auto-detects v1.85, runs 18-way matrix)
+        env:
+          WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
+        run: ./examples/run_examples.sh
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pqc-examples-logs
+          path: |
+            /tmp/fwtpm_server.log
+            /tmp/fwtpm_check_*.log
+            test-suite.log
+            tests/*.log
+            config.log
+          retention-days: 5

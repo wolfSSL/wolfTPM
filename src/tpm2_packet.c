@@ -904,6 +904,22 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
         TPM2_Packet_ParseU16Buf(packet, &sens->sym.size,
             sens->sym.buffer, (UINT16)sizeof(sens->sym.buffer));
         break;
+#ifdef WOLFTPM_V185
+    case TPM_ALG_MLDSA:
+    case TPM_ALG_HASH_MLDSA:
+        /* Mirror the AppendSensitive arms above so PQC TPM2B_SENSITIVE
+         * round-trips correctly. The append side stores the ML-DSA seed
+         * (xi) in the .mldsa arm; HASH_MLDSA shares the same arm because
+         * the wire layout is identical (TPM2B_PRIVATE_VENDOR_SPECIFIC
+         * bounded by MAX_MLDSA_KEY_BYTES). */
+        TPM2_Packet_ParseU16Buf(packet, &sens->mldsa.size,
+            sens->mldsa.buffer, (UINT16)sizeof(sens->mldsa.buffer));
+        break;
+    case TPM_ALG_MLKEM:
+        TPM2_Packet_ParseU16Buf(packet, &sens->mlkem.size,
+            sens->mlkem.buffer, (UINT16)sizeof(sens->mlkem.buffer));
+        break;
+#endif /* WOLFTPM_V185 */
     default:
         /* Unknown sensitiveType — skip composite to keep packet position
          * synchronized with the declared outer size */

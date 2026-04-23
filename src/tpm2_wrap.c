@@ -2286,36 +2286,53 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
 /* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 §24
- * (p.316): caller encapsulates under the TPM's ML-KEM public key; the
- * ML-KEM shared secret becomes the session salt; the ML-KEM ciphertext
- * is carried on the wire as encryptedSalt.bytes. The TPM decapsulates
- * internally to recover the same shared secret. Unlike RSA-OAEP /
- * ECDH, ML-KEM generates the shared secret as part of encapsulation —
- * the caller does not supply their own salt.
- */
+ * (p.316) and §47.4 Equation 66 (Labeled KEM): caller encapsulates under
+ * the TPM's ML-KEM public key, then post-processes the raw ML-KEM shared
+ * secret K via KDFa to bind the label and the (ciphertext, publicKey)
+ * context into the returned salt:
+ *
+ *     seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits)
+ *
+ * The TPM decapsulates internally to recover K and runs the same KDFa so
+ * both sides agree on `seed` (not the raw K). This matches the Labeled-KEM
+ * derivation required for any session where ML-KEM is the key-exchange
+ * primitive; emitting raw K would be wire-incompatible with any conformant
+ * v1.85 TPM that implements ML-KEM salted sessions. */
 static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
-    TPM2B_DATA* data, TPM2B_ENCRYPTED_SECRET* secret)
+    TPM2B_DATA* data, TPM2B_ENCRYPTED_SECRET* secret, const char* label)
 {
     int rc;
     int wcType;
+    int digestSz;
     WC_RNG rng;
     MlKemKey mlkemKey;
-    const TPMS_MLKEM_PARMS* parms;
+    const TPMS_MLKEM_PARMS* mlkemParams;
     const TPM2B_PUBLIC_KEY_MLKEM* pubIn;
     word32 ctSz = 0, ssSz = 0;
+    byte tmpK[WC_ML_KEM_SS_SZ];
 
-    parms = &tpmKey->pub.publicArea.parameters.mlkemDetail;
+    if (label == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    mlkemParams = &tpmKey->pub.publicArea.parameters.mlkemDetail;
     pubIn = &tpmKey->pub.publicArea.unique.mlkem;
 
-    switch (parms->parameterSet) {
+    switch (mlkemParams->parameterSet) {
         case TPM_MLKEM_512:  wcType = WC_ML_KEM_512;  break;
         case TPM_MLKEM_768:  wcType = WC_ML_KEM_768;  break;
         case TPM_MLKEM_1024: wcType = WC_ML_KEM_1024; break;
         default:             return TPM_RC_VALUE;
     }
 
+    digestSz = TPM2_GetHashDigestSize(tpmKey->pub.publicArea.nameAlg);
+    if (digestSz <= 0 || digestSz > (int)sizeof(data->buffer)) {
+        return TPM_RC_HASH;
+    }
+
     XMEMSET(&rng, 0, sizeof(rng));
     XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+    XMEMSET(tmpK, 0, sizeof(tmpK));
 
     rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
     if (rc == 0) {
@@ -2331,19 +2348,37 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
     if (rc == 0) {
         rc = wc_MlKemKey_SharedSecretSize(&mlkemKey, &ssSz);
     }
-    if (rc == 0 &&
-        (ctSz > sizeof(secret->secret) || ssSz > sizeof(data->buffer))) {
+    if (rc == 0 && (ctSz > sizeof(secret->secret) ||
+                    ssSz > sizeof(tmpK))) {
         rc = BUFFER_E;
     }
     if (rc == 0) {
+        /* K (raw shared secret) lands in tmpK, ciphertext in secret->secret */
         rc = wc_MlKemKey_Encapsulate(&mlkemKey, secret->secret,
-            data->buffer, &rng);
+            tmpK, &rng);
     }
     if (rc == 0) {
         secret->size = (UINT16)ctSz;
-        data->size   = (UINT16)ssSz;
+
+        /* Labeled KEM post-processing (Part 1 §47.4 Eq 66):
+         *     data = KDFa(nameAlg, K, label, ciphertext, pubKey, bits)
+         * contextU is the ML-KEM ciphertext (already in secret->secret);
+         * contextV is the ML-KEM public key; output is `digestSz` bytes. */
+        rc = TPM2_KDFa_ex(tpmKey->pub.publicArea.nameAlg,
+            tmpK, (UINT32)ssSz, label,
+            secret->secret, secret->size,
+            pubIn->buffer, pubIn->size,
+            data->buffer, (UINT32)digestSz);
+        if (rc == digestSz) {
+            data->size = (UINT16)digestSz;
+            rc = 0;
+        }
+        else if (rc >= 0) {
+            rc = BUFFER_E;
+        }
     }
 
+    TPM2_ForceZero(tmpK, sizeof(tmpK));
     wc_MlKemKey_Free(&mlkemKey);
     TPM2_ForceZero(&mlkemKey, sizeof(mlkemKey));
     wc_FreeRng(&rng);
@@ -2389,8 +2424,10 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
         (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
          defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
         case TPM_ALG_MLKEM:
-            rc = wolfTPM2_EncryptSecret_MLKEM(tpmKey, data, secret);
-            (void)label; /* ML-KEM.Encaps does not take a KDF label */
+            /* Part 1 §47.4 Eq 66 Labeled KEM: label MUST be threaded into
+             * the post-Encaps KDFa so client-derived `seed` matches what
+             * a conformant TPM derives on Decaps. */
+            rc = wolfTPM2_EncryptSecret_MLKEM(tpmKey, data, secret, label);
             break;
     #endif
         default:
@@ -5398,6 +5435,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
     int rc;
     SignSequenceComplete_In signSeqCompleteIn;
     SignSequenceComplete_Out signSeqCompleteOut;
+    WOLFTPM2_HANDLE seqHandleObj;
 
     if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
         return BAD_FUNC_ARG;
@@ -5410,8 +5448,16 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
-    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+    /* Part 3 §20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
+     * keyHandle is the 2nd (slot 1). Both require USER auth. The current
+     * TPM2_SignSequenceStart wrapper starts sequences with empty auth, so
+     * slot 0 carries an empty auth value; slot 1 carries the signing key's
+     * auth. Missing the slot-1 assignment silently signs with the wrong auth
+     * area when the key has a non-empty auth value. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+    wolfTPM2_SetAuthHandle(dev, 1, &key->handle);
 
     XMEMSET(&signSeqCompleteIn, 0, sizeof(signSeqCompleteIn));
     signSeqCompleteIn.sequenceHandle = sequenceHandle;
@@ -5558,20 +5604,28 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    if (dataSz < 0 || dataSz > (int)sizeof(verifySeqCompleteIn.buffer.buffer)) {
+    if (dataSz < 0) {
         return BUFFER_E;
     }
     if (dataSz > 0 && data == NULL) {
         return BAD_FUNC_ARG;
     }
 
+    /* Part 3 §20.3 Table 118: VerifySequenceComplete parameters are
+     * {signature} only — no buffer field. The documented `data`/`dataSz`
+     * "final chunk" arguments are folded into the sequence here via an
+     * internal SequenceUpdate before completing, so callers can still pass
+     * the last chunk in one call. */
+    if (dataSz > 0) {
+        rc = wolfTPM2_VerifySequenceUpdate(dev, sequenceHandle, data, dataSz);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+    }
+
     XMEMSET(&verifySeqCompleteIn, 0, sizeof(verifySeqCompleteIn));
     verifySeqCompleteIn.sequenceHandle = sequenceHandle;
     verifySeqCompleteIn.keyHandle = key->handle.hndl;
-    verifySeqCompleteIn.buffer.size = (UINT16)dataSz;
-    if (data != NULL && dataSz > 0) {
-        XMEMCPY(verifySeqCompleteIn.buffer.buffer, data, dataSz);
-    }
 
     /* Build signature structure from raw signature */
     /* For PQ algorithms, we need to determine the signature format from the key */
@@ -5619,7 +5673,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
     }
     else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
-        /* HashML-DSA: hash alg (from key parms) + TPM2B signature. */
+        /* HashML-DSA: hash alg (from key parameters) + TPM2B signature. */
         signature.sigAlg = TPM_ALG_HASH_MLDSA;
         signature.signature.hash_mldsa.hash =
             key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;
@@ -5821,7 +5875,7 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
     }
     else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
-        /* HashML-DSA: hash alg (from key parms) + TPM2B signature. */
+        /* HashML-DSA: hash alg (from key parameters) + TPM2B signature. */
         signature.sigAlg = TPM_ALG_HASH_MLDSA;
         signature.signature.hash_mldsa.hash =
             key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;

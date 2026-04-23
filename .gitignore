@@ -70,6 +70,9 @@ examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
 examples/keygen/external_import
+examples/pqc/mldsa_sign
+examples/pqc/mlkem_encap
+examples/pqc/pqc_mssim_e2e
 examples/nvram/extend
 examples/nvram/store
 examples/nvram/read
