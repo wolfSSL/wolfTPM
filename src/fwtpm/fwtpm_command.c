@@ -558,7 +558,7 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
         hmacKeySz += authValueSz;
     }
 
-    FWTPM_ALLOC_VAR(hmac, Hmac);
+    FWTPM_CALLOC_VAR(hmac, Hmac);
 
     rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
 
@@ -6596,7 +6596,7 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     enum wc_HashType ht;
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
-    FWTPM_ALLOC_VAR(hmac, Hmac);
+    FWTPM_CALLOC_VAR(hmac, Hmac);
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;

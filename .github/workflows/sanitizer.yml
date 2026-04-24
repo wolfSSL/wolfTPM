@@ -43,11 +43,12 @@ jobs:
             wolftpm_extra_config: "--enable-v185"
             wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
 
-          # UBSan-v185: same flags as the classical UBSan lane (no `integer`
-          # sanitizer — pre-existing wolfSSL UB at misc.c:117 in Hash_df).
+          # UBSan-v185: drops `integer` (wolfSSL Hash_df 440<<24) and
+          # `alignment` (wolfSSL dilithium internal sword32 reads from
+          # byte buffers) — both pre-existing wolfSSL UB.
           - name: "UBSan-v185"
             cc: clang
-            cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            cflags: "-fsanitize=undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=undefined"
             ubsan_options: "halt_on_error=1:print_stacktrace=1"
             wolftpm_extra_config: "--enable-v185"

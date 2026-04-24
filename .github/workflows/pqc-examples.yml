@@ -102,18 +102,20 @@ jobs:
           exit $rc
 
       # ----- Tier 5: full run_examples.sh sweep -----
-      - name: Stop fwtpm_server before run_examples.sh re-spawns its own
+      # run_examples.sh does not start its own TPM — it expects one already
+      # listening. Reuse the fwtpm_server started in Tier 2.
+      - name: run_examples.sh full pass (auto-detects v1.85, runs 18-way matrix)
+        env:
+          WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
+        run: ./examples/run_examples.sh
+
+      - name: Stop fwtpm_server
         if: always()
         run: |
           if [ -f /tmp/fwtpm_server.pid ]; then
             kill $(cat /tmp/fwtpm_server.pid) 2>/dev/null || true
             rm -f /tmp/fwtpm_server.pid
           fi
-
-      - name: run_examples.sh full pass (auto-detects v1.85, runs 18-way matrix)
-        env:
-          WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
-        run: ./examples/run_examples.sh
 
       - name: Upload failure logs
         if: failure()
