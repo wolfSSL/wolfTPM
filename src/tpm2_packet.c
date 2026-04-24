@@ -848,10 +848,14 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
 #ifdef WOLFTPM_V185
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
+        if (sens->mldsa.size > sizeof(sens->mldsa.buffer))
+            sens->mldsa.size = sizeof(sens->mldsa.buffer);
         TPM2_Packet_AppendU16(packet, sens->mldsa.size);
         TPM2_Packet_AppendBytes(packet, sens->mldsa.buffer, sens->mldsa.size);
         break;
     case TPM_ALG_MLKEM:
+        if (sens->mlkem.size > sizeof(sens->mlkem.buffer))
+            sens->mlkem.size = sizeof(sens->mlkem.buffer);
         TPM2_Packet_AppendU16(packet, sens->mlkem.size);
         TPM2_Packet_AppendBytes(packet, sens->mlkem.buffer, sens->mlkem.size);
         break;

@@ -3497,9 +3497,19 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 #ifdef WOLFTPM_V185
-            /* TPM2_VerifySequenceComplete produces a TPM_ST_MESSAGE_VERIFIED
-             * ticket whose metadata is TPMS_EMPTY (zero bytes on wire). */
-            out->validation.metaAlg = TPM_ALG_NULL;
+            /* Part 2 §10.6.5 Table 112 — TPMU_TK_VERIFIED_META selected
+             * on tag. §20.3.1 says VerifySequenceComplete `shall`
+             * produce TPM_ST_MESSAGE_VERIFIED (TPMS_EMPTY metadata, no
+             * wire bytes), but parse defensively so a non-conformant
+             * TPM returning TPM_ST_DIGEST_VERIFIED doesn't shift the
+             * 2-byte TPM_ALG_ID into the hmac-size slot. Mirrors the
+             * dispatch in TPM2_VerifyDigestSignature. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
 #endif
             TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
             if (out->validation.digest.size >

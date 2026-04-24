@@ -116,6 +116,10 @@ static int test_mlkem_roundtrip(WOLFTPM2_DEV* dev)
            "ct=%d bytes, shared secrets match\n", ctSz);
 
 cleanup:
+    /* Wipe MLKEM shared secrets — these are session-key material and
+     * mlkem_encap.c uses the same pattern (wc_ForceZero in exit). */
+    wc_ForceZero(ss1, sizeof(ss1));
+    wc_ForceZero(ss2, sizeof(ss2));
     wolfTPM2_UnloadHandle(dev, &mlkem.handle);
     return rc;
 }

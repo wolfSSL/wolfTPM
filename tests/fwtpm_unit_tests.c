@@ -40,6 +40,7 @@
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/fwtpm/fwtpm.h>
 #include <wolftpm/fwtpm/fwtpm_command.h>
+#include <wolftpm/fwtpm/fwtpm_crypto.h>
 
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
@@ -1841,9 +1842,10 @@ static void test_fwtpm_signseqstart_neg(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TPM_RC_SCHEME: non-signing key (MLKEM). Per Part 3 §17.5.1 the RC for
-     * "key exists but its scheme isn't supported by this handler" is SCHEME,
-     * not KEY (KEY is reserved for "handle does not reference a key"). */
+    /* TPM_RC_KEY: MLKEM is a decrypt-only KEM key — keyHandle `does not
+     * refer to a signing key` per Part 3 §17.5.1. TPM_RC_SCHEME is
+     * reserved for signing keys whose scheme is TPM_ALG_NULL (or
+     * unsupported). */
     mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
@@ -1856,7 +1858,7 @@ static void test_fwtpm_signseqstart_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
 
     /* TPM_RC_HANDLE: invalid handle. */
     pos = 0;
@@ -1873,7 +1875,7 @@ static void test_fwtpm_signseqstart_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignSeqStart negatives (SCHEME/HANDLE):", 1);
+    fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
 }
 
 /* Handler 4: TPM2_VerifySequenceStart. Part 3 §17.6 Table 87. */
@@ -1881,7 +1883,7 @@ static void test_fwtpm_verifyseqstart_neg(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos;
-    UINT32 mldsaHandle;
+    UINT32 mldsaHandle, mlkemHandle;
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -1906,8 +1908,24 @@ static void test_fwtpm_verifyseqstart_neg(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
 
+    /* TPM_RC_KEY: MLKEM is not a signing key per Part 3 §17.6.1. */
+    mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, mlkemHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("VerifySeqStart negatives (VALUE):", 1);
+    fwtpm_pass("VerifySeqStart negatives (VALUE/KEY):", 1);
 }
 
 /* Handler 5: TPM2_SignSequenceComplete. Part 3 §20.6. */
@@ -2230,11 +2248,11 @@ static int BuildCreatePrimaryHashMldsaAttrs(byte* buf, UINT32 attributes)
     return pos;
 }
 
-/* F-3: Restricted-key SignDigest returns TPM_RC_ATTRIBUTES per Part 3
- * §20.7.1. Uses Hash-ML-DSA (not Pure MLDSA) so the restricted check at
- * the top of FwCmd_SignDigest fires before any allowExternalMu check
- * downstream could also return ATTRIBUTES and cloud the attribution. */
-static void test_fwtpm_signdigest_restricted_key_returns_attributes(void)
+/* SignDigest with a restricted key requires a valid TPMT_TK_HASHCHECK per
+ * Part 3 §20.7.1; a NULL ticket is insufficient and must return
+ * TPM_RC_TICKET (not TPM_RC_ATTRIBUTES — that RC is reserved for the
+ * x509sign attribute, see the dedicated x509sign test below). */
+static void test_fwtpm_signdigest_restricted_null_ticket_returns_ticket(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, cmdSz;
@@ -2263,6 +2281,52 @@ static void test_fwtpm_signdigest_restricted_key_returns_attributes(void)
     PutU16BE(gCmd + pos, 0); pos += 2; /* context */
     PutU16BE(gCmd + pos, 32); pos += 2; /* digest.size (SHA-256) */
     memset(gCmd + pos, 0xAA, 32); pos += 32;
+    /* NULL TPMT_TK_HASHCHECK */
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignDigest restricted+NULL ticket (TICKET):", 1);
+}
+
+/* SignDigest with x509sign returns TPM_RC_ATTRIBUTES per Part 3 §20.7.1.
+ * x509sign restricts the key to X.509 certificate-style signing only and
+ * is enforced regardless of any supplied ticket. */
+static void test_fwtpm_signdigest_x509sign_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    const UINT32 attrs = 0x00040072 | TPMA_OBJECT_x509sign;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryHashMldsaAttrs(gCmd, attrs);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
     PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
     PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
     PutU16BE(gCmd + pos, 0); pos += 2;
@@ -2273,7 +2337,85 @@ static void test_fwtpm_signdigest_restricted_key_returns_attributes(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignDigest restricted-key (ATTRIBUTES):", 1);
+    fwtpm_pass("SignDigest x509sign (ATTRIBUTES):", 1);
+}
+
+/* End-to-end positive: TPM2_Hash produces a real HASHCHECK ticket that
+ * SignDigest must accept on a restricted key. Confirms ticket-validation
+ * actually verifies the HMAC (not just rejects everything). */
+static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    UINT16 outDigestSz, ticketHmacSz;
+    byte sha256Digest[32];
+    UINT16 ticketTag;
+    UINT32 ticketHier;
+    byte ticketHmac[TPM_MAX_DIGEST_SIZE];
+    const UINT32 attrs = 0x00050072;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* TPM2_Hash("abc", SHA256, OWNER) -> outDigest + ticket. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_Hash);
+    PutU16BE(gCmd + cmdSz, 3); cmdSz += 2;
+    gCmd[cmdSz++] = 'a'; gCmd[cmdSz++] = 'b'; gCmd[cmdSz++] = 'c';
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, TPM_RH_OWNER); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE;
+    outDigestSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(outDigestSz, 32);
+    XMEMCPY(sha256Digest, gRsp + pos, 32); pos += 32;
+    ticketTag = GetU16BE(gRsp + pos); pos += 2;
+    ticketHier = GetU32BE(gRsp + pos); pos += 4;
+    ticketHmacSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(ticketTag, TPM_ST_HASHCHECK);
+    AssertIntEQ(ticketHier, TPM_RH_OWNER);
+    AssertIntEQ(ticketHmacSz, 32); /* SHA-256 HMAC */
+    XMEMCPY(ticketHmac, gRsp + pos, ticketHmacSz);
+
+    /* Create restricted Hash-MLDSA primary. */
+    cmdSz = BuildCreatePrimaryHashMldsaAttrs(gCmd, attrs);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignDigest with the real ticket from TPM2_Hash. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context */
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    XMEMCPY(gCmd + pos, sha256Digest, 32); pos += 32;
+    /* Real TPMT_TK_HASHCHECK */
+    PutU16BE(gCmd + pos, ticketTag); pos += 2;
+    PutU32BE(gCmd + pos, ticketHier); pos += 4;
+    PutU16BE(gCmd + pos, ticketHmacSz); pos += 2;
+    XMEMCPY(gCmd + pos, ticketHmac, ticketHmacSz); pos += ticketHmacSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignDigest restricted+valid ticket (success):", 1);
 }
 
 /* F-4: VerifyDigestSignature rejects sigHashAlg != key's hashAlg with
@@ -2565,6 +2707,817 @@ test_fwtpm_signseqcomplete_restricted_generated_value_returns_value(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete restricted+GEN_VAL (VALUE):", 1);
+}
+
+/* TPMT_TK_VERIFIED HMAC must bind tag and metadata per Part 2 §10.6.5
+ * Eq (5): hmac = HMAC(proof, tag || data || keyName || metadata).
+ * For TPM_ST_DIGEST_VERIFIED, metadata = 2-byte sigHashAlg. This test
+ * drives a digest sign+verify roundtrip, captures the wire ticket HMAC,
+ * independently recomputes Eq (5) using FwComputeTicketHmac, and asserts
+ * byte-equality. Without the fix the wire HMAC binds only data||keyName
+ * (no tag, no metadata) and the recomputed value will differ. */
+static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle;
+    UINT16 sigSz, valTag, hmacSz;
+    UINT32 valHier;
+    UINT16 metaAlg;
+    FWTPM_DECLARE_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    byte digest[32];
+    byte hmacWire[TPM_MAX_DIGEST_SIZE];
+    byte hmacExpected[TPM_MAX_DIGEST_SIZE];
+    byte ticketHmacIn[2 + 32 + sizeof(TPM2B_NAME) + 2];
+    int ticketHmacInSz = 0;
+    int hmacExpectedSz = 0;
+    FWTPM_Object* obj;
+
+    FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xAA, sizeof(digest));
+
+    /* SignDigest to produce a real signature. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, digest, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* VerifyDigestSignature — the ticket-emitting path under test. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, digest, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Parse the ticket: tag(2) | hierarchy(4) | metadata(2) | hmacSize(2) | hmac. */
+    pos = TPM2_HEADER_SIZE;
+    valTag  = GetU16BE(gRsp + pos); pos += 2;
+    valHier = GetU32BE(gRsp + pos); pos += 4;
+    metaAlg = GetU16BE(gRsp + pos); pos += 2;
+    hmacSz  = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(valTag, TPM_ST_DIGEST_VERIFIED);
+    AssertIntEQ(metaAlg, TPM_ALG_SHA256);
+    AssertIntGT(hmacSz, 0);
+    AssertIntEQ((int)hmacSz <= (int)sizeof(hmacWire), 1);
+    memcpy(hmacWire, gRsp + pos, hmacSz);
+
+    /* Independently recompute Eq (5):
+     * HMAC(proof, tag || digest || keyName || metadata).
+     * Walk the public object table to find keyHandle (FwFindObject is
+     * static-local to fwtpm_command.c). */
+    obj = NULL;
+    {
+        int oi;
+        for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+            if (ctx.objects[oi].handle == keyHandle) {
+                obj = &ctx.objects[oi];
+                break;
+            }
+        }
+    }
+    AssertNotNull(obj);
+    if (obj->name.size == 0) {
+        FwComputeObjectName(obj);
+    }
+    ticketHmacInSz = 0;
+    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ST_DIGEST_VERIFIED >> 8);
+    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ST_DIGEST_VERIFIED);
+    XMEMCPY(ticketHmacIn + ticketHmacInSz, digest, 32);
+    ticketHmacInSz += 32;
+    XMEMCPY(ticketHmacIn + ticketHmacInSz, obj->name.name, obj->name.size);
+    ticketHmacInSz += obj->name.size;
+    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ALG_SHA256 >> 8);
+    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ALG_SHA256);
+    rc = FwComputeTicketHmac(&ctx, valHier, obj->pub.nameAlg,
+        ticketHmacIn, ticketHmacInSz,
+        hmacExpected, &hmacExpectedSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(hmacExpectedSz, hmacSz);
+    AssertIntEQ(XMEMCMP(hmacWire, hmacExpected, hmacSz), 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, keyHandle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("VerifyDigestSig ticket Eq(5) HMAC parity:", 1);
+}
+
+/* Build a Hash-MLDSA-65/SHA-256 CreatePrimary in a caller-chosen
+ * hierarchy. Used to exercise the per-object hierarchy capture path
+ * since BuildCreatePrimaryCmd hardcodes TPM_RH_OWNER. */
+static int BuildCreatePrimaryHashMldsaInHierarchy(byte* buf, UINT32 hierarchy)
+{
+    int pos = 0, pubAreaStart, pubAreaLen, sensStart, sensLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, hierarchy); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+
+    sensStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    sensLen = pos - sensStart - 2;
+    PutU16BE(buf + sensStart, (UINT16)sensLen);
+
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(buf + pos, 0x00040072); pos += 4; /* sign|fixed*|userWithAuth */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_MLDSA_65); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* MEDIUM-4: VerifyDigestSignature ticket.hierarchy must reflect the
+ * key's actual hierarchy per Part 2 §10.6.5 Table 112. Pre-fix the
+ * field was hardcoded to TPM_RH_OWNER; a key from any other hierarchy
+ * (here ENDORSEMENT) emitted a ticket claiming OWNER, breaking
+ * downstream TPM2_PolicyAuthorize-style consumption. */
+static void test_fwtpm_verifydigest_ticket_hierarchy_tracks_key(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    UINT16 sigSz, valTag;
+    UINT32 valHier;
+    FWTPM_DECLARE_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    byte digest[32];
+
+    FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryHashMldsaInHierarchy(gCmd, TPM_RH_ENDORSEMENT);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xAA, sizeof(digest));
+
+    /* SignDigest. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, digest, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* VerifyDigestSignature. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memcpy(gCmd + pos, digest, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE;
+    valTag  = GetU16BE(gRsp + pos); pos += 2;
+    valHier = GetU32BE(gRsp + pos); pos += 4;
+    AssertIntEQ(valTag, TPM_ST_DIGEST_VERIFIED);
+    AssertIntEQ(valHier, TPM_RH_ENDORSEMENT);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("VerifyDigestSig ticket hierarchy=key:", 1);
+}
+
+/* Companion test for the sequence path: VerifySequenceComplete must
+ * also reflect the key's hierarchy in TPMT_TK_VERIFIED. */
+static void test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle, signSeqHandle, verifySeqHandle;
+    UINT16 sigSz, valTag;
+    UINT32 valHier;
+    FWTPM_DECLARE_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    static const byte msg[] = "hierarchy-tracking-test";
+
+    FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryHashMldsaInHierarchy(gCmd, TPM_RH_ENDORSEMENT);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceStart. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    signSeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceComplete with msg. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, signSeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* VerifySequenceStart. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    verifySeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SequenceUpdate(msg). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* VerifySequenceComplete. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    /* signature: sigAlg + hash + TPM2B */
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = TPM2_HEADER_SIZE + 4;
+    valTag  = GetU16BE(gRsp + pos); pos += 2;
+    valHier = GetU32BE(gRsp + pos); pos += 4;
+    AssertIntEQ(valTag, TPM_ST_MESSAGE_VERIFIED);
+    AssertIntEQ(valHier, TPM_RH_ENDORSEMENT);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("VerifySeqComplete ticket hierarchy=key:", 1);
+}
+
+/* MEDIUM-5: TPM2_Decapsulate has Auth Role: USER per Part 3 §14.11.2
+ * Table 62, so cmdTag MUST be TPM_ST_SESSIONS. A NO_SESSIONS request
+ * silently bypassed the auth area entirely; reject with
+ * TPM_RC_AUTH_MISSING up front. Same applies to TPM2_SignSequenceComplete
+ * (Table 124) and TPM2_SignDigest (Table 126). */
+static void test_fwtpm_decapsulate_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    UINT32 mlkemHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Decapsulate); pos += 4;
+    PutU32BE(gCmd + pos, mlkemHandle); pos += 4;
+    /* No auth area in NO_SESSIONS form; ciphertext immediately after. */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* ct size = 0 */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Decapsulate NO_SESSIONS (AUTH_MISSING):", 1);
+}
+
+static void test_fwtpm_signdigest_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    UINT32 mldsaHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    /* No auth area; payload immediately after. */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context */
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignDigest NO_SESSIONS (AUTH_MISSING):", 1);
+}
+
+static void test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    UINT32 mldsaHandle, seqHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+
+    /* Start a sign sequence (NO_SESSIONS allowed there). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Complete with NO_SESSIONS — must be rejected. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* buffer empty */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignSeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
+}
+
+/* Hash-ML-DSA verify ticket must bind the verified digest, not just
+ * keyName. Pre-fix the ticket data was {keyName} for Hash-ML-DSA
+ * because seq->msgBuf is never populated on that path (SequenceUpdate
+ * routes the bytes into seq->hashCtx). Two distinct messages signed by
+ * the same key produced byte-identical tickets, breaking
+ * TPM2_PolicyAuthorize's chain of trust (Part 2 §10.6.5 Eq (5)). */
+static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    UINT16 sigSzA, sigSzB, hmacSzA = 0, hmacSzB = 0;
+    FWTPM_DECLARE_BUF(sigA, MAX_MLDSA_SIG_SIZE);
+    FWTPM_DECLARE_BUF(sigB, MAX_MLDSA_SIG_SIZE);
+    byte hmacA[TPM_MAX_DIGEST_SIZE];
+    byte hmacB[TPM_MAX_DIGEST_SIZE];
+    static const byte msgA[] = "verify-binding-test-message-A";
+    static const byte msgB[] = "verify-binding-test-message-B-different";
+    UINT32 signSeqHandle, verifySeqHandle;
+
+    FWTPM_ALLOC_BUF(sigA, MAX_MLDSA_SIG_SIZE);
+    FWTPM_ALLOC_BUF(sigB, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* --- Round A: sign+verify msgA, capture ticket HMAC --- */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    signSeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, signSeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msgA) - 1); pos += 2;
+    memcpy(gCmd + pos, msgA, sizeof(msgA) - 1); pos += sizeof(msgA) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSzA = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sigA, gRsp + pos, sigSzA);
+
+    /* VerifySequenceStart + Update(msgA) + VerifySequenceComplete */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    verifySeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msgA) - 1); pos += 2;
+    memcpy(gCmd + pos, msgA, sizeof(msgA) - 1); pos += sizeof(msgA) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSzA); pos += 2;
+    memcpy(gCmd + pos, sigA, sigSzA); pos += sigSzA;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Parse ticket: tag(2) | hierarchy(4) | hmacSize(2) | hmac.
+     * Response prefix: header(10) + paramSize(4) for ST_SESSIONS. */
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 4;
+    hmacSzA = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntGT(hmacSzA, 0);
+    AssertIntEQ((int)hmacSzA <= (int)sizeof(hmacA), 1);
+    memcpy(hmacA, gRsp + pos, hmacSzA);
+
+    /* --- Round B: sign+verify msgB on the same key --- */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    signSeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, signSeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msgB) - 1); pos += 2;
+    memcpy(gCmd + pos, msgB, sizeof(msgB) - 1); pos += sizeof(msgB) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSzB = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sigB, gRsp + pos, sigSzB);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    verifySeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msgB) - 1); pos += 2;
+    memcpy(gCmd + pos, msgB, sizeof(msgB) - 1); pos += sizeof(msgB) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSzB); pos += 2;
+    memcpy(gCmd + pos, sigB, sigSzB); pos += sigSzB;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 4;
+    hmacSzB = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(hmacSzB, hmacSzA);
+    memcpy(hmacB, gRsp + pos, hmacSzB);
+
+    /* Different verified messages MUST produce different ticket HMACs. */
+    AssertIntNE(XMEMCMP(hmacA, hmacB, hmacSzA), 0);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sigA);
+    FWTPM_FREE_BUF(sigB);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds digest:", 1);
+}
+
+/* Per Part 3 §20.6.1 a restricted signing key MUST NOT sign a message
+ * whose first 4 bytes are TPM_GENERATED_VALUE (0xFF544347). The check
+ * inspects the assembled message; for Hash-ML-DSA the bytes flow into
+ * seq->hashCtx (not seq->msgBuf), so an attacker who delivers the
+ * forbidden prefix via SequenceUpdate and then calls Complete with an
+ * empty trailing buffer bypasses the check entirely. */
+static void
+test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle, seqHandle;
+    const UINT32 attrs = 0x00050072; /* +restricted */
+    static const byte genValPrefix[] = {
+        0xFF, 0x54, 0x43, 0x47, 0xAA, 0xBB, 0xCC, 0xDD
+    };
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryHashMldsaAttrs(gCmd, attrs);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceStart */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SequenceUpdate with the forbidden prefix */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(genValPrefix)); pos += 2;
+    memcpy(gCmd + pos, genValPrefix, sizeof(genValPrefix));
+    pos += sizeof(genValPrefix);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* SignSequenceComplete with empty trailing buffer — must reject. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignSeqComplete Hash-MLDSA Update+GEN_VAL (VALUE):", 1);
 }
 
 #ifdef WOLFTPM_V185
@@ -4845,13 +5798,23 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signdigest_neg();
     test_fwtpm_verifydigestsig_neg();
     test_fwtpm_sequenceupdate_neg();
-    test_fwtpm_signdigest_restricted_key_returns_attributes();
+    test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
+    test_fwtpm_signdigest_x509sign_returns_attributes();
+    test_fwtpm_signdigest_restricted_valid_ticket_succeeds();
     test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme();
     test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu();
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
     test_fwtpm_signdigest_wrong_digest_size_returns_size();
     test_fwtpm_signseqcomplete_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
+    test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
+    test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
+    test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key();
+    test_fwtpm_decapsulate_no_sessions_returns_auth_missing();
+    test_fwtpm_signdigest_no_sessions_returns_auth_missing();
+    test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing();
+    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest();
+    test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
     test_fwtpm_pqc_nv_persistence();
     test_fwtpm_signseq_slot_exhaustion();
     test_fwtpm_signseq_longmsg_boundary();

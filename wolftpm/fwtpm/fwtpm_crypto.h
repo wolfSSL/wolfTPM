@@ -83,7 +83,8 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
 
 int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT16 ticketTag, UINT32 hierarchy, TPMI_ALG_HASH hashAlg,
-    const byte* data, int dataSz);
+    const byte* data, int dataSz,
+    const byte* metadata, int metadataSz);
 
 int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT32 hierarchy, TPMI_ALG_HASH nameAlg,

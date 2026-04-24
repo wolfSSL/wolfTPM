@@ -302,31 +302,84 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
 }
 
 /** \brief Compute and append a ticket (TPMT_TK_*) to a response packet.
- *  For NULL hierarchy, appends a NULL ticket (digest size = 0).
- *  For other hierarchies, computes HMAC(proofValue, data) as the ticket. */
+ *  Per Part 2 §10.6.5 Eq (5):
+ *    hmac = HMAC(proofValue, ticketTag || data || metadata)
+ *  ticketTag is bound into the HMAC so two different ticket types over the
+ *  same data can't be substituted. metadata (selected on tag per
+ *  TPMU_TK_VERIFIED_META) is also bound when non-empty — for
+ *  TPM_ST_DIGEST_VERIFIED that is the 2-byte sigHashAlg.
+ *  Wire format: ticketTag || hierarchy || metadata || hmacSize || hmac.
+ *  For NULL hierarchy, appends a NULL ticket (digest size = 0). */
 int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT16 ticketTag, UINT32 hierarchy, TPMI_ALG_HASH hashAlg,
-    const byte* data, int dataSz)
+    const byte* data, int dataSz,
+    const byte* metadata, int metadataSz)
 {
+    byte tagBytes[2];
+    tagBytes[0] = (byte)(ticketTag >> 8);
+    tagBytes[1] = (byte)(ticketTag);
+
     if (hierarchy == TPM_RH_NULL) {
         TPM2_Packet_AppendU16(rsp, ticketTag);
         TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
+        if (metadataSz > 0) {
+            TPM2_Packet_AppendBytes(rsp, (byte*)metadata, metadataSz);
+        }
         TPM2_Packet_AppendU16(rsp, 0);
-        return 0;
+        return TPM_RC_SUCCESS;
     }
     else {
         byte ticketHmac[TPM_MAX_DIGEST_SIZE];
-        int ticketHmacSz = 0;
-        int rc = FwComputeTicketHmac(ctx, hierarchy, hashAlg,
-            data, dataSz, ticketHmac, &ticketHmacSz);
-        if (rc == 0) {
-            TPM2_Packet_AppendU16(rsp, ticketTag);
-            TPM2_Packet_AppendU32(rsp, hierarchy);
-            TPM2_Packet_AppendU16(rsp, (UINT16)ticketHmacSz);
-            TPM2_Packet_AppendBytes(rsp, ticketHmac, ticketHmacSz);
+        byte proof[TPM_MAX_DIGEST_SIZE];
+        int proofSz = TPM2_GetHashDigestSize(hashAlg);
+        FWTPM_DECLARE_VAR(hmacCtx, Hmac);
+        enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+        int rc;
+
+        FWTPM_ALLOC_VAR(hmacCtx, Hmac);
+
+        if (proofSz <= 0) {
+            FWTPM_FREE_VAR(hmacCtx);
+            return TPM_RC_HASH;
         }
+
+        rc = FwComputeProofValue(ctx, hierarchy, hashAlg, proof, proofSz);
+        if (rc == 0) {
+            rc = wc_HmacInit(hmacCtx, NULL, INVALID_DEVID);
+        }
+        if (rc == 0) {
+            rc = wc_HmacSetKey(hmacCtx, (int)wcHash, proof, (word32)proofSz);
+        }
+        if (rc == 0) {
+            rc = wc_HmacUpdate(hmacCtx, tagBytes, 2);
+        }
+        if (rc == 0 && dataSz > 0) {
+            rc = wc_HmacUpdate(hmacCtx, data, (word32)dataSz);
+        }
+        if (rc == 0 && metadataSz > 0) {
+            rc = wc_HmacUpdate(hmacCtx, metadata, (word32)metadataSz);
+        }
+        if (rc == 0) {
+            rc = wc_HmacFinal(hmacCtx, ticketHmac);
+        }
+        wc_HmacFree(hmacCtx);
+        TPM2_ForceZero(proof, sizeof(proof));
+        FWTPM_FREE_VAR(hmacCtx);
+
+        if (rc != 0) {
+            TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
+            return TPM_RC_FAILURE;
+        }
+
+        TPM2_Packet_AppendU16(rsp, ticketTag);
+        TPM2_Packet_AppendU32(rsp, hierarchy);
+        if (metadataSz > 0) {
+            TPM2_Packet_AppendBytes(rsp, (byte*)metadata, metadataSz);
+        }
+        TPM2_Packet_AppendU16(rsp, (UINT16)proofSz);
+        TPM2_Packet_AppendBytes(rsp, ticketHmac, proofSz);
         TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
-        return rc;
+        return TPM_RC_SUCCESS;
     }
 }
 
@@ -364,7 +417,7 @@ int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
         ticketDataSz += objNameSz;
     }
     return FwAppendTicket(ctx, rsp, TPM_ST_CREATION, hierarchy,
-        nameAlg, ticketData, ticketDataSz);
+        nameAlg, ticketData, ticketDataSz, NULL, 0);
 }
 
 /* ================================================================== */
@@ -650,6 +703,17 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
 /* ================================================================== */
 /* v1.85 PQC primary-key derivation (ML-DSA / ML-KEM)                  */
 /* ================================================================== */
+
+/* TCG Part 4 v1.85 (which would normatively pin the KDFa labels for
+ * primary-key derivation) is unpublished as of the v1.85 rc4 release.
+ * The "MLDSA" / "HASH_MLDSA" / "MLKEM" labels below are wolfTPM's
+ * interpretation; if the final spec prescribes different labels every
+ * primary key derived against this build will require migration.
+ * Suppress the build-log note with -DWOLFTPM_V185_LABELS_ACK once the
+ * labels are known to match (or are accepted as a vendor extension). */
+#ifndef WOLFTPM_V185_LABELS_ACK
+#pragma message ("WOLFTPM_V185: PQC primary-key KDFa labels are interpretation, not normative — see docs/FWTPM.md and FwDeriveMldsaPrimaryKeySeed comment")
+#endif
 
 /* Map TPM v1.85 ML-DSA parameter set to wolfCrypt dilithium level. */
 static int FwGetWcMldsaLevel(TPMI_MLDSA_PARAMETER_SET ps)

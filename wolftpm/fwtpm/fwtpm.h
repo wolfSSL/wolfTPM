@@ -365,6 +365,9 @@
 typedef struct FWTPM_Object {
     int used;
     TPM_HANDLE handle;              /* 0x80xxxxxx transient handle */
+    UINT32 hierarchy;               /* TPM_RH_OWNER/ENDORSEMENT/PLATFORM/NULL —
+                                     * required for ticket HMAC proofValue
+                                     * lookup per Part 2 §10.6.5 Eq (5) */
     TPMT_PUBLIC pub;                /* Public area */
     TPM2B_AUTH authValue;           /* Object auth */
     byte privKey[FWTPM_MAX_PRIVKEY_DER]; /* DER-encoded private key */
@@ -407,6 +410,13 @@ typedef struct FWTPM_SignSeq {
     /* Accumulator for Pure ML-DSA sequences (raw message bytes). */
     byte   msgBuf[FWTPM_MAX_DATA_BUF];
     UINT32 msgBufSz;
+    /* First 4 bytes of the assembled message (any path: SequenceUpdate or
+     * SignSequenceComplete trailing buffer). Used for the restricted-key
+     * TPM_GENERATED_VALUE check at Complete time per Part 3 §20.6.1 —
+     * Hash-ML-DSA Update bytes flow into hashCtx and are unrecoverable
+     * otherwise, so the prefix must be captured at Update time. */
+    byte   firstBytes[4];
+    UINT32 firstBytesSz;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* Hash accumulator for Hash-ML-DSA sequences (sign or verify). */
     wc_HashAlg hashCtx;
