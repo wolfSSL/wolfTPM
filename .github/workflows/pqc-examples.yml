@@ -44,7 +44,9 @@ jobs:
           ./autogen.sh
           # --enable-swtpm omitted: it's the Linux configure default
           # (configure.ac:287). Passing it explicitly was redundant.
-          ./configure --enable-v185 --enable-fwtpm --enable-debug
+          # --enable-debug=verbose: full client + fwTPM dispatch logs so
+          # CI failures (e.g. keyload integrity) come with TPM-side trace.
+          ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
           make
 
       # ----- Tier 1: make check -----
