@@ -338,7 +338,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     /* Perform RSA encrypt / decrypt (no pad) */
-    message.size = 256; /* test message 0x11,0x11,etc */
+    /* With TPM_ALG_NULL padding, the TPM returns a full modulus-sized
+     * plaintext on decrypt, so the message must also be modulus-sized. */
+    message.size = rsaKey.pub.publicArea.parameters.rsaDetail.keyBits / 8;
     XMEMSET(message.buffer, 0x11, message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
