@@ -3457,9 +3457,11 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
 {
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
-    TPM_ST st;
 
-    if (ctx == NULL || in == NULL || out == NULL)
+    /* Part 3 §20.3.2 Table 118: tag is unconditionally TPM_ST_SESSIONS
+     * (Auth Role: USER on @sequenceHandle). A NULL session would force
+     * the wrapper to emit ST_NO_SESSIONS — illegal encoding. */
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
         return BAD_FUNC_ARG;
 
     rc = TPM2_AcquireLock(ctx);
@@ -3477,22 +3479,21 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
         TPM2_Packet_AppendU32(&packet, in->sequenceHandle);
         TPM2_Packet_AppendU32(&packet, in->keyHandle);
 
-        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
         /* Part 3 §20.3 Table 118: parameters are {signature} only — no
          * buffer field. Message was accumulated via SequenceUpdate. */
         TPM2_Packet_AppendSignature(&packet, &in->signature);
 
-        TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifySequenceComplete);
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_VerifySequenceComplete);
 
         /* send command */
         rc = TPM2_SendCommandAuth(ctx, &packet, &info);
         if (rc == TPM_RC_SUCCESS) {
             UINT32 paramSz = 0;
 
-            if (st == TPM_ST_SESSIONS) {
-                TPM2_Packet_ParseU32(&packet, &paramSz);
-            }
+            TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);

@@ -88,11 +88,15 @@ jobs:
           # classical paths with -DWOLFTPM_V185 set and never exercise an
           # Encapsulate or SignSequenceComplete opcode. Fail fast if any of
           # the 8 new v1.85 command codes is absent from the seed corpus.
+          # Seeds are binary; opcodes appear as raw 4-byte big-endian
+          # sequences. Hex-dump the concatenated corpus and grep the
+          # resulting hex stream for each opcode's bytes.
+          CORPUS_HEX=$(cat tests/fuzz/corpus/*.bin | xxd -p | tr -d '\n')
           MISSING=()
-          for cc in 0x000001A3 0x000001A4 0x000001A5 0x000001A6 \
-                    0x000001A7 0x000001A8 0x000001A9 0x000001AA; do
-            if ! grep -rqi "$cc" tests/fuzz/corpus/ 2>/dev/null; then
-              MISSING+=("$cc")
+          for cc in 000001a3 000001a4 000001a5 000001a6 \
+                    000001a7 000001a8 000001a9 000001aa; do
+            if ! echo "$CORPUS_HEX" | grep -q "$cc"; then
+              MISSING+=("0x${cc^^}")
             fi
           done
           if [ ${#MISSING[@]} -gt 0 ]; then

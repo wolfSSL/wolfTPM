@@ -5599,6 +5599,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
     VerifySequenceComplete_In verifySeqCompleteIn;
     VerifySequenceComplete_Out verifySeqCompleteOut;
     TPMT_SIGNATURE signature;
+    WOLFTPM2_HANDLE seqHandleObj;
 
     if (dev == NULL || key == NULL || sig == NULL || sigSz <= 0) {
         return BAD_FUNC_ARG;
@@ -5622,6 +5623,15 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
             return rc;
         }
     }
+
+    /* Part 3 §20.3 Table 118: @sequenceHandle has Auth Role: USER. Install
+     * the sequence-handle auth into session slot 0 so the marshaler computes
+     * the HMAC against the auth value bound at VerifySequenceStart (rather
+     * than whatever auth the slot inherited from a prior command). Mirrors
+     * wolfTPM2_SignSequenceComplete (line 5415-5417). */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
 
     XMEMSET(&verifySeqCompleteIn, 0, sizeof(verifySeqCompleteIn));
     verifySeqCompleteIn.sequenceHandle = sequenceHandle;

@@ -1002,10 +1002,14 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_ALG_SYMCIPHER, 0x0060 },
             #endif
             #ifdef WOLFTPM_V185
-                /* v1.85 PQC object types (asymmetric|object). */
-                { TPM_ALG_MLKEM,      0x0009 },
-                { TPM_ALG_MLDSA,      0x0009 },
-                { TPM_ALG_HASH_MLDSA, 0x0009 },
+                /* v1.85 PQC object types per Part 2 §8.2 Table 35:
+                 *   bit 0 asymmetric, bit 3 object,
+                 *   bit 8 signing, bit 9 encrypting.
+                 * MLKEM is encrypting (encap/decap); MLDSA / Hash-MLDSA are
+                 * signing. */
+                { TPM_ALG_MLKEM,      0x0209 }, /* asymmetric|object|encrypting */
+                { TPM_ALG_MLDSA,      0x0109 }, /* asymmetric|object|signing */
+                { TPM_ALG_HASH_MLDSA, 0x0109 }, /* asymmetric|object|signing */
             #endif
                 { TPM_ALG_NULL,      0x0000 },
             };
@@ -4469,7 +4473,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * proofValue (if any) signs tickets produced by this key; default
          * to TPM_RH_NULL when caller passed 0 so the resulting object
          * cannot forge tickets in any real hierarchy. */
-        obj->hierarchy = (hierarchy != 0) ? hierarchy : TPM_RH_NULL;
+        obj->hierarchy = (hierarchy != 0) ? hierarchy : (UINT32)TPM_RH_NULL;
     }
 
     if (rc == 0) {
@@ -13600,6 +13604,13 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_COMMAND_SIZE;
     }
 
+    /* Part 3 §20.3.2 Table 118: Auth Index 1, Auth Role USER on
+     * @sequenceHandle — the command tag MUST be TPM_ST_SESSIONS.
+     * NO_SESSIONS bypasses the mandatory sequence-handle auth. */
+    if (rc == 0 && cmdTag != TPM_ST_SESSIONS) {
+        rc = TPM_RC_AUTH_MISSING;
+    }
+
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &sequenceHandle);
         TPM2_Packet_ParseU32(cmd, &keyHandle);
@@ -13968,6 +13979,13 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (obj == NULL) {
             rc = TPM_RC_HANDLE;
         }
+    }
+
+    /* Part 3 §20.4.1: keyHandle must reference a signing key. Reject keys
+     * with TPMA_OBJECT_sign CLEAR (TPM_RC_KEY) before any scheme check —
+     * scheme errors are TPM_RC_SCHEME, "not a signing key" is TPM_RC_KEY. */
+    if (rc == 0 && !(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        rc = TPM_RC_KEY;
     }
 
     /* Skip auth area (no mandatory auth — Part 3 §20.4 Auth Index: None) */

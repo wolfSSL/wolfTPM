@@ -3209,6 +3209,171 @@ static void test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing(void)
     fwtpm_pass("SignSeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
 }
 
+/* Per Part 3 §20.3.2 Table 118, TPM2_VerifySequenceComplete has
+ * tag = TPM_ST_SESSIONS unconditionally (Auth Role: USER on
+ * @sequenceHandle). NO_SESSIONS bypasses the mandatory auth gate. */
+static void test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    UINT32 mldsaHandle, seqHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
+
+    /* Start a verify sequence (NO_SESSIONS allowed there). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Complete with NO_SESSIONS — must be rejected. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, mldsaHandle); pos += 4;
+    /* Empty signature; rejection happens before parse. */
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifySeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
+}
+
+/* Per Part 3 §20.4.1, keyHandle for VerifyDigestSignature must be a
+ * signing key. The pre-fix handler only validated the wire sigAlg type
+ * vs obj type; a key whose TPMA_OBJECT_sign is CLEAR would slip through.
+ * To exercise the path without LoadExternal plumbing, mutate the object's
+ * attributes via the public objects[] table after CreatePrimary. */
+static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz, oi;
+    UINT32 keyHandle;
+    FWTPM_Object* obj = NULL;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Strip TPMA_OBJECT_sign on the loaded object — simulates a non-signing
+     * MLDSA public key as could arrive via LoadExternal. */
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == keyHandle) {
+            obj = &ctx.objects[oi];
+            break;
+        }
+    }
+    AssertNotNull(obj);
+    obj->pub.objectAttributes &= ~TPMA_OBJECT_sign;
+
+    /* VerifyDigestSignature with empty sig — handler must reject on
+     * TPMA_OBJECT_sign before parsing the signature body. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context */
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifyDigestSig non-signing key (KEY):", 1);
+}
+
+/* Per Part 2 §8.2 Table 35, TPMA_ALGORITHM bits include signing (8)
+ * and encrypting (9). The PQC algorithms must report these in TPM_CAP_ALGS
+ * so v1.85-aware clients see them as signing/encrypting schemes, not bare
+ * "asymmetric objects". */
+static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, off;
+    UINT32 count, i;
+    int sawMlkem = 0, sawMldsa = 0, sawHashMldsa = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_ALGS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 256); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* moreData(1) | capability(4) | count(4) | { alg(2) attrs(4) } */
+    off = TPM2_HEADER_SIZE + 1 + 4;
+    count = GetU32BE(gRsp + off); off += 4;
+    for (i = 0; i < count; i++) {
+        UINT16 alg = GetU16BE(gRsp + off);
+        UINT32 attrs = GetU32BE(gRsp + off + 2);
+        off += 6;
+        if (alg == TPM_ALG_MLKEM) {
+            AssertIntEQ(attrs & 0x1, 1);   /* asymmetric */
+            AssertIntEQ(attrs & 0x8, 8);   /* object */
+            AssertIntEQ(attrs & 0x200, 0x200); /* encrypting */
+            sawMlkem = 1;
+        }
+        else if (alg == TPM_ALG_MLDSA) {
+            AssertIntEQ(attrs & 0x1, 1);
+            AssertIntEQ(attrs & 0x8, 8);
+            AssertIntEQ(attrs & 0x100, 0x100); /* signing */
+            sawMldsa = 1;
+        }
+        else if (alg == TPM_ALG_HASH_MLDSA) {
+            AssertIntEQ(attrs & 0x1, 1);
+            AssertIntEQ(attrs & 0x8, 8);
+            AssertIntEQ(attrs & 0x100, 0x100); /* signing */
+            sawHashMldsa = 1;
+        }
+    }
+    AssertIntEQ(sawMlkem, 1);
+    AssertIntEQ(sawMldsa, 1);
+    AssertIntEQ(sawHashMldsa, 1);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCap ALGS PQC signing/encrypting bits:", 1);
+}
+
 /* Hash-ML-DSA verify ticket must bind the verified digest, not just
  * keyName. Pre-fix the ticket data was {keyName} for Hash-ML-DSA
  * because seq->msgBuf is never populated on that path (SequenceUpdate
@@ -5813,6 +5978,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_decapsulate_no_sessions_returns_auth_missing();
     test_fwtpm_signdigest_no_sessions_returns_auth_missing();
     test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing();
+    test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing();
+    test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
+    test_fwtpm_getcap_pqc_algorithm_attrs();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
     test_fwtpm_pqc_nv_persistence();
