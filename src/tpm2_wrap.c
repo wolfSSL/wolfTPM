@@ -2670,6 +2670,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
 
     /* setup create primary command */
     XMEMSET(&createPriIn, 0, sizeof(createPriIn));
+    XMEMSET(&createPriOut, 0, sizeof(createPriOut));
     /* TPM_RH_OWNER, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM or TPM_RH_NULL */
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {

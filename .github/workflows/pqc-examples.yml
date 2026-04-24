@@ -103,11 +103,22 @@ jobs:
 
       # ----- Tier 5: full run_examples.sh sweep -----
       # run_examples.sh does not start its own TPM — it expects one already
-      # listening. Reuse the fwtpm_server started in Tier 2.
+      # listening. Reuse the fwtpm_server started in Tier 2. Trace each
+      # command (set -x) so the failing call line is in the CI log; on
+      # failure, dump run.out (where the script redirects example stdout).
       - name: run_examples.sh full pass (auto-detects v1.85, runs 18-way matrix)
         env:
           WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
-        run: ./examples/run_examples.sh
+        run: |
+          bash -x ./examples/run_examples.sh
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "=== run.out (last 200 lines) ==="
+            tail -200 run.out
+            echo "=== fwtpm_server.log (last 100 lines) ==="
+            tail -100 /tmp/fwtpm_server.log
+          fi
+          exit $rc
 
       - name: Stop fwtpm_server
         if: always()
@@ -128,4 +139,5 @@ jobs:
             test-suite.log
             tests/*.log
             config.log
+            run.out
           retention-days: 5
