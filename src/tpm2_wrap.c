@@ -2285,6 +2285,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 #if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+#include <wolfssl/wolfcrypt/mlkem.h>
+
 /* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 §24
  * (p.316) and §47.4 Equation 66 (Labeled KEM): caller encapsulates under
  * the TPM's ML-KEM public key, then post-processes the raw ML-KEM shared

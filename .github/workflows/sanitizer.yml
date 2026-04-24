@@ -43,13 +43,11 @@ jobs:
             wolftpm_extra_config: "--enable-v185"
             wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
 
-          # UBSan-v185: required because v1.85 lifts FWTPM_MAX_COMMAND_SIZE
-          # 4096->8192, FWTPM_MAX_DER_SIG_BUF 256->4736, FWTPM_NV_PUBAREA_EST
-          # 600->2720 — these introduce int/size_t conversion + signed-overflow
-          # risk that ASan does NOT catch.
+          # UBSan-v185: same flags as the classical UBSan lane (no `integer`
+          # sanitizer — pre-existing wolfSSL UB at misc.c:117 in Hash_df).
           - name: "UBSan-v185"
             cc: clang
-            cflags: "-fsanitize=undefined,integer -fno-sanitize-recover=all -O1 -g"
+            cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=undefined"
             ubsan_options: "halt_on_error=1:print_stacktrace=1"
             wolftpm_extra_config: "--enable-v185"

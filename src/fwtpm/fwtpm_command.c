@@ -3652,7 +3652,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 s;
     UINT8 selectSize = 0;
 
-    FWTPM_ALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
+    FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_CALLOC_BUF(sensData, FWTPM_MAX_DATA_BUF);
     FWTPM_CALLOC_VAR(inPublic, TPM2B_PUBLIC);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);
@@ -4233,7 +4233,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramSzPos = 0, paramStart = 0;
 
     FWTPM_ALLOC_BUF(qBuf, FWTPM_MAX_DER_SIG_BUF);
-    FWTPM_ALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
+    FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
 
     if (cmdSize < TPM2_HEADER_SIZE) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -4553,7 +4553,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     FWTPM_ALLOC_BUF(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
     FWTPM_ALLOC_BUF(symSeedBuf, FWTPM_MAX_PUB_BUF);
-    FWTPM_ALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
+    FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_ALLOC_BUF(pubAreaBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_ALLOC_BUF(primeBuf, FWTPM_MAX_DER_SIG_BUF);
@@ -5636,7 +5636,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int paramStart = 0;
     FWTPM_DECLARE_VAR(outPub, TPM2B_PUBLIC);
 
-    FWTPM_ALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
+    FWTPM_CALLOC_BUF(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_CALLOC_BUF(sensData, FWTPM_MAX_DATA_BUF);
     FWTPM_CALLOC_VAR(inPublic, TPM2B_PUBLIC);
     FWTPM_CALLOC_VAR(outPrivate, TPM2B_PRIVATE);

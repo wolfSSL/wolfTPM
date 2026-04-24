@@ -304,14 +304,12 @@ jobs:
             needs_install: true
 
           # v1.85 PQC: swtpm-backed wrapper coverage. Triggers run_examples.sh
-          # auto-detect of WOLFTPM_V185 (config.h) and runs the 18-way keygen
-          # PQC matrix (-mldsa=44|65|87, -hash_mldsa=44|65|87, -mlkem=512|768|1024).
-          # Complements the fwtpm-v185 entry — different command-dispatch route.
-          # SWTPM transport is the Linux configure default (configure.ac:287).
-          - name: v185-pqc-swtpm
+          # Build-only: --enable-v185 against PQC+pkcallbacks wolfSSL. swtpm
+          # has no PQC, so runtime PQC tests live in fwtpm-v185.
+          - name: v185-pqc-swtpm-build
             wolfssl_config: "--enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
             wolftpm_config: "--enable-v185"
-            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+            test_command: "make"
 
           # Regression: build the v185-pq-support branch WITHOUT --enable-v185
           # to catch #ifdef WOLFTPM_V185 drift in tpm2_packet.c / tpm2_wrap.c
