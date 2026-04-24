@@ -267,8 +267,12 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
         nvIndex);
 
     if (!nvExtend && !partialRead) {
-        /* get SRK */
-        rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+        /* Select the SRK algorithm based on the stored key's type so an
+         * ECC child isn't loaded under an RSA parent (or vice versa). */
+        TPMI_ALG_PUBLIC srkAlg =
+            (keyBlob.pub.publicArea.type == TPM_ALG_ECC)
+                ? TPM_ALG_ECC : TPM_ALG_RSA;
+        rc = getPrimaryStoragekey(&dev, &storage, srkAlg);
         if (rc != 0) goto exit;
 
         printf("Trying to load the key extracted from NVRAM\n");
