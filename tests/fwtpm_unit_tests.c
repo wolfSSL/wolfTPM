@@ -2731,6 +2731,7 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
     byte ticketHmacIn[2 + 32 + sizeof(TPM2B_NAME) + 2];
     int ticketHmacInSz = 0;
     int hmacExpectedSz = 0;
+    byte metaBytes[2];
     FWTPM_Object* obj;
 
     FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
@@ -2821,16 +2822,16 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
         FwComputeObjectName(obj);
     }
     ticketHmacInSz = 0;
-    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ST_DIGEST_VERIFIED >> 8);
-    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ST_DIGEST_VERIFIED);
     XMEMCPY(ticketHmacIn + ticketHmacInSz, digest, 32);
     ticketHmacInSz += 32;
     XMEMCPY(ticketHmacIn + ticketHmacInSz, obj->name.name, obj->name.size);
     ticketHmacInSz += obj->name.size;
-    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ALG_SHA256 >> 8);
-    ticketHmacIn[ticketHmacInSz++] = (byte)(TPM_ALG_SHA256);
+    metaBytes[0] = (byte)(TPM_ALG_SHA256 >> 8);
+    metaBytes[1] = (byte)(TPM_ALG_SHA256);
     rc = FwComputeTicketHmac(&ctx, valHier, obj->pub.nameAlg,
+        TPM_ST_DIGEST_VERIFIED,
         ticketHmacIn, ticketHmacInSz,
+        metaBytes, 2,
         hmacExpected, &hmacExpectedSz);
     AssertIntEQ(rc, 0);
     AssertIntEQ(hmacExpectedSz, hmacSz);

@@ -76,9 +76,13 @@ byte* FwGetHierarchySeed(FWTPM_CTX* ctx, UINT32 hierarchy);
 int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     TPMI_ALG_HASH hashAlg, byte* proofOut, int proofSize);
 
+/* Compute ticket HMAC per Part 2 §10.6.5 Eq (5):
+ *   hmac = HMAC(proof(hierarchy), ticketTag || data || metadata)
+ * Pass metadata=NULL/0 for tags whose TPMU_TK_VERIFIED_META is empty. */
 int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
-    TPMI_ALG_HASH hashAlg,
+    TPMI_ALG_HASH hashAlg, UINT16 ticketTag,
     const byte* data, int dataSz,
+    const byte* metadata, int metadataSz,
     byte* hmacOut, int* hmacOutSz);
 
 int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,

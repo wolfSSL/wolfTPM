@@ -6058,7 +6058,10 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && ticketSupplied) {
         rc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
-            digest.buffer, digest.size, expectedHmac, &expectedSz);
+            TPM_ST_HASHCHECK,
+            digest.buffer, digest.size,
+            NULL, 0,
+            expectedHmac, &expectedSz);
         if (rc != 0 || vdSz != (UINT16)expectedSz ||
                 TPM2_ConstantCompare(ticketDigest, expectedHmac,
                     (word32)expectedSz) != 0) {
@@ -8666,7 +8669,10 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * so timing doesn't leak size match */
             if (rc == 0) {
                 hmacRc = FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
-                    ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+                    TPM_ST_VERIFIED,
+                    ticketInput, ticketInputSz,
+                    NULL, 0,
+                    expectedHmac, &expectedSz);
                 sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
                 cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
                     ticketDigestSz : (word32)expectedSz;
@@ -9988,7 +9994,10 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * leak whether size matched */
         if (rc == 0) {
             hmacRc = FwComputeTicketHmac(ctx, ticketHier, sess->authHash,
-                ticketInput, ticketInputSz, expectedHmac, &expectedSz);
+                ticketTag,
+                ticketInput, ticketInputSz,
+                NULL, 0,
+                expectedHmac, &expectedSz);
             sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
             cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
                 ticketDigestSz : (word32)expectedSz;
@@ -11835,7 +11844,9 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             ticketDataSz += objToSign->name.size;
 
             if (FwComputeTicketHmac(ctx, hier, objToSign->pub.nameAlg,
+                    TPM_ST_CREATION,
                     ticketData, ticketDataSz,
+                    NULL, 0,
                     expectedHmac, &expectedSz) != 0 ||
                 tickDSz != (UINT16)expectedSz ||
                 TPM2_ConstantCompare(ticketDigest, expectedHmac,
@@ -13876,7 +13887,6 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_TICKET;
         }
         else {
-            byte ticketHmacIn[2 + TPM_MAX_DIGEST_SIZE];
             byte expectedHmac[TPM_MAX_DIGEST_SIZE];
             int expectedHmacSz = 0;
             TPMI_ALG_HASH ticketHashAlg =
@@ -13884,12 +13894,10 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     ? obj->pub.parameters.hash_mldsaDetail.hashAlg
                     : obj->pub.nameAlg;
 
-            ticketHmacIn[0] = (byte)(TPM_ST_HASHCHECK >> 8);
-            ticketHmacIn[1] = (byte)(TPM_ST_HASHCHECK);
-            XMEMCPY(ticketHmacIn + 2, digest->buffer, digest->size);
-
             rc = FwComputeTicketHmac(ctx, validationHier, ticketHashAlg,
-                ticketHmacIn, 2 + digest->size,
+                TPM_ST_HASHCHECK,
+                digest->buffer, digest->size,
+                NULL, 0,
                 expectedHmac, &expectedHmacSz);
             if (rc == 0 &&
                 (validationDigestSz != (UINT16)expectedHmacSz ||

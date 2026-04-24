@@ -254,14 +254,19 @@ int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     return 0;
 }
 
-/** \brief Compute ticket HMAC = HMAC(proofValue, data).
- * Used for TPMT_TK_HASHCHECK, TPMT_TK_VERIFIED, TPMT_TK_CREATION. */
+/** \brief Compute ticket HMAC per Part 2 §10.6.5 Eq (5):
+ *    hmac = HMAC(proof(hierarchy), ticketTag || data || metadata)
+ * Pass metadata=NULL and metadataSz=0 for ticket types whose
+ * TPMU_TK_VERIFIED_META is empty (HASHCHECK, VERIFIED, CREATION,
+ * MESSAGE_VERIFIED, AUTH_*). */
 int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
-    TPMI_ALG_HASH hashAlg,
+    TPMI_ALG_HASH hashAlg, UINT16 ticketTag,
     const byte* data, int dataSz,
+    const byte* metadata, int metadataSz,
     byte* hmacOut, int* hmacOutSz)
 {
     byte proof[TPM_MAX_DIGEST_SIZE];
+    byte tagBytes[2];
     int proofSz = TPM2_GetHashDigestSize(hashAlg);
     FWTPM_DECLARE_VAR(hmacCtx, Hmac);
     enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
@@ -274,6 +279,9 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
         return TPM_RC_HASH;
     }
 
+    tagBytes[0] = (byte)(ticketTag >> 8);
+    tagBytes[1] = (byte)(ticketTag);
+
     rc = FwComputeProofValue(ctx, hierarchy, hashAlg, proof, proofSz);
     if (rc == 0) {
         rc = wc_HmacInit(hmacCtx, NULL, INVALID_DEVID);
@@ -282,7 +290,13 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
         rc = wc_HmacSetKey(hmacCtx, (int)wcHash, proof, (word32)proofSz);
     }
     if (rc == 0) {
+        rc = wc_HmacUpdate(hmacCtx, tagBytes, 2);
+    }
+    if (rc == 0 && dataSz > 0) {
         rc = wc_HmacUpdate(hmacCtx, data, (word32)dataSz);
+    }
+    if (rc == 0 && metadataSz > 0) {
+        rc = wc_HmacUpdate(hmacCtx, metadata, (word32)metadataSz);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmacCtx, hmacOut);
@@ -315,9 +329,9 @@ int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     const byte* data, int dataSz,
     const byte* metadata, int metadataSz)
 {
-    byte tagBytes[2];
-    tagBytes[0] = (byte)(ticketTag >> 8);
-    tagBytes[1] = (byte)(ticketTag);
+    byte ticketHmac[TPM_MAX_DIGEST_SIZE];
+    int ticketHmacSz = 0;
+    int rc;
 
     if (hierarchy == TPM_RH_NULL) {
         TPM2_Packet_AppendU16(rsp, ticketTag);
@@ -328,59 +342,21 @@ int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
         TPM2_Packet_AppendU16(rsp, 0);
         return TPM_RC_SUCCESS;
     }
-    else {
-        byte ticketHmac[TPM_MAX_DIGEST_SIZE];
-        byte proof[TPM_MAX_DIGEST_SIZE];
-        int proofSz = TPM2_GetHashDigestSize(hashAlg);
-        FWTPM_DECLARE_VAR(hmacCtx, Hmac);
-        enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
-        int rc;
 
-        FWTPM_ALLOC_VAR(hmacCtx, Hmac);
-
-        if (proofSz <= 0) {
-            FWTPM_FREE_VAR(hmacCtx);
-            return TPM_RC_HASH;
-        }
-
-        rc = FwComputeProofValue(ctx, hierarchy, hashAlg, proof, proofSz);
-        if (rc == 0) {
-            rc = wc_HmacInit(hmacCtx, NULL, INVALID_DEVID);
-        }
-        if (rc == 0) {
-            rc = wc_HmacSetKey(hmacCtx, (int)wcHash, proof, (word32)proofSz);
-        }
-        if (rc == 0) {
-            rc = wc_HmacUpdate(hmacCtx, tagBytes, 2);
-        }
-        if (rc == 0 && dataSz > 0) {
-            rc = wc_HmacUpdate(hmacCtx, data, (word32)dataSz);
-        }
-        if (rc == 0 && metadataSz > 0) {
-            rc = wc_HmacUpdate(hmacCtx, metadata, (word32)metadataSz);
-        }
-        if (rc == 0) {
-            rc = wc_HmacFinal(hmacCtx, ticketHmac);
-        }
-        wc_HmacFree(hmacCtx);
-        TPM2_ForceZero(proof, sizeof(proof));
-        FWTPM_FREE_VAR(hmacCtx);
-
-        if (rc != 0) {
-            TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
-            return TPM_RC_FAILURE;
-        }
-
+    rc = FwComputeTicketHmac(ctx, hierarchy, hashAlg, ticketTag,
+        data, dataSz, metadata, metadataSz,
+        ticketHmac, &ticketHmacSz);
+    if (rc == 0) {
         TPM2_Packet_AppendU16(rsp, ticketTag);
         TPM2_Packet_AppendU32(rsp, hierarchy);
         if (metadataSz > 0) {
             TPM2_Packet_AppendBytes(rsp, (byte*)metadata, metadataSz);
         }
-        TPM2_Packet_AppendU16(rsp, (UINT16)proofSz);
-        TPM2_Packet_AppendBytes(rsp, ticketHmac, proofSz);
-        TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
-        return TPM_RC_SUCCESS;
+        TPM2_Packet_AppendU16(rsp, (UINT16)ticketHmacSz);
+        TPM2_Packet_AppendBytes(rsp, ticketHmac, ticketHmacSz);
     }
+    TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
+    return rc;
 }
 
 /** \brief Compute creationHash from serialized creationData in response buffer,
