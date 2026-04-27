@@ -20,7 +20,7 @@
  */
 
 /* Example: ML-KEM Encapsulate / Decapsulate round-trip using wolfTPM2
- * wrappers. Per TCG TPM 2.0 v1.85 Part 3 §14.10 / §14.11. */
+ * wrappers. Per TCG TPM 2.0 v1.85 Part 3 Sec.14.10 / Sec.14.11. */
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>

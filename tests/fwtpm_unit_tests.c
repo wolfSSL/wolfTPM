@@ -1086,7 +1086,7 @@ static void test_fwtpm_create_primary_mldsa(void)
  * supplied parent handle. Server's FwCmd_CreateLoaded requires a loaded
  * object as parent (not a hierarchy), so the test must first create a
  * storage SRK and pass its handle here. No outsideInfo or creationPCR —
- * CreateLoaded omits those per Part 3 §30.2. */
+ * CreateLoaded omits those per Part 3 Sec.30.2. */
 static int BuildCreateLoadedCmd(byte* buf, TPM_ALG_ID algType,
     UINT32 parentHandle)
 {
@@ -1695,7 +1695,7 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
 
     /* VerifyDigestSignature: the NIST MLDSA-44 vector is Pure MLDSA (ext-mu
      * is not set), so VerifyDigestSignature would return TPM_RC_EXT_MU per
-     * Part 2 §12.2.3.7 since allowExternalMu=NO. This LoadExternal test
+     * Part 2 Sec.12.2.3.7 since allowExternalMu=NO. This LoadExternal test
      * proves the PQC pub area round-trips through fwTPM's handler; full
      * Pure-MLDSA verify via VerifySequenceComplete is covered by the
      * sequence round-trip test. Skipping the verify half here — the
@@ -1746,7 +1746,7 @@ static UINT32 fwtpm_neg_mk_mldsa_primary(FWTPM_CTX* ctx)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
-/* Handler 1: TPM2_Encapsulate. Part 3 §14.10. */
+/* Handler 1: TPM2_Encapsulate. Part 3 Sec.14.10. */
 static void test_fwtpm_encapsulate_neg(void)
 {
     FWTPM_CTX ctx;
@@ -1777,7 +1777,7 @@ static void test_fwtpm_encapsulate_neg(void)
     fwtpm_pass("Encapsulate negatives (HANDLE/KEY):", 1);
 }
 
-/* Handler 2: TPM2_Decapsulate. Part 3 §14.11. */
+/* Handler 2: TPM2_Decapsulate. Part 3 Sec.14.11. */
 static void test_fwtpm_decapsulate_neg(void)
 {
     FWTPM_CTX ctx;
@@ -1832,7 +1832,7 @@ static void test_fwtpm_decapsulate_neg(void)
     fwtpm_pass("Decapsulate negatives (KEY/SIZE):", 1);
 }
 
-/* Handler 3: TPM2_SignSequenceStart. Part 3 §17.5 Table 89. */
+/* Handler 3: TPM2_SignSequenceStart. Part 3 Sec.17.5 Table 89. */
 static void test_fwtpm_signseqstart_neg(void)
 {
     FWTPM_CTX ctx;
@@ -1843,7 +1843,7 @@ static void test_fwtpm_signseqstart_neg(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     /* TPM_RC_KEY: MLKEM is a decrypt-only KEM key — keyHandle `does not
-     * refer to a signing key` per Part 3 §17.5.1. TPM_RC_SCHEME is
+     * refer to a signing key` per Part 3 Sec.17.5.1. TPM_RC_SCHEME is
      * reserved for signing keys whose scheme is TPM_ALG_NULL (or
      * unsupported). */
     mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
@@ -1878,7 +1878,7 @@ static void test_fwtpm_signseqstart_neg(void)
     fwtpm_pass("SignSeqStart negatives (KEY/HANDLE):", 1);
 }
 
-/* Handler 4: TPM2_VerifySequenceStart. Part 3 §17.6 Table 87. */
+/* Handler 4: TPM2_VerifySequenceStart. Part 3 Sec.17.6 Table 87. */
 static void test_fwtpm_verifyseqstart_neg(void)
 {
     FWTPM_CTX ctx;
@@ -1890,7 +1890,7 @@ static void test_fwtpm_verifyseqstart_neg(void)
 
     mldsaHandle = fwtpm_neg_mk_mldsa_primary(&ctx);
 
-    /* TPM_RC_VALUE: non-zero hint for MLDSA per Part 2 §11.3.9
+    /* TPM_RC_VALUE: non-zero hint for MLDSA per Part 2 Sec.11.3.9
      * (hint is EdDSA-only). */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
@@ -1908,7 +1908,7 @@ static void test_fwtpm_verifyseqstart_neg(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
 
-    /* TPM_RC_KEY: MLKEM is not a signing key per Part 3 §17.6.1. */
+    /* TPM_RC_KEY: MLKEM is not a signing key per Part 3 Sec.17.6.1. */
     mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
@@ -1928,7 +1928,7 @@ static void test_fwtpm_verifyseqstart_neg(void)
     fwtpm_pass("VerifySeqStart negatives (VALUE/KEY):", 1);
 }
 
-/* Handler 5: TPM2_SignSequenceComplete. Part 3 §20.6. */
+/* Handler 5: TPM2_SignSequenceComplete. Part 3 Sec.20.6. */
 static void test_fwtpm_signseqcomplete_neg(void)
 {
     FWTPM_CTX ctx;
@@ -1999,7 +1999,7 @@ static void test_fwtpm_signseqcomplete_neg(void)
     fwtpm_pass("SignSeqComplete negatives (HANDLE):", 1);
 }
 
-/* Handler 6: TPM2_VerifySequenceComplete. Part 3 §20.3. */
+/* Handler 6: TPM2_VerifySequenceComplete. Part 3 Sec.20.3. */
 static void test_fwtpm_verifyseqcomplete_neg(void)
 {
     FWTPM_CTX ctx;
@@ -2030,7 +2030,7 @@ static void test_fwtpm_verifyseqcomplete_neg(void)
     fwtpm_pass("VerifySeqComplete negatives (HANDLE):", 1);
 }
 
-/* Handler 7: TPM2_SignDigest. Part 3 §20.7. */
+/* Handler 7: TPM2_SignDigest. Part 3 Sec.20.7. */
 static void test_fwtpm_signdigest_neg(void)
 {
     FWTPM_CTX ctx;
@@ -2041,7 +2041,7 @@ static void test_fwtpm_signdigest_neg(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     /* TPM_RC_ATTRIBUTES: Pure MLDSA key with allowExternalMu=NO per Part 2
-     * §12.2.3.6. Default MLDSA primary is built with allowExternalMu=NO.
+     * Sec.12.2.3.6. Default MLDSA primary is built with allowExternalMu=NO.
      * The RC is a key-attribute error, not the TPM-capability error
      * TPM_RC_EXT_MU (that RC is reserved for object creation / TestParms
      * on TPMs that do not support ext-μ at all). */
@@ -2068,7 +2068,7 @@ static void test_fwtpm_signdigest_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
 
     /* TPM_RC_SCHEME: valid key with unsupported signing scheme (MLKEM is a
-     * decrypt key). Per Part 3 §20.7.1 the RC is SCHEME (the key's scheme
+     * decrypt key). Per Part 3 Sec.20.7.1 the RC is SCHEME (the key's scheme
      * isn't supported here), not KEY (which means "not a key at all"). */
     mlkemHandle = fwtpm_neg_mk_mlkem_primary(&ctx);
     pos = 0;
@@ -2149,7 +2149,7 @@ static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
     fwtpm_pass("SignDigest malformed HASHCHECK tag rejected:", 1);
 }
 
-/* NULL Verified Tickets must omit any metadata bytes. Per Part 2 §10.6.5
+/* NULL Verified Tickets must omit any metadata bytes. Per Part 2 Sec.10.6.5
  * every NULL Verified Ticket is encoded as the 3-tuple
  * <tag, TPM_RH_NULL, 0x0000>; the TPMU_TK_VERIFIED_META bytes for
  * TPM_ST_DIGEST_VERIFIED are NOT included when hierarchy == TPM_RH_NULL.
@@ -2198,7 +2198,7 @@ static void test_fwtpm_appendticket_null_digest_verified_no_metadata(void)
     fwtpm_pass("FwAppendTicket NULL DIGEST_VERIFIED no metadata:", 1);
 }
 
-/* Handler 8: TPM2_VerifyDigestSignature. Part 3 §20.4. */
+/* Handler 8: TPM2_VerifyDigestSignature. Part 3 Sec.20.4. */
 static void test_fwtpm_verifydigestsig_neg(void)
 {
     FWTPM_CTX ctx;
@@ -2235,7 +2235,7 @@ static void test_fwtpm_verifydigestsig_neg(void)
  * ML-DSA is not single-pass — SHAKE256 supports incremental absorption,
  * so SequenceUpdate + SignSequenceComplete with an accumulated message
  * MUST succeed (TPM_RC_ONE_SHOT_SIGNATURE is reserved for truly one-shot
- * schemes per Part 3 §20.6.1, e.g. EDDSA). */
+ * schemes per Part 3 Sec.20.6.1, e.g. EDDSA). */
 static void test_fwtpm_sequenceupdate_neg(void)
 {
     FWTPM_CTX ctx;
@@ -2304,7 +2304,7 @@ static void test_fwtpm_sequenceupdate_neg(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignSeqComplete Pure-MLDSA streaming (FIPS 204 §6):", 1);
+    fwtpm_pass("SignSeqComplete Pure-MLDSA streaming (FIPS 204 Sec.6):", 1);
 }
 
 /* ---- TCG compliance: v1.85 spec-RC fixtures -------------------------- */
@@ -2353,7 +2353,7 @@ static int BuildCreatePrimaryHashMldsaAttrs(byte* buf, UINT32 attributes)
 }
 
 /* SignDigest with a restricted key requires a valid TPMT_TK_HASHCHECK per
- * Part 3 §20.7.1; a NULL ticket is insufficient and must return
+ * Part 3 Sec.20.7.1; a NULL ticket is insufficient and must return
  * TPM_RC_TICKET (not TPM_RC_ATTRIBUTES — that RC is reserved for the
  * x509sign attribute, see the dedicated x509sign test below). */
 static void test_fwtpm_signdigest_restricted_null_ticket_returns_ticket(void)
@@ -2399,7 +2399,7 @@ static void test_fwtpm_signdigest_restricted_null_ticket_returns_ticket(void)
     fwtpm_pass("SignDigest restricted+NULL ticket (TICKET):", 1);
 }
 
-/* SignDigest with x509sign returns TPM_RC_ATTRIBUTES per Part 3 §20.7.1.
+/* SignDigest with x509sign returns TPM_RC_ATTRIBUTES per Part 3 Sec.20.7.1.
  * x509sign restricts the key to X.509 certificate-style signing only and
  * is enforced regardless of any supplied ticket. */
 static void test_fwtpm_signdigest_x509sign_returns_attributes(void)
@@ -2523,7 +2523,7 @@ static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
 }
 
 /* F-4: VerifyDigestSignature rejects sigHashAlg != key's hashAlg with
- * TPM_RC_SCHEME per Part 3 §20.4.1. Key is Hash-ML-DSA-65/SHA-256; wire
+ * TPM_RC_SCHEME per Part 3 Sec.20.4.1. Key is Hash-ML-DSA-65/SHA-256; wire
  * signature carries sigHashAlg=SHA-384. Full signature bytes follow the
  * header but are irrelevant — the scheme-mismatch check fires first. */
 static void test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme(void)
@@ -2565,7 +2565,7 @@ static void test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme(void)
 }
 
 /* F-6a: CreatePrimary(MLDSA, allowExternalMu=YES) returns TPM_RC_EXT_MU per
- * Part 2 §12.2.3.6 on TPMs that do not implement μ-direct sign. */
+ * Part 2 Sec.12.2.3.6 on TPMs that do not implement μ-direct sign. */
 static void test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu(void)
 {
     FWTPM_CTX ctx;
@@ -2617,7 +2617,7 @@ static void test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu(void)
 }
 
 /* F-6b: TestParms(MLDSA, allowExternalMu=YES) returns TPM_RC_EXT_MU per
- * Part 2 §12.2.3.6 on TPMs that do not implement μ-direct sign. */
+ * Part 2 Sec.12.2.3.6 on TPMs that do not implement μ-direct sign. */
 static void test_fwtpm_testparms_mldsa_extmu_returns_ext_mu(void)
 {
     FWTPM_CTX ctx;
@@ -2642,7 +2642,7 @@ static void test_fwtpm_testparms_mldsa_extmu_returns_ext_mu(void)
 }
 
 /* F-7: SignDigest on Hash-ML-DSA with digest size != key's hashAlg digest
- * size returns TPM_RC_SIZE per Part 3 §20.7.1. Key is SHA-256 (32-byte
+ * size returns TPM_RC_SIZE per Part 3 Sec.20.7.1. Key is SHA-256 (32-byte
  * digest); send 33 bytes. */
 static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
 {
@@ -2686,7 +2686,7 @@ static void test_fwtpm_signdigest_wrong_digest_size_returns_size(void)
 }
 
 /* F-8: SignSequenceComplete with a key whose TPMA_OBJECT_x509sign is SET
- * returns TPM_RC_ATTRIBUTES per Part 3 §20.6.1. x509sign restricts the
+ * returns TPM_RC_ATTRIBUTES per Part 3 Sec.20.6.1. x509sign restricts the
  * key to X.509 certificate signing only; SignSequenceComplete is not that
  * channel. */
 static void test_fwtpm_signseqcomplete_x509sign_returns_attributes(void)
@@ -2750,7 +2750,7 @@ static void test_fwtpm_signseqcomplete_x509sign_returns_attributes(void)
 
 /* F-9: SignSequenceComplete with a restricted key whose message begins
  * with TPM_GENERATED_VALUE (0xFF544347) returns TPM_RC_VALUE per Part 3
- * §20.6.1 — restricted keys MUST NOT sign structures that could be
+ * Sec.20.6.1 — restricted keys MUST NOT sign structures that could be
  * confused with TPM-generated attestations. */
 static void
 test_fwtpm_signseqcomplete_restricted_generated_value_returns_value(void)
@@ -2813,7 +2813,7 @@ test_fwtpm_signseqcomplete_restricted_generated_value_returns_value(void)
     fwtpm_pass("SignSeqComplete restricted+GEN_VAL (VALUE):", 1);
 }
 
-/* TPMT_TK_VERIFIED HMAC must bind tag and metadata per Part 2 §10.6.5
+/* TPMT_TK_VERIFIED HMAC must bind tag and metadata per Part 2 Sec.10.6.5
  * Eq (5): hmac = HMAC(proof, tag || data || keyName || metadata).
  * For TPM_ST_DIGEST_VERIFIED, metadata = 2-byte sigHashAlg. This test
  * drives a digest sign+verify roundtrip, captures the wire ticket HMAC,
@@ -2994,7 +2994,7 @@ static int BuildCreatePrimaryHashMldsaInHierarchy(byte* buf, UINT32 hierarchy)
 }
 
 /* MEDIUM-4: VerifyDigestSignature ticket.hierarchy must reflect the
- * key's actual hierarchy per Part 2 §10.6.5 Table 112. Pre-fix the
+ * key's actual hierarchy per Part 2 Sec.10.6.5 Table 112. Pre-fix the
  * field was hardcoded to TPM_RH_OWNER; a key from any other hierarchy
  * (here ENDORSEMENT) emitted a ticket claiming OWNER, breaking
  * downstream TPM2_PolicyAuthorize-style consumption. */
@@ -3198,7 +3198,9 @@ static void test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key(void)
     pos = TPM2_HEADER_SIZE + 4;
     valTag  = GetU16BE(gRsp + pos); pos += 2;
     valHier = GetU32BE(gRsp + pos); pos += 4;
-    AssertIntEQ(valTag, TPM_ST_MESSAGE_VERIFIED);
+    /* Hash-ML-DSA verifies a digest, not the raw message — the ticket
+     * MUST be tagged DIGEST_VERIFIED per Part 2 Sec.10.6.5 Tables 111/112. */
+    AssertIntEQ(valTag, TPM_ST_DIGEST_VERIFIED);
     AssertIntEQ(valHier, TPM_RH_ENDORSEMENT);
 
     FWTPM_Cleanup(&ctx);
@@ -3206,7 +3208,7 @@ static void test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key(void)
     fwtpm_pass("VerifySeqComplete ticket hierarchy=key:", 1);
 }
 
-/* MEDIUM-5: TPM2_Decapsulate has Auth Role: USER per Part 3 §14.11.2
+/* MEDIUM-5: TPM2_Decapsulate has Auth Role: USER per Part 3 Sec.14.11.2
  * Table 62, so cmdTag MUST be TPM_ST_SESSIONS. A NO_SESSIONS request
  * silently bypassed the auth area entirely; reject with
  * TPM_RC_AUTH_MISSING up front. Same applies to TPM2_SignSequenceComplete
@@ -3314,7 +3316,7 @@ static void test_fwtpm_signseqcomplete_no_sessions_returns_auth_missing(void)
     fwtpm_pass("SignSeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
 }
 
-/* Per Part 3 §20.3.2 Table 118, TPM2_VerifySequenceComplete has
+/* Per Part 3 Sec.20.3.2 Table 118, TPM2_VerifySequenceComplete has
  * tag = TPM_ST_SESSIONS unconditionally (Auth Role: USER on
  * @sequenceHandle). NO_SESSIONS bypasses the mandatory auth gate. */
 static void test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing(void)
@@ -3365,7 +3367,7 @@ static void test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing(void)
     fwtpm_pass("VerifySeqComplete NO_SESSIONS (AUTH_MISSING):", 1);
 }
 
-/* Per Part 3 §20.4.1, keyHandle for VerifyDigestSignature must be a
+/* Per Part 3 Sec.20.4.1, keyHandle for VerifyDigestSignature must be a
  * signing key. The pre-fix handler only validated the wire sigAlg type
  * vs obj type; a key whose TPMA_OBJECT_sign is CLEAR would slip through.
  * To exercise the path without LoadExternal plumbing, mutate the object's
@@ -3421,7 +3423,7 @@ static void test_fwtpm_verifydigestsig_no_sign_attr_returns_key(void)
     fwtpm_pass("VerifyDigestSig non-signing key (KEY):", 1);
 }
 
-/* Per Part 2 §8.2 Table 35, TPMA_ALGORITHM bits include signing (8)
+/* Per Part 2 Sec.8.2 Table 35, TPMA_ALGORITHM bits include signing (8)
  * and encrypting (9). The PQC algorithms must report these in TPM_CAP_ALGS
  * so v1.85-aware clients see them as signing/encrypting schemes, not bare
  * "asymmetric objects". */
@@ -3484,7 +3486,7 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
  * because seq->msgBuf is never populated on that path (SequenceUpdate
  * routes the bytes into seq->hashCtx). Two distinct messages signed by
  * the same key produced byte-identical tickets, breaking
- * TPM2_PolicyAuthorize's chain of trust (Part 2 §10.6.5 Eq (5)). */
+ * TPM2_PolicyAuthorize's chain of trust (Part 2 Sec.10.6.5 Eq (5)). */
 static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
 {
     FWTPM_CTX ctx;
@@ -3706,7 +3708,141 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
     fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds digest:", 1);
 }
 
-/* Per Part 3 §20.6.1 a restricted signing key MUST NOT sign a message
+/* Hash-ML-DSA VerifySequenceComplete authenticated a *digest*, not a raw
+ * message — the response ticket MUST therefore be tagged
+ * TPM_ST_DIGEST_VERIFIED with metadata = pre-hash alg, NOT
+ * TPM_ST_MESSAGE_VERIFIED. Mis-tagging the ticket would mislead a
+ * downstream TPM2_PolicyTicket / TPM2_PolicySigned consumer about what
+ * was actually verified. */
+static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    UINT16 sigSz, ticketTag, metaAlg;
+    UINT32 ticketHier;
+    FWTPM_DECLARE_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    static const byte msg[] = "verify-tag-test-message";
+    UINT32 signSeqHandle, verifySeqHandle;
+
+    FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Sign — produce a Hash-MLDSA signature over msg. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    signSeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, signSeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* Verify — drive VerifySequenceComplete and inspect the ticket tag. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    verifySeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SequenceUpdate(msg) — feed bytes into the hash accumulator. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_HASH_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response: header(10) + paramSize(4) + tag(2) + hierarchy(4) +
+     * [metaAlg(2) if DIGEST_VERIFIED && hier!=NULL] + hmacSize(2) + hmac. */
+    pos = TPM2_HEADER_SIZE + 4;
+    ticketTag = GetU16BE(gRsp + pos); pos += 2;
+    ticketHier = GetU32BE(gRsp + pos); pos += 4;
+    AssertIntEQ(ticketTag, TPM_ST_DIGEST_VERIFIED);
+    /* Hash-ML-DSA primary in OWNER hierarchy → non-NULL ticket carries
+     * metaAlg = pre-hash alg per Part 2 Sec.10.6.5 Table 111 metadata. */
+    AssertIntNE(ticketHier, TPM_RH_NULL);
+    metaAlg = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(metaAlg, TPM_ALG_SHA256);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA tag = DIGEST_VERIFIED:", 1);
+}
+
+/* Per Part 3 Sec.20.6.1 a restricted signing key MUST NOT sign a message
  * whose first 4 bytes are TPM_GENERATED_VALUE (0xFF544347). The check
  * inspects the assembled message; for Hash-ML-DSA the bytes flow into
  * seq->hashCtx (not seq->msgBuf), so an attacker who delivers the
@@ -3788,6 +3924,97 @@ test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete Hash-MLDSA Update+GEN_VAL (VALUE):", 1);
+}
+
+/* SignSequenceComplete with the wrong keyHandle returns
+ * TPM_RC_SIGN_CONTEXT_KEY but MUST also free the sequence slot — leaving
+ * the slot allocated lets a buggy or hostile client exhaust
+ * FWTPM_MAX_SIGN_SEQ slots by repeatedly issuing Start + wrong-key
+ * Complete, denying service to legitimate Sign sequences (CWE-772). */
+static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz, i;
+    UINT32 keyA, keyB, seqHandles[FWTPM_MAX_SIGN_SEQ];
+    UINT32 leakedHandle;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Two distinct Hash-MLDSA primaries — Start binds to keyA, Complete
+     * deliberately passes keyB to trigger TPM_RC_SIGN_CONTEXT_KEY. */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyA = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyB = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(keyA, keyB);
+
+    /* Allocate every sign-seq slot bound to keyA. */
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        pos = 0;
+        PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+        PutU32BE(gCmd + pos, 0); pos += 4;
+        PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+        PutU32BE(gCmd + pos, keyA); pos += 4;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU16BE(gCmd + pos, 0); pos += 2;
+        PutU32BE(gCmd + 2, (UINT32)pos);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        seqHandles[i] = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    }
+
+    /* Complete the first slot with the WRONG key — server returns
+     * TPM_RC_SIGN_CONTEXT_KEY. Slot MUST be freed afterward. */
+    leakedHandle = seqHandles[0];
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, leakedHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyB); pos += 4;  /* WRONG key */
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIGN_CONTEXT_KEY);
+
+    /* Slot must now be free — a fresh SignSequenceStart MUST succeed.
+     * Pre-fix this returns TPM_RC_OBJECT_MEMORY because the slot leaked. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyA); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignSeqComplete wrong key frees slot:", 1);
 }
 
 #ifdef WOLFTPM_V185
@@ -4084,7 +4311,7 @@ static void test_fwtpm_mlkem1024_maxbuf(void)
 /* ---- Sign-seq slot exhaustion ----------------------------------------
  * FWTPM_CTX holds FWTPM_MAX_SIGN_SEQ (4) slots for sign+verify sequences.
  * Starting more than that must return TPM_RC_OBJECT_MEMORY from
- * FwAllocSignSeq per Part 3 §17.5. */
+ * FwAllocSignSeq per Part 3 Sec.17.5. */
 static void test_fwtpm_signseq_slot_exhaustion(void)
 {
     FWTPM_CTX ctx;
@@ -4303,13 +4530,13 @@ static void test_fwtpm_pqc_nv_persistence(void)
  * KDFa-derived seed property that makes fwTPM's cold-boot recovery work. */
 
 /* TPM_CAP_TPM_PROPERTIES returning TPM_PT_ML_PARAMETER_SETS must report the
- * TPMA_ML_PARAMETER_SET bitfield (Part 2 §8.13 Table 46). TPM_CAP_ALGS must
+ * TPMA_ML_PARAMETER_SET bitfield (Part 2 Sec.8.13 Table 46). TPM_CAP_ALGS must
  * list TPM_ALG_MLKEM / _MLDSA / _HASH_MLDSA. */
 static void test_fwtpm_getcap_pqc(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, cmdSz;
-    /* Per Part 2 §12.2.3.6, extMu MUST NOT advertise capability the TPM
+    /* Per Part 2 Sec.12.2.3.6, extMu MUST NOT advertise capability the TPM
      * cannot deliver. wolfCrypt has no μ-direct sign API yet, so SignDigest
      * / VerifyDigestSignature return TPM_RC_SCHEME when allowExternalMu
      * would otherwise be exercised. The bit is intentionally dropped. */
@@ -6089,7 +6316,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
     test_fwtpm_getcap_pqc_algorithm_attrs();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest();
+    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
+    test_fwtpm_signseqcomplete_wrong_key_frees_slot();
     test_fwtpm_pqc_nv_persistence();
     test_fwtpm_signseq_slot_exhaustion();
     test_fwtpm_signseq_longmsg_boundary();

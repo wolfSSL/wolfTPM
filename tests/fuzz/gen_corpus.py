@@ -99,7 +99,7 @@ write_seed("contextsave", tpm_cmd(0x0162, struct.pack(">I", 0x80000000)))
 # --- v1.85 PQC command seeds ---
 # These provide libFuzzer with starting shapes for the 8 new v1.85 commands.
 # They are intentionally minimal / partially malformed in places — the fuzzer
-# mutates them toward interesting inputs. Command codes per Part 2 §6.5.2
+# mutates them toward interesting inputs. Command codes per Part 2 Sec.6.5.2
 # Table 11.
 pw_auth = (struct.pack(">I", 9) +                 # authAreaSize
            struct.pack(">I", 0x40000009) +         # TPM_RS_PW

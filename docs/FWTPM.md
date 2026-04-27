@@ -482,8 +482,9 @@ will produce a compile error if both are defined.
 
 ### v1.85 Embedded RAM Impact
 
-Enabling `--enable-v185` lifts several internal buffers to accommodate PQC
-key/signature sizes. The defaults **auto-shrink at compile time** based on
+Enabling `--enable-pqc` (or `--enable-v185`) lifts several internal buffers
+to accommodate PQC key/signature sizes. The defaults **auto-shrink at compile
+time** based on
 which ML-DSA / ML-KEM parameter sets wolfCrypt was actually built with
 (`WOLFSSL_NO_ML_DSA_44/65/87`, `WOLFSSL_NO_KYBER512/768/1024`) — boards
 that only enable the smaller params get smaller buffers automatically, no
@@ -738,9 +739,13 @@ every `Startup(CLEAR)`.
 
 ## TPM 2.0 v1.85 Post-Quantum Support
 
-Enabled with `--enable-v185` at configure time. Implements the post-quantum
-additions from TCG TPM 2.0 Library Specification v1.85 using wolfCrypt's
-FIPS 203 / FIPS 204 modules.
+Enabled with `--enable-pqc` (alias `--enable-v185`) at configure time, or
+auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has
+both Dilithium and ML-KEM available. Both flags set the internal
+`WOLFTPM_V185` macro that gates the implementation. Pass `--disable-pqc`
+to opt out when auto-detect would otherwise enable it. Implements the
+post-quantum additions from TCG TPM 2.0 Library Specification v1.85 using
+wolfCrypt's FIPS 203 / FIPS 204 modules.
 
 ### Algorithms
 
@@ -817,18 +822,18 @@ Under `WOLFTPM_V185`, buffers are lifted to accommodate ML-DSA-87 signatures
 
 Three v1.85 features are deferred with documented reasons:
 
-1. **ML-KEM-salted sessions** — Part 3 §11.1 (`TPM2_StartAuthSession`) does not
+1. **ML-KEM-salted sessions** — Part 3 Sec.11.1 (`TPM2_StartAuthSession`) does not
    describe an ML-KEM bullet alongside RSA-OAEP and ECDH paths, even though
-   Part 2 §11.4.2 Table 222 defines the `mlkem` arm of `TPMU_ENCRYPTED_SECRET`.
+   Part 2 Sec.11.4.2 Table 222 defines the `mlkem` arm of `TPMU_ENCRYPTED_SECRET`.
    Part 4 v185 (which would normatively specify this) is not yet published.
    Current behavior: `TPM2_StartAuthSession` returns `TPM_RC_KEY` for ML-KEM
    tpmKey; revisit when Part 4 v185 lands.
 2. **External-μ ML-DSA signing** — wolfCrypt has no μ-direct sign API. Part 2
-   §12.2.3.7 text says "512-byte external Mu" but FIPS 204 Algorithm 7 Line 6
+   Sec.12.2.3.7 text says "512-byte external Mu" but FIPS 204 Algorithm 7 Line 6
    produces 64 bytes (SHAKE256 output). Pending wolfCrypt API addition and
    TCG errata confirmation. Current behavior: `TPM_RC_SCHEME` for ext-μ paths,
    `TPM_RC_EXT_MU` for Pure ML-DSA keys without `allowExternalMu`. See DEC-0006.
-3. **ECC KEM arm of Encapsulate/Decapsulate** — Part 2 §10.3.13 Table 100 has
+3. **ECC KEM arm of Encapsulate/Decapsulate** — Part 2 Sec.10.3.13 Table 100 has
    both `mlkem` and `ecdh` arms, but the table note explicitly allows
    implementations to modify the union based on supported algorithms. Current
    fwTPM supports the `mlkem` arm only.

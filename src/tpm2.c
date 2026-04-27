@@ -3236,9 +3236,19 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 #ifdef WOLFTPM_V185
-            /* TPM2_VerifySignature produces a TPM_ST_VERIFIED ticket whose
-             * metadata is TPMS_EMPTY (zero bytes on wire). */
-            out->validation.metaAlg = TPM_ALG_NULL;
+            /* TPM2_VerifySignature should produce TPM_ST_VERIFIED (metadata
+             * TPMS_EMPTY, no wire bytes) per Part 3 Sec.20.4.1. Parse
+             * defensively so a non-conformant TPM returning
+             * TPM_ST_DIGEST_VERIFIED does not shift the 2-byte metadata
+             * into the digest-size slot. NULL Verified Tickets always omit
+             * metadata regardless of tag. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
+                out->validation.hierarchy != TPM_RH_NULL) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
 #endif
             TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
                 out->validation.digest.buffer,
@@ -3318,7 +3328,7 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
         info.outHandleCnt = 1;
-        /* Part 3 §17.6.3 Auth Index: None — keyHandle has no mandatory auth.
+        /* Part 3 Sec.17.6.3 Auth Index: None — keyHandle has no mandatory auth.
          * Mirror TPM2_VerifySequenceStart: ENC2 only, dynamic tag from
          * AppendAuth so the caller can drive ST_NO_SESSIONS or ST_SESSIONS
          * (the fwTPM handler accepts both). */
@@ -3330,7 +3340,7 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        /* v185 rc4 Part 3 §17.6.3 Table 89 parameter order: auth, context. */
+        /* v185 rc4 Part 3 Sec.17.6.3 Table 89 parameter order: auth, context. */
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
 
@@ -3379,7 +3389,7 @@ TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        /* v185 rc4 Part 3 §17.6.2 Table 87 parameter order: auth, hint, context. */
+        /* v185 rc4 Part 3 Sec.17.6.2 Table 87 parameter order: auth, hint, context. */
         TPM2_Packet_AppendU16(&packet, in->auth.size);
         TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
 
@@ -3421,7 +3431,7 @@ TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        /* Part 3 §20.6 Table 124: both @sequenceHandle and @keyHandle
+        /* Part 3 Sec.20.6 Table 124: both @sequenceHandle and @keyHandle
          * require USER authorization. */
         info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1 |
             CMD_FLAG_AUTH_USER2);
@@ -3458,7 +3468,7 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
     TPM_RC rc;
     TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
-    /* Part 3 §20.3.2 Table 118: tag is unconditionally TPM_ST_SESSIONS
+    /* Part 3 Sec.20.3.2 Table 118: tag is unconditionally TPM_ST_SESSIONS
      * (Auth Role: USER on @sequenceHandle). A NULL session would force
      * the wrapper to emit ST_NO_SESSIONS — illegal encoding. */
     if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
@@ -3469,7 +3479,7 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
-        /* Part 3 §20.3 Table 118: @sequenceHandle requires USER auth;
+        /* Part 3 Sec.20.3 Table 118: @sequenceHandle requires USER auth;
          * keyHandle has no auth. The framework needs the USER1 flag so
          * the auth area matches what the server parses under ST_SESSIONS. */
         info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
@@ -3481,7 +3491,7 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        /* Part 3 §20.3 Table 118: parameters are {signature} only — no
+        /* Part 3 Sec.20.3 Table 118: parameters are {signature} only — no
          * buffer field. Message was accumulated via SequenceUpdate. */
         TPM2_Packet_AppendSignature(&packet, &in->signature);
 
@@ -3498,14 +3508,16 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 #ifdef WOLFTPM_V185
-            /* Part 2 §10.6.5 Table 112 — TPMU_TK_VERIFIED_META selected
-             * on tag. §20.3.1 says VerifySequenceComplete `shall`
+            /* Part 2 Sec.10.6.5 Table 112 — TPMU_TK_VERIFIED_META selected
+             * on tag. Sec.20.3.1 says VerifySequenceComplete `shall`
              * produce TPM_ST_MESSAGE_VERIFIED (TPMS_EMPTY metadata, no
              * wire bytes), but parse defensively so a non-conformant
              * TPM returning TPM_ST_DIGEST_VERIFIED doesn't shift the
-             * 2-byte TPM_ALG_ID into the hmac-size slot. Mirrors the
-             * dispatch in TPM2_VerifyDigestSignature. */
-            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED) {
+             * 2-byte TPM_ALG_ID into the hmac-size slot. NULL Verified
+             * Tickets always omit metadata regardless of tag, mirrored
+             * from the TPM2_VerifyDigestSignature dispatch. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
+                out->validation.hierarchy != TPM_RH_NULL) {
                 TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
             }
             else {
@@ -3549,7 +3561,7 @@ TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out)
 
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        /* v185 rc4 Part 3 §20.7.2 Table 126 parameter order:
+        /* v185 rc4 Part 3 Sec.20.7.2 Table 126 parameter order:
          * context, digest, validation. */
         TPM2_Packet_AppendU16(&packet, in->context.size);
         TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
@@ -3602,7 +3614,7 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
 
         st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        /* v185 rc4 Part 3 §20.4.2 Table 120 parameter order:
+        /* v185 rc4 Part 3 Sec.20.4.2 Table 120 parameter order:
          * context, digest, signature. */
         TPM2_Packet_AppendU16(&packet, in->context.size);
         TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
@@ -3626,11 +3638,11 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 #ifdef WOLFTPM_V185
-            /* v185 rc4 Part 2 §10.6.4 Table 110 — TPMU_TK_VERIFIED_META.
+            /* v185 rc4 Part 2 Sec.10.6.4 Table 110 — TPMU_TK_VERIFIED_META.
              * TPM2_VerifyDigestSignature produces TPM_ST_DIGEST_VERIFIED whose
              * metadata carries a TPM_ALG_ID (the hash/XOF used). Other tag
              * values carry TPMS_EMPTY metadata (zero bytes on wire).
-             * Per Part 2 §10.6.5, NULL Verified Tickets always omit the
+             * Per Part 2 Sec.10.6.5, NULL Verified Tickets always omit the
              * metadata field — the 3-tuple is <tag, RH_NULL, 0x0000>. */
             if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
                 out->validation.hierarchy != TPM_RH_NULL) {

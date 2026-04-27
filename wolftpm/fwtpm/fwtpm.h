@@ -163,7 +163,7 @@
  * All macros remain ifndef-guarded for per-board overrides. See
  * docs/FWTPM.md "v1.85 Embedded RAM Impact" for resolved values per build.
  */
-/* ML-KEM ciphertext / public-key sizes per FIPS 203 §6.4 / §7.4. wolfCrypt's
+/* ML-KEM ciphertext / public-key sizes per FIPS 203 Sec.6.4 / Sec.7.4. wolfCrypt's
  * WC_ML_KEM_xxx_SIZE macros expand to non-preprocessor-evaluable expressions
  * (MLKEM_POLY_VEC_SZ() etc.), so we redefine the spec constants here for use
  * in compile-time #if comparisons below. Spec-immutable. */
@@ -440,7 +440,7 @@ typedef struct FWTPM_Object {
     TPM_HANDLE handle;              /* 0x80xxxxxx transient handle */
     UINT32 hierarchy;               /* TPM_RH_OWNER/ENDORSEMENT/PLATFORM/NULL —
                                      * required for ticket HMAC proofValue
-                                     * lookup per Part 2 §10.6.5 Eq (5) */
+                                     * lookup per Part 2 Sec.10.6.5 Eq (5) */
     TPMT_PUBLIC pub;                /* Public area */
     TPM2B_AUTH authValue;           /* Object auth */
     byte privKey[FWTPM_MAX_PRIVKEY_DER]; /* DER-encoded private key */
@@ -464,10 +464,10 @@ typedef struct FWTPM_HashSeq {
 } FWTPM_HashSeq;
 
 #ifdef WOLFTPM_V185
-/* ML-DSA sign/verify sequence slot (v1.85 Part 3 §17.5, §17.6). Pure ML-DSA
+/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6). Pure ML-DSA
  * is one-shot — the message arrives via the `buffer` parameter of
  * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
- * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 §20.6). Hash-ML-DSA digest signing is
+ * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 Sec.20.6). Hash-ML-DSA digest signing is
  * handled via TPM2_SignDigest / TPM2_VerifyDigestSignature, not through
  * this slot. */
 typedef struct FWTPM_SignSeq {
@@ -485,7 +485,7 @@ typedef struct FWTPM_SignSeq {
     UINT32 msgBufSz;
     /* First 4 bytes of the assembled message (any path: SequenceUpdate or
      * SignSequenceComplete trailing buffer). Used for the restricted-key
-     * TPM_GENERATED_VALUE check at Complete time per Part 3 §20.6.1 —
+     * TPM_GENERATED_VALUE check at Complete time per Part 3 Sec.20.6.1 —
      * Hash-ML-DSA Update bytes flow into hashCtx and are unrecoverable
      * otherwise, so the prefix must be captured at Update time. */
     byte   firstBytes[4];
@@ -681,7 +681,7 @@ typedef struct FWTPM_CTX {
 
     /* Per-boot context protection key (volatile only, never persisted).
      * Used by ContextSave/ContextLoad for HMAC + AES-CFB protection of
-     * session context blobs per TPM 2.0 Part 1 §30. */
+     * session context blobs per TPM 2.0 Part 1 Sec.30. */
     byte ctxProtectKey[AES_256_KEY_SIZE];
     int  ctxProtectKeyValid;
 

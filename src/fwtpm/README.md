@@ -9,9 +9,11 @@ examples and tpm2-tools) and TIS register-level transport over shared memory or
 SPI/I2C for bare-metal integration. Implements 105 of 113 TPM 2.0 v1.38 commands
 (93% coverage) with HAL abstractions for IO and NV storage portability.
 
-Post-quantum cryptography support is available with `--enable-v185`, adding
-ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation per TCG
-TPM 2.0 Library Specification v1.85. See [`docs/FWTPM.md`](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support)
+Post-quantum cryptography support is available with `--enable-pqc` (alias for
+`--enable-v185`), adding ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key
+encapsulation per TCG TPM 2.0 Library Specification v1.85. Configure
+auto-detects PQC and enables it when `--enable-fwtpm` is built against a
+wolfCrypt that has both. See [`docs/FWTPM.md`](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support)
 for algorithm and command details.
 
 ## Building
@@ -184,14 +186,14 @@ EncryptDecrypt, EncryptDecrypt2
 
 #### v1.38 Baseline (8 missing commands)
 
-##### Medium (moderate logic, builds on existing infrastructure) -- `FWTPM_SPEC_V138`
+##### Medium (moderate logic, builds on existing infrastructure)
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
 | `TPM2_SetCommandCodeAuditStatus` | 21.2 | Medium | Manage list of commands that are audited. Needs audit bitmap in context |
 | `TPM2_PP_Commands` | 26.2 | Medium | Manage physical presence command list. Needs PP command bitmap |
 
-##### Hard (complex crypto or new subsystems) -- `FWTPM_SPEC_V138`
+##### Hard (complex crypto or new subsystems)
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
@@ -203,7 +205,7 @@ EncryptDecrypt, EncryptDecrypt2
 | `TPM2_FieldUpgradeData` | 27.3 | Hard | Firmware upgrade data blocks. Vendor-specific |
 | `TPM2_FirmwareRead` | 27.4 | Hard | Read firmware for backup. Vendor-specific |
 
-#### v1.59 Additions (7 commands) -- `FWTPM_SPEC_V159`
+#### v1.59 Additions (7 commands)
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
@@ -215,7 +217,7 @@ EncryptDecrypt, EncryptDecrypt2
 | `TPM2_Policy_AC_SendSelect` | 32.4 | Medium | Policy for AC_Send. Like other policy commands |
 | `TPM2_ACT_SetTimeout` | 33.2 | Medium | Set authenticated countdown timer. Needs ACT state + timer infrastructure |
 
-#### v1.84 Additions (9 commands) -- `FWTPM_SPEC_V184`
+#### v1.84 Additions (9 commands)
 
 | Command | Spec Section | Difficulty | Notes |
 |---------|-------------|------------|-------|
@@ -229,28 +231,21 @@ EncryptDecrypt, EncryptDecrypt2
 | `TPM2_ReadOnlyControl` | 24.x | Easy | Toggle TPM read-only mode. Simple flag |
 | `TPM2_PolicyTransportSPDM` | 23.x | Hard | SPDM transport policy. Requires SPDM protocol support |
 
-#### v1.85 Additions (7 commands) -- `FWTPM_SPEC_V185`
-
-All PQC-related. Require ML-KEM (Kyber) and ML-DSA (Dilithium) support in wolfCrypt.
-
-| Command | Spec Section | Difficulty | Notes |
-|---------|-------------|------------|-------|
-| `TPM2_Encapsulate` | 14.x | Hard | ML-KEM encapsulation. Requires wolfCrypt Kyber |
-| `TPM2_Decapsulate` | 14.x | Hard | ML-KEM decapsulation. Requires wolfCrypt Kyber |
-| `TPM2_SignDigest` | 20.x | Medium | Sign pre-computed digest. Avoids double-hashing for PQC |
-| `TPM2_VerifyDigestSignature` | 20.x | Medium | Verify signature on pre-computed digest |
-| `TPM2_SignVerifySequenceStart` | 17.x | Medium | Start streaming sign/verify sequence for large PQC contexts |
-| `TPM2_SignSequenceComplete` | 17.x | Medium | Complete streaming sign operation |
-| `TPM2_VerifySequenceComplete` | 17.x | Medium | Complete streaming verify operation |
-
 ### Coverage Summary
+
+The eight v1.85 PQC commands (`TPM2_Encapsulate`, `TPM2_Decapsulate`,
+`TPM2_SignDigest`, `TPM2_VerifyDigestSignature`, `TPM2_SignSequenceStart`,
+`TPM2_SignSequenceComplete`, `TPM2_VerifySequenceStart`,
+`TPM2_VerifySequenceComplete`) are implemented under `--enable-pqc`
+(alias `--enable-v185`). See "v1.85 Limitations / Scope" below for the
+documented PQC-only restriction.
 
 | Spec Version | Total Commands | Implemented | Missing | Coverage |
 |-------------|---------------|-------------|---------|----------|
-| v1.38 | 113 | 105 | 8 | 93% |
+| v1.38 | 113 | 105 | 8  | 93% |
 | v1.59 | 120 | 105 | 15 | 88% |
 | v1.84 | 129 | 105 | 24 | 81% |
-| v1.85 | 136 | 105 | 31 | 77% |
+| v1.85 | 137 | 113 | 24 | 82% |
 
 ### v1.85 Limitations / Scope
 

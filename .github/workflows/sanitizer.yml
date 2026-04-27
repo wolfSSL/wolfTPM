@@ -43,12 +43,13 @@ jobs:
             wolftpm_extra_config: "--enable-v185"
             wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
 
-          # UBSan-v185: drops `integer` (wolfSSL Hash_df 440<<24) and
+          # UBSan-v185: enables undefined-behavior checks but disables
           # `alignment` (wolfSSL dilithium internal sword32 reads from
-          # byte buffers) — both pre-existing wolfSSL UB.
+          # byte buffers) and the integer overflow/shift checks (wolfSSL
+          # Hash_df 440<<24) — both pre-existing wolfSSL UB.
           - name: "UBSan-v185"
             cc: clang
-            cflags: "-fsanitize=undefined -fno-sanitize=alignment -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            cflags: "-fsanitize=undefined -fno-sanitize=alignment,signed-integer-overflow,shift -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=undefined"
             ubsan_options: "halt_on_error=1:print_stacktrace=1"
             wolftpm_extra_config: "--enable-v185"

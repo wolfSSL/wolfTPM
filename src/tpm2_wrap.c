@@ -2295,8 +2295,8 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     #include <wolfssl/wolfcrypt/ext_mlkem.h>
 #endif
 
-/* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 §24
- * (p.316) and §47.4 Equation 66 (Labeled KEM): caller encapsulates under
+/* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 Sec.24
+ * (p.316) and Sec.47.4 Equation 66 (Labeled KEM): caller encapsulates under
  * the TPM's ML-KEM public key, then post-processes the raw ML-KEM shared
  * secret K via KDFa to bind the label and the (ciphertext, publicKey)
  * context into the returned salt:
@@ -2314,6 +2314,7 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
     int rc;
     int wcType;
     int digestSz;
+    int rngInit = 0, keyInit = 0;
     WC_RNG rng;
     MlKemKey mlkemKey;
     const TPMS_MLKEM_PARMS* mlkemParams;
@@ -2346,7 +2347,11 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
 
     rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
     if (rc == 0) {
+        rngInit = 1;
         rc = wc_MlKemKey_Init(&mlkemKey, wcType, NULL, INVALID_DEVID);
+    }
+    if (rc == 0) {
+        keyInit = 1;
     }
     if (rc == 0) {
         rc = wc_MlKemKey_DecodePublicKey(&mlkemKey, pubIn->buffer,
@@ -2370,7 +2375,7 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
     if (rc == 0) {
         secret->size = (UINT16)ctSz;
 
-        /* Labeled KEM post-processing (Part 1 §47.4 Eq 66):
+        /* Labeled KEM post-processing (Part 1 Sec.47.4 Eq 66):
          *     data = KDFa(nameAlg, K, label, ciphertext, pubKey, bits)
          * contextU is the ML-KEM ciphertext (already in secret->secret);
          * contextV is the ML-KEM public key; output is `digestSz` bytes. */
@@ -2389,9 +2394,13 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
     }
 
     TPM2_ForceZero(tmpK, sizeof(tmpK));
-    wc_MlKemKey_Free(&mlkemKey);
+    if (keyInit) {
+        wc_MlKemKey_Free(&mlkemKey);
+    }
     TPM2_ForceZero(&mlkemKey, sizeof(mlkemKey));
-    wc_FreeRng(&rng);
+    if (rngInit) {
+        wc_FreeRng(&rng);
+    }
     TPM2_ForceZero(&rng, sizeof(rng));
 
     return rc;
@@ -2434,7 +2443,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
         (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
          defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
         case TPM_ALG_MLKEM:
-            /* Part 1 §47.4 Eq 66 Labeled KEM: label MUST be threaded into
+            /* Part 1 Sec.47.4 Eq 66 Labeled KEM: label MUST be threaded into
              * the post-Encaps KDFa so client-derived `seed` matches what
              * a conformant TPM derives on Decaps. */
             rc = wolfTPM2_EncryptSecret_MLKEM(tpmKey, data, secret, label);
@@ -5459,7 +5468,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    /* Part 3 §20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
+    /* Part 3 Sec.20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
      * keyHandle is the 2nd (slot 1). Both require USER auth. The current
      * TPM2_SignSequenceStart wrapper starts sequences with empty auth, so
      * slot 0 carries an empty auth value; slot 1 carries the signing key's
@@ -5646,7 +5655,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
     }
 #endif
 
-    /* Part 3 §20.3 Table 118: VerifySequenceComplete parameters are
+    /* Part 3 Sec.20.3 Table 118: VerifySequenceComplete parameters are
      * {signature} only — no buffer field. The documented `data`/`dataSz`
      * "final chunk" arguments are folded into the sequence here via an
      * internal SequenceUpdate before completing, so callers can still pass
@@ -5658,7 +5667,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         }
     }
 
-    /* Part 3 §20.3 Table 118: @sequenceHandle has Auth Role: USER. Install
+    /* Part 3 Sec.20.3 Table 118: @sequenceHandle has Auth Role: USER. Install
      * the sequence-handle auth into session slot 0 so the marshaler computes
      * the HMAC against the auth value bound at VerifySequenceStart (rather
      * than whatever auth the slot inherited from a prior command). Mirrors
@@ -5778,7 +5787,7 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (context != NULL && contextSz > 0) {
         XMEMCPY(signDigestIn.context.buffer, context, contextSz);
     }
-    /* Synthesize a NULL TPMT_TK_HASHCHECK per Part 2 §10.6.4 — the wire
+    /* Synthesize a NULL TPMT_TK_HASHCHECK per Part 2 Sec.10.6.4 — the wire
      * format MUST carry tag = TPM_ST_HASHCHECK and hierarchy = TPM_RH_NULL
      * even for unrestricted keys where the ticket is informational. */
     signDigestIn.validation.tag = TPM_ST_HASHCHECK;

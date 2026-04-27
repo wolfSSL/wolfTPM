@@ -2212,7 +2212,7 @@ WOLFTPM_API int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     \param key Verification key
     \param data Optional final chunk of message data; if non-NULL it is folded
         into the sequence via an internal TPM2_SequenceUpdate before the
-        Complete is sent (Part 3 §20.3 — the wire command itself only carries
+        Complete is sent (Part 3 Sec.20.3 — the wire command itself only carries
         the signature; the message must already be accumulated in the
         sequence object on the TPM).
     \param dataSz Size of data buffer; pass 0 to skip the internal update.

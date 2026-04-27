@@ -675,13 +675,72 @@ then
     fi
 fi
 
+# PQC / v1.85 enablement.
+#
+# Two ways to opt in:
+#   --enable-v185   spec-version-named flag (kept for backward compat)
+#   --enable-pqc    friendlier alias — what most users will reach for
+#
+# Auto-detect: if neither flag is specified AND we are building fwTPM
+# with wolfCrypt enabled, probe the wolfCrypt PQC headers and auto-enable
+# WOLFTPM_V185 when both ML-DSA and ML-KEM are available. The internal
+# code path remains gated on WOLFTPM_V185 — these flags are entry points
+# only.
 AC_ARG_ENABLE([v185],
-    [AS_HELP_STRING([--enable-v185],[Enable TPM 2.0 v1.85 Library Spec features: ML-DSA / ML-KEM post-quantum, sign/verify sequence and digest commands, new RCs and capability properties (default: disabled)])],
+    [AS_HELP_STRING([--enable-v185],[Enable TPM 2.0 v1.85 Library Spec features: ML-DSA / ML-KEM post-quantum, sign/verify sequence and digest commands, new RCs and capability properties (default: auto-detect when --enable-fwtpm and wolfCrypt PQC are present)])],
     [ ENABLED_V185=$enableval ],
-    [ ENABLED_V185=no ]
+    [ ENABLED_V185=detect ]
     )
+AC_ARG_ENABLE([pqc],
+    [AS_HELP_STRING([--enable-pqc],[Alias for --enable-v185 (post-quantum: ML-DSA / ML-KEM)])],
+    [ ENABLED_PQC=$enableval ],
+    [ ENABLED_PQC=detect ]
+    )
+
+# An explicit "yes" on either flag wins. An explicit "no" on either
+# disables. Mixed (e.g. --enable-pqc + --disable-v185) treats explicit
+# "no" as the safer choice and disables.
+if test "x$ENABLED_V185" = "xno" || test "x$ENABLED_PQC" = "xno"
+then
+    ENABLED_V185=no
+elif test "x$ENABLED_V185" = "xyes" || test "x$ENABLED_PQC" = "xyes"
+then
+    ENABLED_V185=yes
+else
+    # Neither flag specified — try auto-detect, but only when the natural
+    # consumer (fwTPM + wolfCrypt) is being built. Without fwTPM there is
+    # no v1.85 server-side handler, so silently enabling is pointless.
+    if test "x$ENABLED_FWTPM" = "xyes" && \
+       test "x$ENABLED_WOLFCRYPT" = "xyes"
+    then
+        AC_CHECK_HEADER([wolfssl/wolfcrypt/dilithium.h],
+            [WOLFTPM_HAVE_DILITHIUM_H=yes],
+            [WOLFTPM_HAVE_DILITHIUM_H=no])
+        AC_CHECK_HEADER([wolfssl/wolfcrypt/mlkem.h],
+            [WOLFTPM_HAVE_MLKEM_H=yes],
+            [WOLFTPM_HAVE_MLKEM_H=no])
+        if test "x$WOLFTPM_HAVE_DILITHIUM_H" = "xyes" && \
+           test "x$WOLFTPM_HAVE_MLKEM_H" = "xyes"
+        then
+            AC_MSG_NOTICE([wolfCrypt ML-DSA + ML-KEM detected; auto-enabling --enable-v185 (use --disable-v185 or --disable-pqc to opt out)])
+            ENABLED_V185=yes
+        else
+            ENABLED_V185=no
+        fi
+    else
+        ENABLED_V185=no
+    fi
+fi
+
 if test "x$ENABLED_V185" = "xyes"
 then
+    # When the user opted in explicitly we have not probed yet; verify the
+    # wolfSSL PQC headers are present so the build fails at configure time
+    # rather than deep inside the compile with a cryptic error.
+    AC_CHECK_HEADER([wolfssl/wolfcrypt/dilithium.h], [],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-dilithium --enable-experimental])])
+    AC_CHECK_HEADER([wolfssl/wolfcrypt/mlkem.h], [],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mlkem --enable-experimental])])
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
 fi
 AM_CONDITIONAL([BUILD_V185], [test "x$ENABLED_V185" = "xyes"])

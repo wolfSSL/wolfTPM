@@ -39,7 +39,7 @@ wolfTPM contains hash digests for SHA-1 and SHA-256 with an index 0-23. These ha
 
 ### Post-Quantum Cryptography (TPM 2.0 v1.85)
 
-wolfTPM implements the post-quantum additions from **TCG TPM 2.0 Library Specification v1.85** when built with `--enable-v185`. Supported algorithms:
+wolfTPM implements the post-quantum additions from **TCG TPM 2.0 Library Specification v1.85** when built with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has both ML-DSA and ML-KEM. Supported algorithms:
 
 * **ML-DSA** (Module-Lattice-Based Digital Signature, NIST FIPS 204) at parameter sets 44, 65, and 87 — for signing and verification.
 * **Hash-ML-DSA** (pre-hashed ML-DSA variant) at the same parameter sets — for signing arbitrary digests.

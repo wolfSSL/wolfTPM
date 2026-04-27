@@ -1325,7 +1325,7 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         /* Legitimate zero-payload signature - nothing to append. */
         break;
 #ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 §11.3.5 Table 217 note: Pure ML-DSA is a TPM2B
+    /* v185 rc4 Part 2 Sec.11.3.5 Table 217 note: Pure ML-DSA is a TPM2B
      * (size + bytes, no hash field); HashML-DSA is a TPMS (hash + size + bytes).
      * The union arms differ in type; the switch dispatches accordingly. */
     case TPM_ALG_MLDSA:

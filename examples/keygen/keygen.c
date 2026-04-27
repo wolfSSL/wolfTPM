@@ -457,7 +457,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
                 mldsaPs, 0 /* allowExternalMu — TPM_RC_EXT_MU at create
-                            * per Part 2 §12.2.3.6 when SET on a TPM
+                            * per Part 2 Sec.12.2.3.6 when SET on a TPM
                             * without μ-direct sign support */);
         }
         else if (alg == TPM_ALG_HASH_MLDSA) {

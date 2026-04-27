@@ -1002,7 +1002,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_ALG_SYMCIPHER, 0x0060 },
             #endif
             #ifdef WOLFTPM_V185
-                /* v1.85 PQC object types per Part 2 §8.2 Table 35:
+                /* v1.85 PQC object types per Part 2 Sec.8.2 Table 35:
                  *   bit 0 asymmetric, bit 3 object,
                  *   bit 8 signing, bit 9 encrypting.
                  * MLKEM is encrypting (encap/decap); MLDSA / Hash-MLDSA are
@@ -1075,29 +1075,43 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_TOTAL_COMMANDS,    0 }, /* patched to FwGetCmdCount() at emission */
                 { TPM_PT_MODES,             0 },
             #ifdef WOLFTPM_V185
-                /* v1.85 Part 2 §8.13 TPMA_ML_PARAMETER_SET: bits 0-5 for
+                /* v1.85 Part 2 Sec.8.13 TPMA_ML_PARAMETER_SET: bits 0-5 for
                  * MLKEM-512/768/1024 and MLDSA-44/65/87. Each bit is gated
                  * on the wolfCrypt build symbol that supplies that parameter
                  * set so the capability response reports actual support
                  * (not build intent). The extMu bit (6) is intentionally
                  * omitted: SignDigest / VerifyDigestSignature with
                  * allowExternalMu=YES return TPM_RC_SCHEME (no μ-direct
-                 * sign API in wolfCrypt yet), so per Part 2 §12.2.3.6 the
+                 * sign API in wolfCrypt yet), so per Part 2 Sec.12.2.3.6 the
                  * bit MUST NOT advertise capability the implementation
                  * cannot deliver. Re-add once ext-μ sign is implemented. */
                 { TPM_PT_ML_PARAMETER_SETS,
-            #if defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512)
+                  /* Gate each bit on the per-set wolfCrypt availability
+                   * macros so subset builds advertise only what is actually
+                   * supported. Mirrors the auto-shrink buffer sizing in
+                   * wolftpm/fwtpm/fwtpm.h. */
+            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512)) && \
+                !defined(WOLFSSL_NO_KYBER512)
                   TPMA_ML_PARAMETER_SET_mlKem_512  |
             #endif
-            #if defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER768)
+            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER768)) && \
+                !defined(WOLFSSL_NO_KYBER768)
                   TPMA_ML_PARAMETER_SET_mlKem_768  |
             #endif
-            #if defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER1024)
+            #if (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER1024)) && \
+                !defined(WOLFSSL_NO_KYBER1024)
                   TPMA_ML_PARAMETER_SET_mlKem_1024 |
             #endif
-            #if defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)
+            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
+                !defined(WOLFSSL_NO_ML_DSA_44)
                   TPMA_ML_PARAMETER_SET_mlDsa_44   |
+            #endif
+            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
+                !defined(WOLFSSL_NO_ML_DSA_65)
                   TPMA_ML_PARAMETER_SET_mlDsa_65   |
+            #endif
+            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
+                !defined(WOLFSSL_NO_ML_DSA_87)
                   TPMA_ML_PARAMETER_SET_mlDsa_87   |
             #endif
                   0 },
@@ -1339,18 +1353,30 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 /* Supported - skip remaining type-specific params */
                 break;
         #ifdef WOLFTPM_V185
-            /* Part 2 §12.2.3.6: TestParms for ML-DSA / Hash-ML-DSA / ML-KEM
+            /* Part 2 Sec.12.2.3.6: TestParms for ML-DSA / Hash-ML-DSA / ML-KEM
              * MUST validate the parameterSet range, and for ML-DSA MUST
              * return TPM_RC_EXT_MU when allowExternalMu=YES on a TPM that
              * does not implement μ-direct sign (which fwTPM does not yet). */
             case TPM_ALG_MLDSA: {
                 UINT16 ps;
                 byte allowExtMu;
+                int psSupported = 0;
                 TPM2_Packet_ParseU16(cmd, &ps);
                 TPM2_Packet_ParseU8(cmd, &allowExtMu);
-                if (ps != TPM_MLDSA_44 && ps != TPM_MLDSA_65 &&
-                    ps != TPM_MLDSA_87) {
-                    rc = TPM_RC_VALUE;
+                /* Reject any parameter set not actually compiled in.
+                 * Spec mandates TPM_RC_PARMS for unsupported sets per
+                 * Part 2 Sec.11.2.7.1 Table 207. */
+            #if !defined(WOLFSSL_NO_ML_DSA_44)
+                if (ps == TPM_MLDSA_44) psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_ML_DSA_65)
+                if (ps == TPM_MLDSA_65) psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_ML_DSA_87)
+                if (ps == TPM_MLDSA_87) psSupported = 1;
+            #endif
+                if (!psSupported) {
+                    rc = TPM_RC_PARMS;
                 }
                 else if (allowExtMu == YES) {
                     rc = TPM_RC_EXT_MU;
@@ -1359,29 +1385,56 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
             case TPM_ALG_HASH_MLDSA: {
                 UINT16 ps, hashAlg;
+                int psSupported = 0;
                 TPM2_Packet_ParseU16(cmd, &ps);
                 TPM2_Packet_ParseU16(cmd, &hashAlg);
-                if (ps != TPM_MLDSA_44 && ps != TPM_MLDSA_65 &&
-                    ps != TPM_MLDSA_87) {
-                    rc = TPM_RC_VALUE;
+            #if !defined(WOLFSSL_NO_ML_DSA_44)
+                if (ps == TPM_MLDSA_44) psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_ML_DSA_65)
+                if (ps == TPM_MLDSA_65) psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_ML_DSA_87)
+                if (ps == TPM_MLDSA_87) psSupported = 1;
+            #endif
+                if (!psSupported) {
+                    rc = TPM_RC_PARMS;
                 }
                 (void)hashAlg;  /* hash algorithm space-validated by parse */
                 break;
             }
             case TPM_ALG_MLKEM: {
-                UINT16 sym, ps;
-                TPM2_Packet_ParseU16(cmd, &sym);
+                /* TPMS_MLKEM_PARMS = symmetric (TPMT_SYM_DEF_OBJECT+) +
+                 * parameterSet. Use the existing TPMT symmetric parser so
+                 * restricted-decryption keys (algorithm != NULL with
+                 * keyBits + mode trailing) are consumed correctly — bare
+                 * UINT16 read would mis-align parameterSet. */
+                TPMT_SYM_DEF_OBJECT symmetric;
+                UINT16 ps;
+                int psSupported = 0;
+                XMEMSET(&symmetric, 0, sizeof(symmetric));
+                TPM2_Packet_ParseSymmetric(cmd,
+                    (TPMT_SYM_DEF*)&symmetric);
                 TPM2_Packet_ParseU16(cmd, &ps);
-                if (ps != TPM_MLKEM_512 && ps != TPM_MLKEM_768 &&
-                    ps != TPM_MLKEM_1024) {
-                    rc = TPM_RC_VALUE;
+                /* Part 2 Sec.11.2.6.1 Table 204 — TPMI_MLKEM_PARMS error
+                 * for unsupported parameter set is TPM_RC_PARMS. */
+            #if !defined(WOLFSSL_NO_KYBER512)
+                if (ps == TPM_MLKEM_512)  psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_KYBER768)
+                if (ps == TPM_MLKEM_768)  psSupported = 1;
+            #endif
+            #if !defined(WOLFSSL_NO_KYBER1024)
+                if (ps == TPM_MLKEM_1024) psSupported = 1;
+            #endif
+                if (!psSupported) {
+                    rc = TPM_RC_PARMS;
                 }
-                (void)sym;
                 break;
             }
         #endif /* WOLFTPM_V185 */
             default:
-                rc = TPM_RC_VALUE;
+                rc = TPM_RC_PARMS;
                 break;
         }
     }
@@ -2487,7 +2540,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         : inPublic->publicArea.parameters.hash_mldsaDetail
                               .parameterSet;
 
-                /* Part 2 §12.2.3.6: a TPM that does not support external-μ
+                /* Part 2 Sec.12.2.3.6: a TPM that does not support external-μ
                  * MUST return TPM_RC_EXT_MU at object creation when
                  * allowExternalMu=YES. fwTPM does not yet implement μ-direct
                  * sign/verify, so reject the unsupported request up front
@@ -3771,7 +3824,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 #endif /* HAVE_ECC */
 #ifdef WOLFTPM_V185
-            /* ML-DSA ordinary key: seed is random bytes (Part 1 §24.6.2);
+            /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
             case TPM_ALG_HASH_MLDSA: {
@@ -3781,7 +3834,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         : inPublic->publicArea.parameters.hash_mldsaDetail
                               .parameterSet;
 
-                /* Part 2 §12.2.3.6: reject allowExternalMu=YES at create
+                /* Part 2 Sec.12.2.3.6: reject allowExternalMu=YES at create
                  * time when the TPM does not implement μ-direct sign. */
                 if (inPublic->publicArea.type == TPM_ALG_MLDSA &&
                     inPublic->publicArea.parameters.mldsaDetail.allowExternalMu
@@ -3969,7 +4022,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FWTPM_FREE_BUF(pubBuf2);
 
         /* Creation ticket hierarchy = parent's hierarchy per Part 2
-         * §10.6.5 Table 112. */
+         * Sec.10.6.5 Table 112. */
         FwAppendCreationHashAndTicket(ctx, rsp, parent->hierarchy,
             inPublic->publicArea.nameAlg, cdStart2, rsp->pos - cdStart2,
             objName, objNameSz);
@@ -4473,7 +4526,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             XMEMCPY(obj->privKey, privKeyDer, (size_t)privKeyDerSz);
         }
         obj->privKeySize = privKeyDerSz;
-        /* Per Part 3 §12.3.1, the supplied hierarchy field controls which
+        /* Per Part 3 Sec.12.3.1, the supplied hierarchy field controls which
          * proofValue (if any) signs tickets produced by this key; default
          * to TPM_RH_NULL when caller passed 0 so the resulting object
          * cannot forge tickets in any real hierarchy. */
@@ -5718,7 +5771,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 #endif /* HAVE_ECC */
 #ifdef WOLFTPM_V185
-            /* ML-DSA ordinary key: seed is random bytes (Part 1 §24.6.2);
+            /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
             case TPM_ALG_HASH_MLDSA: {
@@ -5728,7 +5781,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         : inPublic->publicArea.parameters.hash_mldsaDetail
                               .parameterSet;
 
-                /* Part 2 §12.2.3.6: reject allowExternalMu=YES at create
+                /* Part 2 Sec.12.2.3.6: reject allowExternalMu=YES at create
                  * time when the TPM does not implement μ-direct sign. */
                 if (inPublic->publicArea.type == TPM_ALG_MLDSA &&
                     inPublic->publicArea.parameters.mldsaDetail.allowExternalMu
@@ -6162,7 +6215,7 @@ static TPM_RC FwCmd_VerifySignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        /* TPMT_TK_VERIFIED per Part 2 §10.6.5 — hierarchy is the key's
+        /* TPMT_TK_VERIFIED per Part 2 Sec.10.6.5 — hierarchy is the key's
          * actual hierarchy, captured at object load/create time. */
         UINT32 ticketHier = obj->hierarchy;
         byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
@@ -6935,7 +6988,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (signSeq == NULL) {
                 rc = TPM_RC_HANDLE;
             }
-            /* Per Part 3 §20.6.1, TPM_RC_ONE_SHOT_SIGNATURE is a Sign
+            /* Per Part 3 Sec.20.6.1, TPM_RC_ONE_SHOT_SIGNATURE is a Sign
              * SequenceComplete-time RC ("sequenceHandle references a
              * non-empty sequence"), not an Update-time RC. We accept the
              * Update bytes here (accumulator below holds them) and let
@@ -6970,7 +7023,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 #ifdef WOLFTPM_V185
         if (signSeq != NULL) {
             /* Capture leading bytes for the restricted-key
-             * TPM_GENERATED_VALUE check (Part 3 §20.6.1). For Hash-ML-DSA
+             * TPM_GENERATED_VALUE check (Part 3 Sec.20.6.1). For Hash-ML-DSA
              * the bytes are otherwise consumed by the hash accumulator. */
             if (rc == 0 && signSeq->firstBytesSz < sizeof(signSeq->firstBytes)
                     && dataSize > 0) {
@@ -6984,7 +7037,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Hash-ML-DSA sign/verify: feed bytes into the hash ctx.
              * Pure ML-DSA sign or verify: accumulate raw message bytes
              * (sign sequences are rejected at Complete with
-             * TPM_RC_ONE_SHOT_SIGNATURE per Part 3 §20.6). */
+             * TPM_RC_ONE_SHOT_SIGNATURE per Part 3 Sec.20.6). */
             if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA) {
                 if (!signSeq->hashCtxInit) {
                     rc = TPM_RC_FAILURE;
@@ -12895,7 +12948,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     /* Build response: outZ1 + outZ2 as TPM2B_ECC_POINT with full (x,y).
-     * TPM 2.0 Part 3 §14.7: Z value is the x-coordinate; y is populated
+     * TPM 2.0 Part 3 Sec.14.7: Z value is the x-coordinate; y is populated
      * for spec-strictness and TPM_ALG_ECMQV compatibility. */
     if (rc == 0) {
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
@@ -13075,7 +13128,7 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         rc = TPM_RC_COMMAND_SIZE;
     }
 
-    /* Part 3 §14.11.2 Table 62: Auth Index 1, Auth Role USER — the
+    /* Part 3 Sec.14.11.2 Table 62: Auth Index 1, Auth Role USER — the
      * command tag MUST be TPM_ST_SESSIONS. NO_SESSIONS bypasses the
      * mandatory keyHandle authorization. */
     if (rc == 0 && cmdTag != TPM_ST_SESSIONS) {
@@ -13094,7 +13147,7 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_KEY;
         }
     }
-    /* Part 3 §14.11.1: keyHandle must have restricted CLEAR and decrypt SET. */
+    /* Part 3 Sec.14.11.1: keyHandle must have restricted CLEAR and decrypt SET. */
     if (rc == 0) {
         if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
             (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
@@ -13216,8 +13269,6 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 authSz = 0, ctxSz = 0;
     int paramSzPos, paramStart;
 
-    (void)cmdSize;
-
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
     }
@@ -13230,7 +13281,7 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* Part 3 §17.5.1: TPM_RC_KEY when keyHandle isn't a signing key,
+        /* Part 3 Sec.17.5.1: TPM_RC_KEY when keyHandle isn't a signing key,
          * TPM_RC_SCHEME when it is a signing key but its scheme isn't
          * supported. TPMA_OBJECT_sign separates the two — MLKEM and other
          * decrypt-only key types have it cleared. */
@@ -13284,7 +13335,7 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->isVerifySeq = 0;
         seq->keyHandle = keyHandle;
         seq->sigScheme = obj->pub.type;
-        /* Per Part 3 §17.5.1 + §20.6.1 TPM_RC_ONE_SHOT_SIGNATURE only
+        /* Per Part 3 Sec.17.5.1 + Sec.20.6.1 TPM_RC_ONE_SHOT_SIGNATURE only
          * applies to schemes that genuinely require single-pass signing
          * (example: TPM_ALG_EDDSA). FIPS 204 Algorithm 2 computes
          * μ = H(tr || M', 64) using SHAKE256 absorbing, which supports
@@ -13325,8 +13376,6 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte hintScratch[MAX_SIGNATURE_HINT_SIZE];
     int paramSzPos, paramStart;
 
-    (void)cmdSize;
-
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
     }
@@ -13339,7 +13388,7 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* Part 3 §17.6.1: TPM_RC_KEY when keyHandle isn't a signing key,
+        /* Part 3 Sec.17.6.1: TPM_RC_KEY when keyHandle isn't a signing key,
          * TPM_RC_SCHEME when it is a signing key but its scheme isn't
          * supported. Verify-side public keys still carry sign=YES — the
          * attribute describes the key's purpose, not the current op. */
@@ -13377,7 +13426,7 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, seq->authValue.buffer, authSz);
 
         TPM2_Packet_ParseU16(cmd, &hintSz);
-        /* Part 2 §11.3.9: hint MUST be zero-length for non-EdDSA schemes. */
+        /* Part 2 Sec.11.3.9: hint MUST be zero-length for non-EdDSA schemes. */
         if (hintSz > 0) {
             rc = TPM_RC_VALUE;
         }
@@ -13398,7 +13447,7 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->sigScheme = obj->pub.type;
         /* Verify sequences always accept SequenceUpdate — the message has
          * to accumulate somewhere since VerifySequenceComplete carries no
-         * buffer parameter (Part 3 §20.3 Table 118). Hash-ML-DSA verify
+         * buffer parameter (Part 3 Sec.20.3 Table 118). Hash-ML-DSA verify
          * sequences accumulate into a hash ctx; Pure ML-DSA into msgBuf. */
         seq->oneShot = 0;
         if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
@@ -13440,7 +13489,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_COMMAND_SIZE;
     }
 
-    /* Part 3 §20.6 Table 124: Auth Index 1+2, Auth Role USER on both
+    /* Part 3 Sec.20.6 Table 124: Auth Index 1+2, Auth Role USER on both
      * sequenceHandle and keyHandle — the command tag MUST be
      * TPM_ST_SESSIONS. NO_SESSIONS bypasses both auth checks. */
     if (rc == 0 && cmdTag != TPM_ST_SESSIONS) {
@@ -13464,7 +13513,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
     }
-    /* Part 3 §20.6.1: the x509sign attribute of keyHandle MUST NOT be SET
+    /* Part 3 Sec.20.6.1: the x509sign attribute of keyHandle MUST NOT be SET
      * (TPM_RC_ATTRIBUTES). Keys with x509sign restrict what digests can be
      * signed for X.509 cert use; SignSequenceComplete is not the right
      * channel for them. */
@@ -13498,14 +13547,15 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             seq->firstBytesSz += take;
         }
 
-        /* Part 3 §20.6.1: a restricted signing key MUST NOT sign a
+        /* Part 3 Sec.20.6.1: a restricted signing key MUST NOT sign a
          * message whose first 4 bytes equal TPM_GENERATED_VALUE
          * (0xFF544347). seq->firstBytes is populated incrementally by
          * SequenceUpdate and topped-up here from the trailing buffer,
          * so the check works regardless of whether the prefix arrived
          * via Update (Hash-ML-DSA accumulator path) or Complete (Pure-
          * MLDSA one-shot path). */
-        if (keyObj->pub.objectAttributes & TPMA_OBJECT_restricted) {
+        if (rc == 0 &&
+            (keyObj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
             static const byte gGeneratedValue[4] = {
                 0xFF, 0x54, 0x43, 0x47
             };
@@ -13515,7 +13565,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
 
-        /* Part 3 §20.6.1: TPM_RC_ONE_SHOT_SIGNATURE if the key's signing
+        /* Part 3 Sec.20.6.1: TPM_RC_ONE_SHOT_SIGNATURE if the key's signing
          * scheme requires single-pass signing AND prior SequenceUpdate
          * calls accumulated bytes. ML-DSA does NOT require single-pass
          * (FIPS 204 Algorithm 2 uses SHAKE256 absorbing — streamable),
@@ -13589,7 +13639,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_ForceZero(digestOut, sizeof(digestOut));
         }
         else if (rc == 0) {
-            /* Part 3 §20.6.1: TPM_RC_SCHEME for unsupported scheme on a
+            /* Part 3 Sec.20.6.1: TPM_RC_SCHEME for unsupported scheme on a
              * valid signing key. Guarded by rc == 0 so the GENERATED_VALUE
              * rejection above is not overwritten. */
             rc = TPM_RC_SCHEME;
@@ -13617,10 +13667,13 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         FwFreeSignSeq(seq);
     }
-    else if (seq != NULL && rc != TPM_RC_HANDLE &&
-             rc != TPM_RC_SIGN_CONTEXT_KEY) {
-        /* Free slot on permanent failure; leave alone on client-recoverable
-         * handle/key errors so caller can retry with correct args. */
+    else if (seq != NULL && rc != TPM_RC_HANDLE) {
+        /* Free slot on every Complete failure except TPM_RC_HANDLE (where
+         * `seq` was never resolved). Wrong-key errors used to leave the
+         * slot allocated, but with FWTPM_MAX_SIGN_SEQ small a buggy or
+         * hostile client could exhaust slots by repeatedly issuing
+         * Start + wrong-key Complete. The sequence is invalidated either
+         * way; force the caller to issue a fresh Start. */
         FwFreeSignSeq(seq);
     }
 
@@ -13659,7 +13712,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_COMMAND_SIZE;
     }
 
-    /* Part 3 §20.3.2 Table 118: Auth Index 1, Auth Role USER on
+    /* Part 3 Sec.20.3.2 Table 118: Auth Index 1, Auth Role USER on
      * @sequenceHandle — the command tag MUST be TPM_ST_SESSIONS.
      * NO_SESSIONS bypasses the mandatory sequence-handle auth. */
     if (rc == 0 && cmdTag != TPM_ST_SESSIONS) {
@@ -13734,7 +13787,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         else {
             /* Finalize accumulated hash, then verify. Snapshot the
              * digest into verifiedDigest[] so the ticket builder below
-             * can bind it per Part 2 §10.6.5 Eq (5) — the hashCtx is
+             * can bind it per Part 2 Sec.10.6.5 Eq (5) — the hashCtx is
              * consumed by wc_HashFinal and SequenceUpdate never copied
              * raw bytes into seq->msgBuf for Hash-ML-DSA. */
             byte digestOut[TPM_MAX_DIGEST_SIZE];
@@ -13768,7 +13821,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
         /* TPMT_TK_VERIFIED with tag = TPM_ST_MESSAGE_VERIFIED. Per Part 2
-         * §10.6.5 Table 112 the ticket hierarchy is the hierarchy of
+         * Sec.10.6.5 Table 112 the ticket hierarchy is the hierarchy of
          * keyName, and Eq (5) requires the HMAC use that hierarchy's
          * proofValue. Pull the value captured at object load/create time. */
         ticketHier = keyObj->hierarchy;
@@ -13816,22 +13869,41 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_FAILURE;
         }
 
-        /* TPM_ST_MESSAGE_VERIFIED — TPMU_TK_VERIFIED_META is empty per
-         * Part 2 §10.6.5 Table 112, so metadata is NULL/0. */
+        /* Tag selection per Part 2 Sec.10.6.5 Tables 111/112:
+         *  - Pure ML-DSA verified the raw message bytes → MESSAGE_VERIFIED
+         *    (TPMU_TK_VERIFIED_META is empty).
+         *  - Hash-ML-DSA verified the pre-hashed digest → DIGEST_VERIFIED
+         *    (metadata = the pre-hash alg). Emitting MESSAGE_VERIFIED
+         *    over a digest would mislead a downstream PolicyTicket /
+         *    PolicySigned consumer about what was authenticated. */
         if (rc == 0) {
-            rc = FwAppendTicket(ctx, rsp,
-                TPM_ST_MESSAGE_VERIFIED,
-                ticketHier,
-                keyObj->pub.nameAlg,
-                ticketData, ticketDataSz,
-                NULL, 0);
+            if (sigAlg == TPM_ALG_HASH_MLDSA) {
+                byte metaBytes[2];
+                metaBytes[0] = (byte)(seq->hashAlg >> 8);
+                metaBytes[1] = (byte)(seq->hashAlg);
+                rc = FwAppendTicket(ctx, rsp,
+                    TPM_ST_DIGEST_VERIFIED,
+                    ticketHier,
+                    keyObj->pub.nameAlg,
+                    ticketData, ticketDataSz,
+                    metaBytes, (int)sizeof(metaBytes));
+            }
+            else {
+                rc = FwAppendTicket(ctx, rsp,
+                    TPM_ST_MESSAGE_VERIFIED,
+                    ticketHier,
+                    keyObj->pub.nameAlg,
+                    ticketData, ticketDataSz,
+                    NULL, 0);
+            }
         }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
-    if (seq != NULL && rc != TPM_RC_HANDLE &&
-        rc != TPM_RC_SIGN_CONTEXT_KEY) {
+    /* Free slot on every Complete failure except TPM_RC_HANDLE (where
+     * `seq` was never resolved). Mirrors FwCmd_SignSequenceComplete. */
+    if (seq != NULL && rc != TPM_RC_HANDLE) {
         FwFreeSignSeq(seq);
     }
 
@@ -13865,7 +13937,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         rc = TPM_RC_COMMAND_SIZE;
     }
 
-    /* Part 3 §20.7 Table 126: Auth Index 1, Auth Role USER — the command
+    /* Part 3 Sec.20.7 Table 126: Auth Index 1, Auth Role USER — the command
      * tag MUST be TPM_ST_SESSIONS. NO_SESSIONS bypasses keyHandle auth. */
     if (rc == 0 && cmdTag != TPM_ST_SESSIONS) {
         rc = TPM_RC_AUTH_MISSING;
@@ -13879,7 +13951,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
-    /* Part 3 §20.7.1: x509sign restricts the key to X.509-cert signing
+    /* Part 3 Sec.20.7.1: x509sign restricts the key to X.509-cert signing
      * and is rejected outright here with TPM_RC_ATTRIBUTES. Restricted
      * keys are handled below after the ticket is parsed — they require
      * a valid TPMT_TK_HASHCHECK, not blanket rejection. */
@@ -13906,7 +13978,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         if (digest->size > sizeof(digest->buffer)) {
             rc = TPM_RC_SIZE;
         }
-        /* Part 3 §20.7.1: digest size MUST match the key's hashAlg digest
+        /* Part 3 Sec.20.7.1: digest size MUST match the key's hashAlg digest
          * size for Hash-ML-DSA. Reject mismatches with TPM_RC_SIZE before
          * any crypto. */
         if (rc == 0 && obj->pub.type == TPM_ALG_HASH_MLDSA) {
@@ -13922,7 +13994,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
         /* Parse validation (TPMT_TK_HASHCHECK). For unrestricted keys the
          * ticket is informational; for restricted keys it is verified
-         * below per Part 3 §20.7.1. */
+         * below per Part 3 Sec.20.7.1. */
         TPM2_Packet_ParseU16(cmd, &validationTag);
         TPM2_Packet_ParseU32(cmd, &validationHier);
         TPM2_Packet_ParseU16(cmd, &validationDigestSz);
@@ -13934,7 +14006,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
-    /* Part 2 §10.6.4: TPMT_TK_HASHCHECK MUST carry tag = TPM_ST_HASHCHECK
+    /* Part 2 Sec.10.6.4: TPMT_TK_HASHCHECK MUST carry tag = TPM_ST_HASHCHECK
      * regardless of restricted/unrestricted key status. Reject malformed
      * tags universally with TPM_RC_TAG so the wire format is enforced even
      * when the ticket is otherwise informational. */
@@ -13942,11 +14014,11 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         rc = TPM_RC_TAG;
     }
 
-    /* Part 3 §20.7.1: a restricted signing key requires a valid
+    /* Part 3 Sec.20.7.1: a restricted signing key requires a valid
      * TPMT_TK_HASHCHECK proving the digest was produced by a TPM-internal
      * hash op over a message that did not begin with TPM_GENERATED_VALUE.
      * Verify the ticket HMAC = HMAC(proof(ticket.hierarchy),
-     * TPM_ST_HASHCHECK || digest) per Part 2 §10.6.5 Eq (5). NULL ticket
+     * TPM_ST_HASHCHECK || digest) per Part 2 Sec.10.6.5 Eq (5). NULL ticket
      * (hierarchy=RH_NULL or empty hmac) is insufficient. */
     if (rc == 0 && (obj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
         if (validationHier == TPM_RH_NULL || validationDigestSz == 0) {
@@ -13985,7 +14057,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
              * wolfCrypt does not currently expose a mu-direct sign API;
              * defer with TPM_RC_SCHEME. If the key's allowExternalMu is NO,
              * return TPM_RC_ATTRIBUTES (the key attribute prohibits this
-             * use). TPM_RC_EXT_MU per Part 2 §12.2.3.6 is reserved for the
+             * use). TPM_RC_EXT_MU per Part 2 Sec.12.2.3.6 is reserved for the
              * TPM-wide capability case (object creation / TestParms). */
             if (obj->pub.parameters.mldsaDetail.allowExternalMu != YES) {
                 rc = TPM_RC_ATTRIBUTES;
@@ -14004,7 +14076,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 sigOut);
         }
         else {
-            /* Part 3 §20.7.1: TPM_RC_SCHEME for unsupported signing scheme
+            /* Part 3 Sec.20.7.1: TPM_RC_SCHEME for unsupported signing scheme
              * on a valid signing key (TPM_RC_KEY would mean "not a key").
              * Scope: ML-DSA / Hash-ML-DSA only. Classical digest signing
              * (RSASSA, RSAPSS, ECDSA) goes via TPM2_Sign — see
@@ -14062,14 +14134,14 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Part 3 §20.4.1: keyHandle must reference a signing key. Reject keys
+    /* Part 3 Sec.20.4.1: keyHandle must reference a signing key. Reject keys
      * with TPMA_OBJECT_sign CLEAR (TPM_RC_KEY) before any scheme check —
      * scheme errors are TPM_RC_SCHEME, "not a signing key" is TPM_RC_KEY. */
     if (rc == 0 && !(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
         rc = TPM_RC_KEY;
     }
 
-    /* Skip auth area (no mandatory auth — Part 3 §20.4 Auth Index: None) */
+    /* Skip auth area (no mandatory auth — Part 3 Sec.20.4 Auth Index: None) */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
@@ -14096,7 +14168,7 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Pure ML-DSA with ext-mu — deferred until wolfCrypt exposes a
              * mu-direct verify API. If the key's allowExternalMu is NO,
              * return TPM_RC_ATTRIBUTES (the key attribute prohibits this
-             * use); TPM_RC_EXT_MU per Part 2 §12.2.3.6 is reserved for the
+             * use); TPM_RC_EXT_MU per Part 2 Sec.12.2.3.6 is reserved for the
              * TPM-wide capability case (object creation / TestParms). */
             if (obj->pub.type != TPM_ALG_MLDSA) {
                 rc = TPM_RC_SCHEME;
@@ -14118,13 +14190,13 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 sigSz = wireSize;
                 TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
             }
-            /* Part 3 §20.4.1: signature scheme (including hash/XOF
+            /* Part 3 Sec.20.4.1: signature scheme (including hash/XOF
              * algorithm) MUST match the key's configured scheme. */
             if (rc == 0 && obj->pub.type == TPM_ALG_HASH_MLDSA &&
                 sigHashAlg != obj->pub.parameters.hash_mldsaDetail.hashAlg) {
                 rc = TPM_RC_SCHEME;
             }
-            /* Part 3 §20.4.1: digest size MUST match the key's hashAlg
+            /* Part 3 Sec.20.4.1: digest size MUST match the key's hashAlg
              * digest size. */
             if (rc == 0 && obj->pub.type == TPM_ALG_HASH_MLDSA) {
                 UINT16 expectedDigestSz = (UINT16)TPM2_GetHashDigestSize(
@@ -14170,7 +14242,7 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
         /* TPMT_TK_VERIFIED with tag = TPM_ST_DIGEST_VERIFIED. Per Part 2
-         * §10.6.5 Table 112 the ticket hierarchy is the hierarchy of
+         * Sec.10.6.5 Table 112 the ticket hierarchy is the hierarchy of
          * keyName; Eq (5) HMAC binds (tag || digest || keyName ||
          * metadata) under that hierarchy's proofValue, where metadata
          * for DIGEST_VERIFIED is the 2-byte sigHashAlg
@@ -14185,15 +14257,22 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 obj->name.name, obj->name.size);
             ticketDataSz += obj->name.size;
         }
+        else {
+            /* Hard-fail rather than silently emit a ticket missing the
+             * keyName binding (matches FwCmd_VerifySequenceComplete). */
+            rc = TPM_RC_FAILURE;
+        }
         metaBytes[0] = (byte)(sigHashAlg >> 8);
         metaBytes[1] = (byte)(sigHashAlg);
 
-        rc = FwAppendTicket(ctx, rsp,
-            TPM_ST_DIGEST_VERIFIED,
-            ticketHier,
-            obj->pub.nameAlg,
-            ticketData, ticketDataSz,
-            metaBytes, 2);
+        if (rc == 0) {
+            rc = FwAppendTicket(ctx, rsp,
+                TPM_ST_DIGEST_VERIFIED,
+                ticketHier,
+                obj->pub.nameAlg,
+                ticketData, ticketDataSz,
+                metaBytes, 2);
+        }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }

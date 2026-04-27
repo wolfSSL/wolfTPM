@@ -76,7 +76,7 @@ byte* FwGetHierarchySeed(FWTPM_CTX* ctx, UINT32 hierarchy);
 int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     TPMI_ALG_HASH hashAlg, byte* proofOut, int proofSize);
 
-/* Compute ticket HMAC per Part 2 §10.6.5 Eq (5):
+/* Compute ticket HMAC per Part 2 Sec.10.6.5 Eq (5):
  *   hmac = HMAC(proof(hierarchy), ticketTag || data || metadata)
  * Pass metadata=NULL/0 for tags whose TPMU_TK_VERIFIED_META is empty. */
 int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
@@ -166,7 +166,7 @@ TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
     const byte* seedDZ,
     TPM2B_PUBLIC_KEY_MLKEM* pubOut);
 
-/* v1.85 ML-KEM Encapsulate / Decapsulate (Part 3 §14.10, §14.11).
+/* v1.85 ML-KEM Encapsulate / Decapsulate (Part 3 Sec.14.10, Sec.14.11).
  * Decapsulate regenerates the keypair from the 64-byte stored seed; no
  * expanded private key is persisted. */
 TPM_RC FwEncapsulateMlkem(WC_RNG* rng,

@@ -22,9 +22,13 @@ sudo make install
 **wolfTPM**:
 
 ```
-./configure --enable-fwtpm --enable-v185
+./configure --enable-fwtpm --enable-pqc
 make
 ```
+
+`--enable-pqc` is an alias for `--enable-v185`. If you omit both but
+`--enable-fwtpm` is set and wolfCrypt has ML-DSA + ML-KEM,
+configure auto-enables PQC.
 
 ## Run the test suite
 
@@ -84,9 +88,9 @@ the shared secrets match.
 
 Pure ML-DSA sign+verify round-trip. Creates a primary ML-DSA key, signs
 a fixed message via `SignSequenceStart` + `SignSequenceComplete` (Pure
-ML-DSA is one-shot per Part 3 §17.5, so the message rides on the
+ML-DSA is one-shot per Part 3 Sec.17.5, so the message rides on the
 Complete buffer), then verifies via `VerifySequenceStart` +
-`VerifySequenceUpdate` + `VerifySequenceComplete` (§20.3 allows Update
+`VerifySequenceUpdate` + `VerifySequenceComplete` (Sec.20.3 allows Update
 on verify sequences). Asserts the returned validation ticket tag is
 `TPM_ST_MESSAGE_VERIFIED`.
 

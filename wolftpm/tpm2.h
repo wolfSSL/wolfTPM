@@ -404,7 +404,7 @@ typedef enum {
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
 #ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 §6.6.3 Table 17 */
+    /* v185 rc4 Part 2 Sec.6.6.3 Table 17 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
@@ -687,7 +687,7 @@ typedef enum {
     TPM_PT_MODES                = PT_FIXED + 45,
     TPM_PT_MAX_CAP_BUFFER       = PT_FIXED + 46,
 #ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 §6.13 Table 27 */
+    /* v185 rc4 Part 2 Sec.6.13 Table 27 */
     TPM_PT_FIRMWARE_SVN         = PT_FIXED + 47,
     TPM_PT_FIRMWARE_MAX_SVN     = PT_FIXED + 48,
     TPM_PT_ML_PARAMETER_SETS    = PT_FIXED + 49,
@@ -865,9 +865,9 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_decrypt             = 0x00020000,
     TPMA_OBJECT_sign                = 0x00040000,
 #ifdef WOLFTPM_V185
-    /* Part 2 v1.85 §8.3.3 (bit 19): x509sign restricts the digests this
+    /* Part 2 v1.85 Sec.8.3.3 (bit 19): x509sign restricts the digests this
      * key can sign so the signature is suitable for use as an X.509
-     * Certificate signature. Part 3 §20.6.1 / §20.7.1 mandate
+     * Certificate signature. Part 3 Sec.20.6.1 / Sec.20.7.1 mandate
      * TPM_RC_ATTRIBUTES if SET on a key passed to TPM2_SignSequenceComplete
      * or TPM2_SignDigest. */
     TPMA_OBJECT_x509sign            = 0x00080000,
@@ -932,7 +932,7 @@ enum TPMA_CC_mask {
 };
 
 #ifdef WOLFTPM_V185
-/* v185 rc4 Part 2 §8.13 Table 46 — bitfield returned from
+/* v185 rc4 Part 2 Sec.8.13 Table 46 — bitfield returned from
  * TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_ML_PARAMETER_SETS)
  * indicating which ML-KEM/ML-DSA parameter sets the TPM supports. */
 typedef UINT32 TPMA_ML_PARAMETER_SET;
@@ -1054,7 +1054,7 @@ typedef struct TPM2B_SIGNATURE_CTX {
     BYTE buffer[MAX_SIGNATURE_CTX_SIZE];
 } TPM2B_SIGNATURE_CTX;
 
-/* v185 rc4 Part 2 §11.3.9 Table 221 — TPM2B_SIGNATURE_HINT carries the
+/* v185 rc4 Part 2 Sec.11.3.9 Table 221 — TPM2B_SIGNATURE_HINT carries the
  * encoded R value for EdDSA sequences; for ML-DSA and other schemes the
  * TPM requires size == 0. Used as a parameter on TPM2_VerifySequenceStart. */
 typedef struct TPM2B_SIGNATURE_HINT {
@@ -1143,7 +1143,7 @@ typedef struct TPMT_TK_VERIFIED {
     TPM_ST tag;
     TPMI_RH_HIERARCHY hierarchy;
 #ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 §10.6.5 Table 112 / §10.6.4 Table 110 — [tag]metadata.
+    /* v185 rc4 Part 2 Sec.10.6.5 Table 112 / Sec.10.6.4 Table 110 — [tag]metadata.
      * Empty on the wire for TPM_ST_VERIFIED and TPM_ST_MESSAGE_VERIFIED.
      * For TPM_ST_DIGEST_VERIFIED carries the TPM_ALG_ID (hash/XOF used).
      * For ML-DSA external-mu wolfTPM emits TPM_ALG_NULL here (hash-less
@@ -1617,7 +1617,7 @@ typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDSA;
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 
 #ifdef WOLFTPM_V185
-/* v185 rc4 Part 2 §11.2.7.2 Table 208 — TPMS_SIGNATURE_HASH_MLDSA carries
+/* v185 rc4 Part 2 Sec.11.2.7.2 Table 208 — TPMS_SIGNATURE_HASH_MLDSA carries
  * the pre-hash algorithm together with the signature bytes. Used for
  * TPM_ALG_HASH_MLDSA signatures only. */
 typedef struct TPMS_SIGNATURE_HASH_MLDSA {
@@ -1634,7 +1634,7 @@ typedef union TPMU_SIGNATURE {
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
 #ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 §11.3.5 Table 217. Note: mldsa arm is TPM2B (bare
+    /* v185 rc4 Part 2 Sec.11.3.5 Table 217. Note: mldsa arm is TPM2B (bare
      * signature bytes with no hash field) because Pure ML-DSA does not
      * select a hash; hash_mldsa arm is TPMS (hash + signature) for the
      * pre-hashed variant. See Table 217 note. */
@@ -2778,7 +2778,7 @@ WOLFTPM_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
 #ifdef WOLFTPM_V185
 /* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
 
-/* v185 rc4 Part 3 §17.6.3 Table 89 — {keyHandle, auth, context} */
+/* v185 rc4 Part 3 Sec.17.6.3 Table 89 — {keyHandle, auth, context} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
     TPM2B_AUTH auth;
@@ -2790,7 +2790,7 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
     SignSequenceStart_Out* out);
 
-/* v185 rc4 Part 3 §17.6.2 Table 87 — {keyHandle, auth, hint, context}
+/* v185 rc4 Part 3 Sec.17.6.2 Table 87 — {keyHandle, auth, hint, context}
  * hint holds the encoded R value for EdDSA; zero-length for other schemes. */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
@@ -2815,7 +2815,7 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
     SignSequenceComplete_Out* out);
 
-/* v185 rc4 Part 3 §20.3 Table 118 — {sequenceHandle, keyHandle, signature}.
+/* v185 rc4 Part 3 Sec.20.3 Table 118 — {sequenceHandle, keyHandle, signature}.
  * The accumulated message lives in the sequence object on the TPM (built up
  * via TPM2_SequenceUpdate calls); there is no per-command buffer field. */
 typedef struct {
@@ -2829,7 +2829,7 @@ typedef struct {
 WOLFTPM_API TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
     VerifySequenceComplete_Out* out);
 
-/* v185 rc4 Part 3 §20.7.2 Table 126 — {keyHandle, context, digest, validation} */
+/* v185 rc4 Part 3 Sec.20.7.2 Table 126 — {keyHandle, context, digest, validation} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
     TPM2B_SIGNATURE_CTX context;
@@ -2841,7 +2841,7 @@ typedef struct {
 } SignDigest_Out;
 WOLFTPM_API TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out);
 
-/* v185 rc4 Part 3 §20.4.2 Table 120 — {keyHandle, context, digest, signature} */
+/* v185 rc4 Part 3 Sec.20.4.2 Table 120 — {keyHandle, context, digest, signature} */
 typedef struct {
     TPMI_DH_OBJECT keyHandle;
     TPM2B_SIGNATURE_CTX context;

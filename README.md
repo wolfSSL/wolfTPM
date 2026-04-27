@@ -38,7 +38,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
-* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-v185`. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
+* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has Dilithium + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -86,8 +86,9 @@ are forward-compatible — the same wrapper API targets both.
 **wolfSSL** (ML-DSA and ML-KEM in wolfCrypt):
 
 ```
-./configure --enable-wolftpm --enable-dilithium --enable-mlkem \
-            --enable-experimental --enable-harden --enable-keygen
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            --enable-dilithium --enable-mlkem --enable-experimental \
+            --enable-harden CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install
 ```
@@ -95,9 +96,14 @@ sudo make install
 **wolfTPM**:
 
 ```
-./configure --enable-fwtpm --enable-v185
+./configure --enable-fwtpm --enable-pqc
 make
 ```
+
+`--enable-pqc` is an alias for `--enable-v185`; both turn on the same
+WOLFTPM_V185 build flag. If you omit them but `--enable-fwtpm` is set
+and wolfCrypt has ML-DSA + ML-KEM available, configure auto-detects
+PQC and enables it. Pass `--disable-pqc` to opt out explicitly.
 
 ### Running the examples
 

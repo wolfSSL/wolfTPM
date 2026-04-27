@@ -733,7 +733,11 @@ typedef int64_t  INT64;
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
 #ifdef WOLFTPM_V185
-/* Post-Quantum Cryptography (PQC) Size Definitions - TCG v185 RC4 */
+/* Post-Quantum Cryptography (PQC) Size Definitions - TCG v185 RC4.
+ * These size the public TPM2B_* ABI buffers, so they MUST match the
+ * largest spec-defined parameter set — a client only enabling MLDSA-44
+ * still has to parse a TPM response that uses MLDSA-87. Internal scratch
+ * sizing (fwTPM, NV storage) auto-shrinks separately in fwtpm.h. */
 
 /* ML-DSA sizes (TCG v185 RC4 Table 207) */
 #ifndef MAX_MLDSA_PUB_SIZE
@@ -743,7 +747,7 @@ typedef int64_t  INT64;
 #define MAX_MLDSA_SIG_SIZE          4627  /* ML-DSA-87 signature */
 #endif
 #ifndef MAX_MLDSA_PRIV_SEED_SIZE
-#define MAX_MLDSA_PRIV_SEED_SIZE    32    /* Private seed Xi (ξ) */
+#define MAX_MLDSA_PRIV_SEED_SIZE    32    /* Private seed Xi (spec const) */
 #endif
 
 /* ML-KEM sizes (TCG v185 RC4 Table 204) */
@@ -763,7 +767,7 @@ typedef int64_t  INT64;
 
 /* MAX_SIGNATURE_HINT_SIZE sizes TPM2B_SIGNATURE_HINT. Holds the encoded R
  * value for EdDSA signatures; zero-length for ML-DSA and other schemes.
- * Part 2 §11.3.9 Table 221 does not fix a numeric cap; 256 covers Ed25519
+ * Part 2 Sec.11.3.9 Table 221 does not fix a numeric cap; 256 covers Ed25519
  * and Ed448 encoded R sizes with headroom. */
 #ifndef MAX_SIGNATURE_HINT_SIZE
 #define MAX_SIGNATURE_HINT_SIZE     256

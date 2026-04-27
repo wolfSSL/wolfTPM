@@ -254,7 +254,7 @@ int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     return 0;
 }
 
-/** \brief Compute ticket HMAC per Part 2 §10.6.5 Eq (5):
+/** \brief Compute ticket HMAC per Part 2 Sec.10.6.5 Eq (5):
  *    hmac = HMAC(proof(hierarchy), ticketTag || data || metadata)
  * Pass metadata=NULL and metadataSz=0 for ticket types whose
  * TPMU_TK_VERIFIED_META is empty (HASHCHECK, VERIFIED, CREATION,
@@ -316,7 +316,7 @@ int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
 }
 
 /** \brief Compute and append a ticket (TPMT_TK_*) to a response packet.
- *  Per Part 2 §10.6.5 Eq (5):
+ *  Per Part 2 Sec.10.6.5 Eq (5):
  *    hmac = HMAC(proofValue, ticketTag || data || metadata)
  *  ticketTag is bound into the HMAC so two different ticket types over the
  *  same data can't be substituted. metadata (selected on tag per
@@ -334,7 +334,7 @@ int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     int rc;
 
     if (hierarchy == TPM_RH_NULL) {
-        /* Part 2 §10.6.5: every NULL Verified/Hashcheck Ticket is the
+        /* Part 2 Sec.10.6.5: every NULL Verified/Hashcheck Ticket is the
          * 3-tuple <tag, TPM_RH_NULL, 0x0000>. TPMU_*_META bytes (e.g.
          * the metaAlg field on TPM_ST_DIGEST_VERIFIED) are omitted when
          * hierarchy == TPM_RH_NULL — the ticket carries no semantic
@@ -689,11 +689,7 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
  * The "MLDSA" / "HASH_MLDSA" / "MLKEM" labels below are wolfTPM's
  * interpretation; if the final spec prescribes different labels every
  * primary key derived against this build will require migration.
- * Suppress the build-log note with -DWOLFTPM_V185_LABELS_ACK once the
- * labels are known to match (or are accepted as a vendor extension). */
-#ifndef WOLFTPM_V185_LABELS_ACK
-#pragma message ("WOLFTPM_V185: PQC primary-key KDFa labels are interpretation, not normative — see docs/FWTPM.md and FwDeriveMldsaPrimaryKeySeed comment")
-#endif
+ * See docs/FWTPM.md and FwDeriveMldsaPrimaryKeySeed for details. */
 
 /* Map TPM v1.85 ML-DSA parameter set to wolfCrypt dilithium level. */
 static int FwGetWcMldsaLevel(TPMI_MLDSA_PARAMETER_SET ps)

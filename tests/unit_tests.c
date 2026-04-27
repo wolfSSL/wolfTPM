@@ -849,7 +849,7 @@ static void test_wolfTPM2_EncryptSecret(void)
 #if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
-    /* MLKEM path (v1.85 Part 1 §24): caller encapsulates under the TPM's
+    /* MLKEM path (v1.85 Part 1 Sec.24): caller encapsulates under the TPM's
      * ML-KEM public key; the shared secret (32 bytes) becomes the session
      * salt, the ciphertext (1088 bytes for MLKEM-768) goes on the wire. */
     XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
@@ -4093,7 +4093,7 @@ static void test_wolfTPM2_MLDSA_SignSequence(WOLFTPM2_DEV* dev,
     }
     AssertIntEQ(rc, 0);
 
-    /* Pure-MLDSA rejects SequenceUpdate (§17.5 TPM_RC_ONE_SHOT_SIGNATURE)
+    /* Pure-MLDSA rejects SequenceUpdate (Sec.17.5 TPM_RC_ONE_SHOT_SIGNATURE)
      * — the message must be supplied in one shot at Complete. */
     rc = wolfTPM2_SignSequenceComplete(dev, sequenceHandle, mldsaKey,
         message, messageSz, sig, sigSz);
@@ -4129,7 +4129,7 @@ static void test_wolfTPM2_MLDSA_VerifySequence(WOLFTPM2_DEV* dev,
     }
     AssertIntEQ(rc, 0);
 
-    /* Verify sequences accept SequenceUpdate per Part 3 §20.3 */
+    /* Verify sequences accept SequenceUpdate per Part 3 Sec.20.3 */
     rc = wolfTPM2_VerifySequenceUpdate(dev, sequenceHandle, message, messageSz);
     AssertIntEQ(rc, 0);
 
@@ -4334,8 +4334,66 @@ static void test_wolfTPM2_HashMLDSA_SignSequence_Streaming(WOLFTPM2_DEV* dev)
         "Hash-ML-DSA SignSeqUpdate streaming:");
 }
 
+/* Direct coverage for wolfTPM2_SignDigest + wolfTPM2_VerifyDigestSignature
+ * wrappers. These are the documented one-shot digest APIs and were only
+ * exercised via the pqc_mssim_e2e example — wrapper-level marshaling bugs
+ * (TPMT_TK_HASHCHECK synthesis, sigAlg dispatch, ticket parse) were not
+ * caught by unit tests. Sign + Verify round-trip then assert the
+ * validation ticket reports DIGEST_VERIFIED. */
+static void test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    WOLFTPM2_KEY hashKey;
+    TPMT_PUBLIC pub;
+    TPMT_TK_VERIFIED validation;
+    byte sig[5000];
+    int sigSz = (int)sizeof(sig);
+    /* SHA-256 digest of an arbitrary 32-byte test vector. */
+    const byte digest[32] = {
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+        0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
+    };
+
+    XMEMSET(&hashKey, 0, sizeof(hashKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(&validation, 0, sizeof(validation));
+
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
+        TPM_MLDSA_65, TPM_ALG_SHA256);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "Hash-ML-DSA SignDigest roundtrip:");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_SignDigest(dev, &hashKey, digest, (int)sizeof(digest),
+            NULL, 0, sig, &sigSz);
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sigSz, 0);
+
+    rc = wolfTPM2_VerifyDigestSignature(dev, &hashKey,
+            digest, (int)sizeof(digest), sig, sigSz, NULL, 0, &validation);
+    AssertIntEQ(rc, 0);
+    /* Ticket from VerifyDigestSignature must be DIGEST_VERIFIED — a
+     * downstream PolicyTicket consumer relies on this tag. */
+    AssertIntEQ(validation.tag, TPM_ST_DIGEST_VERIFIED);
+
+    wolfTPM2_UnloadHandle(dev, &hashKey.handle);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Hash-ML-DSA SignDigest roundtrip:");
+}
+
 /* Regression for the TPM2_SignSequenceStart no-session path.
- * Per Part 3 §17.6.3 the command has Auth Index: None; the native API
+ * Per Part 3 Sec.17.6.3 the command has Auth Index: None; the native API
  * used to require ctx->session != NULL and hardcode TPM_ST_SESSIONS.
  * This test forces the no-session branch and asserts success — if a
  * future change re-adds the spurious session check or hardcodes the
@@ -4519,7 +4577,7 @@ static void test_wolfTPM2_PQC(void)
     XMEMSET(&mldsaKey, 0, sizeof(mldsaKey));
     XMEMSET(&mldsaPub, 0, sizeof(mldsaPub));
     /* allowExternalMu=0: fwTPM does not yet implement μ-direct sign, so per
-     * Part 2 §12.2.3.6 keys created with allowExternalMu=YES are rejected at
+     * Part 2 Sec.12.2.3.6 keys created with allowExternalMu=YES are rejected at
      * object creation with TPM_RC_EXT_MU. Use NO for the suite key. */
     rc = wolfTPM2_GetKeyTemplate_MLDSA(&mldsaPub,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
@@ -4548,6 +4606,7 @@ static void test_wolfTPM2_PQC(void)
      * fix would silently pass CI without these. */
     test_wolfTPM2_MLDSA_VerifySequence_DataChain(&dev);
     test_wolfTPM2_HashMLDSA_SignSequence_Streaming(&dev);
+    test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(&dev);
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
 
