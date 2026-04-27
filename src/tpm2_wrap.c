@@ -5623,6 +5623,29 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+    /* Validate sigSz against the per-type signature buffer up front so
+     * BUFFER_E does not leak the sequence handle (we'd otherwise advance
+     * the TPM-side sequence via SequenceUpdate and bail out before
+     * Complete, leaving the slot allocated until the caller manually
+     * flushes it). */
+    if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+    }
+#ifdef WOLFTPM_V185
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.mldsa.buffer)) {
+            return BUFFER_E;
+        }
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+    }
+#endif
+
     /* Part 3 §20.3 Table 118: VerifySequenceComplete parameters are
      * {signature} only — no buffer field. The documented `data`/`dataSz`
      * "final chunk" arguments are folded into the sequence here via an
@@ -5755,6 +5778,12 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     if (context != NULL && contextSz > 0) {
         XMEMCPY(signDigestIn.context.buffer, context, contextSz);
     }
+    /* Synthesize a NULL TPMT_TK_HASHCHECK per Part 2 §10.6.4 — the wire
+     * format MUST carry tag = TPM_ST_HASHCHECK and hierarchy = TPM_RH_NULL
+     * even for unrestricted keys where the ticket is informational. */
+    signDigestIn.validation.tag = TPM_ST_HASHCHECK;
+    signDigestIn.validation.hierarchy = TPM_RH_NULL;
+    /* signDigestIn.validation.digest.size already 0 from XMEMSET */
 
     XMEMSET(&signDigestOut, 0, sizeof(signDigestOut));
     rc = TPM2_SignDigest(&signDigestIn, &signDigestOut);

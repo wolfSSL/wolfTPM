@@ -1101,6 +1101,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                   TPMA_ML_PARAMETER_SET_mlDsa_87   |
             #endif
                   0 },
+                /* fwTPM is not firmware-versioned; report SVN=0 so v1.85
+                 * clients iterating PT_FIXED capabilities see the keys. */
+                { TPM_PT_FIRMWARE_SVN,      0 },
+                { TPM_PT_FIRMWARE_MAX_SVN,  0 },
             #endif
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
@@ -6978,7 +6982,9 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 signSeq->firstBytesSz += take;
             }
             /* Hash-ML-DSA sign/verify: feed bytes into the hash ctx.
-             * Pure ML-DSA verify: accumulate raw message bytes. */
+             * Pure ML-DSA sign or verify: accumulate raw message bytes
+             * (sign sequences are rejected at Complete with
+             * TPM_RC_ONE_SHOT_SIGNATURE per Part 3 §20.6). */
             if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA) {
                 if (!signSeq->hashCtxInit) {
                     rc = TPM_RC_FAILURE;
@@ -13008,6 +13014,12 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_HANDLE;
         }
     }
+    /* Skip authorization area if sessions tag (Encapsulate has Auth Index:
+     * None per spec, but the dispatch table allows ST_SESSIONS so consume
+     * the bytes for forward compatibility with future input parameters). */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
     /* Current scope: MLKEM only. ECDH KEM path (v1.85 Table 100 ecdh arm)
      * is not yet implemented; TPM_RC_KEY is the spec response for
      * key-type-not-supported on this command. */
@@ -13130,6 +13142,13 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 static FWTPM_SignSeq* FwAllocSignSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle)
 {
     int i;
+    /* Catch any future increase to slot counts that would push handles
+     * outside the transient range. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+    _Static_assert(FWTPM_MAX_OBJECTS + FWTPM_MAX_HASH_SEQ +
+                   FWTPM_MAX_SIGN_SEQ < 0x00FFFFFF,
+                   "transient slot range overflow");
+#endif
     for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
         if (!ctx->signSeq[i].used) {
             XMEMSET(&ctx->signSeq[i], 0, sizeof(ctx->signSeq[i]));
@@ -13218,6 +13237,9 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
             rc = TPM_RC_KEY;
         }
+        /* Scope: ML-DSA / Hash-ML-DSA only. Spec also permits classical
+         * schemes (RSASSA, RSAPSS, ECDSA, SM2, ECSCHNORR, HMAC) but those
+         * remain available via TPM2_Sign — see src/fwtpm/README.md. */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
                  obj->pub.type != TPM_ALG_HASH_MLDSA) {
             rc = TPM_RC_SCHEME;
@@ -13262,16 +13284,15 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq->isVerifySeq = 0;
         seq->keyHandle = keyHandle;
         seq->sigScheme = obj->pub.type;
-        /* Per Part 3 §17.5 + §20.6 TPM_RC_ONE_SHOT_SIGNATURE applies only
-         * to sign sequences. For Pure ML-DSA the message is delivered via
-         * the buffer parameter of SignSequenceComplete so SequenceUpdate
-         * is rejected. Hash-ML-DSA sign sequences allow SequenceUpdate and
-         * accumulate the digest as data arrives. */
-        if (obj->pub.type == TPM_ALG_MLDSA) {
-            seq->oneShot = 1;
-        }
-        else {
-            seq->oneShot = 0;
+        /* Per Part 3 §17.5.1 + §20.6.1 TPM_RC_ONE_SHOT_SIGNATURE only
+         * applies to schemes that genuinely require single-pass signing
+         * (example: TPM_ALG_EDDSA). FIPS 204 Algorithm 2 computes
+         * μ = H(tr || M', 64) using SHAKE256 absorbing, which supports
+         * incremental updates — Pure ML-DSA streams via SequenceUpdate
+         * just like Hash-ML-DSA. The oneShot flag is left in place for
+         * any future EDDSA path. */
+        seq->oneShot = 0;
+        if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
                 obj->pub.parameters.hash_mldsaDetail.hashAlg);
         }
@@ -13325,6 +13346,7 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
             rc = TPM_RC_KEY;
         }
+        /* Scope: ML-DSA / Hash-ML-DSA only — see src/fwtpm/README.md. */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
                  obj->pub.type != TPM_ALG_HASH_MLDSA) {
             rc = TPM_RC_SCHEME;
@@ -13494,20 +13516,41 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         /* Part 3 §20.6.1: TPM_RC_ONE_SHOT_SIGNATURE if the key's signing
-         * scheme is one-shot (Pure ML-DSA per FIPS 204) AND the sequence
-         * is non-empty (any prior SequenceUpdate calls accumulated bytes).
-         * Pure ML-DSA needs the entire message in one shot via this
-         * Complete buffer; prior Update bytes are an error. */
+         * scheme requires single-pass signing AND prior SequenceUpdate
+         * calls accumulated bytes. ML-DSA does NOT require single-pass
+         * (FIPS 204 Algorithm 2 uses SHAKE256 absorbing — streamable),
+         * so the flag is left clear for Pure ML-DSA today. Reserved for a
+         * future EDDSA / similar truly-one-shot scheme. */
         if (rc == 0 && seq->oneShot && seq->msgBufSz > 0) {
             rc = TPM_RC_ONE_SHOT_SIGNATURE;
         }
 
         if (rc == 0 && keyObj->pub.type == TPM_ALG_MLDSA) {
-            rc = FwSignMldsaMessage(&ctx->rng,
-                keyObj->pub.parameters.mldsaDetail.parameterSet,
-                keyObj->privKey,
-                seq->context.buffer, seq->context.size,
-                msgBuf, bufSize, sigOut);
+            /* Concatenate any SequenceUpdate-accumulated bytes (msgBuf)
+             * with the trailing Complete-time buffer, then sign the full
+             * message. If no streaming happened (msgBufSz == 0) just sign
+             * the trailing buffer. */
+            if (seq->msgBufSz == 0) {
+                rc = FwSignMldsaMessage(&ctx->rng,
+                    keyObj->pub.parameters.mldsaDetail.parameterSet,
+                    keyObj->privKey,
+                    seq->context.buffer, seq->context.size,
+                    msgBuf, bufSize, sigOut);
+            }
+            else if (seq->msgBufSz + bufSize > sizeof(seq->msgBuf)) {
+                rc = TPM_RC_MEMORY;
+            }
+            else {
+                if (bufSize > 0) {
+                    XMEMCPY(seq->msgBuf + seq->msgBufSz, msgBuf, bufSize);
+                    seq->msgBufSz += bufSize;
+                }
+                rc = FwSignMldsaMessage(&ctx->rng,
+                    keyObj->pub.parameters.mldsaDetail.parameterSet,
+                    keyObj->privKey,
+                    seq->context.buffer, seq->context.size,
+                    seq->msgBuf, seq->msgBufSz, sigOut);
+            }
         }
         else if (rc == 0 && keyObj->pub.type == TPM_ALG_HASH_MLDSA) {
             /* Feed the trailing buffer bytes into the hash accumulator,
@@ -13596,6 +13639,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Object* keyObj = NULL;
     UINT16 sigAlg = 0, sigHashAlg = 0, wireSize = 0;
     FWTPM_DECLARE_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+    FWTPM_DECLARE_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
     int sigSz = 0;
     int paramSzPos, paramStart;
     /* Verified digest snapshot — required by the ticket builder so that
@@ -13605,10 +13649,10 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte verifiedDigest[TPM_MAX_DIGEST_SIZE];
     int verifiedDigestSz = 0;
     UINT32 ticketHier = 0;
-    byte ticketData[FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME)];
     int ticketDataSz = 0;
 
     FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+    FWTPM_ALLOC_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
     XMEMSET(verifiedDigest, 0, sizeof(verifiedDigest));
 
     if (cmdSize < TPM2_HEADER_SIZE + 8) {
@@ -13739,34 +13783,49 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * Hash-ML-DSA path — SequenceUpdate routed bytes into
              * seq->hashCtx, not msgBuf). */
             if (verifiedDigestSz > 0 &&
-                    verifiedDigestSz <= (int)sizeof(ticketData)) {
+                    verifiedDigestSz <= (int)FWTPM_SIZEOF_BUF(ticketData,
+                        FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
                 XMEMCPY(ticketData, verifiedDigest,
                     (size_t)verifiedDigestSz);
                 ticketDataSz = verifiedDigestSz;
+            }
+            else {
+                rc = TPM_RC_FAILURE;
             }
         }
         else {
             /* Pure ML-DSA: the verified message is the bytes streamed
              * through SequenceUpdate (held in seq->msgBuf). */
-            if (seq->msgBufSz <= sizeof(ticketData)) {
+            if (seq->msgBufSz <= FWTPM_SIZEOF_BUF(ticketData,
+                    FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
                 XMEMCPY(ticketData, seq->msgBuf, seq->msgBufSz);
                 ticketDataSz = (int)seq->msgBufSz;
             }
+            else {
+                rc = TPM_RC_FAILURE;
+            }
         }
-        if (ticketDataSz + keyObj->name.size <= (int)sizeof(ticketData)) {
+        if (rc == 0 &&
+            ticketDataSz + keyObj->name.size <= (int)FWTPM_SIZEOF_BUF(
+                ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
             XMEMCPY(ticketData + ticketDataSz,
                 keyObj->name.name, keyObj->name.size);
             ticketDataSz += keyObj->name.size;
         }
+        else if (rc == 0) {
+            rc = TPM_RC_FAILURE;
+        }
 
         /* TPM_ST_MESSAGE_VERIFIED — TPMU_TK_VERIFIED_META is empty per
          * Part 2 §10.6.5 Table 112, so metadata is NULL/0. */
-        rc = FwAppendTicket(ctx, rsp,
-            TPM_ST_MESSAGE_VERIFIED,
-            ticketHier,
-            keyObj->pub.nameAlg,
-            ticketData, ticketDataSz,
-            NULL, 0);
+        if (rc == 0) {
+            rc = FwAppendTicket(ctx, rsp,
+                TPM_ST_MESSAGE_VERIFIED,
+                ticketHier,
+                keyObj->pub.nameAlg,
+                ticketData, ticketDataSz,
+                NULL, 0);
+        }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
@@ -13777,6 +13836,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     TPM2_ForceZero(verifiedDigest, sizeof(verifiedDigest));
+    FWTPM_FREE_BUF(ticketData);
     FWTPM_FREE_BUF(sigBuf);
     return rc;
 }
@@ -13874,6 +13934,14 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
+    /* Part 2 §10.6.4: TPMT_TK_HASHCHECK MUST carry tag = TPM_ST_HASHCHECK
+     * regardless of restricted/unrestricted key status. Reject malformed
+     * tags universally with TPM_RC_TAG so the wire format is enforced even
+     * when the ticket is otherwise informational. */
+    if (rc == 0 && validationTag != TPM_ST_HASHCHECK) {
+        rc = TPM_RC_TAG;
+    }
+
     /* Part 3 §20.7.1: a restricted signing key requires a valid
      * TPMT_TK_HASHCHECK proving the digest was produced by a TPM-internal
      * hash op over a message that did not begin with TPM_GENERATED_VALUE.
@@ -13881,9 +13949,7 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
      * TPM_ST_HASHCHECK || digest) per Part 2 §10.6.5 Eq (5). NULL ticket
      * (hierarchy=RH_NULL or empty hmac) is insufficient. */
     if (rc == 0 && (obj->pub.objectAttributes & TPMA_OBJECT_restricted)) {
-        if (validationTag != TPM_ST_HASHCHECK ||
-            validationHier == TPM_RH_NULL ||
-            validationDigestSz == 0) {
+        if (validationHier == TPM_RH_NULL || validationDigestSz == 0) {
             rc = TPM_RC_TICKET;
         }
         else {
@@ -13899,11 +13965,15 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 digest->buffer, digest->size,
                 NULL, 0,
                 expectedHmac, &expectedHmacSz);
-            if (rc == 0 &&
-                (validationDigestSz != (UINT16)expectedHmacSz ||
-                 XMEMCMP(expectedHmac, validationDigest,
-                         expectedHmacSz) != 0)) {
-                rc = TPM_RC_TICKET;
+            /* Constant-time compare to avoid the timing channel that
+             * XMEMCMP introduces. Match FwCmd_PolicyAuthorize/Sign/etc. */
+            if (rc == 0) {
+                int diff = (validationDigestSz != (UINT16)expectedHmacSz);
+                diff |= TPM2_ConstantCompare(expectedHmac, validationDigest,
+                            expectedHmacSz);
+                if (diff != 0) {
+                    rc = TPM_RC_TICKET;
+                }
             }
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
         }
@@ -13935,7 +14005,10 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
         else {
             /* Part 3 §20.7.1: TPM_RC_SCHEME for unsupported signing scheme
-             * on a valid signing key (TPM_RC_KEY would mean "not a key"). */
+             * on a valid signing key (TPM_RC_KEY would mean "not a key").
+             * Scope: ML-DSA / Hash-ML-DSA only. Classical digest signing
+             * (RSASSA, RSAPSS, ECDSA) goes via TPM2_Sign — see
+             * src/fwtpm/README.md. */
             rc = TPM_RC_SCHEME;
         }
     }
@@ -14062,6 +14135,9 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         else {
+            /* Scope: ML-DSA / Hash-ML-DSA only — see src/fwtpm/README.md.
+             * Classical schemes (ECDSA, RSASSA, RSAPSS) verify via
+             * TPM2_VerifySignature. */
             rc = TPM_RC_SCHEME;
         }
     }

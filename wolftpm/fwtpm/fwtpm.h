@@ -92,10 +92,13 @@
 
 /* Limits */
 #ifndef FWTPM_MAX_COMMAND_SIZE
-    /* ML-DSA-87 signature alone is 4627 bytes; v185 PQC responses can exceed
-     * the classical 4096-byte ceiling. Lift conditionally so non-PQC builds
-     * retain the smaller footprint. */
-    #ifdef WOLFTPM_V185
+    /* PQC sig responses (header + paramSize + TPM2B_SIGNATURE + auth area)
+     * exceed 4096 once MLDSA-87 is enabled (sig alone = 4627). MLDSA-65
+     * (3309 sig) leaves only ~700 B headroom inside 4096 — safe but tight,
+     * so we still lift to 8192 to keep public-key transport comfortable.
+     * MLDSA-44-only and MLKEM-only builds stay at 4096. */
+    #if defined(WOLFTPM_V185) && \
+        (!defined(WOLFSSL_NO_ML_DSA_65) || !defined(WOLFSSL_NO_ML_DSA_87))
         #define FWTPM_MAX_COMMAND_SIZE 8192
     #else
         #define FWTPM_MAX_COMMAND_SIZE 4096
@@ -155,30 +158,100 @@
 #define FWTPM_MAX_NV_DATA      2048
 #endif
 
-/* Internal buffer sizes (compile-time overridable) */
+/* Internal buffer sizes — auto-shrink based on the largest enabled PQC
+ * parameter set (see FWTPM_MAX_MLDSA_xxx and FWTPM_MAX_MLKEM_xxx above).
+ * All macros remain ifndef-guarded for per-board overrides. See
+ * docs/FWTPM.md "v1.85 Embedded RAM Impact" for resolved values per build.
+ */
+/* ML-KEM ciphertext / public-key sizes per FIPS 203 §6.4 / §7.4. wolfCrypt's
+ * WC_ML_KEM_xxx_SIZE macros expand to non-preprocessor-evaluable expressions
+ * (MLKEM_POLY_VEC_SZ() etc.), so we redefine the spec constants here for use
+ * in compile-time #if comparisons below. Spec-immutable. */
+#define FWTPM_MLKEM_512_CT_SIZE    768
+#define FWTPM_MLKEM_512_PUB_SIZE   800
+#define FWTPM_MLKEM_768_CT_SIZE   1088
+#define FWTPM_MLKEM_768_PUB_SIZE  1184
+#define FWTPM_MLKEM_1024_CT_SIZE  1568
+#define FWTPM_MLKEM_1024_PUB_SIZE 1568
+
+/* Resolve the largest ML-DSA / ML-KEM parameter set actually enabled in
+ * wolfCrypt, so PQC buffer defaults auto-shrink for deployments that only
+ * enable smaller params. Per-param-set sizes use wolfCrypt's own
+ * DILITHIUM_LEVEL{2,3,5}_*_SIZE macros (plain integer constants) and
+ * the FWTPM_MLKEM_*_SIZE constants above. */
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    #include <wolfssl/wolfcrypt/dilithium.h>
+    #if !defined(WOLFSSL_NO_ML_DSA_87)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL5_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL5_PUB_KEY_SIZE
+    #elif !defined(WOLFSSL_NO_ML_DSA_65)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL3_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL3_PUB_KEY_SIZE
+    #elif !defined(WOLFSSL_NO_ML_DSA_44)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL2_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL2_PUB_KEY_SIZE
+    #else
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  0
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  0
+    #endif
+    #if !defined(WOLFSSL_NO_KYBER1024)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_1024_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_1024_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_KYBER768)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_768_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_768_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_KYBER512)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_512_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_512_PUB_SIZE
+    #else
+        #define FWTPM_MAX_MLKEM_CT_SIZE   0
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  0
+    #endif
+#else
+    #define FWTPM_MAX_MLDSA_SIG_SIZE  0
+    #define FWTPM_MAX_MLDSA_PUB_SIZE  0
+    #define FWTPM_MAX_MLKEM_CT_SIZE   0
+    #define FWTPM_MAX_MLKEM_PUB_SIZE  0
+#endif
+
 #ifndef FWTPM_MAX_DATA_BUF
 #define FWTPM_MAX_DATA_BUF     1024  /* HMAC, hash sequences, general data */
 #endif
 #ifndef FWTPM_MAX_PUB_BUF
-    /* ML-DSA-87 public key is 2592 bytes; lift conditionally. */
-    #ifdef WOLFTPM_V185
-        #define FWTPM_MAX_PUB_BUF  2720  /* MLDSA-87 pub + slack */
+    /* Holds the largest serialized public area. PQC pub keys (MLDSA-87
+     * = 2592, MLKEM-1024 = 1568) dominate when enabled. Keep 128 B slack
+     * for TPM2B_PUBLIC headers + alg parameters. */
+    #if FWTPM_MAX_MLDSA_PUB_SIZE > FWTPM_MAX_MLKEM_PUB_SIZE
+        #define FWTPM_MAX_PUB_BUF_RAW  FWTPM_MAX_MLDSA_PUB_SIZE
     #else
-        #define FWTPM_MAX_PUB_BUF  512   /* Public area, signature, seed, OAEP */
+        #define FWTPM_MAX_PUB_BUF_RAW  FWTPM_MAX_MLKEM_PUB_SIZE
+    #endif
+    #if FWTPM_MAX_PUB_BUF_RAW > 384
+        #define FWTPM_MAX_PUB_BUF  (FWTPM_MAX_PUB_BUF_RAW + 128)
+    #else
+        #define FWTPM_MAX_PUB_BUF  512  /* classical RSA/ECC default */
     #endif
 #endif
 #ifndef FWTPM_MAX_DER_SIG_BUF
-    /* ML-DSA-87 signature is 4627 bytes; lift conditionally. */
-    #ifdef WOLFTPM_V185
-        #define FWTPM_MAX_DER_SIG_BUF  4736  /* MLDSA-87 sig + slack */
+    /* Holds DER signatures + scratch. PQC dominates when enabled
+     * (MLDSA-87 sig = 4627, MLDSA-65 = 3309, MLDSA-44 = 2420). 128 B slack
+     * for TPM2B_SIGNATURE wrapper. */
+    #if FWTPM_MAX_MLDSA_SIG_SIZE > 128
+        #define FWTPM_MAX_DER_SIG_BUF  (FWTPM_MAX_MLDSA_SIG_SIZE + 128)
     #else
-        #define FWTPM_MAX_DER_SIG_BUF  256   /* DER signature, ECC primes/points */
+        #define FWTPM_MAX_DER_SIG_BUF  256  /* classical DER sig default */
     #endif
 #endif
 #ifdef WOLFTPM_V185
-/* KEM ciphertext buffer: MLKEM-1024 ciphertext is 1568 bytes. */
+/* KEM ciphertext buffer: derived from the largest enabled MLKEM
+ * parameter set (MLKEM-1024 = 1568, MLKEM-768 = 1088, MLKEM-512 = 768).
+ * 64 B slack covers wrapper overhead. */
 #ifndef FWTPM_MAX_KEM_CT_BUF
-#define FWTPM_MAX_KEM_CT_BUF   1600
+    #if FWTPM_MAX_MLKEM_CT_SIZE > 0
+        #define FWTPM_MAX_KEM_CT_BUF   (FWTPM_MAX_MLKEM_CT_SIZE + 64)
+    #else
+        #define FWTPM_MAX_KEM_CT_BUF   256
+    #endif
 #endif
 #endif
 #ifndef FWTPM_MAX_ATTEST_BUF

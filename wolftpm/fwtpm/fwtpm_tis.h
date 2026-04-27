@@ -56,11 +56,14 @@
 #define FWTPM_TIS_BURST_COUNT   64
 #endif
 
-/* Maximum FIFO buffer size. Matches FWTPM_MAX_COMMAND_SIZE; lifted under
- * v185 for large PQC responses (ML-DSA-87 signature is 4627 bytes). Bare-metal
- * deployments should revisit board RAM budget — 2x 8 KB buffers vs 2x 4 KB. */
+/* Maximum FIFO buffer size. Mirrors FWTPM_MAX_COMMAND_SIZE — only lift to
+ * 8192 when wolfCrypt was built with MLDSA-65 or MLDSA-87 (sig sizes 3309
+ * / 4627 bytes won't fit a 4096 response with TPM headers). MLDSA-44-only
+ * and MLKEM-only v1.85 deployments stay at 4096. Bare-metal deployments
+ * should revisit board RAM budget — 2x 8 KB FIFOs vs 2x 4 KB. */
 #ifndef FWTPM_TIS_FIFO_SIZE
-    #ifdef WOLFTPM_V185
+    #if defined(WOLFTPM_V185) && \
+        (!defined(WOLFSSL_NO_ML_DSA_65) || !defined(WOLFSSL_NO_ML_DSA_87))
         #define FWTPM_TIS_FIFO_SIZE 8192
     #else
         #define FWTPM_TIS_FIFO_SIZE 4096

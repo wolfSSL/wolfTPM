@@ -334,12 +334,16 @@ int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     int rc;
 
     if (hierarchy == TPM_RH_NULL) {
+        /* Part 2 §10.6.5: every NULL Verified/Hashcheck Ticket is the
+         * 3-tuple <tag, TPM_RH_NULL, 0x0000>. TPMU_*_META bytes (e.g.
+         * the metaAlg field on TPM_ST_DIGEST_VERIFIED) are omitted when
+         * hierarchy == TPM_RH_NULL — the ticket carries no semantic
+         * binding to discriminate. */
         TPM2_Packet_AppendU16(rsp, ticketTag);
         TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
-        if (metadataSz > 0) {
-            TPM2_Packet_AppendBytes(rsp, (byte*)metadata, metadataSz);
-        }
         TPM2_Packet_AppendU16(rsp, 0);
+        (void)metadata;
+        (void)metadataSz;
         return TPM_RC_SUCCESS;
     }
 

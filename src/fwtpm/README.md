@@ -251,3 +251,20 @@ All PQC-related. Require ML-KEM (Kyber) and ML-DSA (Dilithium) support in wolfCr
 | v1.59 | 120 | 105 | 15 | 88% |
 | v1.84 | 129 | 105 | 24 | 81% |
 | v1.85 | 136 | 105 | 31 | 77% |
+
+### v1.85 Limitations / Scope
+
+The following v1.85 commands are implemented for **post-quantum keys only**;
+non-PQC key types are rejected with `TPM_RC_KEY` / `TPM_RC_SCHEME` even when
+the v1.85 spec defines them generically:
+
+- `TPM2_Encapsulate` / `TPM2_Decapsulate` — ML-KEM only. ECC DHKEM (Table 100
+  `ecdh` arm with non-NULL KDF) is not implemented.
+- `TPM2_SignSequenceStart` / `VerifySequenceStart` /
+  `SignSequenceComplete` / `VerifySequenceComplete` — ML-DSA and Hash-ML-DSA
+  only. Classical schemes (RSASSA, RSAPSS, ECDSA, SM2, ECSCHNORR, HMAC) that
+  the spec also permits via these commands are not supported.
+- `TPM2_SignDigest` / `TPM2_VerifyDigestSignature` — ML-DSA and Hash-ML-DSA
+  only. Classical digest signing (RSASSA, RSAPSS, ECDSA) over these new
+  commands is not supported; use the existing `TPM2_Sign` /
+  `TPM2_VerifySignature` commands for those schemes.

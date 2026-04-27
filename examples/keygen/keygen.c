@@ -179,7 +179,6 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 #ifdef WOLFTPM_V185
     TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65;   /* default */
     TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
-    TPMI_ALG_HASH hashMldsaHash = TPM_ALG_SHA256;      /* pre-hash alg */
 #endif
     WOLFTPM2_SESSION tpmSession;
     TPM2B_AUTH auth;
@@ -463,12 +462,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         else if (alg == TPM_ALG_HASH_MLDSA) {
             printf("Hash-ML-DSA template (parameter set %u, pre-hash %s)\n",
-                (unsigned)mldsaPs, TPM2_GetAlgName(hashMldsaHash));
+                (unsigned)mldsaPs, TPM2_GetAlgName(TPM_ALG_SHA256));
             rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&publicTemplate,
                 TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
                 TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
-                mldsaPs, hashMldsaHash);
+                mldsaPs, TPM_ALG_SHA256);
         }
         else if (alg == TPM_ALG_MLKEM) {
             printf("ML-KEM template (parameter set %u)\n",

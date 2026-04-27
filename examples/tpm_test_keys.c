@@ -185,6 +185,9 @@ int writeKeyBlob(const char* filename,
     }
     rc = TPM_RC_SUCCESS;
 #else
+    /* No-op success on embedded builds without a filesystem; preserves the
+     * pre-fix ABI so callers like keygen.c don't fail unconditionally. */
+    rc = TPM_RC_SUCCESS;
     (void)filename;
     (void)key;
 #endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */

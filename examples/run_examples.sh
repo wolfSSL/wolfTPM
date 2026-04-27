@@ -303,6 +303,18 @@ if [ $ENABLE_V185 -eq 1 ]; then
         [ $RESULT -ne 0 ] && echo -e "keyload mlkem=$PS failed! $RESULT" && exit 1
     done
     rm -f pqcblob.bin
+
+    echo -e "PQC standalone examples (mldsa_sign, mlkem_encap)"
+    for PS in 44 65 87; do
+        ./examples/pqc/mldsa_sign -mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mldsa_sign mldsa=$PS failed! $RESULT" && exit 1
+    done
+    for PS in 512 768 1024; do
+        ./examples/pqc/mlkem_encap -mlkem=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mlkem_encap mlkem=$PS failed! $RESULT" && exit 1
+    done
 fi
 
 

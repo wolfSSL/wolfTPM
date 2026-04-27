@@ -480,6 +480,48 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 Note: `WOLFTPM_SMALL_STACK` and `WOLFTPM2_NO_HEAP` are mutually exclusive and
 will produce a compile error if both are defined.
 
+### v1.85 Embedded RAM Impact
+
+Enabling `--enable-v185` lifts several internal buffers to accommodate PQC
+key/signature sizes. The defaults **auto-shrink at compile time** based on
+which ML-DSA / ML-KEM parameter sets wolfCrypt was actually built with
+(`WOLFSSL_NO_ML_DSA_44/65/87`, `WOLFSSL_NO_KYBER512/768/1024`) — boards
+that only enable the smaller params get smaller buffers automatically, no
+per-board override required.
+
+**Buffer sizes by enabled parameter set:**
+
+| Macro | Classical | MLDSA-44 + MLKEM-512 | MLDSA-65 + MLKEM-768 | MLDSA-87 + MLKEM-1024 |
+|-------|-----------|----------------------|----------------------|------------------------|
+| `FWTPM_TIS_FIFO_SIZE`     | 4096 | 4096 | 8192 | 8192 |
+| `FWTPM_MAX_COMMAND_SIZE`  | 4096 | 4096 | 8192 | 8192 |
+| `FWTPM_MAX_PUB_BUF`       | 512  | 1440 | 2080 | 2720 |
+| `FWTPM_MAX_DER_SIG_BUF`   | 256  | 2548 | 3437 | 4755 |
+| `FWTPM_MAX_KEM_CT_BUF`    | n/a  | 832  | 1152 | 1632 |
+
+Sizing logic lives in `wolftpm/fwtpm/fwtpm.h` (constants
+`FWTPM_MAX_MLDSA_SIG_SIZE`, `FWTPM_MAX_MLDSA_PUB_SIZE`,
+`FWTPM_MAX_MLKEM_CT_SIZE`, `FWTPM_MAX_MLKEM_PUB_SIZE`) and
+`wolftpm/fwtpm/fwtpm_tis.h` (FIFO size). The MLDSA constants come from
+wolfCrypt's `DILITHIUM_LEVEL{2,3,5}_*_SIZE` macros; the MLKEM constants
+are FIPS 203 spec values (wolfCrypt's `WC_ML_KEM_*_SIZE` macros aren't
+preprocessor-evaluable).
+
+The 8192 lifts on FIFO/command buffers only kick in when MLDSA-65 or
+MLDSA-87 is enabled (their signatures don't fit a 4096 response with
+TPM headers). MLDSA-44-only and MLKEM-only v1.85 builds stay at 4096.
+
+**Per-deployment override:** every macro above is still `#ifndef`-guarded,
+so a board can override individually on the compile line if the auto
+default is wrong for its workload (e.g. `-DFWTPM_TIS_FIFO_SIZE=2048`).
+
+**Heap-vs-stack:** building with `WOLFTPM_SMALL_STACK` moves the large
+per-call buffers off the stack into `XMALLOC`/`XFREE` regions. The PQC
+paths already use `FWTPM_DECLARE_BUF` / `FWTPM_ALLOC_BUF` which respect
+this flag, so no source changes are required. `WOLFTPM2_NO_HEAP` is
+supported but pays full stack cost — pair it with the smallest PQC
+parameter set you can.
+
 ### Algorithm Feature Macros
 
 These macros use wolfCrypt's existing compile-time options to control which

@@ -2599,6 +2599,175 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
     printf("Test TPM Wrapper:\tSignature ECSCHNORR/SM2 serialize:\tPassed\n");
 }
 
+#ifdef WOLFTPM_V185
+/* Round-trip the v1.85 PQC arms of TPMT_SIGNATURE through the packet
+ * marshaler. Pure ML-DSA (Table 217 mldsa arm) is bare TPM2B + bytes —
+ * no hash field. Hash-ML-DSA prefixes a hashAlg before the TPM2B. The
+ * tests pin the on-wire byte counts to catch any future drift. */
+static void test_TPM2_Signature_PQC_Serialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIGNATURE sigIn, sigOut;
+    const byte sigBytes[16] = {
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+    };
+
+    /* Pure ML-DSA: sigAlg(2) + sigSz(2) + sig(16) = 20 bytes. */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_MLDSA;
+    sigIn.signature.mldsa.size = sizeof(sigBytes);
+    XMEMCPY(sigIn.signature.mldsa.buffer, sigBytes, sizeof(sigBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 2 + 2 + (int)sizeof(sigBytes));
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_MLDSA);
+    AssertIntEQ(sigOut.signature.mldsa.size, sizeof(sigBytes));
+    AssertIntEQ(XMEMCMP(sigOut.signature.mldsa.buffer,
+        sigBytes, sizeof(sigBytes)), 0);
+
+    /* Hash-ML-DSA: sigAlg(2) + hash(2) + sigSz(2) + sig(16) = 22 bytes. */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_HASH_MLDSA;
+    sigIn.signature.hash_mldsa.hash = TPM_ALG_SHA256;
+    sigIn.signature.hash_mldsa.signature.size = sizeof(sigBytes);
+    XMEMCPY(sigIn.signature.hash_mldsa.signature.buffer,
+        sigBytes, sizeof(sigBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 2 + 2 + 2 + (int)sizeof(sigBytes));
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_HASH_MLDSA);
+    AssertIntEQ(sigOut.signature.hash_mldsa.hash, TPM_ALG_SHA256);
+    AssertIntEQ(sigOut.signature.hash_mldsa.signature.size, sizeof(sigBytes));
+    AssertIntEQ(XMEMCMP(sigOut.signature.hash_mldsa.signature.buffer,
+        sigBytes, sizeof(sigBytes)), 0);
+
+    printf("Test TPM Wrapper:\tSignature PQC serialize:\tPassed\n");
+}
+
+/* Round-trip the v1.85 PQC arms of TPM2B_PUBLIC through the
+ * TPM2_AppendPublic / TPM2_ParsePublic public marshalers. ML-DSA +
+ * Hash-ML-DSA share the unique.mldsa arm (Part 2 Table 225 note);
+ * ML-KEM has its own unique.mlkem arm. Verifies every round-tripped
+ * field for the three key types. */
+static void test_TPM2_Public_PQC_Roundtrip(void)
+{
+    int rc, sz;
+    /* TPM2_AppendPublic requires the scratch buffer to hold a full
+     * TPM2B_PUBLIC; the v1.85 struct grows to fit the largest PQC public
+     * key (MLDSA-87 = 2592 bytes). */
+    byte buf[sizeof(TPM2B_PUBLIC)];
+    TPM2B_PUBLIC pubIn, pubOut;
+    const byte uniqueBytes[8] = {
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22
+    };
+
+    /* ML-DSA-65 */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_MLDSA;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.mldsaDetail.parameterSet = TPM_MLDSA_65;
+    pubIn.publicArea.parameters.mldsaDetail.allowExternalMu = NO;
+    pubIn.publicArea.unique.mldsa.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.mldsa.buffer,
+        uniqueBytes, sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntGT(sz, 0);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_MLDSA);
+    AssertIntEQ(pubOut.publicArea.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.mldsaDetail.parameterSet,
+        TPM_MLDSA_65);
+    AssertIntEQ(pubOut.publicArea.parameters.mldsaDetail.allowExternalMu, NO);
+    AssertIntEQ(pubOut.publicArea.unique.mldsa.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.mldsa.buffer,
+        uniqueBytes, sizeof(uniqueBytes)), 0);
+
+    /* Hash-ML-DSA-65 with SHA-256 — shared unique.mldsa arm. */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_HASH_MLDSA;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.hash_mldsaDetail.parameterSet = TPM_MLDSA_65;
+    pubIn.publicArea.parameters.hash_mldsaDetail.hashAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.unique.mldsa.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.mldsa.buffer,
+        uniqueBytes, sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_HASH_MLDSA);
+    AssertIntEQ(pubOut.publicArea.parameters.hash_mldsaDetail.parameterSet,
+        TPM_MLDSA_65);
+    AssertIntEQ(pubOut.publicArea.parameters.hash_mldsaDetail.hashAlg,
+        TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.unique.mldsa.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.mldsa.buffer,
+        uniqueBytes, sizeof(uniqueBytes)), 0);
+
+    /* ML-KEM-768 — unique.mlkem arm. */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_MLKEM;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_decrypt;
+    pubIn.publicArea.parameters.mlkemDetail.parameterSet = TPM_MLKEM_768;
+    pubIn.publicArea.parameters.mlkemDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pubIn.publicArea.unique.mlkem.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.mlkem.buffer,
+        uniqueBytes, sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_MLKEM);
+    AssertIntEQ(pubOut.publicArea.parameters.mlkemDetail.parameterSet,
+        TPM_MLKEM_768);
+    AssertIntEQ(pubOut.publicArea.unique.mlkem.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.mlkem.buffer,
+        uniqueBytes, sizeof(uniqueBytes)), 0);
+
+    printf("Test TPM Wrapper:\tPublic PQC roundtrip:\tPassed\n");
+}
+#endif /* WOLFTPM_V185 */
+
 static void test_TPM2_Sensitive_Roundtrip(void)
 {
     TPM2_Packet packet;
@@ -4084,6 +4253,87 @@ static void test_wolfTPM2_MLDSA_VerifySequence_DataChain(WOLFTPM2_DEV* dev)
         "ML-DSA Verify Seq data-chain:");
 }
 
+/* Hash-ML-DSA streaming sign coverage: split the message across multiple
+ * wolfTPM2_SignSequenceUpdate calls then sign with an empty trailing
+ * buffer at Complete. Verifies the sig end-to-end. Also exercises the
+ * argument-validation paths (NULL dev / NULL data / dataSz<=0 /
+ * dataSz > buffer) — the wrapper is the documented streaming-update
+ * mechanism for Hash-ML-DSA so it needs direct test coverage. */
+static void test_wolfTPM2_HashMLDSA_SignSequence_Streaming(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    WOLFTPM2_KEY hashKey;
+    TPMT_PUBLIC pub;
+    TPM_HANDLE seqHandle;
+    TPMT_TK_VERIFIED validation;
+    byte sig[5000];
+    int sigSz = (int)sizeof(sig);
+    static const byte msg[] =
+        "Hash-ML-DSA streaming sign test — split across SequenceUpdate calls";
+    int msgSz = (int)sizeof(msg) - 1;
+    int firstHalf;
+
+    XMEMSET(&hashKey, 0, sizeof(hashKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(&validation, 0, sizeof(validation));
+
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
+        TPM_MLDSA_65, TPM_ALG_SHA256);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreatePrimaryKey(dev, &hashKey, TPM_RH_OWNER, &pub, NULL, 0);
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "Hash-ML-DSA SignSeqUpdate streaming:");
+        return;
+    }
+    AssertIntEQ(rc, 0);
+
+    /* Argument validation — none of these should reach the TPM. */
+    AssertIntEQ(wolfTPM2_SignSequenceUpdate(NULL, 0x80000000,
+                    (const byte*)"x", 1), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_SignSequenceUpdate(dev, 0x80000000, NULL, 1),
+                    BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_SignSequenceUpdate(dev, 0x80000000,
+                    (const byte*)"x", 0), BAD_FUNC_ARG);
+    /* dataSz larger than the SequenceUpdate buffer must reject locally. */
+    AssertIntEQ(wolfTPM2_SignSequenceUpdate(dev, 0x80000000,
+                    (const byte*)"x", MAX_DIGEST_BUFFER + 1), BUFFER_E);
+
+    /* Streaming sign: SignSequenceStart → Update(part1) → Update(part2) →
+     * Complete(empty trailing buffer). */
+    rc = wolfTPM2_SignSequenceStart(dev, &hashKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, 0);
+
+    firstHalf = msgSz / 2;
+    rc = wolfTPM2_SignSequenceUpdate(dev, seqHandle, msg, firstHalf);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SignSequenceUpdate(dev, seqHandle,
+            msg + firstHalf, msgSz - firstHalf);
+    AssertIntEQ(rc, 0);
+
+    sigSz = (int)sizeof(sig);
+    rc = wolfTPM2_SignSequenceComplete(dev, seqHandle, &hashKey,
+            NULL, 0, sig, &sigSz);
+    AssertIntEQ(rc, 0);
+    AssertIntGT(sigSz, 0);
+
+    /* Round-trip: verify the streamed signature matches the original
+     * message via VerifySequence (also streaming). */
+    rc = wolfTPM2_VerifySequenceStart(dev, &hashKey, NULL, 0, &seqHandle);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_VerifySequenceComplete(dev, seqHandle, &hashKey,
+            msg, msgSz, sig, sigSz, &validation);
+    AssertIntEQ(rc, 0);
+
+    wolfTPM2_UnloadHandle(dev, &hashKey.handle);
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Hash-ML-DSA SignSeqUpdate streaming:");
+}
+
 /* Regression for the TPM2_SignSequenceStart no-session path.
  * Per Part 3 §17.6.3 the command has Auth Index: None; the native API
  * used to require ctx->session != NULL and hardcode TPM_ST_SESSIONS.
@@ -4297,6 +4547,7 @@ static void test_wolfTPM2_PQC(void)
      * that no existing test covers, so a re-introduction of the underlying
      * fix would silently pass CI without these. */
     test_wolfTPM2_MLDSA_VerifySequence_DataChain(&dev);
+    test_wolfTPM2_HashMLDSA_SignSequence_Streaming(&dev);
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
 
@@ -4481,6 +4732,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
+#ifdef WOLFTPM_V185
+    test_TPM2_Signature_PQC_Serialize();
+    test_TPM2_Public_PQC_Roundtrip();
+#endif
     test_TPM2_Sensitive_Roundtrip();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();

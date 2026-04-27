@@ -2096,6 +2096,108 @@ static void test_fwtpm_signdigest_neg(void)
     fwtpm_pass("SignDigest negatives (ATTRIBUTES/SCHEME):", 1);
 }
 
+/* SignDigest must reject malformed TPMT_TK_HASHCHECK
+ * (validation.tag != TPM_ST_HASHCHECK) for any key, not just restricted
+ * ones. Negative test: build SignDigest with validation.tag = 0 to a
+ * Hash-MLDSA (unrestricted) key and assert TPM_RC_TAG. */
+static void test_fwtpm_signdigest_malformed_hashcheck_tag(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 handle;
+    byte digest[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Hash-MLDSA-65 primary — unrestricted by default. */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_HASH_MLDSA);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xAA, sizeof(digest));
+
+    /* SignDigest with validation.tag = 0 (malformed) + hierarchy = 0
+     * (also malformed). A spec-conformant handler must reject the tag
+     * before reaching crypto regardless of restricted/unrestricted. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;       /* context empty */
+    PutU16BE(gCmd + pos, 32); pos += 2;      /* digest size */
+    memcpy(gCmd + pos, digest, 32); pos += 32;
+    PutU16BE(gCmd + pos, 0); pos += 2;       /* validation.tag = 0 (BAD) */
+    PutU32BE(gCmd + pos, 0); pos += 4;       /* validation.hierarchy = 0 (BAD) */
+    PutU16BE(gCmd + pos, 0); pos += 2;       /* validation.digest empty */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TAG);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignDigest malformed HASHCHECK tag rejected:", 1);
+}
+
+/* NULL Verified Tickets must omit any metadata bytes. Per Part 2 §10.6.5
+ * every NULL Verified Ticket is encoded as the 3-tuple
+ * <tag, TPM_RH_NULL, 0x0000>; the TPMU_TK_VERIFIED_META bytes for
+ * TPM_ST_DIGEST_VERIFIED are NOT included when hierarchy == TPM_RH_NULL.
+ * Negative test: call FwAppendTicket with hierarchy = RH_NULL,
+ * tag = TPM_ST_DIGEST_VERIFIED, metadataSz > 0; assert the emitted bytes
+ * are exactly tag(2) + RH_NULL(4) + hmacSz(2)=0 (8 bytes), no metadata. */
+static void test_fwtpm_appendticket_null_digest_verified_no_metadata(void)
+{
+    FWTPM_CTX ctx;
+    TPM2_Packet pkt;
+    int rc;
+    byte metaBytes[2];
+    UINT16 emittedTag;
+    UINT32 emittedHier;
+    UINT16 emittedHmacSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Use rspBuf (already part of the ctx, plenty of headroom). */
+    pkt.buf  = ctx.rspBuf;
+    pkt.size = (int)sizeof(ctx.rspBuf);
+    pkt.pos  = 0;
+
+    /* Non-empty metadata (e.g. a 2-byte hashAlg for DIGEST_VERIFIED). */
+    metaBytes[0] = 0x00;
+    metaBytes[1] = 0x0B; /* TPM_ALG_SHA256 wire encoding */
+
+    rc = FwAppendTicket(&ctx, &pkt,
+        TPM_ST_DIGEST_VERIFIED, TPM_RH_NULL, TPM_ALG_SHA256,
+        NULL, 0,
+        metaBytes, (int)sizeof(metaBytes));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Spec wire format for NULL ticket = 8 bytes total (no metadata). */
+    AssertIntEQ(pkt.pos, 8);
+
+    emittedTag    = GetU16BE(ctx.rspBuf + 0);
+    emittedHier   = GetU32BE(ctx.rspBuf + 2);
+    emittedHmacSz = GetU16BE(ctx.rspBuf + 6);
+    AssertIntEQ(emittedTag,    TPM_ST_DIGEST_VERIFIED);
+    AssertIntEQ(emittedHier,   TPM_RH_NULL);
+    AssertIntEQ(emittedHmacSz, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("FwAppendTicket NULL DIGEST_VERIFIED no metadata:", 1);
+}
+
 /* Handler 8: TPM2_VerifyDigestSignature. Part 3 §20.4. */
 static void test_fwtpm_verifydigestsig_neg(void)
 {
@@ -2129,11 +2231,11 @@ static void test_fwtpm_verifydigestsig_neg(void)
     fwtpm_pass("VerifyDigestSig negatives (SCHEME):", 1);
 }
 
-/* Handler 9: one-shot signature enforcement on Pure-MLDSA sequences. Per
- * Part 3 §20.6.1 TPM_RC_ONE_SHOT_SIGNATURE is a
- * SignSequenceComplete-time RC ("sequenceHandle references a non-empty
- * sequence"), not an Update-time RC. SequenceUpdate accepts the bytes
- * (they accumulate in msgBuf); SignSequenceComplete then rejects. */
+/* Handler 9: Pure-MLDSA streaming sign. Per FIPS 204 Algorithm 2,
+ * ML-DSA is not single-pass — SHAKE256 supports incremental absorption,
+ * so SequenceUpdate + SignSequenceComplete with an accumulated message
+ * MUST succeed (TPM_RC_ONE_SHOT_SIGNATURE is reserved for truly one-shot
+ * schemes per Part 3 §20.6.1, e.g. EDDSA). */
 static void test_fwtpm_sequenceupdate_neg(void)
 {
     FWTPM_CTX ctx;
@@ -2178,7 +2280,9 @@ static void test_fwtpm_sequenceupdate_neg(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    /* SignSequenceComplete rejects: oneShot=1 AND msgBufSz>0 from Update. */
+    /* SignSequenceComplete now SUCCEEDS — Pure ML-DSA streams correctly:
+     * the 4 bytes from SequenceUpdate are concatenated with the empty
+     * trailing buffer and signed in one shot. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -2197,10 +2301,10 @@ static void test_fwtpm_sequenceupdate_neg(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ONE_SHOT_SIGNATURE);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("SignSeqComplete one-shot (ONE_SHOT_SIG):", 1);
+    fwtpm_pass("SignSeqComplete Pure-MLDSA streaming (FIPS 204 §6):", 1);
 }
 
 /* ---- TCG compliance: v1.85 spec-RC fixtures -------------------------- */
@@ -5962,6 +6066,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseqcomplete_neg();
     test_fwtpm_verifyseqcomplete_neg();
     test_fwtpm_signdigest_neg();
+    test_fwtpm_signdigest_malformed_hashcheck_tag();
+    test_fwtpm_appendticket_null_digest_verified_no_metadata();
     test_fwtpm_verifydigestsig_neg();
     test_fwtpm_sequenceupdate_neg();
     test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
