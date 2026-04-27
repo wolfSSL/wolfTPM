@@ -62,6 +62,11 @@ jobs:
             ip link set lo up
             make check
           '
+          # make check runs as root via sudo -E unshare; restore ownership of
+          # any files left in the workspace so later steps (running as the
+          # unprivileged runner) can rewrite them — otherwise stale root-owned
+          # blobs (e.g. eccblob.bin) silently break run_examples.sh later.
+          sudo chown -R "$(id -u):$(id -g)" .
 
       # ----- Tier 2: per-example standalone runs -----
       # Each example gets its own GitHub Actions check so a regression

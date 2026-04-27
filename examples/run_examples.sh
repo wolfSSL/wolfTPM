@@ -65,6 +65,8 @@ wait_for_port() {
 # Clean stale key blobs and certs from prior runs.
 # These depend on TPM NV state (SRK seed), so they're invalid after NV wipe.
 rm -f keyblob.bin rsa_test_blob.raw ecc_test_blob.raw
+rm -f eccblob.bin ecckeyblob.bin ecckeyblobeh.bin
+rm -f rsakeyblob.bin rsakeyblobeh.bin
 rm -f ./certs/tpm-rsa-cert.pem ./certs/tpm-ecc-cert.pem
 rm -f ./certs/tpm-rsa-cert.csr ./certs/tpm-ecc-cert.csr
 rm -f ./certs/server-rsa-cert.pem ./certs/server-ecc-cert.pem
@@ -273,7 +275,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         fi
     fi
 fi
-rm -f ececcblob.bin
+rm -f eccblob.bin
 
 if [ $ENABLE_V185 -eq 1 ]; then
     echo -e "PQC Key Generation Tests (v1.85)"
