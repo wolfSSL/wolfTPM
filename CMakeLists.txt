@@ -456,7 +456,7 @@ endif()
 # of wolftpm's export set (it is build-tree-only). Downstream consumers of
 # wolftpm should `find_package(wolfssl)` themselves before find_package(wolftpm).
 if(BUILD_WOLFTPM_LIB)
-    target_link_libraries(wolftpm PRIVATE wolftpm_wolfssl_dep)
+    target_link_libraries(wolftpm PRIVATE $<BUILD_INTERFACE:wolftpm_wolfssl_dep>)
 endif()
 
 # fwTPM requires wolfCrypt
