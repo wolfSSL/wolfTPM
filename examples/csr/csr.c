@@ -60,7 +60,14 @@ static const char* gClientCertEccFile = ECC_CERT_PEM;
 #endif
 
 #ifndef MAX_PEM_SIZE
-#define MAX_PEM_SIZE MAX_CONTEXT_SIZE
+    /* Must hold the full PEM-encoded CSR/cert (cert body + RSA signature +
+     * ASN.1 + base64 overhead). MAX_CONTEXT_SIZE (2 KB) fits RSA-2048 but
+     * overflows at RSA-4096 where the signature alone is 512 B. */
+    #if MAX_RSA_KEY_BITS >= 4096
+        #define MAX_PEM_SIZE 4096
+    #else
+        #define MAX_PEM_SIZE MAX_CONTEXT_SIZE
+    #endif
 #endif
 
 /******************************************************************************/

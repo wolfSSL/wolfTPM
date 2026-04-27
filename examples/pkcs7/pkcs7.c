@@ -57,7 +57,14 @@
 #endif
 
 #ifndef MAX_PKCS7_SIZE
-#define MAX_PKCS7_SIZE MAX_CONTEXT_SIZE
+    /* Must hold the full SignedData blob (cert + signature + ASN.1 overhead).
+     * MAX_CONTEXT_SIZE (2 KB) is enough for RSA-2048 but overflows at
+     * RSA-4096 where the signature alone is 512 B. */
+    #if MAX_RSA_KEY_BITS >= 4096
+        #define MAX_PKCS7_SIZE 4096
+    #else
+        #define MAX_PKCS7_SIZE MAX_CONTEXT_SIZE
+    #endif
 #endif
 
 /******************************************************************************/

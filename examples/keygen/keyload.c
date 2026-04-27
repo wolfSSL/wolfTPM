@@ -67,7 +67,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB newKey;
     WOLFTPM2_KEY persistKey;
     TPM_ALG_ID alg;
-    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
+    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     const char* inputFile = "keyblob.bin";
@@ -133,8 +133,11 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 #endif
 
     alg = newKey.pub.publicArea.type;
-    if (alg == TPM_ALG_RSA)
-        srkAlg = TPM_ALG_RSA;
+    /* Only switch to the ECC SRK when the stored key itself is ECC; other
+     * child types (RSA, KEYEDHASH from seal, SYMCIPHER) stay on the RSA SRK
+     * so the parent algorithm matches how those keys were created. */
+    if (alg == TPM_ALG_ECC)
+        srkAlg = TPM_ALG_ECC;
     printf("Loading %s key\n", TPM2_GetAlgName(alg));
 
     if (endorseKey) {

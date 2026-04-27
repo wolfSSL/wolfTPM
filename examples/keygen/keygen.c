@@ -132,7 +132,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     WOLFTPM2_KEYBLOB primaryBlob; /* Primary key as WOLFTPM2_KEYBLOB */
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
-    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
+    TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c / keyload.c */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
@@ -222,8 +222,10 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&auth, 0, sizeof(auth));
 
-    if (alg == TPM_ALG_RSA)
-        srkAlg = TPM_ALG_RSA;
+    /* Only use the ECC SRK for ECC child keys; RSA, SYMCIPHER, KEYEDHASH
+     * all stay on the RSA SRK so that keyload/seal can round-trip them. */
+    if (alg == TPM_ALG_ECC)
+        srkAlg = TPM_ALG_ECC;
     if (alg == TPM_ALG_SYMCIPHER) {
         rc = symChoice(symMode, &algSym, &keyBits);
         if (rc != TPM_RC_SUCCESS) {
