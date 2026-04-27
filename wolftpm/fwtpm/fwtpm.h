@@ -163,10 +163,15 @@
  * All macros remain ifndef-guarded for per-board overrides. See
  * docs/FWTPM.md "v1.85 Embedded RAM Impact" for resolved values per build.
  */
-/* ML-KEM ciphertext / public-key sizes per FIPS 203 Sec.6.4 / Sec.7.4. wolfCrypt's
- * WC_ML_KEM_xxx_SIZE macros expand to non-preprocessor-evaluable expressions
- * (MLKEM_POLY_VEC_SZ() etc.), so we redefine the spec constants here for use
- * in compile-time #if comparisons below. Spec-immutable. */
+/* PQC per-parameter-set sizes (FIPS 203 / FIPS 204, spec-immutable). Defined
+ * locally so size-resolution below works without including wolfCrypt PQC
+ * headers (which may be absent on subset builds). */
+#define FWTPM_MLDSA_44_PUB_SIZE   1312
+#define FWTPM_MLDSA_44_SIG_SIZE   2420
+#define FWTPM_MLDSA_65_PUB_SIZE   1952
+#define FWTPM_MLDSA_65_SIG_SIZE   3309
+#define FWTPM_MLDSA_87_PUB_SIZE   2592
+#define FWTPM_MLDSA_87_SIG_SIZE   4627
 #define FWTPM_MLKEM_512_CT_SIZE    768
 #define FWTPM_MLKEM_512_PUB_SIZE   800
 #define FWTPM_MLKEM_768_CT_SIZE   1088
@@ -174,22 +179,19 @@
 #define FWTPM_MLKEM_1024_CT_SIZE  1568
 #define FWTPM_MLKEM_1024_PUB_SIZE 1568
 
-/* Resolve the largest ML-DSA / ML-KEM parameter set actually enabled in
- * wolfCrypt, so PQC buffer defaults auto-shrink for deployments that only
- * enable smaller params. Per-param-set sizes use wolfCrypt's own
- * DILITHIUM_LEVEL{2,3,5}_*_SIZE macros (plain integer constants) and
- * the FWTPM_MLKEM_*_SIZE constants above. */
+/* Resolve the largest enabled parameter set for buffer sizing. Driven by
+ * wolfCrypt's WOLFSSL_NO_ML_DSA_44/65/87 and WOLFSSL_NO_KYBER512/768/1024
+ * gates so subset builds (e.g. MLDSA-44 only) don't pay for MLDSA-87. */
 #if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT)
-    #include <wolfssl/wolfcrypt/dilithium.h>
     #if !defined(WOLFSSL_NO_ML_DSA_87)
-        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL5_SIG_SIZE
-        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL5_PUB_KEY_SIZE
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_87_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_87_PUB_SIZE
     #elif !defined(WOLFSSL_NO_ML_DSA_65)
-        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL3_SIG_SIZE
-        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL3_PUB_KEY_SIZE
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_65_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_65_PUB_SIZE
     #elif !defined(WOLFSSL_NO_ML_DSA_44)
-        #define FWTPM_MAX_MLDSA_SIG_SIZE  DILITHIUM_LEVEL2_SIG_SIZE
-        #define FWTPM_MAX_MLDSA_PUB_SIZE  DILITHIUM_LEVEL2_PUB_KEY_SIZE
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_44_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_44_PUB_SIZE
     #else
         #define FWTPM_MAX_MLDSA_SIG_SIZE  0
         #define FWTPM_MAX_MLDSA_PUB_SIZE  0

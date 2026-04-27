@@ -22,9 +22,17 @@ fi
 # Pull every #define FWTPM_<UPPER>_<UPPER>... NUMERIC_LITERAL line.
 # Constants ending in MAX/SIZE/EST/SEED are the ones we care about; pure
 # enum-style symbols (FWTPM_NO_*, FWTPM_*_DECLARE_VAR) don't appear in docs.
+#
+# Exclude internal helpers that aren't user-tunable knobs:
+#   FWTPM_MLDSA_<N>_*  / FWTPM_MLKEM_<N>_*  -- FIPS-spec-immutable
+#       per-parameter-set sizes used as inputs to auto-shrink resolution.
+#   *_RAW                                    -- intermediate computation
+#       steps for auto-shrink (FWTPM_MAX_PUB_BUF_RAW etc.).
 mapfile -t CONSTS < <(
     grep -E '^\s*#\s*define\s+FWTPM_[A-Z0-9_]*(MAX|SIZE|EST|SEED|BYTES|DIGEST)[A-Z0-9_]*\s' "$HEADER" \
         | awk '{print $2}' \
+        | grep -vE '^FWTPM_(MLDSA|MLKEM)_[0-9]+_' \
+        | grep -vE '_RAW$' \
         | sort -u
 )
 

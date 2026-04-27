@@ -713,14 +713,24 @@ else
     if test "x$ENABLED_FWTPM" = "xyes" && \
        test "x$ENABLED_WOLFCRYPT" = "xyes"
     then
-        AC_CHECK_HEADER([wolfssl/wolfcrypt/dilithium.h],
-            [WOLFTPM_HAVE_DILITHIUM_H=yes],
-            [WOLFTPM_HAVE_DILITHIUM_H=no])
-        AC_CHECK_HEADER([wolfssl/wolfcrypt/mlkem.h],
-            [WOLFTPM_HAVE_MLKEM_H=yes],
-            [WOLFTPM_HAVE_MLKEM_H=no])
-        if test "x$WOLFTPM_HAVE_DILITHIUM_H" = "xyes" && \
-           test "x$WOLFTPM_HAVE_MLKEM_H" = "xyes"
+        # Probe the actual symbols, not just the headers. wolfSSL ships
+        # dilithium.h / mlkem.h even without the implementation compiled
+        # (function decls are gated behind HAVE_DILITHIUM / HAVE_MLKEM
+        # which only get defined via wolfssl/options.h after the right
+        # --enable-* flags). Include options.h first so the gate is set
+        # before the header decls are parsed.
+        AC_CHECK_DECL([wc_dilithium_init],
+            [WOLFTPM_HAVE_DILITHIUM_FN=yes],
+            [WOLFTPM_HAVE_DILITHIUM_FN=no],
+            [[#include <wolfssl/options.h>
+              #include <wolfssl/wolfcrypt/dilithium.h>]])
+        AC_CHECK_DECL([wc_MlKemKey_Init],
+            [WOLFTPM_HAVE_MLKEM_FN=yes],
+            [WOLFTPM_HAVE_MLKEM_FN=no],
+            [[#include <wolfssl/options.h>
+              #include <wolfssl/wolfcrypt/mlkem.h>]])
+        if test "x$WOLFTPM_HAVE_DILITHIUM_FN" = "xyes" && \
+           test "x$WOLFTPM_HAVE_MLKEM_FN" = "xyes"
         then
             AC_MSG_NOTICE([wolfCrypt ML-DSA + ML-KEM detected; auto-enabling --enable-v185 (use --disable-v185 or --disable-pqc to opt out)])
             ENABLED_V185=yes
@@ -734,13 +744,19 @@ fi
 
 if test "x$ENABLED_V185" = "xyes"
 then
-    # When the user opted in explicitly we have not probed yet; verify the
-    # wolfSSL PQC headers are present so the build fails at configure time
-    # rather than deep inside the compile with a cryptic error.
-    AC_CHECK_HEADER([wolfssl/wolfcrypt/dilithium.h], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-dilithium --enable-experimental])])
-    AC_CHECK_HEADER([wolfssl/wolfcrypt/mlkem.h], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mlkem --enable-experimental])])
+    # Explicit opt-in: re-probe so we fail at configure time (with a
+    # clear hint about wolfSSL flags) rather than deep inside the compile
+    # with a cryptic error. Header existence alone is not enough -- the
+    # actual functions must be declared (gated by HAVE_DILITHIUM /
+    # HAVE_MLKEM in wolfssl/options.h).
+    AC_CHECK_DECL([wc_dilithium_init], [],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-dilithium --enable-experimental])],
+        [[#include <wolfssl/options.h>
+          #include <wolfssl/wolfcrypt/dilithium.h>]])
+    AC_CHECK_DECL([wc_MlKemKey_Init], [],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mlkem --enable-experimental])],
+        [[#include <wolfssl/options.h>
+          #include <wolfssl/wolfcrypt/mlkem.h>]])
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
 fi
 AM_CONDITIONAL([BUILD_V185], [test "x$ENABLED_V185" = "xyes"])
