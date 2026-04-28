@@ -101,6 +101,7 @@ typedef enum {
     TPM_ALG_SM2             = 0x001B,
     TPM_ALG_ECSCHNORR       = 0x001C,
     TPM_ALG_ECMQV           = 0x001D,
+    TPM_ALG_HKDF            = 0x001F, /* IETF RFC 5869, v1.85 */
     TPM_ALG_KDF1_SP800_56A  = 0x0020,
     TPM_ALG_KDF2            = 0x0021,
     TPM_ALG_KDF1_SP800_108  = 0x0022,
@@ -403,9 +404,10 @@ typedef enum {
     TPM_RC_BINDING          = RC_FMT1 + 0x025,
     TPM_RC_CURVE            = RC_FMT1 + 0x026,
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
-#ifdef WOLFTPM_V185
-    /* v185 rc4 Part 2 Sec.6.6.3 Table 17 */
+    /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
+#ifdef WOLFTPM_V185
+    /* v185 rc4 Part 2 Sec.6.6.3 Table 17 additions */
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
     TPM_RC_SIGN_CONTEXT_KEY   = RC_FMT1 + 0x02D,

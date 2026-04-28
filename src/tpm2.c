@@ -3508,14 +3508,10 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
 #ifdef WOLFTPM_V185
-            /* Part 2 Sec.10.6.5 Table 112 — TPMU_TK_VERIFIED_META selected
-             * on tag. Sec.20.3.1 says VerifySequenceComplete `shall`
-             * produce TPM_ST_MESSAGE_VERIFIED (TPMS_EMPTY metadata, no
-             * wire bytes), but parse defensively so a non-conformant
-             * TPM returning TPM_ST_DIGEST_VERIFIED doesn't shift the
-             * 2-byte TPM_ALG_ID into the hmac-size slot. NULL Verified
-             * Tickets always omit metadata regardless of tag, mirrored
-             * from the TPM2_VerifyDigestSignature dispatch. */
+            /* Spec mandates TPM_ST_MESSAGE_VERIFIED here (Part 3
+             * Sec.20.3.1, TPMS_EMPTY metadata), but parse defensively in
+             * case a non-conformant TPM returns DIGEST_VERIFIED -- mirrors
+             * TPM2_VerifyDigestSignature dispatch. */
             if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
                 out->validation.hierarchy != TPM_RH_NULL) {
                 TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
@@ -3524,15 +3520,12 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
                 out->validation.metaAlg = TPM_ALG_NULL;
             }
 #endif
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
-            if (out->validation.digest.size >
-                    sizeof(out->validation.digest.buffer)) {
-                out->validation.digest.size =
-                    (UINT16)sizeof(out->validation.digest.buffer);
-            }
-            TPM2_Packet_ParseBytes(&packet,
-                        out->validation.digest.buffer,
-                        out->validation.digest.size);
+            /* Use the helper that clamps + skips surplus bytes atomically
+             * so any future field appended after validation.digest stays
+             * aligned in the parser. */
+            TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
+                out->validation.digest.buffer,
+                (UINT16)sizeof(out->validation.digest.buffer));
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3652,15 +3645,10 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
                 out->validation.metaAlg = TPM_ALG_NULL;
             }
 #endif
-            TPM2_Packet_ParseU16(&packet, &out->validation.digest.size);
-            if (out->validation.digest.size >
-                    sizeof(out->validation.digest.buffer)) {
-                out->validation.digest.size =
-                    (UINT16)sizeof(out->validation.digest.buffer);
-            }
-            TPM2_Packet_ParseBytes(&packet,
-                        out->validation.digest.buffer,
-                        out->validation.digest.size);
+            /* Atomic clamp + skip surplus, matches sibling parsers. */
+            TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
+                out->validation.digest.buffer,
+                (UINT16)sizeof(out->validation.digest.buffer));
         }
 
         TPM2_ReleaseLock(ctx);
@@ -3682,7 +3670,13 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
-        info.flags = (CMD_FLAG_ENC2);
+        info.outHandleCnt = 0;
+        /* TPM2_Encapsulate has no TPM2B command parameters; the protected
+         * value is the FIRST RESPONSE parameter (sharedSecret). Use
+         * CMD_FLAG_DEC2 so an attached encrypt session can decrypt the
+         * response — CMD_FLAG_ENC2 would mark a nonexistent command-side
+         * TPM2B and never enable response decryption. */
+        info.flags = (CMD_FLAG_DEC2);
 
         TPM2_Packet_Init(ctx, &packet);
 

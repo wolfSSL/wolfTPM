@@ -1953,7 +1953,7 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     pSizeOut = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
     AssertIntEQ(pSizeOut, 0x0030);
 
-    printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n", "EcdaaResponseParse:");
 }
 
 /* TPM2_Packet_AppendSignature / ParseSignature must explicitly recognize
@@ -2538,7 +2538,7 @@ static void test_TPM2_KeyedHashScheme_XorSerialize(void)
     TPM2_Packet_AppendKeyedHashScheme(&packet, &schemeIn);
     AssertIntEQ(packet.pos, 2);
 
-    printf("Test TPM Wrapper:\tKeyedHashScheme XOR serialize:\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n", "KeyedHashScheme XOR serialize:");
 }
 
 static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
@@ -2596,7 +2596,8 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
     AssertIntEQ(sigOut.signature.ecdsa.signatureR.size, sizeof(rBuf));
     AssertIntEQ(sigOut.signature.ecdsa.signatureS.size, sizeof(sBuf));
 
-    printf("Test TPM Wrapper:\tSignature ECSCHNORR/SM2 serialize:\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Signature ECSCHNORR/SM2 serialize:");
 }
 
 #ifdef WOLFTPM_V185
@@ -2661,7 +2662,7 @@ static void test_TPM2_Signature_PQC_Serialize(void)
     AssertIntEQ(XMEMCMP(sigOut.signature.hash_mldsa.signature.buffer,
         sigBytes, sizeof(sigBytes)), 0);
 
-    printf("Test TPM Wrapper:\tSignature PQC serialize:\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n", "Signature PQC serialize:");
 }
 
 /* Round-trip the v1.85 PQC arms of TPM2B_PUBLIC through the
@@ -2764,7 +2765,7 @@ static void test_TPM2_Public_PQC_Roundtrip(void)
     AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.mlkem.buffer,
         uniqueBytes, sizeof(uniqueBytes)), 0);
 
-    printf("Test TPM Wrapper:\tPublic PQC roundtrip:\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n", "Public PQC roundtrip:");
 }
 #endif /* WOLFTPM_V185 */
 
@@ -2956,7 +2957,7 @@ static void test_TPM2_Sensitive_Roundtrip(void)
         rsaPriv, sizeof(rsaPriv)), 0);
 #endif /* WOLFTPM_V185 */
 
-    printf("Test TPM Wrapper:\tSensitive roundtrip:\t\tPassed\n");
+    printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
 static void test_KeySealTemplate(void)

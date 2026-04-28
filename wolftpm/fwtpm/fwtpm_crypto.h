@@ -180,6 +180,20 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     const byte* ctBuf, UINT16 ctSize,
     TPM2B_SHARED_SECRET* sharedSecretOut);
 
+/* v1.85 ECC DHKEM Encapsulate/Decapsulate per Part 2 Sec.12.2.3.5 +
+ * RFC 9180 Sec.4.1. Curve must be paired with HKDF hash:
+ * P-256/SHA256 (kem_id 0x0010), P-384/SHA384 (0x0011), P-521/SHA512 (0x0012).
+ * Mismatched pairings return TPM_RC_KDF. */
+TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
+    const TPMT_PUBLIC* recipPub, TPMI_ALG_HASH kdfHash,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut);
+
+TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
+    TPMI_ALG_HASH kdfHash,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut);
+
 /* v1.85 ML-DSA sign/verify helpers. Sign helpers rebuild the keypair
  * deterministically from the stored 32-byte xi seed (no expanded private
  * key persisted). Verify helpers import the public-key bytes. */

@@ -1016,6 +1016,292 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     return rc;
 }
 
+#ifdef HAVE_ECC
+/* RFC 9180 Sec.7 kem_id mapping for the curve+hash pairings the TPM accepts.
+ * Returns 0 on a supported pairing; -1 otherwise (caller maps to TPM_RC_KDF). */
+static int FwDhkemParamsLookup(int wcCurve, TPMI_ALG_HASH kdfHash,
+    UINT16* kemIdOut, int* nSecretOut, int* nPkOut,
+    enum wc_HashType* hkdfHashOut)
+{
+    if (wcCurve == ECC_SECP256R1 && kdfHash == TPM_ALG_SHA256) {
+        *kemIdOut = 0x0010; *nSecretOut = 32; *nPkOut = 65;
+        *hkdfHashOut = WC_HASH_TYPE_SHA256;
+        return 0;
+    }
+    if (wcCurve == ECC_SECP384R1 && kdfHash == TPM_ALG_SHA384) {
+        *kemIdOut = 0x0011; *nSecretOut = 48; *nPkOut = 97;
+        *hkdfHashOut = WC_HASH_TYPE_SHA384;
+        return 0;
+    }
+#ifdef HAVE_ECC521
+    if (wcCurve == ECC_SECP521R1 && kdfHash == TPM_ALG_SHA512) {
+        *kemIdOut = 0x0012; *nSecretOut = 64; *nPkOut = 133;
+        *hkdfHashOut = WC_HASH_TYPE_SHA512;
+        return 0;
+    }
+#endif
+    return -1;
+}
+
+/* RFC 9180 Sec.4 LabeledExtract: prk = HKDF-Extract(salt,
+ *     "HPKE-v1" || "KEM" || I2OSP(kem_id,2) || label || ikm).
+ * Caller-supplied scratch buffer keeps stack usage bounded. */
+static TPM_RC FwDhkemLabeledExtract(enum wc_HashType hashType, UINT16 kemId,
+    const byte* salt, word32 saltSz,
+    const char* label, const byte* ikm, word32 ikmSz,
+    byte* scratch, word32 scratchSz, byte* prkOut)
+{
+    word32 pos = 0;
+    word32 labelLen = (word32)XSTRLEN(label);
+
+    if (7 + 3 + 2 + labelLen + ikmSz > scratchSz)
+        return TPM_RC_FAILURE;
+    XMEMCPY(scratch + pos, "HPKE-v1", 7); pos += 7;
+    XMEMCPY(scratch + pos, "KEM", 3); pos += 3;
+    scratch[pos++] = (byte)((kemId >> 8) & 0xFF);
+    scratch[pos++] = (byte)(kemId & 0xFF);
+    if (labelLen > 0) {
+        XMEMCPY(scratch + pos, label, labelLen); pos += labelLen;
+    }
+    if (ikmSz > 0) {
+        XMEMCPY(scratch + pos, ikm, ikmSz); pos += ikmSz;
+    }
+    if (wc_HKDF_Extract((int)hashType, salt, saltSz, scratch, pos, prkOut) != 0)
+        return TPM_RC_FAILURE;
+    return TPM_RC_SUCCESS;
+}
+
+/* RFC 9180 Sec.4 LabeledExpand: out = HKDF-Expand(prk,
+ *     I2OSP(L,2) || "HPKE-v1" || "KEM" || I2OSP(kem_id,2) || label || info, L). */
+static TPM_RC FwDhkemLabeledExpand(enum wc_HashType hashType, UINT16 kemId,
+    const byte* prk, word32 prkSz,
+    const char* label, const byte* info, word32 infoSz,
+    byte* scratch, word32 scratchSz, byte* out, word32 L)
+{
+    word32 pos = 0;
+    word32 labelLen = (word32)XSTRLEN(label);
+
+    if (2 + 7 + 3 + 2 + labelLen + infoSz > scratchSz)
+        return TPM_RC_FAILURE;
+    scratch[pos++] = (byte)((L >> 8) & 0xFF);
+    scratch[pos++] = (byte)(L & 0xFF);
+    XMEMCPY(scratch + pos, "HPKE-v1", 7); pos += 7;
+    XMEMCPY(scratch + pos, "KEM", 3); pos += 3;
+    scratch[pos++] = (byte)((kemId >> 8) & 0xFF);
+    scratch[pos++] = (byte)(kemId & 0xFF);
+    if (labelLen > 0) {
+        XMEMCPY(scratch + pos, label, labelLen); pos += labelLen;
+    }
+    if (infoSz > 0) {
+        XMEMCPY(scratch + pos, info, infoSz); pos += infoSz;
+    }
+    if (wc_HKDF_Expand((int)hashType, prk, prkSz, scratch, pos, out, L) != 0)
+        return TPM_RC_FAILURE;
+    return TPM_RC_SUCCESS;
+}
+
+/* RFC 9180 Sec.4.1.4 ExtractAndExpand. Output: shared_secret of Nsecret bytes. */
+static TPM_RC FwDhkemExtractAndExpand(enum wc_HashType hashType, UINT16 kemId,
+    const byte* dh, word32 dhSz,
+    const byte* kemContext, word32 kemContextSz,
+    byte* sharedSecret, word32 nSecret)
+{
+    TPM_RC rc;
+    byte prk[WC_MAX_DIGEST_SIZE];
+    byte scratch[512]; /* max labeled blob: I2OSP(2)+HPKE-v1(7)+KEM(3)+id(2)
+                        * +label(13)+info(2*Npk=266) ~= 293 */
+    int prkSz = wc_HashGetDigestSize(hashType);
+
+    if (prkSz <= 0 || prkSz > (int)sizeof(prk))
+        return TPM_RC_FAILURE;
+    rc = FwDhkemLabeledExtract(hashType, kemId, NULL, 0,
+        "eae_prk", dh, dhSz, scratch, sizeof(scratch), prk);
+    if (rc == 0) {
+        rc = FwDhkemLabeledExpand(hashType, kemId, prk, (word32)prkSz,
+            "shared_secret", kemContext, kemContextSz,
+            scratch, sizeof(scratch), sharedSecret, nSecret);
+    }
+    TPM2_ForceZero(prk, sizeof(prk));
+    return rc;
+}
+
+TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
+    const TPMT_PUBLIC* recipPub, TPMI_ALG_HASH kdfHash,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int wcCurve;
+    UINT16 kemId = 0;
+    int nSecret = 0, nPk = 0;
+    enum wc_HashType hashType = WC_HASH_TYPE_NONE;
+    int recipInit = 0, ephInit = 0;
+    byte enc[133]; /* RFC 9180 Sec.7: Npk_max = 133 (P-521 uncompressed) */
+    byte pkRm[133];
+    byte dh[66];
+    byte kemContext[266];
+    word32 encSz = sizeof(enc), pkRmSz = sizeof(pkRm), dhSz = sizeof(dh);
+    FWTPM_DECLARE_VAR(recipKey, ecc_key);
+    FWTPM_DECLARE_VAR(ephKey, ecc_key);
+
+    FWTPM_CALLOC_VAR(recipKey, ecc_key);
+    FWTPM_CALLOC_VAR(ephKey, ecc_key);
+
+    wcCurve = FwGetWcCurveId(recipPub->parameters.eccDetail.curveID);
+    if (wcCurve < 0) {
+        rc = TPM_RC_CURVE;
+    }
+    if (rc == 0 && FwDhkemParamsLookup(wcCurve, kdfHash,
+            &kemId, &nSecret, &nPk, &hashType) != 0) {
+        rc = TPM_RC_KDF;
+    }
+
+    if (rc == 0) {
+        rc = FwImportEccPubFromPublic(recipPub, recipKey);
+        if (rc == 0) recipInit = 1;
+        else rc = TPM_RC_KEY;
+    }
+    if (rc == 0) {
+        if (wc_ecc_init(ephKey) != 0) rc = TPM_RC_FAILURE;
+        else {
+            ephInit = 1;
+            wc_ecc_set_rng(ephKey, rng);
+            if (wc_ecc_make_key_ex(rng,
+                    wc_ecc_get_curve_size_from_id(wcCurve),
+                    ephKey, wcCurve) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+        }
+    }
+    if (rc == 0) {
+        if (wc_ecc_shared_secret(ephKey, recipKey, dh, &dhSz) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_ecc_export_x963(ephKey, enc, &encSz) != 0) rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_ecc_export_x963(recipKey, pkRm, &pkRmSz) != 0) rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && encSz + pkRmSz > sizeof(kemContext)) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        XMEMCPY(kemContext, enc, encSz);
+        XMEMCPY(kemContext + encSz, pkRm, pkRmSz);
+    }
+    if (rc == 0 && ((word32)nSecret > sizeof(sharedSecretOut->buffer) ||
+                    encSz > sizeof(ciphertextOut->buffer))) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        rc = FwDhkemExtractAndExpand(hashType, kemId, dh, dhSz,
+            kemContext, encSz + pkRmSz,
+            sharedSecretOut->buffer, (word32)nSecret);
+    }
+    if (rc == 0) {
+        sharedSecretOut->size = (UINT16)nSecret;
+        XMEMCPY(ciphertextOut->buffer, enc, encSz);
+        ciphertextOut->size = (UINT16)encSz;
+    }
+
+    if (recipInit) wc_ecc_free(recipKey);
+    if (ephInit) wc_ecc_free(ephKey);
+    TPM2_ForceZero(dh, sizeof(dh));
+    FWTPM_FREE_VAR(recipKey);
+    FWTPM_FREE_VAR(ephKey);
+    (void)nPk;
+    return rc;
+}
+
+TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
+    TPMI_ALG_HASH kdfHash,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int wcCurve;
+    UINT16 kemId = 0;
+    int nSecret = 0, nPk = 0;
+    enum wc_HashType hashType = WC_HASH_TYPE_NONE;
+    int recipInit = 0, ephInit = 0;
+    byte pkRm[133];
+    byte dh[66];
+    byte kemContext[266];
+    word32 pkRmSz = sizeof(pkRm), dhSz = sizeof(dh);
+    FWTPM_DECLARE_VAR(recipKey, ecc_key);
+    FWTPM_DECLARE_VAR(ephKey, ecc_key);
+
+    FWTPM_CALLOC_VAR(recipKey, ecc_key);
+    FWTPM_CALLOC_VAR(ephKey, ecc_key);
+
+    wcCurve = FwGetWcCurveId(recipObj->pub.parameters.eccDetail.curveID);
+    if (wcCurve < 0) {
+        rc = TPM_RC_CURVE;
+    }
+    if (rc == 0 && FwDhkemParamsLookup(wcCurve, kdfHash,
+            &kemId, &nSecret, &nPk, &hashType) != 0) {
+        rc = TPM_RC_KDF;
+    }
+
+    if (rc == 0) {
+        rc = FwImportEccKey(recipObj, recipKey);
+        if (rc == 0) {
+            recipInit = 1;
+            wc_ecc_set_rng(recipKey, rng);
+        }
+        else rc = TPM_RC_KEY;
+    }
+    if (rc == 0) {
+        if (wc_ecc_init(ephKey) != 0) rc = TPM_RC_FAILURE;
+        else ephInit = 1;
+    }
+    if (rc == 0) {
+        /* Wire ciphertext = SerializePublicKey(pkE) per RFC 9180 Sec.4.1.4
+         * (uncompressed SEC1: 0x04 || x || y, length Npk). */
+        if (ctSize != (UINT16)nPk || ctBuf[0] != 0x04) {
+            rc = TPM_RC_VALUE;
+        }
+        else if (wc_ecc_import_x963_ex(ctBuf, ctSize, ephKey, wcCurve) != 0) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+    if (rc == 0) {
+        if (wc_ecc_shared_secret(recipKey, ephKey, dh, &dhSz) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_ecc_export_x963(recipKey, pkRm, &pkRmSz) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && (word32)ctSize + pkRmSz > sizeof(kemContext)) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        XMEMCPY(kemContext, ctBuf, ctSize);
+        XMEMCPY(kemContext + ctSize, pkRm, pkRmSz);
+    }
+    if (rc == 0 && (word32)nSecret > sizeof(sharedSecretOut->buffer)) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        rc = FwDhkemExtractAndExpand(hashType, kemId, dh, dhSz,
+            kemContext, (word32)ctSize + pkRmSz,
+            sharedSecretOut->buffer, (word32)nSecret);
+    }
+    if (rc == 0) {
+        sharedSecretOut->size = (UINT16)nSecret;
+    }
+
+    if (recipInit) wc_ecc_free(recipKey);
+    if (ephInit) wc_ecc_free(ephKey);
+    TPM2_ForceZero(dh, sizeof(dh));
+    FWTPM_FREE_VAR(recipKey);
+    FWTPM_FREE_VAR(ephKey);
+    return rc;
+}
+#endif /* HAVE_ECC */
+
 /* Internal helper: rebuild a deterministic ML-DSA keypair from its stored
  * 32-byte xi seed and return a ready-to-use dilithium_key plus wcLevel. */
 static TPM_RC FwLoadMldsaFromSeed(TPMI_MLDSA_PARAMETER_SET parameterSet,
@@ -1067,6 +1353,11 @@ TPM_RC FwSignMldsaMessage(WC_RNG* rng,
     word32 sigSz;
     int wcRet;
 
+    /* wc_dilithium_*_ctx_* take contextSz as a byte; guard the cast. */
+    if (contextSz < 0 || contextSz > 255) {
+        return TPM_RC_VALUE;
+    }
+
     FWTPM_ALLOC_VAR(keyVar, dilithium_key);
 
     rc = FwLoadMldsaFromSeed(parameterSet, seedXi, keyVar, &keyInit);
@@ -1109,6 +1400,10 @@ TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
     int keyInit = 0;
     int verifyRes = 0;
     int wcRet;
+
+    if (contextSz < 0 || contextSz > 255) {
+        return TPM_RC_VALUE;
+    }
 
     FWTPM_ALLOC_VAR(keyVar, dilithium_key);
 
@@ -1169,6 +1464,10 @@ TPM_RC FwSignMldsaHash(WC_RNG* rng,
     int wcHash;
     int wcRet;
 
+    if (contextSz < 0 || contextSz > 255) {
+        return TPM_RC_VALUE;
+    }
+
     FWTPM_ALLOC_VAR(keyVar, dilithium_key);
 
     wcHash = FwGetWcHashType(hashAlg);
@@ -1217,6 +1516,10 @@ TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
     int verifyRes = 0;
     int wcHash;
     int wcRet;
+
+    if (contextSz < 0 || contextSz > 255) {
+        return TPM_RC_VALUE;
+    }
 
     FWTPM_ALLOC_VAR(keyVar, dilithium_key);
 
@@ -2165,6 +2468,35 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
+    if (keyObj->pub.type == TPM_ALG_MLKEM) {
+        /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
+         *   K = ML-KEM.Decap(privateKey, ciphertext)
+         *   seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits) */
+        TPM2B_SHARED_SECRET sharedK;
+        XMEMSET(&sharedK, 0, sizeof(sharedK));
+        rc = FwDecapsulateMlkem(
+            keyObj->pub.parameters.mlkemDetail.parameterSet,
+            keyObj->privKey,
+            encSeedBuf, encSeedSz, &sharedK);
+        if (rc == 0) {
+            int kdfRc = TPM2_KDFa_ex(nameAlg,
+                sharedK.buffer, sharedK.size, kdfLabel,
+                encSeedBuf, (UINT32)encSeedSz,
+                keyObj->pub.unique.mlkem.buffer,
+                    (UINT32)keyObj->pub.unique.mlkem.size,
+                seedBuf, (UINT32)digestSz);
+            if (kdfRc != digestSz) {
+                TPM2_ForceZero(seedBuf, seedBufSz);
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                *seedSzOut = digestSz;
+            }
+        }
+        TPM2_ForceZero(&sharedK, sizeof(sharedK));
+        (void)oaepLabel; (void)oaepLabelSz;
+    }
+    else
     {
         (void)ctx; (void)encSeedBuf; (void)encSeedSz;
         (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
@@ -2372,6 +2704,53 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
+    if (keyObj->pub.type == TPM_ALG_MLKEM) {
+        /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
+         *   (K, ciphertext) = ML-KEM.Encap(publicKey)
+         *   seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits)
+         *   encSeed = ciphertext (TPM2B_KEM_CIPHERTEXT contents). */
+        TPM2B_SHARED_SECRET sharedK;
+        FWTPM_DECLARE_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+
+        FWTPM_CALLOC_VAR(ciphertext, TPM2B_KEM_CIPHERTEXT);
+        XMEMSET(&sharedK, 0, sizeof(sharedK));
+
+        if (digestSz <= 0 || digestSz > seedBufSz) {
+            rc = TPM_RC_SIZE;
+        }
+        if (rc == 0) {
+            rc = FwEncapsulateMlkem(&ctx->rng,
+                keyObj->pub.parameters.mlkemDetail.parameterSet,
+                &keyObj->pub.unique.mlkem,
+                &sharedK, ciphertext);
+        }
+        if (rc == 0 && ciphertext->size > encSeedBufSz) {
+            rc = TPM_RC_SIZE;
+        }
+        if (rc == 0) {
+            int kdfRc = TPM2_KDFa_ex(nameAlg,
+                sharedK.buffer, sharedK.size, kdfLabel,
+                ciphertext->buffer, (UINT32)ciphertext->size,
+                keyObj->pub.unique.mlkem.buffer,
+                    (UINT32)keyObj->pub.unique.mlkem.size,
+                seedBuf, (UINT32)digestSz);
+            if (kdfRc != digestSz) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                *seedSzOut = digestSz;
+                XMEMCPY(encSeedBuf, ciphertext->buffer, ciphertext->size);
+                *encSeedSzOut = ciphertext->size;
+            }
+        }
+        if (rc != 0) {
+            TPM2_ForceZero(seedBuf, seedBufSz);
+        }
+        TPM2_ForceZero(&sharedK, sizeof(sharedK));
+        FWTPM_FREE_VAR(ciphertext);
+        (void)oaepLabel; (void)oaepLabelSz;
+    }
+    else
     {
         (void)ctx; (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
         (void)seedBuf; (void)seedBufSz; (void)seedSzOut;

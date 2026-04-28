@@ -616,6 +616,9 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
 static void FwFlushAllObjects(FWTPM_CTX* ctx);
 static void FwFlushAllSessions(FWTPM_CTX* ctx);
 static void FwFreeHashSeq(FWTPM_HashSeq* seq);
+#ifdef WOLFTPM_V185
+static void FwFreeSignSeq(FWTPM_SignSeq* seq);
+#endif
 
 /* --- TPM2_Startup (CC 0x0144) --- */
 static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
@@ -657,6 +660,13 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     FwFreeHashSeq(&ctx->hashSeq[i]);
                 }
             }
+        #ifdef WOLFTPM_V185
+            for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+                if (ctx->signSeq[i].used) {
+                    FwFreeSignSeq(&ctx->signSeq[i]);
+                }
+            }
+        #endif
             for (i = 0; i < FWTPM_MAX_PRIMARY_CACHE; i++) {
                 XMEMSET(&ctx->primaryCache[i], 0,
                     sizeof(ctx->primaryCache[i]));
@@ -1085,7 +1095,16 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                  * sign API in wolfCrypt yet), so per Part 2 Sec.12.2.3.6 the
                  * bit MUST NOT advertise capability the implementation
                  * cannot deliver. Re-add once ext-μ sign is implemented. */
-                { TPM_PT_ML_PARAMETER_SETS,
+                /* The PT_FIXED entries below MUST stay in monotonic
+                 * property-tag order. The lookup loop in this handler
+                 * scans left-to-right and stops at the first
+                 * `prop >= property` — out-of-order entries make
+                 * direct queries (e.g. for FIRMWARE_SVN) return the
+                 * wrong property. PT_FIXED+47/+48/+49 = 0x12F/0x130/
+                 * 0x131. */
+                { TPM_PT_FIRMWARE_SVN,      0 }, /* PT_FIXED+47 = 0x12F */
+                { TPM_PT_FIRMWARE_MAX_SVN,  0 }, /* PT_FIXED+48 = 0x130 */
+                { TPM_PT_ML_PARAMETER_SETS,      /* PT_FIXED+49 = 0x131 */
                   /* Gate each bit on the per-set wolfCrypt availability
                    * macros so subset builds advertise only what is actually
                    * supported. Mirrors the auto-shrink buffer sizing in
@@ -1115,10 +1134,6 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                   TPMA_ML_PARAMETER_SET_mlDsa_87   |
             #endif
                   0 },
-                /* fwTPM is not firmware-versioned; report SVN=0 so v1.85
-                 * clients iterating PT_FIXED capabilities see the keys. */
-                { TPM_PT_FIRMWARE_SVN,      0 },
-                { TPM_PT_FIRMWARE_MAX_SVN,  0 },
             #endif
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
@@ -1400,7 +1415,13 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 if (!psSupported) {
                     rc = TPM_RC_PARMS;
                 }
-                (void)hashAlg;  /* hash algorithm space-validated by parse */
+                /* Part 2 Sec.11.2.7.1 Table 208: TPMS_SIGNATURE_HASH_MLDSA.hash
+                 * is a TPMI_ALG_HASH and TPM_ALG_NULL is forbidden. Validate
+                 * the selector against the hash algorithms wolfTPM
+                 * understands. */
+                else if (TPM2_GetHashDigestSize(hashAlg) <= 0) {
+                    rc = TPM_RC_HASH;
+                }
                 break;
             }
             case TPM_ALG_MLKEM: {
@@ -2796,13 +2817,27 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
         else {
-            /* Transient object handle */
+            /* Transient handle: search objects first, then v1.85 sign
+             * sequences (which also live in the transient range, above
+             * the object + hash-seq slots). Without the signSeq fall-
+             * through a client cannot release a sign-sequence slot via
+             * FlushContext (CWE-772 DoS with FWTPM_MAX_SIGN_SEQ = 4). */
             FWTPM_Object* obj = FwFindObject(ctx, flushHandle);
-            if (obj == NULL) {
-                rc = TPM_RC_HANDLE;
+            if (obj != NULL) {
+                FwFreeObject(obj);
             }
             else {
-                FwFreeObject(obj);
+            #ifdef WOLFTPM_V185
+                FWTPM_SignSeq* seq = FwFindSignSeq(ctx, flushHandle);
+                if (seq != NULL) {
+                    FwFreeSignSeq(seq);
+                }
+                else {
+                    rc = TPM_RC_HANDLE;
+                }
+            #else
+                rc = TPM_RC_HANDLE;
+            #endif
             }
         }
     }
@@ -7040,11 +7075,14 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     dataBuf, take);
                 signSeq->firstBytesSz += take;
             }
-            /* Hash-ML-DSA sign/verify: feed bytes into the hash ctx.
-             * Pure ML-DSA sign or verify: accumulate raw message bytes
-             * (sign sequences are rejected at Complete with
-             * TPM_RC_ONE_SHOT_SIGNATURE per Part 3 Sec.20.6). */
-            if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA) {
+            /* Hash-ML-DSA, RSA, ECC: feed bytes into the hash accumulator.
+             * Hash-ML-DSA verify sequences (and classical verify) also mirror
+             * into msgBuf so the Complete-time ticket builder can bind the
+             * message per Part 2 Sec.10.6.5 Eq (5).
+             * Pure ML-DSA sign or verify: accumulate raw message bytes. */
+            if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA ||
+                    signSeq->sigScheme == TPM_ALG_RSA ||
+                    signSeq->sigScheme == TPM_ALG_ECC) {
                 if (!signSeq->hashCtxInit) {
                     rc = TPM_RC_FAILURE;
                 }
@@ -7054,6 +7092,16 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         dataBuf, dataSize);
                     if (rc != 0) {
                         rc = TPM_RC_FAILURE;
+                    }
+                }
+                if (rc == 0 && signSeq->isVerifySeq) {
+                    if (signSeq->msgBufSz + dataSize > sizeof(signSeq->msgBuf)) {
+                        rc = TPM_RC_MEMORY;
+                    }
+                    else if (dataSize > 0) {
+                        XMEMCPY(signSeq->msgBuf + signSeq->msgBufSz,
+                            dataBuf, dataSize);
+                        signSeq->msgBufSz += dataSize;
                     }
                 }
             }
@@ -13079,21 +13127,26 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
-    /* Current scope: MLKEM only. ECDH KEM path (v1.85 Table 100 ecdh arm)
-     * is not yet implemented; TPM_RC_KEY is the spec response for
-     * key-type-not-supported on this command. */
+    /* Two KEM types per Part 2 Sec.10.3.13 Table 100: ML-KEM (FIPS 203) and
+     * ECC DHKEM (RFC 9180 Sec.4.1). For ECC the kdf scheme MUST be HKDF
+     * (Part 2 Sec.12.2.3.5) — TPM_RC_KEY for any other key type or unset kdf. */
     if (rc == 0) {
-        if (obj->pub.type != TPM_ALG_MLKEM) {
+        if (obj->pub.type == TPM_ALG_MLKEM) {
+            ps = obj->pub.parameters.mlkemDetail.parameterSet;
+            rc = FwEncapsulateMlkem(&ctx->rng, ps, &obj->pub.unique.mlkem,
+                &sharedSecret, ciphertext);
+        }
+#ifdef HAVE_ECC
+        else if (obj->pub.type == TPM_ALG_ECC &&
+                obj->pub.parameters.eccDetail.kdf.scheme == TPM_ALG_HKDF) {
+            rc = FwEncapsulateEcdhDhkem(&ctx->rng, &obj->pub,
+                obj->pub.parameters.eccDetail.kdf.details.any.hashAlg,
+                &sharedSecret, ciphertext);
+        }
+#endif
+        else {
             rc = TPM_RC_KEY;
         }
-    }
-    if (rc == 0) {
-        ps = obj->pub.parameters.mlkemDetail.parameterSet;
-    }
-
-    if (rc == 0) {
-        rc = FwEncapsulateMlkem(&ctx->rng, ps, &obj->pub.unique.mlkem,
-            &sharedSecret, ciphertext);
     }
 
     if (rc == 0) {
@@ -13148,20 +13201,31 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_HANDLE;
         }
     }
+    /* Two KEM types per Part 2 Sec.10.3.13 Table 100. Both require an
+     * unrestricted decrypt key; ECC additionally needs HKDF kdf set. */
     if (rc == 0) {
-        if (obj->pub.type != TPM_ALG_MLKEM) {
+        if (obj->pub.type != TPM_ALG_MLKEM &&
+                obj->pub.type != TPM_ALG_ECC) {
+            rc = TPM_RC_KEY;
+        }
+        else if (obj->pub.type == TPM_ALG_ECC &&
+                obj->pub.parameters.eccDetail.kdf.scheme != TPM_ALG_HKDF) {
             rc = TPM_RC_KEY;
         }
     }
-    /* Part 3 Sec.14.11.1: keyHandle must have restricted CLEAR and decrypt SET. */
     if (rc == 0) {
         if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
             (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
             rc = TPM_RC_ATTRIBUTES;
         }
     }
-    if (rc == 0) {
+    if (rc == 0 && obj->pub.type == TPM_ALG_MLKEM) {
         if (obj->privKeySize != MAX_MLKEM_PRIV_SEED_SIZE) {
+            rc = TPM_RC_KEY;
+        }
+    }
+    if (rc == 0 && obj->pub.type == TPM_ALG_ECC) {
+        if (obj->privKeySize == 0) {
             rc = TPM_RC_KEY;
         }
     }
@@ -13177,12 +13241,26 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         if (ciphertext->size > sizeof(ciphertext->buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + ciphertext->size > cmdSize) {
+            /* Wire size exceeds remaining cmd bytes — would copy
+             * stale residue from previous command. */
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, ciphertext->buffer, ciphertext->size);
-        ps = obj->pub.parameters.mlkemDetail.parameterSet;
-        rc = FwDecapsulateMlkem(ps, obj->privKey,
-            ciphertext->buffer, ciphertext->size, &sharedSecret);
+        if (obj->pub.type == TPM_ALG_MLKEM) {
+            ps = obj->pub.parameters.mlkemDetail.parameterSet;
+            rc = FwDecapsulateMlkem(ps, obj->privKey,
+                ciphertext->buffer, ciphertext->size, &sharedSecret);
+        }
+#ifdef HAVE_ECC
+        else {
+            rc = FwDecapsulateEcdhDhkem(&ctx->rng, obj,
+                obj->pub.parameters.eccDetail.kdf.details.any.hashAlg,
+                ciphertext->buffer, ciphertext->size, &sharedSecret);
+        }
+#endif
     }
 
     if (rc == 0) {
@@ -13254,6 +13332,14 @@ static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
     if (wcHash == WC_HASH_TYPE_NONE) {
         return TPM_RC_HASH;
     }
+    /* Defensive Free-before-Init: today the helper is only called on a
+     * freshly XMEMSET-zeroed slot, but a future caller that re-inits an
+     * existing sequence would otherwise leak any heap state wolfCrypt
+     * allocated under WOLFSSL_SMALL_STACK. */
+    if (seq->hashCtxInit) {
+        wc_HashFree(&seq->hashCtx, FwGetWcHashType(seq->hashAlg));
+        seq->hashCtxInit = 0;
+    }
     wcRet = wc_HashInit(&seq->hashCtx, wcHash);
     if (wcRet != 0) {
         return TPM_RC_FAILURE;
@@ -13294,11 +13380,13 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
             rc = TPM_RC_KEY;
         }
-        /* Scope: ML-DSA / Hash-ML-DSA only. Spec also permits classical
-         * schemes (RSASSA, RSAPSS, ECDSA, SM2, ECSCHNORR, HMAC) but those
-         * remain available via TPM2_Sign — see src/fwtpm/README.md. */
+        /* Accept ML-DSA, Hash-ML-DSA, and classical RSA/ECC sign keys.
+         * Other types (HMAC, KEYEDHASH, SM2, ECSCHNORR) remain unsupported
+         * here. */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
-                 obj->pub.type != TPM_ALG_HASH_MLDSA) {
+                 obj->pub.type != TPM_ALG_HASH_MLDSA &&
+                 obj->pub.type != TPM_ALG_RSA &&
+                 obj->pub.type != TPM_ALG_ECC) {
             rc = TPM_RC_SCHEME;
         }
     }
@@ -13334,6 +13422,9 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (ctxSz > sizeof(seq->context.buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + ctxSz > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         seq->context.size = ctxSz;
@@ -13352,6 +13443,20 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
                 obj->pub.parameters.hash_mldsaDetail.hashAlg);
+        }
+        else if (obj->pub.type == TPM_ALG_RSA ||
+                 obj->pub.type == TPM_ALG_ECC) {
+            /* Classical: hash-then-sign. Resolve the key's scheme to learn
+             * the required hashAlg, then init the streaming hash ctx. */
+            UINT16 schemeAlg = TPM_ALG_NULL;
+            UINT16 hashAlg = TPM_ALG_NULL;
+            FwResolveSignScheme(obj, &schemeAlg, &hashAlg);
+            if (schemeAlg == TPM_ALG_NULL || hashAlg == TPM_ALG_NULL) {
+                rc = TPM_RC_SCHEME;
+            }
+            else {
+                rc = FwSignSeqInitHashCtx(seq, hashAlg);
+            }
         }
     }
 
@@ -13379,7 +13484,6 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_SignSeq* seq = NULL;
     TPM_HANDLE seqHandle = 0;
     UINT16 authSz = 0, hintSz = 0, ctxSz = 0;
-    byte hintScratch[MAX_SIGNATURE_HINT_SIZE];
     int paramSzPos, paramStart;
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
@@ -13401,9 +13505,11 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
             rc = TPM_RC_KEY;
         }
-        /* Scope: ML-DSA / Hash-ML-DSA only — see src/fwtpm/README.md. */
+        /* Accept ML-DSA, Hash-ML-DSA, and classical RSA/ECC signing keys. */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
-                 obj->pub.type != TPM_ALG_HASH_MLDSA) {
+                 obj->pub.type != TPM_ALG_HASH_MLDSA &&
+                 obj->pub.type != TPM_ALG_RSA &&
+                 obj->pub.type != TPM_ALG_ECC) {
             rc = TPM_RC_SCHEME;
         }
     }
@@ -13432,17 +13538,19 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, seq->authValue.buffer, authSz);
 
         TPM2_Packet_ParseU16(cmd, &hintSz);
-        /* Part 2 Sec.11.3.9: hint MUST be zero-length for non-EdDSA schemes. */
+        /* Part 2 Sec.11.3.9: hint MUST be zero-length for non-EdDSA schemes.
+         * Reject any non-zero hint up front; nothing to consume on the wire. */
         if (hintSz > 0) {
             rc = TPM_RC_VALUE;
         }
     }
     if (rc == 0) {
-        TPM2_Packet_ParseBytes(cmd, hintScratch, hintSz);
-
         TPM2_Packet_ParseU16(cmd, &ctxSz);
         if (ctxSz > sizeof(seq->context.buffer)) {
             rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + ctxSz > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
@@ -13459,6 +13567,18 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
                 obj->pub.parameters.hash_mldsaDetail.hashAlg);
+        }
+        else if (obj->pub.type == TPM_ALG_RSA ||
+                 obj->pub.type == TPM_ALG_ECC) {
+            UINT16 schemeAlg = TPM_ALG_NULL;
+            UINT16 hashAlg = TPM_ALG_NULL;
+            FwResolveSignScheme(obj, &schemeAlg, &hashAlg);
+            if (schemeAlg == TPM_ALG_NULL || hashAlg == TPM_ALG_NULL) {
+                rc = TPM_RC_SCHEME;
+            }
+            else {
+                rc = FwSignSeqInitHashCtx(seq, hashAlg);
+            }
         }
     }
 
@@ -13514,10 +13634,21 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_SIGN_CONTEXT_KEY;
     }
     if (rc == 0) {
+        /* TPM_RC_HANDLE here means a bad keyHandle (seq itself was
+         * resolved above). Distinguish from the seq-not-found path so
+         * the cleanup at function exit can still free the seq slot.
+         * Leaving the slot allocated would let a buggy / hostile client
+         * exhaust FWTPM_MAX_SIGN_SEQ via Start + Complete-with-bad-key. */
         keyObj = FwFindObject(ctx, keyHandle);
         if (keyObj == NULL) {
             rc = TPM_RC_HANDLE;
         }
+    }
+    /* Part 3 Sec.20.6.1: SignSequenceComplete requires a signing key
+     * (TPM_RC_KEY otherwise). Defensive re-check after SequenceStart;
+     * mirrors the gate in FwCmd_SignSequenceStart / SignDigest. */
+    if (rc == 0 && !(keyObj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        rc = TPM_RC_KEY;
     }
     /* Part 3 Sec.20.6.1: the x509sign attribute of keyHandle MUST NOT be SET
      * (TPM_RC_ATTRIBUTES). Keys with x509sign restrict what digests can be
@@ -13632,6 +13763,11 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     if (rc != 0) {
                         rc = TPM_RC_FAILURE;
                     }
+                    /* hashCtx is finalized -- free + clear flag so the
+                     * later FwFreeSignSeq doesn't double-free a consumed
+                     * context. */
+                    wc_HashFree(&seq->hashCtx, wcHash);
+                    seq->hashCtxInit = 0;
                 }
                 if (rc == 0) {
                     digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
@@ -13640,6 +13776,56 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         keyObj->privKey,
                         seq->context.buffer, seq->context.size,
                         seq->hashAlg, digestOut, digestSz, sigOut);
+                }
+            }
+            TPM2_ForceZero(digestOut, sizeof(digestOut));
+        }
+        else if (rc == 0 && (keyObj->pub.type == TPM_ALG_RSA ||
+                              keyObj->pub.type == TPM_ALG_ECC)) {
+            /* Classical: feed trailing buffer in, finalize the hash, then
+             * delegate signing+wire emission to FwSignDigestAndAppend.
+             * Mark sigOut->size = 0 so the wire-emit block below skips
+             * the PQC append paths. */
+            byte digestOut[TPM_MAX_DIGEST_SIZE];
+            int digestSz;
+            enum wc_HashType wcHash;
+
+            if (!seq->hashCtxInit) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                wcHash = FwGetWcHashType(seq->hashAlg);
+                if (bufSize > 0) {
+                    rc = wc_HashUpdate(&seq->hashCtx, wcHash, msgBuf, bufSize);
+                    if (rc != 0) rc = TPM_RC_FAILURE;
+                }
+                if (rc == 0) {
+                    rc = wc_HashFinal(&seq->hashCtx, wcHash, digestOut);
+                    if (rc != 0) rc = TPM_RC_FAILURE;
+                    wc_HashFree(&seq->hashCtx, wcHash);
+                    seq->hashCtxInit = 0;
+                }
+                if (rc == 0) {
+                    UINT16 schemeAlg = TPM_ALG_NULL;
+                    UINT16 hashAlg = TPM_ALG_NULL;
+                    digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
+                    FwResolveSignScheme(keyObj, &schemeAlg, &hashAlg);
+                    if (schemeAlg == TPM_ALG_NULL) {
+                        rc = TPM_RC_SCHEME;
+                    }
+                    else {
+                        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+                        rc = FwSignDigestAndAppend(ctx, keyObj,
+                            schemeAlg, hashAlg,
+                            digestOut, digestSz, rsp);
+                        if (rc == 0) {
+                            FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+                            FwFreeSignSeq(seq);
+                            FWTPM_FREE_BUF(msgBuf);
+                            FWTPM_FREE_VAR(sigOut);
+                            return rc;
+                        }
+                    }
                 }
             }
             TPM2_ForceZero(digestOut, sizeof(digestOut));
@@ -13655,7 +13841,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
-        /* signature (TPMT_SIGNATURE): alg-specific wire format per Bug M-1.
+        /* signature (TPMT_SIGNATURE) alg-specific wire format:
          * Pure ML-DSA: sigAlg + TPM2B. Hash-ML-DSA: sigAlg + hash + TPM2B. */
         if (keyObj->pub.type == TPM_ALG_MLDSA) {
             TPM2_Packet_AppendU16(rsp, TPM_ALG_MLDSA);
@@ -13673,10 +13859,11 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         FwFreeSignSeq(seq);
     }
-    else if (seq != NULL && rc != TPM_RC_HANDLE) {
-        /* Free slot on every Complete failure except TPM_RC_HANDLE (where
-         * `seq` was never resolved). Wrong-key errors used to leave the
-         * slot allocated, but with FWTPM_MAX_SIGN_SEQ small a buggy or
+    else if (seq != NULL) {
+        /* Free slot on every Complete failure once seq has been resolved.
+         * The pointer-NULL guard above already covers the case where
+         * FwFindSignSeq returned NULL (seq not found). With FWTPM_MAX_SIGN_SEQ
+         * small a buggy or
          * hostile client could exhaust slots by repeatedly issuing
          * Start + wrong-key Complete. The sequence is invalidated either
          * way; force the caller to issue a fresh Start. */
@@ -13701,18 +13888,14 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_DECLARE_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
     int sigSz = 0;
     int paramSzPos, paramStart;
-    /* Verified digest snapshot — required by the ticket builder so that
-     * Hash-ML-DSA tickets bind the message digest, not just keyName.
-     * Pure ML-DSA leaves verifiedDigestSz == 0 (the message itself is
-     * already in seq->msgBuf and used directly by the ticket builder). */
-    byte verifiedDigest[TPM_MAX_DIGEST_SIZE];
-    int verifiedDigestSz = 0;
     UINT32 ticketHier = 0;
     int ticketDataSz = 0;
+    int sigStartPos = 0;
+    TPMT_SIGNATURE classicalSig;
 
     FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
     FWTPM_ALLOC_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
-    XMEMSET(verifiedDigest, 0, sizeof(verifiedDigest));
+    XMEMSET(&classicalSig, 0, sizeof(classicalSig));
 
     if (cmdSize < TPM2_HEADER_SIZE + 8) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -13748,9 +13931,11 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
 
-    /* Parse signature (TPMT_SIGNATURE). Pure ML-DSA: sigAlg + TPM2B.
-     * Hash-ML-DSA: sigAlg + hashAlg + TPM2B. */
+    /* Parse signature (TPMT_SIGNATURE). Save position so the classical
+     * arm can reparse via TPM2_Packet_ParseSignature for FwVerifySignatureCore.
+     * Pure ML-DSA: sigAlg + TPM2B. Hash-ML-DSA: sigAlg + hashAlg + TPM2B. */
     if (rc == 0) {
+        sigStartPos = cmd->pos;
         TPM2_Packet_ParseU16(cmd, &sigAlg);
         if (sigAlg == TPM_ALG_MLDSA) {
             if (keyObj->pub.type != TPM_ALG_MLDSA) {
@@ -13759,6 +13944,16 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (sigAlg == TPM_ALG_HASH_MLDSA) {
             if (keyObj->pub.type != TPM_ALG_HASH_MLDSA) {
+                rc = TPM_RC_SCHEME;
+            }
+        }
+        else if (sigAlg == TPM_ALG_RSASSA || sigAlg == TPM_ALG_RSAPSS) {
+            if (keyObj->pub.type != TPM_ALG_RSA) {
+                rc = TPM_RC_SCHEME;
+            }
+        }
+        else if (sigAlg == TPM_ALG_ECDSA) {
+            if (keyObj->pub.type != TPM_ALG_ECC) {
                 rc = TPM_RC_SCHEME;
             }
         }
@@ -13772,17 +13967,19 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_SCHEME;
         }
     }
-    if (rc == 0) {
+    if (rc == 0 && (sigAlg == TPM_ALG_MLDSA || sigAlg == TPM_ALG_HASH_MLDSA)) {
         TPM2_Packet_ParseU16(cmd, &wireSize);
         if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + wireSize > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
-        sigSz = wireSize;
-        TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
-
         if (sigAlg == TPM_ALG_MLDSA) {
+            sigSz = wireSize;
+            TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
             rc = FwVerifyMldsaMessage(
                 keyObj->pub.parameters.mldsaDetail.parameterSet,
                 &keyObj->pub.unique.mldsa,
@@ -13790,15 +13987,16 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 seq->msgBuf, (int)seq->msgBufSz,
                 sigBuf, sigSz);
         }
-        else {
-            /* Finalize accumulated hash, then verify. Snapshot the
-             * digest into verifiedDigest[] so the ticket builder below
-             * can bind it per Part 2 Sec.10.6.5 Eq (5) — the hashCtx is
-             * consumed by wc_HashFinal and SequenceUpdate never copied
-             * raw bytes into seq->msgBuf for Hash-ML-DSA. */
+        else if (sigAlg == TPM_ALG_HASH_MLDSA) {
+            /* Finalize accumulated hash, then verify. Message bytes for
+             * the ticket are already in seq->msgBuf (mirrored at
+             * SequenceUpdate time). */
             byte digestOut[TPM_MAX_DIGEST_SIZE];
             int digestSz;
             enum wc_HashType wcHash = FwGetWcHashType(seq->hashAlg);
+
+            sigSz = wireSize;
+            TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
 
             if (!seq->hashCtxInit) {
                 rc = TPM_RC_FAILURE;
@@ -13808,16 +14006,42 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 if (rc != 0) {
                     rc = TPM_RC_FAILURE;
                 }
+                wc_HashFree(&seq->hashCtx, wcHash);
+                seq->hashCtxInit = 0;
             }
             if (rc == 0) {
                 digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
-                XMEMCPY(verifiedDigest, digestOut, digestSz);
-                verifiedDigestSz = digestSz;
                 rc = FwVerifyMldsaHash(
                     keyObj->pub.parameters.hash_mldsaDetail.parameterSet,
                     &keyObj->pub.unique.mldsa,
                     seq->context.buffer, seq->context.size,
                     seq->hashAlg, digestOut, digestSz, sigBuf, sigSz);
+            }
+            TPM2_ForceZero(digestOut, sizeof(digestOut));
+        }
+        else {
+            /* Classical RSA/ECC: rewind, reparse full TPMT_SIGNATURE,
+             * finalize hash, verify. */
+            byte digestOut[TPM_MAX_DIGEST_SIZE];
+            int digestSz;
+            enum wc_HashType wcHash = FwGetWcHashType(seq->hashAlg);
+
+            cmd->pos = sigStartPos;
+            TPM2_Packet_ParseSignature(cmd, &classicalSig);
+
+            if (!seq->hashCtxInit) {
+                rc = TPM_RC_FAILURE;
+            }
+            else {
+                rc = wc_HashFinal(&seq->hashCtx, wcHash, digestOut);
+                if (rc != 0) rc = TPM_RC_FAILURE;
+                wc_HashFree(&seq->hashCtx, wcHash);
+                seq->hashCtxInit = 0;
+            }
+            if (rc == 0) {
+                digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
+                rc = FwVerifySignatureCore(keyObj, digestOut, digestSz,
+                    &classicalSig);
             }
             TPM2_ForceZero(digestOut, sizeof(digestOut));
         }
@@ -13836,33 +14060,16 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             FwComputeObjectName(keyObj);
         }
 
-        if (sigAlg == TPM_ALG_HASH_MLDSA) {
-            /* Bind the verified digest snapshotted from the hash
-             * accumulator above (seq->msgBuf is empty on the
-             * Hash-ML-DSA path — SequenceUpdate routed bytes into
-             * seq->hashCtx, not msgBuf). */
-            if (verifiedDigestSz > 0 &&
-                    verifiedDigestSz <= (int)FWTPM_SIZEOF_BUF(ticketData,
-                        FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
-                XMEMCPY(ticketData, verifiedDigest,
-                    (size_t)verifiedDigestSz);
-                ticketDataSz = verifiedDigestSz;
-            }
-            else {
-                rc = TPM_RC_FAILURE;
-            }
+        /* Pure ML-DSA and Hash-ML-DSA both bind the streamed message bytes
+         * per Part 2 Sec.10.6.5 Eq (5). For Hash-ML-DSA, SequenceUpdate
+         * mirrored bytes into seq->msgBuf alongside the hash accumulator. */
+        if (seq->msgBufSz <= FWTPM_SIZEOF_BUF(ticketData,
+                FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
+            XMEMCPY(ticketData, seq->msgBuf, seq->msgBufSz);
+            ticketDataSz = (int)seq->msgBufSz;
         }
         else {
-            /* Pure ML-DSA: the verified message is the bytes streamed
-             * through SequenceUpdate (held in seq->msgBuf). */
-            if (seq->msgBufSz <= FWTPM_SIZEOF_BUF(ticketData,
-                    FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
-                XMEMCPY(ticketData, seq->msgBuf, seq->msgBufSz);
-                ticketDataSz = (int)seq->msgBufSz;
-            }
-            else {
-                rc = TPM_RC_FAILURE;
-            }
+            rc = TPM_RC_FAILURE;
         }
         if (rc == 0 &&
             ticketDataSz + keyObj->name.size <= (int)FWTPM_SIZEOF_BUF(
@@ -13875,45 +14082,32 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_FAILURE;
         }
 
-        /* Tag selection per Part 2 Sec.10.6.5 Tables 111/112:
-         *  - Pure ML-DSA verified the raw message bytes → MESSAGE_VERIFIED
-         *    (TPMU_TK_VERIFIED_META is empty).
-         *  - Hash-ML-DSA verified the pre-hashed digest → DIGEST_VERIFIED
-         *    (metadata = the pre-hash alg). Emitting MESSAGE_VERIFIED
-         *    over a digest would mislead a downstream PolicyTicket /
-         *    PolicySigned consumer about what was authenticated. */
+        /* Per Part 3 Sec.20.3.1 + Part 2 Sec.10.6.5 Table 111: every
+         * successful TPM2_VerifySequenceComplete response SHALL carry
+         * tag = TPM_ST_MESSAGE_VERIFIED regardless of signing scheme,
+         * with TPMU_TK_VERIFIED_META = TPMS_EMPTY (no wire bytes).
+         * Digest-verification tickets live on TPM2_VerifyDigestSignature,
+         * not here. */
         if (rc == 0) {
-            if (sigAlg == TPM_ALG_HASH_MLDSA) {
-                byte metaBytes[2];
-                metaBytes[0] = (byte)(seq->hashAlg >> 8);
-                metaBytes[1] = (byte)(seq->hashAlg);
-                rc = FwAppendTicket(ctx, rsp,
-                    TPM_ST_DIGEST_VERIFIED,
-                    ticketHier,
-                    keyObj->pub.nameAlg,
-                    ticketData, ticketDataSz,
-                    metaBytes, (int)sizeof(metaBytes));
-            }
-            else {
-                rc = FwAppendTicket(ctx, rsp,
-                    TPM_ST_MESSAGE_VERIFIED,
-                    ticketHier,
-                    keyObj->pub.nameAlg,
-                    ticketData, ticketDataSz,
-                    NULL, 0);
-            }
+            rc = FwAppendTicket(ctx, rsp,
+                TPM_ST_MESSAGE_VERIFIED,
+                ticketHier,
+                keyObj->pub.nameAlg,
+                ticketData, ticketDataSz,
+                NULL, 0);
         }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
     }
 
-    /* Free slot on every Complete failure except TPM_RC_HANDLE (where
-     * `seq` was never resolved). Mirrors FwCmd_SignSequenceComplete. */
-    if (seq != NULL && rc != TPM_RC_HANDLE) {
+    /* Free slot on every Complete failure once seq has been resolved
+     * (the pointer-NULL guard alone is sufficient -- TPM_RC_HANDLE for a
+     * bad keyHandle also needs to release the slot). Mirrors
+     * FwCmd_SignSequenceComplete. */
+    if (seq != NULL) {
         FwFreeSignSeq(seq);
     }
 
-    TPM2_ForceZero(verifiedDigest, sizeof(verifiedDigest));
     FWTPM_FREE_BUF(ticketData);
     FWTPM_FREE_BUF(sigBuf);
     return rc;
@@ -13957,6 +14151,12 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
+    /* Part 3 Sec.20.7.1: SignDigest requires a signing key (TPM_RC_KEY
+     * otherwise). Mirrors FwCmd_VerifyDigestSignature / SignSequenceStart. */
+    if (rc == 0 && !(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        rc = TPM_RC_KEY;
+    }
+
     /* Part 3 Sec.20.7.1: x509sign restricts the key to X.509-cert signing
      * and is rejected outright here with TPM_RC_ATTRIBUTES. Restricted
      * keys are handled below after the ticket is parsed — they require
@@ -13976,6 +14176,9 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         if (sigCtx->size > sizeof(sigCtx->buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + sigCtx->size > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, sigCtx->buffer, sigCtx->size);
@@ -13983,6 +14186,9 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_ParseU16(cmd, &digest->size);
         if (digest->size > sizeof(digest->buffer)) {
             rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + digest->size > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
         /* Part 3 Sec.20.7.1: digest size MUST match the key's hashAlg digest
          * size for Hash-ML-DSA. Reject mismatches with TPM_RC_SIZE before
@@ -14006,6 +14212,9 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_ParseU16(cmd, &validationDigestSz);
         if (validationDigestSz > (UINT16)sizeof(validationDigest)) {
             rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + validationDigestSz > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
         if (rc == 0) {
             TPM2_Packet_ParseBytes(cmd, validationDigest, validationDigestSz);
@@ -14081,12 +14290,11 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 digest->buffer, digest->size,
                 sigOut);
         }
-        else {
-            /* Part 3 Sec.20.7.1: TPM_RC_SCHEME for unsupported signing scheme
-             * on a valid signing key (TPM_RC_KEY would mean "not a key").
-             * Scope: ML-DSA / Hash-ML-DSA only. Classical digest signing
-             * (RSASSA, RSAPSS, ECDSA) goes via TPM2_Sign — see
-             * src/fwtpm/README.md. */
+        /* Classical schemes (RSASSA/RSAPSS/ECDSA) are handled below by
+         * delegating to FwSignDigestAndAppend, which both signs and writes
+         * the alg-specific TPMT_SIGNATURE wire format. */
+        else if (obj->pub.type != TPM_ALG_RSA &&
+                 obj->pub.type != TPM_ALG_ECC) {
             rc = TPM_RC_SCHEME;
         }
     }
@@ -14094,14 +14302,33 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     if (rc == 0) {
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
-        /* signature: sigAlg + hash + TPM2B (Hash-ML-DSA is TPMS shape) */
-        TPM2_Packet_AppendU16(rsp, TPM_ALG_HASH_MLDSA);
-        TPM2_Packet_AppendU16(rsp,
-            obj->pub.parameters.hash_mldsaDetail.hashAlg);
-        TPM2_Packet_AppendU16(rsp, sigOut->size);
-        TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+        if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
+            /* signature: sigAlg + hash + TPM2B (Hash-ML-DSA shape) */
+            TPM2_Packet_AppendU16(rsp, TPM_ALG_HASH_MLDSA);
+            TPM2_Packet_AppendU16(rsp,
+                obj->pub.parameters.hash_mldsaDetail.hashAlg);
+            TPM2_Packet_AppendU16(rsp, sigOut->size);
+            TPM2_Packet_AppendBytes(rsp, sigOut->buffer, sigOut->size);
+        }
+        else {
+            /* Classical RSA/ECC: pull scheme/hashAlg from the key (no input
+             * scheme param on SignDigest) and emit the alg-specific
+             * TPMT_SIGNATURE wire format. */
+            UINT16 sigScheme = TPM_ALG_NULL;
+            UINT16 sigHashAlg = TPM_ALG_NULL;
+            FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
+            if (sigScheme == TPM_ALG_NULL) {
+                rc = TPM_RC_SCHEME;
+            }
+            else {
+                rc = FwSignDigestAndAppend(ctx, obj, sigScheme, sigHashAlg,
+                    digest->buffer, digest->size, rsp);
+            }
+        }
 
-        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+        if (rc == 0) {
+            FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+        }
     }
 
     FWTPM_FREE_VAR(sigCtx);
@@ -14123,10 +14350,13 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 sigAlg = 0, sigHashAlg = 0, wireSize = 0;
     int sigSz = 0;
     int paramSzPos, paramStart;
+    int sigStartPos = 0;
+    TPMT_SIGNATURE classicalSig;
 
     FWTPM_CALLOC_VAR(sigCtx, TPM2B_SIGNATURE_CTX);
     FWTPM_CALLOC_VAR(digest, TPM2B_DIGEST);
     FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
+    XMEMSET(&classicalSig, 0, sizeof(classicalSig));
 
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -14157,6 +14387,9 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (sigCtx->size > sizeof(sigCtx->buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + sigCtx->size > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, sigCtx->buffer, sigCtx->size);
@@ -14164,11 +14397,17 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (digest->size > sizeof(digest->buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + digest->size > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, digest->buffer, digest->size);
 
-        /* Parse signature (TPMT_SIGNATURE) */
+        /* Save position so the classical arm can reparse the full
+         * TPMT_SIGNATURE via TPM2_Packet_ParseSignature for
+         * FwVerifySignatureCore. */
+        sigStartPos = cmd->pos;
         TPM2_Packet_ParseU16(cmd, &sigAlg);
         if (sigAlg == TPM_ALG_MLDSA) {
             /* Pure ML-DSA with ext-mu — deferred until wolfCrypt exposes a
@@ -14192,6 +14431,9 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
                 rc = TPM_RC_SIZE;
             }
+            else if (cmd->pos + wireSize > cmdSize) {
+                rc = TPM_RC_COMMAND_SIZE;
+            }
             else {
                 sigSz = wireSize;
                 TPM2_Packet_ParseBytes(cmd, sigBuf, sigSz);
@@ -14212,10 +14454,15 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
         }
+        else if (sigAlg == TPM_ALG_RSASSA || sigAlg == TPM_ALG_RSAPSS ||
+                 sigAlg == TPM_ALG_ECDSA) {
+            /* Classical schemes: rewind to sigStartPos and reparse the
+             * full TPMT_SIGNATURE via the standard helper. */
+            cmd->pos = sigStartPos;
+            TPM2_Packet_ParseSignature(cmd, &classicalSig);
+            sigHashAlg = classicalSig.signature.any.hashAlg;
+        }
         else {
-            /* Scope: ML-DSA / Hash-ML-DSA only — see src/fwtpm/README.md.
-             * Classical schemes (ECDSA, RSASSA, RSAPSS) verify via
-             * TPM2_VerifySignature. */
             rc = TPM_RC_SCHEME;
         }
     }
@@ -14238,12 +14485,22 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 sigBuf, sigSz);
         }
     }
+    if (rc == 0 && (sigAlg == TPM_ALG_RSASSA || sigAlg == TPM_ALG_RSAPSS ||
+                    sigAlg == TPM_ALG_ECDSA)) {
+        rc = FwVerifySignatureCore(obj, digest->buffer, digest->size,
+            &classicalSig);
+    }
 
     if (rc == 0) {
         UINT32 ticketHier = obj->hierarchy;
         byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
         int ticketDataSz = 0;
         byte metaBytes[2];
+        /* Bind the wire signature's hashAlg into ticket metadata. For
+         * Hash-ML-DSA this equals the key's hash_mldsaDetail.hashAlg
+         * (validated above). For classical schemes it's the parsed
+         * sig.signature.any.hashAlg. */
+        TPMI_ALG_HASH keyHashAlg = sigHashAlg;
 
         paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
@@ -14268,8 +14525,12 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
              * keyName binding (matches FwCmd_VerifySequenceComplete). */
             rc = TPM_RC_FAILURE;
         }
-        metaBytes[0] = (byte)(sigHashAlg >> 8);
-        metaBytes[1] = (byte)(sigHashAlg);
+        /* Bind the key's authoritative hashAlg into the ticket metadata
+         * (already enforced equal to wire sigHashAlg above; using the key
+         * field is defense-in-depth against any future reordering that
+         * drops the equality check). */
+        metaBytes[0] = (byte)(keyHashAlg >> 8);
+        metaBytes[1] = (byte)(keyHashAlg);
 
         if (rc == 0) {
             rc = FwAppendTicket(ctx, rsp,

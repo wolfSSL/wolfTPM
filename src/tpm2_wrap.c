@@ -2403,6 +2403,16 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
     }
     TPM2_ForceZero(&rng, sizeof(rng));
 
+    /* On any failure scrub the caller's data buffer so partial KDFa
+     * output (derived from the raw shared secret K) cannot leak via a
+     * caller that ignores rc. wolfCrypt's TPM2_KDFa never partially
+     * writes today, but defense-in-depth -- the buffer is always zeroed
+     * on the failure path. */
+    if (rc != 0) {
+        TPM2_ForceZero(data->buffer, sizeof(data->buffer));
+        data->size = 0;
+    }
+
     return rc;
 }
 #endif /* WOLFTPM_V185 && ML-KEM enabled */
@@ -5632,12 +5642,19 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
-    /* Validate sigSz against the per-type signature buffer up front so
-     * BUFFER_E does not leak the sequence handle (we'd otherwise advance
-     * the TPM-side sequence via SequenceUpdate and bail out before
-     * Complete, leaving the slot allocated until the caller manually
-     * flushes it). */
-    if (key->pub.publicArea.type == TPM_ALG_RSA) {
+    /* Validate per-key-type sigSz BEFORE the internal SequenceUpdate
+     * call. Otherwise we advance the TPM-side sequence and then bail out
+     * before Complete, leaving the slot allocated until the caller
+     * manually flushes it (CWE-772 DoS). All key types covered here so
+     * the cleanup invariant holds for every supported scheme. */
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
+            return BAD_FUNC_ARG;
+        }
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
         if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.rsassa.sig.buffer)) {
             return BUFFER_E;
         }
@@ -5654,6 +5671,10 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         }
     }
 #endif
+    else {
+        /* Unknown key type -- reject before SequenceUpdate runs. */
+        return BAD_FUNC_ARG;
+    }
 
     /* Part 3 Sec.20.3 Table 118: VerifySequenceComplete parameters are
      * {signature} only — no buffer field. The documented `data`/`dataSz`

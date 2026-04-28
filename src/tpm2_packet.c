@@ -915,7 +915,7 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
          * round-trips correctly. The append side stores the ML-DSA seed
          * (xi) in the .mldsa arm; HASH_MLDSA shares the same arm because
          * the wire layout is identical (TPM2B_PRIVATE_VENDOR_SPECIFIC
-         * bounded by MAX_MLDSA_KEY_BYTES). */
+         * bounded by MAX_MLDSA_PRIV_SEED_SIZE). */
         TPM2_Packet_ParseU16Buf(packet, &sens->mldsa.size,
             sens->mldsa.buffer, (UINT16)sizeof(sens->mldsa.buffer));
         break;
