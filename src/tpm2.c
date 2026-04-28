@@ -6488,9 +6488,13 @@ int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
         case TPM_ECC_NIST_P256:
         case TPM_ECC_BN_P256:
         case TPM_ECC_SM2_P256:
+        case TPM_ECC_BP_P256_R1:
             return 32;
         case TPM_ECC_NIST_P384:
+        case TPM_ECC_BP_P384_R1:
             return 48;
+        case TPM_ECC_BP_P512_R1:
+            return 64;
         case TPM_ECC_NIST_P521:
             return 66;
         case TPM_ECC_BN_P638:
@@ -6520,7 +6524,13 @@ int TPM2_GetTpmCurve(int curve_id)
             ret = TPM_ECC_NIST_P521;
             break;
         case ECC_BRAINPOOLP256R1:
-            ret = TPM_ECC_BN_P256;
+            ret = TPM_ECC_BP_P256_R1;
+            break;
+        case ECC_BRAINPOOLP384R1:
+            ret = TPM_ECC_BP_P384_R1;
+            break;
+        case ECC_BRAINPOOLP512R1:
+            ret = TPM_ECC_BP_P512_R1;
             break;
         case TPM_ECC_BN_P638:
         default:
@@ -6551,9 +6561,16 @@ int TPM2_GetWolfCurve(int curve_id)
         case TPM_ECC_NIST_P521:
             ret = ECC_SECP521R1;
             break;
-        case TPM_ECC_BN_P256:
+        case TPM_ECC_BP_P256_R1:
             ret = ECC_BRAINPOOLP256R1;
             break;
+        case TPM_ECC_BP_P384_R1:
+            ret = ECC_BRAINPOOLP384R1;
+            break;
+        case TPM_ECC_BP_P512_R1:
+            ret = ECC_BRAINPOOLP512R1;
+            break;
+        case TPM_ECC_BN_P256:
         case TPM_ECC_BN_P638:
         default:
             ret = ECC_CURVE_OID_E;

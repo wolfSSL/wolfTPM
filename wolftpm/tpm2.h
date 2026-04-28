@@ -130,6 +130,9 @@ typedef enum {
     TPM_ECC_BN_P256     = 0x0010,
     TPM_ECC_BN_P638     = 0x0011,
     TPM_ECC_SM2_P256    = 0x0020,
+    TPM_ECC_BP_P256_R1  = 0x0030,
+    TPM_ECC_BP_P384_R1  = 0x0031,
+    TPM_ECC_BP_P512_R1  = 0x0032,
 } TPM_ECC_CURVE_T;
 typedef UINT16 TPM_ECC_CURVE;
 

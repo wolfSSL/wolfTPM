@@ -1957,6 +1957,35 @@ static void test_TPM2_ParseAttest_NvDigest(void)
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
 }
 
+/* TPM2_GetTpmCurve / TPM2_GetWolfCurve must map wolfCrypt's
+ * ECC_BRAINPOOLP256R1 to TPM_ECC_BP_P256_R1 (0x0030), not
+ * TPM_ECC_BN_P256 (0x0010, Barreto-Naehrig). Pre-fix the two were
+ * conflated, producing an on-the-wire curve ID that is a different
+ * mathematical curve. */
+static void test_TPM2_BrainpoolCurveMapping(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    AssertIntEQ(TPM2_GetTpmCurve(ECC_BRAINPOOLP256R1), TPM_ECC_BP_P256_R1);
+    AssertIntEQ(TPM2_GetTpmCurve(ECC_BRAINPOOLP384R1), TPM_ECC_BP_P384_R1);
+    AssertIntEQ(TPM2_GetTpmCurve(ECC_BRAINPOOLP512R1), TPM_ECC_BP_P512_R1);
+
+    AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_BP_P256_R1), ECC_BRAINPOOLP256R1);
+    AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_BP_P384_R1), ECC_BRAINPOOLP384R1);
+    AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_BP_P512_R1), ECC_BRAINPOOLP512R1);
+
+    /* TPM_ECC_BN_P256 (Barreto-Naehrig pairing curve) has no wolfCrypt
+     * equivalent and must report ECC_CURVE_OID_E rather than aliasing
+     * to a Brainpool ID. */
+    AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_BN_P256), ECC_CURVE_OID_E);
+
+    /* Sanity: NIST mappings still round-trip. */
+    AssertIntEQ(TPM2_GetTpmCurve(ECC_SECP256R1), TPM_ECC_NIST_P256);
+    AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_NIST_P256), ECC_SECP256R1);
+
+    printf("Test TPM Wrapper:\tBrainpool curve mapping:\tPassed\n");
+#endif
+}
+
 static void test_TPM2_KeyedHashScheme_XorSerialize(void)
 {
     TPM2_Packet packet;
@@ -3345,6 +3374,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_SchemeSerialize();
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
+    test_TPM2_BrainpoolCurveMapping();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
     test_TPM2_Sensitive_Roundtrip();
