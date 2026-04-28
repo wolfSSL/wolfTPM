@@ -5725,7 +5725,7 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 TPM2_Packet_ParseU16(cmd, &sigHashAlg);
         }
         /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
-         * hashAlg per Part 2 §11.2.1.5. */
+         * hashAlg per Part 2 Sec. 11.2.1.5. */
         if (rc == 0 && sigScheme == TPM_ALG_ECDAA) {
             UINT16 ecdaaCount;
             if (cmd->pos + 2 > cmdSize)
@@ -11126,7 +11126,7 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
         if (*sigScheme != TPM_ALG_NULL)
             TPM2_Packet_ParseU16(cmd, sigHashAlg);
         /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
-         * hashAlg per Part 2 §11.2.1.5. */
+         * hashAlg per Part 2 Sec. 11.2.1.5. */
         if (*sigScheme == TPM_ALG_ECDAA) {
             UINT16 ecdaaCount;
             TPM2_Packet_ParseU16(cmd, &ecdaaCount);
@@ -11437,6 +11437,13 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sigHashAlg = TPM_ALG_NULL;
         if (sigScheme != TPM_ALG_NULL)
             TPM2_Packet_ParseU16(cmd, &sigHashAlg);
+        /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
+         * hashAlg per Part 2 Sec. 11.2.1.5. */
+        if (sigScheme == TPM_ALG_ECDAA) {
+            UINT16 ecdaaCount;
+            TPM2_Packet_ParseU16(cmd, &ecdaaCount);
+            (void)ecdaaCount;
+        }
     }
 
     /* creationTicket verification per TPM 2.0 Part 3 Section 18.3 */
@@ -11648,7 +11655,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
-    /* Per Part 3 §31.16.1: TPM_RH_NULL signHandle requires non-NULL
+    /* Per Part 3 Sec. 31.16.1: TPM_RH_NULL signHandle requires non-NULL
      * scheme and hash algorithm, otherwise return TPM_RC_SCHEME. */
     if (rc == 0 && signHandle == TPM_RH_NULL &&
             (sigScheme == TPM_ALG_NULL || sigHashAlg == TPM_ALG_NULL)) {
@@ -11665,7 +11672,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* Per Part 3 §31.16.1: when both size and offset are zero, the
+        /* Per Part 3 Sec. 31.16.1: when both size and offset are zero, the
          * response must contain a TPMS_NV_DIGEST_CERTIFY_INFO with the
          * digest of the entire NV index, instead of TPMS_NV_CERTIFY_INFO. */
         if (readSize == 0 && readOffset == 0) {

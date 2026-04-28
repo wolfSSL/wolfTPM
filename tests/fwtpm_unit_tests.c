@@ -1579,7 +1579,7 @@ static void test_fwtpm_nv_counter(void)
 
 #ifndef FWTPM_NO_ATTESTATION
 /* TPMT_SIG_SCHEME parser must consume the extra UINT16 count field for
- * TPMS_SCHEME_ECDAA per Part 2 §11.2.1.5. Sending a Quote with
+ * TPMS_SCHEME_ECDAA per Part 2 Sec. 11.2.1.5. Sending a Quote with
  * inScheme.scheme = TPM_ALG_ECDAA followed by hashAlg + count + a single
  * PCR selection (count=1) verifies that subsequent PCRselect parsing
  * is not desynchronized. With the bug, pcrSelectionsCount reads as 0
@@ -1652,8 +1652,57 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
 }
 
 #ifdef HAVE_ECC
+/* TPM2_CertifyCreation inScheme parser must consume the extra UINT16
+ * count for TPMS_SCHEME_ECDAA per Part 2 Sec. 11.2.1.5. With the bug, the
+ * trailing TPMT_TK_CREATION ticket parses from a wrong wire offset and
+ * the tag check fails. */
+static void test_fwtpm_certify_creation_ecdaa_scheme(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    /* Build TPM2_CertifyCreation with ECDAA inScheme. Use the same key as
+     * both signHandle and objectHandle to avoid additional setup. The
+     * ticket carries hier=TPM_RH_NULL with a zero digest so HMAC
+     * validation is skipped (only the tag is checked). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_CertifyCreation); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4; /* signHandle */
+    PutU32BE(gCmd + pos, keyH); pos += 4; /* objectHandle */
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* qualifyingData (empty) */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    /* creationHash (empty) */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    /* inScheme: ECDAA + hashAlg + count */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
+    /* creationTicket (TPMT_TK_CREATION): tag + hier + digest */
+    PutU16BE(gCmd + pos, TPM_ST_CREATION); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tCertifyCreation(ECDAA scheme):\tPassed\n");
+}
+
 /* TPM2_Sign inScheme parser must consume the extra UINT16 count for
- * TPMS_SCHEME_ECDAA per Part 2 §11.2.1.5. With the bug, the trailing
+ * TPMS_SCHEME_ECDAA per Part 2 Sec. 11.2.1.5. With the bug, the trailing
  * TPMT_TK_HASHCHECK ticket parses from the wrong wire offset and the
  * command fails. */
 static void test_fwtpm_sign_ecdaa_scheme(void)
@@ -1704,7 +1753,7 @@ static void test_fwtpm_sign_ecdaa_scheme(void)
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
  * inside a TPM_ST_ATTEST_NV_DIGEST (0x801C) attest, not the regular
  * TPMS_NV_CERTIFY_INFO inside TPM_ST_ATTEST_NV (0x8014). Per TPM 2.0
- * Part 3 §31.16.1. */
+ * Part 3 Sec. 31.16.1. */
 static void test_fwtpm_nv_certify_digest_mode(void)
 {
     FWTPM_CTX ctx;
@@ -2494,6 +2543,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_quote_ecdaa_scheme();
 #ifdef HAVE_ECC
     test_fwtpm_sign_ecdaa_scheme();
+    test_fwtpm_certify_creation_ecdaa_scheme();
 #endif
 #endif
 #endif
