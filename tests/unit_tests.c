@@ -592,6 +592,7 @@ static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
 static void test_wolfTPM2_StartSession_SaltedEncryptAttrs(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY tpmKey;
     WOLFTPM2_SESSION session;
@@ -601,17 +602,26 @@ static void test_wolfTPM2_StartSession_SaltedEncryptAttrs(void)
     XMEMSET(&tpmKey, 0, sizeof(tpmKey));
     XMEMSET(&session, 0, sizeof(session));
 
+    /* Initialize so TPM2_GetNonceNoLock and dependent code paths have a
+     * valid context. Skip if no TPM is reachable. */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tStartSession salted enc attrs:\tSkipped\n");
+        return;
+    }
+
     /* tpmKey with a non-NULL handle, no auth */
     tpmKey.handle.hndl = 0x80000000;
 
-    /* Best effort - if no TPM is present the call returns early after the
-     * SetAuth path, which is what we want to inspect. */
+    /* The call will fail later (no real key with that handle) but the
+     * SetAuth path that sets sessionAttributes runs first. */
     (void)wolfTPM2_StartSession(&dev, &session, &tpmKey, NULL,
         TPM_SE_HMAC, TPM_ALG_CFB);
 
     AssertIntEQ((int)(dev.session[0].sessionAttributes & expected),
         (int)expected);
 
+    wolfTPM2_Cleanup(&dev);
     printf("Test TPM Wrapper:\tStartSession salted enc attrs:\tPassed\n");
 #endif
 }
@@ -1902,11 +1912,11 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
 }
 
-/* TPM2_Packet_ParseSignature must explicitly recognize TPM_ALG_NULL as a
- * zero-payload signature so subsequent fields stay aligned. The previous
- * default-fallthrough lumped TPM_ALG_NULL together with unknown algorithms,
- * making the property "Parse(Append(NULL signature)) consumes exactly the
- * sigAlg bytes" depend on undocumented behavior. */
+/* TPM2_Packet_AppendSignature / ParseSignature must explicitly recognize
+ * TPM_ALG_NULL as a zero-payload signature so subsequent fields stay
+ * aligned. The previous default-fallthrough lumped TPM_ALG_NULL together
+ * with unknown algorithms, making the property "Parse(Append(NULL))
+ * consumes exactly the sigAlg bytes" depend on undocumented behavior. */
 static void test_TPM2_ParseSignature_NullAlg(void)
 {
     TPM2_Packet packet;
@@ -1935,6 +1945,29 @@ static void test_TPM2_ParseSignature_NullAlg(void)
     AssertIntEQ(packet.pos, 2);
     sentinel = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
     AssertIntEQ(sentinel, 0xDEAD);
+
+    /* Round-trip: Append a TPM_ALG_NULL signature into a fresh packet and
+     * verify only the 2-byte sigAlg was written. A future regression that
+     * drops the explicit case (defaulting to silent fallthrough) would
+     * still pass for Parse but the Append side is also locked in here. */
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    XMEMSET(&sig, 0, sizeof(sig));
+    sig.sigAlg = TPM_ALG_NULL;
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    packet.pos = 0;
+    TPM2_Packet_AppendSignature(&packet, &sig);
+    AssertIntEQ(packet.pos, 2);
+    AssertIntEQ(buf[0], (byte)((TPM_ALG_NULL >> 8) & 0xFF));
+    AssertIntEQ(buf[1], (byte)(TPM_ALG_NULL & 0xFF));
+
+    /* Re-parse confirms the round-trip. */
+    XMEMSET(&sig, 0, sizeof(sig));
+    packet.pos = 0;
+    TPM2_Packet_ParseSignature(&packet, &sig);
+    AssertIntEQ(sig.sigAlg, TPM_ALG_NULL);
+    AssertIntEQ(packet.pos, 2);
 
     printf("Test TPM Wrapper:\tParseSignature NULL alg:\tPassed\n");
 }
@@ -2224,6 +2257,44 @@ static void test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme(void)
 #endif
 }
 
+/* wolfTPM2_VerifyHashTicket must apply the same RSA-strict / ECDSA-permissive
+ * digest size policy as wolfTPM2_SignHashScheme. The bounds check fires
+ * before any TPM call so this test does not require a working TPM. */
+static void test_wolfTPM2_VerifyHashTicket_DigestSize(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    byte sig[MAX_RSA_KEY_BYTES];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(digest, 0xCC, sizeof(digest));
+    XMEMSET(sig, 0, sizeof(sig));
+    key.handle.hndl = 0x80000000;
+    key.pub.publicArea.type = TPM_ALG_RSA;
+
+    /* SHA-256 digest (32) + hashAlg=SHA512 -> RSA mismatch -> BUFFER_E */
+    rc = wolfTPM2_VerifyHashTicket(&dev, &key, sig, 256, digest, 32,
+        TPM_ALG_RSASSA, TPM_ALG_SHA512, NULL);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Oversized digest (64) + hashAlg=SHA256 -> BUFFER_E */
+    rc = wolfTPM2_VerifyHashTicket(&dev, &key, sig, 256, digest, 64,
+        TPM_ALG_RSASSA, TPM_ALG_SHA256, NULL);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Negative digestSz -> BUFFER_E */
+    rc = wolfTPM2_VerifyHashTicket(&dev, &key, sig, 256, digest, -1,
+        TPM_ALG_RSASSA, TPM_ALG_SHA256, NULL);
+    AssertIntEQ(rc, BUFFER_E);
+
+    printf("Test TPM Wrapper:\tVerifyHashTicket size:\t\tPassed\n");
+#endif
+}
+
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
  * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
@@ -2353,6 +2424,12 @@ static void test_TPM2_BrainpoolCurveMapping(void)
     /* Sanity: NIST mappings still round-trip. */
     AssertIntEQ(TPM2_GetTpmCurve(ECC_SECP256R1), TPM_ECC_NIST_P256);
     AssertIntEQ(TPM2_GetWolfCurve(TPM_ECC_NIST_P256), ECC_SECP256R1);
+
+    /* TPM2_GetCurveSize must report the correct byte size for the new
+     * Brainpool curve IDs (32 / 48 / 64). */
+    AssertIntEQ(TPM2_GetCurveSize(TPM_ECC_BP_P256_R1), 32);
+    AssertIntEQ(TPM2_GetCurveSize(TPM_ECC_BP_P384_R1), 48);
+    AssertIntEQ(TPM2_GetCurveSize(TPM_ECC_BP_P512_R1), 64);
 
     printf("Test TPM Wrapper:\tBrainpool curve mapping:\tPassed\n");
 #endif
@@ -3752,6 +3829,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
+    test_wolfTPM2_VerifyHashTicket_DigestSize();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();

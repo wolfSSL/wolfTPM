@@ -1096,9 +1096,11 @@ static UINT32 CreatePrimaryHelper(FWTPM_CTX* ctx, TPM_ALG_ID alg)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
 /* Build a non-restricted ECC-P256 sign-capable primary (for tests that
- * require TPMA_OBJECT_sign and a key with no scheme bound at create time). */
+ * require TPMA_OBJECT_sign and a key with no scheme bound at create time).
+ * Only consumed by the attestation tests, so gated to avoid
+ * -Werror=unused-function in FWTPM_NO_ATTESTATION builds. */
 static int BuildCreatePrimaryEccSignCmd(byte* buf)
 {
     int pos = 0;
@@ -1155,7 +1157,7 @@ static UINT32 CreatePrimaryEccSignHelper(FWTPM_CTX* ctx)
     if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
-#endif
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
 /* Helper: flush a handle */
 static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle)
@@ -1578,13 +1580,15 @@ static void test_fwtpm_nv_counter(void)
 }
 
 #ifndef FWTPM_NO_ATTESTATION
+#ifdef HAVE_ECC
 /* TPMT_SIG_SCHEME parser must consume the extra UINT16 count field for
  * TPMS_SCHEME_ECDAA per Part 2 Sec. 11.2.1.5. Sending a Quote with
  * inScheme.scheme = TPM_ALG_ECDAA followed by hashAlg + count + a single
  * PCR selection (count=1) verifies that subsequent PCRselect parsing
  * is not desynchronized. With the bug, pcrSelectionsCount reads as 0
  * because the count field is interpreted as the high 16 bits of the
- * PCR-selection count. */
+ * PCR-selection count. ECC-only because the RSA sign path rejects
+ * TPM_ALG_ECDAA with TPM_RC_SCHEME. */
 static void test_fwtpm_quote_ecdaa_scheme(void)
 {
     FWTPM_CTX ctx;
@@ -1598,11 +1602,7 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-#ifdef HAVE_ECC
     keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
-#else
-    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
-#endif
     AssertIntNE(keyH, 0);
 
     /* Build TPM2_Quote with ECDAA inScheme. */
@@ -1650,6 +1650,7 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tQuote(ECDAA scheme):\t\tPassed\n");
 }
+#endif /* HAVE_ECC */
 
 #ifdef HAVE_ECC
 /* TPM2_CertifyCreation inScheme parser must consume the extra UINT16
@@ -2540,8 +2541,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_counter();
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
-    test_fwtpm_quote_ecdaa_scheme();
 #ifdef HAVE_ECC
+    test_fwtpm_quote_ecdaa_scheme();
     test_fwtpm_sign_ecdaa_scheme();
     test_fwtpm_certify_creation_ecdaa_scheme();
 #endif

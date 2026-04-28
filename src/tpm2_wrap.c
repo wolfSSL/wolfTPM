@@ -3550,6 +3550,11 @@ int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BUFFER_E;
     if (eccPubYSz > sizeof(pub.publicArea.unique.ecc.y.buffer))
         return BUFFER_E;
+    /* TPMS_SCHEME_ECDAA requires a 'count' field this helper cannot
+     * supply. Callers needing ECDAA must build TPM2B_PUBLIC manually and
+     * use wolfTPM2_LoadPublicKey directly. */
+    if (scheme == TPM_ALG_ECDAA)
+        return BAD_FUNC_ARG;
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
@@ -5521,8 +5526,10 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #endif
     }
 
-    /* Plaintext copy lingers in the rsaEncIn stack frame after return -
-     * scrub it on every exit path. */
+    /* Plaintext copy lingers in rsaEncIn after the XMEMCPY above. Scrub
+     * before returning so the stack frame doesn't leak it. The early
+     * BUFFER_E returns above happen before the XMEMCPY so they don't
+     * need this path. */
     TPM2_ForceZero(&rsaEncIn, sizeof(rsaEncIn));
     return rc;
 }
@@ -5725,9 +5732,14 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
 /* authPolicy and authPolicySz are optional policy digest */
-int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+/* nameAlg is the index name hash algorithm; must match the hash that
+ *   produced authPolicy when one is supplied, otherwise the policy can
+ *   never be satisfied. Pass TPM_ALG_NULL to use WOLFTPM2_WRAP_DIGEST
+ *   (default) or auto-infer from authPolicySz for SHA-only policies. */
+int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
-    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz,
+    TPMI_ALG_HASH nameAlg)
 {
     int rc, rctmp;
     NV_DefineSpace_In in;
@@ -5758,30 +5770,36 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
     in.publicInfo.nvPublic.nvIndex = nvIndex;
-    /* When a policy digest is supplied, nameAlg must match the hash that
-     * produced it - otherwise the policy can never be satisfied. Infer
-     * nameAlg from authPolicySz when possible, defaulting to
-     * WOLFTPM2_WRAP_DIGEST for the no-policy case. */
-    if (authPolicy != NULL && authPolicySz > 0) {
+    if (nameAlg != TPM_ALG_NULL) {
+        /* Caller supplied an explicit nameAlg; use it as-is and only
+         * sanity-check against the policy digest size. */
+        if (authPolicy != NULL && authPolicySz > 0) {
+            int expectSz = TPM2_GetHashDigestSize(nameAlg);
+            if (expectSz <= 0 || expectSz != authPolicySz)
+                return BAD_FUNC_ARG;
+        }
+        in.publicInfo.nvPublic.nameAlg = nameAlg;
+    }
+    else if (authPolicy != NULL && authPolicySz > 0) {
+        /* No explicit nameAlg supplied. Infer from policy digest size for
+         * SHA-only policies. The TPM stores the policy digest verbatim,
+         * so we don't need wolfCrypt to support the hash here - the
+         * caller has already computed the digest. SM3-256 / SHA3-256
+         * also produce 32 bytes; callers needing those must pass
+         * nameAlg explicitly via the _ex API. */
         switch (authPolicySz) {
-        #ifndef NO_SHA
             case TPM_SHA_DIGEST_SIZE:
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA1;
                 break;
-        #endif
             case TPM_SHA256_DIGEST_SIZE:
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
                 break;
-        #ifdef WOLFSSL_SHA384
             case TPM_SHA384_DIGEST_SIZE:
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA384;
                 break;
-        #endif
-        #ifdef WOLFSSL_SHA512
             case TPM_SHA512_DIGEST_SIZE:
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA512;
                 break;
-        #endif
             default:
                 return BAD_FUNC_ARG;
         }
@@ -5828,6 +5846,15 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     TPM2_ForceZero(&in.auth, sizeof(in.auth));
     return rc;
+}
+
+int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
+{
+    return wolfTPM2_NVCreateAuthPolicy_ex(dev, parent, nv, nvIndex,
+        nvAttributes, maxSize, auth, authSz, authPolicy, authPolicySz,
+        TPM_ALG_NULL);
 }
 
 int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,

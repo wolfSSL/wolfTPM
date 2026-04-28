@@ -1321,8 +1321,24 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         scheme/hash combinations.
 
     \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: check the provided arguments
+    \return BAD_FUNC_ARG: check the provided arguments, or scheme is
+        TPM_ALG_ECDAA (use wolfTPM2_LoadPublicKey directly for ECDAA)
     \return BUFFER_E: caller buffer is too small for ECC point coordinates
+
+    \param dev pointer to a TPM2_DEV struct
+    \param key pointer to an empty struct of WOLFTPM2_KEY type
+    \param curveId integer value, one of the accepted TPM_ECC_CURVE values
+    \param eccPubX pointer to a byte buffer containing the public material of point X
+    \param eccPubXSz integer value of word32 type, specifying the point X buffer size
+    \param eccPubY pointer to a byte buffer containing the public material of point Y
+    \param eccPubYSz integer value of word32 type, specifying the point Y buffer size
+    \param scheme ECC signing scheme (e.g. TPM_ALG_ECDSA, TPM_ALG_ECDH,
+        TPM_ALG_NULL). Use TPM_ALG_ECDH for ECDH peer keys
+    \param hashAlg hash algorithm bound to scheme; ignored when scheme is
+        TPM_ALG_NULL
+    \param objectAttributes TPMA_OBJECT bitmask. Use TPMA_OBJECT_decrypt for
+        ECDH peer keys, TPMA_OBJECT_sign for verification keys; typically
+        OR'd with TPMA_OBJECT_userWithAuth and TPMA_OBJECT_noDA
 
     \sa wolfTPM2_LoadEccPublicKey
     \sa wolfTPM2_LoadRsaPublicKey_ex
@@ -2338,6 +2354,37 @@ WOLFTPM_API int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent
 WOLFTPM_API int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz, const byte* authPolicy, int authPolicySz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Variant of wolfTPM2_NVCreateAuthPolicy that lets the caller pass
+        an explicit nameAlg. Required when authPolicy was computed with
+        SM3-256, SHA3-256, or any other non-SHA hash that the size-based
+        legacy inference cannot distinguish from SHA-256.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: nameAlg digest size disagrees with authPolicySz,
+        or other invalid arguments
+    \return BUFFER_E: auth or authPolicy buffer too large
+
+    \param dev pointer to a TPM2_DEV struct
+    \param parent pointer to a WOLFTPM2_HANDLE for the hierarchy
+    \param nv pointer to an empty WOLFTPM2_NV that receives the created index
+    \param nvIndex NV index handle (e.g. 0x01400001)
+    \param nvAttributes TPMA_NV bitmask
+    \param maxSize NV index data size in bytes
+    \param auth optional NV authValue (NULL/0 for none)
+    \param authSz optional NV authValue size
+    \param authPolicy optional policy digest (NULL/0 for none)
+    \param authPolicySz optional policy digest size
+    \param nameAlg index name hash algorithm (e.g. TPM_ALG_SHA384). Pass
+        TPM_ALG_NULL to fall back to size-based inference for SHA-only
+        policies, or to use WOLFTPM2_WRAP_DIGEST for the no-policy case
+*/
+WOLFTPM_API int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_HANDLE* parent, WOLFTPM2_NV* nv, word32 nvIndex,
+    word32 nvAttributes, word32 maxSize, const byte* auth, int authSz,
+    const byte* authPolicy, int authPolicySz, TPMI_ALG_HASH nameAlg);
 
 /*!
     \ingroup wolfTPM2_Wrappers

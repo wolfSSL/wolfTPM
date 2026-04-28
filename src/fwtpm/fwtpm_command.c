@@ -11129,8 +11129,12 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
          * hashAlg per Part 2 Sec. 11.2.1.5. */
         if (*sigScheme == TPM_ALG_ECDAA) {
             UINT16 ecdaaCount;
-            TPM2_Packet_ParseU16(cmd, &ecdaaCount);
-            (void)ecdaaCount;
+            if (cmd->pos + 2 > cmdSize)
+                rc = TPM_RC_COMMAND_SIZE;
+            if (rc == 0) {
+                TPM2_Packet_ParseU16(cmd, &ecdaaCount);
+                (void)ecdaaCount;
+            }
         }
     }
 
@@ -11441,8 +11445,12 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * hashAlg per Part 2 Sec. 11.2.1.5. */
         if (sigScheme == TPM_ALG_ECDAA) {
             UINT16 ecdaaCount;
-            TPM2_Packet_ParseU16(cmd, &ecdaaCount);
-            (void)ecdaaCount;
+            if (cmd->pos + 2 > cmdSize)
+                rc = TPM_RC_COMMAND_SIZE;
+            if (rc == 0) {
+                TPM2_Packet_ParseU16(cmd, &ecdaaCount);
+                (void)ecdaaCount;
+            }
         }
     }
 
@@ -11655,13 +11663,6 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
-    /* Per Part 3 Sec. 31.16.1: TPM_RH_NULL signHandle requires non-NULL
-     * scheme and hash algorithm, otherwise return TPM_RC_SCHEME. */
-    if (rc == 0 && signHandle == TPM_RH_NULL &&
-            (sigScheme == TPM_ALG_NULL || sigHashAlg == TPM_ALG_NULL)) {
-        rc = TPM_RC_SCHEME;
-    }
-
     /* size, offset */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &readSize);
@@ -11739,10 +11740,13 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int hashSz;
             enum wc_HashType wcDigH;
 
-            /* Resolve hash from signing key when scheme/hash is NULL */
+            /* Resolve hash from signing key when scheme/hash is NULL.
+             * keyScheme is filled in by the by-pointer interface but
+             * unused here - we only need the resolved hashAlg. */
             if (hashAlg == TPM_ALG_NULL) {
                 UINT16 keyScheme = TPM_ALG_NULL;
                 FwResolveSignScheme(sigObj, &keyScheme, &hashAlg);
+                (void)keyScheme;
             }
             wcDigH = FwGetWcHashType(hashAlg);
             hashSz = TPM2_GetHashDigestSize(hashAlg);

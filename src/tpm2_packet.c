@@ -786,13 +786,28 @@ void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 
     TPM2_Packet_ParseU16(packet, &point->size);
     pointStartPos = (packet != NULL) ? packet->pos : 0;
-    TPM2_Packet_ParseEccPoint(packet, &point->point);
+    /* Skip the inner ECC point parse when the outer size is zero. A
+     * malformed blob with size=0 but nonzero inner x.size/y.size would
+     * otherwise advance packet->pos and desync subsequent fields. */
+    if (point->size > 0) {
+        TPM2_Packet_ParseEccPoint(packet, &point->point);
+    }
+    else {
+        XMEMSET(&point->point, 0, sizeof(point->point));
+    }
 
     /* Resync packet position to end of declared outer size so inner
-     * x.size / y.size disagreement can't desynchronize subsequent fields */
-    if (packet != NULL && point->size > 0 &&
-            pointStartPos + point->size <= packet->size) {
-        packet->pos = pointStartPos + point->size;
+     * x.size / y.size disagreement can't desynchronize subsequent fields.
+     * If the declared outer size runs past the buffer, clamp to packet end
+     * so subsequent reads return an out-of-bounds sentinel rather than
+     * leaving the position wherever the inner parses landed. */
+    if (packet != NULL) {
+        if (pointStartPos + point->size <= packet->size) {
+            packet->pos = pointStartPos + point->size;
+        }
+        else {
+            packet->pos = packet->size;
+        }
     }
 }
 
@@ -1149,10 +1164,16 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 
         /* Resync packet position to end of declared outer size so inner
          * parses can't cause field drift if declared size and actual
-         * inner consumption disagree */
-        if (packet != NULL &&
-                pubStartPos + pub->size <= packet->size) {
-            packet->pos = pubStartPos + pub->size;
+         * inner consumption disagree. If the declared outer size runs
+         * past the buffer, clamp to packet end so subsequent reads
+         * return an out-of-bounds sentinel. */
+        if (packet != NULL) {
+            if (pubStartPos + pub->size <= packet->size) {
+                packet->pos = pubStartPos + pub->size;
+            }
+            else {
+                packet->pos = packet->size;
+            }
         }
     }
 }
