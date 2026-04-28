@@ -1197,6 +1197,11 @@ typedef struct TPMS_NV_CERTIFY_INFO {
     TPM2B_MAX_NV_BUFFER nvContents;
 } TPMS_NV_CERTIFY_INFO;
 
+typedef struct TPMS_NV_DIGEST_CERTIFY_INFO {
+    TPM2B_NAME indexName;
+    TPM2B_DIGEST nvDigest;
+} TPMS_NV_DIGEST_CERTIFY_INFO;
+
 
 typedef TPM_ST TPMI_ST_ATTEST;
 typedef union TPMU_ATTEST {
@@ -1207,6 +1212,7 @@ typedef union TPMU_ATTEST {
     TPMS_SESSION_AUDIT_INFO sessionAudit;   /* TPM_ST_ATTEST_SESSION_AUDIT */
     TPMS_TIME_ATTEST_INFO   time;           /* TPM_ST_ATTEST_TIME */
     TPMS_NV_CERTIFY_INFO    nv;             /* TPM_ST_ATTEST_NV */
+    TPMS_NV_DIGEST_CERTIFY_INFO nvDigest;   /* TPM_ST_ATTEST_NV_DIGEST */
 } TPMU_ATTEST;
 
 typedef struct TPMS_ATTEST {

@@ -1342,6 +1342,16 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
                 out->attested.nv.nvContents.buffer,
                 (UINT16)sizeof(out->attested.nv.nvContents.buffer));
             break;
+        case TPM_ST_ATTEST_NV_DIGEST:
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nvDigest.indexName.size,
+                out->attested.nvDigest.indexName.name,
+                (UINT16)sizeof(out->attested.nvDigest.indexName.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nvDigest.nvDigest.size,
+                out->attested.nvDigest.nvDigest.buffer,
+                (UINT16)sizeof(out->attested.nvDigest.nvDigest.buffer));
+            break;
         default:
             /* unknown attestation type */
         #ifdef DEBUG_WOLFTPM

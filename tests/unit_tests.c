@@ -1902,6 +1902,61 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
 }
 
+/* TPM2_ParseAttest must handle TPM_ST_ATTEST_NV_DIGEST (0x801C) and decode
+ * TPMS_NV_DIGEST_CERTIFY_INFO. Pre-fix, the switch fell through to default
+ * and left out->attested zeroed. */
+static void test_TPM2_ParseAttest_NvDigest(void)
+{
+    TPM2B_ATTEST attestBlob;
+    TPMS_ATTEST out;
+    const byte name[] = {0x00, 0x0B, 0x11, 0x22, 0x33, 0x44}; /* alg + 4 bytes */
+    const byte digest[] = {0xAA, 0xBB, 0xCC, 0xDD};
+    byte* buf;
+    int pos = 0;
+    int rc;
+
+    XMEMSET(&attestBlob, 0, sizeof(attestBlob));
+    buf = attestBlob.attestationData;
+
+    /* magic */
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 24) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 16) & 0xFF);
+    buf[pos++] = (byte)((TPM_GENERATED_VALUE >> 8) & 0xFF);
+    buf[pos++] = (byte)(TPM_GENERATED_VALUE & 0xFF);
+    /* type = TPM_ST_ATTEST_NV_DIGEST (0x801C) */
+    buf[pos++] = 0x80; buf[pos++] = 0x1C;
+    /* qualifiedSigner: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* extraData: empty */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* clockInfo: clock(8)+resetCount(4)+restartCount(4)+safe(1) */
+    XMEMSET(buf + pos, 0, 17); pos += 17;
+    /* firmwareVersion */
+    XMEMSET(buf + pos, 0, 8); pos += 8;
+    /* TPMS_NV_DIGEST_CERTIFY_INFO: indexName + nvDigest */
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(name);
+    XMEMCPY(buf + pos, name, sizeof(name)); pos += sizeof(name);
+    buf[pos++] = 0; buf[pos++] = (byte)sizeof(digest);
+    XMEMCPY(buf + pos, digest, sizeof(digest)); pos += sizeof(digest);
+
+    attestBlob.size = (UINT16)pos;
+
+    XMEMSET(&out, 0, sizeof(out));
+    rc = TPM2_ParseAttest(&attestBlob, &out);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    AssertIntEQ(out.magic, TPM_GENERATED_VALUE);
+    AssertIntEQ(out.type, 0x801C);
+    AssertIntEQ(out.attested.nvDigest.indexName.size, sizeof(name));
+    AssertIntEQ(XMEMCMP(out.attested.nvDigest.indexName.name, name,
+        sizeof(name)), 0);
+    AssertIntEQ(out.attested.nvDigest.nvDigest.size, sizeof(digest));
+    AssertIntEQ(XMEMCMP(out.attested.nvDigest.nvDigest.buffer, digest,
+        sizeof(digest)), 0);
+
+    printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
+}
+
 static void test_TPM2_KeyedHashScheme_XorSerialize(void)
 {
     TPM2_Packet packet;
@@ -3289,6 +3344,7 @@ int unit_tests(int argc, char *argv[])
     #endif
     test_TPM2_SchemeSerialize();
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
+    test_TPM2_ParseAttest_NvDigest();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
     test_TPM2_Sensitive_Roundtrip();
