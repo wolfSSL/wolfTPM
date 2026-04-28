@@ -5724,6 +5724,17 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc == 0)
                 TPM2_Packet_ParseU16(cmd, &sigHashAlg);
         }
+        /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
+         * hashAlg per Part 2 §11.2.1.5. */
+        if (rc == 0 && sigScheme == TPM_ALG_ECDAA) {
+            UINT16 ecdaaCount;
+            if (cmd->pos + 2 > cmdSize)
+                rc = TPM_RC_COMMAND_SIZE;
+            if (rc == 0) {
+                TPM2_Packet_ParseU16(cmd, &ecdaaCount);
+                (void)ecdaaCount;
+            }
+        }
     }
 
     if (rc == 0) {

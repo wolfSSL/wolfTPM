@@ -1096,6 +1096,67 @@ static UINT32 CreatePrimaryHelper(FWTPM_CTX* ctx, TPM_ALG_ID alg)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+#ifdef HAVE_ECC
+/* Build a non-restricted ECC-P256 sign-capable primary (for tests that
+ * require TPMA_OBJECT_sign and a key with no scheme bound at create time). */
+static int BuildCreatePrimaryEccSignCmd(byte* buf)
+{
+    int pos = 0;
+    int pubAreaStart, pubAreaLen;
+    int sensStart, sensLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+
+    sensStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    sensLen = pos - sensStart - 2;
+    PutU16BE(buf + sensStart, (UINT16)sensLen);
+
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    /* fixedTPM | fixedParent | sensitiveDataOrigin | userWithAuth | noDA |
+     * sign  (non-restricted, sign-only) */
+    PutU32BE(buf + pos, 0x00040472); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* sym.algorithm = NULL */
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* scheme = NULL */
+    PutU16BE(buf + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+    PutU16BE(buf + pos, 0); pos += 2; /* x */
+    PutU16BE(buf + pos, 0); pos += 2; /* y */
+
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+
+    PutU16BE(buf + pos, 0); pos += 2; /* outsideInfo */
+    PutU32BE(buf + pos, 0); pos += 4; /* creationPCR */
+
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+static UINT32 CreatePrimaryEccSignHelper(FWTPM_CTX* ctx)
+{
+    int cmdSz, rspSize = 0;
+    cmdSz = BuildCreatePrimaryEccSignCmd(gCmd);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+#endif
+
 /* Helper: flush a handle */
 static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle)
 {
@@ -1589,6 +1650,56 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tQuote(ECDAA scheme):\t\tPassed\n");
 }
+
+#ifdef HAVE_ECC
+/* TPM2_Sign inScheme parser must consume the extra UINT16 count for
+ * TPMS_SCHEME_ECDAA per Part 2 §11.2.1.5. With the bug, the trailing
+ * TPMT_TK_HASHCHECK ticket parses from the wrong wire offset and the
+ * command fails. */
+static void test_fwtpm_sign_ecdaa_scheme(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    byte digest[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    memset(digest, 0xAA, sizeof(digest));
+
+    /* Build TPM2_Sign with ECDAA inScheme and an empty ticket
+     * (TPM_RH_NULL hierarchy + zero size, valid for non-restricted keys). */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* digest */
+    PutU16BE(gCmd + pos, (UINT16)sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    /* inScheme: ECDAA + hashAlg + count */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
+    /* validation (TPMT_TK_HASHCHECK): tag + hierarchy + digest */
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tSign(ECDAA scheme):\t\tPassed\n");
+}
+#endif /* HAVE_ECC */
 
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
  * inside a TPM_ST_ATTEST_NV_DIGEST (0x801C) attest, not the regular
@@ -2381,6 +2492,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
     test_fwtpm_quote_ecdaa_scheme();
+#ifdef HAVE_ECC
+    test_fwtpm_sign_ecdaa_scheme();
+#endif
 #endif
 #endif
 
