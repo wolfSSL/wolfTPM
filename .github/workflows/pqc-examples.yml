@@ -96,20 +96,29 @@ jobs:
         run: ./examples/pqc/mlkem_encap
 
       - name: Stop Tier 2 fwtpm_server (free port 2321 for E2E)
-        if: always()
         run: |
           if [ -f /tmp/fwtpm_server.pid ]; then
             kill "$(cat /tmp/fwtpm_server.pid)" 2>/dev/null || true
             rm -f /tmp/fwtpm_server.pid
           fi
-          # Defensive: kill any other default-port server lingering. Don't
-          # match the test helper's --port-qualified server (it isn't up
-          # yet anyway).
+          # Defensive: kill any other default-port server lingering.
           pkill -f "fwtpm_server$" 2>/dev/null || true
           sleep 1
 
       - name: PQC mssim E2E (MLKEM-768 + HashMLDSA-65 round-trips)
         run: ./tests/pqc_mssim_e2e.sh
+
+      - name: Restart fwtpm_server for Tier 5 (run_examples.sh)
+        run: |
+          # pqc_mssim_e2e.sh started + stopped its own server; Tier 5 needs
+          # one again. Reuse the same default-port launch as Tier 2.
+          pkill -f "fwtpm_server" 2>/dev/null || true
+          sleep 1
+          rm -f fwtpm_nv.bin
+          ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+          echo $! > /tmp/fwtpm_server.pid
+          sleep 1
+          kill -0 "$(cat /tmp/fwtpm_server.pid)"
 
       - name: Doc constants parity check
         run: |

@@ -2468,6 +2468,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
+#ifdef WOLFTPM_V185
     if (keyObj->pub.type == TPM_ALG_MLKEM) {
         /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
          *   K = ML-KEM.Decap(privateKey, ciphertext)
@@ -2497,6 +2498,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
         (void)oaepLabel; (void)oaepLabelSz;
     }
     else
+#endif /* WOLFTPM_V185 */
     {
         (void)ctx; (void)encSeedBuf; (void)encSeedSz;
         (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
@@ -2704,6 +2706,7 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
+#ifdef WOLFTPM_V185
     if (keyObj->pub.type == TPM_ALG_MLKEM) {
         /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
          *   (K, ciphertext) = ML-KEM.Encap(publicKey)
@@ -2751,6 +2754,7 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
         (void)oaepLabel; (void)oaepLabelSz;
     }
     else
+#endif /* WOLFTPM_V185 */
     {
         (void)ctx; (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
         (void)seedBuf; (void)seedBufSz; (void)seedSzOut;

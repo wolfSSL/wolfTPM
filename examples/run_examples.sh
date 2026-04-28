@@ -25,18 +25,27 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
-# Detect WOLFTPM_V185 (post-quantum keys) from the actual generated config
-# header. Search both the source-tree fallback and the autoconf-generated
-# location used by `make check`. ENABLE_V185 may be set by the caller to
-# override autodetection.
+# Detect WOLFTPM_V185 (post-quantum keys). Probe several known generated /
+# installed header locations: autoconf may write src/config.h or config.h
+# depending on AC_CONFIG_HEADERS, and tracked headers under wolftpm/ may
+# also gate the macro. ENABLE_V185 may be set by the caller to override.
 if [ -z "$ENABLE_V185" ]; then
     ENABLE_V185=0
-    for cfg in src/config.h config.h ../src/config.h ../config.h; do
-        if [ -f "$cfg" ] && grep -q "WOLFTPM_V185 1" "$cfg"; then
+    for cfg in src/config.h config.h ../src/config.h ../config.h \
+               wolftpm/options.h wolftpm/version.h; do
+        if [ -f "$cfg" ] && grep -q "WOLFTPM_V185[[:space:]]*1" "$cfg"; then
             ENABLE_V185=1
             break
         fi
     done
+    # Last-resort fallback: if any built example links a v1.85-only symbol
+    # we can ask `nm` directly. nm's quiet on missing files; safe to try.
+    if [ "$ENABLE_V185" = "0" ] && [ -x ./examples/keygen/keygen ]; then
+        if nm ./examples/keygen/keygen 2>/dev/null | \
+                grep -q "FwGenerateMlkemKey\|wolfTPM2_GetKeyTemplate_MLKEM"; then
+            ENABLE_V185=1
+        fi
+    fi
 fi
 rm -f run.out
 touch run.out
