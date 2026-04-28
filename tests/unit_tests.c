@@ -2156,6 +2156,37 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
 #endif
 }
 
+/* wolfTPM2_GetKeyTemplate_KeyedHash must default scheme to TPM_ALG_NULL
+ * when neither isSign nor isDecrypt is set; an HMAC scheme without the
+ * sign attribute produces an unusable keyed-hash object. */
+static void test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    TPMT_PUBLIC tpl;
+
+    /* Data/seal-style: isSign=0, isDecrypt=0 -> scheme must be NULL */
+    XMEMSET(&tpl, 0, sizeof(tpl));
+    rc = wolfTPM2_GetKeyTemplate_KeyedHash(&tpl, TPM_ALG_SHA256, 0, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(tpl.parameters.keyedHashDetail.scheme.scheme, TPM_ALG_NULL);
+    AssertIntEQ((int)(tpl.objectAttributes & TPMA_OBJECT_sign), 0);
+    AssertIntEQ((int)(tpl.objectAttributes & TPMA_OBJECT_decrypt), 0);
+
+    /* HMAC-style: isSign=1 -> scheme HMAC + hashAlg + sign attribute */
+    XMEMSET(&tpl, 0, sizeof(tpl));
+    rc = wolfTPM2_GetKeyTemplate_KeyedHash(&tpl, TPM_ALG_SHA256, 1, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(tpl.parameters.keyedHashDetail.scheme.scheme, TPM_ALG_HMAC);
+    AssertIntEQ(tpl.parameters.keyedHashDetail.scheme.details.hmac.hashAlg,
+        TPM_ALG_SHA256);
+    AssertIntEQ((int)(tpl.objectAttributes & TPMA_OBJECT_sign),
+        (int)TPMA_OBJECT_sign);
+
+    printf("Test TPM Wrapper:\tKeyedHash template scheme:\tPassed\n");
+#endif
+}
+
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
  * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
@@ -3684,6 +3715,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
+    test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();

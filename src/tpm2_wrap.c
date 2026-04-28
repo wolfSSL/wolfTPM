@@ -7372,9 +7372,20 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
         TPMA_OBJECT_noDA |
         (isSign ? TPMA_OBJECT_sign : 0) |
         (isDecrypt ? TPMA_OBJECT_decrypt : 0));
-    publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
-    publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
-        hashAlg;
+    /* HMAC scheme requires the sign attribute. When the caller asks for
+     * neither sign nor decrypt, treat this as a data/seal-style keyed-hash
+     * object and use TPM_ALG_NULL so the template is loadable and not
+     * stuck with an unusable HMAC binding. */
+    if (isSign || isDecrypt) {
+        publicTemplate->parameters.keyedHashDetail.scheme.scheme =
+            TPM_ALG_HMAC;
+        publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg
+            = hashAlg;
+    }
+    else {
+        publicTemplate->parameters.keyedHashDetail.scheme.scheme =
+            TPM_ALG_NULL;
+    }
     return TPM_RC_SUCCESS;
 }
 
