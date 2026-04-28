@@ -1315,6 +1315,27 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Variant of wolfTPM2_LoadEccPublicKey that lets the caller select
+        the signing scheme, hash algorithm, and object attributes - required
+        for loading ECDH peer keys (decrypt attribute) or non-default
+        scheme/hash combinations.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return BUFFER_E: caller buffer is too small for ECC point coordinates
+
+    \sa wolfTPM2_LoadEccPublicKey
+    \sa wolfTPM2_LoadRsaPublicKey_ex
+*/
+WOLFTPM_API int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_KEY* key, int curveId,
+    const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    TPMI_ALG_ECC_SCHEME scheme, TPMI_ALG_HASH hashAlg,
+    TPMA_OBJECT objectAttributes);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Helper function to import the private material of an external ECC key
 
     \return TPM_RC_SUCCESS: successful

@@ -3536,8 +3536,11 @@ int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         exponent, rsaPriv, rsaPrivSz, TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
-int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
-    const byte* eccPubX, word32 eccPubXSz, const byte* eccPubY, word32 eccPubYSz)
+int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    TPMI_ALG_ECC_SCHEME scheme, TPMI_ALG_HASH hashAlg,
+    TPMA_OBJECT objectAttributes)
 {
     TPM2B_PUBLIC pub;
 
@@ -3552,11 +3555,13 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     pub.publicArea.type = TPM_ALG_ECC;
     /* make sure nameAlg is set for ticket */
     pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
-    pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_noDA;
+    pub.publicArea.objectAttributes = objectAttributes;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
-    pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
-        WOLFTPM2_WRAP_DIGEST;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = scheme;
+    if (scheme != TPM_ALG_NULL) {
+        pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg =
+            hashAlg;
+    }
     pub.publicArea.parameters.eccDetail.curveID = curveId;
     pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
     pub.publicArea.unique.ecc.x.size = eccPubXSz;
@@ -3565,6 +3570,15 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     XMEMCPY(pub.publicArea.unique.ecc.y.buffer, eccPubY, eccPubYSz);
 
     return wolfTPM2_LoadPublicKey(dev, key, &pub);
+}
+
+int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
+    const byte* eccPubX, word32 eccPubXSz, const byte* eccPubY, word32 eccPubYSz)
+{
+    return wolfTPM2_LoadEccPublicKey_ex(dev, key, curveId,
+        eccPubX, eccPubXSz, eccPubY, eccPubYSz,
+        TPM_ALG_ECDSA, WOLFTPM2_WRAP_DIGEST,
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
 }
 
 int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,

@@ -1957,6 +1957,80 @@ static void test_TPM2_ParseAttest_NvDigest(void)
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
 }
 
+/* wolfTPM2_LoadEccPublicKey_ex must honor caller-provided scheme, hashAlg
+ * and objectAttributes (in particular, allow TPMA_OBJECT_decrypt for ECDH
+ * peer keys). The legacy wolfTPM2_LoadEccPublicKey must continue to default
+ * to ECDSA + sign attribute. */
+static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY peer;
+    TPMT_PUBLIC pub;
+    byte xBuf[32];
+    byte yBuf[32];
+    word32 xSz, ySz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&peer, 0, sizeof(peer));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\tSkipped\n");
+        return;
+    }
+
+    /* Create an ECC SRK to harvest valid P-256 X/Y coordinates from. */
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_GetKeyTemplate_ECC_SRK(&pub);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &srk, TPM_RH_OWNER, &pub, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    xSz = srk.pub.publicArea.unique.ecc.x.size;
+    ySz = srk.pub.publicArea.unique.ecc.y.size;
+    AssertIntGT(xSz, 0);
+    AssertIntGT(ySz, 0);
+    XMEMCPY(xBuf, srk.pub.publicArea.unique.ecc.x.buffer, xSz);
+    XMEMCPY(yBuf, srk.pub.publicArea.unique.ecc.y.buffer, ySz);
+
+    /* Load same coordinates as a peer ECDH key with the decrypt attribute */
+    rc = wolfTPM2_LoadEccPublicKey_ex(&dev, &peer, TPM_ECC_NIST_P256,
+        xBuf, xSz, yBuf, ySz,
+        TPM_ALG_ECDH, TPM_ALG_SHA256,
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
+        TPM_ALG_ECDH);
+    AssertIntEQ((int)(peer.pub.publicArea.objectAttributes &
+        TPMA_OBJECT_decrypt), (int)TPMA_OBJECT_decrypt);
+    AssertIntEQ((int)(peer.pub.publicArea.objectAttributes &
+        TPMA_OBJECT_sign), 0);
+    wolfTPM2_UnloadHandle(&dev, &peer.handle);
+
+    /* Legacy wolfTPM2_LoadEccPublicKey: still defaults to ECDSA + sign */
+    XMEMSET(&peer, 0, sizeof(peer));
+    rc = wolfTPM2_LoadEccPublicKey(&dev, &peer, TPM_ECC_NIST_P256,
+        xBuf, xSz, yBuf, ySz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
+        TPM_ALG_ECDSA);
+    AssertIntEQ((int)(peer.pub.publicArea.objectAttributes &
+        TPMA_OBJECT_sign), (int)TPMA_OBJECT_sign);
+    AssertIntEQ((int)(peer.pub.publicArea.objectAttributes &
+        TPMA_OBJECT_decrypt), 0);
+    wolfTPM2_UnloadHandle(&dev, &peer.handle);
+
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\t\tPassed\n");
+#endif
+}
+
 /* TPM2_GetTpmCurve / TPM2_GetWolfCurve must map wolfCrypt's
  * ECC_BRAINPOOLP256R1 to TPM_ECC_BP_P256_R1 (0x0030), not
  * TPM_ECC_BN_P256 (0x0010, Barreto-Naehrig). Pre-fix the two were
@@ -3375,6 +3449,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_BrainpoolCurveMapping();
+    test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
     test_TPM2_Sensitive_Roundtrip();
