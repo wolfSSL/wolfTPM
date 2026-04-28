@@ -1095,7 +1095,10 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
+    int pubStartPos;
+
     TPM2_Packet_ParseU16(packet, &pub->size);
+    pubStartPos = (packet != NULL) ? packet->pos : 0;
     if (pub->size > 0) {
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
@@ -1132,6 +1135,14 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         default:
             /* TPMS_DERIVE derive; ? */
             break;
+        }
+
+        /* Resync packet position to end of declared outer size so inner
+         * parses can't cause field drift if declared size and actual
+         * inner consumption disagree */
+        if (packet != NULL &&
+                pubStartPos + pub->size <= packet->size) {
+            packet->pos = pubStartPos + pub->size;
         }
     }
 }

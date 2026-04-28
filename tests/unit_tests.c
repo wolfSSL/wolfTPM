@@ -1902,6 +1902,77 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
 }
 
+/* TPM2_Packet_ParsePublic must resync the packet position to outerStart +
+ * pub->size so a malformed wire blob with inner-size disagreement can't
+ * desynchronize subsequent fields. Pre-fix the parser left the position
+ * wherever the inner parses ended, drifting from the declared outer size. */
+static void test_TPM2_ParsePublic_OuterResync(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPM2B_PUBLIC pub;
+    UINT16 sentinel = 0;
+    int outerStart, fakeOuterSz;
+    int pos = 0;
+    int innerStart;
+
+    /* Build a TPM2B_PUBLIC blob by hand with type=RSA, valid inner fields,
+     * but outer.size declared larger than the actual inner consumption. A
+     * sentinel is placed at outerStart + 2 + outer.size; only a parser
+     * that resyncs to that anchor will read the sentinel correctly. */
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+
+    outerStart = pos;
+    pos += 2; /* size placeholder */
+    innerStart = pos;
+    /* type = RSA (0x0001) */
+    buf[pos++] = 0x00; buf[pos++] = 0x01;
+    /* nameAlg = SHA256 (0x000B) */
+    buf[pos++] = 0x00; buf[pos++] = 0x0B;
+    /* objectAttributes = 0 */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    /* authPolicy: size=0 */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* RSA params: sym.alg=NULL(2), scheme=NULL(2), keyBits=2048(2),
+     *   exponent=0(4) */
+    buf[pos++] = 0x00; buf[pos++] = 0x10; /* TPM_ALG_NULL */
+    buf[pos++] = 0x00; buf[pos++] = 0x10; /* scheme NULL */
+    buf[pos++] = 0x08; buf[pos++] = 0x00; /* keyBits = 2048 */
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; /* exp */
+    /* unique.size = 0 */
+    buf[pos++] = 0; buf[pos++] = 0;
+
+    /* Declared outer size = actual inner + 8 padding bytes. */
+    fakeOuterSz = (pos - innerStart) + 8;
+    buf[outerStart]     = (byte)((fakeOuterSz >> 8) & 0xFF);
+    buf[outerStart + 1] = (byte)(fakeOuterSz & 0xFF);
+    /* 8 zero pad bytes */
+    pos += 8;
+
+    /* Sentinel U16 at outerStart + 2 + fakeOuterSz */
+    buf[pos++] = 0xCA;
+    buf[pos++] = 0xFE;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    packet.buf = buf;
+    packet.size = pos;
+    packet.pos = 0;
+
+    TPM2_Packet_ParsePublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.type, TPM_ALG_RSA);
+    AssertIntEQ(pub.publicArea.nameAlg, TPM_ALG_SHA256);
+
+    /* Position must land at outerStart + 2 + outer.size; the sentinel U16
+     * lives at that offset. Read by hand to avoid pulling in WOLFTPM_LOCAL
+     * parser helpers from the test binary. */
+    AssertIntEQ(packet.pos, 2 + fakeOuterSz);
+    sentinel = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
+    AssertIntEQ(sentinel, 0xCAFE);
+
+    printf("Test TPM Wrapper:\tParsePublic outer resync:\tPassed\n");
+}
+
 /* TPM2_ParseAttest must handle TPM_ST_ATTEST_NV_DIGEST (0x801C) and decode
  * TPMS_NV_DIGEST_CERTIFY_INFO. Pre-fix, the switch fell through to default
  * and left out->attested zeroed. */
@@ -3556,6 +3627,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_SchemeSerialize();
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
+    test_TPM2_ParsePublic_OuterResync();
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
