@@ -1515,6 +1515,116 @@ static void test_fwtpm_nv_counter(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tNV_Increment (counter):\t\tPassed\n");
 }
+
+#ifndef FWTPM_NO_ATTESTATION
+/* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
+ * inside a TPM_ST_ATTEST_NV_DIGEST (0x801C) attest, not the regular
+ * TPMS_NV_CERTIFY_INFO inside TPM_ST_ATTEST_NV (0x8014). Per TPM 2.0
+ * Part 3 §31.16.1. */
+static void test_fwtpm_nv_certify_digest_mode(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize, cmdSz;
+    UINT32 nvIdx = 0x01500004;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+    UINT32 keyH;
+    UINT16 attestType;
+    byte testData[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Create primary signing key (use existing helper - the FwTPM signer
+     * does not enforce sign attribute, so a restricted-decrypt key suffices
+     * to exercise the attest-tag path under test). */
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* Define NV index */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 32, attrs);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Write some data so the index is "written" (required for certify) */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_Write); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(testData)); pos += 2;
+    memcpy(gCmd + pos, testData, sizeof(testData)); pos += sizeof(testData);
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* NV_Certify with size=0 and offset=0 -> must yield digest-mode attest */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_Certify); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;        /* signHandle */
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* authHandle */
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;        /* nvIndex */
+    /* Two-session auth area (signHandle + authHandle): 2 * 9 = 18 bytes */
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* nonce */
+    gCmd[pos++] = 0;                   /* attrs */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* hmac */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    /* qualifyingData (TPM2B_DATA) - empty */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    /* inScheme: explicit ECDSA/RSASSA + SHA-256 */
+#ifdef HAVE_ECC
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+#else
+    PutU16BE(gCmd + pos, TPM_ALG_RSASSA); pos += 2;
+#endif
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    /* size = 0, offset = 0 -> digest mode */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response layout (TPM_ST_SESSIONS):
+     *  header(10) + paramSize(4) + TPM2B_ATTEST.size(2) + magic(4) + type(2)
+     * Attest type lives at offset 20. Spec requires 0x801C (NV_DIGEST). */
+    AssertIntGT(rspSize, 22);
+    attestType = GetU16BE(gRsp + 20);
+    AssertIntEQ(attestType, 0x801C);
+
+    /* Cleanup: flush key and undefine NV */
+    FlushHandle(&ctx, keyH);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_NV_UndefineSpace); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tNV_Certify (digest mode):\tPassed\n");
+}
+#endif /* !FWTPM_NO_ATTESTATION */
 #endif /* !FWTPM_NO_NV */
 
 /* ================================================================== */
@@ -2195,6 +2305,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_define_write_read();
     test_fwtpm_nv_read_public();
     test_fwtpm_nv_counter();
+#ifndef FWTPM_NO_ATTESTATION
+    test_fwtpm_nv_certify_digest_mode();
+#endif
 #endif
 
     /* Hierarchy & misc */

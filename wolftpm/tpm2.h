@@ -466,6 +466,7 @@ typedef enum {
     TPM_ST_ATTEST_QUOTE         = 0x8018,
     TPM_ST_ATTEST_TIME          = 0x8019,
     TPM_ST_ATTEST_CREATION      = 0x801A,
+    TPM_ST_ATTEST_NV_DIGEST     = 0x801C,
     TPM_ST_CREATION             = 0x8021,
     TPM_ST_VERIFIED             = 0x8022,
     TPM_ST_AUTH_SECRET          = 0x8023,

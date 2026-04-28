@@ -11581,6 +11581,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2B_DATA qualifyingData;
     UINT16 sigScheme, sigHashAlg;
     UINT16 readSize, readOffset;
+    int digestMode = 0;
     FWTPM_Object* sigObj;
     FWTPM_NvIndex* nv;
     FWTPM_DECLARE_BUF(attestBuf, FWTPM_MAX_ATTEST_BUF);
@@ -11629,6 +11630,13 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             &qualifyingData, &sigScheme, &sigHashAlg);
     }
 
+    /* Per Part 3 §31.16.1: TPM_RH_NULL signHandle requires non-NULL
+     * scheme and hash algorithm, otherwise return TPM_RC_SCHEME. */
+    if (rc == 0 && signHandle == TPM_RH_NULL &&
+            (sigScheme == TPM_ALG_NULL || sigHashAlg == TPM_ALG_NULL)) {
+        rc = TPM_RC_SCHEME;
+    }
+
     /* size, offset */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &readSize);
@@ -11639,12 +11647,20 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        if (readSize == 0)
+        /* Per Part 3 §31.16.1: when both size and offset are zero, the
+         * response must contain a TPMS_NV_DIGEST_CERTIFY_INFO with the
+         * digest of the entire NV index, instead of TPMS_NV_CERTIFY_INFO. */
+        if (readSize == 0 && readOffset == 0) {
+            digestMode = 1;
+            readSize = nv->nvPublic.dataSize;
+        }
+        else if (readSize == 0) {
             readSize = nv->nvPublic.dataSize - readOffset;
+        }
         if ((UINT32)(readOffset + readSize) > nv->nvPublic.dataSize) {
             rc = TPM_RC_NV_RANGE;
         }
-        if (rc == 0 && readSize > FWTPM_MAX_NV_DATA) {
+        if (rc == 0 && !digestMode && readSize > FWTPM_MAX_NV_DATA) {
             rc = TPM_RC_SIZE;
         }
     }
@@ -11680,26 +11696,64 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Build TPMS_ATTEST for NV */
     if (rc == 0) {
+        UINT16 attestType = digestMode ?
+            TPM_ST_ATTEST_NV_DIGEST : TPM_ST_ATTEST_NV;
         XMEMSET(attestBuf, 0, FWTPM_MAX_ATTEST_BUF);
         attestPkt.buf = attestBuf;
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, TPM_ST_ATTEST_NV,
+        FwAppendAttestCommonHeader(&attestPkt, attestType,
             &sigObj->name, &qualifyingData);
 
-        /* attested.nv: indexName + offset + nvContents */
-        TPM2_Packet_AppendU16(&attestPkt, nvName.size);
-        TPM2_Packet_AppendBytes(&attestPkt, (byte*)nvName.name,
-            nvName.size);
-        TPM2_Packet_AppendU16(&attestPkt, readOffset);
-        TPM2_Packet_AppendU16(&attestPkt, readSize);
-        TPM2_Packet_AppendBytes(&attestPkt, nv->data + readOffset,
-            readSize);
+        if (digestMode) {
+            /* attested.nvDigest: indexName + nvDigest
+             * nvDigest is hash of entire NV index using signing scheme hash */
+            UINT16 hashAlg = sigHashAlg;
+            byte nvDigest[TPM_MAX_DIGEST_SIZE];
+            int hashSz;
+            enum wc_HashType wcDigH;
+
+            /* Resolve hash from signing key when scheme/hash is NULL */
+            if (hashAlg == TPM_ALG_NULL) {
+                UINT16 keyScheme = TPM_ALG_NULL;
+                FwResolveSignScheme(sigObj, &keyScheme, &hashAlg);
+            }
+            wcDigH = FwGetWcHashType(hashAlg);
+            hashSz = TPM2_GetHashDigestSize(hashAlg);
+            if (wcDigH == WC_HASH_TYPE_NONE || hashSz <= 0) {
+                rc = TPM_RC_HASH;
+            }
+            if (rc == 0) {
+                if (wc_Hash(wcDigH, nv->data, nv->nvPublic.dataSize,
+                        nvDigest, hashSz) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
+            }
+            if (rc == 0) {
+                TPM2_Packet_AppendU16(&attestPkt, nvName.size);
+                TPM2_Packet_AppendBytes(&attestPkt, (byte*)nvName.name,
+                    nvName.size);
+                TPM2_Packet_AppendU16(&attestPkt, (UINT16)hashSz);
+                TPM2_Packet_AppendBytes(&attestPkt, nvDigest, hashSz);
+            }
+        }
+        else {
+            /* attested.nv: indexName + offset + nvContents */
+            TPM2_Packet_AppendU16(&attestPkt, nvName.size);
+            TPM2_Packet_AppendBytes(&attestPkt, (byte*)nvName.name,
+                nvName.size);
+            TPM2_Packet_AppendU16(&attestPkt, readOffset);
+            TPM2_Packet_AppendU16(&attestPkt, readSize);
+            TPM2_Packet_AppendBytes(&attestPkt, nv->data + readOffset,
+                readSize);
+        }
 
         /* Build response */
-        rc = FwBuildAttestResponse(ctx, rsp, cmdTag, sigObj,
-            sigScheme, sigHashAlg, attestBuf, attestPkt.pos);
+        if (rc == 0) {
+            rc = FwBuildAttestResponse(ctx, rsp, cmdTag, sigObj,
+                sigScheme, sigHashAlg, attestBuf, attestPkt.pos);
+        }
     }
     FWTPM_FREE_BUF(attestBuf);
     return rc;
