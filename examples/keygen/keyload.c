@@ -224,7 +224,8 @@ exit:
     }
 
     /* Close key handles */
-    wolfTPM2_UnloadHandle(&dev, &primary->handle);
+    if (primary != NULL)
+        wolfTPM2_UnloadHandle(&dev, &primary->handle);
     /* newKey.handle is already flushed by wolfTPM2_NVStoreKey */
     if (!persistent) {
         wolfTPM2_UnloadHandle(&dev, &newKey.handle);
