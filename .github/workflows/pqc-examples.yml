@@ -95,6 +95,19 @@ jobs:
       - name: ML-KEM encap + decap example (standalone)
         run: ./examples/pqc/mlkem_encap
 
+      - name: Stop Tier 2 fwtpm_server (free port 2321 for E2E)
+        if: always()
+        run: |
+          if [ -f /tmp/fwtpm_server.pid ]; then
+            kill "$(cat /tmp/fwtpm_server.pid)" 2>/dev/null || true
+            rm -f /tmp/fwtpm_server.pid
+          fi
+          # Defensive: kill any other default-port server lingering. Don't
+          # match the test helper's --port-qualified server (it isn't up
+          # yet anyway).
+          pkill -f "fwtpm_server$" 2>/dev/null || true
+          sleep 1
+
       - name: PQC mssim E2E (MLKEM-768 + HashMLDSA-65 round-trips)
         run: ./tests/pqc_mssim_e2e.sh
 

@@ -5439,6 +5439,7 @@ int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
 {
     int rc;
     SequenceUpdate_In seqUpdateIn;
+    WOLFTPM2_HANDLE seqHandleObj;
 
     if (dev == NULL || data == NULL || dataSz <= 0) {
         return BAD_FUNC_ARG;
@@ -5447,6 +5448,13 @@ int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
     if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
         return BUFFER_E;
     }
+
+    /* Bind session auth slot 0 to the sequence handle so SequenceUpdate
+     * uses the per-sequence auth set at SignSequenceStart, not whatever
+     * stale handle (e.g. the key handle) was last bound to slot 0. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
 
     XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
     seqUpdateIn.sequenceHandle = sequenceHandle;
@@ -5602,6 +5610,7 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
 {
     int rc;
     SequenceUpdate_In seqUpdateIn;
+    WOLFTPM2_HANDLE seqHandleObj;
 
     if (dev == NULL || data == NULL || dataSz <= 0) {
         return BAD_FUNC_ARG;
@@ -5610,6 +5619,13 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
         return BUFFER_E;
     }
+
+    /* Bind session auth slot 0 to the sequence handle so SequenceUpdate
+     * uses the per-sequence auth, not whatever stale handle was last
+     * bound to slot 0. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
 
     XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
     seqUpdateIn.sequenceHandle = sequenceHandle;

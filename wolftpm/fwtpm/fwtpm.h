@@ -477,6 +477,11 @@ typedef struct FWTPM_SignSeq {
     TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
     int isVerifySeq;                /* 0 = sign, 1 = verify */
     TPM_HANDLE keyHandle;           /* Key used at SequenceStart */
+    TPM2B_NAME keyName;             /* Key's computed name at Start time —
+                                     * binds the sequence to an immutable
+                                     * key identity so a Flush + reload of
+                                     * a different key on the same numeric
+                                     * handle is detected at Complete. */
     TPM_ALG_ID sigScheme;           /* TPM_ALG_MLDSA / TPM_ALG_HASH_MLDSA */
     TPMI_ALG_HASH hashAlg;          /* Hash alg for Hash-ML-DSA sequences */
     TPM2B_AUTH authValue;
@@ -493,9 +498,12 @@ typedef struct FWTPM_SignSeq {
     byte   firstBytes[4];
     UINT32 firstBytesSz;
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-    /* Hash accumulator for Hash-ML-DSA sequences (sign or verify). */
+    /* Hash accumulator for Hash-ML-DSA / classical RSA-ECC sequences. */
     wc_HashAlg hashCtx;
     int hashCtxInit;                /* 1 when hashCtx is live */
+    /* HMAC accumulator for KEYEDHASH (HMAC) signing/verifying sequences. */
+    Hmac hmacCtx;
+    int hmacCtxInit;                /* 1 when hmacCtx is live */
 #endif
 } FWTPM_SignSeq;
 
