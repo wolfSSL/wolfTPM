@@ -5756,7 +5756,37 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
     in.publicInfo.nvPublic.nvIndex = nvIndex;
-    in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
+    /* When a policy digest is supplied, nameAlg must match the hash that
+     * produced it - otherwise the policy can never be satisfied. Infer
+     * nameAlg from authPolicySz when possible, defaulting to
+     * WOLFTPM2_WRAP_DIGEST for the no-policy case. */
+    if (authPolicy != NULL && authPolicySz > 0) {
+        switch (authPolicySz) {
+        #ifndef NO_SHA
+            case TPM_SHA_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA1;
+                break;
+        #endif
+            case TPM_SHA256_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
+                break;
+        #ifdef WOLFSSL_SHA384
+            case TPM_SHA384_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA384;
+                break;
+        #endif
+        #ifdef WOLFSSL_SHA512
+            case TPM_SHA512_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA512;
+                break;
+        #endif
+            default:
+                return BAD_FUNC_ARG;
+        }
+    }
+    else {
+        in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
+    }
     in.publicInfo.nvPublic.attributes = nvAttributes;
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
     if (authPolicy != NULL && authPolicySz > 0) {

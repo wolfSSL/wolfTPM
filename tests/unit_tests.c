@@ -2034,6 +2034,44 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
 #endif
 }
 
+/* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
+ * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
+ * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
+ * Mismatched digest sizes must be rejected up front. */
+static void test_wolfTPM2_NVCreateAuthPolicy_NameAlg(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE parent;
+    WOLFTPM2_NV nv;
+    byte policy[64];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(policy, 0xAB, sizeof(policy));
+
+    /* No real TPM call required to exercise the new size validation - the
+     * mismatch check fires before TPM2_NV_DefineSpace is contacted. */
+    parent.hndl = TPM_RH_OWNER;
+
+    /* 33 bytes is not a recognized hash digest size -> BAD_FUNC_ARG. */
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &parent, &nv, 0x01400001,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA, 64,
+        NULL, 0, policy, 33);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* 17 bytes is not a recognized hash digest size -> BAD_FUNC_ARG. */
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &parent, &nv, 0x01400002,
+        TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA, 64,
+        NULL, 0, policy, 17);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tNVCreateAuthPolicy nameAlg:\tPassed\n");
+#endif
+}
+
 /* wolfTPM2_SignHashScheme must reject digest sizes that don't match the
  * declared hashAlg for RSA keys, instead of silently zero-padding. The
  * pad-to-hash-size convention is preserved for ECDSA per spec. */
@@ -3521,6 +3559,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
+    test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
