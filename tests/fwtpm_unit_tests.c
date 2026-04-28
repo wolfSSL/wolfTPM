@@ -1517,6 +1517,79 @@ static void test_fwtpm_nv_counter(void)
 }
 
 #ifndef FWTPM_NO_ATTESTATION
+/* TPMT_SIG_SCHEME parser must consume the extra UINT16 count field for
+ * TPMS_SCHEME_ECDAA per Part 2 §11.2.1.5. Sending a Quote with
+ * inScheme.scheme = TPM_ALG_ECDAA followed by hashAlg + count + a single
+ * PCR selection (count=1) verifies that subsequent PCRselect parsing
+ * is not desynchronized. With the bug, pcrSelectionsCount reads as 0
+ * because the count field is interpreted as the high 16 bits of the
+ * PCR-selection count. */
+static void test_fwtpm_quote_ecdaa_scheme(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    UINT16 nameSz;
+    UINT16 extraSz;
+    UINT32 pcrSelCount;
+    int pcrSelOffset;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* Build TPM2_Quote with ECDAA inScheme. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Quote); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4; /* signHandle */
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* qualifyingData (TPM2B_DATA) - empty */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    /* inScheme: ECDAA + hashAlg + count */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDAA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* ECDAA count */
+    /* PCRselect: count=1, hashAlg=SHA256, sizeOfSelect=3, no PCRs */
+    PutU32BE(gCmd + pos, 1); pos += 4;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    gCmd[pos++] = 3;
+    gCmd[pos++] = 0;
+    gCmd[pos++] = 0;
+    gCmd[pos++] = 0;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Walk response: header(10) + paramSize(4) + TPM2B_ATTEST.size(2)
+     * + magic(4) + type(2) + qualifiedSigner.size(2) reads N at offset 22 */
+    AssertIntGT(rspSize, 24);
+    nameSz = GetU16BE(gRsp + 22);
+    AssertIntGT(nameSz, 0);
+    /* Then qualifiedSigner.name(nameSz) + extraData.size(2) */
+    extraSz = GetU16BE(gRsp + 24 + nameSz);
+    /* Then extraData(extraSz) + clockInfo(17) + firmwareVersion(8) */
+    pcrSelOffset = 24 + nameSz + 2 + extraSz + 17 + 8;
+    AssertIntGT(rspSize, pcrSelOffset + 4);
+    pcrSelCount = GetU32BE(gRsp + pcrSelOffset);
+    /* With the ECDAA count consumed correctly, pcrSelCount reflects the
+     * caller-supplied value of 1. With the bug, the count field is read
+     * as the high 16 bits of pcrSelCount, yielding 0. */
+    AssertIntEQ(pcrSelCount, 1);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tQuote(ECDAA scheme):\t\tPassed\n");
+}
+
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
  * inside a TPM_ST_ATTEST_NV_DIGEST (0x801C) attest, not the regular
  * TPMS_NV_CERTIFY_INFO inside TPM_ST_ATTEST_NV (0x8014). Per TPM 2.0
@@ -2307,6 +2380,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_nv_counter();
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
+    test_fwtpm_quote_ecdaa_scheme();
 #endif
 #endif
 

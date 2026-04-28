@@ -11114,6 +11114,13 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
         *sigHashAlg = TPM_ALG_NULL;
         if (*sigScheme != TPM_ALG_NULL)
             TPM2_Packet_ParseU16(cmd, sigHashAlg);
+        /* TPMS_SCHEME_ECDAA carries an additional UINT16 count after
+         * hashAlg per Part 2 §11.2.1.5. */
+        if (*sigScheme == TPM_ALG_ECDAA) {
+            UINT16 ecdaaCount;
+            TPM2_Packet_ParseU16(cmd, &ecdaaCount);
+            (void)ecdaaCount;
+        }
     }
 
     return rc;
