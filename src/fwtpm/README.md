@@ -1,4 +1,4 @@
-# wolfTPM Firmware TPM (fwTPM) Server
+# wolfTPM Firmware TPM (fwTPM / fTPM / swtpm) Server
 
 A portable firmware TPM 2.0 implementation built entirely on wolfCrypt. The
 fwTPM provides a standards-compliant TPM 2.0 command processor that can replace

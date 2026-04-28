@@ -1,8 +1,8 @@
-# wolfTPM fwTPM -- Firmware TPM 2.0
+# wolfTPM fwTPM (fTPM / swtpm) -- Firmware TPM 2.0
 
 ## Overview
 
-The wolfTPM fwTPM is a portable firmware TPM 2.0 implementation built entirely
+The wolfTPM fwTPM (industry terms: fTPM, swtpm-compatible) is a portable firmware TPM 2.0 implementation built entirely
 on wolfCrypt cryptographic primitives. It provides a standards-compliant TPM 2.0
 command processor as a standalone server process (`fwtpm_server`) implementing
 105 of 113 commands from the TPM 2.0 v1.38 specification (93% coverage). The

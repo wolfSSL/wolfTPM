@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API's in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
-* Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672/SLB9673, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
+* Any TPM 2.0 compliant module is supported. Tested modules include Infineon SLB9670, SLB9672, SLB9673, STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI, ST33TPHF2XI2C, Microchip ATTPM20, Nations Technologies/NSING Z32H330, NS350, and Nuvoton NPCT650, NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime - a simple `./configure && make` works with either interface.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
@@ -37,12 +37,12 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for salted unbound authenticated sessions.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
-* Includes a portable firmware TPM 2.0 implementation (fwTPM) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM)](#firmware-tpm-fwtpm) below.
+* Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
 
-## Firmware TPM (fwTPM)
+## Firmware TPM (fwTPM / fTPM / swtpm)
 
 wolfTPM includes a portable firmware TPM 2.0 implementation (`fwtpm_server`)
 built entirely on wolfCrypt. It provides a standards-compliant TPM 2.0 command
