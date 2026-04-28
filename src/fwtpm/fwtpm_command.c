@@ -901,11 +901,18 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         printf("fwTPM: StirRandom(%d bytes)\n", inDataSize);
     #endif
 
-        /* Reseed the DRBG with the caller-provided additional input */
+        /* Reseed the Hash DRBG with the caller-provided additional input.
+         * When the port uses CUSTOM_RAND_GENERATE_BLOCK (HW RNG) or the
+         * Hash DRBG is not compiled in, there is nothing to reseed -
+         * treat as a no-op, which is TCG-compliant for HW-RNG-backed TPMs. */
+    #if defined(HAVE_HASHDRBG) && !defined(CUSTOM_RAND_GENERATE_BLOCK)
         rc = wc_RNG_DRBG_Reseed(&ctx->rng, cmd->buf + cmd->pos, inDataSize);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
         }
+    #else
+        (void)inDataSize;
+    #endif
     }
 
     if (rc == 0) {
