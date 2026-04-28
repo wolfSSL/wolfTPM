@@ -585,6 +585,37 @@ static void test_wolfTPM2_SetAuthHandle_PolicyAuthOffset(void)
 #endif
 }
 
+/* Verify wolfTPM2_StartSession enables encrypt/decrypt attributes for
+ * salted (tpmKey-only, bind == NULL) sessions when caller selects a
+ * symmetric algorithm. Per TPM 2.0 spec, salted sessions have valid
+ * shared-secret state for parameter encryption. */
+static void test_wolfTPM2_StartSession_SaltedEncryptAttrs(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    WOLFTPM2_SESSION session;
+    TPMA_SESSION expected = TPMA_SESSION_decrypt | TPMA_SESSION_encrypt;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    XMEMSET(&session, 0, sizeof(session));
+
+    /* tpmKey with a non-NULL handle, no auth */
+    tpmKey.handle.hndl = 0x80000000;
+
+    /* Best effort - if no TPM is present the call returns early after the
+     * SetAuth path, which is what we want to inspect. */
+    (void)wolfTPM2_StartSession(&dev, &session, &tpmKey, NULL,
+        TPM_SE_HMAC, TPM_ALG_CFB);
+
+    AssertIntEQ((int)(dev.session[0].sessionAttributes & expected),
+        (int)expected);
+
+    printf("Test TPM Wrapper:\tStartSession salted enc attrs:\tPassed\n");
+#endif
+}
+
 static void test_wolfTPM2_PolicyHash(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -3229,6 +3260,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Policy_NULL_Args();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
+    test_wolfTPM2_StartSession_SaltedEncryptAttrs();
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();

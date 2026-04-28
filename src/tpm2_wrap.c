@@ -2359,10 +2359,10 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* set session auth for key */
     if (tpmKey) {
         TPMA_SESSION sessionAttributes = 0;
-        if (bind != NULL &&
-            (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR)) {
-            /* if parameter encryption is enabled and key bind set, enable
-             * encrypt/decrypt by default */
+        if (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR) {
+            /* if parameter encryption is enabled, enable encrypt/decrypt by
+             * default. Salted (tpmKey-only) sessions also have valid
+             * shared-secret state for parameter encryption. */
             sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
         }
         wolfTPM2_SetAuth(dev, 0, tpmKey->handle.hndl, &tpmKey->handle.auth,
