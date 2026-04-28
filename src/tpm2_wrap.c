@@ -4955,10 +4955,6 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
-    /* verify input cannot exceed buffer */
-    if (digestSz > (int)sizeof(signIn.digest.buffer))
-        digestSz = (int)sizeof(signIn.digest.buffer);
-
     XMEMSET(&signIn, 0, sizeof(signIn));
     signIn.keyHandle = key->handle.hndl;
     signIn.digest.size = (UINT16)TPM2_GetHashDigestSize(hashAlg);
@@ -4966,13 +4962,30 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         signIn.digest.size > sizeof(signIn.digest.buffer)) {
         return BUFFER_E;
     }
-    /* if digest provided is smaller than key size then zero pad leading */
-    if (digestSz < signIn.digest.size) {
-        XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz], digest,
-            digestSz);
+    /* Hard upper bound: digest must fit the message-buffer. */
+    if (digestSz < 0 || digestSz > (int)sizeof(signIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+    if (key->pub.publicArea.type != TPM_ALG_ECC) {
+        /* RSA: digest size must match the declared hash algorithm.
+         * Silently zero-padding produces a signature over crafted
+         * but incorrect content, so this is a caller error. */
+        if (digestSz != (int)signIn.digest.size) {
+            return BUFFER_E;
+        }
+        XMEMCPY(signIn.digest.buffer, digest, digestSz);
     }
     else {
-        XMEMCPY(signIn.digest.buffer, digest, digestSz);
+        /* ECDSA: digests shorter than hashAlg's size are left-padded with
+         * zeros; longer digests are silently truncated to hashAlg's size
+         * (TCG Part 1 - ECDSA admits short or long inputs). */
+        if (digestSz < (int)signIn.digest.size) {
+            XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz],
+                digest, digestSz);
+        }
+        else {
+            XMEMCPY(signIn.digest.buffer, digest, signIn.digest.size);
+        }
     }
     signIn.inScheme.scheme = sigAlg;
     signIn.inScheme.details.any.hashAlg = hashAlg;
@@ -5119,10 +5132,6 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    /* verify input cannot exceed buffer */
-    if (digestSz > (int)sizeof(verifySigIn.digest.buffer))
-        digestSz = (int)sizeof(verifySigIn.digest.buffer);
-
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
@@ -5133,13 +5142,27 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         verifySigIn.digest.size > sizeof(verifySigIn.digest.buffer)) {
         return BUFFER_E;
     }
-    /* if digest provided is smaller than key size then zero pad leading */
-    if (digestSz < verifySigIn.digest.size) {
-        XMEMCPY(&verifySigIn.digest.buffer[verifySigIn.digest.size - digestSz],
-            digest, digestSz);
+    /* Hard upper bound: digest must fit the message-buffer. */
+    if (digestSz < 0 || digestSz > (int)sizeof(verifySigIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+    if (key->pub.publicArea.type != TPM_ALG_ECC) {
+        /* RSA: digest size must match the declared hash algorithm. */
+        if (digestSz != (int)verifySigIn.digest.size) {
+            return BUFFER_E;
+        }
+        XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     }
     else {
-        XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
+        /* ECDSA: short digests are left-padded with zeros, longer digests
+         * are silently truncated to hashAlg's size. */
+        if (digestSz < (int)verifySigIn.digest.size) {
+            XMEMCPY(&verifySigIn.digest.buffer[verifySigIn.digest.size -
+                digestSz], digest, digestSz);
+        }
+        else {
+            XMEMCPY(verifySigIn.digest.buffer, digest, verifySigIn.digest.size);
+        }
     }
     verifySigIn.signature.sigAlg = sigAlg;
     signature->any.hashAlg = hashAlg;

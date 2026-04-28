@@ -1982,6 +1982,9 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
         printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\tSkipped\n");
         return;
     }
+    /* Flush any transient objects left by previous tests so CreatePrimary
+     * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
+    (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
 
     /* Create an ECC SRK to harvest valid P-256 X/Y coordinates from. */
     XMEMSET(&pub, 0, sizeof(pub));
@@ -2028,6 +2031,41 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
     wolfTPM2_Cleanup(&dev);
 
     printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\t\tPassed\n");
+#endif
+}
+
+/* wolfTPM2_SignHashScheme must reject digest sizes that don't match the
+ * declared hashAlg for RSA keys, instead of silently zero-padding. The
+ * pad-to-hash-size convention is preserved for ECDSA per spec. */
+static void test_wolfTPM2_SignHashScheme_DigestSize(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    byte sig[MAX_RSA_KEY_BYTES];
+    int sigSz = (int)sizeof(sig);
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(digest, 0xCC, sizeof(digest));
+    key.handle.hndl = 0x80000000;
+    key.pub.publicArea.type = TPM_ALG_RSA;
+
+    /* SHA-256 digest (32) but caller declared SHA-512 (64): for RSA this
+     * was previously silently zero-padded; now must return BUFFER_E. */
+    rc = wolfTPM2_SignHashScheme(&dev, &key, digest, 32, sig, &sigSz,
+        TPM_ALG_RSASSA, TPM_ALG_SHA512);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Oversized digest (larger than declared hashAlg) is also BUFFER_E. */
+    sigSz = (int)sizeof(sig);
+    rc = wolfTPM2_SignHashScheme(&dev, &key, digest, 64, sig, &sigSz,
+        TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    AssertIntEQ(rc, BUFFER_E);
+
+    printf("Test TPM Wrapper:\tSignHashScheme size:\t\tPassed\n");
 #endif
 }
 
@@ -3482,6 +3520,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
+    test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
