@@ -938,6 +938,11 @@ TPM_RC FwEncapsulateMlkem(WC_RNG* rng,
         }
     }
 
+    if (rc != 0) {
+        TPM2_ForceZero(sharedSecretOut->buffer,
+            sizeof(sharedSecretOut->buffer));
+        sharedSecretOut->size = 0;
+    }
     if (keyInit) {
         wc_MlKemKey_Free(mlkemKey);
     }
@@ -1009,6 +1014,11 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
         }
     }
 
+    if (rc != 0) {
+        TPM2_ForceZero(sharedSecretOut->buffer,
+            sizeof(sharedSecretOut->buffer));
+        sharedSecretOut->size = 0;
+    }
     if (keyInit) {
         wc_MlKemKey_Free(mlkemKey);
     }
@@ -1177,8 +1187,19 @@ TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
         if (wc_ecc_shared_secret(ephKey, recipKey, dh, &dhSz) != 0)
             rc = TPM_RC_FAILURE;
     }
+    /* RFC 9180 Sec.7: left-pad X to Nsk for HPKE peer interop. */
+    if (rc == 0) {
+        int nSk = wc_ecc_get_curve_size_from_id(wcCurve);
+        if (nSk > 0 && (word32)nSk > dhSz &&
+                (word32)nSk <= sizeof(dh)) {
+            XMEMMOVE(dh + (nSk - dhSz), dh, dhSz);
+            XMEMSET(dh, 0, nSk - dhSz);
+            dhSz = (word32)nSk;
+        }
+    }
     if (rc == 0) {
         if (wc_ecc_export_x963(ephKey, enc, &encSz) != 0) rc = TPM_RC_FAILURE;
+        else if ((int)encSz != nPk) rc = TPM_RC_FAILURE;
     }
     if (rc == 0) {
         if (wc_ecc_export_x963(recipKey, pkRm, &pkRmSz) != 0) rc = TPM_RC_FAILURE;
@@ -1207,10 +1228,14 @@ TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
 
     if (recipInit) wc_ecc_free(recipKey);
     if (ephInit) wc_ecc_free(ephKey);
+    if (rc != 0) {
+        TPM2_ForceZero(sharedSecretOut->buffer,
+            sizeof(sharedSecretOut->buffer));
+        sharedSecretOut->size = 0;
+    }
     TPM2_ForceZero(dh, sizeof(dh));
     FWTPM_FREE_VAR(recipKey);
     FWTPM_FREE_VAR(ephKey);
-    (void)nPk;
     return rc;
 }
 
@@ -1270,6 +1295,16 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
         if (wc_ecc_shared_secret(recipKey, ephKey, dh, &dhSz) != 0)
             rc = TPM_RC_FAILURE;
     }
+    /* Left-pad X to Nsk per RFC 9180 Sec.7 (mirrors Encap). */
+    if (rc == 0) {
+        int nSk = wc_ecc_get_curve_size_from_id(wcCurve);
+        if (nSk > 0 && (word32)nSk > dhSz &&
+                (word32)nSk <= sizeof(dh)) {
+            XMEMMOVE(dh + (nSk - dhSz), dh, dhSz);
+            XMEMSET(dh, 0, nSk - dhSz);
+            dhSz = (word32)nSk;
+        }
+    }
     if (rc == 0) {
         if (wc_ecc_export_x963(recipKey, pkRm, &pkRmSz) != 0)
             rc = TPM_RC_FAILURE;
@@ -1295,6 +1330,11 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
 
     if (recipInit) wc_ecc_free(recipKey);
     if (ephInit) wc_ecc_free(ephKey);
+    if (rc != 0) {
+        TPM2_ForceZero(sharedSecretOut->buffer,
+            sizeof(sharedSecretOut->buffer));
+        sharedSecretOut->size = 0;
+    }
     TPM2_ForceZero(dh, sizeof(dh));
     FWTPM_FREE_VAR(recipKey);
     FWTPM_FREE_VAR(ephKey);
@@ -2475,10 +2515,15 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
          *   seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits) */
         TPM2B_SHARED_SECRET sharedK;
         XMEMSET(&sharedK, 0, sizeof(sharedK));
-        rc = FwDecapsulateMlkem(
-            keyObj->pub.parameters.mlkemDetail.parameterSet,
-            keyObj->privKey,
-            encSeedBuf, encSeedSz, &sharedK);
+        if (keyObj->privKeySize != MAX_MLKEM_PRIV_SEED_SIZE) {
+            rc = TPM_RC_KEY;
+        }
+        if (rc == 0) {
+            rc = FwDecapsulateMlkem(
+                keyObj->pub.parameters.mlkemDetail.parameterSet,
+                keyObj->privKey,
+                encSeedBuf, encSeedSz, &sharedK);
+        }
         if (rc == 0) {
             int kdfRc = TPM2_KDFa_ex(nameAlg,
                 sharedK.buffer, sharedK.size, kdfLabel,
@@ -2487,12 +2532,14 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
                     (UINT32)keyObj->pub.unique.mlkem.size,
                 seedBuf, (UINT32)digestSz);
             if (kdfRc != digestSz) {
-                TPM2_ForceZero(seedBuf, seedBufSz);
                 rc = TPM_RC_FAILURE;
             }
             else {
                 *seedSzOut = digestSz;
             }
+        }
+        if (rc != 0) {
+            TPM2_ForceZero(seedBuf, seedBufSz);
         }
         TPM2_ForceZero(&sharedK, sizeof(sharedK));
         (void)oaepLabel; (void)oaepLabelSz;

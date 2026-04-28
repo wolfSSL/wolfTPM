@@ -62,11 +62,16 @@ static int test_mlkem_roundtrip(WOLFTPM2_DEV* dev)
     int rc;
     byte ss1[32], ss2[32];
     int ss1Sz = sizeof(ss1), ss2Sz = sizeof(ss2);
-    byte ct[MAX_MLKEM_CT_SIZE];
-    int ctSz = sizeof(ct);
+    /* MLKEM ciphertext can be up to 1568 bytes — heap-alloc. */
+    byte* ct = NULL;
+    int ctBufSz = MAX_MLKEM_CT_SIZE;
+    int ctSz = ctBufSz;
 
     XMEMSET(&mlkem, 0, sizeof(mlkem));
     XMEMSET(&tpl, 0, sizeof(tpl));
+
+    ct = (byte*)XMALLOC(ctBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (ct == NULL) return MEMORY_E;
 
     rc = wolfTPM2_GetKeyTemplate_MLKEM(&tpl,
         TPMA_OBJECT_decrypt | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
@@ -74,12 +79,14 @@ static int test_mlkem_roundtrip(WOLFTPM2_DEV* dev)
         TPM_MLKEM_768);
     if (rc != 0) {
         printf("GetKeyTemplate_MLKEM rc=%d\n", rc);
+        XFREE(ct, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &mlkem, TPM_RH_OWNER, &tpl, NULL, 0);
     if (rc != 0) {
         printf("CreatePrimary(MLKEM-768) rc=%d\n", rc);
+        XFREE(ct, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
@@ -121,6 +128,7 @@ cleanup:
     wc_ForceZero(ss1, sizeof(ss1));
     wc_ForceZero(ss2, sizeof(ss2));
     wolfTPM2_UnloadHandle(dev, &mlkem.handle);
+    XFREE(ct, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
 
@@ -130,8 +138,10 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
     TPMT_PUBLIC tpl;
     int rc;
     byte digest[32];
-    byte sig[MAX_MLDSA_SIG_SIZE];
-    int sigSz = sizeof(sig);
+    /* MLDSA-87 sig = 4627 bytes — heap-alloc to keep stack small. */
+    byte* sig = NULL;
+    int sigBufSz = MAX_MLDSA_SIG_SIZE;
+    int sigSz = sigBufSz;
     TPMT_TK_VERIFIED validation;
 
     XMEMSET(&mldsa, 0, sizeof(mldsa));
@@ -139,18 +149,23 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
     XMEMSET(&validation, 0, sizeof(validation));
     XMEMSET(digest, 0xAA, sizeof(digest));
 
+    sig = (byte*)XMALLOC(sigBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (sig == NULL) return MEMORY_E;
+
     rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&tpl,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth,
         TPM_MLDSA_65, TPM_ALG_SHA256);
     if (rc != 0) {
         printf("GetKeyTemplate_HASH_MLDSA rc=%d\n", rc);
+        XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
     rc = wolfTPM2_CreatePrimaryKey(dev, &mldsa, TPM_RH_OWNER, &tpl, NULL, 0);
     if (rc != 0) {
         printf("CreatePrimary(HashMLDSA-65) rc=%d\n", rc);
+        XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
@@ -196,6 +211,7 @@ static int test_hash_mldsa_digest_roundtrip(WOLFTPM2_DEV* dev)
 
 cleanup:
     wolfTPM2_UnloadHandle(dev, &mldsa.handle);
+    XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
 

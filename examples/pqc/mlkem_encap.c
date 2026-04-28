@@ -61,8 +61,10 @@ static int mlkem_encap_run(int argc, char *argv[])
     WOLFTPM2_KEY mlkemKey;
     TPMT_PUBLIC pubTemplate;
     TPMI_MLKEM_PARAMETER_SET paramSet = TPM_MLKEM_768;
-    byte ciphertext[1600];
-    int ciphertextSz = (int)sizeof(ciphertext);
+    /* MLKEM-1024 ct = 1568 bytes; heap-alloc to keep stack small. */
+    byte* ciphertext = NULL;
+    int ciphertextBufSz = 1600;
+    int ciphertextSz = ciphertextBufSz;
     byte sharedSecret1[64];
     int sharedSecret1Sz = (int)sizeof(sharedSecret1);
     byte sharedSecret2[64];
@@ -96,7 +98,6 @@ static int mlkem_encap_run(int argc, char *argv[])
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
     XMEMSET(&pubTemplate, 0, sizeof(pubTemplate));
-    XMEMSET(ciphertext, 0, sizeof(ciphertext));
     XMEMSET(sharedSecret1, 0, sizeof(sharedSecret1));
     XMEMSET(sharedSecret2, 0, sizeof(sharedSecret2));
 
@@ -105,10 +106,18 @@ static int mlkem_encap_run(int argc, char *argv[])
         paramSet == TPM_MLKEM_512  ? "512"  :
         paramSet == TPM_MLKEM_1024 ? "1024" : "768");
 
+    ciphertext = (byte*)XMALLOC(ciphertextBufSz, NULL,
+        DYNAMIC_TYPE_TMP_BUFFER);
+    if (ciphertext == NULL) {
+        printf("XMALLOC ciphertext failed\n");
+        return MEMORY_E;
+    }
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n",
             rc, wolfTPM2_GetRCString(rc));
+        XFREE(ciphertext, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
@@ -161,6 +170,7 @@ exit:
     wc_ForceZero(sharedSecret2, sizeof(sharedSecret2));
     wolfTPM2_UnloadHandle(&dev, &mlkemKey.handle);
     wolfTPM2_Cleanup(&dev);
+    XFREE(ciphertext, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
 

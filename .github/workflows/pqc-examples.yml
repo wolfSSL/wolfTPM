@@ -139,8 +139,10 @@ jobs:
         env:
           WOLFSSL_PATH: ${{ github.workspace }}/wolfssl
         run: |
+          set +e
           bash -x ./examples/run_examples.sh
           rc=$?
+          set -e
           if [ $rc -ne 0 ]; then
             echo "=== run.out (last 200 lines) ==="
             tail -200 run.out

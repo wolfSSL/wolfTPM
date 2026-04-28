@@ -5415,8 +5415,7 @@ int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    /* set session auth for key */
-    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+    /* keyHandle has Auth Index None per Part 3 Sec.17.6.3 — no SetAuth */
 
     XMEMSET(&signSeqStartIn, 0, sizeof(signSeqStartIn));
     signSeqStartIn.keyHandle = key->handle.hndl;
@@ -5717,16 +5716,13 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
     verifySeqCompleteIn.sequenceHandle = sequenceHandle;
     verifySeqCompleteIn.keyHandle = key->handle.hndl;
 
-    /* Build signature structure from raw signature */
-    /* For PQ algorithms, we need to determine the signature format from the key */
+    /* Build signature structure from raw signature.
+     * sigSz validated up-front (see early per-key-type check above). */
     XMEMSET(&signature, 0, sizeof(signature));
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
         /* ECC signature: R then S */
         int curveSize = wolfTPM2_GetCurveSize(
             key->pub.publicArea.parameters.eccDetail.curveID);
-        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
-            return BAD_FUNC_ARG;
-        }
         signature.sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
         if (signature.sigAlg == TPM_ALG_NULL) {
             signature.sigAlg = TPM_ALG_ECDSA;

@@ -51,10 +51,12 @@ SERVER_PID=$!
     done
     exit 1
 ) 2>/dev/null
+probe_rc=$?
 
-if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    echo "FAIL: fwtpm_server failed to start" >&2
+if [ $probe_rc -ne 0 ] || ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "FAIL: fwtpm_server not accepting connections on port $PORT" >&2
     tail -20 "$SCRIPT_DIR/fwtpm_server.log" >&2
+    kill "$SERVER_PID" 2>/dev/null || true
     rm -f "$NV_FILE"
     exit 1
 fi

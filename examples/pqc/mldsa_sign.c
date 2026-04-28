@@ -72,8 +72,10 @@ static int mldsa_sign_run(int argc, char *argv[])
     TPMT_TK_VERIFIED validation;
     byte message[] = "wolfTPM PQC example: Pure ML-DSA sign/verify";
     int messageSz = (int)sizeof(message) - 1;
-    byte sig[5000]; /* ML-DSA-87 sig = 4627 bytes; slack included */
-    int sigSz = (int)sizeof(sig);
+    /* ML-DSA-87 sig = 4627 bytes; heap-alloc to keep stack small. */
+    byte* sig = NULL;
+    int sigBufSz = 5000;
+    int sigSz = sigBufSz;
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -110,10 +112,17 @@ static int mldsa_sign_run(int argc, char *argv[])
         paramSet == TPM_MLDSA_44 ? "44" :
         paramSet == TPM_MLDSA_87 ? "87" : "65");
 
+    sig = (byte*)XMALLOC(sigBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (sig == NULL) {
+        printf("XMALLOC sig failed\n");
+        return MEMORY_E;
+    }
+
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n",
             rc, wolfTPM2_GetRCString(rc));
+        XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         return rc;
     }
 
@@ -186,6 +195,7 @@ static int mldsa_sign_run(int argc, char *argv[])
 exit:
     wolfTPM2_UnloadHandle(&dev, &mldsaKey.handle);
     wolfTPM2_Cleanup(&dev);
+    XFREE(sig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }
 

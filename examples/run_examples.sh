@@ -33,7 +33,9 @@ if [ -z "$ENABLE_V185" ]; then
     ENABLE_V185=0
     for cfg in src/config.h config.h ../src/config.h ../config.h \
                wolftpm/options.h wolftpm/version.h; do
-        if [ -f "$cfg" ] && grep -q "WOLFTPM_V185[[:space:]]*1" "$cfg"; then
+        if [ -f "$cfg" ] && grep -qE \
+                '^[[:space:]]*#[[:space:]]*define[[:space:]]+WOLFTPM_V185([[:space:]]|$)' \
+                "$cfg"; then
             ENABLE_V185=1
             break
         fi

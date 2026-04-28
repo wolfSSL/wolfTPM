@@ -1748,6 +1748,49 @@ static void test_fwtpm_signsequence_classical_ecdsa_roundtrip(void)
     fwtpm_pass("SignSequence/VerifySequence ECDSA Roundtrip:", 1);
 }
 
+/* Build a CreatePrimary for an unrestricted RSA-2048 SIGN key with the
+ * supplied scheme (TPM_ALG_RSASSA / TPM_ALG_RSAPSS) and hashAlg. Returns
+ * command size. */
+static int BuildRsa2048SignPrimary(byte* buf, UINT16 sigScheme,
+    UINT16 sigHashAlg)
+{
+    int pos = 0, pubAreaStart, pubAreaLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 4); pos += 2; /* sensitive */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_RSA); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|sign */
+    PutU32BE(buf + pos, 0x00040072); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* sym */
+    PutU16BE(buf + pos, sigScheme); pos += 2;
+    if (sigScheme != TPM_ALG_NULL) {
+        PutU16BE(buf + pos, sigHashAlg); pos += 2;
+    }
+    PutU16BE(buf + pos, 2048); pos += 2; /* keyBits */
+    PutU32BE(buf + pos, 0); pos += 4;    /* exponent (default) */
+    PutU16BE(buf + pos, 0); pos += 2;    /* unique */
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
 /* Build a CreatePrimary command for an ECC P-256 key with the supplied
  * scheme (TPM_ALG_NULL for unspecified). Returns command size. Used by the
  * v1.85 negative-scheme tests below. */
@@ -1918,6 +1961,299 @@ static void test_fwtpm_verifydigestsig_scheme_mismatch_rejected(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig scheme mismatch rejected:", 1);
+}
+
+/* MEDIUM-1 negative: TPM2_VerifyDigestSignature with a digest size that
+ * doesn't match the key's hashAlg digest size MUST fail TPM_RC_SIZE per
+ * Part 3 Sec.20.4.1 — applies to all signing schemes, not only HASH_MLDSA. */
+static void test_fwtpm_verifydigestsig_digest_size_mismatch(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle;
+    byte digest[16]; /* WRONG size: SHA-256 is 32 bytes, not 16. */
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildEccP256SignPrimary(gCmd, TPM_ALG_ECDSA, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xEE, sizeof(digest));
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2; /* WRONG digest size */
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xBB, 32); pos += 32;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifyDigestSig classical digest-size mismatch rejected:", 1);
+}
+
+/* MEDIUM-2 negative: TPM2_SignDigest with a digest size that doesn't match
+ * the key's hashAlg digest size MUST fail TPM_RC_SIZE per Part 3 Sec.20.7.1. */
+static void test_fwtpm_signdigest_digest_size_mismatch(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle;
+    byte digest[20]; /* WRONG size: SHA-256 is 32 bytes, not 20. */
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildEccP256SignPrimary(gCmd, TPM_ALG_ECDSA, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xCC, sizeof(digest));
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2; /* WRONG digest size */
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SignDigest classical digest-size mismatch rejected:", 1);
+}
+
+/* MEDIUM-34: RSA SignDigest + VerifyDigestSignature roundtrip
+ * (RSASSA-SHA256). Mirror of the ECDSA test for the RSA classical arm. */
+static void test_fwtpm_signdigest_classical_rsa_roundtrip(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle;
+    UINT16 sigAlg, sigHash, sigSz;
+    FWTPM_DECLARE_BUF(sig, 512);
+    byte digest[32];
+
+    FWTPM_ALLOC_BUF(sig, 512);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildRsa2048SignPrimary(gCmd, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xAB, sizeof(digest));
+
+    /* SignDigest. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Response: header | paramSize | sigAlg | hashAlg | sigSz | sig */
+    pos = TPM2_HEADER_SIZE + 4;
+    sigAlg = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigAlg, TPM_ALG_RSASSA);
+    sigHash = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigHash, TPM_ALG_SHA256);
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)sigSz, 256); /* RSA-2048 */
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* VerifyDigestSignature. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ALG_RSASSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("SignDigest/VerifyDigestSignature RSA Roundtrip:", 1);
+}
+
+/* MEDIUM-33: RSA SignSequence + VerifySequence roundtrip (RSASSA-SHA256). */
+static void test_fwtpm_signsequence_classical_rsa_roundtrip(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle, signSeqHandle, verifySeqHandle;
+    UINT16 sigAlg, sigHash, sigSz;
+    FWTPM_DECLARE_BUF(sig, 512);
+    static const byte msg[] = "rsa-sequence-test-payload";
+
+    FWTPM_ALLOC_BUF(sig, 512);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildRsa2048SignPrimary(gCmd, TPM_ALG_RSASSA, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceStart. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    signSeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* SignSequenceComplete trailing buffer = msg. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, signSeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    sigAlg = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigAlg, TPM_ALG_RSASSA);
+    sigHash = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigHash, TPM_ALG_SHA256);
+    sigSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)sigSz, 256);
+    memcpy(sig, gRsp + pos, sigSz);
+
+    /* VerifySequenceStart + Update + Complete. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    verifySeqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SequenceUpdate); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg) - 1); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg) - 1); pos += sizeof(msg) - 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, verifySeqHandle); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_RSASSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    FWTPM_FREE_BUF(sig);
+    fwtpm_pass("SignSequence/VerifySequence RSA Roundtrip:", 1);
 }
 
 /* HIGH-1 positive: HMAC SignSequence + VerifySequence roundtrip with a
@@ -7492,6 +7828,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signdigest_null_scheme_rejected();
     test_fwtpm_signsequencestart_null_scheme_rejected();
     test_fwtpm_verifydigestsig_scheme_mismatch_rejected();
+    test_fwtpm_verifydigestsig_digest_size_mismatch();
+    test_fwtpm_signdigest_digest_size_mismatch();
+    test_fwtpm_signdigest_classical_rsa_roundtrip();
+    test_fwtpm_signsequence_classical_rsa_roundtrip();
     test_fwtpm_signsequence_hmac_roundtrip();
     test_fwtpm_signsequence_handle_auth_required();
     test_fwtpm_verifysequence_long_message();

@@ -7172,6 +7172,9 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
     int paramSzPos, paramStart;
     int trc;
+#ifdef WOLFTPM_V185
+    FWTPM_SignSeq* misRoutedSign = NULL;
+#endif
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
 
@@ -7185,6 +7188,11 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq = FwFindHashSeq(ctx, seqHandle);
         if (seq == NULL) {
             rc = TPM_RC_HANDLE;
+#ifdef WOLFTPM_V185
+            /* Free a sign/verify slot mis-routed here so it doesn't leak. */
+            misRoutedSign = FwFindSignSeq(ctx, seqHandle);
+            if (misRoutedSign != NULL) FwFreeSignSeq(misRoutedSign);
+#endif
         }
         else {
             hashAlg = seq->hashAlg;
@@ -13144,9 +13152,10 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
-    /* Two KEM types per Part 2 Sec.10.3.13 Table 100: ML-KEM (FIPS 203) and
-     * ECC DHKEM (RFC 9180 Sec.4.1). For ECC the kdf scheme MUST be HKDF
-     * (Part 2 Sec.12.2.3.5) — TPM_RC_KEY for any other key type or unset kdf. */
+    /* KEM types per Part 2 Sec.10.3.13 Table 100: ML-KEM (FIPS 203) and ECC
+     * DHKEM (RFC 9180 Sec.4.1, ECC kdf MUST be HKDF). Part 3 Sec.14.10.1
+     * explicitly says the TPM does NOT verify objectAttributes here (only
+     * the public portion may be loaded), so no decrypt/restricted check. */
     if (rc == 0) {
         if (obj->pub.type == TPM_ALG_MLKEM) {
             ps = obj->pub.parameters.mlkemDetail.parameterSet;
@@ -13401,13 +13410,15 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_KEY;
         }
         /* Accept ML-DSA, Hash-ML-DSA, classical RSA/ECC, and KEYEDHASH
-         * (HMAC) signing keys. Other types (SM2, ECSCHNORR) unsupported. */
+         * (HMAC) signing keys. Other types (SYMCIPHER, SM2, ECSCHNORR)
+         * map to TPM_RC_KEY ("not a signing key" — Part 3 Sec.17.5.1
+         * reserves TPM_RC_SCHEME for the NULL-scheme case below). */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
                  obj->pub.type != TPM_ALG_HASH_MLDSA &&
                  obj->pub.type != TPM_ALG_RSA &&
                  obj->pub.type != TPM_ALG_ECC &&
                  obj->pub.type != TPM_ALG_KEYEDHASH) {
-            rc = TPM_RC_SCHEME;
+            rc = TPM_RC_KEY;
         }
     }
 
@@ -13425,6 +13436,9 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &authSz);
         if (authSz > sizeof(((TPM2B_AUTH*)0)->buffer)) {
             rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + authSz > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
     }
     /* Parse context (TPM2B_SIGNATURE_CTX) */
@@ -13565,13 +13579,15 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_KEY;
         }
         /* Accept ML-DSA, Hash-ML-DSA, classical RSA/ECC, and KEYEDHASH
-         * (HMAC) signing keys. */
+         * (HMAC) signing keys. Other types map to TPM_RC_KEY per
+         * Part 3 Sec.17.6.1 (TPM_RC_SCHEME is reserved for the
+         * NULL-scheme case below). */
         else if (obj->pub.type != TPM_ALG_MLDSA &&
                  obj->pub.type != TPM_ALG_HASH_MLDSA &&
                  obj->pub.type != TPM_ALG_RSA &&
                  obj->pub.type != TPM_ALG_ECC &&
                  obj->pub.type != TPM_ALG_KEYEDHASH) {
-            rc = TPM_RC_SCHEME;
+            rc = TPM_RC_KEY;
         }
     }
 
@@ -13587,6 +13603,9 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (authSz > sizeof(((TPM2B_AUTH*)0)->buffer)) {
             rc = TPM_RC_SIZE;
         }
+        else if (cmd->pos + authSz > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         seq = FwAllocSignSeq(ctx, &seqHandle);
@@ -13599,8 +13618,11 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, seq->authValue.buffer, authSz);
 
         TPM2_Packet_ParseU16(cmd, &hintSz);
-        /* Part 2 Sec.11.3.9: hint MUST be zero-length for non-EdDSA schemes.
-         * Reject any non-zero hint up front; nothing to consume on the wire. */
+        /* Part 3 Sec.17.6.1: hint carries the EdDSA R for EDDSA verify;
+         * MUST be zero-length for all other schemes. wolfTPM does not yet
+         * implement EDDSA verify-sequences (no TPM_ALG_EDDSA dispatch in
+         * VerifySequenceComplete), so reject any non-zero hint with
+         * TPM_RC_VALUE. Re-gate this on obj->pub.type when EDDSA is added. */
         if (hintSz > 0) {
             rc = TPM_RC_VALUE;
         }
@@ -13723,7 +13745,13 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &sequenceHandle);
         TPM2_Packet_ParseU32(cmd, &keyHandle);
         seq = FwFindSignSeq(ctx, sequenceHandle);
-        if (seq == NULL || seq->isVerifySeq) {
+        /* NULL out seq for a peer's verify-sequence so cleanup
+         * doesn't free their slot. */
+        if (seq != NULL && seq->isVerifySeq) {
+            seq = NULL;
+            rc = TPM_RC_HANDLE;
+        }
+        else if (seq == NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -13969,12 +13997,15 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         rc = TPM_RC_SCHEME;
                     }
                     else {
-                        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+                        paramStart = FwRspParamsBegin(rsp, cmdTag,
+                            &paramSzPos);
                         rc = FwSignDigestAndAppend(ctx, keyObj,
                             schemeAlg, hashAlg,
                             digestOut, digestSz, rsp);
+                        /* Always pair Begin with End so the param-size
+                         * back-patch fires even on failure. */
+                        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
                         if (rc == 0) {
-                            FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
                             FwFreeSignSeq(seq);
                             FWTPM_FREE_BUF(msgBuf);
                             FWTPM_FREE_VAR(sigOut);
@@ -14073,7 +14104,13 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &sequenceHandle);
         TPM2_Packet_ParseU32(cmd, &keyHandle);
         seq = FwFindSignSeq(ctx, sequenceHandle);
-        if (seq == NULL || !seq->isVerifySeq) {
+        /* NULL out seq for a peer's sign-sequence so cleanup
+         * doesn't free their slot. */
+        if (seq != NULL && !seq->isVerifySeq) {
+            seq = NULL;
+            rc = TPM_RC_HANDLE;
+        }
+        else if (seq == NULL) {
             rc = TPM_RC_HANDLE;
         }
     }
@@ -14563,6 +14600,12 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             if (sigScheme == TPM_ALG_NULL || sigHashAlg == TPM_ALG_NULL) {
                 rc = TPM_RC_SCHEME;
             }
+            else if (digest->size !=
+                    (UINT16)TPM2_GetHashDigestSize(sigHashAlg)) {
+                /* Part 3 Sec.20.7.1: digest size MUST match the hashAlg
+                 * digest size for ALL signing schemes. */
+                rc = TPM_RC_SIZE;
+            }
             else {
                 rc = FwSignDigestAndAppend(ctx, obj, sigScheme, sigHashAlg,
                     digest->buffer, digest->size, rsp);
@@ -14743,6 +14786,12 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 keyScheme != classicalSig.sigAlg ||
                 keyHashAlg != classicalSig.signature.any.hashAlg) {
             rc = TPM_RC_SCHEME;
+        }
+        else if (digest->size !=
+                (UINT16)TPM2_GetHashDigestSize(keyHashAlg)) {
+            /* Part 3 Sec.20.4.1: digest size MUST match the hashAlg
+             * digest size for ALL signing schemes. */
+            rc = TPM_RC_SIZE;
         }
         else {
             rc = FwVerifySignatureCore(obj, digest->buffer, digest->size,

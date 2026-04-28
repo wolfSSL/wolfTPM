@@ -3480,9 +3480,13 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 2;
         /* Part 3 Sec.20.3 Table 118: @sequenceHandle requires USER auth;
-         * keyHandle has no auth. The framework needs the USER1 flag so
-         * the auth area matches what the server parses under ST_SESSIONS. */
-        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
+         * keyHandle has no auth. USER1 flag aligns the auth area with
+         * what the server parses under ST_SESSIONS. The only command
+         * parameter is `signature` (TPMT_SIGNATURE) — a discriminated
+         * union, NOT a TPM2B with a leading UINT16 size — so omit
+         * CMD_FLAG_ENC2: the dispatcher would otherwise mis-parse
+         * sigAlg as a TPM2B size if a decrypt session is attached. */
+        info.flags = CMD_FLAG_AUTH_USER1;
 
         TPM2_Packet_Init(ctx, &packet);
 
