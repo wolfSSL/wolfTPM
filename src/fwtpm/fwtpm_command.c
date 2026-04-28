@@ -1434,7 +1434,13 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         #endif /* WOLFTPM_V185 */
             default:
+                /* Unrecognized algorithm type. TPM_RC_PARMS only exists
+                 * under WOLFTPM_V185; fall back to TPM_RC_TYPE otherwise. */
+            #ifdef WOLFTPM_V185
                 rc = TPM_RC_PARMS;
+            #else
+                rc = TPM_RC_TYPE;
+            #endif
                 break;
         }
     }
