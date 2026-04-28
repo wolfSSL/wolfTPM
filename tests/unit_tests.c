@@ -2031,6 +2031,38 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
 #endif
 }
 
+/* wolfTPM2_RsaEncrypt and wolfTPM2_RsaDecrypt must reject oversized inputs
+ * with BUFFER_E rather than silently truncating to the message buffer
+ * length. The bounds check fires before the TPM is contacted, so this
+ * test does not require a working TPM connection. */
+static void test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte oversized[MAX_RSA_KEY_BYTES + 16];
+    byte out[MAX_RSA_KEY_BYTES];
+    int outSz = (int)sizeof(out);
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(oversized, 0xAB, sizeof(oversized));
+    key.handle.hndl = 0x80000000;
+
+    rc = wolfTPM2_RsaEncrypt(&dev, &key, TPM_ALG_NULL,
+        oversized, (int)sizeof(oversized), out, &outSz);
+    AssertIntEQ(rc, BUFFER_E);
+
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_RsaDecrypt(&dev, &key, TPM_ALG_NULL,
+        oversized, (int)sizeof(oversized), out, &outSz);
+    AssertIntEQ(rc, BUFFER_E);
+
+    printf("Test TPM Wrapper:\tRsaEncDec oversized:\t\tPassed\n");
+#endif
+}
+
 /* TPM2_GetTpmCurve / TPM2_GetWolfCurve must map wolfCrypt's
  * ECC_BRAINPOOLP256R1 to TPM_ECC_BP_P256_R1 (0x0030), not
  * TPM_ECC_BN_P256 (0x0010, Barreto-Naehrig). Pre-fix the two were
@@ -3449,6 +3481,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_BrainpoolCurveMapping();
+    test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();

@@ -5465,10 +5465,10 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* RSA Encrypt */
     XMEMSET(&rsaEncIn, 0, sizeof(rsaEncIn));
     rsaEncIn.keyHandle = key->handle.hndl;
-    rsaEncIn.message.size = msgSz;
-    if (rsaEncIn.message.size > sizeof(rsaEncIn.message.buffer)) {
-        rsaEncIn.message.size = sizeof(rsaEncIn.message.buffer); /* truncate */
+    if (msgSz < 0 || (size_t)msgSz > sizeof(rsaEncIn.message.buffer)) {
+        return BUFFER_E;
     }
+    rsaEncIn.message.size = (UINT16)msgSz;
     XMEMCPY(rsaEncIn.message.buffer, msg, rsaEncIn.message.size);
     /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaEncIn.inScheme.scheme = padScheme;
@@ -5520,8 +5520,8 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* RSA Decrypt */
     XMEMSET(&rsaDecIn, 0, sizeof(rsaDecIn));
     rsaDecIn.keyHandle = key->handle.hndl;
-    if (inSz > (int)sizeof(rsaDecIn.cipherText.buffer)) {
-        inSz = (int)sizeof(rsaDecIn.cipherText.buffer); /* truncate */
+    if (inSz < 0 || (size_t)inSz > sizeof(rsaDecIn.cipherText.buffer)) {
+        return BUFFER_E;
     }
     rsaDecIn.cipherText.size = (UINT16)inSz;
     XMEMCPY(rsaDecIn.cipherText.buffer, in, inSz);
