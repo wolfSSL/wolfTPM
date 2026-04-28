@@ -1191,7 +1191,13 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
         TPM2_Packet_AppendBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
+    case TPM_ALG_NULL:
+        /* Legitimate zero-payload signature - nothing to append. */
+        break;
     default:
+    #ifdef DEBUG_WOLFTPM
+        printf("AppendSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);
+    #endif
         break;
     }
 }
@@ -1263,7 +1269,13 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
         TPM2_Packet_ParseBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
+    case TPM_ALG_NULL:
+        /* Legitimate zero-payload signature - nothing to consume. */
+        break;
     default:
+    #ifdef DEBUG_WOLFTPM
+        printf("ParseSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);
+    #endif
         break;
     }
 }

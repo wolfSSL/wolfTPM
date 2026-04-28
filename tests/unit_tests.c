@@ -1902,6 +1902,43 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
 }
 
+/* TPM2_Packet_ParseSignature must explicitly recognize TPM_ALG_NULL as a
+ * zero-payload signature so subsequent fields stay aligned. The previous
+ * default-fallthrough lumped TPM_ALG_NULL together with unknown algorithms,
+ * making the property "Parse(Append(NULL signature)) consumes exactly the
+ * sigAlg bytes" depend on undocumented behavior. */
+static void test_TPM2_ParseSignature_NullAlg(void)
+{
+    TPM2_Packet packet;
+    byte buf[16];
+    TPMT_SIGNATURE sig;
+    UINT16 sentinel;
+    int pos = 0;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+
+    /* sigAlg = TPM_ALG_NULL */
+    buf[pos++] = (byte)((TPM_ALG_NULL >> 8) & 0xFF);
+    buf[pos++] = (byte)(TPM_ALG_NULL & 0xFF);
+    /* sentinel right after the (zero-length) signature payload */
+    buf[pos++] = 0xDE;
+    buf[pos++] = 0xAD;
+
+    XMEMSET(&sig, 0, sizeof(sig));
+    packet.buf = buf;
+    packet.size = pos;
+    packet.pos = 0;
+
+    TPM2_Packet_ParseSignature(&packet, &sig);
+    AssertIntEQ(sig.sigAlg, TPM_ALG_NULL);
+    AssertIntEQ(packet.pos, 2);
+    sentinel = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
+    AssertIntEQ(sentinel, 0xDEAD);
+
+    printf("Test TPM Wrapper:\tParseSignature NULL alg:\tPassed\n");
+}
+
 /* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
  * malformed wire blob with inner x.size / y.size disagreement can't
  * desynchronize subsequent fields. */
@@ -3711,6 +3748,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_ParsePublic_OuterResync();
     test_TPM2_ParsePoint_OuterResync();
+    test_TPM2_ParseSignature_NullAlg();
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
