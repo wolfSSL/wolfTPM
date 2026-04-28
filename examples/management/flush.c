@@ -92,7 +92,7 @@ int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[])
             TPM2_FlushContext(&flushCtx);
         }
         /* Flush hmac sessions */
-        for (handle=0x3000000; handle < 0x3000004; handle++) {
+        for (handle=0x2000000; handle < 0x2000004; handle++) {
             flushCtx.flushHandle = handle;
             printf("Freeing %X object\n", handle);
             TPM2_FlushContext(&flushCtx);
