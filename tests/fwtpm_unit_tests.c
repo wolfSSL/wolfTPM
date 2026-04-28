@@ -1096,11 +1096,13 @@ static UINT32 CreatePrimaryHelper(FWTPM_CTX* ctx, TPM_ALG_ID alg)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
-#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
+    !defined(FWTPM_NO_NV)
 /* Build a non-restricted ECC-P256 sign-capable primary (for tests that
  * require TPMA_OBJECT_sign and a key with no scheme bound at create time).
- * Only consumed by the attestation tests, so gated to avoid
- * -Werror=unused-function in FWTPM_NO_ATTESTATION builds. */
+ * Only consumed by the attestation tests nested inside the NV-tests
+ * section, so gated to avoid -Werror=unused-function in
+ * FWTPM_NO_ATTESTATION or FWTPM_NO_NV builds. */
 static int BuildCreatePrimaryEccSignCmd(byte* buf)
 {
     int pos = 0;
@@ -1157,7 +1159,7 @@ static UINT32 CreatePrimaryEccSignHelper(FWTPM_CTX* ctx)
     if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
-#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION && !FWTPM_NO_NV */
 
 /* Helper: flush a handle */
 static void FlushHandle(FWTPM_CTX* ctx, UINT32 handle)
