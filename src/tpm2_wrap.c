@@ -5509,19 +5509,21 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_RSA_Encrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
+    }
+    else if (*outSz < rsaEncOut.outData.size) {
+        rc = BUFFER_E;
+    }
+    else {
+        *outSz = rsaEncOut.outData.size;
+        XMEMCPY(out, rsaEncOut.outData.buffer, *outSz);
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
+    #endif
     }
 
-    if (*outSz < rsaEncOut.outData.size) {
-        return BUFFER_E;
-    }
-    *outSz = rsaEncOut.outData.size;
-    XMEMCPY(out, rsaEncOut.outData.buffer, *outSz);
-
-#ifdef DEBUG_WOLFTPM
-    printf("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
-#endif
-
+    /* Plaintext copy lingers in the rsaEncIn stack frame after return -
+     * scrub it on every exit path. */
+    TPM2_ForceZero(&rsaEncIn, sizeof(rsaEncIn));
     return rc;
 }
 
