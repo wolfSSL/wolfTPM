@@ -182,3 +182,50 @@ jobs:
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install/lib" \
             ctest -C Release --output-on-failure
         fi
+
+  # Verify that a static-library build can be installed and its exported
+  # CMake targets are self-consistent.  The matrix builds above use
+  # WITH_WOLFSSL (shared library) and do not catch this because CMake only
+  # enforces export-set completeness for static libraries: any CMake target
+  # in a static library's PRIVATE link chain must be exported or wrapped in
+  # $<BUILD_INTERFACE:...>.
+  cmake-static-export:
+    name: CMake static export check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Install cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Checkout wolfssl
+        uses: actions/checkout@master
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Build and install wolfssl
+        working-directory: ./wolfssl
+        run: |
+          mkdir build && cd build
+          cmake -DWOLFSSL_TPM=yes -DWOLFSSL_INSTALL=yes \
+              -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" \
+              -DCMAKE_C_FLAGS="-DWC_RSA_NO_PADDING -DWOLFSSL_PUBLIC_MP" ..
+          cmake --build .
+          cmake --install .
+
+      - name: Build and install wolftpm (static, cmake-config wolfssl)
+        run: |
+          mkdir build && cd build
+          cmake \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DWOLFTPM_EXAMPLES=no \
+              -DWOLFTPM_FWTPM=no \
+              -DWOLFTPM_BUILD_OUT_OF_TREE=yes \
+              -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install" \
+              -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" \
+              ..
+          cmake --build .
+          cmake --install .
