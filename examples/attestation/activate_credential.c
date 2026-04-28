@@ -230,7 +230,8 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    wolfTPM2_UnloadHandle(&dev, &primary->handle);
+    if (primary != NULL)
+        wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &akKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
