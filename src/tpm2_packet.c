@@ -782,8 +782,18 @@ void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 }
 void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 {
+    int pointStartPos;
+
     TPM2_Packet_ParseU16(packet, &point->size);
+    pointStartPos = (packet != NULL) ? packet->pos : 0;
     TPM2_Packet_ParseEccPoint(packet, &point->point);
+
+    /* Resync packet position to end of declared outer size so inner
+     * x.size / y.size disagreement can't desynchronize subsequent fields */
+    if (packet != NULL && point->size > 0 &&
+            pointStartPos + point->size <= packet->size) {
+        packet->pos = pointStartPos + point->size;
+    }
 }
 
 void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)

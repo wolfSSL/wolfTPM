@@ -1902,6 +1902,57 @@ static void test_TPM2_ECC_Parameters_EcdaaResponseParse(void)
     printf("Test TPM Wrapper:\tEcdaaResponseParse:\t\tPassed\n");
 }
 
+/* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
+ * malformed wire blob with inner x.size / y.size disagreement can't
+ * desynchronize subsequent fields. */
+static void test_TPM2_ParsePoint_OuterResync(void)
+{
+    TPM2_Packet packet;
+    byte buf[64];
+    TPM2B_ECC_POINT point;
+    UINT16 sentinel;
+    int outerStart, fakeOuterSz;
+    int pos = 0;
+    int innerStart;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+
+    /* Build TPM2B_ECC_POINT: outer.size + x(2+0) + y(2+0). Declare outer
+     * size larger than actual inner consumption (4 bytes). */
+    outerStart = pos;
+    pos += 2; /* size placeholder */
+    innerStart = pos;
+    /* x.size = 0 */
+    buf[pos++] = 0; buf[pos++] = 0;
+    /* y.size = 0 */
+    buf[pos++] = 0; buf[pos++] = 0;
+
+    fakeOuterSz = (pos - innerStart) + 6; /* 6 padding bytes */
+    buf[outerStart]     = (byte)((fakeOuterSz >> 8) & 0xFF);
+    buf[outerStart + 1] = (byte)(fakeOuterSz & 0xFF);
+    pos += 6;
+
+    /* Sentinel U16 right after outer end */
+    buf[pos++] = 0xBE;
+    buf[pos++] = 0xEF;
+
+    XMEMSET(&point, 0, sizeof(point));
+    packet.buf = buf;
+    packet.size = pos;
+    packet.pos = 0;
+
+    TPM2_Packet_ParsePoint(&packet, &point);
+
+    /* Position must land at outerStart + 2 + outer.size (= 2 + 10 = 12).
+     * Read sentinel by hand. */
+    AssertIntEQ(packet.pos, 2 + fakeOuterSz);
+    sentinel = (UINT16)((buf[packet.pos] << 8) | buf[packet.pos + 1]);
+    AssertIntEQ(sentinel, 0xBEEF);
+
+    printf("Test TPM Wrapper:\tParsePoint outer resync:\tPassed\n");
+}
+
 /* TPM2_Packet_ParsePublic must resync the packet position to outerStart +
  * pub->size so a malformed wire blob with inner-size disagreement can't
  * desynchronize subsequent fields. Pre-fix the parser left the position
@@ -3628,6 +3679,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ECC_Parameters_EcdaaResponseParse();
     test_TPM2_ParseAttest_NvDigest();
     test_TPM2_ParsePublic_OuterResync();
+    test_TPM2_ParsePoint_OuterResync();
     test_TPM2_BrainpoolCurveMapping();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
