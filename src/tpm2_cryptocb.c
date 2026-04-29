@@ -71,9 +71,11 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
 #endif
 
     if (info->algo_type == WC_ALGO_TYPE_RNG) {
-    #ifndef WC_NO_RNG
+        /* For WOLFTPM2_USE_WOLF_RNG we want to fallback to the wolfCrypt DRBG,
+           so return CRYPTOCB_UNAVAILABLE here */
+    #if !defined(WC_NO_RNG) && !defined(WOLFTPM2_USE_WOLF_RNG)
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->rng.out, info->rng.sz);
-    #endif /* !WC_NO_RNG */
+    #endif /* !WC_NO_RNG && !WOLFTPM2_USE_WOLF_RNG */
     }
     else if (info->algo_type == WC_ALGO_TYPE_SEED) {
     #ifndef WC_NO_RNG
