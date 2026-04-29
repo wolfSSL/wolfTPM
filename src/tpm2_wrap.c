@@ -2282,6 +2282,141 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
 
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+     defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+#include <wolfssl/wolfcrypt/mlkem.h>
+/* mlkem.h only forward-declares struct MlKemKey; pull the impl header
+ * for the full struct so callers can stack-allocate. Pattern mirrors
+ * wolfssl/wolfcrypt/cryptocb.h. */
+#ifdef WOLFSSL_WC_MLKEM
+    #include <wolfssl/wolfcrypt/wc_mlkem.h>
+#elif defined(HAVE_LIBOQS)
+    #include <wolfssl/wolfcrypt/ext_mlkem.h>
+#endif
+
+/* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 Sec.24
+ * (p.316) and Sec.47.4 Equation 66 (Labeled KEM): caller encapsulates under
+ * the TPM's ML-KEM public key, then post-processes the raw ML-KEM shared
+ * secret K via KDFa to bind the label and the (ciphertext, publicKey)
+ * context into the returned salt:
+ *
+ *     seed = KDFa(nameAlg, K, label, ciphertext, publicKey, bits)
+ *
+ * The TPM decapsulates internally to recover K and runs the same KDFa so
+ * both sides agree on `seed` (not the raw K). This matches the Labeled-KEM
+ * derivation required for any session where ML-KEM is the key-exchange
+ * primitive; emitting raw K would be wire-incompatible with any conformant
+ * v1.85 TPM that implements ML-KEM salted sessions. */
+static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
+    TPM2B_DATA* data, TPM2B_ENCRYPTED_SECRET* secret, const char* label)
+{
+    int rc;
+    int wcType;
+    int digestSz;
+    int rngInit = 0, keyInit = 0;
+    WC_RNG rng;
+    MlKemKey mlkemKey;
+    const TPMS_MLKEM_PARMS* mlkemParams;
+    const TPM2B_PUBLIC_KEY_MLKEM* pubIn;
+    word32 ctSz = 0, ssSz = 0;
+    byte tmpK[WC_ML_KEM_SS_SZ];
+
+    if (label == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    mlkemParams = &tpmKey->pub.publicArea.parameters.mlkemDetail;
+    pubIn = &tpmKey->pub.publicArea.unique.mlkem;
+
+    switch (mlkemParams->parameterSet) {
+        case TPM_MLKEM_512:  wcType = WC_ML_KEM_512;  break;
+        case TPM_MLKEM_768:  wcType = WC_ML_KEM_768;  break;
+        case TPM_MLKEM_1024: wcType = WC_ML_KEM_1024; break;
+        default:             return TPM_RC_VALUE;
+    }
+
+    digestSz = TPM2_GetHashDigestSize(tpmKey->pub.publicArea.nameAlg);
+    if (digestSz <= 0 || digestSz > (int)sizeof(data->buffer)) {
+        return TPM_RC_HASH;
+    }
+
+    XMEMSET(&rng, 0, sizeof(rng));
+    XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+    XMEMSET(tmpK, 0, sizeof(tmpK));
+
+    rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rngInit = 1;
+        rc = wc_MlKemKey_Init(&mlkemKey, wcType, NULL, INVALID_DEVID);
+    }
+    if (rc == 0) {
+        keyInit = 1;
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_DecodePublicKey(&mlkemKey, pubIn->buffer,
+            pubIn->size);
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_CipherTextSize(&mlkemKey, &ctSz);
+    }
+    if (rc == 0) {
+        rc = wc_MlKemKey_SharedSecretSize(&mlkemKey, &ssSz);
+    }
+    if (rc == 0 && (ctSz > sizeof(secret->secret) ||
+                    ssSz > sizeof(tmpK))) {
+        rc = BUFFER_E;
+    }
+    if (rc == 0) {
+        /* K (raw shared secret) lands in tmpK, ciphertext in secret->secret */
+        rc = wc_MlKemKey_Encapsulate(&mlkemKey, secret->secret,
+            tmpK, &rng);
+    }
+    if (rc == 0) {
+        secret->size = (UINT16)ctSz;
+
+        /* Labeled KEM post-processing (Part 1 Sec.47.4 Eq 66):
+         *     data = KDFa(nameAlg, K, label, ciphertext, pubKey, bits)
+         * contextU is the ML-KEM ciphertext (already in secret->secret);
+         * contextV is the ML-KEM public key; output is `digestSz` bytes. */
+        rc = TPM2_KDFa_ex(tpmKey->pub.publicArea.nameAlg,
+            tmpK, (UINT32)ssSz, label,
+            secret->secret, secret->size,
+            pubIn->buffer, pubIn->size,
+            data->buffer, (UINT32)digestSz);
+        if (rc == digestSz) {
+            data->size = (UINT16)digestSz;
+            rc = 0;
+        }
+        else if (rc >= 0) {
+            rc = BUFFER_E;
+        }
+    }
+
+    TPM2_ForceZero(tmpK, sizeof(tmpK));
+    if (keyInit) {
+        wc_MlKemKey_Free(&mlkemKey);
+    }
+    TPM2_ForceZero(&mlkemKey, sizeof(mlkemKey));
+    if (rngInit) {
+        wc_FreeRng(&rng);
+    }
+    TPM2_ForceZero(&rng, sizeof(rng));
+
+    /* On any failure scrub the caller's data buffer so partial KDFa
+     * output (derived from the raw shared secret K) cannot leak via a
+     * caller that ignores rc. wolfCrypt's TPM2_KDFa never partially
+     * writes today, but defense-in-depth -- the buffer is always zeroed
+     * on the failure path. */
+    if (rc != 0) {
+        TPM2_ForceZero(data->buffer, sizeof(data->buffer));
+        data->size = 0;
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_V185 && ML-KEM enabled */
+
 int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
     const char* label)
@@ -2312,6 +2447,16 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     #if !defined(NO_RSA) && !defined(WC_NO_RNG)
         case TPM_ALG_RSA:
             rc = wolfTPM2_EncryptSecret_RSA(dev, tpmKey, data, secret, label);
+            break;
+    #endif
+    #if defined(WOLFTPM_V185) && \
+        (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
+         defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
+        case TPM_ALG_MLKEM:
+            /* Part 1 Sec.47.4 Eq 66 Labeled KEM: label MUST be threaded into
+             * the post-Encaps KDFa so client-derived `seed` matches what
+             * a conformant TPM derives on Decaps. */
+            rc = wolfTPM2_EncryptSecret_MLKEM(tpmKey, data, secret, label);
             break;
     #endif
         default:
@@ -2552,6 +2697,7 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
 
     /* setup create primary command */
     XMEMSET(&createPriIn, 0, sizeof(createPriIn));
+    XMEMSET(&createPriOut, 0, sizeof(createPriOut));
     /* TPM_RH_OWNER, TPM_RH_ENDORSEMENT, TPM_RH_PLATFORM or TPM_RH_NULL */
     createPriIn.primaryHandle = primaryHandle;
     if (auth && authSz > 0) {
@@ -5248,6 +5394,761 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         TPM_ALG_NULL, hashAlg, NULL);
 }
 
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Wrapper Functions - TPM 2.0 v185 */
+
+int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
+{
+    int rc;
+    SignSequenceStart_In signSeqStartIn;
+    SignSequenceStart_Out signSeqStartOut;
+
+    if (dev == NULL || key == NULL || sequenceHandle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (contextSz < 0 || contextSz > (int)sizeof(signSeqStartIn.context.buffer)) {
+        return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* keyHandle has Auth Index None per Part 3 Sec.17.6.3 — no SetAuth */
+
+    XMEMSET(&signSeqStartIn, 0, sizeof(signSeqStartIn));
+    signSeqStartIn.keyHandle = key->handle.hndl;
+    signSeqStartIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(signSeqStartIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&signSeqStartOut, 0, sizeof(signSeqStartOut));
+    rc = TPM2_SignSequenceStart(&signSeqStartIn, &signSeqStartOut);
+    if (rc == TPM_RC_SUCCESS) {
+        *sequenceHandle = signSeqStartOut.sequenceHandle;
+    }
+
+    return rc;
+}
+
+int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz)
+{
+    int rc;
+    SequenceUpdate_In seqUpdateIn;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    if (dev == NULL || data == NULL || dataSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Bind session auth slot 0 to the sequence handle so SequenceUpdate
+     * uses the per-sequence auth set at SignSequenceStart, not whatever
+     * stale handle (e.g. the key handle) was last bound to slot 0. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+
+    XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
+    seqUpdateIn.sequenceHandle = sequenceHandle;
+    seqUpdateIn.buffer.size = (UINT16)dataSz;
+    XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
+
+    rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    return rc;
+}
+
+int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    byte* sig, int* sigSz)
+{
+    int rc;
+    SignSequenceComplete_In signSeqCompleteIn;
+    SignSequenceComplete_Out signSeqCompleteOut;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    if (dev == NULL || key == NULL || sig == NULL || sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz < 0 || dataSz > (int)sizeof(signSeqCompleteIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+    if (dataSz > 0 && data == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Part 3 Sec.20.6 Table 124: sequenceHandle is the 1st auth handle (slot 0),
+     * keyHandle is the 2nd (slot 1). Both require USER auth. The current
+     * TPM2_SignSequenceStart wrapper starts sequences with empty auth, so
+     * slot 0 carries an empty auth value; slot 1 carries the signing key's
+     * auth. Missing the slot-1 assignment silently signs with the wrong auth
+     * area when the key has a non-empty auth value. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+    wolfTPM2_SetAuthHandle(dev, 1, &key->handle);
+
+    XMEMSET(&signSeqCompleteIn, 0, sizeof(signSeqCompleteIn));
+    signSeqCompleteIn.sequenceHandle = sequenceHandle;
+    signSeqCompleteIn.keyHandle = key->handle.hndl;
+    signSeqCompleteIn.buffer.size = (UINT16)dataSz;
+    if (data != NULL && dataSz > 0) {
+        XMEMCPY(signSeqCompleteIn.buffer.buffer, data, dataSz);
+    }
+
+    XMEMSET(&signSeqCompleteOut, 0, sizeof(signSeqCompleteOut));
+    rc = TPM2_SignSequenceComplete(&signSeqCompleteIn, &signSeqCompleteOut);
+    if (rc == TPM_RC_SUCCESS) {
+        /* Extract signature based on algorithm */
+        if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDSA ||
+            signSeqCompleteOut.signature.sigAlg == TPM_ALG_ECDAA) {
+            int rSz = signSeqCompleteOut.signature.signature.ecdsa.signatureR.size;
+            int sSz = signSeqCompleteOut.signature.signature.ecdsa.signatureS.size;
+            if (*sigSz >= (rSz + sSz)) {
+                XMEMCPY(sig, signSeqCompleteOut.signature.signature.ecdsa.signatureR.buffer, rSz);
+                XMEMCPY(sig + rSz, signSeqCompleteOut.signature.signature.ecdsa.signatureS.buffer, sSz);
+                *sigSz = rSz + sSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSASSA ||
+                 signSeqCompleteOut.signature.sigAlg == TPM_ALG_RSAPSS) {
+            int sigOutSz = signSeqCompleteOut.signature.signature.rsassa.sig.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signSeqCompleteOut.signature.signature.rsassa.sig.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#ifdef WOLFTPM_V185
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA: bare TPM2B, no hash field. */
+            int sigOutSz = signSeqCompleteOut.signature.signature.mldsa.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signSeqCompleteOut.signature.signature.mldsa.buffer,
+                    sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
+            /* HashML-DSA: hash + TPM2B signature. */
+            int sigOutSz =
+                signSeqCompleteOut.signature.signature.hash_mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signSeqCompleteOut.signature.signature.hash_mldsa.signature.buffer,
+                    sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#endif /* WOLFTPM_V185 */
+        else {
+            /* Unknown algorithm */
+            rc = BUFFER_E;
+        }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
+{
+    int rc;
+    VerifySequenceStart_In verifySeqStartIn;
+    VerifySequenceStart_Out verifySeqStartOut;
+
+    if (dev == NULL || key == NULL || sequenceHandle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (contextSz < 0 || contextSz > (int)sizeof(verifySeqStartIn.context.buffer)) {
+        return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&verifySeqStartIn, 0, sizeof(verifySeqStartIn));
+    verifySeqStartIn.keyHandle = key->handle.hndl;
+    verifySeqStartIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(verifySeqStartIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&verifySeqStartOut, 0, sizeof(verifySeqStartOut));
+    rc = TPM2_VerifySequenceStart(&verifySeqStartIn, &verifySeqStartOut);
+    if (rc == TPM_RC_SUCCESS) {
+        *sequenceHandle = verifySeqStartOut.sequenceHandle;
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, const byte* data, int dataSz)
+{
+    int rc;
+    SequenceUpdate_In seqUpdateIn;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    if (dev == NULL || data == NULL || dataSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz > (int)sizeof(seqUpdateIn.buffer.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Bind session auth slot 0 to the sequence handle so SequenceUpdate
+     * uses the per-sequence auth, not whatever stale handle was last
+     * bound to slot 0. */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+
+    XMEMSET(&seqUpdateIn, 0, sizeof(seqUpdateIn));
+    seqUpdateIn.sequenceHandle = sequenceHandle;
+    seqUpdateIn.buffer.size = (UINT16)dataSz;
+    XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
+
+    rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    return rc;
+}
+
+int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
+    TPM_HANDLE sequenceHandle, WOLFTPM2_KEY* key, const byte* data, int dataSz,
+    const byte* sig, int sigSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    VerifySequenceComplete_In verifySeqCompleteIn;
+    VerifySequenceComplete_Out verifySeqCompleteOut;
+    TPMT_SIGNATURE signature;
+    WOLFTPM2_HANDLE seqHandleObj;
+
+    if (dev == NULL || key == NULL || sig == NULL || sigSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (dataSz < 0) {
+        return BUFFER_E;
+    }
+    if (dataSz > 0 && data == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Validate per-key-type sigSz BEFORE the internal SequenceUpdate
+     * call. Otherwise we advance the TPM-side sequence and then bail out
+     * before Complete, leaving the slot allocated until the caller
+     * manually flushes it (CWE-772 DoS). All key types covered here so
+     * the cleanup invariant holds for every supported scheme. */
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
+            return BAD_FUNC_ARG;
+        }
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+    }
+#ifdef WOLFTPM_V185
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.mldsa.buffer)) {
+            return BUFFER_E;
+        }
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+    }
+#endif
+    else {
+        /* Unknown key type -- reject before SequenceUpdate runs. */
+        return BAD_FUNC_ARG;
+    }
+
+    /* Part 3 Sec.20.3 Table 118: VerifySequenceComplete parameters are
+     * {signature} only — no buffer field. The documented `data`/`dataSz`
+     * "final chunk" arguments are folded into the sequence here via an
+     * internal SequenceUpdate before completing, so callers can still pass
+     * the last chunk in one call. */
+    if (dataSz > 0) {
+        rc = wolfTPM2_VerifySequenceUpdate(dev, sequenceHandle, data, dataSz);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+    }
+
+    /* Part 3 Sec.20.3 Table 118: @sequenceHandle has Auth Role: USER. Install
+     * the sequence-handle auth into session slot 0 so the marshaler computes
+     * the HMAC against the auth value bound at VerifySequenceStart (rather
+     * than whatever auth the slot inherited from a prior command). Mirrors
+     * wolfTPM2_SignSequenceComplete (line 5415-5417). */
+    XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+    seqHandleObj.hndl = sequenceHandle;
+    wolfTPM2_SetAuthHandle(dev, 0, &seqHandleObj);
+
+    XMEMSET(&verifySeqCompleteIn, 0, sizeof(verifySeqCompleteIn));
+    verifySeqCompleteIn.sequenceHandle = sequenceHandle;
+    verifySeqCompleteIn.keyHandle = key->handle.hndl;
+
+    /* Build signature structure from raw signature.
+     * sigSz validated up-front (see early per-key-type check above). */
+    XMEMSET(&signature, 0, sizeof(signature));
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        /* ECC signature: R then S */
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        signature.sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_ECDSA;
+        }
+        signature.signature.ecdsa.hash = 
+            key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
+        signature.signature.ecdsa.signatureR.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureR.buffer, sig, curveSize);
+        signature.signature.ecdsa.signatureS.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureS.buffer, sig + curveSize, curveSize);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        /* RSA signature */
+        signature.sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_RSASSA;
+        }
+        signature.signature.rsassa.hash = 
+            key->pub.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg;
+        if (sigSz > (int)sizeof(signature.signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.rsassa.sig.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
+    }
+#ifdef WOLFTPM_V185
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        /* Pure ML-DSA: bare TPM2B signature, no hash. */
+        signature.sigAlg = TPM_ALG_MLDSA;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.mldsa.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* HashML-DSA: hash alg (from key parameters) + TPM2B signature. */
+        signature.sigAlg = TPM_ALG_HASH_MLDSA;
+        signature.signature.hash_mldsa.hash =
+            key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;
+        if (sigSz >
+                (int)sizeof(signature.signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
+    }
+#endif /* WOLFTPM_V185 */
+    else {
+        /* Unknown key type */
+        return BAD_FUNC_ARG;
+    }
+    verifySeqCompleteIn.signature = signature;
+
+    XMEMSET(&verifySeqCompleteOut, 0, sizeof(verifySeqCompleteOut));
+    rc = TPM2_VerifySequenceComplete(&verifySeqCompleteIn, &verifySeqCompleteOut);
+    if (rc == TPM_RC_SUCCESS && validation != NULL) {
+        XMEMCPY(validation, &verifySeqCompleteOut.validation, sizeof(TPMT_TK_VERIFIED));
+    }
+
+    return rc;
+}
+
+int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* context, int contextSz,
+    byte* sig, int* sigSz)
+{
+    int rc;
+    SignDigest_In signDigestIn;
+    SignDigest_Out signDigestOut;
+
+    if (dev == NULL || key == NULL || digest == NULL || sig == NULL || sigSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (digestSz <= 0 || digestSz > (int)sizeof(signDigestIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+
+    if (contextSz < 0 || contextSz > (int)sizeof(signDigestIn.context.buffer)) {
+        return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&signDigestIn, 0, sizeof(signDigestIn));
+    signDigestIn.keyHandle = key->handle.hndl;
+    signDigestIn.digest.size = (UINT16)digestSz;
+    XMEMCPY(signDigestIn.digest.buffer, digest, digestSz);
+    signDigestIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(signDigestIn.context.buffer, context, contextSz);
+    }
+    /* Synthesize a NULL TPMT_TK_HASHCHECK per Part 2 Sec.10.6.4 — the wire
+     * format MUST carry tag = TPM_ST_HASHCHECK and hierarchy = TPM_RH_NULL
+     * even for unrestricted keys where the ticket is informational. */
+    signDigestIn.validation.tag = TPM_ST_HASHCHECK;
+    signDigestIn.validation.hierarchy = TPM_RH_NULL;
+    /* signDigestIn.validation.digest.size already 0 from XMEMSET */
+
+    XMEMSET(&signDigestOut, 0, sizeof(signDigestOut));
+    rc = TPM2_SignDigest(&signDigestIn, &signDigestOut);
+    if (rc == TPM_RC_SUCCESS) {
+        /* Extract signature based on algorithm */
+        if (signDigestOut.signature.sigAlg == TPM_ALG_ECDSA ||
+            signDigestOut.signature.sigAlg == TPM_ALG_ECDAA) {
+            int rSz = signDigestOut.signature.signature.ecdsa.signatureR.size;
+            int sSz = signDigestOut.signature.signature.ecdsa.signatureS.size;
+            if (*sigSz >= (rSz + sSz)) {
+                XMEMCPY(sig, signDigestOut.signature.signature.ecdsa.signatureR.buffer, rSz);
+                XMEMCPY(sig + rSz, signDigestOut.signature.signature.ecdsa.signatureS.buffer, sSz);
+                *sigSz = rSz + sSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_RSASSA ||
+                 signDigestOut.signature.sigAlg == TPM_ALG_RSAPSS) {
+            int sigOutSz = signDigestOut.signature.signature.rsassa.sig.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig, signDigestOut.signature.signature.rsassa.sig.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#ifdef WOLFTPM_V185
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_MLDSA) {
+            /* Pure ML-DSA: bare TPM2B, no hash field. */
+            int sigOutSz = signDigestOut.signature.signature.mldsa.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signDigestOut.signature.signature.mldsa.buffer, sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+        else if (signDigestOut.signature.sigAlg == TPM_ALG_HASH_MLDSA) {
+            /* HashML-DSA: hash + TPM2B signature. */
+            int sigOutSz =
+                signDigestOut.signature.signature.hash_mldsa.signature.size;
+            if (*sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signDigestOut.signature.signature.hash_mldsa.signature.buffer,
+                    sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+#endif /* WOLFTPM_V185 */
+        else {
+            /* Unknown algorithm */
+            rc = BUFFER_E;
+        }
+    }
+
+    return rc;
+}
+
+int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* digest, int digestSz, const byte* sig, int sigSz,
+    const byte* context, int contextSz, TPMT_TK_VERIFIED* validation)
+{
+    int rc;
+    VerifyDigestSignature_In verifyDigestSigIn;
+    VerifyDigestSignature_Out verifyDigestSigOut;
+    TPMT_SIGNATURE signature;
+
+    if (dev == NULL || key == NULL || digest == NULL || sig == NULL || sigSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (digestSz <= 0 || digestSz > (int)sizeof(verifyDigestSigIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+
+    if (contextSz < 0 || contextSz > (int)sizeof(verifyDigestSigIn.context.buffer)) {
+        return BUFFER_E;
+    }
+    if (contextSz > 0 && context == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
+    verifyDigestSigIn.keyHandle = key->handle.hndl;
+    verifyDigestSigIn.digest.size = (UINT16)digestSz;
+    XMEMCPY(verifyDigestSigIn.digest.buffer, digest, digestSz);
+
+    /* Build signature structure from raw signature */
+    /* For PQ algorithms, we need to determine the signature format from the key */
+    XMEMSET(&signature, 0, sizeof(signature));
+    if (key->pub.publicArea.type == TPM_ALG_ECC) {
+        /* ECC signature: R then S */
+        int curveSize = wolfTPM2_GetCurveSize(
+            key->pub.publicArea.parameters.eccDetail.curveID);
+        if (curveSize <= 0 || sigSz != (curveSize * 2)) {
+            return BAD_FUNC_ARG;
+        }
+        signature.sigAlg = key->pub.publicArea.parameters.eccDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_ECDSA;
+        }
+        signature.signature.ecdsa.hash = 
+            key->pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg;
+        signature.signature.ecdsa.signatureR.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureR.buffer, sig, curveSize);
+        signature.signature.ecdsa.signatureS.size = curveSize;
+        XMEMCPY(signature.signature.ecdsa.signatureS.buffer, sig + curveSize, curveSize);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+        /* RSA signature */
+        signature.sigAlg = key->pub.publicArea.parameters.rsaDetail.scheme.scheme;
+        if (signature.sigAlg == TPM_ALG_NULL) {
+            signature.sigAlg = TPM_ALG_RSASSA;
+        }
+        signature.signature.rsassa.hash = 
+            key->pub.publicArea.parameters.rsaDetail.scheme.details.anySig.hashAlg;
+        if (sigSz > (int)sizeof(signature.signature.rsassa.sig.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.rsassa.sig.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
+    }
+#ifdef WOLFTPM_V185
+    else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
+        /* Pure ML-DSA: bare TPM2B signature, no hash. */
+        signature.sigAlg = TPM_ALG_MLDSA;
+        if (sigSz > (int)sizeof(signature.signature.mldsa.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.mldsa.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.mldsa.buffer, sig, sigSz);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_HASH_MLDSA) {
+        /* HashML-DSA: hash alg (from key parameters) + TPM2B signature. */
+        signature.sigAlg = TPM_ALG_HASH_MLDSA;
+        signature.signature.hash_mldsa.hash =
+            key->pub.publicArea.parameters.hash_mldsaDetail.hashAlg;
+        if (sigSz >
+                (int)sizeof(signature.signature.hash_mldsa.signature.buffer)) {
+            return BUFFER_E;
+        }
+        signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
+        XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
+    }
+#endif /* WOLFTPM_V185 */
+    else {
+        /* Unknown key type */
+        return BAD_FUNC_ARG;
+    }
+    verifyDigestSigIn.signature = signature;
+
+    verifyDigestSigIn.context.size = (UINT16)contextSz;
+    if (context != NULL && contextSz > 0) {
+        XMEMCPY(verifyDigestSigIn.context.buffer, context, contextSz);
+    }
+
+    XMEMSET(&verifyDigestSigOut, 0, sizeof(verifyDigestSigOut));
+    rc = TPM2_VerifyDigestSignature(&verifyDigestSigIn, &verifyDigestSigOut);
+    if (rc == TPM_RC_SUCCESS && validation != NULL) {
+        XMEMCPY(validation, &verifyDigestSigOut.validation, sizeof(TPMT_TK_VERIFIED));
+    }
+
+    return rc;
+}
+
+int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    byte* ciphertext, int* ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
+{
+    int rc;
+    Encapsulate_In encapsulateIn;
+    Encapsulate_Out encapsulateOut;
+
+    if (dev == NULL || key == NULL || ciphertext == NULL || ciphertextSz == NULL ||
+        sharedSecret == NULL || sharedSecretSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&encapsulateIn, 0, sizeof(encapsulateIn));
+    encapsulateIn.keyHandle = key->handle.hndl;
+
+    XMEMSET(&encapsulateOut, 0, sizeof(encapsulateOut));
+    rc = TPM2_Encapsulate(&encapsulateIn, &encapsulateOut);
+    if (rc == TPM_RC_SUCCESS) {
+        if (*ciphertextSz >= (int)encapsulateOut.ciphertext.size) {
+            XMEMCPY(ciphertext, encapsulateOut.ciphertext.buffer, encapsulateOut.ciphertext.size);
+            *ciphertextSz = encapsulateOut.ciphertext.size;
+        }
+        else {
+            rc = BUFFER_E;
+        }
+
+        if (rc == TPM_RC_SUCCESS) {
+            if (*sharedSecretSz >= (int)encapsulateOut.sharedSecret.size) {
+                XMEMCPY(sharedSecret, encapsulateOut.sharedSecret.buffer, encapsulateOut.sharedSecret.size);
+                *sharedSecretSz = encapsulateOut.sharedSecret.size;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
+    }
+
+    /* Clear sensitive shared secret from stack */
+    TPM2_ForceZero(&encapsulateOut.sharedSecret, sizeof(encapsulateOut.sharedSecret));
+
+    return rc;
+}
+
+int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const byte* ciphertext, int ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
+{
+    int rc;
+    Decapsulate_In decapsulateIn;
+    Decapsulate_Out decapsulateOut;
+
+    if (dev == NULL || key == NULL || ciphertext == NULL || ciphertextSz <= 0 ||
+        sharedSecret == NULL || sharedSecretSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    if (ciphertextSz > (int)sizeof(decapsulateIn.ciphertext.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* set session auth for key */
+    wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
+
+    XMEMSET(&decapsulateIn, 0, sizeof(decapsulateIn));
+    decapsulateIn.keyHandle = key->handle.hndl;
+    decapsulateIn.ciphertext.size = (UINT16)ciphertextSz;
+    XMEMCPY(decapsulateIn.ciphertext.buffer, ciphertext, ciphertextSz);
+
+    XMEMSET(&decapsulateOut, 0, sizeof(decapsulateOut));
+    rc = TPM2_Decapsulate(&decapsulateIn, &decapsulateOut);
+    if (rc == TPM_RC_SUCCESS) {
+        if (*sharedSecretSz >= (int)decapsulateOut.sharedSecret.size) {
+            XMEMCPY(sharedSecret, decapsulateOut.sharedSecret.buffer, decapsulateOut.sharedSecret.size);
+            *sharedSecretSz = decapsulateOut.sharedSecret.size;
+        }
+        else {
+            rc = BUFFER_E;
+        }
+    }
+
+    /* Clear sensitive shared secret from stack */
+    TPM2_ForceZero(&decapsulateOut.sharedSecret, sizeof(decapsulateOut.sharedSecret));
+
+    return rc;
+}
+
+/* GetKeyTemplate_MLDSA - Create a key template for ML-DSA signing keys */
+int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    int allowExternalMu)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    /* TCG v185: MLDSA is sign-only. Enforce correct attributes. */
+    objectAttributes &= ~TPMA_OBJECT_decrypt;
+    objectAttributes |= TPMA_OBJECT_sign;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_MLDSA;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = objectAttributes;
+    publicTemplate->parameters.mldsaDetail.parameterSet = parameterSet;
+    publicTemplate->parameters.mldsaDetail.allowExternalMu =
+        (allowExternalMu ? YES : NO);
+    return TPM_RC_SUCCESS;
+}
+
+/* GetKeyTemplate_HASH_MLDSA - Create a key template for Pre-Hash ML-DSA signing keys */
+int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH hashAlg)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    /* TCG v185: HASH_MLDSA is sign-only. Enforce correct attributes. */
+    objectAttributes &= ~TPMA_OBJECT_decrypt;
+    objectAttributes |= TPMA_OBJECT_sign;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_HASH_MLDSA;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = objectAttributes;
+    publicTemplate->parameters.hash_mldsaDetail.parameterSet = parameterSet;
+    publicTemplate->parameters.hash_mldsaDetail.hashAlg = hashAlg;
+    return TPM_RC_SUCCESS;
+}
+
+/* GetKeyTemplate_MLKEM - Create a key template for ML-KEM decryption keys */
+int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet)
+{
+    if (publicTemplate == NULL)
+        return BAD_FUNC_ARG;
+
+    /* TCG v185: MLKEM is decrypt-only. Enforce correct attributes. */
+    objectAttributes &= ~TPMA_OBJECT_sign;
+    objectAttributes |= TPMA_OBJECT_decrypt;
+
+    XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
+    publicTemplate->type = TPM_ALG_MLKEM;
+    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->objectAttributes = objectAttributes;
+    publicTemplate->parameters.mlkemDetail.parameterSet = parameterSet;
+    /* symmetric field: TPM_ALG_NULL for unrestricted key */
+    publicTemplate->parameters.mlkemDetail.symmetric.algorithm = TPM_ALG_NULL;
+    return TPM_RC_SUCCESS;
+}
+#endif /* WOLFTPM_V185 */
+
 /* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
 int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     const byte* auth, int authSz)
@@ -7806,6 +8707,31 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
         case TPM_ALG_SYMCIPHER:
             ret = publicTemplate->parameters.symDetail.sym.keyBits.sym / 8;
             break;
+    #ifdef WOLFTPM_V185
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA: {
+            TPMI_MLDSA_PARAMETER_SET ps =
+                (publicTemplate->type == TPM_ALG_MLDSA)
+                    ? publicTemplate->parameters.mldsaDetail.parameterSet
+                    : publicTemplate->parameters.hash_mldsaDetail.parameterSet;
+            /* Per Part 2 Table 207 MLDSA public-key sizes. */
+            if (ps == TPM_MLDSA_44)      ret = 1312;
+            else if (ps == TPM_MLDSA_65) ret = 1952;
+            else if (ps == TPM_MLDSA_87) ret = 2592;
+            else                          ret = BAD_FUNC_ARG;
+            break;
+        }
+        case TPM_ALG_MLKEM: {
+            TPMI_MLKEM_PARAMETER_SET ps =
+                publicTemplate->parameters.mlkemDetail.parameterSet;
+            /* Per Part 2 Table 204 MLKEM public-key sizes. */
+            if (ps == TPM_MLKEM_512)       ret = 800;
+            else if (ps == TPM_MLKEM_768)  ret = 1184;
+            else if (ps == TPM_MLKEM_1024) ret = 1568;
+            else                            ret = BAD_FUNC_ARG;
+            break;
+        }
+    #endif /* WOLFTPM_V185 */
         case TPM_ALG_KEYEDHASH:
         default:
             ret = BAD_FUNC_ARG;
@@ -7889,6 +8815,49 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             }
             publicTemplate->unique.sym.size = uniqueSz;
             break;
+#ifdef WOLFTPM_V185
+        /* TPMU_PUBLIC_ID shares the mldsa arm between MLDSA and HASH_MLDSA
+         * (Part 2 Table 225 note — one union field, two selectors). */
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA:
+            if (uniqueSz == 0) {
+                uniqueSz = keySz;
+            }
+            else if (uniqueSz > keySz) {
+                uniqueSz = keySz;
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.mldsa.buffer)) {
+                uniqueSz =
+                    (int)sizeof(publicTemplate->unique.mldsa.buffer); /* truncate */
+            }
+            if (unique == NULL) {
+                XMEMSET(publicTemplate->unique.mldsa.buffer, 0, uniqueSz);
+            }
+            else {
+                XMEMCPY(publicTemplate->unique.mldsa.buffer, unique, uniqueSz);
+            }
+            publicTemplate->unique.mldsa.size = uniqueSz;
+            break;
+        case TPM_ALG_MLKEM:
+            if (uniqueSz == 0) {
+                uniqueSz = keySz;
+            }
+            else if (uniqueSz > keySz) {
+                uniqueSz = keySz;
+            }
+            if (uniqueSz > (int)sizeof(publicTemplate->unique.mlkem.buffer)) {
+                uniqueSz =
+                    (int)sizeof(publicTemplate->unique.mlkem.buffer); /* truncate */
+            }
+            if (unique == NULL) {
+                XMEMSET(publicTemplate->unique.mlkem.buffer, 0, uniqueSz);
+            }
+            else {
+                XMEMCPY(publicTemplate->unique.mlkem.buffer, unique, uniqueSz);
+            }
+            publicTemplate->unique.mlkem.size = uniqueSz;
+            break;
+#endif /* WOLFTPM_V185 */
         case TPM_ALG_KEYEDHASH:
             /* not supported */
             ret = BAD_FUNC_ARG;
@@ -8270,6 +9239,46 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
             &in->unique.ecc.y);
         break;
+#ifdef WOLFTPM_V185
+    case TPM_ALG_MLDSA:
+        out->parameters.mldsaDetail.parameterSet =
+            in->parameters.mldsaDetail.parameterSet;
+        out->parameters.mldsaDetail.allowExternalMu =
+            in->parameters.mldsaDetail.allowExternalMu;
+        out->unique.mldsa.size = in->unique.mldsa.size;
+        if (out->unique.mldsa.size > (UINT16)sizeof(out->unique.mldsa.buffer)) {
+            out->unique.mldsa.size = (UINT16)sizeof(out->unique.mldsa.buffer);
+        }
+        XMEMCPY(out->unique.mldsa.buffer, in->unique.mldsa.buffer,
+            out->unique.mldsa.size);
+        break;
+    case TPM_ALG_HASH_MLDSA:
+        out->parameters.hash_mldsaDetail.parameterSet =
+            in->parameters.hash_mldsaDetail.parameterSet;
+        out->parameters.hash_mldsaDetail.hashAlg =
+            in->parameters.hash_mldsaDetail.hashAlg;
+        /* TPMU_PUBLIC_ID shares the mldsa arm between MLDSA and HASH_MLDSA
+         * (Part 2 Table 225 note — one union field, two selectors). */
+        out->unique.mldsa.size = in->unique.mldsa.size;
+        if (out->unique.mldsa.size > (UINT16)sizeof(out->unique.mldsa.buffer)) {
+            out->unique.mldsa.size = (UINT16)sizeof(out->unique.mldsa.buffer);
+        }
+        XMEMCPY(out->unique.mldsa.buffer, in->unique.mldsa.buffer,
+            out->unique.mldsa.size);
+        break;
+    case TPM_ALG_MLKEM:
+        wolfTPM2_CopySymmetric(&out->parameters.mlkemDetail.symmetric,
+            &in->parameters.mlkemDetail.symmetric);
+        out->parameters.mlkemDetail.parameterSet =
+            in->parameters.mlkemDetail.parameterSet;
+        out->unique.mlkem.size = in->unique.mlkem.size;
+        if (out->unique.mlkem.size > (UINT16)sizeof(out->unique.mlkem.buffer)) {
+            out->unique.mlkem.size = (UINT16)sizeof(out->unique.mlkem.buffer);
+        }
+        XMEMCPY(out->unique.mlkem.buffer, in->unique.mlkem.buffer,
+            out->unique.mlkem.size);
+        break;
+#endif /* WOLFTPM_V185 */
     default:
         wolfTPM2_CopySymmetric(&out->parameters.asymDetail.symmetric,
             &in->parameters.asymDetail.symmetric);

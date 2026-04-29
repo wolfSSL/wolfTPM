@@ -3235,6 +3235,21 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* TPM2_VerifySignature should produce TPM_ST_VERIFIED (metadata
+             * TPMS_EMPTY, no wire bytes) per Part 3 Sec.20.4.1. Parse
+             * defensively so a non-conformant TPM returning
+             * TPM_ST_DIGEST_VERIFIED does not shift the 2-byte metadata
+             * into the digest-size slot. NULL Verified Tickets always omit
+             * metadata regardless of tag. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
+                out->validation.hierarchy != TPM_RH_NULL) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
+#endif
             TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
                 out->validation.digest.buffer,
                 (UINT16)sizeof(out->validation.digest.buffer));
@@ -3293,6 +3308,491 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
     }
     return rc;
 }
+
+#ifdef WOLFTPM_V185
+/* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
+
+TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
+    SignSequenceStart_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL || out == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 1;
+        /* Part 3 Sec.17.6.3 Auth Index: None — keyHandle has no mandatory auth.
+         * Mirror TPM2_VerifySequenceStart: ENC2 only, dynamic tag from
+         * AppendAuth so the caller can drive ST_NO_SESSIONS or ST_SESSIONS
+         * (the fwTPM handler accepts both). */
+        info.flags = (CMD_FLAG_ENC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* v185 rc4 Part 3 Sec.17.6.3 Table 89 parameter order: auth, context. */
+        TPM2_Packet_AppendU16(&packet, in->auth.size);
+        TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
+
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_SignSequenceStart);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &out->sequenceHandle);
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
+    VerifySequenceStart_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL || out == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* v185 rc4 Part 3 Sec.17.6.2 Table 87 parameter order: auth, hint, context. */
+        TPM2_Packet_AppendU16(&packet, in->auth.size);
+        TPM2_Packet_AppendBytes(&packet, in->auth.buffer, in->auth.size);
+
+        TPM2_Packet_AppendU16(&packet, in->hint.size);
+        TPM2_Packet_AppendBytes(&packet, in->hint.buffer, in->hint.size);
+
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifySequenceStart);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &out->sequenceHandle);
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
+    SignSequenceComplete_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 2;
+        /* Part 3 Sec.20.6 Table 124: both @sequenceHandle and @keyHandle
+         * require USER authorization. */
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1 |
+            CMD_FLAG_AUTH_USER2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->sequenceHandle);
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        TPM2_Packet_AppendU16(&packet, in->buffer.size);
+        TPM2_Packet_AppendBytes(&packet, in->buffer.buffer, in->buffer.size);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SignSequenceComplete);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &paramSz);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
+    VerifySequenceComplete_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    /* Part 3 Sec.20.3.2 Table 118: tag is unconditionally TPM_ST_SESSIONS
+     * (Auth Role: USER on @sequenceHandle). A NULL session would force
+     * the wrapper to emit ST_NO_SESSIONS — illegal encoding. */
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 2;
+        /* Part 3 Sec.20.3 Table 118: @sequenceHandle requires USER auth;
+         * keyHandle has no auth. USER1 flag aligns the auth area with
+         * what the server parses under ST_SESSIONS. The only command
+         * parameter is `signature` (TPMT_SIGNATURE) — a discriminated
+         * union, NOT a TPM2B with a leading UINT16 size — so omit
+         * CMD_FLAG_ENC2: the dispatcher would otherwise mis-parse
+         * sigAlg as a TPM2B size if a decrypt session is attached. */
+        info.flags = CMD_FLAG_AUTH_USER1;
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->sequenceHandle);
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* Part 3 Sec.20.3 Table 118: parameters are {signature} only — no
+         * buffer field. Message was accumulated via SequenceUpdate. */
+        TPM2_Packet_AppendSignature(&packet, &in->signature);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS,
+            TPM_CC_VerifySequenceComplete);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &paramSz);
+
+            TPM2_Packet_ParseU16(&packet, &out->validation.tag);
+            TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* Spec mandates TPM_ST_MESSAGE_VERIFIED here (Part 3
+             * Sec.20.3.1, TPMS_EMPTY metadata), but parse defensively in
+             * case a non-conformant TPM returns DIGEST_VERIFIED -- mirrors
+             * TPM2_VerifyDigestSignature dispatch. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
+                out->validation.hierarchy != TPM_RH_NULL) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
+#endif
+            /* Use the helper that clamps + skips surplus bytes atomically
+             * so any future field appended after validation.digest stays
+             * aligned in the parser. */
+            TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
+                out->validation.digest.buffer,
+                (UINT16)sizeof(out->validation.digest.buffer));
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_AUTH_USER1);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* v185 rc4 Part 3 Sec.20.7.2 Table 126 parameter order:
+         * context, digest, validation. */
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
+        TPM2_Packet_AppendU16(&packet, in->digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
+
+        TPM2_Packet_AppendU16(&packet, in->validation.tag);
+        TPM2_Packet_AppendU32(&packet, in->validation.hierarchy);
+        TPM2_Packet_AppendU16(&packet, in->validation.digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->validation.digest.buffer,
+            in->validation.digest.size);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_SignDigest);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            TPM2_Packet_ParseU32(&packet, &paramSz);
+            TPM2_Packet_ParseSignature(&packet, &out->signature);
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
+    VerifyDigestSignature_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL || out == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        /* v185 rc4 Part 3 Sec.20.4.2 Table 120 parameter order:
+         * context, digest, signature. */
+        TPM2_Packet_AppendU16(&packet, in->context.size);
+        TPM2_Packet_AppendBytes(&packet, in->context.buffer, in->context.size);
+
+        TPM2_Packet_AppendU16(&packet, in->digest.size);
+        TPM2_Packet_AppendBytes(&packet, in->digest.buffer, in->digest.size);
+
+        TPM2_Packet_AppendSignature(&packet, &in->signature);
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_VerifyDigestSignature);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+
+            TPM2_Packet_ParseU16(&packet, &out->validation.tag);
+            TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
+#ifdef WOLFTPM_V185
+            /* v185 rc4 Part 2 Sec.10.6.4 Table 110 — TPMU_TK_VERIFIED_META.
+             * TPM2_VerifyDigestSignature produces TPM_ST_DIGEST_VERIFIED whose
+             * metadata carries a TPM_ALG_ID (the hash/XOF used). Other tag
+             * values carry TPMS_EMPTY metadata (zero bytes on wire).
+             * Per Part 2 Sec.10.6.5, NULL Verified Tickets always omit the
+             * metadata field — the 3-tuple is <tag, RH_NULL, 0x0000>. */
+            if (out->validation.tag == TPM_ST_DIGEST_VERIFIED &&
+                out->validation.hierarchy != TPM_RH_NULL) {
+                TPM2_Packet_ParseU16(&packet, &out->validation.metaAlg);
+            }
+            else {
+                out->validation.metaAlg = TPM_ALG_NULL;
+            }
+#endif
+            /* Atomic clamp + skip surplus, matches sibling parsers. */
+            TPM2_Packet_ParseU16Buf(&packet, &out->validation.digest.size,
+                out->validation.digest.buffer,
+                (UINT16)sizeof(out->validation.digest.buffer));
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+    TPM_ST st;
+
+    if (ctx == NULL || in == NULL || out == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.outHandleCnt = 0;
+        /* TPM2_Encapsulate has no TPM2B command parameters; the protected
+         * value is the FIRST RESPONSE parameter (sharedSecret). Use
+         * CMD_FLAG_DEC2 so an attached encrypt session can decrypt the
+         * response — CMD_FLAG_ENC2 would mark a nonexistent command-side
+         * TPM2B and never enable response decryption. */
+        info.flags = (CMD_FLAG_DEC2);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        st = TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        TPM2_Packet_Finalize(&packet, st, TPM_CC_Encapsulate);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+            UINT16 wireSize;
+            UINT16 wireSize2;
+
+            if (st == TPM_ST_SESSIONS) {
+                TPM2_Packet_ParseU32(&packet, &paramSz);
+            }
+
+            /* Parse sharedSecret with bounds checking */
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->sharedSecret.size = wireSize;
+            if (out->sharedSecret.size >
+                    (UINT16)sizeof(out->sharedSecret.buffer)) {
+                out->sharedSecret.size =
+                    (UINT16)sizeof(out->sharedSecret.buffer);
+            }
+            TPM2_Packet_ParseBytes(&packet, out->sharedSecret.buffer,
+                out->sharedSecret.size);
+            if (wireSize > out->sharedSecret.size) {
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->sharedSecret.size);
+            }
+
+            /* Parse ciphertext with bounds checking */
+            TPM2_Packet_ParseU16(&packet, &wireSize2);
+            out->ciphertext.size = wireSize2;
+            if (out->ciphertext.size >
+                    (UINT16)sizeof(out->ciphertext.buffer)) {
+                out->ciphertext.size =
+                    (UINT16)sizeof(out->ciphertext.buffer);
+            }
+            TPM2_Packet_ParseBytes(&packet, out->ciphertext.buffer,
+                out->ciphertext.size);
+            if (wireSize2 > out->ciphertext.size) {
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize2 - out->ciphertext.size);
+            }
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+
+TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
+{
+    TPM_RC rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+
+    if (ctx == NULL || in == NULL || out == NULL || ctx->session == NULL)
+        return BAD_FUNC_ARG;
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        TPM2_Packet packet;
+        CmdInfo_t info = {0,0,0,0};
+        info.inHandleCnt = 1;
+        info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 | CMD_FLAG_AUTH_USER1);
+
+        TPM2_Packet_Init(ctx, &packet);
+
+        TPM2_Packet_AppendU32(&packet, in->keyHandle);
+
+        TPM2_Packet_AppendAuth(&packet, ctx, &info);
+
+        TPM2_Packet_AppendU16(&packet, in->ciphertext.size);
+        TPM2_Packet_AppendBytes(&packet, in->ciphertext.buffer,
+            in->ciphertext.size);
+
+        TPM2_Packet_Finalize(&packet, TPM_ST_SESSIONS, TPM_CC_Decapsulate);
+
+        /* send command */
+        rc = TPM2_SendCommandAuth(ctx, &packet, &info);
+        if (rc == TPM_RC_SUCCESS) {
+            UINT32 paramSz = 0;
+            UINT16 wireSize;
+
+            TPM2_Packet_ParseU32(&packet, &paramSz);
+
+            /* Parse sharedSecret with bounds checking */
+            TPM2_Packet_ParseU16(&packet, &wireSize);
+            out->sharedSecret.size = wireSize;
+            if (out->sharedSecret.size >
+                    (UINT16)sizeof(out->sharedSecret.buffer)) {
+                out->sharedSecret.size =
+                    (UINT16)sizeof(out->sharedSecret.buffer);
+            }
+            TPM2_Packet_ParseBytes(&packet, out->sharedSecret.buffer,
+                out->sharedSecret.size);
+            if (wireSize > out->sharedSecret.size) {
+                TPM2_Packet_ParseBytes(&packet, NULL,
+                    wireSize - out->sharedSecret.size);
+            }
+        }
+
+        TPM2_ReleaseLock(ctx);
+    }
+    return rc;
+}
+#endif /* WOLFTPM_V185 */
 
 TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
 {
@@ -6379,6 +6879,14 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
             return "AES-CFB";
         case TPM_ALG_ECB:
             return "AES-ECB";
+#ifdef WOLFTPM_V185
+        case TPM_ALG_MLKEM:
+            return "ML-KEM";
+        case TPM_ALG_MLDSA:
+            return "ML-DSA";
+        case TPM_ALG_HASH_MLDSA:
+            return "HashML-DSA";
+#endif
         default:
             break;
     }
@@ -6845,6 +7353,31 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             TPM2_PrintBin(pub->publicArea.unique.ecc.y.buffer, pub->publicArea.unique.ecc.y.size);
             #endif
             break;
+#ifdef WOLFTPM_V185
+        case TPM_ALG_MLDSA:
+        case TPM_ALG_HASH_MLDSA:
+            printf("  %s: parameterSet 0x%X, unique size %d\n",
+                (pub->publicArea.type == TPM_ALG_MLDSA)
+                    ? "ML-DSA" : "Hash-ML-DSA",
+                (pub->publicArea.type == TPM_ALG_MLDSA)
+                    ? pub->publicArea.parameters.mldsaDetail.parameterSet
+                    : pub->publicArea.parameters.hash_mldsaDetail.parameterSet,
+                pub->publicArea.unique.mldsa.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
+            TPM2_PrintBin(pub->publicArea.unique.mldsa.buffer,
+                pub->publicArea.unique.mldsa.size);
+            #endif
+            break;
+        case TPM_ALG_MLKEM:
+            printf("  ML-KEM: parameterSet 0x%X, unique size %d\n",
+                pub->publicArea.parameters.mlkemDetail.parameterSet,
+                pub->publicArea.unique.mlkem.size);
+            #ifdef WOLFTPM_DEBUG_VERBOSE
+            TPM2_PrintBin(pub->publicArea.unique.mlkem.buffer,
+                pub->publicArea.unique.mlkem.size);
+            #endif
+            break;
+#endif /* WOLFTPM_V185 */
         default:
             /* derive does not seem to have specific fields in the parameters struct */
             printf("Derive Type: unique label size %d, context size %d\n",

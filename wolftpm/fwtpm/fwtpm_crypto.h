@@ -76,14 +76,19 @@ byte* FwGetHierarchySeed(FWTPM_CTX* ctx, UINT32 hierarchy);
 int FwComputeProofValue(FWTPM_CTX* ctx, UINT32 hierarchy,
     TPMI_ALG_HASH hashAlg, byte* proofOut, int proofSize);
 
+/* Compute ticket HMAC per Part 2 Sec.10.6.5 Eq (5):
+ *   hmac = HMAC(proof(hierarchy), ticketTag || data || metadata)
+ * Pass metadata=NULL/0 for tags whose TPMU_TK_VERIFIED_META is empty. */
 int FwComputeTicketHmac(FWTPM_CTX* ctx, UINT32 hierarchy,
-    TPMI_ALG_HASH hashAlg,
+    TPMI_ALG_HASH hashAlg, UINT16 ticketTag,
     const byte* data, int dataSz,
+    const byte* metadata, int metadataSz,
     byte* hmacOut, int* hmacOutSz);
 
 int FwAppendTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT16 ticketTag, UINT32 hierarchy, TPMI_ALG_HASH hashAlg,
-    const byte* data, int dataSz);
+    const byte* data, int dataSz,
+    const byte* metadata, int metadataSz);
 
 int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     UINT32 hierarchy, TPMI_ALG_HASH nameAlg,
@@ -134,6 +139,92 @@ TPM_RC FwDeriveRsaPrimaryKey(TPMI_ALG_HASH nameAlg,
     byte* privKeyDer, int privKeyDerBufSz, int* privKeyDerSz);
 #endif /* WOLFSSL_KEY_GEN */
 #endif /* !NO_RSA */
+
+#ifdef WOLFTPM_V185
+/* v1.85 PQC primary-key derivation.
+ * KDFa labels used here (interpretation — Part 4 v185 is unpublished
+ * so these may change if the final normative text differs):
+ *   "MLDSA"       for TPM_ALG_MLDSA (Pure ML-DSA)
+ *   "HASH_MLDSA"  for TPM_ALG_HASH_MLDSA (pre-hash variant)
+ *   "MLKEM"       for TPM_ALG_MLKEM
+ * The derived seed is fed into FIPS 203/204 deterministic keygen.
+ * Private key on the wire is the seed itself (32 B Xi / 64 B d||z)
+ * per TCG v1.85 Part 2 Tables 206 and 210. */
+TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    const char* label, byte* seedXiOut);
+
+TPM_RC FwDeriveMlkemPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
+    const byte* seed, const byte* hashUnique, int hashUniqueSz,
+    byte* seedDZOut);
+
+TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    TPM2B_PUBLIC_KEY_MLDSA* pubOut);
+
+TPM_RC FwGenerateMlkemKey(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    TPM2B_PUBLIC_KEY_MLKEM* pubOut);
+
+/* v1.85 ML-KEM Encapsulate / Decapsulate (Part 3 Sec.14.10, Sec.14.11).
+ * Decapsulate regenerates the keypair from the 64-byte stored seed; no
+ * expanded private key is persisted. */
+TPM_RC FwEncapsulateMlkem(WC_RNG* rng,
+    TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLKEM* pubIn,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut);
+
+TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
+    const byte* seedDZ,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut);
+
+/* v1.85 ECC DHKEM Encapsulate/Decapsulate per Part 2 Sec.12.2.3.5 +
+ * RFC 9180 Sec.4.1. Curve must be paired with HKDF hash:
+ * P-256/SHA256 (kem_id 0x0010), P-384/SHA384 (0x0011), P-521/SHA512 (0x0012).
+ * Mismatched pairings return TPM_RC_KDF. */
+TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
+    const TPMT_PUBLIC* recipPub, TPMI_ALG_HASH kdfHash,
+    TPM2B_SHARED_SECRET* sharedSecretOut,
+    TPM2B_KEM_CIPHERTEXT* ciphertextOut);
+
+TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
+    TPMI_ALG_HASH kdfHash,
+    const byte* ctBuf, UINT16 ctSize,
+    TPM2B_SHARED_SECRET* sharedSecretOut);
+
+/* v1.85 ML-DSA sign/verify helpers. Sign helpers rebuild the keypair
+ * deterministically from the stored 32-byte xi seed (no expanded private
+ * key persisted). Verify helpers import the public-key bytes. */
+TPM_RC FwSignMldsaMessage(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut);
+
+TPM_RC FwVerifyMldsaMessage(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    const byte* msg, int msgSz,
+    const byte* sig, int sigSz);
+
+TPM_RC FwSignMldsaHash(WC_RNG* rng,
+    TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const byte* seedXi,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    TPM2B_MLDSA_SIGNATURE* sigOut);
+
+TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
+    const TPM2B_PUBLIC_KEY_MLDSA* pubIn,
+    const byte* context, int contextSz,
+    TPMI_ALG_HASH hashAlg,
+    const byte* digest, int digestSz,
+    const byte* sig, int sigSz);
+#endif /* WOLFTPM_V185 */
 
 /* --- Key wrapping --- */
 

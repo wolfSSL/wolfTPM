@@ -457,6 +457,12 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 | `FWTPM_MAX_PUB_BUF` | 512 | Internal buffer for public area, signatures |
 | `FWTPM_MAX_DER_SIG_BUF` | 256 | Internal buffer for DER signatures, ECC points |
 | `FWTPM_MAX_ATTEST_BUF` | 1024 | Internal buffer for attestation marshaling |
+| `FWTPM_MAX_CMD_AUTHS` | 3 | Maximum authorization sessions per command (TPM-spec hard cap) |
+| `FWTPM_MAX_SENSITIVE_SIZE` | `FWTPM_MAX_PRIVKEY_DER + 128` | Maximum marshaled sensitive area (private key + auth + nonce headroom) |
+| `FWTPM_MAX_SIGN_SEQ` | 4 | Maximum concurrent v1.85 PQC sign/verify sequences |
+| `FWTPM_MAX_SYM_KEY_SIZE` | 32 | Symmetric key buffer (sized for AES-256) |
+| `FWTPM_MAX_HMAC_KEY_SIZE` | 64 | HMAC key buffer (sized for SHA-512 block) |
+| `FWTPM_MAX_HMAC_DIGEST_SIZE` | 64 | HMAC output buffer (sized for SHA-512) |
 | `FWTPM_CMD_PORT` | 2321 | Default TCP command port |
 | `FWTPM_PLAT_PORT` | 2322 | Default TCP platform port |
 | `FWTPM_NV_FILE` | `"fwtpm_nv.bin"` | Default NV storage file path |
@@ -473,6 +479,49 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 
 Note: `WOLFTPM_SMALL_STACK` and `WOLFTPM2_NO_HEAP` are mutually exclusive and
 will produce a compile error if both are defined.
+
+### v1.85 Embedded RAM Impact
+
+Enabling `--enable-pqc` (or `--enable-v185`) lifts several internal buffers
+to accommodate PQC key/signature sizes. The defaults **auto-shrink at compile
+time** based on
+which ML-DSA / ML-KEM parameter sets wolfCrypt was actually built with
+(`WOLFSSL_NO_ML_DSA_44/65/87`, `WOLFSSL_NO_KYBER512/768/1024`) — boards
+that only enable the smaller params get smaller buffers automatically, no
+per-board override required.
+
+**Buffer sizes by enabled parameter set:**
+
+| Macro | Classical | MLDSA-44 + MLKEM-512 | MLDSA-65 + MLKEM-768 | MLDSA-87 + MLKEM-1024 |
+|-------|-----------|----------------------|----------------------|------------------------|
+| `FWTPM_TIS_FIFO_SIZE`     | 4096 | 4096 | 8192 | 8192 |
+| `FWTPM_MAX_COMMAND_SIZE`  | 4096 | 4096 | 8192 | 8192 |
+| `FWTPM_MAX_PUB_BUF`       | 512  | 1440 | 2080 | 2720 |
+| `FWTPM_MAX_DER_SIG_BUF`   | 256  | 2548 | 3437 | 4755 |
+| `FWTPM_MAX_KEM_CT_BUF`    | n/a  | 832  | 1152 | 1632 |
+
+Sizing logic lives in `wolftpm/fwtpm/fwtpm.h` (constants
+`FWTPM_MAX_MLDSA_SIG_SIZE`, `FWTPM_MAX_MLDSA_PUB_SIZE`,
+`FWTPM_MAX_MLKEM_CT_SIZE`, `FWTPM_MAX_MLKEM_PUB_SIZE`) and
+`wolftpm/fwtpm/fwtpm_tis.h` (FIFO size). The MLDSA constants come from
+wolfCrypt's `DILITHIUM_LEVEL{2,3,5}_*_SIZE` macros; the MLKEM constants
+are FIPS 203 spec values (wolfCrypt's `WC_ML_KEM_*_SIZE` macros aren't
+preprocessor-evaluable).
+
+The 8192 lifts on FIFO/command buffers only kick in when MLDSA-65 or
+MLDSA-87 is enabled (their signatures don't fit a 4096 response with
+TPM headers). MLDSA-44-only and MLKEM-only v1.85 builds stay at 4096.
+
+**Per-deployment override:** every macro above is still `#ifndef`-guarded,
+so a board can override individually on the compile line if the auto
+default is wrong for its workload (e.g. `-DFWTPM_TIS_FIFO_SIZE=2048`).
+
+**Heap-vs-stack:** building with `WOLFTPM_SMALL_STACK` moves the large
+per-call buffers off the stack into `XMALLOC`/`XFREE` regions. The PQC
+paths already use `FWTPM_DECLARE_BUF` / `FWTPM_ALLOC_BUF` which respect
+this flag, so no source changes are required. `WOLFTPM2_NO_HEAP` is
+supported but pays full stack cost — pair it with the smallest PQC
+parameter set you can.
 
 ### Algorithm Feature Macros
 
@@ -686,3 +735,118 @@ re-deriving expensive RSA keys on repeated `CreatePrimary` calls.
 Hierarchy seeds are managed by `ChangePPS` (platform) and `ChangeEPS` (endorsement).
 `Clear` regenerates owner and endorsement seeds. The null seed is re-randomized on
 every `Startup(CLEAR)`.
+
+
+## TPM 2.0 v1.85 Post-Quantum Support
+
+Enabled with `--enable-pqc` (alias `--enable-v185`) at configure time, or
+auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has
+both Dilithium and ML-KEM available. Both flags set the internal
+`WOLFTPM_V185` macro that gates the implementation. Pass `--disable-pqc`
+to opt out when auto-detect would otherwise enable it. Implements the
+post-quantum additions from TCG TPM 2.0 Library Specification v1.85 using
+wolfCrypt's FIPS 203 / FIPS 204 modules.
+
+### Algorithms
+
+| Alg | Parameter Sets | Use |
+|---|---|---|
+| `TPM_ALG_MLKEM` (0x00A0) | MLKEM-512 / 768 / 1024 | Key encapsulation (decrypt-only keys) |
+| `TPM_ALG_MLDSA` (0x00A1) | MLDSA-44 / 65 / 87 | Pure ML-DSA message signing |
+| `TPM_ALG_HASH_MLDSA` (0x00A2) | MLDSA-44 / 65 / 87 | Pre-hashed ML-DSA signing |
+
+### Commands
+
+The eight v1.85 PQC commands in `src/fwtpm/fwtpm_command.c`:
+
+| Command | CC | Purpose |
+|---|---|---|
+| `TPM2_Encapsulate` | `0x000001A7` | ML-KEM encapsulation, returns sharedSecret + ciphertext |
+| `TPM2_Decapsulate` | `0x000001A8` | ML-KEM decapsulation from ciphertext (requires USER auth) |
+| `TPM2_SignSequenceStart` | `0x000001AA` | Begin ML-DSA sign sequence |
+| `TPM2_SignSequenceComplete` | `0x000001A4` | Finalize sign sequence with message buffer |
+| `TPM2_VerifySequenceStart` | `0x000001A9` | Begin ML-DSA verify sequence |
+| `TPM2_VerifySequenceComplete` | `0x000001A3` | Finalize verify sequence, returns TPMT_TK_VERIFIED |
+| `TPM2_SignDigest` | `0x000001A6` | One-shot digest sign (Hash-ML-DSA or ext-μ ML-DSA) |
+| `TPM2_VerifyDigestSignature` | `0x000001A5` | Verify digest signature |
+
+### Primary Key Derivation
+
+PQC primary keys follow the same deterministic derivation model as RSA/ECC:
+hierarchy seed + template → KDFa-derived seed → FIPS 203/204 key expansion.
+
+- **ML-DSA**: `KDFa(nameAlg, seed, "MLDSA", hashUnique) → 32-byte Xi` →
+  `wc_dilithium_make_key_from_seed` → (pub, expanded-priv). The wire format stores
+  only the 32-byte Xi per TCG Part 2 Table 210.
+- **Hash-ML-DSA**: label is `"HASH_MLDSA"`; same seed size and expansion.
+- **ML-KEM**: `KDFa(nameAlg, seed, "MLKEM", hashUnique) → 64-byte (d‖z)` →
+  `wc_MlKemKey_MakeKeyWithRandom` → (ek, dk). Wire format stores only 64-byte
+  seed per TCG Part 2 Table 206.
+
+These label strings are an interpretation — TCG Part 4 v185 (which would
+normatively specify them) is unpublished, so they are subject to change
+if rc5 / Part 4 v185 prescribe different labels.
+
+### Sign / Verify Sequences
+
+Pure ML-DSA is **one-shot** — `TPM2_SequenceUpdate` on a Pure ML-DSA sign
+sequence returns `TPM_RC_ONE_SHOT_SIGNATURE`; the message must arrive via the
+`buffer` parameter of `TPM2_SignSequenceComplete`. Verify sequences accumulate
+the message via `TPM2_SequenceUpdate` since `TPM2_VerifySequenceComplete` has no
+buffer parameter.
+
+Hash-ML-DSA sequences (both sign and verify) use wolfCrypt's `wc_HashAlg` context
+to stream the message into the key's hash algorithm; `TPM2_SignSequenceComplete`
+finalizes the hash and calls `wc_dilithium_sign_ctx_hash`.
+
+Signature wire formats differ per spec Part 2 Table 217:
+
+- **Pure ML-DSA** → `TPM2B_SIGNATURE_MLDSA`: `sigAlg + size + bytes`
+- **Hash-ML-DSA** → `TPMS_SIGNATURE_HASH_MLDSA`: `sigAlg + hashAlg + size + bytes`
+
+### Buffer Constants
+
+Under `WOLFTPM_V185`, buffers are lifted to accommodate ML-DSA-87 signatures
+(4627 bytes) and public keys (2592 bytes):
+
+| Symbol | v1.38 | v1.85 |
+|---|---|---|
+| `FWTPM_MAX_COMMAND_SIZE` | 4096 | 8192 |
+| `FWTPM_MAX_PUB_BUF` | 512 | 2720 |
+| `FWTPM_MAX_DER_SIG_BUF` | 256 | 4736 |
+| `FWTPM_MAX_KEM_CT_BUF` | — | 1600 |
+| `FWTPM_TIS_FIFO_SIZE` | 4096 | 8192 |
+| `FWTPM_NV_PUBAREA_EST` | 600 | 2720 |
+
+### Deferred / Out of Scope
+
+Three v1.85 features are deferred with documented reasons:
+
+1. **ML-KEM-salted sessions** — Part 3 Sec.11.1 (`TPM2_StartAuthSession`) does not
+   describe an ML-KEM bullet alongside RSA-OAEP and ECDH paths, even though
+   Part 2 Sec.11.4.2 Table 222 defines the `mlkem` arm of `TPMU_ENCRYPTED_SECRET`.
+   Part 4 v185 (which would normatively specify this) is not yet published.
+   Current behavior: `TPM2_StartAuthSession` returns `TPM_RC_KEY` for ML-KEM
+   tpmKey; revisit when Part 4 v185 lands.
+2. **External-μ ML-DSA signing** — wolfCrypt has no μ-direct sign API. Part 2
+   Sec.12.2.3.7 text says "512-byte external Mu" but FIPS 204 Algorithm 7 Line 6
+   produces 64 bytes (SHAKE256 output). Pending wolfCrypt API addition and
+   TCG errata confirmation. Current behavior: `TPM_RC_SCHEME` for ext-μ paths,
+   `TPM_RC_EXT_MU` for Pure ML-DSA keys without `allowExternalMu`. See DEC-0006.
+3. **ECC KEM arm of Encapsulate/Decapsulate** — Part 2 Sec.10.3.13 Table 100 has
+   both `mlkem` and `ecdh` arms, but the table note explicitly allows
+   implementations to modify the union based on supported algorithms. Current
+   fwTPM supports the `mlkem` arm only.
+
+### Test Coverage
+
+`tests/fwtpm_unit_tests.c` includes ten PQC tests exercising the full path:
+
+- CreatePrimary for MLKEM-768 and MLDSA-65
+- Full Encap/Decap round-trip (shared secret byte match)
+- Hash-ML-DSA SignDigest / VerifyDigestSignature round-trip
+- Pure ML-DSA sign sequence + verify sequence round-trip
+- Dual-source KAT tests (NIST ACVP + wolfSSL internal vectors) for MLDSA-44
+  verify, MLDSA-44 keygen determinism, MLKEM-512 encapsulation with pinned
+  randomness, and MLKEM-512 keygen determinism
+- LoadExternal of a NIST ACVP MLDSA-44 public key through the fwTPM handler

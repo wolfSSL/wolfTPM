@@ -31,6 +31,40 @@ jobs:
             cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=leak"
 
+          # v1.85 PQC sanitizer coverage — three entries because each catches
+          # a different bug class. SWTPM transport is the Linux configure
+          # default (configure.ac:287); explicit flag omitted everywhere.
+          # ASan: heap-buffer-overflow / use-after-scope on the new sequence-
+          # handle objects + PQC marshaling paths.
+          - name: "ASan-v185"
+            cflags: "-fsanitize=address -O1 -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=address"
+            asan_options: "detect_leaks=0"
+            wolftpm_extra_config: "--enable-v185"
+            wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+
+          # UBSan-v185: enables undefined-behavior checks but disables
+          # `alignment` (wolfSSL dilithium internal sword32 reads from
+          # byte buffers) and the integer overflow/shift checks (wolfSSL
+          # Hash_df 440<<24) — both pre-existing wolfSSL UB.
+          - name: "UBSan-v185"
+            cc: clang
+            cflags: "-fsanitize=undefined -fno-sanitize=alignment,signed-integer-overflow,shift -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=undefined"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
+            wolftpm_extra_config: "--enable-v185"
+            wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+
+          # MSan-v185: Pure ML-DSA one-shot signing and streaming Hash-ML-DSA
+          # both allocate sequence-handle state incrementally — partial-init
+          # reads on those buffers are MSan territory, not ASan.
+          - name: "MSan-v185"
+            cc: clang
+            cflags: "-fsanitize=memory -fsanitize-memory-track-origins=2 -fno-omit-frame-pointer -O1 -g"
+            ldflags: "-fsanitize=memory"
+            wolftpm_extra_config: "--enable-v185"
+            wolfssl_extra_config: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+
     steps:
       - name: Workaround high-entropy ASLR
         run: sudo sysctl vm.mmap_rnd_bits=28
@@ -53,7 +87,8 @@ jobs:
         working-directory: ./wolfssl
         run: |
           ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+          CC=${{ matrix.cc || 'gcc' }} ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              ${{ matrix.wolfssl_extra_config }} \
               --prefix=/tmp/wolfssl-install \
               CFLAGS="-DWC_RSA_NO_PADDING ${{ matrix.cflags }}" \
               LDFLAGS="${{ matrix.ldflags }}"
@@ -63,7 +98,8 @@ jobs:
       - name: Build wolfTPM with fwTPM + ${{ matrix.name }}
         run: |
           ./autogen.sh
-          ./configure --enable-fwtpm --enable-swtpm --enable-debug \
+          CC=${{ matrix.cc || 'gcc' }} ./configure --enable-fwtpm --enable-swtpm --enable-debug \
+              ${{ matrix.wolftpm_extra_config }} \
               --with-wolfcrypt=/tmp/wolfssl-install \
               CFLAGS="${{ matrix.cflags }}" \
               LDFLAGS="${{ matrix.ldflags }}"

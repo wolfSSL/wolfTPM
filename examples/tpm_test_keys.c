@@ -136,41 +136,58 @@ int readBin(const char* filename, byte *buf, word32* bufSz)
 int writeKeyBlob(const char* filename,
                         WOLFTPM2_KEYBLOB* key)
 {
-    int rc = 0;
+    int rc = TPM_RC_FAILURE;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE  fp = NULL;
     size_t fileSz = 0;
+    size_t expectedSz;
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     int pubAreaSize;
 
     fp = XFOPEN(filename, "wb");
-    if (fp != XBADFILE) {
-        /* Make publicArea in encoded format to eliminate empty fields,
-         * save space */
-        rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
-            &pubAreaSize, &key->pub);
-        if (rc != TPM_RC_SUCCESS) {
-            XFCLOSE(fp);
-            return rc;
-        }
-        if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
-            printf("writeKeyBlob: Sanity check for publicArea size failed\n");
-            XFCLOSE(fp);
-            return BUFFER_E;
-        }
-    #ifdef WOLFTPM_DEBUG_VERBOSE
-        TPM2_PrintBin(pubAreaBuffer, pubAreaSize);
-    #endif
-        /* Write size marker for the public part */
-        fileSz += XFWRITE(&key->pub.size, 1, sizeof(key->pub.size), fp);
-        /* Write the public part with bytes aligned */
-        fileSz += XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
-        /* Write the private part, size marker is included */
-        fileSz += XFWRITE(&key->priv, 1, sizeof(UINT16) + key->priv.size, fp);
-        XFCLOSE(fp);
+    if (fp == XBADFILE) {
+        printf("writeKeyBlob: cannot open %s for writing\n", filename);
+        return TPM_RC_FAILURE;
     }
+
+    /* Make publicArea in encoded format to eliminate empty fields,
+     * save space */
+    rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+        &pubAreaSize, &key->pub);
+    if (rc != TPM_RC_SUCCESS) {
+        XFCLOSE(fp);
+        return rc;
+    }
+    if (pubAreaSize != (key->pub.size + (int)sizeof(key->pub.size))) {
+        printf("writeKeyBlob: Sanity check for publicArea size failed\n");
+        XFCLOSE(fp);
+        return BUFFER_E;
+    }
+#ifdef WOLFTPM_DEBUG_VERBOSE
+    TPM2_PrintBin(pubAreaBuffer, pubAreaSize);
+#endif
+    /* Write size marker for the public part */
+    fileSz += XFWRITE(&key->pub.size, 1, sizeof(key->pub.size), fp);
+    /* Write the public part with bytes aligned */
+    fileSz += XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + key->pub.size, fp);
+    /* Write the private part, size marker is included */
+    fileSz += XFWRITE(&key->priv, 1, sizeof(UINT16) + key->priv.size, fp);
+    XFCLOSE(fp);
+
+    expectedSz = sizeof(key->pub.size)
+               + sizeof(UINT16) + key->pub.size
+               + sizeof(UINT16) + key->priv.size;
     printf("Wrote %d bytes to %s\n", (int)fileSz, filename);
+    if (fileSz != expectedSz) {
+        printf("writeKeyBlob: short write %d/%d to %s\n",
+            (int)fileSz, (int)expectedSz, filename);
+        return TPM_RC_FAILURE;
+    }
+    rc = TPM_RC_SUCCESS;
 #else
+    /* No-op success on embedded builds without a filesystem; preserves the
+     * pre-fix ABI so callers like keygen.c don't fail unconditionally. */
+    rc = TPM_RC_SUCCESS;
     (void)filename;
     (void)key;
 #endif /* !NO_FILESYSTEM && !NO_WRITE_TEMP_FILES */

@@ -303,6 +303,24 @@ jobs:
             test_command: "make check && WOLFSSL_PATH=./wolfssl NO_PUBASPRIV=1 ./examples/run_examples.sh"
             needs_install: true
 
+          # v1.85 PQC: swtpm-backed wrapper coverage. Triggers run_examples.sh
+          # Build-only: --enable-v185 against PQC+pkcallbacks wolfSSL. swtpm
+          # has no PQC, so runtime PQC tests live in fwtpm-v185.
+          - name: v185-pqc-swtpm-build
+            wolfssl_config: "--enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+            wolftpm_config: "--enable-v185"
+            test_command: "make"
+
+          # Regression: build the v185-pq-support branch WITHOUT --enable-v185
+          # to catch #ifdef WOLFTPM_V185 drift in tpm2_packet.c / tpm2_wrap.c
+          # (a PQC-only declaration leaking out of its guard breaks classical
+          # builds and would otherwise be invisible in CI — every other
+          # classical entry runs against master, never against this branch).
+          - name: v138-regression-after-v185
+            wolfssl_config: "--enable-wolftpm --enable-pkcallbacks --enable-keygen"
+            wolftpm_config: "--enable-fwtpm"
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@master

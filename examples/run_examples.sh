@@ -25,6 +25,30 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
+# Detect WOLFTPM_V185 (post-quantum keys). Probe several known generated /
+# installed header locations: autoconf may write src/config.h or config.h
+# depending on AC_CONFIG_HEADERS, and tracked headers under wolftpm/ may
+# also gate the macro. ENABLE_V185 may be set by the caller to override.
+if [ -z "$ENABLE_V185" ]; then
+    ENABLE_V185=0
+    for cfg in src/config.h config.h ../src/config.h ../config.h \
+               wolftpm/options.h wolftpm/version.h; do
+        if [ -f "$cfg" ] && grep -qE \
+                '^[[:space:]]*#[[:space:]]*define[[:space:]]+WOLFTPM_V185([[:space:]]|$)' \
+                "$cfg"; then
+            ENABLE_V185=1
+            break
+        fi
+    done
+    # Last-resort fallback: if any built example links a v1.85-only symbol
+    # we can ask `nm` directly. nm's quiet on missing files; safe to try.
+    if [ "$ENABLE_V185" = "0" ] && [ -x ./examples/keygen/keygen ]; then
+        if nm ./examples/keygen/keygen 2>/dev/null | \
+                grep -q "FwGenerateMlkemKey\|wolfTPM2_GetKeyTemplate_MLKEM"; then
+            ENABLE_V185=1
+        fi
+    fi
+fi
 rm -f run.out
 touch run.out
 
@@ -57,6 +81,8 @@ wait_for_port() {
 # Clean stale key blobs and certs from prior runs.
 # These depend on TPM NV state (SRK seed), so they're invalid after NV wipe.
 rm -f keyblob.bin rsa_test_blob.raw ecc_test_blob.raw
+rm -f eccblob.bin ecckeyblob.bin ecckeyblobeh.bin
+rm -f rsakeyblob.bin rsakeyblobeh.bin
 rm -f ./certs/tpm-rsa-cert.pem ./certs/tpm-ecc-cert.pem
 rm -f ./certs/tpm-rsa-cert.csr ./certs/tpm-ecc-cert.csr
 rm -f ./certs/server-rsa-cert.pem ./certs/server-ecc-cert.pem
@@ -265,7 +291,47 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
         fi
     fi
 fi
-rm -f ececcblob.bin
+rm -f eccblob.bin
+
+if [ $ENABLE_V185 -eq 1 ]; then
+    echo -e "PQC Key Generation Tests (v1.85)"
+    for PS in 44 65 87; do
+        ./examples/keygen/keygen pqcblob.bin -mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen mldsa=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload mldsa=$PS failed! $RESULT" && exit 1
+
+        ./examples/keygen/keygen pqcblob.bin -hash_mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen hash_mldsa=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload hash_mldsa=$PS failed! $RESULT" && exit 1
+    done
+    for PS in 512 768 1024; do
+        ./examples/keygen/keygen pqcblob.bin -mlkem=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keygen mlkem=$PS failed! $RESULT" && exit 1
+        ./examples/keygen/keyload pqcblob.bin >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "keyload mlkem=$PS failed! $RESULT" && exit 1
+    done
+    rm -f pqcblob.bin
+
+    echo -e "PQC standalone examples (mldsa_sign, mlkem_encap)"
+    for PS in 44 65 87; do
+        ./examples/pqc/mldsa_sign -mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mldsa_sign mldsa=$PS failed! $RESULT" && exit 1
+    done
+    for PS in 512 768 1024; do
+        ./examples/pqc/mlkem_encap -mlkem=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mlkem_encap mlkem=$PS failed! $RESULT" && exit 1
+    done
+fi
 
 
 # KeyGen AES Tests

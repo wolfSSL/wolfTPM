@@ -47,8 +47,22 @@
 #define FWTPM_NV_MAX_SIZE  (128 * 1024)
 #endif
 
-/* NV marshal size estimates (conservative upper bounds) */
-#define FWTPM_NV_PUBAREA_EST   600   /* TPMT_PUBLIC max marshaled size */
+/* PUBAREA_EST: largest enabled PQC pub key + 128 B TPMT_PUBLIC header
+ * slack, or 600 classical floor — whichever is bigger. */
+#ifdef WOLFTPM_V185
+    #if FWTPM_MAX_MLDSA_PUB_SIZE >= FWTPM_MAX_MLKEM_PUB_SIZE
+        #define FWTPM_NV_PUBAREA_UNIQUE  FWTPM_MAX_MLDSA_PUB_SIZE
+    #else
+        #define FWTPM_NV_PUBAREA_UNIQUE  FWTPM_MAX_MLKEM_PUB_SIZE
+    #endif
+    #if FWTPM_NV_PUBAREA_UNIQUE > 472   /* 600 - 128 = classical floor */
+        #define FWTPM_NV_PUBAREA_EST  (FWTPM_NV_PUBAREA_UNIQUE + 128)
+    #else
+        #define FWTPM_NV_PUBAREA_EST  600
+    #endif
+#else
+#define FWTPM_NV_PUBAREA_EST   600
+#endif
 #define FWTPM_NV_NAME_EST       66   /* 2 (alg) + 64 (SHA-512 digest) */
 #define FWTPM_NV_AUTH_EST       68   /* 2 (size) + 2 (alg) + 64 (digest) */
 

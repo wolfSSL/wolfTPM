@@ -109,8 +109,10 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&hmac, 0, sizeof(hmac));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+    XMEMSET(&cipher, 0, sizeof(cipher));
 
     printf("TPM2.0 HMAC example\n");
     printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));

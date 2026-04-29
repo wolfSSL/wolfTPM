@@ -38,6 +38,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
+* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has Dilithium + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -60,6 +61,65 @@ Features:
 * `WOLFTPM_SMALL_STACK` support for constrained environments
 
 See [docs/FWTPM.md](docs/FWTPM.md) for build instructions, configuration, and API reference.
+
+
+## Post-Quantum Cryptography (v1.85)
+
+wolfTPM implements the post-quantum algorithms added in **TCG TPM 2.0
+Library Specification v1.85**, built on wolfCrypt's FIPS 203 (ML-KEM)
+and FIPS 204 (ML-DSA) modules.
+
+Supported algorithms:
+
+| Algorithm | Standard | Parameter sets |
+|---|---|---|
+| ML-DSA (signing) | FIPS 204 | ML-DSA-44 / 65 / 87 |
+| Hash-ML-DSA (pre-hash signing) | FIPS 204 | ML-DSA-44 / 65 / 87 with caller hash |
+| ML-KEM (key encapsulation) | FIPS 203 | ML-KEM-512 / 768 / 1024 |
+
+The examples run against the in-tree fwTPM server. No shipping hardware
+TPM firmware implements v1.85 PQC yet; upgrade paths for discrete chips
+are forward-compatible — the same wrapper API targets both.
+
+### Building
+
+**wolfSSL** (ML-DSA and ML-KEM in wolfCrypt):
+
+```
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            --enable-dilithium --enable-mlkem --enable-experimental \
+            --enable-harden CFLAGS="-DWC_RSA_NO_PADDING"
+make
+sudo make install
+```
+
+**wolfTPM**:
+
+```
+./configure --enable-fwtpm --enable-pqc
+make
+```
+
+`--enable-pqc` is an alias for `--enable-v185`; both turn on the same
+WOLFTPM_V185 build flag. If you omit them but `--enable-fwtpm` is set
+and wolfCrypt has ML-DSA + ML-KEM available, configure auto-detects
+PQC and enables it. Pass `--disable-pqc` to opt out explicitly.
+
+### Running the examples
+
+```
+make check
+```
+
+See [examples/pqc/README.md](examples/pqc/README.md) for per-example
+details (`pqc_mssim_e2e`, `mlkem_encap`) and PQC options on the
+general-purpose `keygen`/`keyload` tools (`-mldsa`, `-hash_mldsa`,
+`-mlkem`).
+
+For the fwTPM server's PQC internals — the eight v1.85 commands,
+primary-key derivation, buffer constants, and spec-interpretation
+decisions — see
+[docs/FWTPM.md](docs/FWTPM.md#tpm-20-v185-post-quantum-support).
 
 
 ## TPM 2.0 Overview

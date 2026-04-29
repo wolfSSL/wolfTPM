@@ -15,14 +15,34 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Full fuzz run (weekly/manual) - 10 minutes
+          # Classical (v1.38) full fuzz run (weekly/manual) - 10 minutes
           - name: fuzz-full
             fuzz_time: 600
             smoke_only: false
-          # Quick smoke test (PR) - 60 seconds
+            wolfssl_extra_flags: ""
+            wolftpm_extra_flags: ""
+            max_len: 4096
+          # Classical (v1.38) quick smoke test (PR) - 60 seconds
           - name: fuzz-smoke
             fuzz_time: 60
             smoke_only: true
+            wolfssl_extra_flags: ""
+            wolftpm_extra_flags: ""
+            max_len: 4096
+          # v1.85 PQC full fuzz run (weekly/manual) - 10 minutes
+          - name: fuzz-full-pqc
+            fuzz_time: 600
+            smoke_only: false
+            wolfssl_extra_flags: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+            wolftpm_extra_flags: "--enable-v185"
+            max_len: 8192
+          # v1.85 PQC quick smoke test (PR) - 60 seconds
+          - name: fuzz-smoke-pqc
+            fuzz_time: 60
+            smoke_only: true
+            wolfssl_extra_flags: "--enable-dilithium --enable-mlkem --enable-experimental --enable-harden"
+            wolftpm_extra_flags: "--enable-v185"
+            max_len: 8192
 
     steps:
       - name: Checkout wolfTPM
@@ -42,6 +62,7 @@ jobs:
         run: |
           ./autogen.sh
           CC=clang ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            ${{ matrix.wolfssl_extra_flags }} \
             CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING" \
             LDFLAGS="-fsanitize=address"
           make -j$(nproc)
@@ -52,12 +73,39 @@ jobs:
         run: |
           ./autogen.sh
           CC=clang ./configure --enable-fwtpm --enable-fuzz \
+            ${{ matrix.wolftpm_extra_flags }} \
             CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1" \
             LDFLAGS="-fsanitize=address"
           make -j$(nproc)
 
       - name: Generate seed corpus
         run: python3 tests/fuzz/gen_corpus.py
+
+      - name: Verify v1.85 PQC opcode coverage in corpus
+        if: contains(matrix.name, 'pqc')
+        run: |
+          # Without this guard, fuzz-*-pqc could spend 10 minutes fuzzing
+          # classical paths with -DWOLFTPM_V185 set and never exercise an
+          # Encapsulate or SignSequenceComplete opcode. Fail fast if any of
+          # the 8 new v1.85 command codes is absent from the seed corpus.
+          # Seeds are binary; opcodes appear as raw 4-byte big-endian
+          # sequences. Hex-dump the concatenated corpus and grep the
+          # resulting hex stream for each opcode's bytes.
+          CORPUS_HEX=$(cat tests/fuzz/corpus/*.bin | xxd -p | tr -d '\n')
+          MISSING=()
+          for cc in 000001a3 000001a4 000001a5 000001a6 \
+                    000001a7 000001a8 000001a9 000001aa; do
+            if ! echo "$CORPUS_HEX" | grep -q "$cc"; then
+              MISSING+=("0x${cc^^}")
+            fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "ERROR: PQC seed corpus missing the following command codes:"
+            printf '  %s\n' "${MISSING[@]}"
+            echo "Update tests/fuzz/gen_corpus.py to emit a seed for each."
+            exit 1
+          fi
+          echo "All 8 v1.85 PQC opcodes (0x1A3-0x1AA) present in seed corpus."
 
       - name: Run fuzzer
         env:
@@ -68,7 +116,7 @@ jobs:
             ./tests/fuzz/fwtpm_fuzz \
               tests/fuzz/corpus/ \
               -dict=tests/fuzz/tpm2.dict \
-              -max_len=4096 \
+              -max_len=${{ matrix.max_len }} \
               -timeout=30 \
               -rss_limit_mb=2048 \
               -print_final_stats=1 \

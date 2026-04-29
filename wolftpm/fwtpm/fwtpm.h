@@ -92,7 +92,17 @@
 
 /* Limits */
 #ifndef FWTPM_MAX_COMMAND_SIZE
-#define FWTPM_MAX_COMMAND_SIZE 4096
+    /* PQC sig responses (header + paramSize + TPM2B_SIGNATURE + auth area)
+     * exceed 4096 once MLDSA-87 is enabled (sig alone = 4627). MLDSA-65
+     * (3309 sig) leaves only ~700 B headroom inside 4096 — safe but tight,
+     * so we still lift to 8192 to keep public-key transport comfortable.
+     * MLDSA-44-only and MLKEM-only builds stay at 4096. */
+    #if defined(WOLFTPM_V185) && \
+        (!defined(WOLFSSL_NO_ML_DSA_65) || !defined(WOLFSSL_NO_ML_DSA_87))
+        #define FWTPM_MAX_COMMAND_SIZE 8192
+    #else
+        #define FWTPM_MAX_COMMAND_SIZE 4096
+    #endif
 #endif
 
 /* Maximum random bytes per GetRandom call */
@@ -148,15 +158,103 @@
 #define FWTPM_MAX_NV_DATA      2048
 #endif
 
-/* Internal buffer sizes (compile-time overridable) */
+/* Internal buffer sizes — auto-shrink based on the largest enabled PQC
+ * parameter set (see FWTPM_MAX_MLDSA_xxx and FWTPM_MAX_MLKEM_xxx above).
+ * All macros remain ifndef-guarded for per-board overrides. See
+ * docs/FWTPM.md "v1.85 Embedded RAM Impact" for resolved values per build.
+ */
+/* PQC per-parameter-set sizes (FIPS 203 / FIPS 204, spec-immutable). Defined
+ * locally so size-resolution below works without including wolfCrypt PQC
+ * headers (which may be absent on subset builds). */
+#define FWTPM_MLDSA_44_PUB_SIZE   1312
+#define FWTPM_MLDSA_44_SIG_SIZE   2420
+#define FWTPM_MLDSA_65_PUB_SIZE   1952
+#define FWTPM_MLDSA_65_SIG_SIZE   3309
+#define FWTPM_MLDSA_87_PUB_SIZE   2592
+#define FWTPM_MLDSA_87_SIG_SIZE   4627
+#define FWTPM_MLKEM_512_CT_SIZE    768
+#define FWTPM_MLKEM_512_PUB_SIZE   800
+#define FWTPM_MLKEM_768_CT_SIZE   1088
+#define FWTPM_MLKEM_768_PUB_SIZE  1184
+#define FWTPM_MLKEM_1024_CT_SIZE  1568
+#define FWTPM_MLKEM_1024_PUB_SIZE 1568
+
+/* Resolve the largest enabled parameter set for buffer sizing. Driven by
+ * wolfCrypt's WOLFSSL_NO_ML_DSA_44/65/87 and WOLFSSL_NO_KYBER512/768/1024
+ * gates so subset builds (e.g. MLDSA-44 only) don't pay for MLDSA-87. */
+#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    #if !defined(WOLFSSL_NO_ML_DSA_87)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_87_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_87_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_ML_DSA_65)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_65_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_65_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_ML_DSA_44)
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  FWTPM_MLDSA_44_SIG_SIZE
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  FWTPM_MLDSA_44_PUB_SIZE
+    #else
+        #define FWTPM_MAX_MLDSA_SIG_SIZE  0
+        #define FWTPM_MAX_MLDSA_PUB_SIZE  0
+    #endif
+    #if !defined(WOLFSSL_NO_KYBER1024)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_1024_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_1024_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_KYBER768)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_768_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_768_PUB_SIZE
+    #elif !defined(WOLFSSL_NO_KYBER512)
+        #define FWTPM_MAX_MLKEM_CT_SIZE   FWTPM_MLKEM_512_CT_SIZE
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  FWTPM_MLKEM_512_PUB_SIZE
+    #else
+        #define FWTPM_MAX_MLKEM_CT_SIZE   0
+        #define FWTPM_MAX_MLKEM_PUB_SIZE  0
+    #endif
+#else
+    #define FWTPM_MAX_MLDSA_SIG_SIZE  0
+    #define FWTPM_MAX_MLDSA_PUB_SIZE  0
+    #define FWTPM_MAX_MLKEM_CT_SIZE   0
+    #define FWTPM_MAX_MLKEM_PUB_SIZE  0
+#endif
+
 #ifndef FWTPM_MAX_DATA_BUF
 #define FWTPM_MAX_DATA_BUF     1024  /* HMAC, hash sequences, general data */
 #endif
 #ifndef FWTPM_MAX_PUB_BUF
-#define FWTPM_MAX_PUB_BUF      512   /* Public area, signature, seed, OAEP */
+    /* Holds the largest serialized public area. PQC pub keys (MLDSA-87
+     * = 2592, MLKEM-1024 = 1568) dominate when enabled. Keep 128 B slack
+     * for TPM2B_PUBLIC headers + alg parameters. */
+    #if FWTPM_MAX_MLDSA_PUB_SIZE > FWTPM_MAX_MLKEM_PUB_SIZE
+        #define FWTPM_MAX_PUB_BUF_RAW  FWTPM_MAX_MLDSA_PUB_SIZE
+    #else
+        #define FWTPM_MAX_PUB_BUF_RAW  FWTPM_MAX_MLKEM_PUB_SIZE
+    #endif
+    #if FWTPM_MAX_PUB_BUF_RAW > 384
+        #define FWTPM_MAX_PUB_BUF  (FWTPM_MAX_PUB_BUF_RAW + 128)
+    #else
+        #define FWTPM_MAX_PUB_BUF  512  /* classical RSA/ECC default */
+    #endif
 #endif
 #ifndef FWTPM_MAX_DER_SIG_BUF
-#define FWTPM_MAX_DER_SIG_BUF  256   /* DER signature, ECC primes/points */
+    /* Holds DER signatures + scratch. PQC dominates when enabled
+     * (MLDSA-87 sig = 4627, MLDSA-65 = 3309, MLDSA-44 = 2420). 128 B slack
+     * for TPM2B_SIGNATURE wrapper. */
+    #if FWTPM_MAX_MLDSA_SIG_SIZE > 128
+        #define FWTPM_MAX_DER_SIG_BUF  (FWTPM_MAX_MLDSA_SIG_SIZE + 128)
+    #else
+        #define FWTPM_MAX_DER_SIG_BUF  256  /* classical DER sig default */
+    #endif
+#endif
+#ifdef WOLFTPM_V185
+/* KEM ciphertext buffer: derived from the largest enabled MLKEM
+ * parameter set (MLKEM-1024 = 1568, MLKEM-768 = 1088, MLKEM-512 = 768).
+ * 64 B slack covers wrapper overhead. */
+#ifndef FWTPM_MAX_KEM_CT_BUF
+    #if FWTPM_MAX_MLKEM_CT_SIZE > 0
+        #define FWTPM_MAX_KEM_CT_BUF   (FWTPM_MAX_MLKEM_CT_SIZE + 64)
+    #else
+        #define FWTPM_MAX_KEM_CT_BUF   256
+    #endif
+#endif
 #endif
 #ifndef FWTPM_MAX_ATTEST_BUF
 #define FWTPM_MAX_ATTEST_BUF   1024  /* Attestation info marshaling */
@@ -342,6 +440,9 @@
 typedef struct FWTPM_Object {
     int used;
     TPM_HANDLE handle;              /* 0x80xxxxxx transient handle */
+    UINT32 hierarchy;               /* TPM_RH_OWNER/ENDORSEMENT/PLATFORM/NULL —
+                                     * required for ticket HMAC proofValue
+                                     * lookup per Part 2 Sec.10.6.5 Eq (5) */
     TPMT_PUBLIC pub;                /* Public area */
     TPM2B_AUTH authValue;           /* Object auth */
     byte privKey[FWTPM_MAX_PRIVKEY_DER]; /* DER-encoded private key */
@@ -363,6 +464,53 @@ typedef struct FWTPM_HashSeq {
     } ctx;
 #endif
 } FWTPM_HashSeq;
+
+#ifdef WOLFTPM_V185
+/* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6). Pure ML-DSA
+ * is one-shot — the message arrives via the `buffer` parameter of
+ * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
+ * TPM_RC_ONE_SHOT_SIGNATURE (Part 3 Sec.20.6). Hash-ML-DSA digest signing is
+ * handled via TPM2_SignDigest / TPM2_VerifyDigestSignature, not through
+ * this slot. */
+typedef struct FWTPM_SignSeq {
+    int used;
+    TPM_HANDLE handle;              /* Sequence handle (0x80xxxxxx) */
+    int isVerifySeq;                /* 0 = sign, 1 = verify */
+    TPM_HANDLE keyHandle;           /* Key used at SequenceStart */
+    TPM2B_NAME keyName;             /* Key's computed name at Start time —
+                                     * binds the sequence to an immutable
+                                     * key identity so a Flush + reload of
+                                     * a different key on the same numeric
+                                     * handle is detected at Complete. */
+    TPM_ALG_ID sigScheme;           /* TPM_ALG_MLDSA / TPM_ALG_HASH_MLDSA */
+    TPMI_ALG_HASH hashAlg;          /* Hash alg for Hash-ML-DSA sequences */
+    TPM2B_AUTH authValue;
+    TPM2B_SIGNATURE_CTX context;
+    int oneShot;                    /* SequenceUpdate not permitted if set */
+    /* Accumulator for Pure ML-DSA sequences (raw message bytes). */
+    byte   msgBuf[FWTPM_MAX_DATA_BUF];
+    UINT32 msgBufSz;
+    /* First 4 bytes of the assembled message (any path: SequenceUpdate or
+     * SignSequenceComplete trailing buffer). Used for the restricted-key
+     * TPM_GENERATED_VALUE check at Complete time per Part 3 Sec.20.6.1 —
+     * Hash-ML-DSA Update bytes flow into hashCtx and are unrecoverable
+     * otherwise, so the prefix must be captured at Update time. */
+    byte   firstBytes[4];
+    UINT32 firstBytesSz;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* Hash accumulator for Hash-ML-DSA / classical RSA-ECC sequences. */
+    wc_HashAlg hashCtx;
+    int hashCtxInit;                /* 1 when hashCtx is live */
+    /* HMAC accumulator for KEYEDHASH (HMAC) signing/verifying sequences. */
+    Hmac hmacCtx;
+    int hmacCtxInit;                /* 1 when hmacCtx is live */
+#endif
+} FWTPM_SignSeq;
+
+#ifndef FWTPM_MAX_SIGN_SEQ
+#define FWTPM_MAX_SIGN_SEQ 4
+#endif
+#endif /* WOLFTPM_V185 */
 
 /* Auth session slot */
 typedef struct FWTPM_Session {
@@ -512,6 +660,9 @@ typedef struct FWTPM_CTX {
 
     /* Hash sequence slots */
     FWTPM_HashSeq hashSeq[FWTPM_MAX_HASH_SEQ];
+#ifdef WOLFTPM_V185
+    FWTPM_SignSeq signSeq[FWTPM_MAX_SIGN_SEQ];
+#endif
 
     /* Auth session slots */
     FWTPM_Session sessions[FWTPM_MAX_SESSIONS];
@@ -540,7 +691,7 @@ typedef struct FWTPM_CTX {
 
     /* Per-boot context protection key (volatile only, never persisted).
      * Used by ContextSave/ContextLoad for HMAC + AES-CFB protection of
-     * session context blobs per TPM 2.0 Part 1 §30. */
+     * session context blobs per TPM 2.0 Part 1 Sec.30. */
     byte ctxProtectKey[AES_256_KEY_SIZE];
     int  ctxProtectKeyValid;
 

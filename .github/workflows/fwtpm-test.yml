@@ -30,6 +30,29 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
+          # v1.85 PQC: full make check + pqc_mssim_e2e.sh + tpm2-tools
+          # Highest-leverage entry — exercises wrapper unit tests
+          # (tests/unit_tests.c v1.85 cases) + handler unit tests
+          # (tests/fwtpm_unit_tests.c v1.85 cases) + the new mssim E2E
+          # harness against fwtpm_server in one shot. --enable-swtpm omitted
+          # because configure.ac:287 enables it by default on Linux.
+          - name: fwtpm-v185
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: false
+
+          # v1.85 PQC: build-only safety net with DEBUG_WOLFTPM so any
+          # printf-format-string drift in v1.85-guarded debug paths breaks
+          # the build instead of silently corrupting log output. No
+          # --enable-swtpm because build-only never invokes the socket client.
+          - name: fwtpm-v185-build-only
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-v185
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            build_only: true
+            extra_cflags: -DDEBUG_WOLFTPM
+
           # Build-only: fwTPM with RSA disabled
           - name: fwtpm-no-rsa
             os: ubuntu-latest

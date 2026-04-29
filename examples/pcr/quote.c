@@ -63,7 +63,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 #if defined(HAVE_ECC) && !defined(WOLFTPM2_NO_HEAP) && \
     defined(WOLFSSL_PUBLIC_MP)
     byte *pubKey = NULL;
-    word32 pubKeySz;
+    word32 pubKeySz = 0;
 #endif
     WOLFTPM2_DEV dev;
     TPMS_ATTEST attestedData;
