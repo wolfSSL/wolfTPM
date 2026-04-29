@@ -782,8 +782,33 @@ void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 }
 void TPM2_Packet_ParsePoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
 {
+    int pointStartPos;
+
     TPM2_Packet_ParseU16(packet, &point->size);
-    TPM2_Packet_ParseEccPoint(packet, &point->point);
+    pointStartPos = (packet != NULL) ? packet->pos : 0;
+    /* Skip the inner ECC point parse when the outer size is zero. A
+     * malformed blob with size=0 but nonzero inner x.size/y.size would
+     * otherwise advance packet->pos and desync subsequent fields. */
+    if (point->size > 0) {
+        TPM2_Packet_ParseEccPoint(packet, &point->point);
+    }
+    else {
+        XMEMSET(&point->point, 0, sizeof(point->point));
+    }
+
+    /* Resync packet position to end of declared outer size so inner
+     * x.size / y.size disagreement can't desynchronize subsequent fields.
+     * If the declared outer size runs past the buffer, clamp to packet end
+     * so subsequent reads return an out-of-bounds sentinel rather than
+     * leaving the position wherever the inner parses landed. */
+    if (packet != NULL) {
+        if (pointStartPos + point->size <= packet->size) {
+            packet->pos = pointStartPos + point->size;
+        }
+        else {
+            packet->pos = packet->size;
+        }
+    }
 }
 
 void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
@@ -1095,7 +1120,10 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
+    int pubStartPos;
+
     TPM2_Packet_ParseU16(packet, &pub->size);
+    pubStartPos = (packet != NULL) ? packet->pos : 0;
     if (pub->size > 0) {
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
@@ -1132,6 +1160,20 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         default:
             /* TPMS_DERIVE derive; ? */
             break;
+        }
+
+        /* Resync packet position to end of declared outer size so inner
+         * parses can't cause field drift if declared size and actual
+         * inner consumption disagree. If the declared outer size runs
+         * past the buffer, clamp to packet end so subsequent reads
+         * return an out-of-bounds sentinel. */
+        if (packet != NULL) {
+            if (pubStartPos + pub->size <= packet->size) {
+                packet->pos = pubStartPos + pub->size;
+            }
+            else {
+                packet->pos = packet->size;
+            }
         }
     }
 }
@@ -1170,7 +1212,13 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
         TPM2_Packet_AppendBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
+    case TPM_ALG_NULL:
+        /* Legitimate zero-payload signature - nothing to append. */
+        break;
     default:
+    #ifdef DEBUG_WOLFTPM
+        printf("AppendSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);
+    #endif
         break;
     }
 }
@@ -1242,7 +1290,13 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
         digestSz = TPM2_GetHashDigestSize(sig->signature.hmac.hashAlg);
         TPM2_Packet_ParseBytes(packet, sig->signature.hmac.digest.H, digestSz);
         break;
+    case TPM_ALG_NULL:
+        /* Legitimate zero-payload signature - nothing to consume. */
+        break;
     default:
+    #ifdef DEBUG_WOLFTPM
+        printf("ParseSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);
+    #endif
         break;
     }
 }
@@ -1341,6 +1395,16 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
                 &out->attested.nv.nvContents.size,
                 out->attested.nv.nvContents.buffer,
                 (UINT16)sizeof(out->attested.nv.nvContents.buffer));
+            break;
+        case TPM_ST_ATTEST_NV_DIGEST:
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nvDigest.indexName.size,
+                out->attested.nvDigest.indexName.name,
+                (UINT16)sizeof(out->attested.nvDigest.indexName.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nvDigest.nvDigest.size,
+                out->attested.nvDigest.nvDigest.buffer,
+                (UINT16)sizeof(out->attested.nvDigest.nvDigest.buffer));
             break;
         default:
             /* unknown attestation type */

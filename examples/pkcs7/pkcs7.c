@@ -196,7 +196,8 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
         }
 
         /* Body - Data */
-        do {
+        offset = 0;
+        while (1) {
             dataChunkSz = GetMyData(dataChunk, sizeof(dataChunk), offset);
             if (dataChunkSz == 0)
                 break;
@@ -208,7 +209,7 @@ static int PKCS7_SignVerifyEx(WOLFTPM2_DEV* dev, int tpmDevId,
             }
 
             offset += dataChunkSz;
-        } while (rc == 0);
+        }
         dataChunkSz = GetMyData(NULL, 0, 0); /* get total size */
 
         /* Footer */

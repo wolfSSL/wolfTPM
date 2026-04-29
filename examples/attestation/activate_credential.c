@@ -99,6 +99,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&endorse, 0, sizeof(endorse));
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&akKey, 0, sizeof(akKey));
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     printf("Demo how to create a credential blob for remote attestation\n");
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
@@ -230,7 +231,8 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
 
 exit:
 
-    wolfTPM2_UnloadHandle(&dev, &primary->handle);
+    if (primary != NULL)
+        wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &akKey.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);

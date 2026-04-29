@@ -2359,10 +2359,10 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     /* set session auth for key */
     if (tpmKey) {
         TPMA_SESSION sessionAttributes = 0;
-        if (bind != NULL &&
-            (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR)) {
-            /* if parameter encryption is enabled and key bind set, enable
-             * encrypt/decrypt by default */
+        if (encDecAlg == TPM_ALG_CFB || encDecAlg == TPM_ALG_XOR) {
+            /* if parameter encryption is enabled, enable encrypt/decrypt by
+             * default. Salted (tpmKey-only) sessions also have valid
+             * shared-secret state for parameter encryption. */
             sessionAttributes |= (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt);
         }
         wolfTPM2_SetAuth(dev, 0, tpmKey->handle.hndl, &tpmKey->handle.auth,
@@ -3536,8 +3536,11 @@ int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
         exponent, rsaPriv, rsaPrivSz, TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
-int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
-    const byte* eccPubX, word32 eccPubXSz, const byte* eccPubY, word32 eccPubYSz)
+int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    int curveId, const byte* eccPubX, word32 eccPubXSz,
+    const byte* eccPubY, word32 eccPubYSz,
+    TPMI_ALG_ECC_SCHEME scheme, TPMI_ALG_HASH hashAlg,
+    TPMA_OBJECT objectAttributes)
 {
     TPM2B_PUBLIC pub;
 
@@ -3547,16 +3550,23 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
         return BUFFER_E;
     if (eccPubYSz > sizeof(pub.publicArea.unique.ecc.y.buffer))
         return BUFFER_E;
+    /* TPMS_SCHEME_ECDAA requires a 'count' field this helper cannot
+     * supply. Callers needing ECDAA must build TPM2B_PUBLIC manually and
+     * use wolfTPM2_LoadPublicKey directly. */
+    if (scheme == TPM_ALG_ECDAA)
+        return BAD_FUNC_ARG;
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_ECC;
     /* make sure nameAlg is set for ticket */
     pub.publicArea.nameAlg = WOLFTPM2_WRAP_DIGEST;
-    pub.publicArea.objectAttributes = TPMA_OBJECT_sign | TPMA_OBJECT_noDA;
+    pub.publicArea.objectAttributes = objectAttributes;
     pub.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
-    pub.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
-    pub.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
-        WOLFTPM2_WRAP_DIGEST;
+    pub.publicArea.parameters.eccDetail.scheme.scheme = scheme;
+    if (scheme != TPM_ALG_NULL) {
+        pub.publicArea.parameters.eccDetail.scheme.details.any.hashAlg =
+            hashAlg;
+    }
     pub.publicArea.parameters.eccDetail.curveID = curveId;
     pub.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
     pub.publicArea.unique.ecc.x.size = eccPubXSz;
@@ -3565,6 +3575,15 @@ int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
     XMEMCPY(pub.publicArea.unique.ecc.y.buffer, eccPubY, eccPubYSz);
 
     return wolfTPM2_LoadPublicKey(dev, key, &pub);
+}
+
+int wolfTPM2_LoadEccPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key, int curveId,
+    const byte* eccPubX, word32 eccPubXSz, const byte* eccPubY, word32 eccPubYSz)
+{
+    return wolfTPM2_LoadEccPublicKey_ex(dev, key, curveId,
+        eccPubX, eccPubXSz, eccPubY, eccPubYSz,
+        TPM_ALG_ECDSA, WOLFTPM2_WRAP_DIGEST,
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
 }
 
 int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
@@ -4941,10 +4960,6 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
-    /* verify input cannot exceed buffer */
-    if (digestSz > (int)sizeof(signIn.digest.buffer))
-        digestSz = (int)sizeof(signIn.digest.buffer);
-
     XMEMSET(&signIn, 0, sizeof(signIn));
     signIn.keyHandle = key->handle.hndl;
     signIn.digest.size = (UINT16)TPM2_GetHashDigestSize(hashAlg);
@@ -4952,13 +4967,30 @@ int wolfTPM2_SignHashScheme(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         signIn.digest.size > sizeof(signIn.digest.buffer)) {
         return BUFFER_E;
     }
-    /* if digest provided is smaller than key size then zero pad leading */
-    if (digestSz < signIn.digest.size) {
-        XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz], digest,
-            digestSz);
+    /* Hard upper bound: digest must fit the message-buffer. */
+    if (digestSz < 0 || digestSz > (int)sizeof(signIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+    if (key->pub.publicArea.type != TPM_ALG_ECC) {
+        /* RSA: digest size must match the declared hash algorithm.
+         * Silently zero-padding produces a signature over crafted
+         * but incorrect content, so this is a caller error. */
+        if (digestSz != (int)signIn.digest.size) {
+            return BUFFER_E;
+        }
+        XMEMCPY(signIn.digest.buffer, digest, digestSz);
     }
     else {
-        XMEMCPY(signIn.digest.buffer, digest, digestSz);
+        /* ECDSA: digests shorter than hashAlg's size are left-padded with
+         * zeros; longer digests are silently truncated to hashAlg's size
+         * (TCG Part 1 - ECDSA admits short or long inputs). */
+        if (digestSz < (int)signIn.digest.size) {
+            XMEMCPY(&signIn.digest.buffer[signIn.digest.size - digestSz],
+                digest, digestSz);
+        }
+        else {
+            XMEMCPY(signIn.digest.buffer, digest, signIn.digest.size);
+        }
     }
     signIn.inScheme.scheme = sigAlg;
     signIn.inScheme.details.any.hashAlg = hashAlg;
@@ -5105,10 +5137,6 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BAD_FUNC_ARG;
     }
 
-    /* verify input cannot exceed buffer */
-    if (digestSz > (int)sizeof(verifySigIn.digest.buffer))
-        digestSz = (int)sizeof(verifySigIn.digest.buffer);
-
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
@@ -5119,13 +5147,27 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         verifySigIn.digest.size > sizeof(verifySigIn.digest.buffer)) {
         return BUFFER_E;
     }
-    /* if digest provided is smaller than key size then zero pad leading */
-    if (digestSz < verifySigIn.digest.size) {
-        XMEMCPY(&verifySigIn.digest.buffer[verifySigIn.digest.size - digestSz],
-            digest, digestSz);
+    /* Hard upper bound: digest must fit the message-buffer. */
+    if (digestSz < 0 || digestSz > (int)sizeof(verifySigIn.digest.buffer)) {
+        return BUFFER_E;
+    }
+    if (key->pub.publicArea.type != TPM_ALG_ECC) {
+        /* RSA: digest size must match the declared hash algorithm. */
+        if (digestSz != (int)verifySigIn.digest.size) {
+            return BUFFER_E;
+        }
+        XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
     }
     else {
-        XMEMCPY(verifySigIn.digest.buffer, digest, digestSz);
+        /* ECDSA: short digests are left-padded with zeros, longer digests
+         * are silently truncated to hashAlg's size. */
+        if (digestSz < (int)verifySigIn.digest.size) {
+            XMEMCPY(&verifySigIn.digest.buffer[verifySigIn.digest.size -
+                digestSz], digest, digestSz);
+        }
+        else {
+            XMEMCPY(verifySigIn.digest.buffer, digest, verifySigIn.digest.size);
+        }
     }
     verifySigIn.signature.sigAlg = sigAlg;
     signature->any.hashAlg = hashAlg;
@@ -5451,10 +5493,10 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* RSA Encrypt */
     XMEMSET(&rsaEncIn, 0, sizeof(rsaEncIn));
     rsaEncIn.keyHandle = key->handle.hndl;
-    rsaEncIn.message.size = msgSz;
-    if (rsaEncIn.message.size > sizeof(rsaEncIn.message.buffer)) {
-        rsaEncIn.message.size = sizeof(rsaEncIn.message.buffer); /* truncate */
+    if (msgSz < 0 || (size_t)msgSz > sizeof(rsaEncIn.message.buffer)) {
+        return BUFFER_E;
     }
+    rsaEncIn.message.size = (UINT16)msgSz;
     XMEMCPY(rsaEncIn.message.buffer, msg, rsaEncIn.message.size);
     /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaEncIn.inScheme.scheme = padScheme;
@@ -5472,19 +5514,23 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         printf("TPM2_RSA_Encrypt failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
     #endif
-        return rc;
+    }
+    else if (*outSz < rsaEncOut.outData.size) {
+        rc = BUFFER_E;
+    }
+    else {
+        *outSz = rsaEncOut.outData.size;
+        XMEMCPY(out, rsaEncOut.outData.buffer, *outSz);
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
+    #endif
     }
 
-    if (*outSz < rsaEncOut.outData.size) {
-        return BUFFER_E;
-    }
-    *outSz = rsaEncOut.outData.size;
-    XMEMCPY(out, rsaEncOut.outData.buffer, *outSz);
-
-#ifdef DEBUG_WOLFTPM
-    printf("TPM2_RSA_Encrypt: %d\n", rsaEncOut.outData.size);
-#endif
-
+    /* Plaintext copy lingers in rsaEncIn after the XMEMCPY above. Scrub
+     * before returning so the stack frame doesn't leak it. The early
+     * BUFFER_E returns above happen before the XMEMCPY so they don't
+     * need this path. */
+    TPM2_ForceZero(&rsaEncIn, sizeof(rsaEncIn));
     return rc;
 }
 
@@ -5506,8 +5552,8 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* RSA Decrypt */
     XMEMSET(&rsaDecIn, 0, sizeof(rsaDecIn));
     rsaDecIn.keyHandle = key->handle.hndl;
-    if (inSz > (int)sizeof(rsaDecIn.cipherText.buffer)) {
-        inSz = (int)sizeof(rsaDecIn.cipherText.buffer); /* truncate */
+    if (inSz < 0 || (size_t)inSz > sizeof(rsaDecIn.cipherText.buffer)) {
+        return BUFFER_E;
     }
     rsaDecIn.cipherText.size = (UINT16)inSz;
     XMEMCPY(rsaDecIn.cipherText.buffer, in, inSz);
@@ -5686,9 +5732,14 @@ int wolfTPM2_UnloadHandle(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle)
 /* nv is the populated handle and auth */
 /* auth and authSz are optional NV authentication */
 /* authPolicy and authPolicySz are optional policy digest */
-int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+/* nameAlg is the index name hash algorithm; must match the hash that
+ *   produced authPolicy when one is supplied, otherwise the policy can
+ *   never be satisfied. Pass TPM_ALG_NULL to use WOLFTPM2_WRAP_DIGEST
+ *   (default) or auto-infer from authPolicySz for SHA-only policies. */
+int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
-    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz,
+    TPMI_ALG_HASH nameAlg)
 {
     int rc, rctmp;
     NV_DefineSpace_In in;
@@ -5719,7 +5770,43 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         XMEMCPY(in.auth.buffer, auth, in.auth.size);
     }
     in.publicInfo.nvPublic.nvIndex = nvIndex;
-    in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
+    if (nameAlg != TPM_ALG_NULL) {
+        /* Caller supplied an explicit nameAlg; use it as-is and only
+         * sanity-check against the policy digest size. */
+        if (authPolicy != NULL && authPolicySz > 0) {
+            int expectSz = TPM2_GetHashDigestSize(nameAlg);
+            if (expectSz <= 0 || expectSz != authPolicySz)
+                return BAD_FUNC_ARG;
+        }
+        in.publicInfo.nvPublic.nameAlg = nameAlg;
+    }
+    else if (authPolicy != NULL && authPolicySz > 0) {
+        /* No explicit nameAlg supplied. Infer from policy digest size for
+         * SHA-only policies. The TPM stores the policy digest verbatim,
+         * so we don't need wolfCrypt to support the hash here - the
+         * caller has already computed the digest. SM3-256 / SHA3-256
+         * also produce 32 bytes; callers needing those must pass
+         * nameAlg explicitly via the _ex API. */
+        switch (authPolicySz) {
+            case TPM_SHA_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA1;
+                break;
+            case TPM_SHA256_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA256;
+                break;
+            case TPM_SHA384_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA384;
+                break;
+            case TPM_SHA512_DIGEST_SIZE:
+                in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA512;
+                break;
+            default:
+                return BAD_FUNC_ARG;
+        }
+    }
+    else {
+        in.publicInfo.nvPublic.nameAlg = WOLFTPM2_WRAP_DIGEST;
+    }
     in.publicInfo.nvPublic.attributes = nvAttributes;
     in.publicInfo.nvPublic.dataSize = (UINT16)maxSize;
     if (authPolicy != NULL && authPolicySz > 0) {
@@ -5759,6 +5846,15 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
 
     TPM2_ForceZero(&in.auth, sizeof(in.auth));
     return rc;
+}
+
+int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
+    WOLFTPM2_NV* nv, word32 nvIndex, word32 nvAttributes, word32 maxSize,
+    const byte* auth, int authSz, const byte* authPolicy, int authPolicySz)
+{
+    return wolfTPM2_NVCreateAuthPolicy_ex(dev, parent, nv, nvIndex,
+        nvAttributes, maxSize, auth, authSz, authPolicy, authPolicySz,
+        TPM_ALG_NULL);
 }
 
 int wolfTPM2_NVCreateAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
@@ -7303,9 +7399,20 @@ int wolfTPM2_GetKeyTemplate_KeyedHash(TPMT_PUBLIC* publicTemplate,
         TPMA_OBJECT_noDA |
         (isSign ? TPMA_OBJECT_sign : 0) |
         (isDecrypt ? TPMA_OBJECT_decrypt : 0));
-    publicTemplate->parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
-    publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
-        hashAlg;
+    /* HMAC scheme requires the sign attribute. When the caller asks for
+     * neither sign nor decrypt, treat this as a data/seal-style keyed-hash
+     * object and use TPM_ALG_NULL so the template is loadable and not
+     * stuck with an unusable HMAC binding. */
+    if (isSign || isDecrypt) {
+        publicTemplate->parameters.keyedHashDetail.scheme.scheme =
+            TPM_ALG_HMAC;
+        publicTemplate->parameters.keyedHashDetail.scheme.details.hmac.hashAlg
+            = hashAlg;
+    }
+    else {
+        publicTemplate->parameters.keyedHashDetail.scheme.scheme =
+            TPM_ALG_NULL;
+    }
     return TPM_RC_SUCCESS;
 }
 

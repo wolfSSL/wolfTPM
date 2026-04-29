@@ -130,6 +130,9 @@ typedef enum {
     TPM_ECC_BN_P256     = 0x0010,
     TPM_ECC_BN_P638     = 0x0011,
     TPM_ECC_SM2_P256    = 0x0020,
+    TPM_ECC_BP_P256_R1  = 0x0030,
+    TPM_ECC_BP_P384_R1  = 0x0031,
+    TPM_ECC_BP_P512_R1  = 0x0032,
 } TPM_ECC_CURVE_T;
 typedef UINT16 TPM_ECC_CURVE;
 
@@ -466,6 +469,7 @@ typedef enum {
     TPM_ST_ATTEST_QUOTE         = 0x8018,
     TPM_ST_ATTEST_TIME          = 0x8019,
     TPM_ST_ATTEST_CREATION      = 0x801A,
+    TPM_ST_ATTEST_NV_DIGEST     = 0x801C,
     TPM_ST_CREATION             = 0x8021,
     TPM_ST_VERIFIED             = 0x8022,
     TPM_ST_AUTH_SECRET          = 0x8023,
@@ -1196,6 +1200,11 @@ typedef struct TPMS_NV_CERTIFY_INFO {
     TPM2B_MAX_NV_BUFFER nvContents;
 } TPMS_NV_CERTIFY_INFO;
 
+typedef struct TPMS_NV_DIGEST_CERTIFY_INFO {
+    TPM2B_NAME indexName;
+    TPM2B_DIGEST nvDigest;
+} TPMS_NV_DIGEST_CERTIFY_INFO;
+
 
 typedef TPM_ST TPMI_ST_ATTEST;
 typedef union TPMU_ATTEST {
@@ -1206,6 +1215,7 @@ typedef union TPMU_ATTEST {
     TPMS_SESSION_AUDIT_INFO sessionAudit;   /* TPM_ST_ATTEST_SESSION_AUDIT */
     TPMS_TIME_ATTEST_INFO   time;           /* TPM_ST_ATTEST_TIME */
     TPMS_NV_CERTIFY_INFO    nv;             /* TPM_ST_ATTEST_NV */
+    TPMS_NV_DIGEST_CERTIFY_INFO nvDigest;   /* TPM_ST_ATTEST_NV_DIGEST */
 } TPMU_ATTEST;
 
 typedef struct TPMS_ATTEST {

@@ -481,7 +481,8 @@ exit:
     }
 
     /* Close handles */
-    wolfTPM2_UnloadHandle(&dev, &primary->handle);
+    if (primary != NULL)
+        wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
 
