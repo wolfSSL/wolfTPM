@@ -1097,7 +1097,23 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_MAX_DIGEST,        TPM_SHA256_DIGEST_SIZE },
             #endif
                 { TPM_PT_TOTAL_COMMANDS,    0 }, /* patched to FwGetCmdCount() at emission */
-                { TPM_PT_MODES,             0 },
+                /* TPMA_MODES (TPM_PT_MODES): bit 0 = FIPS_140_2 (spec
+                 * v1.38+), bit 1 = FIPS_140_3 (spec v1.83+). Mirror the
+                 * underlying wolfCrypt module's FIPS status so callers
+                 * (tpm2-tools, examples/wrap/caps) see the same level
+                 * the crypto provider is validated at. wolfCrypt FIPS
+                 * v6.x targets 140-3; earlier HAVE_FIPS revisions are
+                 * 140-2. Non-FIPS builds leave both bits clear. */
+                { TPM_PT_MODES,
+            #if defined(HAVE_FIPS) && defined(HAVE_FIPS_VERSION) && \
+                (HAVE_FIPS_VERSION >= 6)
+                    TPMA_MODES_FIPS_140_3
+            #elif defined(HAVE_FIPS)
+                    TPMA_MODES_FIPS_140_2
+            #else
+                    0
+            #endif
+                },
             #ifdef WOLFTPM_V185
                 /* v1.85 Part 2 Sec.8.13 TPMA_ML_PARAMETER_SET: bits 0-5 for
                  * MLKEM-512/768/1024 and MLDSA-44/65/87. Each bit is gated

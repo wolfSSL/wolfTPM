@@ -792,7 +792,8 @@ int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
  *      Byte  1: reserved.
  *      Bytes 2-3: build num = 11CB,
  *      Byte  4: 0x00 (TPM CC), 0x02 (no CC)
- *  TPM_PT_MODES = Bit 0 = FIPS_140_2
+ *  TPM_PT_MODES = Bit 0 = FIPS_140_2 (spec v1.38+)
+ *                 Bit 1 = FIPS_140_3 (spec v1.83+)
  */
 
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
@@ -874,7 +875,8 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 }
                 break;
             case TPM_PT_MODES:
-                caps->fips140_2 = (val & 0x00000001) ? 1: 0;
+                caps->fips140_2 = (val & TPMA_MODES_FIPS_140_2) ? 1 : 0;
+                caps->fips140_3 = (val & TPMA_MODES_FIPS_140_3) ? 1 : 0;
                 break;
             default:
                 break;
