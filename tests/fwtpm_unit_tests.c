@@ -2920,7 +2920,7 @@ static void test_fwtpm_mldsa_sequence_roundtrip(void)
 
 #include "pqc_kat_vectors.h"
 #include <wolfssl/wolfcrypt/dilithium.h>
-#include <wolfssl/wolfcrypt/mlkem.h>
+#include <wolfssl/wolfcrypt/wc_mlkem.h>
 
 /* Layer A: wolfCrypt-only verify against NIST ACVP MLDSA-44 pinned vector. */
 static void test_fwtpm_mldsa_nist_kat_verify(void)

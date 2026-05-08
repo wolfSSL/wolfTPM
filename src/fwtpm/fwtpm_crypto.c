@@ -61,7 +61,7 @@
 #include <wolfssl/wolfcrypt/hmac.h>
 #ifdef WOLFTPM_V185
 #include <wolfssl/wolfcrypt/dilithium.h>
-#include <wolfssl/wolfcrypt/mlkem.h>
+#include <wolfssl/wolfcrypt/wc_mlkem.h>
 #endif
 
 /* ================================================================== */
