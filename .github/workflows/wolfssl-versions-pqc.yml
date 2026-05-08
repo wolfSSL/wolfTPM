@@ -12,38 +12,53 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  # Resolve the latest -stable wolfSSL tag at run time so we don't have to
+  # bump this workflow every release. Floor (v5.8.0) and master are fixed:
+  # v5.8.0 exercises every version-gated workaround in fwtpm_crypto.c, and
+  # master surfaces upstream drift on the nightly run.
+  discover-versions:
+    name: Resolve wolfSSL version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      latest-stable: ${{ steps.set-matrix.outputs.latest-stable }}
+    steps:
+      - name: Resolve latest -stable wolfSSL tag
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          # List remote v*-stable tags, version-sort, take the highest.
+          # Equivalent to `git tag -l 'v*-stable' | sort -V | tail -1` in a
+          # local clone, but avoids cloning just to read tag names.
+          LATEST=$(git ls-remote --tags --refs https://github.com/wolfSSL/wolfssl.git 'v*-stable' \
+                     | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+          if [ -z "${LATEST:-}" ]; then
+            echo "::error::Could not resolve latest wolfSSL -stable tag from remote"
+            exit 1
+          fi
+          echo "Latest stable wolfSSL: $LATEST"
+          echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
+          MATRIX=$(jq -nc --arg latest "$LATEST" '{
+            include: [
+              {"wolfssl-version":"v5.8.0-stable","wolfssl-ref":"v5.8.0-stable","cache-key":"wolfssl-pqc-v5.8.0-v1"},
+              {"wolfssl-version":$latest,"wolfssl-ref":$latest,"cache-key":("wolfssl-pqc-" + $latest + "-v1")},
+              {"wolfssl-version":"master","wolfssl-ref":"master","cache-key":""}
+            ]
+          }')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
   pqc-build-test:
     name: wolfSSL ${{ matrix.wolfssl-version }}
+    needs: discover-versions
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # v5.8.x: needs version-gated workarounds in fwtpm_crypto.c for
-          # (a) non-const wc_RsaPSS_VerifyCheck (v5.8.0 only) and
-          # (b) Decapsulate not computing H from seed-derived keys (all v5.8.x).
-          - wolfssl-version: 'v5.8.0-stable'
-            wolfssl-ref: 'v5.8.0-stable'
-            cache-key: 'wolfssl-pqc-v5.8.0-v1'
-          - wolfssl-version: 'v5.8.2-stable'
-            wolfssl-ref: 'v5.8.2-stable'
-            cache-key: 'wolfssl-pqc-v5.8.2-v1'
-          - wolfssl-version: 'v5.8.4-stable'
-            wolfssl-ref: 'v5.8.4-stable'
-            cache-key: 'wolfssl-pqc-v5.8.4-v1'
-          # v5.9.0+: H-set fix landed; workaround is skipped via VERSION_HEX gate.
-          - wolfssl-version: 'v5.9.0-stable'
-            wolfssl-ref: 'v5.9.0-stable'
-            cache-key: 'wolfssl-pqc-v5.9.0-v1'
-          - wolfssl-version: 'v5.9.1-stable'
-            wolfssl-ref: 'v5.9.1-stable'
-            cache-key: 'wolfssl-pqc-v5.9.1-v1'
-          # master always rebuilds (no cache) so wolfSSL upstream renames /
-          # API breaks surface within ~24h on the next scheduled run.
-          - wolfssl-version: 'master'
-            wolfssl-ref: 'master'
+      matrix: ${{ fromJson(needs.discover-versions.outputs.matrix) }}
 
     steps:
       - name: Checkout wolfTPM
