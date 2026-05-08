@@ -1,0 +1,97 @@
+name: wolfSSL Version Matrix (PQC)
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pqc-build-test:
+    name: wolfSSL ${{ matrix.wolfssl-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - wolfssl-version: 'v5.8.0-stable'
+            wolfssl-ref: 'v5.8.0-stable'
+            cache-key: 'wolfssl-pqc-v5.8.0-v1'
+          - wolfssl-version: 'v5.8.4-stable'
+            wolfssl-ref: 'v5.8.4-stable'
+            cache-key: 'wolfssl-pqc-v5.8.4-v1'
+          - wolfssl-version: 'v5.9.1-stable'
+            wolfssl-ref: 'v5.9.1-stable'
+            cache-key: 'wolfssl-pqc-v5.9.1-v1'
+          # master always rebuilds (no cache) so wolfSSL upstream renames /
+          # API breaks surface within ~24h on the next scheduled run.
+          - wolfssl-version: 'master'
+            wolfssl-ref: 'master'
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool
+
+      - name: Cache wolfSSL ${{ matrix.wolfssl-version }}
+        if: matrix.wolfssl-version != 'master'
+        id: cache-wolfssl
+        uses: actions/cache@v4
+        with:
+          path: ~/wolfssl-install
+          key: ${{ matrix.cache-key }}
+
+      - name: Build wolfSSL ${{ matrix.wolfssl-version }} with PQC
+        if: matrix.wolfssl-version == 'master' || steps.cache-wolfssl.outputs.cache-hit != 'true'
+        run: |
+          cd ~
+          git clone --depth 1 --branch ${{ matrix.wolfssl-ref }} \
+              https://github.com/wolfSSL/wolfssl.git
+          cd wolfssl
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                      --enable-dilithium --enable-mlkem --enable-experimental \
+                      --enable-harden CFLAGS="-DWC_RSA_NO_PADDING" \
+                      --prefix=$HOME/wolfssl-install
+          make -j"$(nproc)"
+          make install
+
+      - name: wolfSSL version info
+        run: |
+          grep LIBWOLFSSL_VERSION_STRING $HOME/wolfssl-install/include/wolfssl/version.h
+          grep LIBWOLFSSL_VERSION_HEX $HOME/wolfssl-install/include/wolfssl/version.h
+
+      - name: Build wolfTPM with v1.85 + fwTPM
+        run: |
+          ./autogen.sh
+          CPPFLAGS="-I$HOME/wolfssl-install/include" \
+          LDFLAGS="-L$HOME/wolfssl-install/lib -Wl,-rpath,$HOME/wolfssl-install/lib" \
+            ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
+          make -j"$(nproc)"
+
+      - name: Run fwtpm_unit.test (PQC KAT block)
+        run: |
+          export LD_LIBRARY_PATH=$HOME/wolfssl-install/lib
+          ./tests/fwtpm_unit.test
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfssl-versions-${{ matrix.wolfssl-version }}-logs
+          path: |
+            config.log
+            tests/*.log
+            test-suite.log
+          retention-days: 5

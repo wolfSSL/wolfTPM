@@ -1,0 +1,40 @@
+name: Nightly CI
+
+# Daily fan-out to every wolfTPM workflow that listens for the
+# 'nightly-trigger' repository_dispatch event. Catches upstream wolfSSL
+# drift (e.g. header renames, API breaks) within ~24h.
+#
+# Workflows opt in by adding the listener to their `on:` block:
+#   repository_dispatch:
+#     types: [nightly-trigger]
+#
+# repository_dispatch is API-only — there is no UI button to trigger
+# these workflows by hand. Maintainers cannot accidentally fire them.
+# Workflows that should never be batch-triggered (e.g. hw-spdm-test on
+# the self-hosted Pi runner) simply don't add the listener.
+
+on:
+  schedule:
+    # 02:00 UTC daily (offset from typical top-of-hour congestion).
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  fan-out:
+    name: Dispatch nightly-trigger to all listening workflows
+    runs-on: ubuntu-latest
+    if: github.repository == 'wolfSSL/wolfTPM'
+
+    steps:
+      - name: Send repository_dispatch event
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'nightly-trigger',
+            });
+            core.info('Dispatched nightly-trigger; all listening workflows will fire.');
