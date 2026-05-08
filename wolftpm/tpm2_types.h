@@ -150,6 +150,16 @@ typedef int64_t  INT64;
         /* The wc_HashFree was added in v3.15.4, so use stub to allow building */
         #define wc_HashFree(h, t) (0)
     #endif
+    #if defined(LIBWOLFSSL_VERSION_HEX) && LIBWOLFSSL_VERSION_HEX < 0x05008004
+        /* wc_ForceZero was first declared in wolfssl/wolfcrypt/memory.h at
+         * v5.8.4. Mirror the upstream byte-wise volatile zero so older
+         * wolfSSL releases still build wolfTPM. */
+        static WC_INLINE void wc_ForceZero(void* mem, size_t len)
+        {
+            volatile byte* z = (volatile byte*)mem;
+            while (len--) *z++ = 0;
+        }
+    #endif
 
     #define ENCODING_TYPE_PEM  1 /* CTC_FILETYPE_PEM */
     #define ENCODING_TYPE_ASN1 2 /* CTC_FILETYPE_ASN1 */

@@ -60,6 +60,7 @@
 #endif
 #include <wolfssl/wolfcrypt/hmac.h>
 #ifdef WOLFTPM_V185
+#include <wolfssl/version.h>
 #include <wolfssl/wolfcrypt/dilithium.h>
 #include <wolfssl/wolfcrypt/wc_mlkem.h>
 #endif
@@ -1003,6 +1004,27 @@ TPM_RC FwDecapsulateMlkem(TPMI_MLKEM_PARAMETER_SET parameterSet,
     if (rc == 0 && ssSz > sizeof(sharedSecretOut->buffer)) {
         rc = TPM_RC_SIZE;
     }
+#if LIBWOLFSSL_VERSION_HEX < 0x05009000
+    /* Workaround: wolfSSL < v5.9.0 Decapsulate does not compute H (hash of
+     * public key) when the key was generated from a seed via MakeKey. Encode
+     * the public key once to trigger H caching before Decapsulate. */
+    if (rc == 0) {
+        word32 pubLen = 0;
+        wcRet = wc_MlKemKey_PublicKeySize(mlkemKey, &pubLen);
+        if (wcRet == 0 && pubLen > 0) {
+            byte tmpPub[WC_ML_KEM_MAX_PUBLIC_KEY_SIZE];
+            if (pubLen <= sizeof(tmpPub)) {
+                wcRet = wc_MlKemKey_EncodePublicKey(mlkemKey, tmpPub, pubLen);
+            }
+            else {
+                wcRet = BUFFER_E;
+            }
+        }
+        if (wcRet != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+#endif
     if (rc == 0) {
         wcRet = wc_MlKemKey_Decapsulate(mlkemKey,
             sharedSecretOut->buffer, ctBuf, ctSize);
@@ -3588,8 +3610,11 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                         sig->signature.rsassa.hash);
                     int mgf = FwGetMgfType(sig->signature.rsassa.hash);
                     FWTPM_ALLOC_BUF(decSig, FWTPM_MAX_PUB_BUF);
+                    /* Cast: wc_RsaPSS_VerifyCheck took byte* (non-const) in
+                     * wolfSSL <= v5.8.0; the input buffer is const here.
+                     * v5.8.4+ accepts const byte* and the cast is a no-op. */
                     wcRc = wc_RsaPSS_VerifyCheck(
-                        sig->signature.rsapss.sig.buffer,
+                        (byte*)(uintptr_t)sig->signature.rsapss.sig.buffer,
                         sig->signature.rsapss.sig.size,
                         decSig, (word32)FWTPM_MAX_PUB_BUF,
                         digest, digestSz,

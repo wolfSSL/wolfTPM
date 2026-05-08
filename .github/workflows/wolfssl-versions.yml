@@ -21,12 +21,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # v5.8.x: needs version-gated workarounds in fwtpm_crypto.c for
+          # (a) non-const wc_RsaPSS_VerifyCheck (v5.8.0 only) and
+          # (b) Decapsulate not computing H from seed-derived keys (all v5.8.x).
           - wolfssl-version: 'v5.8.0-stable'
             wolfssl-ref: 'v5.8.0-stable'
             cache-key: 'wolfssl-pqc-v5.8.0-v1'
+          - wolfssl-version: 'v5.8.2-stable'
+            wolfssl-ref: 'v5.8.2-stable'
+            cache-key: 'wolfssl-pqc-v5.8.2-v1'
           - wolfssl-version: 'v5.8.4-stable'
             wolfssl-ref: 'v5.8.4-stable'
             cache-key: 'wolfssl-pqc-v5.8.4-v1'
+          # v5.9.0+: H-set fix landed; workaround is skipped via VERSION_HEX gate.
+          - wolfssl-version: 'v5.9.0-stable'
+            wolfssl-ref: 'v5.9.0-stable'
+            cache-key: 'wolfssl-pqc-v5.9.0-v1'
           - wolfssl-version: 'v5.9.1-stable'
             wolfssl-ref: 'v5.9.1-stable'
             cache-key: 'wolfssl-pqc-v5.9.1-v1'
