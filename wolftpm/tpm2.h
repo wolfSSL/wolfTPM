@@ -933,8 +933,20 @@ enum TPMA_CC_mask {
     TPMA_CC_V            = 0x20000000,
 };
 
+/* TPM 2.0 Library Spec Part 2: bitfield returned from
+ * TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_MODES)
+ * indicating FIPS compliance level. Bit 0 (FIPS_140_2) is defined
+ * since v1.38; bit 1 (FIPS_140_3) was added in v1.83. Bits 2..31
+ * are reserved. Decoded unconditionally so any host build can
+ * interpret either flag from any TPM. */
+typedef UINT32 TPMA_MODES;
+enum TPMA_MODES_mask {
+    TPMA_MODES_FIPS_140_2 = 0x00000001,
+    TPMA_MODES_FIPS_140_3 = 0x00000002,
+};
+
 #ifdef WOLFTPM_V185
-/* v185 rc4 Part 2 Sec.8.13 Table 46 — bitfield returned from
+/* v185 rc4 Part 2 Sec.8.13 Table 46 - bitfield returned from
  * TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_ML_PARAMETER_SETS)
  * indicating which ML-KEM/ML-DSA parameter sets the TPM supports. */
 typedef UINT32 TPMA_ML_PARAMETER_SET;
@@ -4327,6 +4339,18 @@ typedef enum {
     \sa TPM2_Init
 */
 WOLFTPM_API UINT16 TPM2_GetVendorID(void);
+
+
+/*!
+    \brief Returns a human-readable FIPS mode string from FIPS capability
+        bits: "140-3" when fips140_3 is set, "140-2" when fips140_2 is set,
+        otherwise "none". Used for capability reporting in examples and
+        tools.
+    \return Non-NULL pointer to a static string. Never NULL.
+    \param fips140_3 non-zero if the TPM reports FIPS 140-3 mode
+    \param fips140_2 non-zero if the TPM reports FIPS 140-2 mode
+*/
+WOLFTPM_API const char* TPM2_GetCapsFipsStr(int fips140_3, int fips140_2);
 
 
 /*!

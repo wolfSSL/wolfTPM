@@ -194,3 +194,12 @@ void TPM2_PrintAuth(const TPMS_AUTH_COMMAND* authCmd)
     TPM2_PrintBin(authCmd->hmac.buffer, authCmd->hmac.size);
 }
 #endif /* DEBUG_WOLFTPM */
+
+const char* TPM2_GetCapsFipsStr(int fips140_3, int fips140_2)
+{
+    if (fips140_3)
+        return "140-3";
+    if (fips140_2)
+        return "140-2";
+    return "none";
+}

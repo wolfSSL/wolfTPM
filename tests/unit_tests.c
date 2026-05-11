@@ -206,9 +206,11 @@ static void test_wolfTPM2_GetCapabilities(void)
     AssertIntEQ(rc, 0);
 
 #ifdef DEBUG_WOLFTPM
-    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (%u), FIPS 140-2 %d, CC-EAL4 %d\n",
+    printf("Mfg %s (%d), Vendor %s, Fw %u.%u (%u), FIPS %s, CC-EAL4 %d\n",
         caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
-        caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
+        caps.fwVerMinor, caps.fwVerVendor,
+        TPM2_GetCapsFipsStr(caps.fips140_3, caps.fips140_2),
+        caps.cc_eal4);
 #endif
 
     wolfTPM2_Cleanup(&dev);

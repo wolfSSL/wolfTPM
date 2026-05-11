@@ -167,9 +167,10 @@ typedef struct WOLFTPM2_CAPS {
 #endif
 
     /* bits */
-    word16 fips140_2 : 1; /* using FIPS mode */
+    word16 fips140_2 : 1; /* FIPS 140-2 mode (TPMA_MODES bit 0) */
     word16 cc_eal4   : 1; /* Common Criteria EAL4+ */
     word16 req_wait_state : 1; /* requires SPI wait state */
+    word16 fips140_3 : 1; /* FIPS 140-3 mode (TPMA_MODES bit 1, spec v1.83+) */
 #ifdef WOLFTPM_SPDM
     word32 acHandleCount;  /* Number of AC handles discovered */
     TPM_HANDLE acHandles[MAX_AC_HANDLES];  /* AC handles */
