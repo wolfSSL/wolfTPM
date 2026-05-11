@@ -19,6 +19,8 @@ on:
       - 'src/tpm2_wrap.c'
       - 'src/fwtpm/**'
       - 'wolftpm/tpm2_wrap.h'
+  repository_dispatch:
+    types: [nightly-trigger]
 
 jobs:
   seal-test:

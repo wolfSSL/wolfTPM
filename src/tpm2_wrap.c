@@ -2285,14 +2285,10 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 #if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
-#include <wolfssl/wolfcrypt/mlkem.h>
-/* mlkem.h only forward-declares struct MlKemKey; pull the impl header
- * for the full struct so callers can stack-allocate. Pattern mirrors
- * wolfssl/wolfcrypt/cryptocb.h. */
-#ifdef WOLFSSL_WC_MLKEM
-    #include <wolfssl/wolfcrypt/wc_mlkem.h>
-#elif defined(HAVE_LIBOQS)
+#if defined(HAVE_LIBOQS)
     #include <wolfssl/wolfcrypt/ext_mlkem.h>
+#else
+    #include <wolfssl/wolfcrypt/wc_mlkem.h>
 #endif
 
 /* ML-KEM session-salt path per TCG TPM 2.0 Library v1.85 Part 1 Sec.24

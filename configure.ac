@@ -714,11 +714,11 @@ else
        test "x$ENABLED_WOLFCRYPT" = "xyes"
     then
         # Probe the actual symbols, not just the headers. wolfSSL ships
-        # dilithium.h / mlkem.h even without the implementation compiled
-        # (function decls are gated behind HAVE_DILITHIUM / HAVE_MLKEM
-        # which only get defined via wolfssl/options.h after the right
-        # --enable-* flags). Include options.h first so the gate is set
-        # before the header decls are parsed.
+        # dilithium.h and wc_mlkem.h even without the implementation
+        # compiled (function decls are gated behind HAVE_DILITHIUM /
+        # HAVE_MLKEM which only get defined via wolfssl/options.h after
+        # the right --enable-* flags). Include options.h first so the
+        # gate is set before the header decls are parsed.
         AC_CHECK_DECL([wc_dilithium_init],
             [WOLFTPM_HAVE_DILITHIUM_FN=yes],
             [WOLFTPM_HAVE_DILITHIUM_FN=no],
@@ -728,7 +728,7 @@ else
             [WOLFTPM_HAVE_MLKEM_FN=yes],
             [WOLFTPM_HAVE_MLKEM_FN=no],
             [[#include <wolfssl/options.h>
-              #include <wolfssl/wolfcrypt/mlkem.h>]])
+              #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
         if test "x$WOLFTPM_HAVE_DILITHIUM_FN" = "xyes" && \
            test "x$WOLFTPM_HAVE_MLKEM_FN" = "xyes"
         then
@@ -754,9 +754,22 @@ then
         [[#include <wolfssl/options.h>
           #include <wolfssl/wolfcrypt/dilithium.h>]])
     AC_CHECK_DECL([wc_MlKemKey_Init], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mlkem --enable-experimental])],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem --enable-experimental])],
         [[#include <wolfssl/options.h>
-          #include <wolfssl/wolfcrypt/mlkem.h>]])
+          #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
+
+    AC_MSG_CHECKING([wolfSSL version >= v5.8.0 for PQC])
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+        #include <wolfssl/version.h>
+        #if LIBWOLFSSL_VERSION_HEX < 0x05008000
+        #error "wolfSSL < v5.8.0"
+        #endif
+        int main(void) { return 0; }
+    ]])],
+    [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no])
+     AC_MSG_ERROR([wolfTPM PQC requires wolfSSL >= v5.8.0-stable. Please upgrade wolfSSL.])])
+
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
 fi
 AM_CONDITIONAL([BUILD_V185], [test "x$ENABLED_V185" = "xyes"])

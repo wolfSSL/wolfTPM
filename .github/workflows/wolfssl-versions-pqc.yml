@@ -1,0 +1,122 @@
+name: wolfSSL Version Matrix (PQC)
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolve the latest -stable wolfSSL tag at run time so we don't have to
+  # bump this workflow every release. Floor (v5.8.0) and master are fixed:
+  # v5.8.0 exercises every version-gated workaround in fwtpm_crypto.c, and
+  # master surfaces upstream drift on the nightly run.
+  discover-versions:
+    name: Resolve wolfSSL version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      latest-stable: ${{ steps.set-matrix.outputs.latest-stable }}
+    steps:
+      - name: Resolve latest -stable wolfSSL tag
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          # List remote v*-stable tags, version-sort, take the highest.
+          # Equivalent to `git tag -l 'v*-stable' | sort -V | tail -1` in a
+          # local clone, but avoids cloning just to read tag names.
+          LATEST=$(git ls-remote --tags --refs https://github.com/wolfSSL/wolfssl.git 'v*-stable' \
+                     | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+          if [ -z "${LATEST:-}" ]; then
+            echo "::error::Could not resolve latest wolfSSL -stable tag from remote"
+            exit 1
+          fi
+          echo "Latest stable wolfSSL: $LATEST"
+          echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
+          MATRIX=$(jq -nc --arg latest "$LATEST" '{
+            include: [
+              {"wolfssl-version":"v5.8.0-stable","wolfssl-ref":"v5.8.0-stable","cache-key":"wolfssl-pqc-v5.8.0-v1"},
+              {"wolfssl-version":$latest,"wolfssl-ref":$latest,"cache-key":("wolfssl-pqc-" + $latest + "-v1")},
+              {"wolfssl-version":"master","wolfssl-ref":"master","cache-key":""}
+            ]
+          }')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  pqc-build-test:
+    name: wolfSSL ${{ matrix.wolfssl-version }}
+    needs: discover-versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-versions.outputs.matrix) }}
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool
+
+      - name: Cache wolfSSL ${{ matrix.wolfssl-version }}
+        if: matrix.wolfssl-version != 'master'
+        id: cache-wolfssl
+        uses: actions/cache@v4
+        with:
+          path: ~/wolfssl-install
+          key: ${{ matrix.cache-key }}
+
+      - name: Build wolfSSL ${{ matrix.wolfssl-version }} with PQC
+        if: matrix.wolfssl-version == 'master' || steps.cache-wolfssl.outputs.cache-hit != 'true'
+        run: |
+          cd ~
+          git clone --depth 1 --branch ${{ matrix.wolfssl-ref }} \
+              https://github.com/wolfSSL/wolfssl.git
+          cd wolfssl
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                      --enable-dilithium --enable-mlkem --enable-experimental \
+                      --enable-harden CFLAGS="-DWC_RSA_NO_PADDING" \
+                      --prefix=$HOME/wolfssl-install
+          make -j"$(nproc)"
+          make install
+
+      - name: wolfSSL version info
+        run: |
+          grep LIBWOLFSSL_VERSION_STRING $HOME/wolfssl-install/include/wolfssl/version.h
+          grep LIBWOLFSSL_VERSION_HEX $HOME/wolfssl-install/include/wolfssl/version.h
+
+      - name: Build wolfTPM with v1.85 + fwTPM
+        run: |
+          ./autogen.sh
+          CPPFLAGS="-I$HOME/wolfssl-install/include" \
+          LDFLAGS="-L$HOME/wolfssl-install/lib -Wl,-rpath,$HOME/wolfssl-install/lib" \
+            ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
+          make -j"$(nproc)"
+
+      - name: Run fwtpm_unit.test (PQC KAT block)
+        run: |
+          export LD_LIBRARY_PATH=$HOME/wolfssl-install/lib
+          ./tests/fwtpm_unit.test
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfssl-versions-${{ matrix.wolfssl-version }}-logs
+          path: |
+            config.log
+            tests/*.log
+            test-suite.log
+          retention-days: 5
