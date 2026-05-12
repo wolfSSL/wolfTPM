@@ -7691,6 +7691,16 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BUFFER_E;
     }
 
+    /* Block modes require a whole-block input. Stream-style modes (CFB,
+     * OFB, CTR) accept any length and silently rounding up would advance
+     * the TPM-returned IV past the bytes the caller consumed, breaking
+     * chained-mode encryption. */
+    if (encDecIn.mode == TPM_ALG_CBC || encDecIn.mode == TPM_ALG_ECB) {
+        if ((inOutSz % MAX_AES_BLOCK_SIZE_BYTES) != 0) {
+            return BAD_FUNC_ARG;
+        }
+    }
+
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
@@ -7707,9 +7717,9 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     encDecIn.inData.size = inOutSz;
     XMEMCPY(encDecIn.inData.buffer, in, inOutSz);
 
-    /* make sure its multiple of block size */
-    encDecIn.inData.size = (encDecIn.inData.size +
-        MAX_AES_BLOCK_SIZE_BYTES - 1) & ~(MAX_AES_BLOCK_SIZE_BYTES - 1);
+    /* CBC/ECB sizes are validated above as block-aligned. Stream modes
+     * (CFB/OFB/CTR/NULL) pass through the caller's length unchanged so
+     * the TPM-returned IV reflects exactly the bytes consumed. */
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
