@@ -6087,6 +6087,14 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
+    /* Part 3 Sec.20.5.1: keyHandle MUST NOT have x509sign SET on
+     * TPM2_Sign; that attribute restricts the key to X.509-cert signing
+     * via the dedicated commands. Reject with TPM_RC_ATTRIBUTES to match
+     * the gate already present in FwCmd_SignDigest and
+     * FwCmd_SignSequenceComplete. */
+    if (rc == 0 && (obj->pub.objectAttributes & TPMA_OBJECT_x509sign)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
 
     /* Skip auth area */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
