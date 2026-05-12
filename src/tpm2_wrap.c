@@ -4008,12 +4008,16 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             pub->publicArea.unique.rsa.size = nSz;
             XMEMCPY(pub->publicArea.unique.rsa.buffer, n, nSz);
 
-            /* For fixedParent or (decrypt and restricted) enable symmetric */
+            /* For fixedParent or (decrypt and restricted) enable symmetric.
+             * Match the AES wrap strength to the asymmetric key strength
+             * the same way GetKeyTemplateRSA / ImportRsaPrivateKeySeed do
+             * so a 3072+ bit parent does not silently downgrade child key
+             * protection to AES-128. */
             if ((attributes & TPMA_OBJECT_fixedParent) ||
                 ((attributes & TPMA_OBJECT_decrypt) &&
                     (attributes & TPMA_OBJECT_restricted))) {
                 rsa->symmetric.algorithm = TPM_ALG_AES;
-                rsa->symmetric.keyBits.aes = 128;
+                rsa->symmetric.keyBits.aes = (nSz * 8 > 2048) ? 256 : 128;
                 rsa->symmetric.mode.aes = TPM_ALG_CFB;
             }
             else {
@@ -4129,12 +4133,15 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
             pub->publicArea.unique.ecc.y.size = qySz;
             XMEMCPY(pub->publicArea.unique.ecc.y.buffer, qy, qySz);
 
-            /* For fixedParent or (decrypt and restricted) enable symmetric */
+            /* For fixedParent or (decrypt and restricted) enable symmetric.
+             * Scale the AES wrap strength to the curve size, matching
+             * GetKeyTemplateECC, so a P-384 / P-521 parent does not
+             * silently downgrade child protection to AES-128. */
             if ((attributes & TPMA_OBJECT_fixedParent) ||
                 ((attributes & TPMA_OBJECT_decrypt) &&
                     (attributes & TPMA_OBJECT_restricted))) {
                 ecc->symmetric.algorithm = TPM_ALG_AES;
-                ecc->symmetric.keyBits.aes = 128;
+                ecc->symmetric.keyBits.aes = (qxSz >= 48) ? 256 : 128;
                 ecc->symmetric.mode.aes = TPM_ALG_CFB;
             }
             else {
