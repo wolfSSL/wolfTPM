@@ -1209,14 +1209,13 @@ TPM_RC FwEncapsulateEcdhDhkem(WC_RNG* rng,
         if (wc_ecc_shared_secret(ephKey, recipKey, dh, &dhSz) != 0)
             rc = TPM_RC_FAILURE;
     }
-    /* RFC 9180 Sec.7: left-pad X to Nsk for HPKE peer interop. Run the
-     * move and clear unconditionally so the work is independent of how
-     * many leading zero bytes wc_ecc_shared_secret stripped. */
+    /* RFC 9180 Sec.7: left-pad X to Nsk for HPKE peer interop. The
+     * dhSz <= nSk guard prevents a defensive truncation if
+     * wc_ecc_shared_secret ever returned more bytes than the curve size. */
     if (rc == 0) {
         int nSk = wc_ecc_get_curve_size_from_id(wcCurve);
-        if (nSk > 0 && (word32)nSk <= sizeof(dh)) {
-            word32 padLen = ((word32)nSk > dhSz) ?
-                ((word32)nSk - dhSz) : 0;
+        if (nSk > 0 && (word32)nSk <= sizeof(dh) && dhSz <= (word32)nSk) {
+            word32 padLen = (word32)nSk - dhSz;
             XMEMMOVE(dh + padLen, dh, dhSz);
             XMEMSET(dh, 0, padLen);
             dhSz = (word32)nSk;
@@ -1320,14 +1319,13 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
         if (wc_ecc_shared_secret(recipKey, ephKey, dh, &dhSz) != 0)
             rc = TPM_RC_FAILURE;
     }
-    /* Left-pad X to Nsk per RFC 9180 Sec.7 (mirrors Encap). Run the
-     * move and clear unconditionally so the work is independent of how
-     * many leading zero bytes wc_ecc_shared_secret stripped. */
+    /* Left-pad X to Nsk per RFC 9180 Sec.7 (mirrors Encap). The
+     * dhSz <= nSk guard prevents a defensive truncation if
+     * wc_ecc_shared_secret ever returned more bytes than the curve size. */
     if (rc == 0) {
         int nSk = wc_ecc_get_curve_size_from_id(wcCurve);
-        if (nSk > 0 && (word32)nSk <= sizeof(dh)) {
-            word32 padLen = ((word32)nSk > dhSz) ?
-                ((word32)nSk - dhSz) : 0;
+        if (nSk > 0 && (word32)nSk <= sizeof(dh) && dhSz <= (word32)nSk) {
+            word32 padLen = (word32)nSk - dhSz;
             XMEMMOVE(dh + padLen, dh, dhSz);
             XMEMSET(dh, 0, padLen);
             dhSz = (word32)nSk;
