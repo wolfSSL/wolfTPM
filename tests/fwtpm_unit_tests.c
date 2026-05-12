@@ -3818,6 +3818,51 @@ static void test_fwtpm_signdigest_x509sign_returns_attributes(void)
     fwtpm_pass("SignDigest x509sign (ATTRIBUTES):", 1);
 }
 
+/* Part 3 Sec.20.5.1: TPM2_Sign MUST reject keyHandle with x509sign SET
+ * (TPM_RC_ATTRIBUTES). Mirrors the SignDigest / SignSequenceComplete
+ * gates already covered above. */
+static void test_fwtpm_sign_x509sign_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, cmdSz;
+    UINT32 keyHandle;
+    const UINT32 attrs = 0x00040072 | TPMA_OBJECT_x509sign;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryHashMldsaAttrs(gCmd, attrs);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAA, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Sign x509sign (ATTRIBUTES):", 1);
+}
+
 /* End-to-end positive: TPM2_Hash produces a real HASHCHECK ticket that
  * SignDigest must accept on a restricted key. Confirms ticket-validation
  * actually verifies the HMAC (not just rejects everything). */
@@ -7869,6 +7914,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
     test_fwtpm_signdigest_wrong_digest_size_returns_size();
     test_fwtpm_signseqcomplete_x509sign_returns_attributes();
+    test_fwtpm_sign_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
     test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
     test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
