@@ -274,9 +274,9 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            if (pcrArraySz >= sizeof(pcrArray)) {
+            if (pcrArraySz >= sizeof(pcrArray) / sizeof(pcrArray[0])) {
                 printf("Too many -pcr= arguments (max %zu)\n",
-                    sizeof(pcrArray));
+                    sizeof(pcrArray) / sizeof(pcrArray[0]));
                 usage();
                 return 0;
             }
