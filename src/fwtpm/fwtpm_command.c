@@ -6196,14 +6196,16 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0 && ticketSupplied) {
-        rc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
+        int hmacRc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
             TPM_ST_HASHCHECK,
             digest.buffer, digest.size,
             NULL, 0,
             expectedHmac, &expectedSz);
-        if (rc != 0 || vdSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0) {
+        UINT16 sizeMismatch = (vdSz != (UINT16)expectedSz);
+        word32 cmpLen = (vdSz < (UINT16)expectedSz) ?
+            (word32)vdSz : (word32)expectedSz;
+        int diff = TPM2_ConstantCompare(ticketDigest, expectedHmac, cmpLen);
+        if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
             rc = TPM_RC_TICKET;
         }
         TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
