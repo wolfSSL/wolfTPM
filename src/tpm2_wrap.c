@@ -6681,8 +6681,10 @@ int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
          * sanity-check against the policy digest size. */
         if (authPolicy != NULL && authPolicySz > 0) {
             int expectSz = TPM2_GetHashDigestSize(nameAlg);
-            if (expectSz <= 0 || expectSz != authPolicySz)
+            if (expectSz <= 0 || expectSz != authPolicySz) {
+                TPM2_ForceZero(&in.auth, sizeof(in.auth));
                 return BAD_FUNC_ARG;
+            }
         }
         in.publicInfo.nvPublic.nameAlg = nameAlg;
     }
@@ -6707,6 +6709,7 @@ int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA512;
                 break;
             default:
+                TPM2_ForceZero(&in.auth, sizeof(in.auth));
                 return BAD_FUNC_ARG;
         }
     }
