@@ -4630,6 +4630,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(qBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
+    TPM2_ForceZero(&authValue, sizeof(authValue));
     return rc;
 }
 
