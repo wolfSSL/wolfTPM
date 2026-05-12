@@ -129,16 +129,20 @@ static int extractFW(
 
     READ_BE16(size16, fw, fw_size, offset);
     offset += size16 + 1;
+    if (offset > fw_size) { LOG("FW file too short"); return -1; }
 
     READ_BE16(size16, fw, fw_size, offset);
     offset += size16;
+    if (offset > fw_size) { LOG("FW file too short"); return -1; }
 
     READ_BE16(size16, fw, fw_size, offset);
     offset2 = offset;
     offset += size16;
+    if (offset > fw_size) { LOG("FW file too short"); return -1; }
 
     READ_BE16(size16, fw, offset, offset2);
     offset2 += size16;
+    if (offset2 > offset) { LOG("Bad manifest header size"); return -1; }
 
     READ_BE16(num, fw, offset, offset2);
 
@@ -149,6 +153,10 @@ static int extractFW(
 
         READ_BE16(size16, fw, offset, offset2);
 
+        if ((size_t)offset2 + size16 > offset) {
+            LOG("Bad manifest entry size");
+            return -1;
+        }
         if (group == keygroup_id) {
             printf("Chosen group found: %08x\n", group);
             *manifest = &fw[offset2];
