@@ -7340,6 +7340,7 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
         XMEMCPY(&buf[pos], out.randomBytes.buffer, sz);
         pos += sz;
     }
+    TPM2_ForceZero(&out, sizeof(out));
     return rc;
 }
 
