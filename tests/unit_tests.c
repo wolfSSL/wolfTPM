@@ -1587,6 +1587,60 @@ static void test_TPM2_ParamEnc_AESCFB_Vector(void)
 #endif
 }
 
+/* Known-answer test cross-checking TPM2_ParamEnc_AESCFB against an
+ * independent KDFa + AES-CFB reference built from wolfCrypt primitives.
+ * The pure round-trip test above cannot detect mutations that affect
+ * encrypt and decrypt symmetrically (IV-offset, label, KDFa output
+ * split); this KAT does. */
+static void test_TPM2_ParamEnc_AESCFB_KAT(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    UINT16 keyBits = MAX_AES_KEY_BITS;
+    int keyBytes = (int)keyBits / 8;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "AES-CFB KAT vector";
+    byte tpmCt[sizeof(original)];
+    byte refCt[sizeof(original)];
+    byte symKey[MAX_AES_KEY_BYTES + MAX_AES_BLOCK_SIZE_BYTES];
+    Aes aes;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xCC, sessKey.size);
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x11, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x22, nonceTPM.size);
+
+    XMEMCPY(tpmCt, original, sizeof(original));
+    XMEMCPY(refCt, original, sizeof(original));
+
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        tpmCt, sizeof(tpmCt), 1);
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    rc = TPM2_KDFa(authHash, (TPM2B_DATA*)&sessKey,
+        "CFB", &nonceCaller, &nonceTPM,
+        symKey, (UINT32)(keyBytes + MAX_AES_BLOCK_SIZE_BYTES));
+    AssertIntEQ(keyBytes + MAX_AES_BLOCK_SIZE_BYTES, rc);
+
+    AssertIntEQ(0, wc_AesInit(&aes, NULL, INVALID_DEVID));
+    AssertIntEQ(0, wc_AesSetKey(&aes, symKey, (word32)keyBytes,
+        &symKey[keyBytes], AES_ENCRYPTION));
+    AssertIntEQ(0, wc_AesCfbEncrypt(&aes, refCt, refCt, sizeof(refCt)));
+    wc_AesFree(&aes);
+
+    AssertIntEQ(0, XMEMCMP(tpmCt, refCt, sizeof(refCt)));
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ParamEnc_AESCFB KAT:");
+#endif
+}
+
 static void test_TPM2_ParamDec_XOR_Roundtrip(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -4772,6 +4826,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_CalcHmac();
     test_TPM2_ParamEnc_XOR_Vector();
     test_TPM2_ParamEnc_AESCFB_Vector();
+    test_TPM2_ParamEnc_AESCFB_KAT();
     test_TPM2_ParamDec_XOR_Roundtrip();
     test_TPM2_ParamDec_AESCFB_Roundtrip();
     test_TPM2_ParamEncDec_Dispatch_Roundtrip();
