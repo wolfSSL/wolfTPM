@@ -12011,14 +12011,18 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 objToSign->name.size);
             ticketDataSz += objToSign->name.size;
 
-            if (FwComputeTicketHmac(ctx, hier, objToSign->pub.nameAlg,
-                    TPM_ST_CREATION,
-                    ticketData, ticketDataSz,
-                    NULL, 0,
-                    expectedHmac, &expectedSz) != 0 ||
-                tickDSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0) {
+            int hmacRc = FwComputeTicketHmac(ctx, hier,
+                objToSign->pub.nameAlg,
+                TPM_ST_CREATION,
+                ticketData, ticketDataSz,
+                NULL, 0,
+                expectedHmac, &expectedSz);
+            UINT16 sizeMismatch = (tickDSz != (UINT16)expectedSz);
+            word32 cmpLen = (tickDSz < (UINT16)expectedSz) ?
+                (word32)tickDSz : (word32)expectedSz;
+            int diff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                cmpLen);
+            if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
                 rc = TPM_RC_TICKET;
             }
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
