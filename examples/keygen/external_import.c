@@ -127,6 +127,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&storage, 0, sizeof(storage));
     primary = &storage;
 
