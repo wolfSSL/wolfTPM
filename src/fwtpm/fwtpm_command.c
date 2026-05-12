@@ -6198,15 +6198,19 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0 && ticketSupplied) {
-        int hmacRc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
+        int hmacRc;
+        UINT16 sizeMismatch;
+        word32 cmpLen;
+        int diff;
+        hmacRc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
             TPM_ST_HASHCHECK,
             digest.buffer, digest.size,
             NULL, 0,
             expectedHmac, &expectedSz);
-        UINT16 sizeMismatch = (vdSz != (UINT16)expectedSz);
-        word32 cmpLen = (vdSz < (UINT16)expectedSz) ?
+        sizeMismatch = (vdSz != (UINT16)expectedSz);
+        cmpLen = (vdSz < (UINT16)expectedSz) ?
             (word32)vdSz : (word32)expectedSz;
-        int diff = TPM2_ConstantCompare(ticketDigest, expectedHmac, cmpLen);
+        diff = TPM2_ConstantCompare(ticketDigest, expectedHmac, cmpLen);
         if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
             rc = TPM_RC_TICKET;
         }
@@ -10767,7 +10771,10 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspNoParams(rsp, cmdTag);
     }
 
-    TPM2_ForceZero(dataBuf, FWTPM_MAX_NV_DATA);
+#ifdef WOLFTPM_SMALL_STACK
+    if (dataBuf != NULL)
+#endif
+        TPM2_ForceZero(dataBuf, FWTPM_MAX_NV_DATA);
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
@@ -12013,16 +12020,20 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 objToSign->name.size);
             ticketDataSz += objToSign->name.size;
 
-            int hmacRc = FwComputeTicketHmac(ctx, hier,
+            int hmacRc;
+            UINT16 sizeMismatch;
+            word32 cmpLen;
+            int diff;
+            hmacRc = FwComputeTicketHmac(ctx, hier,
                 objToSign->pub.nameAlg,
                 TPM_ST_CREATION,
                 ticketData, ticketDataSz,
                 NULL, 0,
                 expectedHmac, &expectedSz);
-            UINT16 sizeMismatch = (tickDSz != (UINT16)expectedSz);
-            word32 cmpLen = (tickDSz < (UINT16)expectedSz) ?
+            sizeMismatch = (tickDSz != (UINT16)expectedSz);
+            cmpLen = (tickDSz < (UINT16)expectedSz) ?
                 (word32)tickDSz : (word32)expectedSz;
-            int diff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+            diff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
                 cmpLen);
             if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
                 rc = TPM_RC_TICKET;
