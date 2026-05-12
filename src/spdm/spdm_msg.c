@@ -479,12 +479,8 @@ int wolfSPDM_ParseKeyExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufS
         rc = wolfSPDM_ComputeVerifyData(ctx->rspFinishedKey, ctx->th1, expectedHmac);
     }
     if (rc == WOLFSPDM_SUCCESS) {
-        word32 i;
-        int diff = 0;
-        for (i = 0; i < WOLFSPDM_HASH_SIZE; i++) {
-            diff |= expectedHmac[i] ^ rspVerifyData[i];
-        }
-        if (diff != 0) {
+        if (TPM2_ConstantCompare(expectedHmac, rspVerifyData,
+                WOLFSPDM_HASH_SIZE) != 0) {
             wolfSPDM_DebugPrint(ctx, "ResponderVerifyData MISMATCH\n");
             rc = WOLFSPDM_E_BAD_HMAC;
         }
