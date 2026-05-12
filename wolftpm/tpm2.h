@@ -865,8 +865,13 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_restricted          = 0x00010000,
     TPMA_OBJECT_decrypt             = 0x00020000,
     TPMA_OBJECT_sign                = 0x00040000,
+    /* Deprecated alias. Earlier versions of this header labeled bit 9
+     * as derivedDataOrigin, which does not appear in the TCG spec.
+     * Retained at the same bit value (now svnLimited per Part 2 v1.85)
+     * for source compatibility with downstream code. */
+    TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
 #ifdef WOLFTPM_V185
-    /* Part 2 v1.85 Sec.8.3.2 Table 36 bits 8 and 9. firmwareLimited /
+    /* Part 2 v1.85 Sec.8.3.2 Table 36 bits 8 and 9: firmwareLimited /
      * svnLimited mark keys whose lifetime is bound to the firmware
      * version / SVN of the TPM that produced them. */
     TPMA_OBJECT_firmwareLimited     = 0x00000100,
