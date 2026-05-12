@@ -243,10 +243,15 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     }
 
 exit:
+#ifndef WOLFTPM2_NO_HEAP
     if (rsaKey3 != NULL)
         wolfTPM2_UnloadHandle(&dev, &rsaKey3->handle);
     if (key2 != NULL)
         wolfTPM2_UnloadHandle(&dev, &key2->handle);
+#else
+    wolfTPM2_UnloadHandle(&dev, &rsaKey3->handle);
+    wolfTPM2_UnloadHandle(&dev, &key2->handle);
+#endif
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
 
 #ifndef WOLFTPM2_NO_HEAP
