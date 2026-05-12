@@ -5024,6 +5024,8 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(seedBuf, sizeof(seedBuf));
     TPM2_ForceZero(aesKey, sizeof(aesKey));
     TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
+    TPM2_ForceZero(encKeyBuf, sizeof(encKeyBuf));
+    TPM2_ForceZero(&importedAuth, sizeof(importedAuth));
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
