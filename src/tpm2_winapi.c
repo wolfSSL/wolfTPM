@@ -67,6 +67,7 @@ int TPM2_WinApi_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc = 0;
     TBS_CONTEXT_PARAMS2 tbs_params;
+    XMEMSET(&tbs_params, 0, sizeof(tbs_params));
     tbs_params.version = TBS_CONTEXT_VERSION_TWO;
     tbs_params.includeTpm12 = 0;
     tbs_params.includeTpm20 = 1;
