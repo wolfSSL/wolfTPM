@@ -3278,6 +3278,42 @@ WOLFTPM_API int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev,
 
 #define WOLFTPM2_ENCRYPT NO
 #define WOLFTPM2_DECRYPT YES
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Encrypt or decrypt a single block of data with the symmetric key.
+
+    Wraps TPM2_EncryptDecrypt2 (TPM 2.0 Part 3 Section 15). The TPM symmetric
+    mode is taken from \p key->pub.publicArea.parameters.symDetail.sym.mode.aes.
+
+    Length contract:
+      - TPM_ALG_CBC and TPM_ALG_ECB require \p inOutSz to be a whole multiple
+        of MAX_AES_BLOCK_SIZE_BYTES; otherwise BAD_FUNC_ARG is returned.
+      - TPM_ALG_CFB, TPM_ALG_OFB, TPM_ALG_CTR accept any non-zero length and
+        the TPM-returned IV reflects exactly the bytes consumed.
+      - TPM_ALG_NULL is forwarded to the TPM, which rejects it.
+
+    IV requirements: modes other than ECB and NULL require a non-NULL IV.
+    On success the IV in \p iv is updated with the TPM's running IV so the
+    next call can chain.
+
+    \return TPM_RC_SUCCESS on success.
+    \return BAD_FUNC_ARG if dev/key/in/out is NULL, inOutSz is zero, the mode
+            needs an IV but none was supplied, or a CBC/ECB length is not
+            block-aligned.
+    \return BUFFER_E if \p inOutSz exceeds the TPM input buffer size or
+            \p ivSz exceeds the TPM IV buffer size.
+    \return other TPM_RC_* values surfaced from TPM2_EncryptDecrypt2.
+
+    \param dev pointer to a TPM2_DEV (must not be NULL)
+    \param key handle/template of the loaded symmetric key
+    \param in input buffer
+    \param out output buffer (in-place is allowed)
+    \param inOutSz length of \p in / \p out in bytes
+    \param iv input/output IV buffer
+    \param ivSz length of \p iv in bytes
+    \param isDecrypt WOLFTPM2_ENCRYPT (0) for encrypt, WOLFTPM2_DECRYPT (1)
+                     for decrypt
+*/
 WOLFTPM_API int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* in, byte* out, word32 inOutSz, byte* iv, word32 ivSz,
     int isDecrypt);

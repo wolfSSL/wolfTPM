@@ -7339,6 +7339,9 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
 
         XMEMCPY(&buf[pos], out.randomBytes.buffer, sz);
         pos += sz;
+        /* Scrub each iteration so earlier random material does not
+         * linger across multi-chunk requests. */
+        TPM2_ForceZero(&out, sizeof(out));
     }
     TPM2_ForceZero(&out, sizeof(out));
     return rc;
@@ -7729,8 +7732,10 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(encDecIn.inData.buffer, in, inOutSz);
 
     /* CBC/ECB sizes are validated above as block-aligned. Stream modes
-     * (CFB/OFB/CTR/NULL) pass through the caller's length unchanged so
-     * the TPM-returned IV reflects exactly the bytes consumed. */
+     * (CFB/OFB/CTR) pass through the caller's length unchanged so the
+     * TPM-returned IV reflects exactly the bytes consumed. TPM_ALG_NULL
+     * (no symmetric algorithm) is forwarded to the TPM, which rejects
+     * it with TPM_RC_VALUE / TPM_RC_KEY per TPM 2.0 Part 3. */
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
