@@ -191,7 +191,8 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     /* setup an auth value */
     if (password != NULL) {
-        size_t pwLen = XSTRLEN(password);
+        size_t pwLen;
+        pwLen = XSTRLEN(password);
         if (pwLen > sizeof(impKey.handle.auth.buffer)) {
             printf("-password too long (max %zu)\n",
                 sizeof(impKey.handle.auth.buffer));

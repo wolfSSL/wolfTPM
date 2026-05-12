@@ -196,7 +196,8 @@ int TPM2_NVRAM_SealNV_Example(void* userCtx, int argc, char *argv[])
     /* Set owner auth */
     parent.hndl = TPM_RH_OWNER;
     if (XSTRLEN(ownerAuth) > 0) {
-        size_t authLen = XSTRLEN(ownerAuth);
+        size_t authLen;
+        authLen = XSTRLEN(ownerAuth);
         if (authLen > sizeof(parent.auth.buffer)) {
             fprintf(stderr, "-ownerauth value too long (max %zu)\n",
                 sizeof(parent.auth.buffer));
