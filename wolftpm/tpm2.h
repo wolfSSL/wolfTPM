@@ -860,13 +860,17 @@ enum TPMA_OBJECT_mask {
     TPMA_OBJECT_sensitiveDataOrigin = 0x00000020,
     TPMA_OBJECT_userWithAuth        = 0x00000040,
     TPMA_OBJECT_adminWithPolicy     = 0x00000080,
-    TPMA_OBJECT_derivedDataOrigin   = 0x00000200,
     TPMA_OBJECT_noDA                = 0x00000400,
     TPMA_OBJECT_encryptedDuplication= 0x00000800,
     TPMA_OBJECT_restricted          = 0x00010000,
     TPMA_OBJECT_decrypt             = 0x00020000,
     TPMA_OBJECT_sign                = 0x00040000,
 #ifdef WOLFTPM_V185
+    /* Part 2 v1.85 Sec.8.3.2 Table 36 bits 8 and 9. firmwareLimited /
+     * svnLimited mark keys whose lifetime is bound to the firmware
+     * version / SVN of the TPM that produced them. */
+    TPMA_OBJECT_firmwareLimited     = 0x00000100,
+    TPMA_OBJECT_svnLimited          = 0x00000200,
     /* Part 2 v1.85 Sec.8.3.3 (bit 19): x509sign restricts the digests this
      * key can sign so the signature is suitable for use as an X.509
      * Certificate signature. Part 3 Sec.20.6.1 / Sec.20.7.1 mandate
