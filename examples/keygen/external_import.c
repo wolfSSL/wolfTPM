@@ -127,12 +127,18 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
         argc--;
     }
 
+    XMEMSET(&storage, 0, sizeof(storage));
+    primary = &storage;
+
 #ifndef WOLFTPM2_NO_HEAP
     key2 = wolfTPM2_NewKeyBlob();
     rsaKey3 = wolfTPM2_NewKeyBlob();
+    if (key2 == NULL || rsaKey3 == NULL) {
+        printf("wolfTPM2_NewKeyBlob allocation failed\n");
+        rc = MEMORY_E;
+        goto exit;
+    }
 #endif
-    XMEMSET(&storage, 0, sizeof(storage));
-    primary = &storage;
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     if (rc != TPM_RC_SUCCESS) {
@@ -237,8 +243,10 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     }
 
 exit:
-    wolfTPM2_UnloadHandle(&dev, &rsaKey3->handle);
-    wolfTPM2_UnloadHandle(&dev, &key2->handle);
+    if (rsaKey3 != NULL)
+        wolfTPM2_UnloadHandle(&dev, &rsaKey3->handle);
+    if (key2 != NULL)
+        wolfTPM2_UnloadHandle(&dev, &key2->handle);
     wolfTPM2_UnloadHandle(&dev, &primary->handle);
 
 #ifndef WOLFTPM2_NO_HEAP
