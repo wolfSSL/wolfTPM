@@ -357,7 +357,9 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
     s = zsock_getaddrinfo(host, port, &hints, &result);
     if (s != 0) {
-        // Handle error
+    #ifdef DEBUG_WOLFTPM
+        printf("zsock_getaddrinfo(%s %s) failed: %d\n", host, port, s);
+    #endif
         return rc;
     }
 
@@ -366,6 +368,9 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         if (fd < 0)
             continue;
         if (zsock_connect(fd, rp->ai_addr, rp->ai_addrlen) < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("zsock_connect attempt failed for %s %s\n", host, port);
+        #endif
             zsock_close(fd);
         } else {
             break;
