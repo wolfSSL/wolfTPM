@@ -10763,6 +10763,7 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspNoParams(rsp, cmdTag);
     }
 
+    TPM2_ForceZero(dataBuf, FWTPM_MAX_NV_DATA);
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
