@@ -286,9 +286,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-auth=", XSTRLEN("-auth=")) == 0) {
             authStr = argv[argc-1] + XSTRLEN("-auth=");
-            if (XSTRLEN(authStr) > sizeof(((TPM2B_AUTH*)0)->buffer)) {
+            if (XSTRLEN(authStr) > sizeof(auth.buffer)) {
                 printf("-auth value too long (max %zu)\n",
-                    sizeof(((TPM2B_AUTH*)0)->buffer));
+                    sizeof(auth.buffer));
                 usage();
                 return 0;
             }
