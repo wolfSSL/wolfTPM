@@ -6094,10 +6094,12 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * TPM2_Sign; that attribute restricts the key to X.509-cert signing
      * via the dedicated commands. Reject with TPM_RC_ATTRIBUTES to match
      * the gate already present in FwCmd_SignDigest and
-     * FwCmd_SignSequenceComplete. */
+     * FwCmd_SignSequenceComplete. The attribute itself is v1.85-only. */
+#ifdef WOLFTPM_V185
     if (rc == 0 && (obj->pub.objectAttributes & TPMA_OBJECT_x509sign)) {
         rc = TPM_RC_ATTRIBUTES;
     }
+#endif
 
     /* Skip auth area */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
