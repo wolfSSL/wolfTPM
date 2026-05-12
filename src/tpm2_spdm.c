@@ -269,6 +269,8 @@ int wolfTPM2_SPDM_SecuredExchange(
             rc = WOLFSPDM_E_PEER_ERROR;
         }
 
+        TPM2_ForceZero(vdMsg, WOLFSPDM_MAX_MSG_SIZE);
+        TPM2_ForceZero(vdRsp, WOLFSPDM_MAX_MSG_SIZE);
     #ifdef WOLFTPM_SMALL_STACK
         XFREE(vdMsg, NULL, DYNAMIC_TYPE_TMP_BUFFER);
         XFREE(vdRsp, NULL, DYNAMIC_TYPE_TMP_BUFFER);
