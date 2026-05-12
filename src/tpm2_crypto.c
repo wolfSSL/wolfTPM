@@ -143,6 +143,10 @@ int TPM2_KDFa_ex(
     }
 
     wc_HmacFree(&hmac_ctx);
+    /* HMAC context's ipad/opad fields hold the input key XORed with
+     * constants, which is trivially invertible. Scrub the stack object
+     * after free so the key does not linger in the caller's frame. */
+    TPM2_ForceZero(&hmac_ctx, sizeof(hmac_ctx));
     TPM2_ForceZero(hash, sizeof(hash));
 
     if (ret == 0) {
@@ -272,6 +276,9 @@ int TPM2_KDFe_ex(
     if (hashInited) {
         wc_HashFree(&hash_ctx, hashType);
     }
+    /* The hash context's partial block buffer can hold residual Z bytes;
+     * scrub the stack object after free. */
+    TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     TPM2_ForceZero(hash, sizeof(hash));
 
     if (ret == 0) {

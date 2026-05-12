@@ -480,7 +480,7 @@ int wolfSPDM_ParseKeyExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf, word32 bufS
     }
     if (rc == WOLFSPDM_SUCCESS) {
         word32 i;
-        int diff = 0;
+        volatile int diff = 0;
         for (i = 0; i < WOLFSPDM_HASH_SIZE; i++) {
             diff |= expectedHmac[i] ^ rspVerifyData[i];
         }

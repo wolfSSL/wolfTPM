@@ -131,6 +131,7 @@ int TLS_ClientArgs(int argc, char *argv[])
                 ca_cert_der_2048, sizeof_ca_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Error loading ca_cert_der_2048 DER cert\n");
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
     #elif defined(HAVE_ECC)
@@ -138,6 +139,7 @@ int TLS_ClientArgs(int argc, char *argv[])
                 ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
             printf("Error loading ca_ecc_cert_der_256 DER cert\n");
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
     #endif
@@ -149,22 +151,26 @@ int TLS_ClientArgs(int argc, char *argv[])
         if (wolfSSL_CTX_use_certificate_buffer(ctx,
                 client_cert_der_2048, sizeof_client_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
         if (wolfSSL_CTX_use_PrivateKey_buffer(ctx,
                 client_key_der_2048, sizeof_client_key_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
     #elif defined(HAVE_ECC)
         if (wolfSSL_CTX_use_certificate_buffer(ctx,
                 cliecc_cert_der_256, sizeof_cliecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
         if (wolfSSL_CTX_use_PrivateKey_buffer(ctx,
                 ecc_clikey_der_256, sizeof_ecc_clikey_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            rc = WOLFSSL_FATAL_ERROR;
             goto exit;
         }
     #endif

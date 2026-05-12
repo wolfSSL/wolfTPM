@@ -4630,6 +4630,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(qBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
+    TPM2_ForceZero(&authValue, sizeof(authValue));
     return rc;
 }
 
@@ -5024,6 +5025,8 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(seedBuf, sizeof(seedBuf));
     TPM2_ForceZero(aesKey, sizeof(aesKey));
     TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
+    TPM2_ForceZero(encKeyBuf, sizeof(encKeyBuf));
+    TPM2_ForceZero(&importedAuth, sizeof(importedAuth));
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
@@ -6087,6 +6090,16 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign))
             rc = TPM_RC_KEY;
     }
+    /* Part 3 Sec.20.5.1: keyHandle MUST NOT have x509sign SET on
+     * TPM2_Sign; that attribute restricts the key to X.509-cert signing
+     * via the dedicated commands. Reject with TPM_RC_ATTRIBUTES to match
+     * the gate already present in FwCmd_SignDigest and
+     * FwCmd_SignSequenceComplete. The attribute itself is v1.85-only. */
+#ifdef WOLFTPM_V185
+    if (rc == 0 && (obj->pub.objectAttributes & TPMA_OBJECT_x509sign)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+#endif
 
     /* Skip auth area */
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
@@ -6185,14 +6198,20 @@ static TPM_RC FwCmd_Sign(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0 && ticketSupplied) {
-        rc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
+        int hmacRc;
+        UINT16 sizeMismatch;
+        word32 cmpLen;
+        int diff;
+        hmacRc = FwComputeTicketHmac(ctx, ticketHier, obj->pub.nameAlg,
             TPM_ST_HASHCHECK,
             digest.buffer, digest.size,
             NULL, 0,
             expectedHmac, &expectedSz);
-        if (rc != 0 || vdSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0) {
+        sizeMismatch = (vdSz != (UINT16)expectedSz);
+        cmpLen = (vdSz < (UINT16)expectedSz) ?
+            (word32)vdSz : (word32)expectedSz;
+        diff = TPM2_ConstantCompare(ticketDigest, expectedHmac, cmpLen);
+        if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
             rc = TPM_RC_TICKET;
         }
         TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
@@ -10752,6 +10771,10 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwRspNoParams(rsp, cmdTag);
     }
 
+#ifdef WOLFTPM_SMALL_STACK
+    if (dataBuf != NULL)
+#endif
+        TPM2_ForceZero(dataBuf, FWTPM_MAX_NV_DATA);
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
@@ -11997,14 +12020,22 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 objToSign->name.size);
             ticketDataSz += objToSign->name.size;
 
-            if (FwComputeTicketHmac(ctx, hier, objToSign->pub.nameAlg,
-                    TPM_ST_CREATION,
-                    ticketData, ticketDataSz,
-                    NULL, 0,
-                    expectedHmac, &expectedSz) != 0 ||
-                tickDSz != (UINT16)expectedSz ||
-                TPM2_ConstantCompare(ticketDigest, expectedHmac,
-                    (word32)expectedSz) != 0) {
+            int hmacRc;
+            UINT16 sizeMismatch;
+            word32 cmpLen;
+            int diff;
+            hmacRc = FwComputeTicketHmac(ctx, hier,
+                objToSign->pub.nameAlg,
+                TPM_ST_CREATION,
+                ticketData, ticketDataSz,
+                NULL, 0,
+                expectedHmac, &expectedSz);
+            sizeMismatch = (tickDSz != (UINT16)expectedSz);
+            cmpLen = (tickDSz < (UINT16)expectedSz) ?
+                (word32)tickDSz : (word32)expectedSz;
+            diff = TPM2_ConstantCompare(ticketDigest, expectedHmac,
+                cmpLen);
+            if (hmacRc != 0 || (sizeMismatch | (UINT16)(diff != 0))) {
                 rc = TPM_RC_TICKET;
             }
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));

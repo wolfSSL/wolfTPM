@@ -1232,7 +1232,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_ObjectChangeAuth failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
-        //goto exit;
+        goto exit;
     }
     hmacKey.priv = cmdOut.objChgAuth.outPrivate;
     printf("TPM2_ObjectChangeAuth: private %d\n", hmacKey.priv.size);

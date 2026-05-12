@@ -181,7 +181,7 @@ int wolfSPDM_ParsePskExchangeRsp(WOLFSPDM_CTX* ctx, const byte* buf,
     }
     if (rc == WOLFSPDM_SUCCESS) {
         word32 i;
-        int diff = 0;
+        volatile int diff = 0;
         wolfSPDM_DebugHex(ctx, "Expected HMAC", expectedHmac,
             WOLFSPDM_HASH_SIZE);
         wolfSPDM_DebugHex(ctx, "Received HMAC", rspVerifyData,

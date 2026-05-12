@@ -357,7 +357,9 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
     s = zsock_getaddrinfo(host, port, &hints, &result);
     if (s != 0) {
-        // Handle error
+    #ifdef DEBUG_WOLFTPM
+        printf("zsock_getaddrinfo(%s %s) failed: %d\n", host, port, s);
+    #endif
         return rc;
     }
 
@@ -366,6 +368,9 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         if (fd < 0)
             continue;
         if (zsock_connect(fd, rp->ai_addr, rp->ai_addrlen) < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("zsock_connect attempt failed for %s %s\n", host, port);
+        #endif
             zsock_close(fd);
         } else {
             break;
@@ -480,7 +485,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     int rc = TPM_RC_SUCCESS;
-    int rspSz = 0;
+    uint32_t rspSz = 0;
     uint32_t tss_word;
     const char* swtpmHost = TPM2_SWTPM_HOST;
     const char* swtpmPort = XSTRINGIFY(TPM2_SWTPM_PORT);
@@ -538,10 +543,11 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = TPM2_Packet_SwapU32(tss_word);
-        if (rspSz > packet->size) {
+        if (rspSz < TPM2_HEADER_SIZE ||
+                rspSz > (uint32_t)packet->size) {
             #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("Response size(%d) larger than command buffer(%d)\n",
-                   rspSz, packet->pos);
+            printf("Response size(%u) out of range (header=%d, buf=%d)\n",
+                   rspSz, TPM2_HEADER_SIZE, packet->size);
             #endif
             rc = TPM_RC_FAILURE;
         }
@@ -568,7 +574,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     if (rspSz > 0) {
-        printf("Response size: %d\n", rspSz);
+        printf("Response size: %u\n", rspSz);
         TPM2_PrintBin(packet->buf, rspSz);
     }
 #endif

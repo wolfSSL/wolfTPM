@@ -133,7 +133,7 @@ int TPM2_MakeCredential_Example(void* userCtx, int argc, char *argv[])
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_LoadExternal: failed %d: %s\n", rc,
             wolfTPM2_GetRCString(rc));
-        return rc;
+        goto exit;
     }
     printf("Public key for encryption loaded\n");
     handle.hndl = loadExtOut.objectHandle;

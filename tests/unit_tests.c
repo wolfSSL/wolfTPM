@@ -1587,6 +1587,60 @@ static void test_TPM2_ParamEnc_AESCFB_Vector(void)
 #endif
 }
 
+/* Known-answer test cross-checking TPM2_ParamEnc_AESCFB against an
+ * independent KDFa + AES-CFB reference built from wolfCrypt primitives.
+ * The pure round-trip test above cannot detect mutations that affect
+ * encrypt and decrypt symmetrically (IV-offset, label, KDFa output
+ * split); this KAT does. */
+static void test_TPM2_ParamEnc_AESCFB_KAT(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    UINT16 keyBits = MAX_AES_KEY_BITS;
+    int keyBytes = (int)keyBits / 8;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    const byte original[] = "AES-CFB KAT vector";
+    byte tpmCt[sizeof(original)];
+    byte refCt[sizeof(original)];
+    byte symKey[MAX_AES_KEY_BYTES + MAX_AES_BLOCK_SIZE_BYTES];
+    Aes aes;
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xCC, sessKey.size);
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x11, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x22, nonceTPM.size);
+
+    XMEMCPY(tpmCt, original, sizeof(original));
+    XMEMCPY(refCt, original, sizeof(original));
+
+    rc = TPM2_ParamEnc_AESCFB(authHash, keyBits,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        tpmCt, sizeof(tpmCt), 1);
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    rc = TPM2_KDFa(authHash, (TPM2B_DATA*)&sessKey,
+        "CFB", &nonceCaller, &nonceTPM,
+        symKey, (UINT32)(keyBytes + MAX_AES_BLOCK_SIZE_BYTES));
+    AssertIntEQ(keyBytes + MAX_AES_BLOCK_SIZE_BYTES, rc);
+
+    AssertIntEQ(0, wc_AesInit(&aes, NULL, INVALID_DEVID));
+    AssertIntEQ(0, wc_AesSetKey(&aes, symKey, (word32)keyBytes,
+        &symKey[keyBytes], AES_ENCRYPTION));
+    AssertIntEQ(0, wc_AesCfbEncrypt(&aes, refCt, refCt, sizeof(refCt)));
+    wc_AesFree(&aes);
+
+    AssertIntEQ(0, XMEMCMP(tpmCt, refCt, sizeof(refCt)));
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ParamEnc_AESCFB KAT:");
+#endif
+}
+
 static void test_TPM2_ParamDec_XOR_Roundtrip(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -3036,8 +3090,16 @@ static void test_SealAndKeyedHash_Boundaries(void)
 
 static void test_GetAlgId(void)
 {
-    TPM_ALG_ID alg = TPM2_GetAlgId("SHA256");
-    AssertIntEQ(alg, TPM_ALG_SHA256);
+    AssertIntEQ(TPM2_GetAlgId("SHA256"), TPM_ALG_SHA256);
+    AssertIntEQ(TPM2_GetAlgId("SHA3_256"), TPM_ALG_SHA3_256);
+    AssertIntEQ(TPM2_GetAlgId("SHA3_384"), TPM_ALG_SHA3_384);
+    AssertIntEQ(TPM2_GetAlgId("SHA3_512"), TPM_ALG_SHA3_512);
+#ifdef WOLFTPM_V185
+    AssertIntEQ(TPM2_GetAlgId("ML-KEM"), TPM_ALG_MLKEM);
+    AssertIntEQ(TPM2_GetAlgId("ML-DSA"), TPM_ALG_MLDSA);
+    AssertIntEQ(TPM2_GetAlgId("HashML-DSA"), TPM_ALG_HASH_MLDSA);
+#endif
+    AssertIntEQ(TPM2_GetAlgId("not_a_real_alg"), TPM_ALG_ERROR);
 }
 
 static void test_wolfTPM2_CSR(void)
@@ -3761,6 +3823,96 @@ static void test_wolfTPM2_DecodeDer_DefaultAttribs(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "DecodeDer DefaultAttribs:");
 }
+
+/* Verify the AES wrap-key strength selected by wolfTPM2_DecodeRsaDer /
+ * wolfTPM2_DecodeEccDer scales with the imported parent's strength: 2048-bit
+ * RSA / P-256 -> AES-128, 3072-bit RSA / P-384 -> AES-256. */
+static void test_wolfTPM2_DecodeDer_WrapKeyScaling(void)
+{
+#if defined(HAVE_ECC) && defined(WOLFSSL_KEY_GEN) && \
+    !defined(WC_NO_RNG)
+    int rc;
+    WC_RNG rng;
+    ecc_key eccKey;
+    byte derBuf[1024];
+    int derSz;
+    TPM2B_PUBLIC pub;
+    const TPMA_OBJECT restrictedDecrypt =
+        TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt;
+#if !defined(NO_RSA)
+    RsaKey rsaKey;
+    byte rsaDer[2048];
+    int rsaDerSz;
+#endif
+
+    AssertIntEQ(wc_InitRng(&rng), 0);
+
+    /* P-256 -> AES-128 */
+    AssertIntEQ(wc_ecc_init(&eccKey), 0);
+    AssertIntEQ(wc_ecc_make_key_ex(&rng, 32, &eccKey, ECC_SECP256R1), 0);
+    derSz = wc_EccKeyToDer(&eccKey, derBuf, (word32)sizeof(derBuf));
+    AssertIntGT(derSz, 0);
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_DecodeEccDer(derBuf, (word32)derSz, &pub, NULL,
+        restrictedDecrypt);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(pub.publicArea.parameters.eccDetail.symmetric.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pub.publicArea.parameters.eccDetail.symmetric.keyBits.aes,
+        128);
+    wc_ecc_free(&eccKey);
+
+    /* P-384 -> AES-256 */
+    AssertIntEQ(wc_ecc_init(&eccKey), 0);
+    AssertIntEQ(wc_ecc_make_key_ex(&rng, 48, &eccKey, ECC_SECP384R1), 0);
+    derSz = wc_EccKeyToDer(&eccKey, derBuf, (word32)sizeof(derBuf));
+    AssertIntGT(derSz, 0);
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_DecodeEccDer(derBuf, (word32)derSz, &pub, NULL,
+        restrictedDecrypt);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(pub.publicArea.parameters.eccDetail.symmetric.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pub.publicArea.parameters.eccDetail.symmetric.keyBits.aes,
+        256);
+    wc_ecc_free(&eccKey);
+
+#if !defined(NO_RSA)
+    /* 2048-bit RSA -> AES-128 */
+    AssertIntEQ(wc_InitRsaKey(&rsaKey, NULL), 0);
+    AssertIntEQ(wc_MakeRsaKey(&rsaKey, 2048, WC_RSA_EXPONENT, &rng), 0);
+    rsaDerSz = wc_RsaKeyToDer(&rsaKey, rsaDer, (word32)sizeof(rsaDer));
+    AssertIntGT(rsaDerSz, 0);
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_DecodeRsaDer(rsaDer, (word32)rsaDerSz, &pub, NULL,
+        restrictedDecrypt);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.keyBits.aes,
+        128);
+    wc_FreeRsaKey(&rsaKey);
+
+    /* 3072-bit RSA -> AES-256 */
+    AssertIntEQ(wc_InitRsaKey(&rsaKey, NULL), 0);
+    AssertIntEQ(wc_MakeRsaKey(&rsaKey, 3072, WC_RSA_EXPONENT, &rng), 0);
+    rsaDerSz = wc_RsaKeyToDer(&rsaKey, rsaDer, (word32)sizeof(rsaDer));
+    AssertIntGT(rsaDerSz, 0);
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_DecodeRsaDer(rsaDer, (word32)rsaDerSz, &pub, NULL,
+        restrictedDecrypt);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pub.publicArea.parameters.rsaDetail.symmetric.keyBits.aes,
+        256);
+    wc_FreeRsaKey(&rsaKey);
+#endif /* !NO_RSA */
+
+    wc_FreeRng(&rng);
+    printf("Test TPM Wrapper: %-40s Passed\n", "DecodeDer WrapKeyScaling:");
+#endif /* HAVE_ECC && WOLFSSL_KEY_GEN && !WC_NO_RNG */
+}
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_ASN */
 
 /* Test NULL parentKey handling in LoadRsaPrivateKey_ex and LoadEccPrivateKey */
@@ -3873,6 +4025,26 @@ static void test_wolfTPM2_EncryptDecryptBlock(void)
     key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_NULL;
     rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
         sizeof(in), NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntNE(rc, BAD_FUNC_ARG);
+
+    /* CBC mode: non-block-aligned inOutSz must return BAD_FUNC_ARG. */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CBC;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        MAX_AES_BLOCK_SIZE_BYTES - 1, iv, sizeof(iv), WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* ECB mode: non-block-aligned inOutSz must return BAD_FUNC_ARG. */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_ECB;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        MAX_AES_BLOCK_SIZE_BYTES + 1, NULL, 0, WOLFTPM2_ENCRYPT);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* CFB mode: non-block-aligned inOutSz is a stream length and must
+     * bypass the block-alignment gate (so the return must not be the
+     * BAD_FUNC_ARG produced by the alignment check). */
+    key.pub.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CFB;
+    rc = wolfTPM2_EncryptDecryptBlock(&dev, &key, in, out,
+        MAX_AES_BLOCK_SIZE_BYTES - 1, iv, sizeof(iv), WOLFTPM2_ENCRYPT);
     AssertIntNE(rc, BAD_FUNC_ARG);
 
     wolfTPM2_Cleanup(&dev);
@@ -4772,6 +4944,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_CalcHmac();
     test_TPM2_ParamEnc_XOR_Vector();
     test_TPM2_ParamEnc_AESCFB_Vector();
+    test_TPM2_ParamEnc_AESCFB_KAT();
     test_TPM2_ParamDec_XOR_Roundtrip();
     test_TPM2_ParamDec_AESCFB_Roundtrip();
     test_TPM2_ParamEncDec_Dispatch_Roundtrip();
@@ -4812,6 +4985,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_EncryptSecret();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_ASN)
     test_wolfTPM2_DecodeDer_DefaultAttribs();
+    test_wolfTPM2_DecodeDer_WrapKeyScaling();
     #endif
     test_wolfTPM2_LoadPrivateKey_NullParent();
     test_wolfTPM2_EncryptDecryptBlock();

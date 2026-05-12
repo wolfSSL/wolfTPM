@@ -167,6 +167,12 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
+            if (pcrArraySz >= sizeof(pcrArray) / sizeof(pcrArray[0])) {
+                printf("Too many -pcr= arguments (max %zu)\n",
+                    sizeof(pcrArray) / sizeof(pcrArray[0]));
+                usage();
+                return 0;
+            }
             pcrArray[pcrArraySz] = pcrIndex;
             pcrArraySz++;
         }

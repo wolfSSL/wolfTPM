@@ -136,7 +136,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             fds.events = POLLIN;
             /* Wait for response to be available */
             rc_poll = poll(&fds, nfds, TPM2_LINUX_DEV_POLL_TIMEOUT);
-            if (rc_poll > 0 && fds.revents == POLLIN) {
+            if (rc_poll > 0 && (fds.revents & POLLIN)) {
                 ssize_t ret = read(ctx->fd, packet->buf, packet->size);
                 /* The caller parses the TPM_Packet for correctness */
                 if (ret >= TPM2_HEADER_SIZE) {

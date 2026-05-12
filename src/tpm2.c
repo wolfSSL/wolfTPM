@@ -6964,6 +6964,20 @@ TPM_ALG_ID TPM2_GetAlgId(const char* name)
         return TPM_ALG_CFB;
     if (!XSTRCMP(name, "AES-ECB"))
         return TPM_ALG_ECB;
+    if (!XSTRCMP(name, "SHA3_256"))
+        return TPM_ALG_SHA3_256;
+    if (!XSTRCMP(name, "SHA3_384"))
+        return TPM_ALG_SHA3_384;
+    if (!XSTRCMP(name, "SHA3_512"))
+        return TPM_ALG_SHA3_512;
+#ifdef WOLFTPM_V185
+    if (!XSTRCMP(name, "ML-KEM"))
+        return TPM_ALG_MLKEM;
+    if (!XSTRCMP(name, "ML-DSA"))
+        return TPM_ALG_MLDSA;
+    if (!XSTRCMP(name, "HashML-DSA"))
+        return TPM_ALG_HASH_MLDSA;
+#endif
 
     return TPM_ALG_ERROR;
 }

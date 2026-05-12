@@ -4008,12 +4008,16 @@ int wolfTPM2_DecodeRsaDer(const byte* der, word32 derSz,
             pub->publicArea.unique.rsa.size = nSz;
             XMEMCPY(pub->publicArea.unique.rsa.buffer, n, nSz);
 
-            /* For fixedParent or (decrypt and restricted) enable symmetric */
+            /* For fixedParent or (decrypt and restricted) enable symmetric.
+             * Match the AES wrap strength to the asymmetric key strength
+             * the same way GetKeyTemplateRSA / ImportRsaPrivateKeySeed do
+             * so a 3072+ bit parent does not silently downgrade child key
+             * protection to AES-128. */
             if ((attributes & TPMA_OBJECT_fixedParent) ||
                 ((attributes & TPMA_OBJECT_decrypt) &&
                     (attributes & TPMA_OBJECT_restricted))) {
                 rsa->symmetric.algorithm = TPM_ALG_AES;
-                rsa->symmetric.keyBits.aes = 128;
+                rsa->symmetric.keyBits.aes = (nSz * 8 > 2048) ? 256 : 128;
                 rsa->symmetric.mode.aes = TPM_ALG_CFB;
             }
             else {
@@ -4129,12 +4133,15 @@ int wolfTPM2_DecodeEccDer(const byte* der, word32 derSz, TPM2B_PUBLIC* pub,
             pub->publicArea.unique.ecc.y.size = qySz;
             XMEMCPY(pub->publicArea.unique.ecc.y.buffer, qy, qySz);
 
-            /* For fixedParent or (decrypt and restricted) enable symmetric */
+            /* For fixedParent or (decrypt and restricted) enable symmetric.
+             * Scale the AES wrap strength to the curve size, matching
+             * GetKeyTemplateECC, so a P-384 / P-521 parent does not
+             * silently downgrade child protection to AES-128. */
             if ((attributes & TPMA_OBJECT_fixedParent) ||
                 ((attributes & TPMA_OBJECT_decrypt) &&
                     (attributes & TPMA_OBJECT_restricted))) {
                 ecc->symmetric.algorithm = TPM_ALG_AES;
-                ecc->symmetric.keyBits.aes = 128;
+                ecc->symmetric.keyBits.aes = (qxSz >= 48) ? 256 : 128;
                 ecc->symmetric.mode.aes = TPM_ALG_CFB;
             }
             else {
@@ -6674,8 +6681,10 @@ int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
          * sanity-check against the policy digest size. */
         if (authPolicy != NULL && authPolicySz > 0) {
             int expectSz = TPM2_GetHashDigestSize(nameAlg);
-            if (expectSz <= 0 || expectSz != authPolicySz)
+            if (expectSz <= 0 || expectSz != authPolicySz) {
+                TPM2_ForceZero(&in.auth, sizeof(in.auth));
                 return BAD_FUNC_ARG;
+            }
         }
         in.publicInfo.nvPublic.nameAlg = nameAlg;
     }
@@ -6700,6 +6709,7 @@ int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
                 in.publicInfo.nvPublic.nameAlg = TPM_ALG_SHA512;
                 break;
             default:
+                TPM2_ForceZero(&in.auth, sizeof(in.auth));
                 return BAD_FUNC_ARG;
         }
     }
@@ -7329,7 +7339,11 @@ int wolfTPM2_GetRandom(WOLFTPM2_DEV* dev, byte* buf, word32 len)
 
         XMEMCPY(&buf[pos], out.randomBytes.buffer, sz);
         pos += sz;
+        /* Scrub each iteration so earlier random material does not
+         * linger across multi-chunk requests. */
+        TPM2_ForceZero(&out, sizeof(out));
     }
+    TPM2_ForceZero(&out, sizeof(out));
     return rc;
 }
 
@@ -7691,6 +7705,16 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         return BUFFER_E;
     }
 
+    /* Block modes require a whole-block input. Stream-style modes (CFB,
+     * OFB, CTR) accept any length and silently rounding up would advance
+     * the TPM-returned IV past the bytes the caller consumed, breaking
+     * chained-mode encryption. */
+    if (encDecIn.mode == TPM_ALG_CBC || encDecIn.mode == TPM_ALG_ECB) {
+        if ((inOutSz % MAX_AES_BLOCK_SIZE_BYTES) != 0) {
+            return BAD_FUNC_ARG;
+        }
+    }
+
     /* set session auth for key */
     wolfTPM2_SetAuthHandle(dev, 0, &key->handle);
 
@@ -7707,9 +7731,11 @@ int wolfTPM2_EncryptDecryptBlock(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     encDecIn.inData.size = inOutSz;
     XMEMCPY(encDecIn.inData.buffer, in, inOutSz);
 
-    /* make sure its multiple of block size */
-    encDecIn.inData.size = (encDecIn.inData.size +
-        MAX_AES_BLOCK_SIZE_BYTES - 1) & ~(MAX_AES_BLOCK_SIZE_BYTES - 1);
+    /* CBC/ECB sizes are validated above as block-aligned. Stream modes
+     * (CFB/OFB/CTR) pass through the caller's length unchanged so the
+     * TPM-returned IV reflects exactly the bytes consumed. TPM_ALG_NULL
+     * (no symmetric algorithm) is forwarded to the TPM, which rejects
+     * it with TPM_RC_VALUE / TPM_RC_KEY per TPM 2.0 Part 3. */
 
     rc = TPM2_EncryptDecrypt2(&encDecIn, &encDecOut);
     if (rc == TPM_RC_COMMAND_CODE) { /* some TPM's may not support command */
