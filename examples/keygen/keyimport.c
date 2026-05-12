@@ -191,7 +191,14 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     /* setup an auth value */
     if (password != NULL) {
-        impKey.handle.auth.size = (int)XSTRLEN(password);
+        size_t pwLen = XSTRLEN(password);
+        if (pwLen > sizeof(impKey.handle.auth.buffer)) {
+            printf("-password too long (max %zu)\n",
+                sizeof(impKey.handle.auth.buffer));
+            rc = BUFFER_E;
+            goto exit;
+        }
+        impKey.handle.auth.size = (UINT16)pwLen;
         XMEMCPY(impKey.handle.auth.buffer, password, impKey.handle.auth.size);
     }
 
