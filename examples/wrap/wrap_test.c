@@ -79,6 +79,8 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     TPM2B_ECC_POINT pubPoint;
 #ifndef WOLFTPM_WINAPI
     word32 nvAttributes = 0;
+    WOLFTPM2_HANDLE parent;
+    WOLFTPM2_NV nv;
 #endif
 #ifdef WOLFTPM_CRYPTOCB
     TpmCryptoDevCtx tpmCtx;
@@ -753,46 +755,41 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     /*------------------------------------------------------------------------*/
     /* NV with Auth (preferred API's) */
 #ifndef WOLFTPM_WINAPI
-    {
-        WOLFTPM2_HANDLE parent;
-        WOLFTPM2_NV nv;
+    XMEMSET(&parent, 0, sizeof(parent));
+    parent.hndl = TPM_RH_OWNER;
 
-        XMEMSET(&parent, 0, sizeof(parent));
-        parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    if (rc != 0) goto exit;
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+        nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
+    if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
-        rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
-        if (rc != 0) goto exit;
-        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
-            nvAttributes, TPM2_DEMO_NV_TEST_SIZE, (byte*)gNvAuth, sizeof(gNvAuth)-1);
-        if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
 
-        wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
+    XMEMSET(message.buffer, 0x11, message.size);
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+        message.buffer, message.size, 0);
+    if (rc != 0) goto exit;
 
-        message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
-        XMEMSET(message.buffer, 0x11, message.size);
-        rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
-            message.buffer, message.size, 0);
-        if (rc != 0) goto exit;
+    plain.size = TPM2_DEMO_NV_TEST_SIZE;
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
+        plain.buffer, (word32*)&plain.size, 0);
+    if (rc != 0) goto exit;
 
-        plain.size = TPM2_DEMO_NV_TEST_SIZE;
-        rc = wolfTPM2_NVReadAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
-            plain.buffer, (word32*)&plain.size, 0);
-        if (rc != 0) goto exit;
+    rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_AUTH_INDEX, NULL);
+    if (rc != 0) goto exit;
 
-        rc = wolfTPM2_NVReadPublic(&dev, TPM2_DEMO_NV_TEST_AUTH_INDEX, NULL);
-        if (rc != 0) goto exit;
+    rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NV_TEST_AUTH_INDEX);
+    if (rc != 0) goto exit;
 
-        rc = wolfTPM2_NVDeleteAuth(&dev, &parent, TPM2_DEMO_NV_TEST_AUTH_INDEX);
-        if (rc != 0) goto exit;
-
-        if (message.size != plain.size ||
-                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
-            rc = TPM_RC_TESTING; goto exit;
-        }
-
-        printf("NV Test (with auth) on index 0x%x with %d bytes passed\n",
-            TPM2_DEMO_NV_TEST_AUTH_INDEX, TPM2_DEMO_NV_TEST_SIZE);
+    if (message.size != plain.size ||
+                XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+        rc = TPM_RC_TESTING; goto exit;
     }
+
+    printf("NV Test (with auth) on index 0x%x with %d bytes passed\n",
+        TPM2_DEMO_NV_TEST_AUTH_INDEX, TPM2_DEMO_NV_TEST_SIZE);
 
     /* NV Tests (older API's without auth) */
     rc = wolfTPM2_GetNvAttributesTemplate(TPM_RH_OWNER, &nvAttributes);

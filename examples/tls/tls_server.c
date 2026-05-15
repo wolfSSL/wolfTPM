@@ -177,6 +177,9 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
     word32 port = TLS_PORT;
+    byte der[1024];
+    word32 derSz;
+    void* pkey = NULL;
 
     /* initialize variables */
     XMEMSET(&storageKey, 0, sizeof(storageKey));
@@ -447,34 +450,31 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
 #endif /* !NO_FILESYSTEM */
 
 
-    {
-        /* Export TPM public key as DER */
-        byte   der[1024];
-        word32 derSz = (word32)sizeof(der);
-    #if defined(HAVE_ECC) && !defined(NO_RSA)
-        void* pkey = !useECC ? &rsaKey : &eccKey;
-    #elif !defined(NO_RSA)
-        void* pkey = &rsaKey;
-    #elif defined(HAVE_ECC)
-        void* pkey = &eccKey;
-    #else
-        void* pkey = NULL;
-    #endif
-        rc = wolfTPM2_ExportPublicKeyBuffer(&dev, (WOLFTPM2_KEY*)pkey,
-            ENCODING_TYPE_ASN1, der, &derSz);
-        if (rc < 0) {
-            printf("Failed to export TPM public key!\n");
-            goto exit;
-        }
+    /* Export TPM public key as DER */
+    derSz = (word32)sizeof(der);
+#if defined(HAVE_ECC) && !defined(NO_RSA)
+    pkey = !useECC ? &rsaKey : &eccKey;
+#elif !defined(NO_RSA)
+    pkey = &rsaKey;
+#elif defined(HAVE_ECC)
+    pkey = &eccKey;
+#else
+    pkey = NULL;
+#endif
+    rc = wolfTPM2_ExportPublicKeyBuffer(&dev, (WOLFTPM2_KEY*)pkey,
+        ENCODING_TYPE_ASN1, der, &derSz);
+    if (rc < 0) {
+        printf("Failed to export TPM public key!\n");
+        goto exit;
+    }
 
-        /* Private key only exists on the TPM and crypto callbacks are used for
-         * signing. Public key is required to enable TLS client (mutual auth).
-         * This API accepts public keys when crypto callbacks are enabled */
-        if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
-                                    WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-            printf("Failed to set RSA key!\n");
-            goto exit;
-        }
+    /* Private key only exists on the TPM and crypto callbacks are used for
+     * signing. Public key is required to enable TLS client (mutual auth).
+     * This API accepts public keys when crypto callbacks are enabled */
+    if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
+                                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+        printf("Failed to set RSA key!\n");
+        goto exit;
     }
 
     /* Server certificate */

@@ -101,6 +101,14 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA;
     const char* keyblobFile = "keyblob.bin";
     int loadKeyBlob = 0;
+#ifdef USE_TEST_SEED
+    const byte custSeed[] = {
+        0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
+        0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
+    };
+#endif
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -167,15 +175,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
 #ifndef USE_TEST_SEED
     TPM2_GetNonce(seedValue.buffer, seedValue.size);
 #else
-    {
-        const byte custSeed[] = {
-            0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
-            0x00, 0x01, 0x02, 0x03,  0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0A, 0x0B,  0x0C, 0x0D, 0x0E, 0x0F,
-        };
-        XMEMCPY(seedValue.buffer, custSeed, seedValue.size);
-    }
+    XMEMCPY(seedValue.buffer, custSeed, seedValue.size);
 #endif
     printf("Import Seed %d\n", seedValue.size);
     TPM2_PrintBin(seedValue.buffer, seedValue.size);

@@ -3020,6 +3020,7 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, cmdSz, pos;
+    int pubStart;
     UINT32 handle;
     UINT16 valTag;
 
@@ -3035,22 +3036,20 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     /* Parameters: inPrivate (TPM2B_SENSITIVE, empty) */
     PutU16BE(gCmd + pos, 0); pos += 2;
     /* inPublic (TPM2B_PUBLIC) — TPMT_PUBLIC for Pure MLDSA-44 */
-    {
-        int pubStart = pos;
-        PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
-        PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2;        /* type */
-        PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;        /* nameAlg */
-        PutU32BE(gCmd + pos, 0x00000040); pos += 4;            /* attrs: userWithAuth */
-        PutU16BE(gCmd + pos, 0); pos += 2;                     /* authPolicy */
-        /* TPMS_MLDSA_PARMS */
-        PutU16BE(gCmd + pos, TPM_MLDSA_44); pos += 2;
-        gCmd[pos++] = NO;                                      /* allowExternalMu */
-        /* unique.mldsa: size + bytes */
-        PutU16BE(gCmd + pos, sizeof(gNistMldsa44Pk)); pos += 2;
-        memcpy(gCmd + pos, gNistMldsa44Pk, sizeof(gNistMldsa44Pk));
-        pos += sizeof(gNistMldsa44Pk);
-        PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
-    }
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
+    PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2;        /* type */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;        /* nameAlg */
+    PutU32BE(gCmd + pos, 0x00000040); pos += 4;            /* attrs: userWithAuth */
+    PutU16BE(gCmd + pos, 0); pos += 2;                     /* authPolicy */
+    /* TPMS_MLDSA_PARMS */
+    PutU16BE(gCmd + pos, TPM_MLDSA_44); pos += 2;
+    gCmd[pos++] = NO;                                      /* allowExternalMu */
+    /* unique.mldsa: size + bytes */
+    PutU16BE(gCmd + pos, sizeof(gNistMldsa44Pk)); pos += 2;
+    memcpy(gCmd + pos, gNistMldsa44Pk, sizeof(gNistMldsa44Pk));
+    pos += sizeof(gNistMldsa44Pk);
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
     /* hierarchy (TPMI_RH_HIERARCHY+) = TPM_RH_NULL */
     PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -4256,6 +4255,7 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
     int hmacExpectedSz = 0;
     byte metaBytes[2];
     FWTPM_Object* obj;
+    int oi;
 
     FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
     memset(&ctx, 0, sizeof(ctx));
@@ -4331,13 +4331,10 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
      * Walk the public object table to find keyHandle (FwFindObject is
      * static-local to fwtpm_command.c). */
     obj = NULL;
-    {
-        int oi;
-        for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
-            if (ctx.objects[oi].handle == keyHandle) {
-                obj = &ctx.objects[oi];
-                break;
-            }
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == keyHandle) {
+            obj = &ctx.objects[oi];
+            break;
         }
     }
     AssertNotNull(obj);
@@ -5685,7 +5682,9 @@ static void test_fwtpm_mldsa87_maxbuf(void)
     FWTPM_CTX ctx;
     int rc, rspSize, cmdSz, pos;
     UINT32 handle;
+    UINT32 seqHandle;
     UINT16 sigAlg, sigSz;
+    byte msg[16];
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -5711,40 +5710,37 @@ static void test_fwtpm_mldsa87_maxbuf(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    {
-        UINT32 seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
-        byte msg[16];
-        memset(msg, 0xAB, sizeof(msg));
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    memset(msg, 0xAB, sizeof(msg));
 
-        /* SignSequenceComplete: 2 auth handles + small buffer. */
-        pos = 0;
-        PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-        PutU32BE(gCmd + pos, 0); pos += 4;
-        PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
-        PutU32BE(gCmd + pos, seqHandle); pos += 4;
-        PutU32BE(gCmd + pos, handle); pos += 4;
-        PutU32BE(gCmd + pos, 18); pos += 4;
-        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
-        PutU16BE(gCmd + pos, 0); pos += 2;
-        gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
-        PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
-        PutU16BE(gCmd + pos, 0); pos += 2;
-        gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
-        PutU16BE(gCmd + pos, sizeof(msg)); pos += 2;
-        memcpy(gCmd + pos, msg, sizeof(msg)); pos += sizeof(msg);
-        PutU32BE(gCmd + 2, (UINT32)pos);
-        rspSize = 0;
-        rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-        AssertIntEQ(rc, TPM_RC_SUCCESS);
-        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* SignSequenceComplete: 2 auth handles + small buffer. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg)); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg)); pos += sizeof(msg);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-        /* Response: hdr | paramSize | sigAlg | TPM2B { size, bytes }. */
-        pos = TPM2_HEADER_SIZE + 4;
-        sigAlg = GetU16BE(gRsp + pos); pos += 2;
-        AssertIntEQ(sigAlg, TPM_ALG_MLDSA);
-        sigSz = GetU16BE(gRsp + pos);
-        AssertIntEQ(sigSz, 4627);
-    }
+    /* Response: hdr | paramSize | sigAlg | TPM2B { size, bytes }. */
+    pos = TPM2_HEADER_SIZE + 4;
+    sigAlg = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(sigAlg, TPM_ALG_MLDSA);
+    sigSz = GetU16BE(gRsp + pos);
+    AssertIntEQ(sigSz, 4627);
 
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
     PutU32BE(gCmd + 10, handle);
@@ -6331,6 +6327,13 @@ static void test_fwtpm_hash(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, cmdSz;
+    static const byte expected[] = {
+        0xBA, 0x78, 0x16, 0xBF, 0x8F, 0x01, 0xCF, 0xEA,
+        0x41, 0x41, 0x40, 0xDE, 0x5D, 0xAE, 0x22, 0x23,
+        0xB0, 0x03, 0x61, 0xA3, 0x96, 0x17, 0x7A, 0x9C,
+        0xB4, 0x10, 0xFF, 0x61, 0xF2, 0x00, 0x15, 0xAD
+    };
+    UINT16 digestSz;
 
     memset(&ctx, 0, sizeof(ctx));
     rc = fwtpm_test_startup(&ctx);
@@ -6355,18 +6358,10 @@ static void test_fwtpm_hash(void)
     AssertIntGT(rspSize, TPM2_HEADER_SIZE + 2 + 32);
 
     /* Verify SHA-256("abc") = known value */
-    {
-        static const byte expected[] = {
-            0xBA, 0x78, 0x16, 0xBF, 0x8F, 0x01, 0xCF, 0xEA,
-            0x41, 0x41, 0x40, 0xDE, 0x5D, 0xAE, 0x22, 0x23,
-            0xB0, 0x03, 0x61, 0xA3, 0x96, 0x17, 0x7A, 0x9C,
-            0xB4, 0x10, 0xFF, 0x61, 0xF2, 0x00, 0x15, 0xAD
-        };
-        UINT16 digestSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
-        AssertIntEQ(digestSz, 32);
-        Assert(memcmp(gRsp + TPM2_HEADER_SIZE + 2, expected, 32) == 0,
-            ("SHA-256(abc) matches expected"), ("digest mismatch"));
-    }
+    digestSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(digestSz, 32);
+    Assert(memcmp(gRsp + TPM2_HEADER_SIZE + 2, expected, 32) == 0,
+        ("SHA-256(abc) matches expected"), ("digest mismatch"));
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Hash(SHA256, \"abc\"):", 0);

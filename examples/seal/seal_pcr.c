@@ -245,6 +245,7 @@ int TPM2_Seal_PCR_Example(void* userCtx, int argc, char *argv[])
     /* ---- UNSEAL ---- */
     if (doUnseal) {
         WOLFTPM2_SESSION policySession;
+        word32 sessionAttrs;
         XMEMSET(&policySession, 0, sizeof(policySession));
 
         printf("\nUnsealing secret...\n");
@@ -296,15 +297,13 @@ int TPM2_Seal_PCR_Example(void* userCtx, int argc, char *argv[])
         }
 
         /* Step 4: Use policy session for unseal (with param enc if set) */
-        {
-            word32 sessionAttrs = TPMA_SESSION_continueSession;
-            if (paramEncAlg != TPM_ALG_NULL) {
-                sessionAttrs |= (TPMA_SESSION_decrypt |
-                                 TPMA_SESSION_encrypt);
-            }
-            rc = wolfTPM2_SetAuthSession(&dev, 0, &policySession,
-                sessionAttrs);
+        sessionAttrs = TPMA_SESSION_continueSession;
+        if (paramEncAlg != TPM_ALG_NULL) {
+            sessionAttrs |= (TPMA_SESSION_decrypt |
+                             TPMA_SESSION_encrypt);
         }
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &policySession,
+            sessionAttrs);
         if (rc != 0) {
             wolfTPM2_UnloadHandle(&dev, &policySession.handle);
             wolfTPM2_UnloadHandle(&dev, &sealBlob.handle);

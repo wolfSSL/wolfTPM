@@ -29,18 +29,24 @@ CONTROL_PREFIX = re.compile(
 )
 TYPE_PREFIX = re.compile(r"^(?:typedef\s+)?(?:struct|union|enum)\b")
 ALLOW_EXCEPTION = re.compile(r"empty-brace-scan:\s*allow\s*-\s*\S")
+TRAILING_BLOCK_COMMENT = re.compile(r"\s*/\*.*?\*/\s*$")
 
 
 def strip_line_comment(line: str) -> str:
     """Remove simple // comments without trying to parse C strings."""
-    return line.split("//", 1)[0].strip()
+    stripped = line.split("//", 1)[0].strip()
+    while TRAILING_BLOCK_COMMENT.search(stripped):
+        stripped = TRAILING_BLOCK_COMMENT.sub("", stripped).strip()
+    return stripped
 
 
 def is_comment_only(line: str) -> bool:
     stripped = line.strip()
     return (
         stripped.startswith("/*")
-        or stripped.startswith("*")
+        or stripped.startswith("* ")
+        or stripped.startswith("*\t")
+        or stripped == "*"
         or stripped == "*/"
     )
 
@@ -88,7 +94,7 @@ def is_allowed_open_brace(previous: str | None) -> bool:
 
     # Function definitions and multi-line control headers normally end in ')'
     # on the line before the opening brace. Function calls end in ');' instead.
-    if previous.endswith(")") and not previous.endswith(";)"):
+    if previous.endswith(")") and not previous.endswith(");"):
         return True
 
     # Aggregate initializers and macro continuations can place the brace alone.
@@ -163,6 +169,8 @@ def main(argv: list[str]) -> int:
         Path("tests"),
         Path("examples"),
         Path("hal"),
+        Path("IDE"),
+        Path("zephyr"),
     ]
     files = iter_c_files(roots)
     findings: list[tuple[Path, int, int, str | None]] = []

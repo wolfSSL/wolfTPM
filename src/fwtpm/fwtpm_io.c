@@ -492,6 +492,10 @@ int FWTPM_IO_SetHAL(FWTPM_CTX* ctx, FWTPM_IO_HAL* hal)
 
 int FWTPM_IO_Init(FWTPM_CTX* ctx)
 {
+#if !defined(WOLFTPM_FWTPM_TIS) && defined(_WIN32)
+    WSADATA wsaData;
+#endif
+
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
@@ -500,12 +504,9 @@ int FWTPM_IO_Init(FWTPM_CTX* ctx)
     return FWTPM_TIS_Init(ctx);
 #else
 #ifdef _WIN32
-    {
-        WSADATA wsaData;
-        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-            fprintf(stderr, "fwTPM: WSAStartup failed\n");
-            return TPM_RC_FAILURE;
-        }
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        fprintf(stderr, "fwTPM: WSAStartup failed\n");
+        return TPM_RC_FAILURE;
     }
 #endif
     XMEMSET(&ctx->io, 0, sizeof(ctx->io));
