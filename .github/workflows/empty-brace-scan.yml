@@ -1,0 +1,30 @@
+name: Empty Brace Scope Scan
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+  repository_dispatch:
+    types: [nightly-trigger]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  empty-brace-scan:
+    name: Empty Brace Scope Scan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Check for bare C scope blocks
+        run: |
+          # Bare scope blocks are disallowed. If one is truly required, document
+          # the exception directly above the brace or on the brace line:
+          #   /* empty-brace-scan: allow - required because <specific reason> */
+          python3 scripts/check-empty-brace-scopes.py
