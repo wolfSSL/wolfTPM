@@ -302,6 +302,7 @@ int TPM2_Seal_PolicyAuth_Example(void* userCtx, int argc, char *argv[])
         TPMI_ALG_SIG_SCHEME sigAlg;
         byte* policyRef = NULL;
         word32 policyRefSz = 0;
+        word32 sessionAttrs;
 
         XMEMSET(&policySession, 0, sizeof(policySession));
         XMEMSET(&checkTicket, 0, sizeof(checkTicket));
@@ -461,15 +462,13 @@ int TPM2_Seal_PolicyAuth_Example(void* userCtx, int argc, char *argv[])
         wolfTPM2_UnloadHandle(&dev, &authKeyBlob.handle);
 
         /* Step 9: Unseal using the policy session (with param enc if set) */
-        {
-            word32 sessionAttrs = TPMA_SESSION_continueSession;
-            if (paramEncAlg != TPM_ALG_NULL) {
-                sessionAttrs |= (TPMA_SESSION_decrypt |
-                                 TPMA_SESSION_encrypt);
-            }
-            rc = wolfTPM2_SetAuthSession(&dev, 0, &policySession,
-                sessionAttrs);
+        sessionAttrs = TPMA_SESSION_continueSession;
+        if (paramEncAlg != TPM_ALG_NULL) {
+            sessionAttrs |= (TPMA_SESSION_decrypt |
+                             TPMA_SESSION_encrypt);
         }
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &policySession,
+            sessionAttrs);
         if (rc != 0) {
             wolfTPM2_UnloadHandle(&dev, &policySession.handle);
             wolfTPM2_UnloadHandle(&dev, &sealBlob.handle);

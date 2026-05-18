@@ -761,49 +761,43 @@ static void test_TPM2_KDFa_SessionLabels(void)
         .buffer = {0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8,
                    0xC9, 0xCA, 0xCB, 0xCC, 0xCD, 0xCE, 0xCF, 0xD0}
     };
+    const byte expATH[] = {
+        0x0d, 0x17, 0x5f, 0xf7, 0xac, 0xf9, 0x41, 0x9a,
+        0x73, 0x75, 0x7c, 0xa6, 0x42, 0x82, 0x49, 0x61,
+        0xa2, 0xc9, 0x72, 0xd9, 0x13, 0xdc, 0xbf, 0x72,
+        0x06, 0xe6, 0x73, 0xe7, 0x21, 0x5f, 0x99, 0x6a
+    };
+    const byte expSECRET[] = {
+        0x1a, 0xc4, 0xc1, 0x34, 0x78, 0x87, 0x67, 0x5e,
+        0x91, 0xd1, 0xa2, 0xcd, 0xcb, 0xac, 0xdb, 0x62,
+        0xed, 0x4e, 0xfe, 0x44, 0xed, 0x52, 0x34, 0x3b,
+        0xf1, 0x87, 0xfb, 0x8b, 0xa9, 0xec, 0x43, 0x59
+    };
+    const byte expDUPLICATE[] = {
+        0xa3, 0xe5, 0x57, 0xc6, 0x49, 0x4c, 0xe5, 0x4f,
+        0x45, 0xae, 0xf7, 0x19, 0x4d, 0x9e, 0x21, 0xa2,
+        0x91, 0xeb, 0x05, 0x2d, 0x43, 0x06, 0x9f, 0xfb,
+        0x69, 0x67, 0x1f, 0x99, 0x00, 0xb0, 0xcc, 0x39
+    };
     byte key[TEST_KDFA_LABEL_KEYSZ];
 
     /* Test "ATH" label (session key derivation, TPM 2.0 Part 1 s19.6.8) */
-    {
-        const byte expATH[] = {
-            0x0d, 0x17, 0x5f, 0xf7, 0xac, 0xf9, 0x41, 0x9a,
-            0x73, 0x75, 0x7c, 0xa6, 0x42, 0x82, 0x49, 0x61,
-            0xa2, 0xc9, 0x72, 0xd9, 0x13, 0xdc, 0xbf, 0x72,
-            0x06, 0xe6, 0x73, 0xe7, 0x21, 0x5f, 0x99, 0x6a
-        };
-        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "ATH", &nonceTPM, &nonceCaller,
-            key, TEST_KDFA_LABEL_KEYSZ);
-        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
-        AssertIntEQ(XMEMCMP(key, expATH, sizeof(expATH)), 0);
-    }
+    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "ATH", &nonceTPM, &nonceCaller,
+        key, TEST_KDFA_LABEL_KEYSZ);
+    AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+    AssertIntEQ(XMEMCMP(key, expATH, sizeof(expATH)), 0);
 
     /* Test "SECRET" label (salt encryption, TPM 2.0 Part 1 s19.6.8) */
-    {
-        const byte expSECRET[] = {
-            0x1a, 0xc4, 0xc1, 0x34, 0x78, 0x87, 0x67, 0x5e,
-            0x91, 0xd1, 0xa2, 0xcd, 0xcb, 0xac, 0xdb, 0x62,
-            0xed, 0x4e, 0xfe, 0x44, 0xed, 0x52, 0x34, 0x3b,
-            0xf1, 0x87, 0xfb, 0x8b, 0xa9, 0xec, 0x43, 0x59
-        };
-        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "SECRET", &nonceTPM, &nonceCaller,
-            key, TEST_KDFA_LABEL_KEYSZ);
-        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
-        AssertIntEQ(XMEMCMP(key, expSECRET, sizeof(expSECRET)), 0);
-    }
+    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "SECRET", &nonceTPM, &nonceCaller,
+        key, TEST_KDFA_LABEL_KEYSZ);
+    AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+    AssertIntEQ(XMEMCMP(key, expSECRET, sizeof(expSECRET)), 0);
 
     /* Test "DUPLICATE" label (key import, TPM 2.0 Part 1 s23.3) */
-    {
-        const byte expDUPLICATE[] = {
-            0xa3, 0xe5, 0x57, 0xc6, 0x49, 0x4c, 0xe5, 0x4f,
-            0x45, 0xae, 0xf7, 0x19, 0x4d, 0x9e, 0x21, 0xa2,
-            0x91, 0xeb, 0x05, 0x2d, 0x43, 0x06, 0x9f, 0xfb,
-            0x69, 0x67, 0x1f, 0x99, 0x00, 0xb0, 0xcc, 0x39
-        };
-        rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "DUPLICATE", &nonceTPM, &nonceCaller,
-            key, TEST_KDFA_LABEL_KEYSZ);
-        AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
-        AssertIntEQ(XMEMCMP(key, expDUPLICATE, sizeof(expDUPLICATE)), 0);
-    }
+    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, "DUPLICATE", &nonceTPM, &nonceCaller,
+        key, TEST_KDFA_LABEL_KEYSZ);
+    AssertIntEQ(TEST_KDFA_LABEL_KEYSZ, rc);
+    AssertIntEQ(XMEMCMP(key, expDUPLICATE, sizeof(expDUPLICATE)), 0);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "KDFa Session Labels:");
 #else
@@ -3541,6 +3535,7 @@ static void test_wolfTPM2_SPDM_Functions(void)
 #endif
 #ifdef WOLFSPDM_NATIONS
     WOLFSPDM_NATIONS_STATUS nStatus;
+    TPM2_AUTH_SESSION nationsOrigSess;
 #endif
 
     /* Initialize device */
@@ -3645,20 +3640,18 @@ static void test_wolfTPM2_SPDM_Functions(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
     /* Test 4b: SpdmNationsIdentityKeySet must preserve session[0] */
-    {
-        TPM2_AUTH_SESSION origSess;
-        dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
-        dev.session[0].sessionAttributes = 0x27;
-        dev.session[0].auth.size = 4;
-        XMEMCPY(dev.session[0].auth.buffer, "\x01\x02\x03\x04", 4);
-        XMEMCPY(&origSess, &dev.session[0], sizeof(origSess));
+    dev.session[0].sessionHandle = HMAC_SESSION_FIRST;
+    dev.session[0].sessionAttributes = 0x27;
+    dev.session[0].auth.size = 4;
+    XMEMCPY(dev.session[0].auth.buffer, "\x01\x02\x03\x04", 4);
+    XMEMCPY(&nationsOrigSess, &dev.session[0], sizeof(nationsOrigSess));
 
-        /* May fail (no Nations HW) but must restore session[0] */
-        (void)wolfTPM2_SpdmNationsIdentityKeySet(&dev, 1);
-        AssertIntEQ(dev.session[0].sessionHandle, origSess.sessionHandle);
-        AssertIntEQ(dev.session[0].sessionAttributes, origSess.sessionAttributes);
-        AssertIntEQ(dev.session[0].auth.size, origSess.auth.size);
-    }
+    /* May fail (no Nations HW) but must restore session[0] */
+    (void)wolfTPM2_SpdmNationsIdentityKeySet(&dev, 1);
+    AssertIntEQ(dev.session[0].sessionHandle, nationsOrigSess.sessionHandle);
+    AssertIntEQ(dev.session[0].sessionAttributes,
+        nationsOrigSess.sessionAttributes);
+    AssertIntEQ(dev.session[0].auth.size, nationsOrigSess.auth.size);
 #endif /* WOLFSPDM_NATIONS */
 
     wolfTPM2_Cleanup(&dev);
