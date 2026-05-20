@@ -1,0 +1,122 @@
+name: Smoke Test
+
+# Fast pre-flight build + make check for wolfTPM's two transport backends.
+# Intentionally runs on drafts too: this is the gate that protects the rest
+# of CI from broken commits. Other PR workflows can `uses:` the companion
+# .github/actions/wait-for-smoke action to require this to pass before
+# their expensive build matrices kick off.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          # SWTPM-backed default: covers tpm2_wrap.c + ibmswtpm2 wire
+          - name: swtpm-default
+            wolftpm_config: --enable-swtpm --disable-fwtpm
+            needs_swtpm: true
+          # fwTPM-backed: covers fwtpm_server + handler path; no external sim
+          - name: fwtpm-default
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-debug
+            needs_swtpm: false
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Build wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+              CFLAGS="-DWC_RSA_NO_PADDING"
+          make -j"$(nproc)"
+          sudo make install
+          sudo ldconfig
+
+      - name: Setup ibmswtpm2 simulator
+        if: matrix.config.needs_swtpm
+        uses: actions/checkout@v4
+        with:
+          repository: kgoldman/ibmswtpm2
+          path: ibmswtpm2
+
+      - name: Start TPM simulator
+        if: matrix.config.needs_swtpm
+        working-directory: ./ibmswtpm2/src
+        run: |
+          make
+          ./tpm_server &
+
+      - name: Build wolfTPM (${{ matrix.config.name }})
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.config.wolftpm_config }}
+          make -j"$(nproc)"
+
+      # Smoke runs ./tests/unit.test directly rather than `make check`. The
+      # fwTPM `make check` calls fwtpm_check.sh which orchestrates unit.test
+      # + run_examples.sh (TLS, PKCS7, ...) + tpm2_tools_test.sh — fine for
+      # the full fwtpm-test.yml matrix, too heavy for a preflight signal.
+      - name: Run unit.test (swtpm)
+        if: matrix.config.needs_swtpm
+        run: ./tests/unit.test
+
+      - name: Run unit.test (fwtpm)
+        if: ${{ !matrix.config.needs_swtpm }}
+        run: |
+          FWTPM_USE_FIXED_PORT=1 \
+            sudo -E unshare --net /bin/bash -c '
+              set -e
+              ip link set lo up
+              rm -f fwtpm_nv.bin
+              ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+              SERVER_PID=$!
+              for i in $(seq 1 500); do
+                ss -tln 2>/dev/null | grep -q ":2321 " && break
+                sleep 0.01
+              done
+              if ! ss -tln 2>/dev/null | grep -q ":2321 "; then
+                echo "fwtpm_server failed to start" >&2
+                cat /tmp/fwtpm_server.log >&2
+                exit 1
+              fi
+              ./tests/unit.test
+              rc=$?
+              kill "$SERVER_PID" 2>/dev/null || true
+              exit "$rc"
+            '
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.config.name }}-logs
+          path: |
+            /tmp/fwtpm_server.log
+            tests/*.log
+            config.log
+          retention-days: 5
