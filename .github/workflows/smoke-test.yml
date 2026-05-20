@@ -77,20 +77,38 @@ jobs:
           ./configure ${{ matrix.config.wolftpm_config }}
           make -j"$(nproc)"
 
-      - name: Run tests (make check)
+      # Smoke runs ./tests/unit.test directly rather than `make check`. The
+      # fwTPM `make check` calls fwtpm_check.sh which orchestrates unit.test
+      # + run_examples.sh (TLS, PKCS7, ...) + tpm2_tools_test.sh — fine for
+      # the full fwtpm-test.yml matrix, too heavy for a preflight signal.
+      - name: Run unit.test (swtpm)
+        if: matrix.config.needs_swtpm
+        run: ./tests/unit.test
+
+      - name: Run unit.test (fwtpm)
+        if: ${{ !matrix.config.needs_swtpm }}
         run: |
-          if [ "${{ matrix.config.needs_swtpm }}" = "true" ]; then
-            make check
-          else
-            # fwTPM make check needs an isolated network namespace so
-            # FWTPM_USE_FIXED_PORT lands on a clean lo with no collisions.
-            FWTPM_USE_FIXED_PORT=1 \
-              sudo -E unshare --net /bin/bash -c '
-                set -e
-                ip link set lo up
-                make check
-              '
-          fi
+          FWTPM_USE_FIXED_PORT=1 \
+            sudo -E unshare --net /bin/bash -c '
+              set -e
+              ip link set lo up
+              rm -f fwtpm_nv.bin
+              ./src/fwtpm/fwtpm_server > /tmp/fwtpm_server.log 2>&1 &
+              SERVER_PID=$!
+              for i in $(seq 1 500); do
+                ss -tln 2>/dev/null | grep -q ":2321 " && break
+                sleep 0.01
+              done
+              if ! ss -tln 2>/dev/null | grep -q ":2321 "; then
+                echo "fwtpm_server failed to start" >&2
+                cat /tmp/fwtpm_server.log >&2
+                exit 1
+              fi
+              ./tests/unit.test
+              rc=$?
+              kill "$SERVER_PID" 2>/dev/null || true
+              exit "$rc"
+            '
 
       - name: Upload failure logs
         if: failure()
@@ -98,8 +116,7 @@ jobs:
         with:
           name: smoke-${{ matrix.config.name }}-logs
           path: |
-            test-suite.log
+            /tmp/fwtpm_server.log
             tests/*.log
-            /tmp/fwtpm_check_*.log
             config.log
           retention-days: 5
