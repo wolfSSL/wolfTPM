@@ -47,7 +47,7 @@ wolfTPM implements the post-quantum additions from **TCG TPM 2.0 Library Specifi
 
 Eight new TPM 2.0 commands are supported: `TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM2_SignDigest`, `TPM2_VerifyDigestSignature`, `TPM2_SignSequenceStart`, `TPM2_SignSequenceComplete`, `TPM2_VerifySequenceStart`, `TPM2_VerifySequenceComplete`.
 
-Algorithm behavior matches FIPS 203 / FIPS 204 via wolfCrypt's ML-KEM and ML-DSA (Dilithium) modules, validated against NIST ACVP test vectors.
+Algorithm behavior matches FIPS 203 / FIPS 204 via wolfCrypt's ML-KEM and ML-DSA modules, validated against NIST ACVP test vectors.
 
 The firmware TPM (fwTPM) server also implements v1.85 PQC — see [FWTPM.md](FWTPM.md#tpm-20-v185-post-quantum-support) for algorithm, command, primary-key derivation, and sequence-handler details.
 

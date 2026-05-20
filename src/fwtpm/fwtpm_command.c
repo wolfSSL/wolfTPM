@@ -1151,16 +1151,13 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 !defined(WOLFSSL_NO_KYBER1024)
                   TPMA_ML_PARAMETER_SET_mlKem_1024 |
             #endif
-            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
-                !defined(WOLFSSL_NO_ML_DSA_44)
+            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_44)
                   TPMA_ML_PARAMETER_SET_mlDsa_44   |
             #endif
-            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
-                !defined(WOLFSSL_NO_ML_DSA_65)
+            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_65)
                   TPMA_ML_PARAMETER_SET_mlDsa_65   |
             #endif
-            #if (defined(WOLFSSL_WC_DILITHIUM) || defined(HAVE_DILITHIUM)) && \
-                !defined(WOLFSSL_NO_ML_DSA_87)
+            #if defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_NO_ML_DSA_87)
                   TPMA_ML_PARAMETER_SET_mlDsa_87   |
             #endif
                   0 },

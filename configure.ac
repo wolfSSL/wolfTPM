@@ -714,22 +714,27 @@ else
        test "x$ENABLED_WOLFCRYPT" = "xyes"
     then
         # Probe the actual symbols, not just the headers. wolfSSL ships
-        # dilithium.h and wc_mlkem.h even without the implementation
-        # compiled (function decls are gated behind HAVE_DILITHIUM /
+        # wc_mldsa.h and wc_mlkem.h even without the implementation
+        # compiled (function decls are gated behind WOLFSSL_HAVE_MLDSA /
         # HAVE_MLKEM which only get defined via wolfssl/options.h after
         # the right --enable-* flags). Include options.h first so the
         # gate is set before the header decls are parsed.
-        AC_CHECK_DECL([wc_dilithium_init],
-            [WOLFTPM_HAVE_DILITHIUM_FN=yes],
-            [WOLFTPM_HAVE_DILITHIUM_FN=no],
+        # Probing the canonical wc_MlDsaKey_Init also doubles as a
+        # wolfSSL-version probe: older wolfSSL that predates PR #10436
+        # ships only <wolfssl/wolfcrypt/dilithium.h>, fails the probe,
+        # and auto-detect quietly stays off (explicit opt-in below emits
+        # an actionable error).
+        AC_CHECK_DECL([wc_MlDsaKey_Init],
+            [WOLFTPM_HAVE_MLDSA_FN=yes],
+            [WOLFTPM_HAVE_MLDSA_FN=no],
             [[#include <wolfssl/options.h>
-              #include <wolfssl/wolfcrypt/dilithium.h>]])
+              #include <wolfssl/wolfcrypt/wc_mldsa.h>]])
         AC_CHECK_DECL([wc_MlKemKey_Init],
             [WOLFTPM_HAVE_MLKEM_FN=yes],
             [WOLFTPM_HAVE_MLKEM_FN=no],
             [[#include <wolfssl/options.h>
               #include <wolfssl/wolfcrypt/wc_mlkem.h>]])
-        if test "x$WOLFTPM_HAVE_DILITHIUM_FN" = "xyes" && \
+        if test "x$WOLFTPM_HAVE_MLDSA_FN" = "xyes" && \
            test "x$WOLFTPM_HAVE_MLKEM_FN" = "xyes"
         then
             AC_MSG_NOTICE([wolfCrypt ML-DSA + ML-KEM detected; auto-enabling --enable-v185 (use --disable-v185 or --disable-pqc to opt out)])
@@ -747,12 +752,16 @@ then
     # Explicit opt-in: re-probe so we fail at configure time (with a
     # clear hint about wolfSSL flags) rather than deep inside the compile
     # with a cryptic error. Header existence alone is not enough -- the
-    # actual functions must be declared (gated by HAVE_DILITHIUM /
-    # HAVE_MLKEM in wolfssl/options.h).
-    AC_CHECK_DECL([wc_dilithium_init], [],
-        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-dilithium --enable-experimental])],
+    # actual functions must be declared (gated by WOLFSSL_HAVE_MLDSA /
+    # HAVE_MLKEM in wolfssl/options.h). The probed symbol
+    # `wc_MlDsaKey_Init` is the canonical FIPS 204 entry point introduced
+    # by wolfSSL PR #10436 (post-v5.9.1-stable): wolfTPM consumes
+    # <wolfssl/wolfcrypt/wc_mldsa.h> directly, so older wolfSSL that
+    # only ships <wolfssl/wolfcrypt/dilithium.h> is not supported here.
+    AC_CHECK_DECL([wc_MlDsaKey_Init], [],
+        [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL built with --enable-mldsa (or alias --enable-dilithium) and --enable-experimental, ships post-v5.9.1-stable])],
         [[#include <wolfssl/options.h>
-          #include <wolfssl/wolfcrypt/dilithium.h>]])
+          #include <wolfssl/wolfcrypt/wc_mldsa.h>]])
     AC_CHECK_DECL([wc_MlKemKey_Init], [],
         [AC_MSG_ERROR([--enable-v185/--enable-pqc requires wolfSSL >= v5.8.0-stable built with --enable-mlkem --enable-experimental])],
         [[#include <wolfssl/options.h>

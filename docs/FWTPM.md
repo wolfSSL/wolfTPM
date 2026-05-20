@@ -504,7 +504,7 @@ Sizing logic lives in `wolftpm/fwtpm/fwtpm.h` (constants
 `FWTPM_MAX_MLDSA_SIG_SIZE`, `FWTPM_MAX_MLDSA_PUB_SIZE`,
 `FWTPM_MAX_MLKEM_CT_SIZE`, `FWTPM_MAX_MLKEM_PUB_SIZE`) and
 `wolftpm/fwtpm/fwtpm_tis.h` (FIFO size). The MLDSA constants come from
-wolfCrypt's `DILITHIUM_LEVEL{2,3,5}_*_SIZE` macros; the MLKEM constants
+wolfCrypt's `WC_MLDSA_{44,65,87}_*_SIZE` macros; the MLKEM constants
 are FIPS 203 spec values (wolfCrypt's `WC_ML_KEM_*_SIZE` macros aren't
 preprocessor-evaluable).
 
@@ -741,7 +741,7 @@ every `Startup(CLEAR)`.
 
 Enabled with `--enable-pqc` (alias `--enable-v185`) at configure time, or
 auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has
-both Dilithium and ML-KEM available. Both flags set the internal
+both ML-DSA and ML-KEM available. Both flags set the internal
 `WOLFTPM_V185` macro that gates the implementation. Pass `--disable-pqc`
 to opt out when auto-detect would otherwise enable it. Implements the
 post-quantum additions from TCG TPM 2.0 Library Specification v1.85 using
@@ -776,7 +776,7 @@ PQC primary keys follow the same deterministic derivation model as RSA/ECC:
 hierarchy seed + template → KDFa-derived seed → FIPS 203/204 key expansion.
 
 - **ML-DSA**: `KDFa(nameAlg, seed, "MLDSA", hashUnique) → 32-byte Xi` →
-  `wc_dilithium_make_key_from_seed` → (pub, expanded-priv). The wire format stores
+  `wc_MlDsaKey_MakeKeyFromSeed` → (pub, expanded-priv). The wire format stores
   only the 32-byte Xi per TCG Part 2 Table 210.
 - **Hash-ML-DSA**: label is `"HASH_MLDSA"`; same seed size and expansion.
 - **ML-KEM**: `KDFa(nameAlg, seed, "MLKEM", hashUnique) → 64-byte (d‖z)` →
@@ -797,7 +797,7 @@ buffer parameter.
 
 Hash-ML-DSA sequences (both sign and verify) use wolfCrypt's `wc_HashAlg` context
 to stream the message into the key's hash algorithm; `TPM2_SignSequenceComplete`
-finalizes the hash and calls `wc_dilithium_sign_ctx_hash`.
+finalizes the hash and calls `wc_MlDsaKey_SignCtxHash`.
 
 Signature wire formats differ per spec Part 2 Table 217:
 
