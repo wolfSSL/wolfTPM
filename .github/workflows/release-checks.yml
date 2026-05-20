@@ -11,6 +11,7 @@ on:
     branches: [ 'master', 'main', 'release/**', 'rel_v*_prep' ]
   pull_request:
     branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review]
   repository_dispatch:
     types: [nightly-trigger]
 
@@ -21,6 +22,7 @@ concurrency:
 jobs:
   build_wolfssl:
     name: Build wolfSSL
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,6 +55,7 @@ jobs:
 
   cxx_build:
     name: C++ build (CC=g++)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: build_wolfssl
@@ -90,6 +93,7 @@ jobs:
 
   scan_build:
     name: scan-build (clang static analysis)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build_wolfssl

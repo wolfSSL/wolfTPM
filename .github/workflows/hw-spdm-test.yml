@@ -19,7 +19,7 @@ on:
       - 'tests/unit_tests.c'
   pull_request_target:
     branches: [master]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'src/spdm/**'
       - 'wolftpm/spdm/**'
@@ -39,8 +39,9 @@ jobs:
   hw-spdm:
     if: >
       github.event_name != 'pull_request_target' ||
-      contains(fromJSON('["OWNER","MEMBER"]'),
-               github.event.pull_request.author_association)
+      (github.event.pull_request.draft == false &&
+       contains(fromJSON('["OWNER","MEMBER"]'),
+                github.event.pull_request.author_association))
     runs-on: [self-hosted, Linux, ARM64, "${{ matrix.runner_label }}"]
     timeout-minutes: 25
 

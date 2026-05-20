@@ -6,9 +6,11 @@ on:
   workflow_dispatch:       # Manual trigger
   pull_request:
     branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   fuzz:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

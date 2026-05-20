@@ -5,14 +5,20 @@ on:
     branches: [ 'master', 'main', 'release/**' ]
   pull_request:
     branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
   repository_dispatch:
     types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ----------------------------------------------------------------
   # make check — unit tests + examples against fwtpm_server
   # ----------------------------------------------------------------
   fwtpm-examples:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -320,6 +326,7 @@ jobs:
   # was removed to eliminate duplication.
   # ----------------------------------------------------------------
   ibmswtpm-tpm2tools:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
@@ -360,6 +367,7 @@ jobs:
   # fwTPM STM32 emulator test (m33mu Cortex-M33 simulator)
   # ----------------------------------------------------------------
   fwtpm-emulator:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     container: ghcr.io/wolfssl/m33mu-ci:1.9
     steps:
@@ -435,6 +443,7 @@ jobs:
   # stack-vs-heap allocation paths are all exercised.
   # ----------------------------------------------------------------
   fwtpm-valgrind:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

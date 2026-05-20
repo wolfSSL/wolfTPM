@@ -5,11 +5,17 @@ on:
     branches: [ 'master', 'main', 'release/**' ]
   pull_request:
     branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
   repository_dispatch:
     types: [nightly-trigger]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
 
     runs-on: ${{ matrix.config.os }}
     strategy:
@@ -193,6 +199,7 @@ jobs:
   # $<BUILD_INTERFACE:...>.
   cmake-static-export:
     name: CMake static export check
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master

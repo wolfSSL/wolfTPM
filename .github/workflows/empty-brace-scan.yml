@@ -5,6 +5,7 @@ on:
     branches: [ 'master', 'main', 'release/**' ]
   pull_request:
     branches: [ '**' ]
+    types: [opened, synchronize, reopened, ready_for_review]
   repository_dispatch:
     types: [nightly-trigger]
   workflow_dispatch:
@@ -16,6 +17,7 @@ concurrency:
 jobs:
   empty-brace-scan:
     name: Empty Brace Scope Scan
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:

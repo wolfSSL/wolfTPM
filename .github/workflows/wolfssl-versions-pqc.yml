@@ -5,6 +5,7 @@ on:
     branches: [ 'master', 'main', 'release/**' ]
   pull_request:
     branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
   repository_dispatch:
     types: [nightly-trigger]
 
@@ -22,6 +23,7 @@ jobs:
   # master surfaces upstream drift on the nightly run.
   discover-versions:
     name: Resolve wolfSSL version matrix
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -53,6 +55,7 @@ jobs:
 
   pqc-build-test:
     name: wolfSSL ${{ matrix.wolfssl-version }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover-versions
     runs-on: ubuntu-latest
     timeout-minutes: 25

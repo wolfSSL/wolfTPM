@@ -12,6 +12,7 @@ on:
       - 'wolftpm/tpm2_wrap.h'
   pull_request:
     branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'examples/seal/**'
       - 'examples/nvram/seal_nv.c'
@@ -22,8 +23,13 @@ on:
   repository_dispatch:
     types: [nightly-trigger]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   seal-test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout wolfTPM
