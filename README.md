@@ -38,7 +38,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
-* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has Dilithium + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
+* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has ML-DSA + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -87,7 +87,7 @@ are forward-compatible — the same wrapper API targets both.
 
 ```
 ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-            --enable-dilithium --enable-mlkem --enable-experimental \
+            --enable-mldsa --enable-mlkem \
             --enable-harden CFLAGS="-DWC_RSA_NO_PADDING"
 make
 sudo make install

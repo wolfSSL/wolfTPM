@@ -2919,53 +2919,53 @@ static void test_fwtpm_mldsa_sequence_roundtrip(void)
 /* ------------------------------------------------------------------ */
 
 #include "pqc_kat_vectors.h"
-#include <wolfssl/wolfcrypt/dilithium.h>
+#include <wolfssl/wolfcrypt/wc_mldsa.h>
 #include <wolfssl/wolfcrypt/wc_mlkem.h>
 
 /* Layer A: wolfCrypt-only verify against NIST ACVP MLDSA-44 pinned vector. */
 static void test_fwtpm_mldsa_nist_kat_verify(void)
 {
-    dilithium_key key;
+    wc_MlDsaKey key;
     int res = 0;
     int rc;
 
-    rc = wc_dilithium_init_ex(&key, NULL, INVALID_DEVID);
+    rc = wc_MlDsaKey_Init(&key, NULL, INVALID_DEVID);
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_set_level(&key, WC_ML_DSA_44);
+    rc = wc_MlDsaKey_SetParams(&key, WC_ML_DSA_44);
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_import_public(gNistMldsa44Pk, sizeof(gNistMldsa44Pk),
-        &key);
+    rc = wc_MlDsaKey_ImportPubRaw(&key, gNistMldsa44Pk,
+        sizeof(gNistMldsa44Pk));
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_verify_ctx_msg(
+    rc = wc_MlDsaKey_VerifyCtx(&key,
         gNistMldsa44Sig, (word32)sizeof(gNistMldsa44Sig),
         gNistMldsa44Ctx, (byte)sizeof(gNistMldsa44Ctx),
         gNistMldsa44Msg, (word32)sizeof(gNistMldsa44Msg),
-        &res, &key);
+        &res);
     AssertIntEQ(rc, 0);
     AssertIntEQ(res, 1);
-    wc_dilithium_free(&key);
+    wc_MlDsaKey_Free(&key);
     fwtpm_pass("MLDSA NIST KAT Verify (wolfCrypt):", 1);
 }
 
 /* Layer A: wolfCrypt-only keygen determinism against wolfSSL MLDSA-44 vector. */
 static void test_fwtpm_mldsa_wolfssl_keygen_kat(void)
 {
-    dilithium_key key;
+    wc_MlDsaKey key;
     byte pub[sizeof(gWolfSslMldsa44Pk)];
     word32 pubSz = (word32)sizeof(pub);
     int rc;
 
-    rc = wc_dilithium_init_ex(&key, NULL, INVALID_DEVID);
+    rc = wc_MlDsaKey_Init(&key, NULL, INVALID_DEVID);
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_set_level(&key, WC_ML_DSA_44);
+    rc = wc_MlDsaKey_SetParams(&key, WC_ML_DSA_44);
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_make_key_from_seed(&key, gWolfSslMldsa44Seed);
+    rc = wc_MlDsaKey_MakeKeyFromSeed(&key, gWolfSslMldsa44Seed);
     AssertIntEQ(rc, 0);
-    rc = wc_dilithium_export_public(&key, pub, &pubSz);
+    rc = wc_MlDsaKey_ExportPubRaw(&key, pub, &pubSz);
     AssertIntEQ(rc, 0);
     AssertIntEQ(pubSz, sizeof(gWolfSslMldsa44Pk));
     AssertIntEQ(XMEMCMP(pub, gWolfSslMldsa44Pk, pubSz), 0);
-    wc_dilithium_free(&key);
+    wc_MlDsaKey_Free(&key);
     fwtpm_pass("MLDSA wolfSSL keygen KAT:", 1);
 }
 

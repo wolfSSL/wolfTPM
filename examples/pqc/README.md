@@ -13,8 +13,8 @@ the full fwTPM PQC reference.
 **wolfSSL** (ML-DSA and ML-KEM in wolfCrypt):
 
 ```
-./configure --enable-wolftpm --enable-dilithium --enable-mlkem \
-            --enable-experimental --enable-harden --enable-keygen
+./configure --enable-wolftpm --enable-mldsa --enable-mlkem \
+            --enable-harden --enable-keygen
 make
 sudo make install
 ```

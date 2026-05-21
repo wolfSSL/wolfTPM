@@ -1,4 +1,4 @@
-name: wolfSSL Version Matrix (PQC)
+name: wolfSSL Version Matrix
 
 on:
   push:
@@ -18,8 +18,9 @@ permissions:
 jobs:
   # Resolve the latest -stable wolfSSL tag at run time so we don't have to
   # bump this workflow every release. Floor (v5.8.0) and master are fixed:
-  # v5.8.0 exercises every version-gated workaround in fwtpm_crypto.c, and
-  # master surfaces upstream drift on the nightly run.
+  # v5.8.0 exercises wolfTPM's non-PQC backward-compat path (the v1.85 PQC
+  # code uses the post-v5.9.1 wc_MlDsaKey_* API and is skipped on this row),
+  # and master surfaces upstream drift on the nightly run.
   discover-versions:
     name: Resolve wolfSSL version matrix
     runs-on: ubuntu-latest
@@ -42,11 +43,21 @@ jobs:
           fi
           echo "Latest stable wolfSSL: $LATEST"
           echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
-          MATRIX=$(jq -nc --arg latest "$LATEST" '{
+          # Enable PQC when $LATEST is strictly newer than v5.9.1-stable
+          # (any v5.9.2+, v5.10+, v6+, ...). The wc_MlDsaKey_* API lands
+          # post-v5.9.1-stable in wolfSSL PR #10436.
+          PQC_FLOOR="v5.9.1-stable"
+          if [ "$(printf '%s\n%s\n' "$PQC_FLOOR" "$LATEST" | sort -V | tail -n1)" != "$PQC_FLOOR" ]; then
+            LATEST_PQC_ELIGIBLE=true
+          else
+            LATEST_PQC_ELIGIBLE=false
+          fi
+          echo "latest-stable PQC eligible: $LATEST_PQC_ELIGIBLE"
+          MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC_ELIGIBLE" '{
             include: [
-              {"wolfssl-version":"v5.8.0-stable","wolfssl-ref":"v5.8.0-stable","cache-key":"wolfssl-pqc-v5.8.0-v1"},
-              {"wolfssl-version":$latest,"wolfssl-ref":$latest,"cache-key":("wolfssl-pqc-" + $latest + "-v1")},
-              {"wolfssl-version":"master","wolfssl-ref":"master","cache-key":""}
+              {"wolfssl-version":"v5.8.0-stable","wolfssl-ref":"v5.8.0-stable","cache-key":"wolfssl-nopqc-v5.8.0-v1","pqc":false},
+              {"wolfssl-version":$latest,"wolfssl-ref":$latest,"cache-key":("wolfssl-" + (if $latest_pqc then "pqc" else "nopqc" end) + "-" + $latest + "-v1"),"pqc":$latest_pqc},
+              {"wolfssl-version":"master","wolfssl-ref":"master","cache-key":"","pqc":true}
             ]
           }')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
@@ -77,16 +88,25 @@ jobs:
           path: ~/wolfssl-install
           key: ${{ matrix.cache-key }}
 
-      - name: Build wolfSSL ${{ matrix.wolfssl-version }} with PQC
+      - name: Build wolfSSL ${{ matrix.wolfssl-version }}
         if: matrix.wolfssl-version == 'master' || steps.cache-wolfssl.outputs.cache-hit != 'true'
+        env:
+          PQC: ${{ matrix.pqc }}
         run: |
           cd ~
           git clone --depth 1 --branch ${{ matrix.wolfssl-ref }} \
               https://github.com/wolfSSL/wolfssl.git
           cd wolfssl
           ./autogen.sh
+          # PQC rows pull in ML-DSA + ML-KEM; non-PQC rows cover wolfSSL
+          # versions that predate the wc_MlDsaKey_* rename (PR #10436).
+          if [ "$PQC" = "true" ]; then
+            PQC_FLAGS="--enable-dilithium --enable-mlkem --enable-experimental"
+          else
+            PQC_FLAGS=""
+          fi
           ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-                      --enable-dilithium --enable-mlkem --enable-experimental \
+                      $PQC_FLAGS \
                       --enable-harden CFLAGS="-DWC_RSA_NO_PADDING" \
                       --prefix=$HOME/wolfssl-install
           make -j"$(nproc)"
@@ -97,7 +117,8 @@ jobs:
           grep LIBWOLFSSL_VERSION_STRING $HOME/wolfssl-install/include/wolfssl/version.h
           grep LIBWOLFSSL_VERSION_HEX $HOME/wolfssl-install/include/wolfssl/version.h
 
-      - name: Build wolfTPM with v1.85 + fwTPM
+      - name: Build wolfTPM with v1.85 + fwTPM (PQC)
+        if: matrix.pqc
         run: |
           ./autogen.sh
           CPPFLAGS="-I$HOME/wolfssl-install/include" \
@@ -105,7 +126,16 @@ jobs:
             ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
           make -j"$(nproc)"
 
-      - name: Run fwtpm_unit.test (PQC KAT block)
+      - name: Build wolfTPM with fwTPM (no PQC)
+        if: '!matrix.pqc'
+        run: |
+          ./autogen.sh
+          CPPFLAGS="-I$HOME/wolfssl-install/include" \
+          LDFLAGS="-L$HOME/wolfssl-install/lib -Wl,-rpath,$HOME/wolfssl-install/lib" \
+            ./configure --enable-fwtpm --disable-v185 --enable-debug=verbose
+          make -j"$(nproc)"
+
+      - name: Run fwtpm_unit.test
         run: |
           export LD_LIBRARY_PATH=$HOME/wolfssl-install/lib
           ./tests/fwtpm_unit.test
