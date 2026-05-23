@@ -21,6 +21,20 @@ permissions:
   contents: read
 
 jobs:
+  # Static pre-check: catches bare `{ ... }` scope blocks before any build
+  # runs. Cheap (~seconds) and runs on drafts so style regressions surface
+  # immediately alongside the smoke build.
+  empty-brace-scan:
+    name: Empty Brace Scope Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Check for bare C scope blocks
+        run: python3 scripts/check-empty-brace-scopes.py
+
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
