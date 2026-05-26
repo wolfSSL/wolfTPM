@@ -4590,10 +4590,22 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_FAILURE;
         }
 
-        /* p = n / q */
+        /* p = n / q, capturing the remainder so we can reject a caller-
+         * supplied q that does not evenly divide n. Without this check
+         * FwRsaComputeCRT would succeed on a mathematically inconsistent
+         * key whose CRT components do not match the public modulus,
+         * mirroring the existing guard in FwReconstructRsaPrivateKey. */
         if (rc == 0) {
-            rc = mp_div(&rsaKey->n, &rsaKey->q, &rsaKey->p, NULL);
-            if (rc != 0) {
+            mp_int rem;
+            rc = mp_init(&rem);
+            if (rc == 0) {
+                rc = mp_div(&rsaKey->n, &rsaKey->q, &rsaKey->p, &rem);
+                if (rc == 0 && !mp_iszero(&rem)) {
+                    rc = TPM_RC_BINDING;
+                }
+                mp_forcezero(&rem);
+            }
+            if (rc != 0 && rc != TPM_RC_BINDING) {
                 rc = TPM_RC_FAILURE;
             }
         }
