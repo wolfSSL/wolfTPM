@@ -7514,6 +7514,34 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear(LOCKOUT):", 0);
 }
 
+/* Per Part 3 Sec.24.6 Table 134, TPM2_Clear has Auth Index 1, Auth Role USER
+ * on @authHandle (TPM_RH_LOCKOUT or TPM_RH_PLATFORM). NO_SESSIONS leaves
+ * cmdAuthCnt at 0, skipping every auth enforcement loop in
+ * FWTPM_ProcessCommand and allowing an unauthenticated wipe of owner and
+ * endorsement state. Reject with TPM_RC_AUTH_MISSING up front. */
+static void test_fwtpm_clear_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Clear); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear NO_SESSIONS (AUTH_MISSING):", 0);
+}
+
 static void test_fwtpm_change_eps(void)
 {
     FWTPM_CTX ctx;
@@ -8256,6 +8284,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
     test_fwtpm_change_pps();
+    test_fwtpm_clear_no_sessions_returns_auth_missing();
     test_fwtpm_clear();
 
     printf("\nAll fwTPM unit tests passed!\n");

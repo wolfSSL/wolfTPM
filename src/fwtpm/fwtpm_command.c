@@ -15271,6 +15271,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         return TPM_RC_SUCCESS;
     }
 
+    /* Per TPM 2.0 Part 3, any command with an @auth role on a handle must
+     * carry tag = TPM_ST_SESSIONS. NO_SESSIONS leaves the auth area unparsed
+     * and bypasses every downstream auth/HMAC/policy enforcement loop, so
+     * reject up front for any handler that declares authHandleCnt > 0. */
+    if (cmdTag != TPM_ST_SESSIONS && entry->authHandleCnt > 0) {
+        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+            TPM_RC_AUTH_MISSING);
+        return TPM_RC_SUCCESS;
+    }
+
     /* Track all auth sessions from command for response auth generation */
     struct {
         TPM_HANDLE handle;
