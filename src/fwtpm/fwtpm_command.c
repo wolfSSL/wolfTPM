@@ -14323,9 +14323,14 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * is no UINT16 size prefix on the wire. */
         UINT16 hmacHash = 0;
         int hmacDigestSz;
-        TPM2_Packet_ParseU16(cmd, &hmacHash);
-        if (hmacHash != seq->hashAlg) {
-            rc = TPM_RC_SCHEME;
+        if (cmd->pos + 2 > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseU16(cmd, &hmacHash);
+            if (hmacHash != seq->hashAlg) {
+                rc = TPM_RC_SCHEME;
+            }
         }
         if (rc == 0) {
             hmacDigestSz = TPM2_GetHashDigestSize(seq->hashAlg);
