@@ -104,7 +104,8 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
             else {
                 digestLen = (word32)XSTRLEN(digestStr);
             }
-            if (digestLen > sizeof(digest)*2) {
+            if (digestLen == 0 || (digestLen % 2) != 0 ||
+                digestLen > sizeof(digest)*2) {
                 printf("Invalid digest! Must be 16 or 32 bytes of hex like 01020304050607080910111213141516\n");
                 usage();
                 return 0;
