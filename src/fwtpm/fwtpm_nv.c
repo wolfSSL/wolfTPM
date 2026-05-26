@@ -407,8 +407,24 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvUnmarshalDigest(buf, pos, maxSz, &nvPub->authPolicy);
     }
+    /* Per TPM 2.0 Part 3 Sec.31.3, authPolicy.size must equal the digest
+     * size of nameAlg. A mismatched length installs a policy whose size
+     * never matches any legitimate session policyDigest, permanently
+     * denying policy-based access to this NV index. */
+    if (rc == 0 && nvPub->authPolicy.size > 0 &&
+            (int)nvPub->authPolicy.size !=
+                TPM2_GetHashDigestSize(nvPub->nameAlg)) {
+        rc = TPM_RC_FAILURE;
+    }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->dataSize);
+    }
+    /* nv->data[] is sized to FWTPM_MAX_NV_DATA; rejecting an inflated
+     * dataSize here prevents the later NV_Write bounds check from
+     * comparing offset+size against an attacker-chosen ceiling and
+     * overrunning the fixed destination buffer. */
+    if (rc == 0 && nvPub->dataSize > FWTPM_MAX_NV_DATA) {
+        rc = TPM_RC_FAILURE;
     }
     return rc;
 }
@@ -832,6 +848,16 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FwNvUnmarshalU32(value, &vPos, vMax, &hier);
             FwNvUnmarshalU16(value, &vPos, vMax, &alg);
             FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+            /* Per TPM 2.0 Part 3 Sec.23.1, policy.size must equal the
+             * digest size of alg. Discard a journal entry where the
+             * sizes diverge so it cannot lock the hierarchy out by
+             * forcing every legitimate policy session to fail the
+             * size check at policyDigest enforcement time. */
+            if (policy.size > 0 &&
+                    (int)policy.size != TPM2_GetHashDigestSize(alg)) {
+                XMEMSET(&policy, 0, sizeof(policy));
+                break;
+            }
             switch (hier) {
                 case TPM_RH_OWNER:
                     XMEMCPY(&ctx->ownerPolicy, &policy,

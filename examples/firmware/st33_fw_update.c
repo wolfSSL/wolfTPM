@@ -97,6 +97,13 @@ static int TPM2_ST33_SendFirmwareData(fw_info_t* fwinfo)
         blob_len = ((uint32_t)blob_header[1] << 8) | blob_header[2];
         blob_total = blob_len + 3;
 
+        if (blob_len > 2048) {
+            printf("Error: Blob length %u exceeds maximum 2048 at offset %u\n",
+                blob_len, offset);
+            rc = BUFFER_E;
+            break;
+        }
+
         if (offset + blob_total > fwinfo->firmware_bufSz) {
             printf("Error: Incomplete blob at offset %u\n", offset);
             rc = BUFFER_E;

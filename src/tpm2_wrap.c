@@ -9048,7 +9048,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (auth) {
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
         if (authSz > (int)sizeof(pAuth->buffer)) {
-            authSz = (int)sizeof(pAuth->buffer); /* truncate */
+            return BUFFER_E;
         }
         pAuth->size = authSz;
         XMEMCPY(pAuth->buffer, auth, authSz);

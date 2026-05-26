@@ -963,7 +963,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
             TPM2_GetRCString(rc));
         goto exit;
     }
-    if (cmdOut.seqComp.result.size != TPM_SHA256_DIGEST_SIZE &&
+    if (cmdOut.seqComp.result.size != TPM_SHA256_DIGEST_SIZE ||
         XMEMCMP(cmdOut.seqComp.result.buffer, hashTestDig,
                                                 TPM_SHA256_DIGEST_SIZE) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");

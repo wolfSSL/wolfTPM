@@ -792,6 +792,86 @@ static void test_fwtpm_pcr_extend_and_read(void)
     fwtpm_pass("PCR_Extend + Read(16):", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.22.3, PCR_Extend takes Auth Role USER on the
+ * PCR handle. When PCR_SetAuthValue has installed a non-empty
+ * authValue, a subsequent password session with hmacSize=0 must be
+ * rejected — the password lookup must consult ctx->pcrAuth[idx] not
+ * fall through to an empty default. */
+static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    static const byte pcrAuth[] = "pcr-auth-secret-32-bytes-aaaaaaa";
+    const int pcrAuthSz = (int)sizeof(pcrAuth) - 1;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* PCR_SetAuthValue(PCR 16, authValue). Auth area is empty-PW
+     * (PCR 16 starts with no authValue). */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU16BE(gCmd + cmdSz, (UINT16)pcrAuthSz); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pcrAuth, pcrAuthSz);
+    cmdSz += pcrAuthSz;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* PCR_Extend(PCR 16) with empty password — must be rejected. */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    memset(gCmd + cmdSz, 0x42, 32); cmdSz += 32;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+
+    /* Restore PCR 16 to empty auth so the NV journal doesn't contaminate
+     * later tests that share FWTPM_NV_FILE. */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9 + pcrAuthSz); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, (UINT16)pcrAuthSz); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pcrAuth, pcrAuthSz); cmdSz += pcrAuthSz;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2; /* new auth.size = 0 */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Extend empty-pw after SetAuth (AUTH_FAIL):", 0);
+}
+
 /* ================================================================== */
 /* 7. ReadClock                                                        */
 /* ================================================================== */
@@ -6776,6 +6856,7 @@ static void test_fwtpm_policy_pcr(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicyPCR:", 0);
 }
+
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -7025,8 +7106,11 @@ static void test_fwtpm_certify_creation_ecdaa_scheme(void)
 
     /* Build TPM2_CertifyCreation with ECDAA inScheme. Use the same key as
      * both signHandle and objectHandle to avoid additional setup. The
-     * ticket carries hier=TPM_RH_NULL with a zero digest so HMAC
-     * validation is skipped (only the tag is checked). */
+     * ticket carries hier=TPM_RH_NULL with a zero digest, which must be
+     * rejected with TPM_RC_TICKET — reaching that reject still proves
+     * the ECDAA inScheme parser consumed the extra UINT16 count, since
+     * a wrong-shape scheme parse would have failed earlier with a
+     * different code. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -7049,7 +7133,7 @@ static void test_fwtpm_certify_creation_ecdaa_scheme(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
@@ -7282,6 +7366,43 @@ static void test_fwtpm_pcr_reset(void)
     fwtpm_pass("PCR_Reset(16):", 0);
 }
 
+/* Per TCG PC Client TPM Profile Table 5, PCR 17 (DRTM MLE) may only be
+ * reset from locality 4. The default test locality is 0, so the reset
+ * must be rejected with TPM_RC_LOCALITY. Same expectation for PCR 22
+ * which requires locality 3 or 4. */
+static void test_fwtpm_pcr_reset_locality_enforced(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
+    PutU32BE(gCmd + pos, 17); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
+    PutU32BE(gCmd + pos, 22); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Reset locality enforced (LOCALITY):", 0);
+}
+
 static void test_fwtpm_pcr_event(void)
 {
     FWTPM_CTX ctx;
@@ -7344,6 +7465,40 @@ static void test_fwtpm_hierarchy_change_auth(void)
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("HierarchyChangeAuth:", 0);
+}
+
+/* Per TPM 2.0 Part 3 Sec.23.1, authPolicy.size in SetPrimaryPolicy must
+ * equal the digest size of hashAlg. A mismatched length installs a
+ * policy whose size never matches any legitimate session policyDigest,
+ * permanently denying policy-based access to the hierarchy. */
+static void test_fwtpm_set_primary_policy_bad_size_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    byte badPolicy[64];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(badPolicy, 0xAB, sizeof(badPolicy));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* authPolicy: 64 bytes, but hashAlg = SHA256 (expects 32) */
+    PutU16BE(gCmd + pos, sizeof(badPolicy)); pos += 2;
+    memcpy(gCmd + pos, badPolicy, sizeof(badPolicy));
+    pos += sizeof(badPolicy);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SetPrimaryPolicy size mismatch (SIZE):", 0);
 }
 
 static void test_fwtpm_clear(void)
@@ -7602,6 +7757,115 @@ static void test_fwtpm_evict_control(void)
     fwtpm_pass("EvictControl (persist/remove):", 0);
 }
 
+/* Per TPM 2.0 Part 2 Sec.7.4, persistent handles must fall in
+ * 0x81000000..0x81FFFFFF. A persistentHandle outside this range must
+ * be rejected so an attacker cannot plant a persistent record at a
+ * transient-range handle that FwFindObject would later resolve. */
+static void test_fwtpm_evict_control_bad_persistent_handle_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    UINT32 badPersH = 0x80000010; /* transient range */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, badPersH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("EvictControl bad persistentHandle (VALUE):", 0);
+}
+
+/* Per TPM 2.0 Part 3 Sec.28, the make-persistent form of EvictControl
+ * requires objectHandle to be a loaded transient. Passing a persistent
+ * objectHandle that differs from persistentHandle would otherwise let
+ * a caller clone a persistent record into a fresh persistent slot. */
+static void test_fwtpm_evict_control_persistent_object_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    UINT32 persH = 0x81000002;
+    UINT32 cloneH = 0x81000003;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* First make the transient persistent at persH. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, keyH);
+
+    /* Now attempt to clone the persistent record into a new persistent
+     * slot by passing the persistent handle as objectHandle (which is
+     * not the same as persistentHandle, so the evict branch is not
+     * taken). Must be rejected with TPM_RC_HANDLE. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, cloneH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+
+    /* Clean up persH so the NV journal doesn't leak. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("EvictControl persistent object reject (HANDLE):", 0);
+}
+
 static void test_fwtpm_clock_set(void)
 {
     FWTPM_CTX ctx;
@@ -7834,7 +8098,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* PCR operations */
     test_fwtpm_pcr_read();
     test_fwtpm_pcr_extend_and_read();
+    test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
+    test_fwtpm_pcr_reset_locality_enforced();
     test_fwtpm_pcr_event();
 
     /* Clock */
@@ -7934,6 +8200,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();
+    test_fwtpm_evict_control_bad_persistent_handle_rejected();
+    test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
 
     /* Crypto */
@@ -7950,6 +8218,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Auth */
     test_fwtpm_hierarchy_change_auth();
+    test_fwtpm_set_primary_policy_bad_size_rejected();
 #ifndef FWTPM_NO_DA
     test_fwtpm_da_parameters_and_reset();
 #endif

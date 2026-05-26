@@ -416,6 +416,16 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
         }
     }
 #endif /* !FWTPM_NO_NV */
+    else if (handle <= PCR_LAST) {
+        /* PCR handles carry per-index authValue set by PCR_SetAuthValue.
+         * Without this case the password verifier resolves them to
+         * authSz=0 and any empty-password caller passes the compare.
+         * PCR_FIRST is 0, so the lower bound is implicit in the
+         * unsigned type. */
+        int pcrIdx = (int)(handle - PCR_FIRST);
+        *authVal = ctx->pcrAuth[pcrIdx].buffer;
+        *authValSz = (int)ctx->pcrAuth[pcrIdx].size;
+    }
     else {
         FWTPM_Object* objEnt = FwFindObject(ctx, handle);
         if (objEnt != NULL) {
@@ -1731,7 +1741,26 @@ static TPM_RC FwCmd_PCR_Reset(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
+        /* PCR 0-15 (SRTM) are not user-resettable per TPM 2.0 Part 2
+         * Table 3-8; they reset only via TPM2_Startup(CLEAR). */
         if (pcrIndex < 16) {
+            rc = TPM_RC_LOCALITY;
+        }
+    }
+
+    /* Per TCG PC Client TPM Profile Table 5, PCR_Reset locality rules
+     * for indices 16..23 are:
+     *   16, 23 — any locality
+     *   17     — locality 4 only (DRTM MLE)
+     *   18..22 — locality 3 or 4 (DRTM ACM/OS)
+     * Without this check any caller at locality 0 can wipe DRTM PCRs
+     * and defeat attestation policies sealed to them. */
+    if (rc == 0) {
+        if (pcrIndex == 17 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
+        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
+                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
             rc = TPM_RC_LOCALITY;
         }
     }
@@ -3586,6 +3615,14 @@ static TPM_RC FwCmd_SetPrimaryPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (policySz > 0 && TPM2_GetHashDigestSize(hashAlg) <= 0) {
             rc = TPM_RC_HASH;
         }
+        /* Per TPM 2.0 Part 3 Sec.23.1, authPolicy.size must equal the
+         * digest size of hashAlg. A mismatched length installs a policy
+         * whose size never matches any legitimate session policyDigest,
+         * permanently locking the hierarchy out of policy-based access. */
+        if (rc == 0 && policySz > 0 &&
+                (int)policySz != TPM2_GetHashDigestSize(hashAlg)) {
+            rc = TPM_RC_SIZE;
+        }
         if (policySz == 0) {
             hashAlg = TPM_ALG_NULL;
         }
@@ -3667,6 +3704,16 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &persistentHandle);
     }
 
+    /* Per TPM 2.0 Part 2 Sec.7.4, persistent handles MUST fall in the
+     * 0x81000000..0x81FFFFFF range. Storing an out-of-range value would
+     * let a later FwFindObject lookup mistakenly resolve to a transient
+     * slot and serve attacker-controlled key material. */
+    if (rc == 0 &&
+            (persistentHandle < PERSISTENT_FIRST ||
+             persistentHandle > PERSISTENT_LAST)) {
+        rc = TPM_RC_VALUE;
+    }
+
     /* Validate auth handle: owner or platform required by spec,
      * endorsement also accepted for EH-created objects */
     if (rc == 0 && authHandle != TPM_RH_OWNER &&
@@ -3701,9 +3748,19 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     /* objectHandle is transient -> make persistent */
     else if (rc == 0) {
-        obj = FwFindObject(ctx, objectHandle);
-        if (obj == NULL) {
+        /* Per TPM 2.0 Part 3 Sec.28, objectHandle for the make-persistent
+         * form MUST be a loaded transient. Accepting a persistent handle
+         * here lets a caller clone an existing persistent record into a
+         * new slot, exhaust the persistent table, and serve attacker-
+         * controlled key material at a fresh handle. */
+        if ((objectHandle & 0xFF000000) != 0x80000000) {
             rc = TPM_RC_HANDLE;
+        }
+        if (rc == 0) {
+            obj = FwFindObject(ctx, objectHandle);
+            if (obj == NULL) {
+                rc = TPM_RC_HANDLE;
+            }
         }
 
         /* Check if persistent handle already in use */
@@ -4554,10 +4611,23 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_FAILURE;
         }
 
-        /* p = n / q */
+        /* p = n / q, capturing the remainder so we can reject a caller-
+         * supplied q that does not evenly divide n. Without this check
+         * FwRsaComputeCRT would succeed on a mathematically inconsistent
+         * key whose CRT components do not match the public modulus,
+         * mirroring the existing guard in FwReconstructRsaPrivateKey. */
         if (rc == 0) {
-            rc = mp_div(&rsaKey->n, &rsaKey->q, &rsaKey->p, NULL);
-            if (rc != 0) {
+            mp_int rem;
+            rc = mp_init(&rem);
+            if (rc == 0) {
+                rc = mp_div(&rsaKey->n, &rsaKey->q, &rsaKey->p, &rem);
+                if (rc == 0 && !mp_iszero(&rem)) {
+                    rc = TPM_RC_BINDING;
+                }
+                mp_forcezero(&rem);
+                mp_clear(&rem);
+            }
+            if (rc != 0 && rc != TPM_RC_BINDING) {
                 rc = TPM_RC_FAILURE;
             }
         }
@@ -11999,7 +12069,14 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && tag != TPM_ST_CREATION) {
             rc = TPM_RC_TICKET;
         }
-        if (rc == 0 && tickDSz > 0) {
+        /* A zero-length ticket digest cannot bind the creationHash to the
+         * object name. Without this guard, the attestation embeds the
+         * caller-supplied creationHash verbatim with no cryptographic
+         * proof of provenance. */
+        if (rc == 0 && tickDSz == 0) {
+            rc = TPM_RC_TICKET;
+        }
+        if (rc == 0) {
             byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
             int ticketDataSz = 0;
             byte expectedHmac[TPM_MAX_DIGEST_SIZE];
@@ -15433,6 +15510,22 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
                     return TPM_RC_SUCCESS;
                 }
+            }
+            else if (authPolicy != NULL && authPolicy->size == 0 &&
+                    cmdAuths[pj].cmdHmacSize == 0) {
+                /* Per TPM 2.0 Part 1 Sec.19.7, a policy session can only
+                 * authorize an entity whose authPolicy is non-empty.
+                 * When the entity has no authPolicy AND the session
+                 * supplied no HMAC, every downstream auth check would
+                 * be skipped — reject up front. */
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy session empty-HMAC rejected for "
+                    "handle 0x%x without authPolicy (CC=0x%x)\n",
+                    entityH, cmdCode);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf,
+                    TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                return TPM_RC_SUCCESS;
             }
         }
     }
