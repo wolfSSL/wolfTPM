@@ -7773,6 +7773,77 @@ static void test_fwtpm_evict_control_bad_persistent_handle_rejected(void)
     fwtpm_pass("EvictControl bad persistentHandle (VALUE):", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.28, the make-persistent form of EvictControl
+ * requires objectHandle to be a loaded transient. Passing a persistent
+ * objectHandle that differs from persistentHandle would otherwise let
+ * a caller clone a persistent record into a fresh persistent slot. */
+static void test_fwtpm_evict_control_persistent_object_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    UINT32 persH = 0x81000002;
+    UINT32 cloneH = 0x81000003;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* First make the transient persistent at persH. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, keyH);
+
+    /* Now attempt to clone the persistent record into a new persistent
+     * slot by passing the persistent handle as objectHandle (which is
+     * not the same as persistentHandle, so the evict branch is not
+     * taken). Must be rejected with TPM_RC_HANDLE. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, cloneH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+
+    /* Clean up persH so the NV journal doesn't leak. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, persH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("EvictControl persistent object reject (HANDLE):", 0);
+}
+
 static void test_fwtpm_clock_set(void)
 {
     FWTPM_CTX ctx;
@@ -8107,6 +8178,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_read_public();
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
+    test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
 
     /* Crypto */

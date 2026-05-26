@@ -3719,9 +3719,19 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     /* objectHandle is transient -> make persistent */
     else if (rc == 0) {
-        obj = FwFindObject(ctx, objectHandle);
-        if (obj == NULL) {
+        /* Per TPM 2.0 Part 3 Sec.28, objectHandle for the make-persistent
+         * form MUST be a loaded transient. Accepting a persistent handle
+         * here lets a caller clone an existing persistent record into a
+         * new slot, exhaust the persistent table, and serve attacker-
+         * controlled key material at a fresh handle. */
+        if ((objectHandle & 0xFF000000) != 0x80000000) {
             rc = TPM_RC_HANDLE;
+        }
+        if (rc == 0) {
+            obj = FwFindObject(ctx, objectHandle);
+            if (obj == NULL) {
+                rc = TPM_RC_HANDLE;
+            }
         }
 
         /* Check if persistent handle already in use */
