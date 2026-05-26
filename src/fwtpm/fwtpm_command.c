@@ -4532,8 +4532,13 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Reconstruct/store private key if private area was provided */
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
             qSz > 0) {
-        /* For SYMCIPHER, qBuf contains the raw AES key bytes */
-        if (qSz > (UINT16)FWTPM_MAX_DER_SIG_BUF) {
+        /* For SYMCIPHER, qBuf contains the raw AES key bytes. Per Part 2
+         * Sec.11.1.9 a TPM2B_SYM_KEY for AES is 16, 24, or 32 bytes.
+         * Reject any other length up front — the outer FWTPM_MAX_DER_SIG_BUF
+         * gate is larger than the privKeyDer destination on v1.85 builds
+         * with ML-DSA enabled, so it cannot be relied on to bound this
+         * copy. */
+        if (qSz != 16 && qSz != 24 && qSz != 32) {
             rc = TPM_RC_SIZE;
         }
         if (rc == 0) {

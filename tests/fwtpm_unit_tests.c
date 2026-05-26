@@ -7679,6 +7679,71 @@ static void test_fwtpm_read_public(void)
     fwtpm_pass("ReadPublic:", 0);
 }
 
+/* Per Part 2 Sec.11.1.9, a TPM2B_SYM_KEY for AES must hold exactly 16,
+ * 24, or 32 bytes. FwCmd_LoadExternal's SYMCIPHER copy path previously
+ * gated only on FWTPM_MAX_DER_SIG_BUF (a dead check duplicating the
+ * outer gate), so any qSz <= FWTPM_MAX_DER_SIG_BUF was XMEMCPY'd into
+ * privKeyDer (sized FWTPM_MAX_PRIVKEY_DER). On v1.85 builds with ML-DSA
+ * enabled FWTPM_MAX_DER_SIG_BUF exceeds FWTPM_MAX_PRIVKEY_DER and the
+ * copy overflows the destination. Reject any SYMCIPHER key length that
+ * is not a valid AES key size with TPM_RC_SIZE up front. */
+static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    int privStart, pubStart, sensStart;
+    int badKeySz = 33; /* Not 16/24/32 — invalid AES key length */
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_LoadExternal); pos += 4;
+
+    /* inPrivate (TPM2B_SENSITIVE) */
+    privStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
+    sensStart = pos;
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2; /* sensitiveType */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authValue.size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* seedValue.size = 0 */
+    PutU16BE(gCmd + pos, (UINT16)badKeySz); pos += 2; /* sym.size */
+    for (i = 0; i < badKeySz; i++) {
+        gCmd[pos++] = (byte)(0xA0 + i);
+    }
+    PutU16BE(gCmd + privStart, (UINT16)(pos - sensStart));
+
+    /* inPublic (TPM2B_PUBLIC) for AES-256 SYMCIPHER */
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2; /* type */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;    /* nameAlg */
+    PutU32BE(gCmd + pos, 0x00000040); pos += 4;        /* userWithAuth */
+    PutU16BE(gCmd + pos, 0); pos += 2;                  /* authPolicy.size */
+    /* TPMS_SYMCIPHER_PARMS = TPMT_SYM_DEF_OBJECT */
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 256); pos += 2;                /* keyBits.aes */
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;        /* mode.aes */
+    /* unique.sym (TPM2B_DIGEST) */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+
+    /* hierarchy */
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("LoadExternal SYMCIPHER bad keySz (SIZE):", 0);
+}
+
 /* ================================================================== */
 /* Group D: Hash/HMAC Sequences                                        */
 /* ================================================================== */
@@ -8277,6 +8342,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_hash_mldsa_seq_all_params();
 #endif
     test_fwtpm_read_public();
+    test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
