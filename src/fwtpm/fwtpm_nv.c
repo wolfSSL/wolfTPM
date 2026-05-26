@@ -848,6 +848,16 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FwNvUnmarshalU32(value, &vPos, vMax, &hier);
             FwNvUnmarshalU16(value, &vPos, vMax, &alg);
             FwNvUnmarshalDigest(value, &vPos, vMax, &policy);
+            /* Per TPM 2.0 Part 3 Sec.23.1, policy.size must equal the
+             * digest size of alg. Discard a journal entry where the
+             * sizes diverge so it cannot lock the hierarchy out by
+             * forcing every legitimate policy session to fail the
+             * size check at policyDigest enforcement time. */
+            if (policy.size > 0 &&
+                    (int)policy.size != TPM2_GetHashDigestSize(alg)) {
+                XMEMSET(&policy, 0, sizeof(policy));
+                break;
+            }
             switch (hier) {
                 case TPM_RH_OWNER:
                     XMEMCPY(&ctx->ownerPolicy, &policy,
