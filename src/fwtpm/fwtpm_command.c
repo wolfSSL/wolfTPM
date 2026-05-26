@@ -4625,6 +4625,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_BINDING;
                 }
                 mp_forcezero(&rem);
+                mp_clear(&rem);
             }
             if (rc != 0 && rc != TPM_RC_BINDING) {
                 rc = TPM_RC_FAILURE;
