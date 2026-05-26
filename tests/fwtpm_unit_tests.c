@@ -7693,7 +7693,7 @@ static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
     FWTPM_CTX ctx;
     int rc, rspSize, pos;
     int privStart, pubStart, sensStart;
-    int badKeySz = 33; /* Not 16/24/32 — invalid AES key length */
+    int badKeySz = 33; /* Not 16/24/32 - invalid AES key length */
     int i;
 
     memset(&ctx, 0, sizeof(ctx));

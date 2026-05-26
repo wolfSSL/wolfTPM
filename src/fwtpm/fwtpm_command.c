@@ -4534,7 +4534,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             qSz > 0) {
         /* For SYMCIPHER, qBuf contains the raw AES key bytes. Per Part 2
          * Sec.11.1.9 a TPM2B_SYM_KEY for AES is 16, 24, or 32 bytes.
-         * Reject any other length up front — the outer FWTPM_MAX_DER_SIG_BUF
+         * Reject any other length up front - the outer FWTPM_MAX_DER_SIG_BUF
          * gate is larger than the privKeyDer destination on v1.85 builds
          * with ML-DSA enabled, so it cannot be relied on to bound this
          * copy. */
@@ -14056,7 +14056,7 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         else if (rc == 0 && keyObj->pub.type == TPM_ALG_KEYEDHASH) {
             /* HMAC sequence: feed trailing buffer, finalize HMAC, emit
              * TPMU_SIGNATURE.hmac = TPMT_HA (sigAlg | hashAlg | digest)
-             * per Part 2 Sec.10.2.2 Table 88 — no UINT16 size prefix,
+             * per Part 2 Sec.10.2.2 Table 88 - no UINT16 size prefix,
              * digest length is implied by hashAlg. */
             byte hmacOut[TPM_MAX_DIGEST_SIZE];
             int digestSz;
