@@ -8792,6 +8792,13 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && ticketTag != TPM_ST_VERIFIED) {
             rc = TPM_RC_TICKET;
         }
+        /* Per TPM 2.0 Part 3 Sec.23.16, a TPMT_TK_VERIFIED with
+         * hierarchy == TPM_RH_NULL is invalid input. Reject before
+         * HMAC verification to prevent a NULL-hierarchy proofValue
+         * being fed into FwComputeTicketHmac. */
+        if (rc == 0 && ticketHier == TPM_RH_NULL) {
+            rc = TPM_RC_HIERARCHY;
+        }
         /* Verify ticket HMAC per TPM 2.0 Part 3 Section 23.16:
          * 1. Compute aHash = H(approvedPolicy || policyRef)
          * 2. Ticket from VerifySignature is HMAC(proofValue, aHash || keyName)

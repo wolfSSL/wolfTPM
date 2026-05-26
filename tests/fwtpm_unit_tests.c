@@ -6776,6 +6776,56 @@ static void test_fwtpm_policy_pcr(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PolicyPCR:", 0);
 }
+
+/* Per TPM 2.0 Part 3 Sec.23.16, a TPMT_TK_VERIFIED with hierarchy ==
+ * TPM_RH_NULL is invalid input and must be rejected with
+ * TPM_RC_HIERARCHY. Without this guard the handler proceeds into HMAC
+ * verification with a NULL-hierarchy proofValue, which an attacker can
+ * pair with a zero-digest ticket to fabricate PolicyAuthorize extensions. */
+static void test_fwtpm_policy_authorize_null_hierarchy_rejected(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int pos, rspSize;
+    byte fakeKeyName[34];
+    byte fakeDigest[32];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    PutU16BE(fakeKeyName, TPM_ALG_SHA256);
+    memset(fakeKeyName + 2, 0xCD, 32);
+    memset(fakeDigest, 0xEF, sizeof(fakeDigest));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0, 32); pos += 32;       /* approvedPolicy */
+    PutU16BE(gCmd + pos, 0); pos += 2;          /* policyRef */
+    PutU16BE(gCmd + pos, sizeof(fakeKeyName)); pos += 2;
+    memcpy(gCmd + pos, fakeKeyName, sizeof(fakeKeyName));
+    pos += sizeof(fakeKeyName);
+    /* TPMT_TK_VERIFIED: tag | hierarchy=NULL | digest(32 garbage bytes) */
+    PutU16BE(gCmd + pos, TPM_ST_VERIFIED); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, sizeof(fakeDigest)); pos += 2;
+    memcpy(gCmd + pos, fakeDigest, sizeof(fakeDigest));
+    pos += sizeof(fakeDigest);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HIERARCHY);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyAuthorize NULL hierarchy (HIERARCHY):", 0);
+}
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -7963,6 +8013,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+    test_fwtpm_policy_authorize_null_hierarchy_rejected();
 #endif
 
     /* NV operations */
