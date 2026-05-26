@@ -7479,6 +7479,40 @@ static void test_fwtpm_hierarchy_change_auth(void)
     fwtpm_pass("HierarchyChangeAuth:", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.23.1, authPolicy.size in SetPrimaryPolicy must
+ * equal the digest size of hashAlg. A mismatched length installs a
+ * policy whose size never matches any legitimate session policyDigest,
+ * permanently denying policy-based access to the hierarchy. */
+static void test_fwtpm_set_primary_policy_bad_size_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    byte badPolicy[64];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(badPolicy, 0xAB, sizeof(badPolicy));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* authPolicy: 64 bytes, but hashAlg = SHA256 (expects 32) */
+    PutU16BE(gCmd + pos, sizeof(badPolicy)); pos += 2;
+    memcpy(gCmd + pos, badPolicy, sizeof(badPolicy));
+    pos += sizeof(badPolicy);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SetPrimaryPolicy size mismatch (SIZE):", 0);
+}
+
 static void test_fwtpm_clear(void)
 {
     FWTPM_CTX ctx;
@@ -8195,6 +8229,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Auth */
     test_fwtpm_hierarchy_change_auth();
+    test_fwtpm_set_primary_policy_bad_size_rejected();
 #ifndef FWTPM_NO_DA
     test_fwtpm_da_parameters_and_reset();
 #endif

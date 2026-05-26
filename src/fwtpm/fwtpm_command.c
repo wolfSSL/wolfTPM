@@ -3594,6 +3594,14 @@ static TPM_RC FwCmd_SetPrimaryPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (policySz > 0 && TPM2_GetHashDigestSize(hashAlg) <= 0) {
             rc = TPM_RC_HASH;
         }
+        /* Per TPM 2.0 Part 3 Sec.23.1, authPolicy.size must equal the
+         * digest size of hashAlg. A mismatched length installs a policy
+         * whose size never matches any legitimate session policyDigest,
+         * permanently locking the hierarchy out of policy-based access. */
+        if (rc == 0 && policySz > 0 &&
+                (int)policySz != TPM2_GetHashDigestSize(hashAlg)) {
+            rc = TPM_RC_SIZE;
+        }
         if (policySz == 0) {
             hashAlg = TPM_ALG_NULL;
         }
