@@ -416,10 +416,12 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
         }
     }
 #endif /* !FWTPM_NO_NV */
-    else if (handle >= PCR_FIRST && handle <= PCR_LAST) {
+    else if (handle <= PCR_LAST) {
         /* PCR handles carry per-index authValue set by PCR_SetAuthValue.
          * Without this case the password verifier resolves them to
-         * authSz=0 and any empty-password caller passes the compare. */
+         * authSz=0 and any empty-password caller passes the compare.
+         * PCR_FIRST is 0, so the lower bound is implicit in the
+         * unsigned type. */
         int pcrIdx = (int)(handle - PCR_FIRST);
         *authVal = ctx->pcrAuth[pcrIdx].buffer;
         *authValSz = (int)ctx->pcrAuth[pcrIdx].size;
