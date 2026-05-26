@@ -6857,6 +6857,56 @@ static void test_fwtpm_policy_pcr(void)
     fwtpm_pass("PolicyPCR:", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.23.13, TPM2_PolicyTicket requires a valid
+ * TPMT_TK_AUTH whose HMAC binds the ticketed metadata. A wire-supplied
+ * ticket with digest.size == 0 must not satisfy the verification check
+ * and must not advance the session policyDigest. The pre-fix handler
+ * gated FwComputeTicketHmac on ticketDigestSz > 0, so an empty ticket
+ * fell through to FwPolicyExtend and forged a PolicySigned/PolicySecret
+ * extension using only attacker-supplied authName/policyRef. */
+static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int pos, rspSize;
+    byte fakeAuthName[34];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    /* Build a name with the SHA-256 algId prefix and 32 arbitrary bytes
+     * so the policyDigest extension input is well-formed if reached. */
+    PutU16BE(fakeAuthName, TPM_ALG_SHA256);
+    memset(fakeAuthName + 2, 0xAB, 32);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyTicket); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* timeout TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef TPM2B size = 0 */
+    PutU16BE(gCmd + pos, sizeof(fakeAuthName)); pos += 2;
+    memcpy(gCmd + pos, fakeAuthName, sizeof(fakeAuthName));
+    pos += sizeof(fakeAuthName);
+    /* TPMT_TK_AUTH: tag | hierarchy | digest(size=0, no bytes) */
+    PutU16BE(gCmd + pos, TPM_ST_AUTH_SIGNED); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* digest size = 0 (the bypass) */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTicket zero-digest (TICKET):", 0);
+}
+
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -8260,6 +8310,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+    test_fwtpm_policy_ticket_zero_digest_rejected();
 #endif
 
     /* NV operations */

@@ -10175,6 +10175,13 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_TICKET;
     }
 
+    /* A zero-length ticket digest cannot bind any HMAC and would let the
+     * caller skip FwComputeTicketHmac below, then forge an arbitrary
+     * PolicySigned/PolicySecret extension via FwPolicyExtend. */
+    if (rc == 0 && ticketDigestSz == 0) {
+        rc = TPM_RC_TICKET;
+    }
+
     sess = FwFindSession(ctx, sessHandle);
     if (sess == NULL) {
         rc = TPM_RC_VALUE;
@@ -10187,7 +10194,7 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify ticket HMAC:
      * aHash = H(nonceTPM || expiration || cpHashA || policyRef)
      * ticket = HMAC(proofValue, ticketTag || aHash || authName) */
-    if (rc == 0 && ticketDigestSz > 0) {
+    if (rc == 0) {
         byte aHash[TPM_MAX_DIGEST_SIZE];
         byte ticketInput[2 + TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
         int ticketInputSz = 0;
