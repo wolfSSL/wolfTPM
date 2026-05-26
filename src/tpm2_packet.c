@@ -1588,6 +1588,14 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
         TPM2_Packet_ParseU16(packet, NULL);     /* tag */
         TPM2_Packet_ParseU32(packet, &respSz);  /* response size */
         TPM2_Packet_ParseU32(packet, &tmpRc);   /* response code */
+        /* Reject a wire respSz that exceeds the physical buffer size
+         * captured in packet->size at entry. Without this guard a
+         * malicious or MITM responder could inflate respSz and cause
+         * downstream parsers (bounded only by packet->size) to read
+         * past the physical allocation. */
+        if (respSz > (UINT32)packet->size) {
+            return TPM_RC_SIZE;
+        }
         packet->size = respSz;
         rc = tmpRc;
     }
