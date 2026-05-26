@@ -318,6 +318,15 @@ int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &mod_len, TPM2_ASN_INTEGER);
     }
     if (rc == 0) {
+        /* Validate mod_len and idx before accessing input buffer. Without
+         * this guard a length-0 INTEGER followed by no bytes would let
+         * mod_len underflow from 0 to -1 below, bypassing the size check
+         * via signed comparison and passing SIZE_MAX to XMEMCPY. */
+        if (mod_len <= 0 || idx >= inputSz) {
+            rc = -1;
+        }
+    }
+    if (rc == 0) {
         if (input[idx] == 0x00) {
             idx++;
             mod_len--;
