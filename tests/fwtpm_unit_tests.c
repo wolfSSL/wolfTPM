@@ -7735,6 +7735,44 @@ static void test_fwtpm_evict_control(void)
     fwtpm_pass("EvictControl (persist/remove):", 0);
 }
 
+/* Per TPM 2.0 Part 2 Sec.7.4, persistent handles must fall in
+ * 0x81000000..0x81FFFFFF. A persistentHandle outside this range must
+ * be rejected so an attacker cannot plant a persistent record at a
+ * transient-range handle that FwFindObject would later resolve. */
+static void test_fwtpm_evict_control_bad_persistent_handle_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    UINT32 keyH;
+    UINT32 badPersH = 0x80000010; /* transient range */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, badPersH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("EvictControl bad persistentHandle (VALUE):", 0);
+}
+
 static void test_fwtpm_clock_set(void)
 {
     FWTPM_CTX ctx;
@@ -8068,6 +8106,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_evict_control();
+    test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_context_save();
 
     /* Crypto */

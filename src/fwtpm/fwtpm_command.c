@@ -3675,6 +3675,16 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &persistentHandle);
     }
 
+    /* Per TPM 2.0 Part 2 Sec.7.4, persistent handles MUST fall in the
+     * 0x81000000..0x81FFFFFF range. Storing an out-of-range value would
+     * let a later FwFindObject lookup mistakenly resolve to a transient
+     * slot and serve attacker-controlled key material. */
+    if (rc == 0 &&
+            (persistentHandle < PERSISTENT_FIRST ||
+             persistentHandle > PERSISTENT_LAST)) {
+        rc = TPM_RC_VALUE;
+    }
+
     /* Validate auth handle: owner or platform required by spec,
      * endorsement also accepted for EH-created objects */
     if (rc == 0 && authHandle != TPM_RH_OWNER &&
