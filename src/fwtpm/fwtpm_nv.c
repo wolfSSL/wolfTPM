@@ -407,6 +407,15 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvUnmarshalDigest(buf, pos, maxSz, &nvPub->authPolicy);
     }
+    /* Per TPM 2.0 Part 3 Sec.31.3, authPolicy.size must equal the digest
+     * size of nameAlg. A mismatched length installs a policy whose size
+     * never matches any legitimate session policyDigest, permanently
+     * denying policy-based access to this NV index. */
+    if (rc == 0 && nvPub->authPolicy.size > 0 &&
+            (int)nvPub->authPolicy.size !=
+                TPM2_GetHashDigestSize(nvPub->nameAlg)) {
+        rc = TPM_RC_FAILURE;
+    }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->dataSize);
     }
