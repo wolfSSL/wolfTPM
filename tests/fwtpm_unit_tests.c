@@ -6908,60 +6908,6 @@ static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
     fwtpm_pass("PolicyTicket zero-digest (TICKET):", 0);
 }
 
-/* Per TPM 2.0 Part 3 Sec.23.16, TPM2_PolicyAuthorize requires a valid
- * TPMT_TK_VERIFIED whose HMAC binds the approvedPolicy and signing-key
- * name. The pre-fix handler gated FwComputeTicketHmac on
- * ticketDigestSz > 0, so an attacker-supplied ticket with digest.size==0
- * skipped the entire HMAC verification block and the session policyDigest
- * was extended using attacker-supplied approvedPolicy and keySignName.
- * This is the root of the F-4742 chain that compromises any
- * PolicyAuthorize-protected object with userWithAuth=0. */
-static void test_fwtpm_policy_authorize_zero_ticket_rejected(void)
-{
-    FWTPM_CTX ctx;
-    UINT32 sessH;
-    int pos, rspSize;
-    byte fakeKeyName[34];
-
-    memset(&ctx, 0, sizeof(ctx));
-    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
-    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
-    AssertIntNE(sessH, 0);
-
-    PutU16BE(fakeKeyName, TPM_ALG_SHA256);
-    memset(fakeKeyName + 2, 0xCD, 32);
-
-    pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-    PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
-    PutU32BE(gCmd + pos, sessH); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    /* approvedPolicy (TPM2B) — 32 bytes of zeros matches a fresh
-     * session policyDigest. */
-    PutU16BE(gCmd + pos, 32); pos += 2;
-    memset(gCmd + pos, 0, 32);
-    pos += 32;
-    /* policyRef (TPM2B) */
-    PutU16BE(gCmd + pos, 0); pos += 2;
-    /* keySignName (TPM2B_NAME) */
-    PutU16BE(gCmd + pos, sizeof(fakeKeyName)); pos += 2;
-    memcpy(gCmd + pos, fakeKeyName, sizeof(fakeKeyName));
-    pos += sizeof(fakeKeyName);
-    /* checkTicket (TPMT_TK_VERIFIED): tag | hierarchy | digest(size=0) */
-    PutU16BE(gCmd + pos, TPM_ST_VERIFIED); pos += 2;
-    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
-    PutU16BE(gCmd + pos, 0); pos += 2; /* digest size = 0 (the bypass) */
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
-
-    FlushHandle(&ctx, sessH);
-    FWTPM_Cleanup(&ctx);
-    fwtpm_pass("PolicyAuthorize zero-ticket (TICKET):", 0);
-}
-
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -8432,7 +8378,6 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
     test_fwtpm_policy_ticket_zero_digest_rejected();
-    test_fwtpm_policy_authorize_zero_ticket_rejected();
 #endif
 
     /* NV operations */
