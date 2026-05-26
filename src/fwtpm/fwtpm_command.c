@@ -8867,11 +8867,18 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && ticketTag != TPM_ST_VERIFIED) {
             rc = TPM_RC_TICKET;
         }
+        /* A zero-length ticket digest cannot bind any HMAC and would let
+         * the caller skip FwComputeTicketHmac below, then forge a
+         * PolicyAuthorize policyDigest extension using only attacker-
+         * supplied approvedPolicy and keySignName. Reject up front. */
+        if (rc == 0 && ticketDigestSz == 0) {
+            rc = TPM_RC_TICKET;
+        }
         /* Verify ticket HMAC per TPM 2.0 Part 3 Section 23.16:
          * 1. Compute aHash = H(approvedPolicy || policyRef)
          * 2. Ticket from VerifySignature is HMAC(proofValue, aHash || keyName)
          * 3. Recompute and compare ticket HMAC */
-        if (rc == 0 && ticketDigestSz > 0) {
+        if (rc == 0) {
             byte aHash[TPM_MAX_DIGEST_SIZE];
             int aHashSz = 0;
             byte ticketInput[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
