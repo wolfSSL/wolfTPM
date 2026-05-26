@@ -15484,6 +15484,22 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     return TPM_RC_SUCCESS;
                 }
             }
+            else if (authPolicy != NULL && authPolicy->size == 0 &&
+                    cmdAuths[pj].cmdHmacSize == 0) {
+                /* Per TPM 2.0 Part 1 Sec.19.7, a policy session can only
+                 * authorize an entity whose authPolicy is non-empty.
+                 * When the entity has no authPolicy AND the session
+                 * supplied no HMAC, every downstream auth check would
+                 * be skipped — reject up front. */
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy session empty-HMAC rejected for "
+                    "handle 0x%x without authPolicy (CC=0x%x)\n",
+                    entityH, cmdCode);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf,
+                    TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                return TPM_RC_SUCCESS;
+            }
         }
     }
 
