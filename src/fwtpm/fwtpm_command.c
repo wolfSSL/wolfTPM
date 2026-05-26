@@ -14059,7 +14059,9 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (rc == 0 && keyObj->pub.type == TPM_ALG_KEYEDHASH) {
             /* HMAC sequence: feed trailing buffer, finalize HMAC, emit
-             * TPMT_SIGNATURE.HMAC = sigAlg | hashAlg | digestSz | digest. */
+             * TPMU_SIGNATURE.hmac = TPMT_HA (sigAlg | hashAlg | digest)
+             * per Part 2 Sec.10.2.2 Table 88 — no UINT16 size prefix,
+             * digest length is implied by hashAlg. */
             byte hmacOut[TPM_MAX_DIGEST_SIZE];
             int digestSz;
 
@@ -14082,7 +14084,6 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
                     TPM2_Packet_AppendU16(rsp, TPM_ALG_HMAC);
                     TPM2_Packet_AppendU16(rsp, seq->hashAlg);
-                    TPM2_Packet_AppendU16(rsp, (UINT16)digestSz);
                     TPM2_Packet_AppendBytes(rsp, hmacOut, digestSz);
                     FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
                     TPM2_ForceZero(hmacOut, sizeof(hmacOut));
@@ -14320,23 +14321,37 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_SCHEME;
         }
     }
-    if (rc == 0 && (sigAlg == TPM_ALG_MLDSA || sigAlg == TPM_ALG_HASH_MLDSA ||
-                     sigAlg == TPM_ALG_HMAC)) {
-        if (sigAlg == TPM_ALG_HMAC) {
-            UINT16 hmacHash = 0;
-            TPM2_Packet_ParseU16(cmd, &hmacHash);
-            if (hmacHash != seq->hashAlg) {
-                rc = TPM_RC_SCHEME;
-            }
+    if (rc == 0 && sigAlg == TPM_ALG_HMAC) {
+        /* TPMU_SIGNATURE.hmac is TPMT_HA per Part 2 Sec.10.2.2 Table 88:
+         * hashAlg | digest with digest length implied by hashAlg. There
+         * is no UINT16 size prefix on the wire. */
+        UINT16 hmacHash = 0;
+        int hmacDigestSz;
+        TPM2_Packet_ParseU16(cmd, &hmacHash);
+        if (hmacHash != seq->hashAlg) {
+            rc = TPM_RC_SCHEME;
         }
         if (rc == 0) {
-            TPM2_Packet_ParseU16(cmd, &wireSize);
-            if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
-                rc = TPM_RC_SIZE;
+            hmacDigestSz = TPM2_GetHashDigestSize(seq->hashAlg);
+            if (hmacDigestSz <= 0 ||
+                    hmacDigestSz > (int)TPM_MAX_DIGEST_SIZE) {
+                rc = TPM_RC_HASH;
             }
-            else if (cmd->pos + wireSize > cmdSize) {
+            else if (cmd->pos + hmacDigestSz > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
             }
+            else {
+                wireSize = (UINT16)hmacDigestSz;
+            }
+        }
+    }
+    if (rc == 0 && (sigAlg == TPM_ALG_MLDSA || sigAlg == TPM_ALG_HASH_MLDSA)) {
+        TPM2_Packet_ParseU16(cmd, &wireSize);
+        if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + wireSize > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {

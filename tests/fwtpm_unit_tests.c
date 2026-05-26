@@ -2429,13 +2429,14 @@ static void test_fwtpm_signsequence_hmac_roundtrip(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Per Part 2 Sec.10.2.2 Table 88, TPMU_SIGNATURE.hmac is TPMT_HA:
+     * hashAlg | digest with no UINT16 size prefix. */
     pos = TPM2_HEADER_SIZE + 4;
     sigAlg = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigAlg, TPM_ALG_HMAC);
     sigHash = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigHash, TPM_ALG_SHA256);
-    sigSz = GetU16BE(gRsp + pos); pos += 2;
-    AssertIntEQ((int)sigSz, WC_SHA256_DIGEST_SIZE);
+    sigSz = WC_SHA256_DIGEST_SIZE;
     memcpy(sig, gRsp + pos, sigSz);
 
     /* VerifySequenceStart + Update + Complete. */
@@ -2483,7 +2484,7 @@ static void test_fwtpm_signsequence_hmac_roundtrip(void)
     gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    /* TPMT_HA: no size prefix, digest length implied by hashAlg. */
     memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
