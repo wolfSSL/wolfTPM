@@ -410,6 +410,13 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->dataSize);
     }
+    /* nv->data[] is sized to FWTPM_MAX_NV_DATA; rejecting an inflated
+     * dataSize here prevents the later NV_Write bounds check from
+     * comparing offset+size against an attacker-chosen ceiling and
+     * overrunning the fixed destination buffer. */
+    if (rc == 0 && nvPub->dataSize > FWTPM_MAX_NV_DATA) {
+        rc = TPM_RC_FAILURE;
+    }
     return rc;
 }
 
