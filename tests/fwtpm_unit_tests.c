@@ -792,6 +792,86 @@ static void test_fwtpm_pcr_extend_and_read(void)
     fwtpm_pass("PCR_Extend + Read(16):", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.22.3, PCR_Extend takes Auth Role USER on the
+ * PCR handle. When PCR_SetAuthValue has installed a non-empty
+ * authValue, a subsequent password session with hmacSize=0 must be
+ * rejected — the password lookup must consult ctx->pcrAuth[idx] not
+ * fall through to an empty default. */
+static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    static const byte pcrAuth[] = "pcr-auth-secret-32-bytes-aaaaaaa";
+    const int pcrAuthSz = (int)sizeof(pcrAuth) - 1;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* PCR_SetAuthValue(PCR 16, authValue). Auth area is empty-PW
+     * (PCR 16 starts with no authValue). */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU16BE(gCmd + cmdSz, (UINT16)pcrAuthSz); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pcrAuth, pcrAuthSz);
+    cmdSz += pcrAuthSz;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* PCR_Extend(PCR 16) with empty password — must be rejected. */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    memset(gCmd + cmdSz, 0x42, 32); cmdSz += 32;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+
+    /* Restore PCR 16 to empty auth so the NV journal doesn't contaminate
+     * later tests that share FWTPM_NV_FILE. */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9 + pcrAuthSz); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, (UINT16)pcrAuthSz); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pcrAuth, pcrAuthSz); cmdSz += pcrAuthSz;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2; /* new auth.size = 0 */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Extend empty-pw after SetAuth (AUTH_FAIL):", 0);
+}
+
 /* ================================================================== */
 /* 7. ReadClock                                                        */
 /* ================================================================== */
@@ -7887,6 +7967,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* PCR operations */
     test_fwtpm_pcr_read();
     test_fwtpm_pcr_extend_and_read();
+    test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
     test_fwtpm_pcr_event();
 

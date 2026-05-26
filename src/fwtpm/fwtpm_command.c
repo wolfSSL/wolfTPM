@@ -416,6 +416,14 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
         }
     }
 #endif /* !FWTPM_NO_NV */
+    else if (handle >= PCR_FIRST && handle <= PCR_LAST) {
+        /* PCR handles carry per-index authValue set by PCR_SetAuthValue.
+         * Without this case the password verifier resolves them to
+         * authSz=0 and any empty-password caller passes the compare. */
+        int pcrIdx = (int)(handle - PCR_FIRST);
+        *authVal = ctx->pcrAuth[pcrIdx].buffer;
+        *authValSz = (int)ctx->pcrAuth[pcrIdx].size;
+    }
     else {
         FWTPM_Object* objEnt = FwFindObject(ctx, handle);
         if (objEnt != NULL) {
