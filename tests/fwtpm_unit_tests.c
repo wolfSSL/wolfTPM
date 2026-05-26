@@ -7075,8 +7075,11 @@ static void test_fwtpm_certify_creation_ecdaa_scheme(void)
 
     /* Build TPM2_CertifyCreation with ECDAA inScheme. Use the same key as
      * both signHandle and objectHandle to avoid additional setup. The
-     * ticket carries hier=TPM_RH_NULL with a zero digest so HMAC
-     * validation is skipped (only the tag is checked). */
+     * ticket carries hier=TPM_RH_NULL with a zero digest, which must be
+     * rejected with TPM_RC_TICKET — reaching that reject still proves
+     * the ECDAA inScheme parser consumed the extra UINT16 count, since
+     * a wrong-shape scheme parse would have failed earlier with a
+     * different code. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
@@ -7099,7 +7102,7 @@ static void test_fwtpm_certify_creation_ecdaa_scheme(void)
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
 
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);

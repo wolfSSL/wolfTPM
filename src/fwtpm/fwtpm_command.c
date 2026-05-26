@@ -12006,7 +12006,14 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && tag != TPM_ST_CREATION) {
             rc = TPM_RC_TICKET;
         }
-        if (rc == 0 && tickDSz > 0) {
+        /* A zero-length ticket digest cannot bind the creationHash to the
+         * object name. Without this guard, the attestation embeds the
+         * caller-supplied creationHash verbatim with no cryptographic
+         * proof of provenance. */
+        if (rc == 0 && tickDSz == 0) {
+            rc = TPM_RC_TICKET;
+        }
+        if (rc == 0) {
             byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
             int ticketDataSz = 0;
             byte expectedHmac[TPM_MAX_DIGEST_SIZE];
