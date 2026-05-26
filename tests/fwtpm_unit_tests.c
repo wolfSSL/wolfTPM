@@ -7415,6 +7415,43 @@ static void test_fwtpm_pcr_reset(void)
     fwtpm_pass("PCR_Reset(16):", 0);
 }
 
+/* Per TCG PC Client TPM Profile Table 5, PCR 17 (DRTM MLE) may only be
+ * reset from locality 4. The default test locality is 0, so the reset
+ * must be rejected with TPM_RC_LOCALITY. Same expectation for PCR 22
+ * which requires locality 3 or 4. */
+static void test_fwtpm_pcr_reset_locality_enforced(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
+    PutU32BE(gCmd + pos, 17); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
+    PutU32BE(gCmd + pos, 22); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Reset locality enforced (LOCALITY):", 0);
+}
+
 static void test_fwtpm_pcr_event(void)
 {
     FWTPM_CTX ctx;
@@ -8112,6 +8149,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_pcr_extend_and_read();
     test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
+    test_fwtpm_pcr_reset_locality_enforced();
     test_fwtpm_pcr_event();
 
     /* Clock */

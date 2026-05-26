@@ -1739,7 +1739,26 @@ static TPM_RC FwCmd_PCR_Reset(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
+        /* PCR 0-15 (SRTM) are not user-resettable per TPM 2.0 Part 2
+         * Table 3-8; they reset only via TPM2_Startup(CLEAR). */
         if (pcrIndex < 16) {
+            rc = TPM_RC_LOCALITY;
+        }
+    }
+
+    /* Per TCG PC Client TPM Profile Table 5, PCR_Reset locality rules
+     * for indices 16..23 are:
+     *   16, 23 — any locality
+     *   17     — locality 4 only (DRTM MLE)
+     *   18..22 — locality 3 or 4 (DRTM ACM/OS)
+     * Without this check any caller at locality 0 can wipe DRTM PCRs
+     * and defeat attestation policies sealed to them. */
+    if (rc == 0) {
+        if (pcrIndex == 17 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
+        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
+                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
             rc = TPM_RC_LOCALITY;
         }
     }
