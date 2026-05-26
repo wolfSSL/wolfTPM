@@ -109,7 +109,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            hexRet = hexToByte(digestStr, digest, digestLen / 2);
+            hexRet = hexToByte(digestStr, digest, digestLen);
             if (hexRet < 0) {
                 printf("Invalid hex digest string\n");
                 usage();
