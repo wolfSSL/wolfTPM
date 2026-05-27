@@ -4532,8 +4532,13 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Reconstruct/store private key if private area was provided */
     if (rc == 0 && inPrivSize > 0 && sensitiveType == TPM_ALG_SYMCIPHER &&
             qSz > 0) {
-        /* For SYMCIPHER, qBuf contains the raw AES key bytes */
-        if (qSz > (UINT16)FWTPM_MAX_DER_SIG_BUF) {
+        /* For SYMCIPHER, qBuf contains the raw AES key bytes. Per Part 2
+         * Sec.11.1.9 a TPM2B_SYM_KEY for AES is 16, 24, or 32 bytes.
+         * Reject any other length up front - the outer FWTPM_MAX_DER_SIG_BUF
+         * gate is larger than the privKeyDer destination on v1.85 builds
+         * with ML-DSA enabled, so it cannot be relied on to bound this
+         * copy. */
+        if (qSz != 16 && qSz != 24 && qSz != 32) {
             rc = TPM_RC_SIZE;
         }
         if (rc == 0) {
@@ -8865,7 +8870,10 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Verify ticket HMAC per TPM 2.0 Part 3 Section 23.16:
          * 1. Compute aHash = H(approvedPolicy || policyRef)
          * 2. Ticket from VerifySignature is HMAC(proofValue, aHash || keyName)
-         * 3. Recompute and compare ticket HMAC */
+         * 3. Recompute and compare ticket HMAC. Per Part 2 Sec.10.6.5 the
+         * NULL Ticket form (digest.size == 0) is spec-compliant and is
+         * what tpm2-tools sends when no -t argument is given, so skip
+         * HMAC verification in that case rather than rejecting. */
         if (rc == 0 && ticketDigestSz > 0) {
             byte aHash[TPM_MAX_DIGEST_SIZE];
             int aHashSz = 0;
@@ -10175,6 +10183,13 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_TICKET;
     }
 
+    /* A zero-length ticket digest cannot bind any HMAC and would let the
+     * caller skip FwComputeTicketHmac below, then forge an arbitrary
+     * PolicySigned/PolicySecret extension via FwPolicyExtend. */
+    if (rc == 0 && ticketDigestSz == 0) {
+        rc = TPM_RC_TICKET;
+    }
+
     sess = FwFindSession(ctx, sessHandle);
     if (sess == NULL) {
         rc = TPM_RC_VALUE;
@@ -10187,7 +10202,7 @@ static TPM_RC FwCmd_PolicyTicket(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Verify ticket HMAC:
      * aHash = H(nonceTPM || expiration || cpHashA || policyRef)
      * ticket = HMAC(proofValue, ticketTag || aHash || authName) */
-    if (rc == 0 && ticketDigestSz > 0) {
+    if (rc == 0) {
         byte aHash[TPM_MAX_DIGEST_SIZE];
         byte ticketInput[2 + TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
         int ticketInputSz = 0;
@@ -14040,7 +14055,9 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (rc == 0 && keyObj->pub.type == TPM_ALG_KEYEDHASH) {
             /* HMAC sequence: feed trailing buffer, finalize HMAC, emit
-             * TPMT_SIGNATURE.HMAC = sigAlg | hashAlg | digestSz | digest. */
+             * TPMU_SIGNATURE.hmac = TPMT_HA (sigAlg | hashAlg | digest)
+             * per Part 2 Sec.10.2.2 Table 88 - no UINT16 size prefix,
+             * digest length is implied by hashAlg. */
             byte hmacOut[TPM_MAX_DIGEST_SIZE];
             int digestSz;
 
@@ -14063,7 +14080,6 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
                     TPM2_Packet_AppendU16(rsp, TPM_ALG_HMAC);
                     TPM2_Packet_AppendU16(rsp, seq->hashAlg);
-                    TPM2_Packet_AppendU16(rsp, (UINT16)digestSz);
                     TPM2_Packet_AppendBytes(rsp, hmacOut, digestSz);
                     FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
                     TPM2_ForceZero(hmacOut, sizeof(hmacOut));
@@ -14301,23 +14317,42 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_SCHEME;
         }
     }
-    if (rc == 0 && (sigAlg == TPM_ALG_MLDSA || sigAlg == TPM_ALG_HASH_MLDSA ||
-                     sigAlg == TPM_ALG_HMAC)) {
-        if (sigAlg == TPM_ALG_HMAC) {
-            UINT16 hmacHash = 0;
+    if (rc == 0 && sigAlg == TPM_ALG_HMAC) {
+        /* TPMU_SIGNATURE.hmac is TPMT_HA per Part 2 Sec.10.2.2 Table 88:
+         * hashAlg | digest with digest length implied by hashAlg. There
+         * is no UINT16 size prefix on the wire. */
+        UINT16 hmacHash = 0;
+        int hmacDigestSz;
+        if (cmd->pos + 2 > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
             TPM2_Packet_ParseU16(cmd, &hmacHash);
             if (hmacHash != seq->hashAlg) {
                 rc = TPM_RC_SCHEME;
             }
         }
         if (rc == 0) {
-            TPM2_Packet_ParseU16(cmd, &wireSize);
-            if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
-                rc = TPM_RC_SIZE;
+            hmacDigestSz = TPM2_GetHashDigestSize(seq->hashAlg);
+            if (hmacDigestSz <= 0 ||
+                    hmacDigestSz > (int)TPM_MAX_DIGEST_SIZE) {
+                rc = TPM_RC_HASH;
             }
-            else if (cmd->pos + wireSize > cmdSize) {
+            else if (cmd->pos + hmacDigestSz > cmdSize) {
                 rc = TPM_RC_COMMAND_SIZE;
             }
+            else {
+                wireSize = (UINT16)hmacDigestSz;
+            }
+        }
+    }
+    if (rc == 0 && (sigAlg == TPM_ALG_MLDSA || sigAlg == TPM_ALG_HASH_MLDSA)) {
+        TPM2_Packet_ParseU16(cmd, &wireSize);
+        if (wireSize > (UINT16)MAX_MLDSA_SIG_SIZE) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (cmd->pos + wireSize > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
         }
     }
     if (rc == 0) {
@@ -15268,6 +15303,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if (cmdSize < TPM2_HEADER_SIZE + (entry->inHandleCnt * 4)) {
         *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
+        return TPM_RC_SUCCESS;
+    }
+
+    /* Per TPM 2.0 Part 3, any command with an @auth role on a handle must
+     * carry tag = TPM_ST_SESSIONS. NO_SESSIONS leaves the auth area unparsed
+     * and bypasses every downstream auth/HMAC/policy enforcement loop, so
+     * reject up front for any handler that declares authHandleCnt > 0. */
+    if (cmdTag != TPM_ST_SESSIONS && entry->authHandleCnt > 0) {
+        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+            TPM_RC_AUTH_MISSING);
         return TPM_RC_SUCCESS;
     }
 

@@ -2429,13 +2429,14 @@ static void test_fwtpm_signsequence_hmac_roundtrip(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Per Part 2 Sec.10.2.2 Table 88, TPMU_SIGNATURE.hmac is TPMT_HA:
+     * hashAlg | digest with no UINT16 size prefix. */
     pos = TPM2_HEADER_SIZE + 4;
     sigAlg = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigAlg, TPM_ALG_HMAC);
     sigHash = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(sigHash, TPM_ALG_SHA256);
-    sigSz = GetU16BE(gRsp + pos); pos += 2;
-    AssertIntEQ((int)sigSz, WC_SHA256_DIGEST_SIZE);
+    sigSz = WC_SHA256_DIGEST_SIZE;
     memcpy(sig, gRsp + pos, sigSz);
 
     /* VerifySequenceStart + Update + Complete. */
@@ -2483,7 +2484,7 @@ static void test_fwtpm_signsequence_hmac_roundtrip(void)
     gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_HMAC); pos += 2;
     PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
-    PutU16BE(gCmd + pos, sigSz); pos += 2;
+    /* TPMT_HA: no size prefix, digest length implied by hashAlg. */
     memcpy(gCmd + pos, sig, sigSz); pos += sigSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
@@ -6857,6 +6858,56 @@ static void test_fwtpm_policy_pcr(void)
     fwtpm_pass("PolicyPCR:", 0);
 }
 
+/* Per TPM 2.0 Part 3 Sec.23.13, TPM2_PolicyTicket requires a valid
+ * TPMT_TK_AUTH whose HMAC binds the ticketed metadata. A wire-supplied
+ * ticket with digest.size == 0 must not satisfy the verification check
+ * and must not advance the session policyDigest. The pre-fix handler
+ * gated FwComputeTicketHmac on ticketDigestSz > 0, so an empty ticket
+ * fell through to FwPolicyExtend and forged a PolicySigned/PolicySecret
+ * extension using only attacker-supplied authName/policyRef. */
+static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int pos, rspSize;
+    byte fakeAuthName[34];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    /* Build a name with the SHA-256 algId prefix and 32 arbitrary bytes
+     * so the policyDigest extension input is well-formed if reached. */
+    PutU16BE(fakeAuthName, TPM_ALG_SHA256);
+    memset(fakeAuthName + 2, 0xAB, 32);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyTicket); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* timeout TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* cpHashA TPM2B size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef TPM2B size = 0 */
+    PutU16BE(gCmd + pos, sizeof(fakeAuthName)); pos += 2;
+    memcpy(gCmd + pos, fakeAuthName, sizeof(fakeAuthName));
+    pos += sizeof(fakeAuthName);
+    /* TPMT_TK_AUTH: tag | hierarchy | digest(size=0, no bytes) */
+    PutU16BE(gCmd + pos, TPM_ST_AUTH_SIGNED); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* digest size = 0 (the bypass) */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyTicket zero-digest (TICKET):", 0);
+}
+
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -7514,6 +7565,34 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear(LOCKOUT):", 0);
 }
 
+/* Per Part 3 Sec.24.6 Table 134, TPM2_Clear has Auth Index 1, Auth Role USER
+ * on @authHandle (TPM_RH_LOCKOUT or TPM_RH_PLATFORM). NO_SESSIONS leaves
+ * cmdAuthCnt at 0, skipping every auth enforcement loop in
+ * FWTPM_ProcessCommand and allowing an unauthenticated wipe of owner and
+ * endorsement state. Reject with TPM_RC_AUTH_MISSING up front. */
+static void test_fwtpm_clear_no_sessions_returns_auth_missing(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Clear); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear NO_SESSIONS (AUTH_MISSING):", 0);
+}
+
 static void test_fwtpm_change_eps(void)
 {
     FWTPM_CTX ctx;
@@ -7599,6 +7678,71 @@ static void test_fwtpm_read_public(void)
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ReadPublic:", 0);
+}
+
+/* Per Part 2 Sec.11.1.9, a TPM2B_SYM_KEY for AES must hold exactly 16,
+ * 24, or 32 bytes. FwCmd_LoadExternal's SYMCIPHER copy path previously
+ * gated only on FWTPM_MAX_DER_SIG_BUF (a dead check duplicating the
+ * outer gate), so any qSz <= FWTPM_MAX_DER_SIG_BUF was XMEMCPY'd into
+ * privKeyDer (sized FWTPM_MAX_PRIVKEY_DER). On v1.85 builds with ML-DSA
+ * enabled FWTPM_MAX_DER_SIG_BUF exceeds FWTPM_MAX_PRIVKEY_DER and the
+ * copy overflows the destination. Reject any SYMCIPHER key length that
+ * is not a valid AES key size with TPM_RC_SIZE up front. */
+static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+    int privStart, pubStart, sensStart;
+    int badKeySz = 33; /* Not 16/24/32 - invalid AES key length */
+    int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_LoadExternal); pos += 4;
+
+    /* inPrivate (TPM2B_SENSITIVE) */
+    privStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
+    sensStart = pos;
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2; /* sensitiveType */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authValue.size = 0 */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* seedValue.size = 0 */
+    PutU16BE(gCmd + pos, (UINT16)badKeySz); pos += 2; /* sym.size */
+    for (i = 0; i < badKeySz; i++) {
+        gCmd[pos++] = (byte)(0xA0 + i);
+    }
+    PutU16BE(gCmd + privStart, (UINT16)(pos - sensStart));
+
+    /* inPublic (TPM2B_PUBLIC) for AES-256 SYMCIPHER */
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* size placeholder */
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2; /* type */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;    /* nameAlg */
+    PutU32BE(gCmd + pos, 0x00000040); pos += 4;        /* userWithAuth */
+    PutU16BE(gCmd + pos, 0); pos += 2;                  /* authPolicy.size */
+    /* TPMS_SYMCIPHER_PARMS = TPMT_SYM_DEF_OBJECT */
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 256); pos += 2;                /* keyBits.aes */
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;        /* mode.aes */
+    /* unique.sym (TPM2B_DIGEST) */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+
+    /* hierarchy */
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("LoadExternal SYMCIPHER bad keySz (SIZE):", 0);
 }
 
 /* ================================================================== */
@@ -8199,6 +8343,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_hash_mldsa_seq_all_params();
 #endif
     test_fwtpm_read_public();
+    test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
@@ -8232,6 +8377,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+    test_fwtpm_policy_ticket_zero_digest_rejected();
 #endif
 
     /* NV operations */
@@ -8256,6 +8402,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();
     test_fwtpm_change_pps();
+    test_fwtpm_clear_no_sessions_returns_auth_missing();
     test_fwtpm_clear();
 
     printf("\nAll fwTPM unit tests passed!\n");
