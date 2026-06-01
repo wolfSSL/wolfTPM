@@ -8867,13 +8867,37 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && ticketTag != TPM_ST_VERIFIED) {
             rc = TPM_RC_TICKET;
         }
+
+        /* Look up the session before ticket verification so the ticket
+         * policy below can branch on the session type. */
+        if (rc == 0) {
+            sess = FwFindSession(ctx, sessHandle);
+            if (sess == NULL) {
+                rc = TPM_RC_VALUE;
+            }
+        }
+        if (rc == 0 &&
+            sess->sessionType != TPM_SE_POLICY &&
+            sess->sessionType != TPM_SE_TRIAL) {
+            rc = TPM_RC_AUTH_TYPE;
+        }
+
         /* Verify ticket HMAC per TPM 2.0 Part 3 Section 23.16:
          * 1. Compute aHash = H(approvedPolicy || policyRef)
          * 2. Ticket from VerifySignature is HMAC(proofValue, aHash || keyName)
-         * 3. Recompute and compare ticket HMAC. Per Part 2 Sec.10.6.5 the
-         * NULL Ticket form (digest.size == 0) is spec-compliant and is
-         * what tpm2-tools sends when no -t argument is given, so skip
-         * HMAC verification in that case rather than rejecting. */
+         * 3. Recompute and compare ticket HMAC.
+         * A real policy session (TPM_SE_POLICY) MUST present a valid ticket:
+         * its entire security is the ticket proving VerifySignature accepted
+         * a signature over approvedPolicy. Only a trial session
+         * (TPM_SE_TRIAL), which authorizes nothing and merely computes a
+         * policy digest, may use the NULL Ticket form (digest.size == 0) per
+         * Part 2 Sec.10.6.5 — that is what tpm2-tools sends when no -t is
+         * given during policy computation. Reject the NULL ticket on a real
+         * session rather than skipping verification. */
+        if (rc == 0 && sess->sessionType == TPM_SE_POLICY &&
+            ticketDigestSz == 0) {
+            rc = TPM_RC_TICKET;
+        }
         if (rc == 0 && ticketDigestSz > 0) {
             byte aHash[TPM_MAX_DIGEST_SIZE];
             int aHashSz = 0;
@@ -8937,17 +8961,6 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
             TPM2_ForceZero(aHash, sizeof(aHash));
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
-        }
-
-        sess = FwFindSession(ctx, sessHandle);
-        if (sess == NULL) {
-            rc = TPM_RC_VALUE;
-        }
-    }
-    if (rc == 0) {
-        if (sess->sessionType != TPM_SE_POLICY &&
-            sess->sessionType != TPM_SE_TRIAL) {
-            rc = TPM_RC_AUTH_TYPE;
         }
     }
 
