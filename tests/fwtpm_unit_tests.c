@@ -6908,6 +6908,78 @@ static void test_fwtpm_policy_ticket_zero_digest_rejected(void)
     fwtpm_pass("PolicyTicket zero-digest (TICKET):", 0);
 }
 
+/* Build a TPM2_PolicyAuthorize command into gCmd carrying a NULL ticket
+ * (TPMT_TK_VERIFIED with digest.size == 0) and approvedPolicy == 32 zero
+ * bytes, which matches a fresh session's all-zero policyDigest. keySignName
+ * is public key metadata (SHA-256 algId + 32 bytes). Returns command size. */
+static int BuildPolicyAuthorizeNullTicketCmd(UINT32 sessH)
+{
+    int pos = 0;
+    byte fakeKeyName[34];
+
+    PutU16BE(fakeKeyName, TPM_ALG_SHA256);
+    memset(fakeKeyName + 2, 0xAB, 32);
+
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;        /* policySession handle */
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 32); pos += 2;           /* approvedPolicy size */
+    memset(gCmd + pos, 0x00, 32); pos += 32;      /* approvedPolicy = zeros */
+    PutU16BE(gCmd + pos, 0); pos += 2;            /* policyRef size = 0 */
+    PutU16BE(gCmd + pos, sizeof(fakeKeyName)); pos += 2;
+    memcpy(gCmd + pos, fakeKeyName, sizeof(fakeKeyName));
+    pos += sizeof(fakeKeyName);
+    /* TPMT_TK_VERIFIED: tag | hierarchy | digest(size=0, no bytes) */
+    PutU16BE(gCmd + pos, TPM_ST_VERIFIED); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;            /* digest size = 0 (NULL ticket) */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    return pos;
+}
+
+/* TPM2_PolicyAuthorize must reject a zero-length verification ticket on a
+ * *real* policy session (TPM_SE_POLICY): the ticket is the sole proof that
+ * VerifySignature accepted a signature over approvedPolicy, so it must be
+ * present and valid. The NULL ticket form is only legitimate for a trial
+ * session (TPM_SE_TRIAL), which authorizes nothing and merely computes a
+ * policy digest; that path must still succeed.
+ * Regression for zero-ticket PolicyAuthorize handling. */
+static void test_fwtpm_policyauthorize_null_ticket_rejected(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int pos, rspSize;
+
+    /* Real policy session: NULL ticket must be rejected with TPM_RC_TICKET. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    pos = BuildPolicyAuthorizeNullTicketCmd(sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TICKET);
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+
+    /* Trial session: the NULL ticket is spec-compliant and must still be
+     * accepted so legitimate policy-digest computation keeps working. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(sessH, 0);
+    pos = BuildPolicyAuthorizeNullTicketCmd(sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+
+    fwtpm_pass("PolicyAuthorize zero-ticket (TICKET):", 0);
+}
+
 #endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
@@ -8378,6 +8450,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
     test_fwtpm_policy_ticket_zero_digest_rejected();
+    test_fwtpm_policyauthorize_null_ticket_rejected();
 #endif
 
     /* NV operations */
