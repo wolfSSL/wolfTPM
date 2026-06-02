@@ -11827,6 +11827,15 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
     }
+    /* Quote requires a restricted signing key (Part 3 Sec.18.4) */
+    if (rc == 0) {
+        if (!(sigObj->pub.objectAttributes & TPMA_OBJECT_sign))
+            rc = TPM_RC_KEY;
+    }
+    if (rc == 0) {
+        if (!(sigObj->pub.objectAttributes & TPMA_OBJECT_restricted))
+            rc = TPM_RC_ATTRIBUTES;
+    }
 
     if (rc == 0) {
         rc = FwParseAttestParams(cmd, cmdSize, cmdTag,

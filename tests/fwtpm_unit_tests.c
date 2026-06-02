@@ -6531,12 +6531,11 @@ static UINT32 CreatePrimaryHelper(FWTPM_CTX* ctx, TPM_ALG_ID alg)
 
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION) && \
     !defined(FWTPM_NO_NV)
-/* Build a non-restricted ECC-P256 sign-capable primary (for tests that
- * require TPMA_OBJECT_sign and a key with no scheme bound at create time).
- * Only consumed by the attestation tests nested inside the NV-tests
- * section, so gated to avoid -Werror=unused-function in
- * FWTPM_NO_ATTESTATION or FWTPM_NO_NV builds. */
-static int BuildCreatePrimaryEccSignCmd(byte* buf)
+/* Build an ECC-P256 sign-capable primary with caller-supplied attributes
+ * and no scheme bound at create time. Only consumed by the attestation
+ * tests nested inside the NV-tests section, so gated to avoid
+ * -Werror=unused-function in FWTPM_NO_ATTESTATION or FWTPM_NO_NV builds. */
+static int BuildCreatePrimaryEccSignCmd(byte* buf, UINT32 attributes)
 {
     int pos = 0;
     int pubAreaStart, pubAreaLen;
@@ -6563,9 +6562,7 @@ static int BuildCreatePrimaryEccSignCmd(byte* buf)
     PutU16BE(buf + pos, 0); pos += 2;
     PutU16BE(buf + pos, TPM_ALG_ECC); pos += 2;
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
-    /* fixedTPM | fixedParent | sensitiveDataOrigin | userWithAuth | noDA |
-     * sign  (non-restricted, sign-only) */
-    PutU32BE(buf + pos, 0x00040472); pos += 4;
+    PutU32BE(buf + pos, attributes); pos += 4;
     PutU16BE(buf + pos, 0); pos += 2; /* authPolicy */
     PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* sym.algorithm = NULL */
     PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* scheme = NULL */
@@ -6587,7 +6584,18 @@ static int BuildCreatePrimaryEccSignCmd(byte* buf)
 static UINT32 CreatePrimaryEccSignHelper(FWTPM_CTX* ctx)
 {
     int cmdSz, rspSize = 0;
-    cmdSz = BuildCreatePrimaryEccSignCmd(gCmd);
+    /* fixedTPM|fixedParent|sensitiveDataOrigin|userWithAuth|noDA|sign */
+    cmdSz = BuildCreatePrimaryEccSignCmd(gCmd, 0x00040472);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+static UINT32 CreatePrimaryEccSignRestrictedHelper(FWTPM_CTX* ctx)
+{
+    int cmdSz, rspSize = 0;
+    /* As above plus restricted: a valid attestation key (AIK) */
+    cmdSz = BuildCreatePrimaryEccSignCmd(gCmd, 0x00050472);
     FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
@@ -7160,7 +7168,7 @@ static void test_fwtpm_quote_ecdaa_scheme(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    keyH = CreatePrimaryEccSignRestrictedHelper(&ctx);
     AssertIntNE(keyH, 0);
 
     /* Build TPM2_Quote with ECDAA inScheme. */
@@ -7397,6 +7405,69 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tZGen_2Phase(sign key) rejected:\tPassed\n");
+}
+
+/* Quote requires a restricted signing key per Part 3 Sec.18.4. Build the
+ * command once and run it against keys that violate each requirement. */
+static int BuildQuoteCmd(byte* buf, UINT32 signHandle)
+{
+    int pos = 0;
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_Quote); pos += 4;
+    PutU32BE(buf + pos, signHandle); pos += 4;
+    pos = AppendPwAuth(buf, pos, NULL, 0);
+    PutU16BE(buf + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU32BE(buf + pos, 1); pos += 4; /* PCRselect count */
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
+    buf[pos++] = 3; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+static void test_fwtpm_quote_decrypt_key_returns_key(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Restricted decrypt (storage) key has no TPMA_OBJECT_sign */
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    AssertIntNE(keyH, 0);
+
+    cmdSz = BuildQuoteCmd(gCmd, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tQuote(decrypt key) rejected:\tPassed\n");
+}
+
+static void test_fwtpm_quote_unrestricted_sign_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Non-restricted signing key must not be usable for attestation */
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    cmdSz = BuildQuoteCmd(gCmd, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tQuote(unrestricted sign) rejected:\tPassed\n");
 }
 #endif /* HAVE_ECC */
 
@@ -8588,6 +8659,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_ecdh_keygen_signkey_returns_attributes();
     test_fwtpm_ecdh_zgen_signkey_returns_attributes();
     test_fwtpm_zgen_2phase_signkey_returns_attributes();
+    test_fwtpm_quote_decrypt_key_returns_key();
+    test_fwtpm_quote_unrestricted_sign_returns_attributes();
 #endif
 #endif
 #endif
