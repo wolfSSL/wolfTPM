@@ -7905,6 +7905,38 @@ static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
     fwtpm_pass("LoadExternal SYMCIPHER bad keySz (SIZE):", 0);
 }
 
+/* Rewrap must re-encrypt under a storage parent. A TPM_RH_NULL newParent
+ * would serialize the unwrapped TPMT_SENSITIVE in the clear, so it must be
+ * rejected per Part 3 Sec.23.4.2. */
+static void test_fwtpm_rewrap_null_newparent_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    byte secret[8];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(secret, 0x5A, sizeof(secret));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Rewrap); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* oldParent */
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4; /* newParent */
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, (UINT16)sizeof(secret)); pos += 2; /* inDuplicate */
+    memcpy(gCmd + pos, secret, sizeof(secret)); pos += sizeof(secret);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* name */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inSymSeed */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), (TPM_RC_HANDLE | TPM_RC_2));
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tRewrap(NULL newParent) rejected:\tPassed\n");
+}
+
 /* ================================================================== */
 /* Group D: Hash/HMAC Sequences                                        */
 /* ================================================================== */
@@ -8553,6 +8585,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_quote_ecdaa_scheme();
     test_fwtpm_sign_ecdaa_scheme();
     test_fwtpm_certify_creation_ecdaa_scheme();
+    test_fwtpm_ecdh_keygen_signkey_returns_attributes();
+    test_fwtpm_ecdh_zgen_signkey_returns_attributes();
+    test_fwtpm_zgen_2phase_signkey_returns_attributes();
 #endif
 #endif
 #endif

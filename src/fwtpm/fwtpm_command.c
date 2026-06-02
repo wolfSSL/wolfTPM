@@ -5636,11 +5636,22 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = (TPM_RC_HANDLE | TPM_RC_1);
     }
 
-    /* Look up newParent */
-    if (rc == 0 && newParentH != TPM_RH_NULL) {
-        newParent = FwFindObject(ctx, newParentH);
-        if (newParent == NULL)
+    /* Look up newParent. Rewrap must re-encrypt under a storage key; a
+     * TPM_RH_NULL newParent would emit the sensitive area in the clear. */
+    if (rc == 0) {
+        if (newParentH == TPM_RH_NULL) {
             rc = (TPM_RC_HANDLE | TPM_RC_2);
+        }
+        else {
+            newParent = FwFindObject(ctx, newParentH);
+            if (newParent == NULL) {
+                rc = (TPM_RC_HANDLE | TPM_RC_2);
+            }
+            else if (!(newParent->pub.objectAttributes & TPMA_OBJECT_restricted)
+                  || !(newParent->pub.objectAttributes & TPMA_OBJECT_decrypt)) {
+                rc = TPM_RC_ATTRIBUTES;
+            }
+        }
     }
 
 #ifdef DEBUG_WOLFTPM
