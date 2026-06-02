@@ -979,7 +979,7 @@ TPM_RC TPM2_GetTestResult(GetTestResult_Out* out)
             if (wireSize > out->outData.size)
                 TPM2_Packet_ParseBytes(&packet, NULL,
                     wireSize - out->outData.size);
-            TPM2_Packet_ParseU16(&packet, &out->testResult);
+            TPM2_Packet_ParseU32(&packet, &out->testResult);
         }
 
         TPM2_ReleaseLock(ctx);
