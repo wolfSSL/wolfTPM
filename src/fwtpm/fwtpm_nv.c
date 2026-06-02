@@ -1283,6 +1283,9 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
                 newBuf = (byte*)XMALLOC(len, NULL,
                     DYNAMIC_TYPE_TMP_BUFFER);
                 if (newBuf == NULL) {
+                    /* Do not silently report success on an allocation
+                     * failure mid-journal */
+                    rc = TPM_RC_MEMORY;
                     break;
                 }
                 XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -1307,7 +1310,9 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
             (int)hdr.version, (int)ctx->nvWritePos,
             (int)((ctx->nvWritePos - sizeof(FWTPM_NV_HEADER))));
     #endif
-        rc = TPM_RC_SUCCESS;
+        /* rc already reflects the scan: SUCCESS for a clean or
+         * end-of-journal stop, or a genuine read/alloc error to propagate
+         * rather than masking as success. */
     }
     else {
         /* No valid NV image — generate fresh hierarchy seeds */
