@@ -11509,6 +11509,8 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: NV_GlobalWriteLock(auth=0x%x)\n", authHandle);
     #endif
         ctx->globalNvWriteLock = 1;
+        /* Persist so the lock survives a daemon restart (Resume) */
+        FWTPM_NV_SaveFlags(ctx);
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -15463,6 +15465,23 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
     return NULL;
 }
 
+/* Return 1 if the handle is an NV index with TPMA_NV_NO_DA set. Such an
+ * index is exempt from dictionary-attack lockout (Part 1 Sec.23.2). */
+static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+#ifndef FWTPM_NO_NV
+    if ((handle & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
+        FWTPM_NvIndex* nv = FwFindNvIndex(ctx, handle);
+        if (nv != NULL && (nv->nvPublic.attributes & TPMA_NV_NO_DA)) {
+            return 1;
+        }
+    }
+#else
+    (void)ctx; (void)handle;
+#endif
+    return 0;
+}
+
 /* ================================================================== */
 /* Public API: FWTPM_ProcessCommand                                    */
 /* ================================================================== */
@@ -15852,7 +15871,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             cmdCode != TPM_CC_DictionaryAttackLockReset &&
             cmdCode != TPM_CC_DictionaryAttackParameters &&
             cmdCode != TPM_CC_StartAuthSession &&
-            cmdCode != TPM_CC_FlushContext) {
+            cmdCode != TPM_CC_FlushContext &&
+            !(cmdHandleCnt > 0 && FwHandleIsNoDA(ctx, cmdHandles[0]))) {
             *rspSize = FwBuildErrorResponse(rspBuf,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
             return TPM_RC_SUCCESS;
@@ -15908,11 +15928,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                ctx->daFailedTries++;
-                if (ctx->daFailedTries >= ctx->daMaxTries) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
-                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                    return TPM_RC_SUCCESS;
+                /* A failed auth against a NO_DA index must not feed lockout */
+                if (!FwHandleIsNoDA(ctx, entityH)) {
+                    ctx->daFailedTries++;
+                    if (ctx->daFailedTries >= ctx->daMaxTries) {
+                        *rspSize = FwBuildErrorResponse(rspBuf,
+                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        return TPM_RC_SUCCESS;
+                    }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf,
@@ -16002,11 +16025,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                ctx->daFailedTries++;
-                if (ctx->daFailedTries >= ctx->daMaxTries) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
-                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                    return TPM_RC_SUCCESS;
+                /* A failed auth against a NO_DA index must not feed lockout */
+                if (!FwHandleIsNoDA(ctx, entityH)) {
+                    ctx->daFailedTries++;
+                    if (ctx->daFailedTries >= ctx->daMaxTries) {
+                        *rspSize = FwBuildErrorResponse(rspBuf,
+                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        return TPM_RC_SUCCESS;
+                    }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf,

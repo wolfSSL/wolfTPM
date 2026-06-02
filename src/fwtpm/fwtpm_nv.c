@@ -982,6 +982,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             UINT8 flags8 = 0;
             FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
             ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
+            ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
         #ifndef FWTPM_NO_DA
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daMaxTries);
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daRecoveryTime);
@@ -1512,7 +1513,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     if (rc == 0) {
         pos = 0;
         FwNvMarshalU8(buf, &pos, bufSz,
-            (UINT8)(ctx->disableClear ? 0x01 : 0x00));
+            (UINT8)((ctx->disableClear ? 0x01 : 0x00) |
+            (ctx->globalNvWriteLock ? 0x02 : 0x00)));
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daMaxTries);
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daRecoveryTime);
@@ -1800,7 +1802,8 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     }
 
     FwNvMarshalU8(buf, &pos, sizeof(buf),
-        (UINT8)(ctx->disableClear ? 0x01 : 0x00));
+        (UINT8)((ctx->disableClear ? 0x01 : 0x00) |
+            (ctx->globalNvWriteLock ? 0x02 : 0x00)));
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daMaxTries);
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daRecoveryTime);
