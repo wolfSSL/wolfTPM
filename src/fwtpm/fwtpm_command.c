@@ -69,6 +69,8 @@ static TPM_RC FwParseAttestParams(TPM2_Packet* cmd, int cmdSize,
 
 #ifndef FWTPM_NO_NV
 static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex);
+static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
+    TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #ifdef WOLFTPM_V185
@@ -9367,14 +9369,18 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
-    (void)authHandle;
-
     /* Find NV index */
     if (rc == 0) {
         nv = FwFindNvIndex(ctx, nvIndex);
         if (nv == NULL) {
             rc = TPM_RC_HANDLE | TPM_RC_2;
         }
+    }
+
+    /* Verify caller is authorized to read the NV index */
+    if (rc == 0) {
+        rc = FwNvCheckAccess(authHandle, nvIndex,
+            nv->nvPublic.attributes, 0);
     }
 
     /* Find policy session */
@@ -10382,6 +10388,12 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FW_NV_HANDLE_ERR_2;
     }
 
+    /* Verify caller is authorized to read the NV index */
+    if (rc == 0) {
+        rc = FwNvCheckAccess(authHandle, nvHandle,
+            nv->nvPublic.attributes, 0);
+    }
+
     if (rc == 0 && !nv->written) {
         rc = TPM_RC_NV_UNINITIALIZED;
     }
@@ -10423,8 +10435,6 @@ static TPM_RC FwCmd_PolicyAuthorizeNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: PolicyAuthorizeNV(auth=0x%x, nv=0x%x, sess=0x%x)\n",
             authHandle, nvHandle, sessHandle);
     #endif
-        (void)authHandle;
-
         /* Step 1: Reset policyDigest to zero */
         XMEMSET(sess->policyDigest.buffer, 0, dSz);
         sess->policyDigest.size = (UINT16)dSz;
