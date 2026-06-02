@@ -4612,7 +4612,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &hierarchy);
-        (void)hierarchy;
+        /* Private key material may only be loaded under TPM_RH_NULL
+         * (Part 3 Sec.18.4); otherwise the object would claim a real
+         * hierarchy and yield a spoofed TPM_ST_VERIFIED ticket. */
+        if (inPrivSize > 0 && hierarchy != TPM_RH_NULL) {
+            rc = TPM_RC_HIERARCHY;
+        }
     }
 
 #ifdef DEBUG_WOLFTPM
