@@ -48,6 +48,11 @@
 /* TLV header size: tag(2) + length(2) */
 #define TLV_HDR_SIZE  4
 
+/* Dictionary-attack bounds used to sanitize values replayed from the
+ * integrity-unprotected NV journal. */
+#define FWTPM_DA_DEFAULT_MAX_TRIES  32
+#define FWTPM_DA_MAX_TRIES_LIMIT    0xFFFF
+
 /* ========================================================================= */
 /* File-based NV backend                                                     */
 /* ========================================================================= */
@@ -534,6 +539,12 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     XMEMSET(obj, 0, sizeof(FWTPM_Object));
 
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &obj->handle);
+    /* A persistent object handle must stay in range or a later FwFindObject
+     * lookup could resolve a transient handle to this slot. */
+    if (rc == 0 &&
+            (obj->handle < PERSISTENT_FIRST || obj->handle > PERSISTENT_LAST)) {
+        rc = TPM_RC_VALUE;
+    }
     if (rc == 0) {
         rc = FwNvUnmarshalPublic(buf, pos, maxSz, &obj->pub);
     }
@@ -827,6 +838,12 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daMaxTries);
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daRecoveryTime);
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daLockoutRecovery);
+            /* A tampered journal must not disable lockout with 0 or a value
+             * so large the gate never engages */
+            if (ctx->daMaxTries == 0 ||
+                    ctx->daMaxTries > FWTPM_DA_MAX_TRIES_LIMIT) {
+                ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+            }
             ctx->daFailedTries = 0; /* volatile - reset on load */
         #endif
             break;
