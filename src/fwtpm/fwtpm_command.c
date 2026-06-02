@@ -8043,6 +8043,12 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* nonceCaller must carry at least the 16-octet minimum (Part 1
+     * Sec.19.6.8); a tiny/zero nonce weakens the param-encryption IV. */
+    if (rc == 0 && nonceCallerSize < 16) {
+        rc = TPM_RC_SIZE;
+    }
+
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: StartAuthSession(type=%d, hash=0x%x, tpmKey=0x%x, "

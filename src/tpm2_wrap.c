@@ -2890,8 +2890,9 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(pAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
