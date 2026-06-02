@@ -347,6 +347,12 @@ static int FwNvUnmarshalPublic(const byte* buf, word32* pos, word32 maxSz,
     if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
         return TPM_RC_FAILURE;
     }
+    /* authPolicy.size must equal the nameAlg digest size (Part 3 Sec.31.3) */
+    if (pub2b.publicArea.authPolicy.size > 0 &&
+            (int)pub2b.publicArea.authPolicy.size !=
+                TPM2_GetHashDigestSize(pub2b.publicArea.nameAlg)) {
+        return TPM_RC_FAILURE;
+    }
     XMEMCPY(pub, &pub2b.publicArea, sizeof(TPMT_PUBLIC));
 
     *pos += pkt.pos;
@@ -413,6 +419,13 @@ static int FwNvUnmarshalNvPublic(const byte* buf, word32* pos, word32 maxSz,
 {
     int rc;
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &nvPub->nvIndex);
+    /* nvIndex must be in the NV handle range or a later lookup could be
+     * confused with another handle class (Part 2 Sec.7.4). */
+    if (rc == 0 &&
+            (nvPub->nvIndex < NV_INDEX_FIRST ||
+             nvPub->nvIndex > NV_INDEX_LAST)) {
+        rc = TPM_RC_FAILURE;
+    }
     if (rc == 0) {
         rc = FwNvUnmarshalU16(buf, pos, maxSz, &nvPub->nameAlg);
     }
