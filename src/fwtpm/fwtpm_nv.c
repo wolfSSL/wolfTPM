@@ -42,6 +42,15 @@
 #include <wolftpm/fwtpm/fwtpm.h>
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 
+#include <wolfssl/wolfcrypt/hmac.h>
+
+#if !defined(NO_FILESYSTEM) && !defined(_WIN32)
+    #include <sys/stat.h>
+#endif
+
+#define FWTPM_NV_KEY_SIZE       32
+#define FWTPM_NV_MAC_SIZE       WC_SHA256_DIGEST_SIZE
+
 #include <stdio.h>
 #include <string.h>
 
@@ -153,7 +162,8 @@ static FWTPM_NV_HAL fwNvDefaultHal = {
     FwNvFileWrite,
     FwNvFileErase,
     (void*)FWTPM_NV_FILE,
-    FWTPM_NV_MAX_SIZE
+    FWTPM_NV_MAX_SIZE,
+    NULL  /* get_integrity_key: file backend uses a key file */
 };
 
 #endif /* !NO_FILESYSTEM */
@@ -639,6 +649,114 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
 }
 
 /* ========================================================================= */
+/* Journal Integrity                                                         */
+/* ========================================================================= */
+
+#if !defined(NO_FILESYSTEM)
+/* Load, or create on first use, the sibling key file for the default file
+ * backend so journal integrity is enabled without integrator action. */
+static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
+{
+    const char* nvPath = (const char*)ctx->nvHal.ctx;
+    char keyPath[256];
+    size_t nvLen;
+    FILE* f;
+    int ok = 0;
+
+    if (nvPath == NULL) {
+        return 0;
+    }
+    nvLen = XSTRLEN(nvPath);
+    if (nvLen + 5 > sizeof(keyPath)) { /* ".key" + NUL */
+        return 0;
+    }
+    XMEMCPY(keyPath, nvPath, nvLen);
+    XMEMCPY(keyPath + nvLen, ".key", 5);
+
+    f = fopen(keyPath, "rb");
+    if (f != NULL) {
+        ok = ((int)fread(key, 1, FWTPM_NV_KEY_SIZE, f) == FWTPM_NV_KEY_SIZE);
+        fclose(f);
+    }
+    else {
+        if (wc_RNG_GenerateBlock(&ctx->rng, key, FWTPM_NV_KEY_SIZE) != 0) {
+            return 0;
+        }
+        f = fopen(keyPath, "wb");
+        if (f != NULL) {
+            ok = ((int)fwrite(key, 1, FWTPM_NV_KEY_SIZE, f)
+                == FWTPM_NV_KEY_SIZE);
+            fclose(f);
+        #if !defined(_WIN32)
+            chmod(keyPath, S_IRUSR | S_IWUSR);
+        #endif
+        }
+    }
+    if (ok) {
+        *keySz = FWTPM_NV_KEY_SIZE;
+        return 1;
+    }
+    TPM2_ForceZero(key, FWTPM_NV_KEY_SIZE);
+    return 0;
+}
+#endif /* !NO_FILESYSTEM */
+
+/* Resolve the journal integrity key: a platform-provided device secret if
+ * the HAL supplies one, else the default file backend's key file. */
+static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
+{
+    *keySz = 0;
+    if (ctx->nvHal.get_integrity_key != NULL) {
+        if (ctx->nvHal.get_integrity_key(ctx->nvHal.ctx, key, keySz) == 0 &&
+                *keySz > 0) {
+            return 1;
+        }
+        return 0;
+    }
+#if !defined(NO_FILESYSTEM)
+    if (ctx->nvHal.read == FwNvFileRead) {
+        return FwNvLoadOrCreateKeyFile(ctx, key, keySz);
+    }
+#endif
+    return 0;
+}
+
+/* HMAC-SHA256 over the journal body [header .. writePos). */
+static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
+    word32 keySz, byte* macOut)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    FWTPM_DECLARE_VAR(hmac, Hmac);
+    byte chunk[256];
+    word32 off = sizeof(FWTPM_NV_HEADER);
+    int rc;
+
+    FWTPM_ALLOC_VAR(hmac, Hmac);
+
+    rc = wc_HmacInit(hmac, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        rc = wc_HmacSetKey(hmac, WC_SHA256, key, keySz);
+    }
+    while (rc == 0 && off < ctx->nvWritePos) {
+        word32 n = ctx->nvWritePos - off;
+        if (n > sizeof(chunk)) {
+            n = sizeof(chunk);
+        }
+        rc = hal->read(hal->ctx, off, chunk, n);
+        if (rc == 0) {
+            rc = wc_HmacUpdate(hmac, chunk, n);
+        }
+        off += n;
+    }
+    if (rc == 0) {
+        rc = wc_HmacFinal(hmac, macOut);
+    }
+    wc_HmacFree(hmac);
+    FWTPM_FREE_VAR(hmac);
+    return rc;
+}
+
+/* ========================================================================= */
 /* Journal Operations                                                        */
 /* ========================================================================= */
 
@@ -648,12 +766,29 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
     byte hdr[sizeof(FWTPM_NV_HEADER)]; /* 4 x UINT32 = 16 bytes */
     FWTPM_NV_HAL* hal = &ctx->nvHal;
 
+    byte key[FWTPM_NV_KEY_SIZE];
+    byte mac[FWTPM_NV_MAC_SIZE];
+    word32 keySz = 0;
+    int rc;
+
     FwStoreU32LE(hdr + 0,  FWTPM_NV_MAGIC);
     FwStoreU32LE(hdr + 4,  FWTPM_NV_VERSION);
     FwStoreU32LE(hdr + 8,  ctx->nvWritePos);
     FwStoreU32LE(hdr + 12, hal->maxSize);
 
-    return hal->write(hal->ctx, 0, hdr, sizeof(hdr));
+    rc = hal->write(hal->ctx, 0, hdr, sizeof(hdr));
+
+    /* Refresh the trailing journal MAC so a tampered journal is detected
+     * on the next load. The MAC sits at writePos and is rewritten after
+     * every append. */
+    if (rc == TPM_RC_SUCCESS && FwNvGetIntegrityKey(ctx, key, &keySz)) {
+        rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
+        if (rc == TPM_RC_SUCCESS) {
+            rc = hal->write(hal->ctx, ctx->nvWritePos, mac, sizeof(mac));
+        }
+        TPM2_ForceZero(key, sizeof(key));
+    }
+    return rc;
 }
 
 /* Append a single TLV entry to the journal */
@@ -669,8 +804,8 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
         return TPM_RC_FAILURE;
     }
 
-    /* Check if journal has space */
-    if (ctx->nvWritePos + entrySize > hal->maxSize) {
+    /* Reserve room for the trailing journal MAC written after each append */
+    if (ctx->nvWritePos + entrySize + FWTPM_NV_MAC_SIZE > hal->maxSize) {
         /* If already compacting, NV is genuinely full */
         if (ctx->nvCompacting) {
             return TPM_RC_NV_SPACE;
@@ -681,7 +816,7 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
             return rc;
         }
         /* After compaction, check again */
-        if (ctx->nvWritePos + entrySize > hal->maxSize) {
+        if (ctx->nvWritePos + entrySize + FWTPM_NV_MAC_SIZE > hal->maxSize) {
             return TPM_RC_NV_SPACE;
         }
     }
@@ -1028,6 +1163,8 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     byte tlvHdr[TLV_HDR_SIZE];
     byte* valueBuf = NULL;
     word32 valueBufSz = FWTPM_NV_MAX_ENTRY;
+    byte vKey[FWTPM_NV_KEY_SIZE];
+    word32 vKeySz = 0;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -1074,6 +1211,30 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
             rc = TPM_RC_NV_UNINITIALIZED;
         }
     }
+
+    /* Authenticate the journal before replaying it. A failed MAC means the
+     * journal was tampered, so it is discarded and fresh state generated
+     * rather than loading forged objects, clock, PCR state, or keys. */
+    if (rc == TPM_RC_SUCCESS &&
+        hdr.magic == FWTPM_NV_MAGIC &&
+        hdr.version == FWTPM_NV_VERSION) {
+        ctx->nvWritePos = hdr.writePos;
+        if (FwNvGetIntegrityKey(ctx, vKey, &vKeySz)) {
+            byte storedMac[FWTPM_NV_MAC_SIZE];
+            byte calcMac[FWTPM_NV_MAC_SIZE];
+            if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize ||
+                hal->read(hal->ctx, ctx->nvWritePos, storedMac,
+                    FWTPM_NV_MAC_SIZE) != TPM_RC_SUCCESS ||
+                FwNvComputeJournalMac(ctx, vKey, vKeySz, calcMac)
+                    != TPM_RC_SUCCESS ||
+                TPM2_ConstantCompare(storedMac, calcMac,
+                    FWTPM_NV_MAC_SIZE) != 0) {
+                rc = TPM_RC_NV_UNINITIALIZED;
+            }
+            TPM2_ForceZero(vKey, sizeof(vKey));
+        }
+    }
+
     if (rc == TPM_RC_SUCCESS &&
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {

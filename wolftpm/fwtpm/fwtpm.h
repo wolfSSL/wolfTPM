@@ -595,6 +595,11 @@ struct FWTPM_NV_HAL_S {
     int (*erase)(void* ctx, word32 offset, word32 size); /* Optional */
     void* ctx;
     word32 maxSize;     /* Total NV region size */
+    /* Override the NV-journal integrity key with a platform device secret
+     * (e.g. hardware-fused or host-TPM backed). Return 0 and set *keySz on
+     * success. When NULL the default file backend uses an auto-created key
+     * file; integrity verification is always performed when a key exists. */
+    int (*get_integrity_key)(void* ctx, byte* key, word32* keySz);
 };
 
 /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */

@@ -7284,6 +7284,85 @@ static void test_fwtpm_nv_read_public(void)
     fwtpm_pass("NV_ReadPublic:", 0);
 }
 
+/* In-memory NV backend with an integrity key, to prove a tampered journal is
+ * rejected on load (forged objects/clock/PCR state are not replayed). */
+#define TNV_SIZE  (32 * 1024)
+static byte gTnvBuf[TNV_SIZE];
+static int TnvRead(void* c, word32 off, byte* buf, word32 sz)
+{
+    (void)c;
+    if ((size_t)off + sz > sizeof(gTnvBuf)) return TPM_RC_FAILURE;
+    memcpy(buf, gTnvBuf + off, sz);
+    return TPM_RC_SUCCESS;
+}
+static int TnvWrite(void* c, word32 off, const byte* buf, word32 sz)
+{
+    (void)c;
+    if ((size_t)off + sz > sizeof(gTnvBuf)) return TPM_RC_FAILURE;
+    memcpy(gTnvBuf + off, buf, sz);
+    return TPM_RC_SUCCESS;
+}
+static int TnvKey(void* c, byte* key, word32* keySz)
+{
+    (void)c;
+    memset(key, 0x5A, 32);
+    *keySz = 32;
+    return 0;
+}
+static void TnvSetHal(FWTPM_CTX* ctx)
+{
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->nvHal.read = TnvRead;
+    ctx->nvHal.write = TnvWrite;
+    ctx->nvHal.maxSize = sizeof(gTnvBuf);
+    ctx->nvHal.get_integrity_key = TnvKey;
+}
+
+static void test_fwtpm_nv_journal_tamper_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, cmdSz, pos;
+    UINT32 nvIdx = 0x01500070;
+    UINT32 attrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+
+    memset(gTnvBuf, 0, sizeof(gTnvBuf));
+
+    /* Provision an NV index and persist the MAC'd journal */
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, attrs);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(FWTPM_NV_Save(&ctx), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    /* Untampered reload: the index persists */
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_NV_ReadPublic);
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    /* Flip a journal byte past the header, then reload: the journal MAC
+     * fails so the forged state is discarded and the index is gone. */
+    gTnvBuf[sizeof(FWTPM_NV_HEADER) + 1] ^= 0xFF;
+    TnvSetHal(&ctx);
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_NV_ReadPublic);
+    PutU32BE(gCmd + pos, nvIdx); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    printf("Test fwTPM:\tNV journal tamper rejected:\tPassed\n");
+}
+
 static void test_fwtpm_nv_counter(void)
 {
     FWTPM_CTX ctx;
@@ -9145,6 +9224,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_NV
     test_fwtpm_nv_define_write_read();
     test_fwtpm_nv_read_public();
+    test_fwtpm_nv_journal_tamper_rejected();
     test_fwtpm_nv_counter();
 #ifndef FWTPM_NO_ATTESTATION
     test_fwtpm_nv_certify_digest_mode();
