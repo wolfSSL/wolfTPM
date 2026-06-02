@@ -8482,6 +8482,53 @@ static void test_fwtpm_context_save(void)
     fwtpm_pass("ContextSave:", 0);
 }
 
+/* A saved context must load at most once; replaying the same blob is
+ * rejected to prevent resurrecting a satisfied policy session. */
+static void test_fwtpm_context_load_replay_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, ctxSz, pos;
+    UINT32 keyH;
+    byte savedCtx[512];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE; /* TPMS_CONTEXT follows the header */
+    AssertIntGT(ctxSz, 0);
+    memcpy(savedCtx, gRsp + TPM2_HEADER_SIZE, ctxSz);
+
+    /* First load succeeds */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedCtx, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Replaying the identical blob is rejected */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedCtx, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tContextLoad replay rejected:\tPassed\n");
+}
+
 static void test_fwtpm_evict_control(void)
 {
     FWTPM_CTX ctx;
@@ -9017,6 +9064,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
+    test_fwtpm_context_load_replay_rejected();
 
     /* Crypto */
     test_fwtpm_hash();

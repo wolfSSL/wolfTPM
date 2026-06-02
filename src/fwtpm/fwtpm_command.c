@@ -3077,7 +3077,7 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 magic = 0, version = 0;
 
     (void)cmdTag;
-    (void)seqHi; (void)seqLo; (void)hierarchy;
+    (void)hierarchy;
 
     if (cmdSize < TPM2_HEADER_SIZE + 18) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -3089,6 +3089,13 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &savedHandle);
         TPM2_Packet_ParseU32(cmd, &hierarchy);
         TPM2_Packet_ParseU16(cmd, &blobSz);
+    }
+
+    /* Replay protection: a saved context is bound to the sequence counter
+     * value it was created with, and each successful load consumes it. */
+    if (rc == 0 &&
+            (((UINT64)seqHi << 32) | (UINT64)seqLo) != ctx->contextSeqCounter) {
+        rc = TPM_RC_INTEGRITY;
     }
 
     /* Validate minimum blob size (magic + version = 8 bytes) */
@@ -3189,6 +3196,8 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: ContextLoad(handle=0x%x)\n", savedHandle);
     #endif
+        /* Consume this sequence value so the same blob cannot be replayed */
+        ctx->contextSeqCounter++;
         TPM2_Packet_AppendU32(rsp, savedHandle);
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }

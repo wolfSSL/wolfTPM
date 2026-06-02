@@ -2219,6 +2219,18 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 /* Context blob wrap/unwrap (ContextSave/ContextLoad)                  */
 /* ================================================================== */
 
+/* Fold a 64-bit value into an HMAC as big-endian, used to bind the context
+ * sequence counter into the blob MAC for replay protection. */
+static int FwHmacUpdateU64(Hmac* hmac, UINT64 v)
+{
+    byte b[8];
+    int i;
+    for (i = 0; i < 8; i++) {
+        b[i] = (byte)(v >> (56 - 8 * i));
+    }
+    return wc_HmacUpdate(hmac, b, (word32)sizeof(b));
+}
+
 /* Encrypt-then-MAC context blob protection using the per-boot key.
  * Layout: iv(16) | ciphertext(plainSz) | hmac(32)
  * Returns 0 on success, sets *outSz. */
@@ -2270,6 +2282,9 @@ int FwWrapContextBlob(FWTPM_CTX* ctx,
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, out, AES_BLOCK_SIZE + plainSz);
+    }
+    if (rc == 0) {
+        rc = FwHmacUpdateU64(hmac, ctx->contextSeqCounter);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, out + AES_BLOCK_SIZE + plainSz);
@@ -2327,6 +2342,9 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx,
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, in, AES_BLOCK_SIZE + cipherSz);
+    }
+    if (rc == 0) {
+        rc = FwHmacUpdateU64(hmac, ctx->contextSeqCounter);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, computedHmac);
