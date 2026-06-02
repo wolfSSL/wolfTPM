@@ -830,6 +830,7 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     if (rc == 0) {
+        ctx->selfTestRun = 1;
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
 
@@ -840,38 +841,59 @@ static TPM_RC FwCmd_SelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 static TPM_RC FwCmd_IncrementalSelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 toTestCount = 0;
+    UINT32 i;
+    UINT16 alg;
+
     (void)ctx;
-    (void)cmd;
-    (void)cmdSize;
     (void)cmdTag;
 
+    /* Require the TPML_ALG toTest parameter (count + count*TPM_ALG_ID) */
+    if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU32(cmd, &toTestCount);
+        if (cmdSize < TPM2_HEADER_SIZE + 4 + (int)(toTestCount * sizeof(alg)))
+            rc = TPM_RC_COMMAND_SIZE;
+    }
+    if (rc == 0) {
+        for (i = 0; i < toTestCount; i++)
+            TPM2_Packet_ParseU16(cmd, &alg);
+    }
+
 #ifdef DEBUG_WOLFTPM
-    printf("fwTPM: IncrementalSelfTest\n");
+    if (rc == 0)
+        printf("fwTPM: IncrementalSelfTest(toTest=%u)\n", (unsigned)toTestCount);
 #endif
 
-    /* TODO: IncrementalSelfTest is currently a no-op stub. A real
-     * implementation would track per-algorithm CAST status and run any
-     * tests from toTest[] that have not yet passed. Returning an empty
-     * toDoList signals "nothing left to test" which is acceptable for the
-     * non-FIPS configuration but must be revisited for FIPS builds. */
-    TPM2_Packet_AppendU32(rsp, 0); /* toDoList count = 0 */
-    FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
-    return TPM_RC_SUCCESS; /* always succeeds */
+    /* No-op stub: report nothing left to test via an empty toDoList.
+     * Acceptable for non-FIPS; must be revisited for FIPS builds. */
+    if (rc == 0) {
+        TPM2_Packet_AppendU32(rsp, 0); /* toDoList count = 0 */
+        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+    }
+    return rc;
 }
 
 /* --- TPM2_GetTestResult (CC 0x017C) --- */
 static TPM_RC FwCmd_GetTestResult(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
-    (void)ctx; (void)cmd; (void)cmdSize; (void)cmdTag;
+    UINT32 testResult;
+
+    (void)cmd; (void)cmdSize; (void)cmdTag;
+
+    /* Report NEEDS_TEST until TPM2_SelfTest has completed successfully */
+    testResult = ctx->selfTestRun ? TPM_RC_SUCCESS : TPM_RC_NEEDS_TEST;
 
     /* outData (TPM2B_MAX_BUFFER) - empty */
     TPM2_Packet_AppendU16(rsp, 0);
-    /* testResult (TPM_RC) - success */
-    TPM2_Packet_AppendU32(rsp, TPM_RC_SUCCESS);
+    TPM2_Packet_AppendU32(rsp, testResult);
 
     FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
-    return TPM_RC_SUCCESS; /* always succeeds */
+    return TPM_RC_SUCCESS;
 }
 
 /* --- TPM2_GetRandom (CC 0x017B) --- */

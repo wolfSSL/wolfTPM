@@ -7714,6 +7714,59 @@ static void test_fwtpm_incremental_selftest(void)
     fwtpm_pass("IncrementalSelfTest/GetResult:", 0);
 }
 
+static void test_fwtpm_incremental_selftest_truncated_returns_cmd_size(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Header only: the required TPML_ALG toTest parameter is missing */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 10, TPM_CC_IncrementalSelfTest);
+    FWTPM_ProcessCommand(&ctx, gCmd, 10, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tIncrementalSelfTest truncated (CMD_SIZE):\tPassed\n");
+}
+
+static void test_fwtpm_gettestresult_needs_test_then_success(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz, rspSize = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+
+    /* Startup only -- do not run SelfTest yet */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 10, TPM_CC_GetTestResult);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 10, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 2), TPM_RC_NEEDS_TEST);
+
+    /* After SelfTest completes, status becomes SUCCESS */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 11, TPM_CC_SelfTest);
+    gCmd[cmdSz++] = 1;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 10, TPM_CC_GetTestResult);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 10, gRsp, &rspSize, 0);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 2), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tGetTestResult NEEDS_TEST then SUCCESS:\tPassed\n");
+}
+
 static void test_fwtpm_pcr_reset(void)
 {
     FWTPM_CTX ctx;
@@ -8752,6 +8805,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* Hierarchy & misc */
     test_fwtpm_test_parms();
     test_fwtpm_incremental_selftest();
+    test_fwtpm_incremental_selftest_truncated_returns_cmd_size();
+    test_fwtpm_gettestresult_needs_test_then_success();
 
     /* Destructive tests last (Clear changes state) */
     test_fwtpm_change_eps();

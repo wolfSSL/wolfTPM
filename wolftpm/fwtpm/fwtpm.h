@@ -714,6 +714,9 @@ typedef struct FWTPM_CTX {
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;
 
+    /* Set once TPM2_SelfTest has completed successfully */
+    int selfTestRun;
+
 #ifdef HAVE_ECC
     /* EC_Ephemeral commit counter and key storage (volatile) */
     UINT16 ecEphemeralCounter;
