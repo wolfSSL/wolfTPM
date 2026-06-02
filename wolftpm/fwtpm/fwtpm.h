@@ -529,6 +529,7 @@ typedef struct FWTPM_Session {
     TPM2B_DIGEST cpHashA;           /* PolicyCpHash: locked once set */
     TPM2B_DIGEST nameHash;          /* PolicyNameHash: locked once set */
     int isPPRequired;               /* PolicyPhysicalPresence flag */
+    int requiredLocality;           /* PolicyLocality bitmap (0 = unset) */
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */

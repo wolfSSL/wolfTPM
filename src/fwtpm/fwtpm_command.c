@@ -9160,6 +9160,13 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }
+        /* Bind the locality constraint (intersect across calls) */
+        if (rc == 0) {
+            if (sess->requiredLocality == 0)
+                sess->requiredLocality = locality;
+            else
+                sess->requiredLocality &= locality;
+        }
     }
     if (rc == 0) {
         FwRspNoParams(rsp, cmdTag);
@@ -15643,6 +15650,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 #endif
                     *rspSize = FwBuildErrorResponse(rspBuf,
                         TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                    return TPM_RC_SUCCESS;
+                }
+                /* Enforce any PolicyLocality constraint bound to the session */
+                if (pSess->requiredLocality != 0 &&
+                    !((1 << ctx->activeLocality) & pSess->requiredLocality)) {
+                    *rspSize = FwBuildErrorResponse(rspBuf,
+                        TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;
                 }
             }
