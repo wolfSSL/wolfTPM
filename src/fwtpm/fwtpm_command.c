@@ -3757,6 +3757,19 @@ static TPM_RC FwCmd_EvictControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_HIERARCHY;
     }
 
+    /* Per TPM 2.0 Part 3 Sec.28, platformAuth owns the PLATFORM_PERSISTENT
+     * sub-range and owner/endorsement auth the range below it; neither may
+     * manage a handle in the other's sub-range. */
+    if (rc == 0) {
+        if (authHandle == TPM_RH_PLATFORM) {
+            if (persistentHandle < PLATFORM_PERSISTENT)
+                rc = TPM_RC_RANGE;
+        }
+        else if (persistentHandle >= PLATFORM_PERSISTENT) {
+            rc = TPM_RC_RANGE;
+        }
+    }
+
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: EvictControl(auth=0x%x, obj=0x%x, persist=0x%x)\n",

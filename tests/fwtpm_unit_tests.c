@@ -8426,6 +8426,40 @@ static void test_fwtpm_evict_control(void)
     fwtpm_pass("EvictControl (persist/remove):", 0);
 }
 
+/* Owner auth must not persist into the platform sub-range (Part 3 Sec.28). */
+static void test_fwtpm_evict_control_cross_hierarchy_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EvictControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;  /* owner auth */
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 0x81800001); pos += 4;    /* platform sub-range */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_RANGE);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tEvictControl cross-hierarchy rejected:\tPassed\n");
+}
+
 /* Per TPM 2.0 Part 2 Sec.7.4, persistent handles must fall in
  * 0x81000000..0x81FFFFFF. A persistentHandle outside this range must
  * be rejected so an attacker cannot plant a persistent record at a
@@ -8872,6 +8906,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
     test_fwtpm_rewrap_null_newparent_rejected();
     test_fwtpm_evict_control();
+    test_fwtpm_evict_control_cross_hierarchy_rejected();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
