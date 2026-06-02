@@ -7729,6 +7729,37 @@ static void test_fwtpm_sign_scheme_downgrade_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tSign scheme downgrade rejected:\tPassed\n");
 }
+
+/* TPMS_ATTEST clockInfo must carry live TPM state, not hardcoded zeros.
+ * After Startup(CLEAR) the resetCount is non-zero, so a Quote attest must
+ * reflect that. */
+static void test_fwtpm_quote_clockinfo_resetcount_nonzero(void)
+{
+    FWTPM_CTX ctx;
+    int cmdSz, rspSize = 0, clockOff;
+    UINT32 keyH;
+    UINT16 nameSz, extraSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignRestrictedHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    cmdSz = BuildQuoteCmd(gCmd, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* header(10)+paramSize(4)+attestSz(2): magic,type,qualifiedSigner@22 */
+    nameSz = GetU16BE(gRsp + 22);
+    extraSz = GetU16BE(gRsp + 24 + nameSz);
+    clockOff = 24 + nameSz + 2 + extraSz; /* clock(8) then resetCount(4) */
+    AssertIntNE(GetU32BE(gRsp + clockOff + 8), 0);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tQuote clockInfo resetCount nonzero:\tPassed\n");
+}
 #endif /* HAVE_ECC */
 
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
@@ -9042,6 +9073,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign_returns_attributes();
     test_fwtpm_sign_scheme_downgrade_rejected();
+    test_fwtpm_quote_clockinfo_resetcount_nonzero();
 #endif
 #endif
 #endif

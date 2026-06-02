@@ -634,6 +634,8 @@ typedef struct FWTPM_CTX {
 #endif
     int activeLocality;
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
+    UINT32 resetCount;          /* TPM Reset count, persisted across boots */
+    UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
 
     /* PCR state: [pcrIndex][bank][digest bytes] */
     byte pcrDigest[IMPLEMENTATION_PCR][FWTPM_PCR_BANKS][TPM_MAX_DIGEST_SIZE];

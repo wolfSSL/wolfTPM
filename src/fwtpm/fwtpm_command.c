@@ -712,6 +712,17 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->nullSeed,
                 FWTPM_SEED_SIZE);
             if (rc != 0) rc = TPM_RC_FAILURE;
+
+            /* TPM Reset: bump persisted resetCount, clear restartCount */
+            if (rc == 0) {
+                ctx->resetCount++;
+                ctx->restartCount = 0;
+                FWTPM_NV_SaveFlags(ctx);
+            }
+        }
+        else {
+            /* TPM Restart/Resume: bump volatile restartCount */
+            ctx->restartCount++;
         }
 
         ctx->wasStarted = 1;
@@ -10050,10 +10061,8 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* clockInfo.clock (8 bytes) */
         FwStoreU64BE(timeInfo + p, t); p += 8;
         /* resetCount(4) + restartCount(4) + safe(1) */
-        timeInfo[p++] = 0; timeInfo[p++] = 0;
-        timeInfo[p++] = 0; timeInfo[p++] = 0;
-        timeInfo[p++] = 0; timeInfo[p++] = 0;
-        timeInfo[p++] = 0; timeInfo[p++] = 0;
+        FwStoreU32BE(timeInfo + p, ctx->resetCount); p += 4;
+        FwStoreU32BE(timeInfo + p, ctx->restartCount); p += 4;
         timeInfo[p++] = 1; /* safe = YES */
 
         if ((UINT32)offset + operandBSz > (UINT32)p) {
@@ -11776,8 +11785,18 @@ static TPM_RC FwCmd_EncryptDecrypt2(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* Helper: Serialize TPMS_ATTEST common header into pkt.
  * Returns: number of bytes written (up to serialized position in pkt). */
 #ifndef FWTPM_NO_ATTESTATION
-static void FwAppendAttestCommonHeader(TPM2_Packet* pkt, UINT16 type,
-    const TPM2B_NAME* qualifiedSigner, const TPM2B_DATA* extraData)
+/* Append a TPMS_CLOCK_INFO from live TPM state (clock + reset/restart). */
+static void FwAppendClockInfo(FWTPM_CTX* ctx, TPM2_Packet* pkt)
+{
+    TPM2_Packet_AppendU64(pkt, FWTPM_Clock_GetMs(ctx));
+    TPM2_Packet_AppendU32(pkt, ctx->resetCount);
+    TPM2_Packet_AppendU32(pkt, ctx->restartCount);
+    TPM2_Packet_AppendU8(pkt, YES); /* safe */
+}
+
+static void FwAppendAttestCommonHeader(FWTPM_CTX* ctx, TPM2_Packet* pkt,
+    UINT16 type, const TPM2B_NAME* qualifiedSigner,
+    const TPM2B_DATA* extraData)
 {
     /* magic */
     TPM2_Packet_AppendU32(pkt, TPM_GENERATED_VALUE);
@@ -11791,10 +11810,7 @@ static void FwAppendAttestCommonHeader(TPM2_Packet* pkt, UINT16 type,
     TPM2_Packet_AppendU16(pkt, extraData->size);
     TPM2_Packet_AppendBytes(pkt, (byte*)extraData->buffer, extraData->size);
     /* clockInfo: clock(8) + resetCount(4) + restartCount(4) + safe(1) */
-    TPM2_Packet_AppendU64(pkt, 0); /* clock */
-    TPM2_Packet_AppendU32(pkt, 0); /* resetCount */
-    TPM2_Packet_AppendU32(pkt, 0); /* restartCount */
-    TPM2_Packet_AppendU8(pkt, 1);  /* safe = YES */
+    FwAppendClockInfo(ctx, pkt);
     /* firmwareVersion */
     TPM2_Packet_AppendU64(pkt, ((UINT64)FWTPM_VERSION_MAJOR << 32) |
         FWTPM_VERSION_MINOR);
@@ -11934,7 +11950,7 @@ static TPM_RC FwCmd_Quote(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, TPM_ST_ATTEST_QUOTE,
+        FwAppendAttestCommonHeader(ctx, &attestPkt, TPM_ST_ATTEST_QUOTE,
             &sigObj->name, &qualifyingData);
 
         /* attested.quote: pcrSelect (TPML_PCR_SELECTION) +
@@ -12063,7 +12079,7 @@ static TPM_RC FwCmd_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, TPM_ST_ATTEST_CERTIFY,
+        FwAppendAttestCommonHeader(ctx, &attestPkt, TPM_ST_ATTEST_CERTIFY,
             &sigObj->name, &qualifyingData);
 
         /* attested.certify: name + qualifiedName */
@@ -12253,7 +12269,7 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, TPM_ST_ATTEST_CREATION,
+        FwAppendAttestCommonHeader(ctx, &attestPkt, TPM_ST_ATTEST_CREATION,
             &sigObj->name, &qualifyingData);
 
         /* attested.creation: objectName (TPM2B_NAME) +
@@ -12316,16 +12332,13 @@ static TPM_RC FwCmd_GetTime(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_PUB_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, TPM_ST_ATTEST_TIME,
+        FwAppendAttestCommonHeader(ctx, &attestPkt, TPM_ST_ATTEST_TIME,
             &sigObj->name, &qualifyingData);
 
         /* attested.time: TPMS_TIME_INFO (time + clockInfo) +
          * firmwareVersion */
-        TPM2_Packet_AppendU64(&attestPkt, 0); /* time */
-        TPM2_Packet_AppendU64(&attestPkt, 0); /* clockInfo.clock */
-        TPM2_Packet_AppendU32(&attestPkt, 0); /* clockInfo.resetCount */
-        TPM2_Packet_AppendU32(&attestPkt, 0); /* clockInfo.restartCount */
-        TPM2_Packet_AppendU8(&attestPkt, 1);  /* clockInfo.safe */
+        TPM2_Packet_AppendU64(&attestPkt, FWTPM_Clock_GetMs(ctx)); /* time */
+        FwAppendClockInfo(ctx, &attestPkt);
         TPM2_Packet_AppendU64(&attestPkt,
             ((UINT64)FWTPM_VERSION_MAJOR << 32) |
             FWTPM_VERSION_MINOR); /* firmwareVersion */
@@ -12465,7 +12478,7 @@ static TPM_RC FwCmd_NV_Certify(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         attestPkt.pos = 0;
         attestPkt.size = (int)FWTPM_MAX_ATTEST_BUF;
 
-        FwAppendAttestCommonHeader(&attestPkt, attestType,
+        FwAppendAttestCommonHeader(ctx, &attestPkt, attestType,
             &sigObj->name, &qualifyingData);
 
         if (digestMode) {

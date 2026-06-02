@@ -846,6 +846,10 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             }
             ctx->daFailedTries = 0; /* volatile - reset on load */
         #endif
+            /* resetCount trails the DA fields in newer journals */
+            if (vPos + 4 <= vMax) {
+                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->resetCount);
+            }
             break;
         }
 
@@ -1340,6 +1344,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daRecoveryTime);
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daLockoutRecovery);
     #endif
+        FwNvMarshalU32(buf, &pos, bufSz, ctx->resetCount);
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -1613,7 +1618,7 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
 int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 {
     int rc;
-    byte buf[1 + 12]; /* flags + DA params */
+    byte buf[1 + 12 + 4]; /* flags + DA params + resetCount */
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -1627,6 +1632,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daRecoveryTime);
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daLockoutRecovery);
 #endif
+    FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->resetCount);
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;
