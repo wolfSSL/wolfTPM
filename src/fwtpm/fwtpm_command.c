@@ -8856,6 +8856,8 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 nonceTpmSz, cpHashASz, policyRefSz = 0;
     INT32 expiration;
     byte policyRef[64];
+    byte nonceTpmBuf[TPM_MAX_DIGEST_SIZE];
+    byte cpHashBuf[TPM_MAX_DIGEST_SIZE];
     byte entityName[sizeof(TPM2B_NAME)];
     int entityNameSz = 0;
     FWTPM_Session* sess;
@@ -8868,19 +8870,25 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &nonceTpmSz);
-        if (cmd->pos + nonceTpmSz > cmdSize) {
-            rc = TPM_RC_COMMAND_SIZE;
+        if (nonceTpmSz > (UINT16)sizeof(nonceTpmBuf) ||
+                cmd->pos + nonceTpmSz > cmdSize) {
+            rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        cmd->pos += nonceTpmSz;
+        if (nonceTpmSz > 0) {
+            TPM2_Packet_ParseBytes(cmd, nonceTpmBuf, nonceTpmSz);
+        }
         TPM2_Packet_ParseU16(cmd, &cpHashASz);
-        if (cmd->pos + cpHashASz > cmdSize) {
-            rc = TPM_RC_COMMAND_SIZE;
+        if (cpHashASz > (UINT16)sizeof(cpHashBuf) ||
+                cmd->pos + cpHashASz > cmdSize) {
+            rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        cmd->pos += cpHashASz;
+        if (cpHashASz > 0) {
+            TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashASz);
+        }
         TPM2_Packet_ParseU16(cmd, &policyRefSz);
         if (policyRefSz > (UINT16)sizeof(policyRef)) {
             rc = TPM_RC_SIZE;
@@ -8909,6 +8917,16 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_AUTH_TYPE;
     }
 
+    /* A supplied nonceTPM must match the session nonce (Part 3 Sec.23.4),
+     * preventing replay of a PolicySecret authorization to another session. */
+    if (rc == 0 && nonceTpmSz > 0) {
+        if (nonceTpmSz != sess->nonceTPM.size ||
+                TPM2_ConstantCompare(nonceTpmBuf, sess->nonceTPM.buffer,
+                    nonceTpmSz) != 0) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+
     if (rc == 0) {
         /* Auth verification for authHandle is handled by the command dispatch
          * framework (FWTPM_ProcessCommand) via the authorization area, not
@@ -8924,6 +8942,12 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 policyRef, policyRefSz, 1) != 0) {
             rc = TPM_RC_FAILURE;
         }
+    }
+
+    /* Bind the command to cpHashA so policy enforcement can verify it */
+    if (rc == 0 && cpHashASz > 0) {
+        sess->cpHashA.size = cpHashASz;
+        XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
     }
 
     if (rc == 0) {
@@ -9429,6 +9453,12 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_FAILURE;
             }
         }
+    }
+
+    /* Bind the command to cpHashA so policy enforcement can verify it */
+    if (rc == 0 && cpHashASz > 0) {
+        sess->cpHashA.size = cpHashASz;
+        XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
     }
 
     if (rc == 0) {
@@ -15774,6 +15804,22 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     *rspSize = FwBuildErrorResponse(rspBuf,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;
+                }
+                /* Enforce any PolicyCpHash command binding: the command's
+                 * cpHash must equal the value the policy committed to. */
+                if (pSess->cpHashA.size > 0) {
+                    byte ccpHash[TPM_MAX_DIGEST_SIZE];
+                    int ccpHashSz = 0;
+                    if (FwComputeCpHash(pSess->authHash, cmdCode,
+                            cmdBuf, cmdSize, cmdHandles, cmdHandleCnt,
+                            ctx, cpStart, ccpHash, &ccpHashSz) != 0 ||
+                        (int)pSess->cpHashA.size != ccpHashSz ||
+                        TPM2_ConstantCompare(pSess->cpHashA.buffer,
+                            ccpHash, (word32)ccpHashSz) != 0) {
+                        *rspSize = FwBuildErrorResponse(rspBuf,
+                            TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                        return TPM_RC_SUCCESS;
+                    }
                 }
             }
             else if (authPolicy != NULL && authPolicy->size == 0 &&

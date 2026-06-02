@@ -7170,6 +7170,67 @@ static void test_fwtpm_policy_locality_enforced(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tPolicyLocality enforced:\tPassed\n");
 }
+
+/* PolicyCpHash binds a session to a specific command; a command whose real
+ * cpHash differs must be rejected even when the policyDigest matches. */
+static void test_fwtpm_policy_cphash_enforced(void)
+{
+    FWTPM_CTX ctx;
+    int pos, cmdSz, rspSize = 0;
+    UINT32 sessH;
+    UINT16 dSz;
+    byte digest[64];
+    byte cph[32];
+    UINT32 nvIdx = 0x01500062;
+    UINT32 nvAttrs = TPMA_NV_OWNERWRITE | TPMA_NV_OWNERREAD | TPMA_NV_NO_DA;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(cph, 0xCC, sizeof(cph));
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    /* Bind the session to a cpHash no real command will produce */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyCpHash);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU16BE(gCmd + pos, (UINT16)sizeof(cph)); pos += 2;
+    memcpy(gCmd + pos, cph, sizeof(cph)); pos += sizeof(cph);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(SendPolicyCmd(&ctx, TPM_CC_PolicyGetDigest, sessH),
+        TPM_RC_SUCCESS);
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE + 4);
+    AssertIntEQ(dSz, 32);
+    memcpy(digest, gRsp + TPM2_HEADER_SIZE + 6, dSz);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SetPrimaryPolicy); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, dSz); pos += 2;
+    memcpy(gCmd + pos, digest, dSz); pos += dSz;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* The NV_DefineSpace cpHash will not match the bound cpHashA */
+    cmdSz = BuildNvDefineCmd(gCmd, nvIdx, 8, nvAttrs);
+    PutU32BE(gCmd + 18, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY_FAIL);
+
+    FlushHandle(&ctx, sessH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tPolicyCpHash enforced:\tPassed\n");
+}
 #endif /* !FWTPM_NO_NV */
 
 #endif /* !FWTPM_NO_POLICY */
@@ -9255,6 +9316,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policynv_owner_read_denied();
     test_fwtpm_policyauthorizenv_owner_read_denied();
     test_fwtpm_policy_locality_enforced();
+    test_fwtpm_policy_cphash_enforced();
 #endif
 #endif
 
