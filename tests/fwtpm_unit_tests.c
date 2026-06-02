@@ -792,6 +792,44 @@ static void test_fwtpm_pcr_extend_and_read(void)
     fwtpm_pass("PCR_Extend + Read(16):", 0);
 }
 
+/* PCR_Event into DRTM PCR 17 must require locality 4 (Part 1 Sec.11.4.6). */
+static void test_fwtpm_pcr_event_drtm_locality_enforced(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    byte ev[4];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(ev, 0xAB, sizeof(ev));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Event); pos += 4;
+    PutU32BE(gCmd + pos, 17); pos += 4; /* pcrHandle = PCR 17 */
+    PutU32BE(gCmd + pos, 9); pos += 4;   /* auth area size */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;   /* nonce */
+    gCmd[pos++] = 0;                     /* attributes */
+    PutU16BE(gCmd + pos, 0); pos += 2;   /* hmac */
+    PutU16BE(gCmd + pos, (UINT16)sizeof(ev)); pos += 2;
+    memcpy(gCmd + pos, ev, sizeof(ev)); pos += sizeof(ev);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    /* Locality 0: rejected */
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+
+    /* Locality 4: allowed */
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 4);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tPCR_Event DRTM locality enforced:\tPassed\n");
+}
+
 /* Per TPM 2.0 Part 3 Sec.22.3, PCR_Extend takes Auth Role USER on the
  * PCR handle. When PCR_SetAuthValue has installed a non-empty
  * authValue, a subsequent password session with hmacSize=0 must be
@@ -8638,6 +8676,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* PCR operations */
     test_fwtpm_pcr_read();
     test_fwtpm_pcr_extend_and_read();
+    test_fwtpm_pcr_event_drtm_locality_enforced();
     test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
     test_fwtpm_pcr_reset_locality_enforced();

@@ -1840,6 +1840,19 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
+     * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
+    if (rc == 0) {
+        pcrIndex = pcrHandle - PCR_FIRST;
+        if (pcrIndex == 17 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
+        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
+                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
+    }
+
     if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
         rc = FwSkipAuthArea(cmd, cmdSize);
     }
@@ -1866,8 +1879,6 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        pcrIndex = pcrHandle - PCR_FIRST;
-
         /* SHA-256 bank */
         bankAlgs[0] = TPM_ALG_SHA256;
         digestSz[0] = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
