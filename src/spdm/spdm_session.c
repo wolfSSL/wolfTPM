@@ -112,6 +112,12 @@ int wolfSPDM_Finish(WOLFSPDM_CTX* ctx)
     word32 decSz = sizeof(decBuf);
     int rc;
 
+    /* FINISH is only valid after a successful KEY_EXCHANGE; otherwise the
+     * session keys are unestablished (zero-entropy). */
+    if (ctx == NULL || ctx->state < WOLFSPDM_STATE_KEY_EX) {
+        return WOLFSPDM_E_BAD_STATE;
+    }
+
     rc = wolfSPDM_BuildFinish(ctx, finishBuf, &finishSz);
 
     /* FINISH must be sent encrypted (HANDSHAKE_IN_THE_CLEAR not negotiated) */
