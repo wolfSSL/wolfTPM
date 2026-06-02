@@ -8529,6 +8529,42 @@ static void test_fwtpm_context_load_replay_rejected(void)
     printf("Test fwTPM:\tContextLoad replay rejected:\tPassed\n");
 }
 
+/* When the command client changes, transient objects must be flushed so a
+ * replacement client cannot enumerate and use the previous client's handles. */
+static void test_fwtpm_reset_command_client_flushes_transient(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* Object usable before the client change */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_ResetCommandClient(&ctx);
+
+    /* Handle no longer resolves after the reset */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tResetCommandClient flushes transient:\tPassed\n");
+}
+
 static void test_fwtpm_evict_control(void)
 {
     FWTPM_CTX ctx;
@@ -9065,6 +9101,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
     test_fwtpm_context_load_replay_rejected();
+    test_fwtpm_reset_command_client_flushes_transient();
 
     /* Crypto */
     test_fwtpm_hash();

@@ -681,6 +681,8 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
                     printf("fwTPM: command connection replaced\n");
                 #endif
                     CloseSocket(cmdFd);
+                    /* New client must not inherit prior transient state */
+                    FWTPM_ResetCommandClient(ctx);
                 }
                 cmdFd = newFd;
             }
@@ -699,6 +701,8 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             if (HandleCommandConnection(ctx, cmdFd) != TPM_RC_SUCCESS) {
                 CloseSocket(cmdFd);
                 cmdFd = FWTPM_INVALID_FD;
+                /* Drop transient state when the client disconnects */
+                FWTPM_ResetCommandClient(ctx);
             }
         }
     }

@@ -2403,6 +2403,28 @@ static void FwFlushAllSessions(FWTPM_CTX* ctx)
     }
 }
 
+void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
+{
+    int i;
+    if (ctx == NULL) {
+        return;
+    }
+    FwFlushAllObjects(ctx);
+    FwFlushAllSessions(ctx);
+    for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
+        if (ctx->hashSeq[i].used) {
+            FwFreeHashSeq(&ctx->hashSeq[i]);
+        }
+    }
+#ifdef WOLFTPM_V185
+    for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
+        if (ctx->signSeq[i].used) {
+            FwFreeSignSeq(&ctx->signSeq[i]);
+        }
+    }
+#endif
+}
+
 /* --- TPM2_CreatePrimary (CC 0x0131) --- */
 static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
