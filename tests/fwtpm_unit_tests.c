@@ -8115,6 +8115,13 @@ static void test_fwtpm_incremental_selftest_truncated_returns_cmd_size(void)
     FWTPM_ProcessCommand(&ctx, gCmd, 10, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
 
+    /* Overflow case: a huge count must be rejected, not wrap the size check */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_IncrementalSelfTest);
+    PutU32BE(gCmd + 10, 0xFFFFFFFFu);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tIncrementalSelfTest truncated (CMD_SIZE):\tPassed\n");
 }

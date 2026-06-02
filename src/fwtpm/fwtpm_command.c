@@ -866,8 +866,12 @@ static TPM_RC FwCmd_IncrementalSelfTest(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &toTestCount);
-        if (cmdSize < TPM2_HEADER_SIZE + 4 + (int)(toTestCount * sizeof(alg)))
+        /* Bound by division to avoid the count*size multiply overflowing and
+         * wrapping the size check (which would allow an unbounded loop). */
+        if (toTestCount > (UINT32)((cmdSize - (TPM2_HEADER_SIZE + 4)) /
+                (int)sizeof(alg))) {
             rc = TPM_RC_COMMAND_SIZE;
+        }
     }
     if (rc == 0) {
         for (i = 0; i < toTestCount; i++)
@@ -6993,15 +6997,23 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Parse hashAlg */
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
-        /* NULL means use the key's HMAC scheme hash; a non-NULL value must
-         * match it (Part 3 Sec.17.4) rather than any wire-chosen hash. */
-        if (hashAlg == TPM_ALG_NULL) {
-            hashAlg = obj->pub.parameters.keyedHashDetail.scheme.details
-                .hmac.hashAlg;
+        /* If the key binds an HMAC scheme, a NULL wire hash uses it and a
+         * non-NULL wire hash must match it (Part 3 Sec.17.4). A key with an
+         * unbound (NULL) scheme lets the caller choose, defaulting to the
+         * key's nameAlg. */
+        if (obj->pub.parameters.keyedHashDetail.scheme.scheme
+                != TPM_ALG_NULL) {
+            if (hashAlg == TPM_ALG_NULL) {
+                hashAlg = obj->pub.parameters.keyedHashDetail.scheme
+                    .details.hmac.hashAlg;
+            }
+            else if (hashAlg != obj->pub.parameters.keyedHashDetail.scheme
+                    .details.hmac.hashAlg) {
+                rc = TPM_RC_VALUE;
+            }
         }
-        else if (hashAlg != obj->pub.parameters.keyedHashDetail.scheme
-                .details.hmac.hashAlg) {
-            rc = TPM_RC_VALUE;
+        else if (hashAlg == TPM_ALG_NULL) {
+            hashAlg = obj->pub.nameAlg;
         }
 
         ht = FwGetWcHashType(hashAlg);
@@ -8962,10 +8974,21 @@ static TPM_RC FwCmd_PolicySecret(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Bind the command to cpHashA so policy enforcement can verify it */
+    /* Bind the command to cpHashA so policy enforcement can verify it.
+     * Lock-once: if already bound, a different value must be rejected
+     * rather than silently replacing the earlier binding. */
     if (rc == 0 && cpHashASz > 0) {
-        sess->cpHashA.size = cpHashASz;
-        XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+        if (sess->cpHashA.size > 0) {
+            if (sess->cpHashA.size != cpHashASz ||
+                    TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
+                        cpHashASz) != 0) {
+                rc = TPM_RC_CPHASH;
+            }
+        }
+        else {
+            sess->cpHashA.size = cpHashASz;
+            XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+        }
     }
 
     if (rc == 0) {
@@ -9302,12 +9325,15 @@ static TPM_RC FwCmd_PolicyLocality(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }
-        /* Bind the locality constraint (intersect across calls) */
+        /* Bind the locality constraint (intersect across calls). A flag
+         * marks it present so a bitmap of 0 stays an unsatisfiable
+         * constraint rather than reading as "unset". */
         if (rc == 0) {
-            if (sess->requiredLocality == 0)
+            if (!sess->hasRequiredLocality)
                 sess->requiredLocality = locality;
             else
                 sess->requiredLocality &= locality;
+            sess->hasRequiredLocality = 1;
         }
     }
     if (rc == 0) {
@@ -9473,10 +9499,21 @@ static TPM_RC FwCmd_PolicySigned(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Bind the command to cpHashA so policy enforcement can verify it */
+    /* Bind the command to cpHashA so policy enforcement can verify it.
+     * Lock-once: if already bound, a different value must be rejected
+     * rather than silently replacing the earlier binding. */
     if (rc == 0 && cpHashASz > 0) {
-        sess->cpHashA.size = cpHashASz;
-        XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+        if (sess->cpHashA.size > 0) {
+            if (sess->cpHashA.size != cpHashASz ||
+                    TPM2_ConstantCompare(sess->cpHashA.buffer, cpHashBuf,
+                        cpHashASz) != 0) {
+                rc = TPM_RC_CPHASH;
+            }
+        }
+        else {
+            sess->cpHashA.size = cpHashASz;
+            XMEMCPY(sess->cpHashA.buffer, cpHashBuf, cpHashASz);
+        }
     }
 
     if (rc == 0) {
@@ -12723,6 +12760,11 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_HANDLE;
         }
     }
+    /* Credential wrap/unwrap integrity is SHA-256 only; reject other
+     * nameAlgs rather than emit a mixed-hash (non-interoperable) blob. */
+    if (rc == 0 && keyObj->pub.nameAlg != TPM_ALG_SHA256) {
+        rc = TPM_RC_HASH;
+    }
 
     /* MakeCredential has no auth area */
 
@@ -12901,6 +12943,10 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (keyObj == NULL) {
             rc = TPM_RC_HANDLE;
         }
+    }
+    /* Credential wrap/unwrap integrity is SHA-256 only (see MakeCredential) */
+    if (rc == 0 && keyObj->pub.nameAlg != TPM_ALG_SHA256) {
+        rc = TPM_RC_HASH;
     }
 
     /* Skip auth area */
@@ -15839,7 +15885,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     return TPM_RC_SUCCESS;
                 }
                 /* Enforce any PolicyLocality constraint bound to the session */
-                if (pSess->requiredLocality != 0 &&
+                if (pSess->hasRequiredLocality &&
                     !((1 << ctx->activeLocality) & pSess->requiredLocality)) {
                     *rspSize = FwBuildErrorResponse(rspBuf,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
