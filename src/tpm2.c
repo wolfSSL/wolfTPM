@@ -466,6 +466,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 {
     TPM_RC rc = TPM_RC_FAILURE;
     TPM_ST tag;
+    TPM_ST respTag;
     TPM_CC cmdCode;
     BYTE *cmd;
     UINT32 cmdSz, respSz;
@@ -524,10 +525,18 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* restart the unmarshalling position */
     packet->pos = 0;
-    TPM2_Packet_ParseU16(packet, &tag);
+    TPM2_Packet_ParseU16(packet, &respTag);
+
+    /* A command sent with sessions must receive a sessioned response. A
+     * man-in-the-middle flipping the response tag to TPM_ST_NO_SESSIONS
+     * would otherwise skip HMAC verification entirely. */
+    if (rc == TPM_RC_SUCCESS && tag == TPM_ST_SESSIONS &&
+            respTag != TPM_ST_SESSIONS) {
+        rc = TPM_RC_HMAC;
+    }
 
     /* Is auth session required for this TPM command? */
-    if (rc == TPM_RC_SUCCESS && tag == TPM_ST_SESSIONS) {
+    if (rc == TPM_RC_SUCCESS && respTag == TPM_ST_SESSIONS) {
         rc = TPM2_ResponseProcess(ctx, packet, info, cmdCode, respSz);
     }
 
