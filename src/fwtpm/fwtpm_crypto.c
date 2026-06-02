@@ -3790,19 +3790,28 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz)
 void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     UINT16* sigHashAlg)
 {
-    if (*sigScheme == TPM_ALG_NULL) {
-        if (obj->pub.type == TPM_ALG_RSA) {
-            *sigScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
-            *sigHashAlg = obj->pub.parameters.rsaDetail.scheme.details
-                .anySig.hashAlg;
-        }
-        else if (obj->pub.type == TPM_ALG_ECC) {
-            *sigScheme = obj->pub.parameters.eccDetail.scheme.scheme;
-            *sigHashAlg = obj->pub.parameters.eccDetail.scheme.details
-                .any.hashAlg;
-        }
+    UINT16 keyScheme = TPM_ALG_NULL;
+    UINT16 keyHashAlg = TPM_ALG_NULL;
+
+    if (obj->pub.type == TPM_ALG_RSA) {
+        keyScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+            .anySig.hashAlg;
     }
-    if (*sigScheme == TPM_ALG_NULL) {
+    else if (obj->pub.type == TPM_ALG_ECC) {
+        keyScheme = obj->pub.parameters.eccDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.eccDetail.scheme.details
+            .any.hashAlg;
+    }
+
+    /* A key that mandates a scheme overrides any wire-supplied scheme and
+     * hash. Honoring a differing wire pair would let an attacker downgrade
+     * a restricted SHA-256 attestation key to e.g. SHA-1. */
+    if (keyScheme != TPM_ALG_NULL) {
+        *sigScheme = keyScheme;
+        *sigHashAlg = keyHashAlg;
+    }
+    else if (*sigScheme == TPM_ALG_NULL) {
         *sigScheme = (obj->pub.type == TPM_ALG_RSA) ?
             TPM_ALG_RSASSA : TPM_ALG_ECDSA;
     }

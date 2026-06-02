@@ -7653,6 +7653,82 @@ static void test_fwtpm_quote_unrestricted_sign_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tQuote(unrestricted sign) rejected:\tPassed\n");
 }
+
+/* A key that declares a signing scheme must not be downgraded by a wire
+ * inScheme: signing with ECDSA-SHA1 against an ECDSA-SHA256 key must emit a
+ * SHA-256 signature, not SHA-1. */
+static void test_fwtpm_sign_scheme_downgrade_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, pubStart, sensStart, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* CreatePrimary: ECC sign key declaring scheme ECDSA-SHA256 */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + sensStart, (UINT16)(pos - sensStart - 2));
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, 0x00040472); pos += 4; /* sign, non-restricted */
+    PutU16BE(gCmd + pos, 0); pos += 2;          /* authPolicy */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* sym */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2; /* declared scheme */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2; /* scheme hashAlg */
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pubStart, (UINT16)(pos - pubStart - 2));
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntNE(keyH, 0);
+
+    /* Sign with wire inScheme ECDSA-SHA1 */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 32); pos += 2;
+    memset(gCmd + pos, 0xAB, 32); pos += 32;
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA1); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* TPMT_SIGNATURE: sigAlg(2) then hashAlg(2) after paramSize */
+    AssertIntEQ(GetU16BE(gRsp + TPM2_HEADER_SIZE + 4 + 2), TPM_ALG_SHA256);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tSign scheme downgrade rejected:\tPassed\n");
+}
 #endif /* HAVE_ECC */
 
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
@@ -8965,6 +9041,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_zgen_2phase_signkey_returns_attributes();
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign_returns_attributes();
+    test_fwtpm_sign_scheme_downgrade_rejected();
 #endif
 #endif
 #endif
