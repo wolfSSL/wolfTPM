@@ -6585,7 +6585,17 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Use the key's scheme if set, otherwise keep NULL */
             if (obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
                 encScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+                encHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+                    .anySig.hashAlg;
             }
+        }
+        /* A key with a declared scheme hash must not be used with a
+         * different wire hash (Part 3 Sec.17.2) */
+        else if (rc == 0 && encHashAlg != TPM_ALG_NULL &&
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL &&
+                encHashAlg != obj->pub.parameters.rsaDetail.scheme.details
+                    .anySig.hashAlg) {
+            rc = TPM_RC_SCHEME;
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -6738,7 +6748,17 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (rc == 0 && decScheme == TPM_ALG_NULL) {
             if (obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
                 decScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+                decHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+                    .anySig.hashAlg;
             }
+        }
+        /* A key with a declared scheme hash must not be used with a
+         * different wire hash (Part 3 Sec.17.2) */
+        else if (rc == 0 && decHashAlg != TPM_ALG_NULL &&
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL &&
+                decHashAlg != obj->pub.parameters.rsaDetail.scheme.details
+                    .anySig.hashAlg) {
+            rc = TPM_RC_SCHEME;
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -6958,9 +6978,15 @@ static TPM_RC FwCmd_HMAC(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Parse hashAlg */
         TPM2_Packet_ParseU16(cmd, (UINT16*)&hashAlg);
 
-        /* If hashAlg is NULL, use the key's nameAlg */
+        /* NULL means use the key's HMAC scheme hash; a non-NULL value must
+         * match it (Part 3 Sec.17.4) rather than any wire-chosen hash. */
         if (hashAlg == TPM_ALG_NULL) {
-            hashAlg = obj->pub.nameAlg;
+            hashAlg = obj->pub.parameters.keyedHashDetail.scheme.details
+                .hmac.hashAlg;
+        }
+        else if (hashAlg != obj->pub.parameters.keyedHashDetail.scheme
+                .details.hmac.hashAlg) {
+            rc = TPM_RC_VALUE;
         }
 
         ht = FwGetWcHashType(hashAlg);
