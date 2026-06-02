@@ -5291,6 +5291,13 @@ static TPM_RC FwCmd_Duplicate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (symAlg == TPM_ALG_NULL) {
             rc = TPM_RC_SYMMETRIC;
         }
+        /* The outer-wrap path to a real parent does not also apply the
+         * mandatory inner wrap, which would leave the new parent able to
+         * recover the sensitive. Require the inner-wrap export path
+         * (newParent == TPM_RH_NULL) for such objects. */
+        else if (newParentHandle != TPM_RH_NULL) {
+            rc = TPM_RC_SYMMETRIC;
+        }
     }
 
     /* Find new parent (if not TPM_RH_NULL) */
