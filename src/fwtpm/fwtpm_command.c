@@ -7576,6 +7576,11 @@ static TPM_RC FwCmd_ECDH_KeyGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_KEY;
         }
     }
+    /* Key agreement requires a decryption key (Part 3 Sec.14.3.3) */
+    if (rc == 0) {
+        if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
+            rc = TPM_RC_ATTRIBUTES;
+    }
 
     if (rc == 0) {
         curveId = obj->pub.parameters.eccDetail.curveID;
@@ -7712,6 +7717,11 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (obj->privKeySize == 0) {
             rc = TPM_RC_KEY;
         }
+    }
+    /* Key agreement requires a decryption key (Part 3 Sec.21.3) */
+    if (rc == 0) {
+        if (!(obj->pub.objectAttributes & TPMA_OBJECT_decrypt))
+            rc = TPM_RC_ATTRIBUTES;
     }
 
     /* Skip auth area */
@@ -13037,6 +13047,10 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && keyA->pub.type != TPM_ALG_ECC) {
         rc = TPM_RC_KEY;
+    }
+    /* Key agreement requires a decryption key (Part 3 Sec.14.7) */
+    if (rc == 0 && !(keyA->pub.objectAttributes & TPMA_OBJECT_decrypt)) {
+        rc = TPM_RC_ATTRIBUTES;
     }
 
     /* Parse inQsB (TPM2B_ECC_POINT) */

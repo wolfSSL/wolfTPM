@@ -7310,6 +7310,94 @@ static void test_fwtpm_sign_ecdaa_scheme(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tSign(ECDAA scheme):\t\tPassed\n");
 }
+
+/* ECDH key-agreement commands must reject a key without TPMA_OBJECT_decrypt
+ * per Part 3 Sec.14.3.3/14.7/21.3. A sign-only AIK would otherwise act as a
+ * CDH oracle over its private scalar. */
+static void test_fwtpm_ecdh_keygen_signkey_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ECDH_KeyGen);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tECDH_KeyGen(sign key) rejected:\tPassed\n");
+}
+
+static void test_fwtpm_ecdh_zgen_signkey_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ECDH_ZGen); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; /* inPoint outer size */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* x.size */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* y.size */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tECDH_ZGen(sign key) rejected:\tPassed\n");
+}
+
+static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    keyH = CreatePrimaryEccSignHelper(&ctx);
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ZGen_2Phase); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 4); pos += 2; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inQsB */
+    PutU16BE(gCmd + pos, 4); pos += 2; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inQeB */
+    PutU16BE(gCmd + pos, TPM_ALG_ECDH); pos += 2; /* inScheme */
+    PutU16BE(gCmd + pos, 0); pos += 2; /* counter */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tZGen_2Phase(sign key) rejected:\tPassed\n");
+}
 #endif /* HAVE_ECC */
 
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
@@ -8416,6 +8504,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+    test_fwtpm_rewrap_null_newparent_rejected();
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
