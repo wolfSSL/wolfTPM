@@ -46,6 +46,7 @@
 
 #if !defined(NO_FILESYSTEM) && !defined(_WIN32)
     #include <sys/stat.h>
+    #include <unistd.h>
 #endif
 
 #define FWTPM_NV_KEY_SIZE       32
@@ -131,6 +132,11 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
     }
 
     ret = (int)fwrite(buf, 1, size, f);
+    /* Flush to stable storage so a crash cannot lose committed NV state */
+    fflush(f);
+#if !defined(_WIN32)
+    fsync(fileno(f));
+#endif
     fclose(f);
 
     if (ret != (int)size) {
