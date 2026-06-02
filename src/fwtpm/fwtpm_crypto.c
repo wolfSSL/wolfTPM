@@ -3875,6 +3875,12 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
     int digestSz;
     enum wc_HashType wcHash;
 
+    /* Attestation must be signed by a signing key (Part 3 Sec.18). Reject
+     * decrypt-only keys so a forged attestation cannot be produced. */
+    if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        return TPM_RC_KEY;
+    }
+
     /* Resolve scheme/hash from key if NULL */
     FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
 

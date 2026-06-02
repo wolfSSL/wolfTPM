@@ -7839,6 +7839,44 @@ static void test_fwtpm_quote_clockinfo_resetcount_nonzero(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tQuote clockInfo resetCount nonzero:\tPassed\n");
 }
+
+/* Attestation commands must reject a decrypt-only signing key. Certify
+ * exercises the shared FwSignAttest gate that also guards GetTime and
+ * NV_Certify. */
+static void test_fwtpm_certify_decrypt_key_returns_key(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    UINT32 keyH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC); /* restricted decrypt */
+    AssertIntNE(keyH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Certify); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4; /* objectHandle */
+    PutU32BE(gCmd + pos, keyH); pos += 4; /* signHandle */
+    PutU32BE(gCmd + pos, 18); pos += 4;   /* two PW auth sessions */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0);
+    pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2; gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0);
+    pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;            /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tCertify(decrypt key) rejected:\tPassed\n");
+}
 #endif /* HAVE_ECC */
 
 /* NV_Certify with size=0 and offset=0 must emit TPMS_NV_DIGEST_CERTIFY_INFO
@@ -7862,7 +7900,7 @@ static void test_fwtpm_nv_certify_digest_mode(void)
      * does not enforce sign attribute, so a restricted-decrypt key suffices
      * to exercise the attest-tag path under test). */
 #ifdef HAVE_ECC
-    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+    keyH = CreatePrimaryEccSignHelper(&ctx); /* attestation needs a sign key */
 #else
     keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
 #endif
@@ -9239,6 +9277,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_quote_unrestricted_sign_returns_attributes();
     test_fwtpm_sign_scheme_downgrade_rejected();
     test_fwtpm_quote_clockinfo_resetcount_nonzero();
+    test_fwtpm_certify_decrypt_key_returns_key();
 #endif
 #endif
 #endif
