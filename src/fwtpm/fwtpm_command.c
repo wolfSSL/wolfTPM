@@ -11441,6 +11441,11 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
         TPM2_Packet_ParseU32(cmd, &lockoutRecovery);
     }
 
+    /* newMaxTries of 0 would permanently disable lockout enforcement */
+    if (rc == 0 && newMaxTries == 0) {
+        rc = TPM_RC_VALUE;
+    }
+
     if (rc == 0 && lockHandle != TPM_RH_LOCKOUT) {
         rc = TPM_RC_HIERARCHY;
     }

@@ -8117,6 +8117,31 @@ static void test_fwtpm_da_parameters_and_reset(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("DA Parameters/LockReset:", 0);
 }
+
+/* newMaxTries=0 must be rejected: it would disable lockout permanently. */
+static void test_fwtpm_da_parameters_zero_maxtries_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_DictionaryAttackParameters); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 0); pos += 4;   /* newMaxTries = 0 */
+    PutU32BE(gCmd + pos, 60); pos += 4;
+    PutU32BE(gCmd + pos, 300); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tDA Parameters maxTries=0 rejected:\tPassed\n");
+}
 #endif /* !FWTPM_NO_DA */
 
 static void test_fwtpm_read_public(void)
@@ -8868,6 +8893,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_set_primary_policy_bad_size_rejected();
 #ifndef FWTPM_NO_DA
     test_fwtpm_da_parameters_and_reset();
+    test_fwtpm_da_parameters_zero_maxtries_rejected();
 #endif
 
     /* Policy */
