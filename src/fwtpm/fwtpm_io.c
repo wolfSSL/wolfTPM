@@ -436,7 +436,15 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, int clientFd)
         return TPM_RC_SUCCESS;
     }
 
-    /* Handle platform signals on command port */
+    /* State-mutating platform signals belong on the platform port, not the
+     * unauthenticated command port; reject them here. */
+    if (tssCmd == FWTPM_TCP_SIGNAL_POWER_OFF ||
+        tssCmd == FWTPM_TCP_SIGNAL_RESET ||
+        tssCmd == FWTPM_TCP_STOP) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Handle remaining (non state-mutating) platform signals on command port */
     if (IsMssimSignal(tssCmd)) {
         return HandleMssimSignal(ctx, clientFd, tssCmd);
     }
@@ -677,6 +685,12 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             SOCKET_T newFd = accept(ctx->io.listenFd, NULL, NULL);
             if (newFd != FWTPM_INVALID_FD) {
                 if (cmdFd != FWTPM_INVALID_FD) {
+                    /* Consume any select-confirmed in-flight command on the
+                     * old connection before dropping it, so a pending
+                     * request is not silently lost. */
+                    if (FD_ISSET(cmdFd, &readFds)) {
+                        HandleCommandConnection(ctx, cmdFd);
+                    }
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: command connection replaced\n");
                 #endif
