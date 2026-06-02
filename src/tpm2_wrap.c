@@ -4315,8 +4315,8 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         derSz = inSz;
     }
 
-    /* Handle DER Import */
-    if (keyType == TPM_ALG_RSA) {
+    /* Handle DER Import (skip if PEM-to-DER conversion above failed) */
+    if (rc == 0 && keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
         rc = wolfTPM2_DecodeRsaDer(derBuf, derSz, &key->pub, NULL,
             objectAttributes);
@@ -4324,7 +4324,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else if (keyType == TPM_ALG_ECC) {
+    else if (rc == 0 && keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
         rc = wolfTPM2_DecodeEccDer(derBuf, derSz, &key->pub, NULL,
             objectAttributes);
@@ -4386,15 +4386,15 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         derSz = inSz;
     }
 
-    /* Handle DER Import */
-    if (keyType == TPM_ALG_RSA) {
+    /* Handle DER Import (skip if PEM-to-DER conversion above failed) */
+    if (rc == 0 && keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
         rc = wolfTPM2_DecodeRsaDer(derBuf, derSz, pub, &sens, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else if (keyType == TPM_ALG_ECC) {
+    else if (rc == 0 && keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
         rc = wolfTPM2_DecodeEccDer(derBuf, derSz, pub, &sens, objectAttributes);
     #else
