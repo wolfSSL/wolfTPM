@@ -2806,6 +2806,9 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     changeIn.objectHandle = key->handle.hndl;
     changeIn.parentHandle = parent->hndl;
     if (auth) {
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         /* Note: returns error instead of truncating for security (v3.11+) */
         if (authSz > (int)sizeof(changeIn.newAuth.buffer)) {
             return BUFFER_E;
@@ -3022,6 +3025,9 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (auth) {
         TPM2B_AUTH* pAuth = &createLoadedIn.inSensitive.sensitive.userAuth;
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         if (nameAlgDigestSz > 0) {
             if (authSz > nameAlgDigestSz) {
                 authSz = nameAlgDigestSz;
@@ -9047,6 +9053,9 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     createIn.parentHandle = parent->hndl;
     if (auth) {
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         if (authSz > (int)sizeof(pAuth->buffer)) {
             return BUFFER_E;
         }
