@@ -2227,7 +2227,10 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* New time must be >= current (can only advance) */
     if (rc == 0) {
         UINT64 currentTime = FWTPM_Clock_GetMs(ctx);
-        if (newTime < currentTime) {
+        /* Clock may move forward but at most 2^32-1 ms per call (Part 1
+         * Sec.17.5.3); reject a far-future value that would freeze it. */
+        if (newTime < currentTime ||
+                newTime > currentTime + ((UINT64)1 << 32)) {
             rc = TPM_RC_VALUE;
         }
     }
@@ -7622,8 +7625,17 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Extend the result into the PCR */
     if (rc == 0 && pcrHandle <= PCR_LAST) {
         pcrIndex = pcrHandle - PCR_FIRST;
+        /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
+         * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
+        if (pcrIndex == 17 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
+        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
+                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+            rc = TPM_RC_LOCALITY;
+        }
         bank = FwGetPcrBankIndex(seqHashAlg);
-        if (bank >= 0 && digestSz > 0) {
+        if (rc == 0 && bank >= 0 && digestSz > 0) {
             wcHash = FwGetWcHashType(seqHashAlg);
             XMEMCPY(concat, ctx->pcrDigest[pcrIndex][bank], digestSz);
             XMEMCPY(concat + digestSz, digest, digestSz);
