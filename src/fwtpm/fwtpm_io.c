@@ -293,14 +293,10 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, int clientFd)
 static int HandleMssimSignal(FWTPM_CTX* ctx, int clientFd, UINT32 tssCmd)
 {
     UINT32 netVal;
+    /* State-mutating signals (POWER_OFF/RESET) are rejected before reaching
+     * here on the command port; only POWER_ON is handled. */
     if (tssCmd == FWTPM_TCP_SIGNAL_POWER_ON)
         ctx->powerOn = 1;
-    else if (tssCmd == FWTPM_TCP_SIGNAL_POWER_OFF) {
-        ctx->powerOn = 0;
-        ctx->wasStarted = 0;
-    }
-    else if (tssCmd == FWTPM_TCP_SIGNAL_RESET)
-        ctx->wasStarted = 0;
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: Cmd-port signal %u (ack)\n", tssCmd);
 #endif
