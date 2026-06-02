@@ -47,6 +47,7 @@
 #if !defined(NO_FILESYSTEM) && !defined(_WIN32)
     #include <sys/stat.h>
     #include <unistd.h>
+    #include <fcntl.h>
 #endif
 
 #define FWTPM_NV_KEY_SIZE       32
@@ -681,6 +682,10 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
     size_t nvLen;
     FILE* f;
     int ok = 0;
+#if !defined(_WIN32)
+    int kfd;
+    int kflags = O_CREAT | O_EXCL | O_WRONLY;
+#endif
 
     if (nvPath == NULL) {
         return 0;
@@ -701,15 +706,26 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
         if (wc_RNG_GenerateBlock(&ctx->rng, key, FWTPM_NV_KEY_SIZE) != 0) {
             return 0;
         }
+    #if !defined(_WIN32)
+        /* O_EXCL prevents a pre-creation race; O_NOFOLLOW blocks a symlink
+         * swap to an attacker-chosen target. */
+        #ifdef O_NOFOLLOW
+        kflags |= O_NOFOLLOW;
+        #endif
+        kfd = open(keyPath, kflags, S_IRUSR | S_IWUSR);
+        if (kfd >= 0) {
+            ok = (write(kfd, key, FWTPM_NV_KEY_SIZE) ==
+                (ssize_t)FWTPM_NV_KEY_SIZE);
+            close(kfd);
+        }
+    #else
         f = fopen(keyPath, "wb");
         if (f != NULL) {
             ok = ((int)fwrite(key, 1, FWTPM_NV_KEY_SIZE, f)
                 == FWTPM_NV_KEY_SIZE);
             fclose(f);
-        #if !defined(_WIN32)
-            chmod(keyPath, S_IRUSR | S_IWUSR);
-        #endif
         }
+    #endif
     }
     if (ok) {
         *keySz = FWTPM_NV_KEY_SIZE;
