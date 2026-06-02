@@ -8077,6 +8077,13 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (keyObj == NULL) {
             rc = TPM_RC_HANDLE;
         }
+        /* tpmKey must be a restricted decryption key (Part 1 Sec.11.2.2);
+         * a signing-only key would let an attacker derive the session key. */
+        if (rc == 0 &&
+            (!(keyObj->pub.objectAttributes & TPMA_OBJECT_decrypt) ||
+             !(keyObj->pub.objectAttributes & TPMA_OBJECT_restricted))) {
+            rc = TPM_RC_KEY;
+        }
         if (rc == 0) {
             rc = FwDecryptSeed(ctx, keyObj,
                 encSalt, encSaltSize,
@@ -11677,6 +11684,11 @@ static TPM_RC FwEncryptDecryptCore(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* If mode is NULL, use the key's default mode */
     if (rc == 0 && mode == TPM_ALG_NULL) {
         mode = obj->pub.parameters.symDetail.sym.mode.sym;
+    }
+    /* A non-NULL wire mode must match the key's configured mode; otherwise
+     * e.g. ECB could be applied to a CFB key (Part 3 Sec.12.6.1). */
+    else if (rc == 0 && mode != obj->pub.parameters.symDetail.sym.mode.sym) {
+        rc = TPM_RC_MODE;
     }
 
 #ifdef DEBUG_WOLFTPM
