@@ -15541,9 +15541,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
 #ifndef FWTPM_NO_PARAM_ENC
                             /* Detect encryption session (first non-PW with
-                             * symmetric alg) */
+                             * symmetric alg). A session with an empty
+                             * sessionKey (unsalted and unbound) derives a
+                             * wire-observable key, so it must not be used
+                             * for parameter encryption. */
                             if (encSess == NULL &&
-                                sess->symmetric.algorithm != TPM_ALG_NULL) {
+                                sess->symmetric.algorithm != TPM_ALG_NULL &&
+                                sess->sessionKey.size > 0) {
                                 encSess = sess;
                                 /* decrypt attr = client encrypted cmd param */
                                 if ((attribs & TPMA_SESSION_decrypt)
