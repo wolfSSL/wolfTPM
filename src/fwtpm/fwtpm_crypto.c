@@ -2234,7 +2234,7 @@ static int FwHmacUpdateU64(Hmac* hmac, UINT64 v)
 /* Encrypt-then-MAC context blob protection using the per-boot key.
  * Layout: iv(16) | ciphertext(plainSz) | hmac(32)
  * Returns 0 on success, sets *outSz. */
-int FwWrapContextBlob(FWTPM_CTX* ctx,
+int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* plain, int plainSz,
     byte* out, int outBufSz, int* outSz)
 {
@@ -2284,7 +2284,7 @@ int FwWrapContextBlob(FWTPM_CTX* ctx,
         rc = wc_HmacUpdate(hmac, out, AES_BLOCK_SIZE + plainSz);
     }
     if (rc == 0) {
-        rc = FwHmacUpdateU64(hmac, ctx->contextSeqCounter);
+        rc = FwHmacUpdateU64(hmac, seq);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, out + AES_BLOCK_SIZE + plainSz);
@@ -2306,7 +2306,7 @@ int FwWrapContextBlob(FWTPM_CTX* ctx,
 }
 
 /* Verify-then-decrypt context blob. Returns 0 on success, sets *outSz. */
-int FwUnwrapContextBlob(FWTPM_CTX* ctx,
+int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* in, int inSz,
     byte* out, int outBufSz, int* outSz)
 {
@@ -2344,7 +2344,7 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx,
         rc = wc_HmacUpdate(hmac, in, AES_BLOCK_SIZE + cipherSz);
     }
     if (rc == 0) {
-        rc = FwHmacUpdateU64(hmac, ctx->contextSeqCounter);
+        rc = FwHmacUpdateU64(hmac, seq);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, computedHmac);

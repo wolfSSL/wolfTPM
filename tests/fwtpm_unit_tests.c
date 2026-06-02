@@ -8672,9 +8672,10 @@ static void test_fwtpm_context_save(void)
 static void test_fwtpm_context_load_replay_rejected(void)
 {
     FWTPM_CTX ctx;
-    int rspSize = 0, ctxSz, pos;
+    int rspSize = 0, ctxSzA, ctxSzB, pos;
     UINT32 keyH;
-    byte savedCtx[512];
+    byte savedCtxA[512];
+    byte savedCtxB[512];
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -8685,33 +8686,50 @@ static void test_fwtpm_context_load_replay_rejected(void)
 #endif
     AssertIntNE(keyH, 0);
 
+    /* Save context A, then save context B while A is still outstanding */
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
     PutU32BE(gCmd + 10, keyH);
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    ctxSz = rspSize - TPM2_HEADER_SIZE; /* TPMS_CONTEXT follows the header */
-    AssertIntGT(ctxSz, 0);
-    memcpy(savedCtx, gRsp + TPM2_HEADER_SIZE, ctxSz);
+    ctxSzA = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSzA, 0);
+    memcpy(savedCtxA, gRsp + TPM2_HEADER_SIZE, ctxSzA);
 
-    /* First load succeeds */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSzB = rspSize - TPM2_HEADER_SIZE;
+    memcpy(savedCtxB, gRsp + TPM2_HEADER_SIZE, ctxSzB);
+
+    /* Load A first (older blob, B still outstanding) — must succeed */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
-    memcpy(gCmd + pos, savedCtx, ctxSz); pos += ctxSz;
+    memcpy(gCmd + pos, savedCtxA, ctxSzA); pos += ctxSzA;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    /* Replaying the identical blob is rejected */
+    /* Replaying A is rejected (single-use) */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
-    memcpy(gCmd + pos, savedCtx, ctxSz); pos += ctxSz;
+    memcpy(gCmd + pos, savedCtxA, ctxSzA); pos += ctxSzA;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
+    /* B is still loadable after A was consumed (any-order multi-context) */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedCtxB, ctxSzB); pos += ctxSzB;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tContextLoad replay rejected:\tPassed\n");
+    printf("Test fwTPM:\tContextLoad replay + multi-context:\tPassed\n");
 }
 
 /* When the command client changes, transient objects must be flushed so a

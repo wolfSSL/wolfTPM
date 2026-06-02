@@ -722,6 +722,10 @@ typedef struct FWTPM_CTX {
 
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;
+    /* Live (saved-but-not-yet-loaded) context sequences. A context loads at
+     * most once and saved contexts may load in any order. */
+    UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
+    int contextLiveCount;
 
     /* Set once TPM2_SelfTest has completed successfully */
     int selfTestRun;

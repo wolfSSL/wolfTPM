@@ -703,6 +703,8 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
             ctx->globalNvWriteLock = 0;
+            /* Saved contexts are invalidated by TPM Reset */
+            ctx->contextLiveCount = 0;
 #ifdef HAVE_ECC
             ctx->ecEphemeralCounter = 0;
             ctx->ecEphemeralKeySz = 0;
@@ -3041,6 +3043,11 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         /* TPMS_CONTEXT: sequence(8) | savedHandle(4) | hierarchy(4) | blob */
         ctx->contextSeqCounter++;
+        /* Record this context as live so it loads at most once, in any order */
+        if (ctx->contextLiveCount < (int)(sizeof(ctx->contextLive) /
+                sizeof(ctx->contextLive[0]))) {
+            ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
+        }
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
         seqLo = (UINT32)(ctx->contextSeqCounter & 0xFFFFFFFFu);
         TPM2_Packet_AppendU32(rsp, seqHi);
@@ -3054,8 +3061,8 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             byte wrappedBuf[AES_BLOCK_SIZE + sizeof(FWTPM_Session) +
                 WC_SHA256_DIGEST_SIZE];
             int wrappedSz = 0;
-            rc = FwWrapContextBlob(ctx, (const byte*)sess,
-                (int)sizeof(FWTPM_Session),
+            rc = FwWrapContextBlob(ctx, ctx->contextSeqCounter,
+                (const byte*)sess, (int)sizeof(FWTPM_Session),
                 wrappedBuf, (int)sizeof(wrappedBuf), &wrappedSz);
             if (rc == 0) {
                 blobSz = 4 + 4 + (UINT16)wrappedSz;
@@ -3104,6 +3111,9 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 seqHi, seqLo, savedHandle, hierarchy;
     UINT16 blobSz = 0;
     UINT32 magic = 0, version = 0;
+    UINT64 loadSeq = 0;
+    int liveIdx = -1;
+    int liveScan;
 
     (void)cmdTag;
     (void)hierarchy;
@@ -3120,11 +3130,20 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &blobSz);
     }
 
-    /* Replay protection: a saved context is bound to the sequence counter
-     * value it was created with, and each successful load consumes it. */
-    if (rc == 0 &&
-            (((UINT64)seqHi << 32) | (UINT64)seqLo) != ctx->contextSeqCounter) {
-        rc = TPM_RC_INTEGRITY;
+    /* Replay protection: the context must be a live (saved, not-yet-loaded)
+     * sequence. A load consumes it; independent saved contexts may load in
+     * any order. */
+    if (rc == 0) {
+        loadSeq = ((UINT64)seqHi << 32) | (UINT64)seqLo;
+        for (liveScan = 0; liveScan < ctx->contextLiveCount; liveScan++) {
+            if (ctx->contextLive[liveScan] == loadSeq) {
+                liveIdx = liveScan;
+                break;
+            }
+        }
+        if (liveIdx < 0) {
+            rc = TPM_RC_INTEGRITY;
+        }
     }
 
     /* Validate minimum blob size (magic + version = 8 bytes) */
@@ -3164,7 +3183,7 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 byte wrappedBuf[AES_BLOCK_SIZE + sizeof(FWTPM_Session) +
                     WC_SHA256_DIGEST_SIZE];
                 TPM2_Packet_ParseBytes(cmd, wrappedBuf, (int)dataLen);
-                rc = FwUnwrapContextBlob(ctx, wrappedBuf, (int)dataLen,
+                rc = FwUnwrapContextBlob(ctx, loadSeq, wrappedBuf, (int)dataLen,
                     (byte*)&restored, (int)sizeof(restored), &restoredSz);
                 TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
                 if (rc != 0) {
@@ -3225,8 +3244,14 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: ContextLoad(handle=0x%x)\n", savedHandle);
     #endif
-        /* Consume this sequence value so the same blob cannot be replayed */
-        ctx->contextSeqCounter++;
+        /* Consume the sequence so this blob cannot be replayed */
+        if (liveIdx >= 0 && liveIdx < ctx->contextLiveCount) {
+            for (liveScan = liveIdx; liveScan < ctx->contextLiveCount - 1;
+                    liveScan++) {
+                ctx->contextLive[liveScan] = ctx->contextLive[liveScan + 1];
+            }
+            ctx->contextLiveCount--;
+        }
         TPM2_Packet_AppendU32(rsp, savedHandle);
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
