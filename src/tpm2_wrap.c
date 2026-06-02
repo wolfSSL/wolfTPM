@@ -2705,8 +2705,10 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
          * primary keys and may differ from other TPM stacks that accept
          * shorter auth values as-is. */
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it,
+             * consistent with wolfTPM2_CreateKey */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(createPriAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
@@ -3030,8 +3032,10 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
             return BAD_FUNC_ARG;
         }
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it,
+             * consistent with wolfTPM2_CreateKey */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(pAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
