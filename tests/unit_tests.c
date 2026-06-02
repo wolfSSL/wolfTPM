@@ -1036,6 +1036,19 @@ static void test_TPM2_HmacCompute(void)
         digest, digestSz);
     AssertIntEQ(TPM_RC_INTEGRITY, rc);
 
+    /* A truncated (short) expected HMAC must be rejected on the length check */
+    rc = TPM2_HmacVerify(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        hmacExp, sizeof(hmacExp) - 1);
+    AssertIntEQ(TPM_RC_INTEGRITY, rc);
+
+    /* An output buffer smaller than the digest must be rejected */
+    digestSz = 31;
+    rc = TPM2_HmacCompute(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        digest, &digestSz);
+    AssertIntEQ(BUFFER_E, rc);
+
     printf("Test TPM Wrapper: %-40s Passed\n", "HmacCompute:");
 #else
     printf("Test TPM Wrapper: %-40s Skipped\n", "HmacCompute:");
