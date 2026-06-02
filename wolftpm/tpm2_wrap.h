@@ -1276,10 +1276,16 @@ WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey(WOLFTPM2_DEV* dev,
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
     \param hashAlg value of TPMI_ALG_HASH type, specifying the TPM hashing algorithm
 
+    \warning If key->handle.auth is empty the key is loaded with empty
+    authorization and any caller holding the handle can use it. Set
+    key->handle.auth (e.g. via wolfTPM2_SetKeyAuthPassword) before loading
+    to require a password.
+
     \sa wolfTPM2_LoadRsaPrivateKey
     \sa wolfTPM2_LoadPrivateKey
     \sa wolfTPM2_ImportRsaPrivateKey
     \sa wolfTPM2_LoadEccPrivateKey
+    \sa wolfTPM2_SetKeyAuthPassword
 */
 WOLFTPM_API int wolfTPM2_LoadRsaPrivateKey_ex(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
@@ -1434,9 +1440,15 @@ WOLFTPM_API int wolfTPM2_ImportEccPrivateKeySeed(WOLFTPM2_DEV* dev,
     \param eccPriv pointer to a byte buffer containing the private material
     \param eccPrivSz integer value of word32 type, specifying the private material size
 
+    \warning If key->handle.auth is empty the key is loaded with empty
+    authorization and any caller holding the handle can use it. Set
+    key->handle.auth (e.g. via wolfTPM2_SetKeyAuthPassword) before loading
+    to require a password.
+
     \sa wolfTPM2_ImportEccPrivateKey
     \sa wolfTPM2_LoadEccPublicKey
     \sa wolfTPM2_LoadPrivateKey
+    \sa wolfTPM2_SetKeyAuthPassword
 */
 WOLFTPM_API int wolfTPM2_LoadEccPrivateKey(WOLFTPM2_DEV* dev,
     const WOLFTPM2_KEY* parentKey, WOLFTPM2_KEY* key,
@@ -3270,8 +3282,14 @@ WOLFTPM_API int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     \param keyBuf pointer to key material
     \param keySz size of key material in bytes
 
+    \warning If key->handle.auth is empty the key is loaded with empty
+    authorization and any caller holding the handle can use it. Set
+    key->handle.auth (e.g. via wolfTPM2_SetKeyAuthPassword) before loading
+    to require a password.
+
     \sa wolfTPM2_EncryptDecryptBlock
     \sa wolfTPM2_EncryptDecrypt
+    \sa wolfTPM2_SetKeyAuthPassword
 */
 WOLFTPM_API int wolfTPM2_LoadSymmetricKey(WOLFTPM2_DEV* dev,
     WOLFTPM2_KEY* key, int alg, const byte* keyBuf, word32 keySz);
