@@ -3930,6 +3930,7 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
 /* Derive AES symmetric key ("STORAGE") and HMAC key ("INTEGRITY") from seed.
  * Per TPM 2.0 Part 1 Section 24. */
 TPM_RC FwCredentialDeriveKeys(
+    TPMI_ALG_HASH nameAlg,
     const byte* seed, int seedSz,
     const byte* name, int nameSz,
     byte* symKey, int symKeySz,
@@ -3937,12 +3938,14 @@ TPM_RC FwCredentialDeriveKeys(
 {
     int kdfRc;
 
-    kdfRc = TPM2_KDFa_ex(TPM_ALG_SHA256, seed, seedSz,
+    /* Derive under the credentialed key's nameAlg, not a hardcoded SHA-256,
+     * so a SHA-384 EK is not silently downgraded. */
+    kdfRc = TPM2_KDFa_ex(nameAlg, seed, seedSz,
         "STORAGE", name, nameSz, NULL, 0, symKey, symKeySz);
     if (kdfRc != symKeySz) {
         return TPM_RC_FAILURE;
     }
-    kdfRc = TPM2_KDFa_ex(TPM_ALG_SHA256, seed, seedSz,
+    kdfRc = TPM2_KDFa_ex(nameAlg, seed, seedSz,
         "INTEGRITY", NULL, 0, NULL, 0, hmacKey, hmacKeySz);
     if (kdfRc != hmacKeySz) {
         TPM2_ForceZero(symKey, symKeySz);

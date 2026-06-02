@@ -12784,7 +12784,7 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     /* Derive symmetric and HMAC keys from seed */
     if (rc == 0) {
-        rc = FwCredentialDeriveKeys(seed, seedSz,
+        rc = FwCredentialDeriveKeys(keyObj->pub.nameAlg, seed, seedSz,
             objectName.name, objectName.size,
             symKey, (int)sizeof(symKey),
             hmacKey, (int)sizeof(hmacKey));
@@ -12980,7 +12980,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Derive symmetric and HMAC keys from seed */
     if (rc == 0) {
         objName = &activateObj->name;
-        rc = FwCredentialDeriveKeys(seed, seedSzInt,
+        rc = FwCredentialDeriveKeys(keyObj->pub.nameAlg, seed, seedSzInt,
             objName->name, objName->size,
             symKey, (int)sizeof(symKey),
             hmacKey, (int)sizeof(hmacKey));

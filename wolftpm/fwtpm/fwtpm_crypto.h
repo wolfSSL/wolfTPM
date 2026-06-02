@@ -352,6 +352,7 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
 
 #ifndef FWTPM_NO_CREDENTIAL
 TPM_RC FwCredentialDeriveKeys(
+    TPMI_ALG_HASH nameAlg,
     const byte* seed, int seedSz,
     const byte* name, int nameSz,
     byte* symKey, int symKeySz,
