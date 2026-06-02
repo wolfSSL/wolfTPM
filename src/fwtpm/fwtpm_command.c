@@ -13433,9 +13433,12 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(z1yBuf, sizeof(z1yBuf));
     TPM2_ForceZero(z2xBuf, sizeof(z2xBuf));
     TPM2_ForceZero(z2yBuf, sizeof(z2yBuf));
-    /* Zero ephemeral key — it was consumed and must not be reused */
-    TPM2_ForceZero(ctx->ecEphemeralKey, sizeof(ctx->ecEphemeralKey));
-    ctx->ecEphemeralKeySz = 0;
+    /* Only consume the ephemeral on success; an error path must not let an
+     * unauthenticated caller destroy a victim's pending ephemeral. */
+    if (rc == 0) {
+        TPM2_ForceZero(ctx->ecEphemeralKey, sizeof(ctx->ecEphemeralKey));
+        ctx->ecEphemeralKeySz = 0;
+    }
     if (privAInit) wc_ecc_free(privKeyA);
     if (ephInit) wc_ecc_free(privEph);
     if (peerInit) wc_ecc_free(peerPub);
