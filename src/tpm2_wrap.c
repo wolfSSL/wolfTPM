@@ -2706,8 +2706,10 @@ int wolfTPM2_CreatePrimaryKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_PKEY* pkey,
          * primary keys and may differ from other TPM stacks that accept
          * shorter auth values as-is. */
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it,
+             * consistent with wolfTPM2_CreateKey */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(createPriAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
@@ -2807,6 +2809,9 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     changeIn.objectHandle = key->handle.hndl;
     changeIn.parentHandle = parent->hndl;
     if (auth) {
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         /* Note: returns error instead of truncating for security (v3.11+) */
         if (authSz > (int)sizeof(changeIn.newAuth.buffer)) {
             return BUFFER_E;
@@ -2871,7 +2876,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     Create_Out createOut;
 
     if (dev == NULL || keyBlob == NULL || parent == NULL ||
-            publicTemplate == NULL) {
+            publicTemplate == NULL || authSz < 0) {
         return BAD_FUNC_ARG;
     }
 
@@ -2888,8 +2893,9 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(pAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
@@ -3023,9 +3029,14 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     if (auth) {
         TPM2B_AUTH* pAuth = &createLoadedIn.inSensitive.sensitive.userAuth;
         int nameAlgDigestSz = TPM2_GetHashDigestSize(publicTemplate->nameAlg);
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         if (nameAlgDigestSz > 0) {
+            /* Reject oversized auth rather than silently truncating it,
+             * consistent with wolfTPM2_CreateKey */
             if (authSz > nameAlgDigestSz) {
-                authSz = nameAlgDigestSz;
+                return BUFFER_E;
             }
             XMEMCPY(pAuth->buffer, auth, authSz);
             if (authSz < nameAlgDigestSz) {
@@ -4309,8 +4320,8 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         derSz = inSz;
     }
 
-    /* Handle DER Import */
-    if (keyType == TPM_ALG_RSA) {
+    /* Handle DER Import (skip if PEM-to-DER conversion above failed) */
+    if (rc == 0 && keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
         rc = wolfTPM2_DecodeRsaDer(derBuf, derSz, &key->pub, NULL,
             objectAttributes);
@@ -4318,7 +4329,7 @@ int wolfTPM2_ImportPublicKeyBuffer(WOLFTPM2_DEV* dev, int keyType,
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else if (keyType == TPM_ALG_ECC) {
+    else if (rc == 0 && keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
         rc = wolfTPM2_DecodeEccDer(derBuf, derSz, &key->pub, NULL,
             objectAttributes);
@@ -4380,15 +4391,15 @@ int wolfTPM2_ImportPrivateKeyBuffer(WOLFTPM2_DEV* dev,
         derSz = inSz;
     }
 
-    /* Handle DER Import */
-    if (keyType == TPM_ALG_RSA) {
+    /* Handle DER Import (skip if PEM-to-DER conversion above failed) */
+    if (rc == 0 && keyType == TPM_ALG_RSA) {
     #ifndef NO_RSA
         rc = wolfTPM2_DecodeRsaDer(derBuf, derSz, pub, &sens, objectAttributes);
     #else
         rc = NOT_COMPILED_IN;
     #endif
     }
-    else if (keyType == TPM_ALG_ECC) {
+    else if (rc == 0 && keyType == TPM_ALG_ECC) {
     #ifdef HAVE_ECC
         rc = wolfTPM2_DecodeEccDer(derBuf, derSz, pub, &sens, objectAttributes);
     #else
@@ -9048,6 +9059,9 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     createIn.parentHandle = parent->hndl;
     if (auth) {
         TPM2B_AUTH* pAuth = &createIn.inSensitive.sensitive.userAuth;
+        if (authSz < 0) {
+            return BAD_FUNC_ARG;
+        }
         if (authSz > (int)sizeof(pAuth->buffer)) {
             return BUFFER_E;
         }

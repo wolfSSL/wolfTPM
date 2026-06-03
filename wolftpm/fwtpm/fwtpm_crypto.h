@@ -255,10 +255,10 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 
 /* --- Context blob wrap/unwrap (ContextSave/Load) --- */
 
-int FwWrapContextBlob(FWTPM_CTX* ctx,
+int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* plain, int plainSz,
     byte* out, int outBufSz, int* outSz);
-int FwUnwrapContextBlob(FWTPM_CTX* ctx,
+int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* in, int inSz,
     byte* out, int outBufSz, int* outSz);
 
@@ -352,6 +352,7 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
 
 #ifndef FWTPM_NO_CREDENTIAL
 TPM_RC FwCredentialDeriveKeys(
+    TPMI_ALG_HASH nameAlg,
     const byte* seed, int seedSz,
     const byte* name, int nameSz,
     byte* symKey, int symKeySz,

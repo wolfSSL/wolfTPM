@@ -297,14 +297,10 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, int clientFd)
 static int HandleMssimSignal(FWTPM_CTX* ctx, int clientFd, UINT32 tssCmd)
 {
     UINT32 netVal;
+    /* State-mutating signals (POWER_OFF/RESET) are rejected before reaching
+     * here on the command port; only POWER_ON is handled. */
     if (tssCmd == FWTPM_TCP_SIGNAL_POWER_ON)
         ctx->powerOn = 1;
-    else if (tssCmd == FWTPM_TCP_SIGNAL_POWER_OFF) {
-        ctx->powerOn = 0;
-        ctx->wasStarted = 0;
-    }
-    else if (tssCmd == FWTPM_TCP_SIGNAL_RESET)
-        ctx->wasStarted = 0;
 #ifdef DEBUG_WOLFTPM
     printf("fwTPM: Cmd-port signal %u (ack)\n", tssCmd);
 #endif
@@ -493,7 +489,15 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, int clientFd)
         return TPM_RC_SUCCESS;
     }
 
-    /* Handle platform signals on command port */
+    /* State-mutating platform signals belong on the platform port, not the
+     * unauthenticated command port; reject them here. */
+    if (tssCmd == FWTPM_TCP_SIGNAL_POWER_OFF ||
+        tssCmd == FWTPM_TCP_SIGNAL_RESET ||
+        tssCmd == FWTPM_TCP_STOP) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Handle remaining (non state-mutating) platform signals on command port */
     if (IsMssimSignal(tssCmd)) {
         return HandleMssimSignal(ctx, clientFd, tssCmd);
     }
@@ -734,6 +738,12 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             SOCKET_T newFd = accept(ctx->io.listenFd, NULL, NULL);
             if (newFd != FWTPM_INVALID_FD) {
                 if (cmdFd != FWTPM_INVALID_FD) {
+                    /* Consume any select-confirmed in-flight command on the
+                     * old connection before dropping it, so a pending
+                     * request is not silently lost. */
+                    if (FD_ISSET(cmdFd, &readFds)) {
+                        HandleCommandConnection(ctx, cmdFd);
+                    }
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: command connection replaced\n");
                 #endif
@@ -756,6 +766,9 @@ int FWTPM_IO_ServerLoop(FWTPM_CTX* ctx)
             if (HandleCommandConnection(ctx, cmdFd) != TPM_RC_SUCCESS) {
                 CloseSocket(cmdFd);
                 cmdFd = FWTPM_INVALID_FD;
+                /* Transient state persists across command connections: the
+                 * mssim transport reconnects per command for one logical TPM,
+                 * so a clean disconnect must not flush handles. */
             }
         }
     }

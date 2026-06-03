@@ -522,10 +522,12 @@ flush_transient
 run_test "createprimary for attestation" \
     tpm2_createprimary -C o -g sha256 -G rsa -c "$TEST_TMPDIR/att_primary.ctx"
 
-# Create child AIK for signing
+# Create child AIK for signing. Quote requires a restricted signing key
+# (TPM 2.0 Part 3 Sec.18.4), so set the canonical attestation-key attributes.
 run_test "create AIK (RSA signing key)" \
     tpm2_create -C "$TEST_TMPDIR/att_primary.ctx" \
         -g sha256 -G rsa:rsassa:null \
+        -a "fixedtpm|fixedparent|sensitivedataorigin|userwithauth|restricted|sign" \
         -u "$TEST_TMPDIR/aik.pub" -r "$TEST_TMPDIR/aik.priv"
 
 run_test "load AIK" \

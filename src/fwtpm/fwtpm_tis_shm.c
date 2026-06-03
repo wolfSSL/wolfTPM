@@ -46,6 +46,7 @@
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 #include <sys/mman.h>
@@ -68,6 +69,7 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
 {
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
     int fd;
+    struct stat shmStat;
     /* Threat model: fwtpm_server is a dev/test tool and is NOT intended to
      * run setuid or as a privileged daemon. O_NOFOLLOW + mode 0600 is
      * sufficient for non-privileged execution. We intentionally avoid
@@ -87,6 +89,16 @@ static int TisShmInit(void* ctx, FWTPM_TIS_REGS** regs)
     if (fd < 0) {
         fprintf(stderr, "fwTPM TIS: open(%s) failed: %d (%s)\n",
             FWTPM_TIS_SHM_PATH, errno, strerror(errno));
+        return -1;
+    }
+
+    /* A pre-existing file may carry attacker-controlled ownership or
+     * permissions; require our own UID and force 0600 (O_CREAT without
+     * O_EXCL cannot prevent the pre-creation race on its own). */
+    if (fstat(fd, &shmStat) != 0 || shmStat.st_uid != getuid() ||
+            fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        fprintf(stderr, "fwTPM TIS: shm ownership/permission check failed\n");
+        close(fd);
         return -1;
     }
 

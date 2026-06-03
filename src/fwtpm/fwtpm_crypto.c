@@ -2219,10 +2219,22 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 /* Context blob wrap/unwrap (ContextSave/ContextLoad)                  */
 /* ================================================================== */
 
+/* Fold a 64-bit value into an HMAC as big-endian, used to bind the context
+ * sequence counter into the blob MAC for replay protection. */
+static int FwHmacUpdateU64(Hmac* hmac, UINT64 v)
+{
+    byte b[8];
+    int i;
+    for (i = 0; i < 8; i++) {
+        b[i] = (byte)(v >> (56 - 8 * i));
+    }
+    return wc_HmacUpdate(hmac, b, (word32)sizeof(b));
+}
+
 /* Encrypt-then-MAC context blob protection using the per-boot key.
  * Layout: iv(16) | ciphertext(plainSz) | hmac(32)
  * Returns 0 on success, sets *outSz. */
-int FwWrapContextBlob(FWTPM_CTX* ctx,
+int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* plain, int plainSz,
     byte* out, int outBufSz, int* outSz)
 {
@@ -2272,6 +2284,9 @@ int FwWrapContextBlob(FWTPM_CTX* ctx,
         rc = wc_HmacUpdate(hmac, out, AES_BLOCK_SIZE + plainSz);
     }
     if (rc == 0) {
+        rc = FwHmacUpdateU64(hmac, seq);
+    }
+    if (rc == 0) {
         rc = wc_HmacFinal(hmac, out + AES_BLOCK_SIZE + plainSz);
     }
     wc_HmacFree(hmac);
@@ -2291,7 +2306,7 @@ int FwWrapContextBlob(FWTPM_CTX* ctx,
 }
 
 /* Verify-then-decrypt context blob. Returns 0 on success, sets *outSz. */
-int FwUnwrapContextBlob(FWTPM_CTX* ctx,
+int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq,
     const byte* in, int inSz,
     byte* out, int outBufSz, int* outSz)
 {
@@ -2327,6 +2342,9 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx,
     }
     if (rc == 0) {
         rc = wc_HmacUpdate(hmac, in, AES_BLOCK_SIZE + cipherSz);
+    }
+    if (rc == 0) {
+        rc = FwHmacUpdateU64(hmac, seq);
     }
     if (rc == 0) {
         rc = wc_HmacFinal(hmac, computedHmac);
@@ -3611,6 +3629,26 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                     rsaInit = 1;
             }
 
+            /* A key with a fixed scheme must not verify a signature made
+             * under a different scheme (e.g. RSASSA vs RSAPSS) or a different
+             * (e.g. downgraded) hash (Part 3 Sec.20.2). */
+            if (rc == 0 &&
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
+                if (sig->sigAlg !=
+                        obj->pub.parameters.rsaDetail.scheme.scheme) {
+                    rc = TPM_RC_SCHEME;
+                }
+                else if (sig->signature.rsassa.hash !=
+                        obj->pub.parameters.rsaDetail.scheme.details
+                            .anySig.hashAlg) {
+                    rc = TPM_RC_SCHEME;
+                }
+            }
+            if (rc == 0 && digestSz !=
+                    TPM2_GetHashDigestSize(sig->signature.rsassa.hash)) {
+                rc = TPM_RC_SIZE;
+            }
+
             if (rc == 0) {
                 if (pad == WC_RSA_PSS_PAD) {
                     FWTPM_DECLARE_BUF(decSig, FWTPM_MAX_PUB_BUF);
@@ -3790,19 +3828,28 @@ int FwComputeNvName(FWTPM_NvIndex* nv, byte* buf, UINT16* sz)
 void FwResolveSignScheme(FWTPM_Object* obj, UINT16* sigScheme,
     UINT16* sigHashAlg)
 {
-    if (*sigScheme == TPM_ALG_NULL) {
-        if (obj->pub.type == TPM_ALG_RSA) {
-            *sigScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
-            *sigHashAlg = obj->pub.parameters.rsaDetail.scheme.details
-                .anySig.hashAlg;
-        }
-        else if (obj->pub.type == TPM_ALG_ECC) {
-            *sigScheme = obj->pub.parameters.eccDetail.scheme.scheme;
-            *sigHashAlg = obj->pub.parameters.eccDetail.scheme.details
-                .any.hashAlg;
-        }
+    UINT16 keyScheme = TPM_ALG_NULL;
+    UINT16 keyHashAlg = TPM_ALG_NULL;
+
+    if (obj->pub.type == TPM_ALG_RSA) {
+        keyScheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.rsaDetail.scheme.details
+            .anySig.hashAlg;
     }
-    if (*sigScheme == TPM_ALG_NULL) {
+    else if (obj->pub.type == TPM_ALG_ECC) {
+        keyScheme = obj->pub.parameters.eccDetail.scheme.scheme;
+        keyHashAlg = obj->pub.parameters.eccDetail.scheme.details
+            .any.hashAlg;
+    }
+
+    /* A key that mandates a scheme overrides any wire-supplied scheme and
+     * hash. Honoring a differing wire pair would let an attacker downgrade
+     * a restricted SHA-256 attestation key to e.g. SHA-1. */
+    if (keyScheme != TPM_ALG_NULL) {
+        *sigScheme = keyScheme;
+        *sigHashAlg = keyHashAlg;
+    }
+    else if (*sigScheme == TPM_ALG_NULL) {
         *sigScheme = (obj->pub.type == TPM_ALG_RSA) ?
             TPM_ALG_RSASSA : TPM_ALG_ECDSA;
     }
@@ -3848,6 +3895,12 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
     int digestSz;
     enum wc_HashType wcHash;
 
+    /* Attestation must be signed by a signing key (Part 3 Sec.18). Reject
+     * decrypt-only keys so a forged attestation cannot be produced. */
+    if (!(obj->pub.objectAttributes & TPMA_OBJECT_sign)) {
+        return TPM_RC_KEY;
+    }
+
     /* Resolve scheme/hash from key if NULL */
     FwResolveSignScheme(obj, &sigScheme, &sigHashAlg);
 
@@ -3883,6 +3936,7 @@ TPM_RC FwSignAttest(FWTPM_CTX* ctx, FWTPM_Object* obj,
 /* Derive AES symmetric key ("STORAGE") and HMAC key ("INTEGRITY") from seed.
  * Per TPM 2.0 Part 1 Section 24. */
 TPM_RC FwCredentialDeriveKeys(
+    TPMI_ALG_HASH nameAlg,
     const byte* seed, int seedSz,
     const byte* name, int nameSz,
     byte* symKey, int symKeySz,
@@ -3890,12 +3944,14 @@ TPM_RC FwCredentialDeriveKeys(
 {
     int kdfRc;
 
-    kdfRc = TPM2_KDFa_ex(TPM_ALG_SHA256, seed, seedSz,
+    /* Derive under the credentialed key's nameAlg, not a hardcoded SHA-256,
+     * so a SHA-384 EK is not silently downgraded. */
+    kdfRc = TPM2_KDFa_ex(nameAlg, seed, seedSz,
         "STORAGE", name, nameSz, NULL, 0, symKey, symKeySz);
     if (kdfRc != symKeySz) {
         return TPM_RC_FAILURE;
     }
-    kdfRc = TPM2_KDFa_ex(TPM_ALG_SHA256, seed, seedSz,
+    kdfRc = TPM2_KDFa_ex(nameAlg, seed, seedSz,
         "INTEGRITY", NULL, 0, NULL, 0, hmacKey, hmacKeySz);
     if (kdfRc != hmacKeySz) {
         TPM2_ForceZero(symKey, symKeySz);

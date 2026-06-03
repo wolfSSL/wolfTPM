@@ -2271,7 +2271,7 @@ WOLFTPM_API TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
 
 typedef struct {
     TPM2B_MAX_BUFFER outData;
-    UINT16 testResult; /* TPM_RC */
+    UINT32 testResult; /* full 4-byte TPM_RC value on the wire */
 } GetTestResult_Out;
 WOLFTPM_API TPM_RC TPM2_GetTestResult(GetTestResult_Out* out);
 

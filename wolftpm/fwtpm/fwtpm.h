@@ -529,6 +529,8 @@ typedef struct FWTPM_Session {
     TPM2B_DIGEST cpHashA;           /* PolicyCpHash: locked once set */
     TPM2B_DIGEST nameHash;          /* PolicyNameHash: locked once set */
     int isPPRequired;               /* PolicyPhysicalPresence flag */
+    int requiredLocality;           /* PolicyLocality bitmap */
+    int hasRequiredLocality;        /* 1 once PolicyLocality has been called */
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */
@@ -594,6 +596,11 @@ struct FWTPM_NV_HAL_S {
     int (*erase)(void* ctx, word32 offset, word32 size); /* Optional */
     void* ctx;
     word32 maxSize;     /* Total NV region size */
+    /* Override the NV-journal integrity key with a platform device secret
+     * (e.g. hardware-fused or host-TPM backed). Return 0 and set *keySz on
+     * success. When NULL the default file backend uses an auto-created key
+     * file; integrity verification is always performed when a key exists. */
+    int (*get_integrity_key)(void* ctx, byte* key, word32* keySz);
 };
 
 /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
@@ -633,6 +640,8 @@ typedef struct FWTPM_CTX {
 #endif
     int activeLocality;
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
+    UINT32 resetCount;          /* TPM Reset count, persisted across boots */
+    UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
 
     /* PCR state: [pcrIndex][bank][digest bytes] */
     byte pcrDigest[IMPLEMENTATION_PCR][FWTPM_PCR_BANKS][TPM_MAX_DIGEST_SIZE];
@@ -713,6 +722,13 @@ typedef struct FWTPM_CTX {
 
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;
+    /* Live (saved-but-not-yet-loaded) context sequences. A context loads at
+     * most once and saved contexts may load in any order. */
+    UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
+    int contextLiveCount;
+
+    /* Set once TPM2_SelfTest has completed successfully */
+    int selfTestRun;
 
 #ifdef HAVE_ECC
     /* EC_Ephemeral commit counter and key storage (volatile) */

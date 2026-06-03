@@ -56,6 +56,14 @@ WOLFTPM_API int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     const byte* cmdBuf, int cmdSize,
     byte* rspBuf, int* rspSize, int locality);
 
+/*!
+    \brief Flush all transient objects, sessions, and sequences.
+
+    Called when the active command client connection is replaced or closed so
+    a subsequent client cannot inherit the previous client's transient state.
+*/
+WOLFTPM_API void FWTPM_ResetCommandClient(FWTPM_CTX* ctx);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

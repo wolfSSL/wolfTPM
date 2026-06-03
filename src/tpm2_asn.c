@@ -381,7 +381,10 @@ int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
                 break;
             idx++;
         }
-        if (idx < *sigSz && sig[idx++] == 0x00) {
+        /* Require the null separator to be in bounds (avoids a 1-byte
+         * over-read) and at least 8 padding bytes per PKCS#1 v1.5 Sec.9.2
+         * (also rejects the all-0xFF Bleichenbacher variant). */
+        if (idx < *sigSz && (idx - 2) >= 8 && sig[idx++] == 0x00) {
             rc = 0;
             *pSig = &sig[idx];
             *sigSz -= idx;
