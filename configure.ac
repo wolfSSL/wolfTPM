@@ -648,12 +648,90 @@ AC_ARG_WITH([wolfspdm],
     [AS_HELP_STRING([--with-wolfspdm=PATH],[DEPRECATED: Use --enable-spdm instead.])],
     [AC_MSG_ERROR([--with-wolfspdm is no longer needed. Use --enable-spdm instead.])])
 
+# SPDM TCG Binding mode. Auto-on with --enable-spdm + (fwtpm|nuvoton|nations).
+AC_ARG_ENABLE([tcg],
+    [AS_HELP_STRING([--enable-tcg],[Enable SPDM TCG Binding mode (default: auto under --enable-spdm)])],
+    [ ENABLED_TCG=$enableval ],
+    [ ENABLED_TCG=detect ]
+    )
+
+# SPDM PSK mode. Auto-on with --enable-spdm + --enable-nations.
+AC_ARG_ENABLE([psk],
+    [AS_HELP_STRING([--enable-psk],[Enable SPDM PSK mode (default: auto under --enable-spdm + --enable-nations)])],
+    [ ENABLED_PSK=$enableval ],
+    [ ENABLED_PSK=detect ]
+    )
+
 if test "x$ENABLED_SPDM" = "xyes"
 then
     if test "x$ENABLED_FWTPM_ONLY" = "xyes"; then
         AC_MSG_ERROR([--enable-spdm requires the client library (incompatible with --enable-fwtpm-only)])
     fi
     AC_DEFINE([WOLFTPM_SPDM], [1], [Enable SPDM support])
+
+    if test "x$ENABLED_TCG" = "xdetect"
+    then
+        if test "x$ENABLED_FWTPM" = "xyes" || \
+           test "x$ENABLED_NUVOTON" = "xyes" || \
+           test "x$ENABLED_NATIONS" = "xyes"
+        then
+            ENABLED_TCG=yes
+        else
+            ENABLED_TCG=no
+        fi
+    fi
+
+    if test "x$ENABLED_PSK" = "xdetect"
+    then
+        if test "x$ENABLED_NATIONS" = "xyes"
+        then
+            ENABLED_PSK=yes
+        else
+            ENABLED_PSK=no
+        fi
+    fi
+
+    if test "x$ENABLED_TCG" = "xyes"
+    then
+        AC_DEFINE([WOLFTPM_SPDM_TCG], [1], [Enable SPDM TCG Binding mode])
+        AC_MSG_NOTICE([SPDM TCG Binding mode enabled])
+    fi
+    if test "x$ENABLED_PSK" = "xyes"
+    then
+        AC_DEFINE([WOLFTPM_SPDM_PSK], [1], [Enable SPDM PSK mode])
+        AC_MSG_NOTICE([SPDM PSK mode enabled])
+    fi
+
+    if test "x$ENABLED_FWTPM" = "xyes" && \
+       test "x$ENABLED_TCG" != "xyes" && \
+       test "x$ENABLED_PSK" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-fwtpm --enable-spdm requires at least one of --enable-tcg or --enable-psk])
+    fi
+
+    # PSK_EXCHANGE / PSK_FINISH are carried over the TCG SPDM Binding
+    # transport (tag 0x8101 / 0x8201), so a PSK build without TCG framing
+    # support cannot actually send or receive PSK handshake messages.
+    if test "x$ENABLED_PSK" = "xyes" && test "x$ENABLED_TCG" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-psk requires --enable-tcg (PSK handshake uses TCG SPDM Binding framing)])
+    fi
+
+    # Vendor format adapters layer on top of the spec implementation, so
+    # the spec flag must be enabled for the vendor's wire-format wrappers
+    # to even make sense.
+    if test "x$ENABLED_NUVOTON" = "xyes" && test "x$ENABLED_TCG" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-nuvoton requires --enable-tcg (Nuvoton uses the TCG SPDM Binding spec)])
+    fi
+    if test "x$ENABLED_NATIONS" = "xyes" && test "x$ENABLED_TCG" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-nations requires --enable-tcg (Nations uses the TCG SPDM Binding spec)])
+    fi
+    if test "x$ENABLED_NATIONS" = "xyes" && test "x$ENABLED_PSK" != "xyes"
+    then
+        AC_MSG_ERROR([--enable-nations requires --enable-psk (PSK_SET / PSK_CLR provisioning uses DSP0274 PSK)])
+    fi
 
     # Nuvoton SPDM support (required for SPDM in wolfTPM)
     if test "x$ENABLED_NUVOTON" = "xyes"
@@ -669,9 +747,26 @@ then
         AC_MSG_NOTICE([Nations Technology SPDM vendor commands enabled])
     fi
 
+    # Responder only makes sense with fwTPM (real silicon speaks SPDM in firmware).
+    if test "x$ENABLED_FWTPM" = "xyes"
+    then
+        AC_DEFINE([WOLFTPM_SPDM_RESPONDER], [1], [Enable SPDM responder in fwTPM])
+        AC_MSG_NOTICE([SPDM responder enabled in fwtpm_server])
+        ENABLED_FWTPM_SPDM=yes
+        if test "x$WOLFTPM_HW_SELECTED" = "xyes"
+        then
+            AC_MSG_WARN([SPDM responder is enabled alongside a hardware vendor flag. The responder runs only inside fwtpm_server; real silicon ignores it.])
+        fi
+    fi
+
     if test "x$ax_enable_debug" != "xno"
     then
         AC_DEFINE([WOLFSPDM_DEBUG], [1], [SPDM: Enable debug output])
+    fi
+else
+    if test "x$ENABLED_TCG" = "xyes" || test "x$ENABLED_PSK" = "xyes"
+    then
+        AC_MSG_ERROR([--enable-tcg / --enable-psk require --enable-spdm])
     fi
 fi
 
@@ -822,10 +917,13 @@ AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
 AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes" || test "x$ENABLED_FWTPM_TIS" = "xyes"])
 AM_CONDITIONAL([BUILD_SPDM], [test "x$ENABLED_SPDM" = "xyes"])
+AM_CONDITIONAL([BUILD_SPDM_TCG], [test "x$ENABLED_TCG" = "xyes"])
+AM_CONDITIONAL([BUILD_SPDM_PSK], [test "x$ENABLED_PSK" = "xyes"])
 
 AM_CONDITIONAL([BUILD_FWTPM], [test "x$ENABLED_FWTPM" = "xyes"])
 AM_CONDITIONAL([BUILD_FWTPM_ONLY], [test "x$ENABLED_FWTPM_ONLY" = "xyes"])
 AM_CONDITIONAL([BUILD_FWTPM_TIS], [test "x$ENABLED_FWTPM_TIS" = "xyes"])
+AM_CONDITIONAL([BUILD_FWTPM_SPDM], [test "x$ENABLED_FWTPM_SPDM" = "xyes"])
 
 
 CREATE_HEX_VERSION

@@ -50,6 +50,15 @@
     #define WOLFTPM_SPDM_TIS_IO
 #endif
 
+/* swtpm/fwtpm MSSIM TCP transport for SPDM. SPDM bytes ride inside an
+ * MSSIM TPM_SEND_COMMAND envelope; fwtpm_server peels off the envelope
+ * and routes the inner TCG-framed payload to its responder. */
+#if defined(WOLFTPM_SPDM_TCG) && defined(WOLFTPM_SWTPM)
+    #include <wolftpm/tpm2_swtpm.h>
+    #include <wolftpm/tpm2_packet.h>
+    #define WOLFTPM_SPDM_SWTPM_IO
+#endif
+
 /* wolfSPDM provides all SPDM protocol implementation */
 #include <wolftpm/spdm/spdm.h>
 
@@ -118,6 +127,59 @@ static int wolfTPM2_SPDM_TisIoCb(
     return 0;
 }
 #endif /* WOLFTPM_SPDM_TIS_IO */
+
+#ifdef WOLFTPM_SPDM_SWTPM_IO
+static int wolfTPM2_SPDM_SwtpmIoCb(
+    WOLFSPDM_CTX* spdmCtx,
+    const byte* txBuf, word32 txSz,
+    byte* rxBuf, word32* rxSz,
+    void* userCtx)
+{
+    TPM2_CTX* tpmCtx = (TPM2_CTX*)userCtx;
+    byte ioBuf[MAX_RESPONSE_SIZE];
+    TPM2_Packet packet;
+    word32 rspSz;
+    int rc;
+
+    (void)spdmCtx;
+
+    if (tpmCtx == NULL || txBuf == NULL || rxBuf == NULL || rxSz == NULL) {
+        return -1;
+    }
+    if (txSz > sizeof(ioBuf)) {
+        return -1;
+    }
+
+    XMEMCPY(ioBuf, txBuf, txSz);
+    packet.buf = ioBuf;
+    packet.pos = (int)txSz;
+    packet.size = (int)sizeof(ioBuf);
+
+    rc = TPM2_SWTPM_SendCommand(tpmCtx, &packet);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
+    /* Lower-bound the read so we don't index uninitialized bytes if the
+     * peer mis-frames a too-short response. Header is 6 bytes minimum. */
+    if (packet.pos < TPM2_HEADER_SIZE) {
+        return -1;
+    }
+
+    /* TCG SPDM Binding header and TPM2 header both carry total size at
+     * bytes [2..5] big-endian. */
+    XMEMCPY(&rspSz, &ioBuf[2], sizeof(word32));
+    rspSz = TPM2_Packet_SwapU32(rspSz);
+
+    if (rspSz < TPM2_HEADER_SIZE || rspSz > *rxSz || rspSz > sizeof(ioBuf)) {
+        return -1;
+    }
+
+    XMEMCPY(rxBuf, ioBuf, rspSz);
+    *rxSz = rspSz;
+    return 0;
+}
+#endif /* WOLFTPM_SPDM_SWTPM_IO */
 
 /* -------------------------------------------------------------------------- */
 /* Context Management */
@@ -288,24 +350,26 @@ int wolfTPM2_SPDM_SecuredExchange(
 /* Nuvoton-Specific Functions */
 /* -------------------------------------------------------------------------- */
 
-#ifdef WOLFTPM_SPDM_TCG
-
 /* Set built-in TIS I/O callback for routing SPDM through TPM SPI/I2C.
- * Must be called after wolfTPM2_SPDM_InitCtx() and SetTPMCtx(). */
+ * Must be called after wolfTPM2_SPDM_InitCtx() and SetTPMCtx().
+ * Transport-agnostic - used by both TCG cert and PSK handshakes. */
 int wolfTPM2_SPDM_SetTisIO(WOLFTPM2_SPDM_CTX* ctx)
 {
     if (ctx == NULL || ctx->spdmCtx == NULL || ctx->tpmCtx == NULL) {
         return BAD_FUNC_ARG;
     }
 
-#ifdef WOLFTPM_SPDM_TIS_IO
+#if defined(WOLFTPM_SPDM_TIS_IO)
     return wolfSPDM_SetIO(ctx->spdmCtx, wolfTPM2_SPDM_TisIoCb, ctx->tpmCtx);
+#elif defined(WOLFTPM_SPDM_SWTPM_IO)
+    return wolfSPDM_SetIO(ctx->spdmCtx, wolfTPM2_SPDM_SwtpmIoCb, ctx->tpmCtx);
 #else
     (void)ctx;
     return NOT_COMPILED_IN;
 #endif
 }
 
+#ifdef WOLFTPM_SPDM_TCG
 #ifdef WOLFSPDM_NUVOTON
 /* Enable SPDM on Nuvoton TPM via NTC2_PreConfig vendor command.
  * This requires platform hierarchy authorization and a TPM reset. */

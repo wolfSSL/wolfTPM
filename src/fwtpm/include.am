@@ -26,6 +26,26 @@ src_fwtpm_fwtpm_server_CFLAGS  += -DWOLFTPM_FWTPM_TIS
 src_fwtpm_fwtpm_server_CPPFLAGS += -DWOLFTPM_FWTPM_TIS
 endif
 
+# fwtpm_server doesn't link libwolftpm.la (it compiles its own copies with
+# -DWOLFTPM_FWTPM), so SPDM sources have to be listed here too.
+if BUILD_FWTPM_SPDM
+src_fwtpm_fwtpm_server_SOURCES += \
+    src/spdm/spdm_responder.c \
+    src/spdm/spdm_context.c \
+    src/spdm/spdm_crypto.c \
+    src/spdm/spdm_kdf.c \
+    src/spdm/spdm_msg.c \
+    src/spdm/spdm_secured.c \
+    src/spdm/spdm_session.c \
+    src/spdm/spdm_transcript.c
+if BUILD_SPDM_TCG
+src_fwtpm_fwtpm_server_SOURCES += src/spdm/spdm_tcg.c
+endif
+if BUILD_SPDM_PSK
+src_fwtpm_fwtpm_server_SOURCES += src/spdm/spdm_psk.c
+endif
+endif BUILD_FWTPM_SPDM
+
 # Fuzz target (libFuzzer)
 if BUILD_FUZZ
 noinst_PROGRAMS += tests/fuzz/fwtpm_fuzz

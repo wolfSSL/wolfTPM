@@ -641,13 +641,9 @@ WOLFTPM_API int wolfTPM2_SpdmConnectNations(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set);
 
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Establish Nations SPDM secure session (PSK mode).
-*/
-WOLFTPM_API int wolfTPM2_SpdmConnectNationsPsk(WOLFTPM2_DEV* dev,
-    const byte* psk, word32 pskSz,
-    const byte* hint, word32 hintSz);
+/* wolfTPM2_SpdmConnectNationsPsk is now an alias for the spec-flag-gated
+ * wolfTPM2_SpdmConnectPsk (declared below). Kept for source compatibility. */
+#define wolfTPM2_SpdmConnectNationsPsk wolfTPM2_SpdmConnectPsk
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -677,6 +673,17 @@ WOLFTPM_API int wolfTPM2_SpdmNationsPskClear(WOLFTPM2_DEV* dev,
     const byte* clearAuth, word32 clearAuthSz);
 
 #endif /* WOLFSPDM_NATIONS */
+
+#ifdef WOLFTPM_SPDM_PSK
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Establish SPDM secure session via the DSP0274 PSK handshake
+    (PSK_EXCHANGE / PSK_FINISH). Vendor-neutral spec implementation.
+*/
+WOLFTPM_API int wolfTPM2_SpdmConnectPsk(WOLFTPM2_DEV* dev,
+    const byte* psk, word32 pskSz,
+    const byte* hint, word32 hintSz);
+#endif /* WOLFTPM_SPDM_PSK */
 
 #endif /* WOLFTPM_SPDM */
 

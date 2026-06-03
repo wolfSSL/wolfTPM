@@ -1,0 +1,176 @@
+name: SPDM Test
+
+# Validates wolfSPDM end-to-end against the fwtpm SPDM responder on
+# ubuntu-latest. Replaces hw-spdm-test.yml's self-hosted hardware runs;
+# same protocol coverage (PSK + TCG) but no silicon required.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/spdm/**'
+      - 'wolftpm/spdm/**'
+      - 'src/fwtpm/**'
+      - 'wolftpm/fwtpm/**'
+      - 'examples/spdm/**'
+      - 'src/tpm2_wrap.c'
+      - 'src/tpm2_spdm.c'
+      - 'src/tpm2.c'
+      - 'configure.ac'
+      - '.github/workflows/spdm-test.yml'
+      - 'tests/unit_tests.c'
+  pull_request:
+    branches: [master]
+
+permissions: read-all
+
+jobs:
+  # Build-only matrix: every supported SPDM configure permutation compiles
+  # cleanly. Catches missing `#ifdef WOLFTPM_SPDM_*` guards in headers/sources
+  # and per-mode include.am gating regressions.
+  build-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: spdm-tcg-only
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --disable-psk"
+          - name: spdm-both
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk"
+          - name: spdm-nuvoton
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-nuvoton"
+          - name: spdm-nations
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-nations"
+          - name: spdm-full-vendors
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk --enable-nuvoton --enable-nations"
+          - name: spdm-requester-only
+            wolftpm_config: "--enable-spdm --enable-nuvoton --enable-nations"
+          - name: spdm-debug-on
+            wolftpm_config: "--enable-fwtpm --enable-spdm --enable-tcg --enable-psk --enable-debug"
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df
+        with:
+          egress-policy: audit
+
+      - name: Checkout wolfTPM
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+          persist-credentials: false
+
+      - name: Build & install wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$HOME/wolfssl-install \
+                      --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                      --enable-aescfb \
+                      CFLAGS="-DWC_RSA_NO_PADDING"
+          make -j"$(nproc)"
+          make install
+
+      - name: Build wolfTPM (${{ matrix.name }})
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }} \
+                      --with-wolfcrypt=$HOME/wolfssl-install
+          make -j"$(nproc)"
+
+  # End-to-end matrix: same protocol coverage as the old hw-spdm-test, but
+  # against fwtpm_server instead of real silicon. fwtpm-tcg mirrors the
+  # Nuvoton 6-step sequence (status, connect, lock, unit.test, unlock,
+  # cleartext caps). fwtpm-psk mirrors the Nations-PSK 10-step sequence.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fwtpm-tcg
+            mode: fwtpm-tcg
+          - name: fwtpm-psk
+            mode: fwtpm-psk
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df
+        with:
+          egress-policy: audit
+
+      - name: Checkout wolfTPM
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Checkout wolfSSL
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+          persist-credentials: false
+
+      - name: Build & install wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --prefix=$HOME/wolfssl-install \
+                      --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+                      --enable-aescfb \
+                      CFLAGS="-DWC_RSA_NO_PADDING"
+          make -j"$(nproc)"
+          make install
+
+      - name: Build wolfTPM with full SPDM + vendor support
+        # spdm_ctrl's --connect/--status/--lock CLI dispatch is gated on
+        # WOLFSPDM_NUVOTON (TCG flow) and the --psk-set/--psk-clear CLI
+        # on WOLFSPDM_NATIONS (PSK flow). Build with both vendor flags so
+        # the same binary drives both fwtpm-tcg and fwtpm-psk sequences.
+        run: |
+          ./autogen.sh
+          ./configure --enable-fwtpm --enable-spdm \
+                      --enable-tcg --enable-psk \
+                      --enable-nuvoton --enable-nations \
+                      --enable-debug --enable-swtpm \
+                      --with-wolfcrypt=$HOME/wolfssl-install
+          make -j"$(nproc)"
+
+      - name: Run wolfTPM make check (unit tests)
+        env:
+          LD_LIBRARY_PATH: ${{ format('{0}/wolfssl-install/lib', env.HOME) }}
+        run: |
+          set -eo pipefail
+          make check 2>&1 | tee make-check-${{ matrix.name }}.log
+
+      - name: Run spdm_test.sh ${{ matrix.mode }}
+        env:
+          LD_LIBRARY_PATH: ${{ format('{0}/wolfssl-install/lib', env.HOME) }}
+        run: |
+          set -eo pipefail
+          ./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl ${{ matrix.mode }} 2>&1 \
+              | tee spdm-${{ matrix.mode }}.log
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spdm-logs-${{ matrix.name }}
+          path: |
+            *.log
+            config.log
+            test-suite.log
+            tests/*.log
+            /tmp/fwtpm_spdm_test.log
+          retention-days: 14

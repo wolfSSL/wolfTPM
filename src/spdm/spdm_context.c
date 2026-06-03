@@ -214,6 +214,11 @@ int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode)
         return WOLFSPDM_E_INVALID_ARG;
     }
 
+#if !defined(WOLFSPDM_NUVOTON) && !defined(WOLFSPDM_NATIONS) && \
+    !defined(WOLFTPM_SPDM_PSK)
+    (void)mode;
+#endif
+
 #ifdef WOLFSPDM_NUVOTON
     if (mode == WOLFSPDM_MODE_NUVOTON) {
         ctx->mode = WOLFSPDM_MODE_NUVOTON;
@@ -230,6 +235,10 @@ int wolfSPDM_SetMode(WOLFSPDM_CTX* ctx, WOLFSPDM_MODE mode)
         ctx->fipsIndicator = WOLFSPDM_FIPS_NON_FIPS;
         return WOLFSPDM_SUCCESS;
     }
+#endif
+#ifdef WOLFTPM_SPDM_PSK
+    /* Spec-pure PSK mode - DSP0274 handshake. Available whenever the PSK
+     * feature is built, independent of any vendor adapter. */
     if (mode == WOLFSPDM_MODE_NATIONS_PSK) {
         ctx->mode = WOLFSPDM_MODE_NATIONS_PSK;
         ctx->connectionHandle = 0;
@@ -551,6 +560,9 @@ const char* wolfSPDM_GetErrorString(int error)
         case WOLFSPDM_E_NO_MEMORY:        return "Memory allocation failed";
         case WOLFSPDM_E_SESSION_INVALID:  return "Invalid session";
         case WOLFSPDM_E_KEY_EXCHANGE:     return "Key exchange failed";
+        case WOLFSPDM_E_NOT_AVAILABLE:    return "Feature not compiled in";
+        case WOLFSPDM_E_FRAMING:          return "Framing violation";
+        case WOLFSPDM_E_NOT_IMPL:         return "Not implemented";
         default:                          return "Unknown error";
     }
 }

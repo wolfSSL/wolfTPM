@@ -24,6 +24,9 @@
 #endif
 
 #include <wolftpm/spdm/spdm.h>
+#ifdef WOLFTPM_SPDM_RESPONDER
+    #include <wolftpm/spdm/spdm_responder.h>
+#endif
 #include "spdm_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -769,10 +772,14 @@ static int test_tcg_underflow(void)
 
     printf("test_tcg_underflow...\n");
 
+    /* wolfSPDM_SetMode is vendor-gated; set field directly so the TCG path
+     * runs in vendor-neutral builds too. */
 #ifdef WOLFSPDM_NUVOTON
     wolfSPDM_SetMode(ctx, WOLFSPDM_MODE_NUVOTON);
-#else
+#elif defined(WOLFSPDM_NATIONS)
     wolfSPDM_SetMode(ctx, WOLFSPDM_MODE_NATIONS);
+#else
+    ctx->mode = WOLFSPDM_MODE_NUVOTON;
 #endif
     wolfSPDM_SetIO(ctx, tcg_underflow_io_cb, NULL);
 
@@ -2127,6 +2134,179 @@ static int test_encrypt_decrypt_roundtrip_tcg(void)
 }
 #endif /* WOLFTPM_SPDM_TCG */
 
+#ifdef WOLFTPM_SPDM_RESPONDER
+
+static int g_tpmCbInvocations = 0;
+static byte g_tpmCbLastCmd[256];
+static word32 g_tpmCbLastCmdSz;
+
+static int responder_tpm_stub(void* userCtx,
+    const byte* cmd, word32 cmdSz,
+    byte* resp, word32 respBufSz, word32* respSz)
+{
+    (void)userCtx;
+    if (respBufSz < 10) {
+        return -1;
+    }
+    g_tpmCbInvocations++;
+    if (cmdSz <= sizeof(g_tpmCbLastCmd)) {
+        XMEMCPY(g_tpmCbLastCmd, cmd, cmdSz);
+        g_tpmCbLastCmdSz = cmdSz;
+    }
+    /* Return a fixed TPM2 TPM_ST_NO_SESSIONS / size=10 / TPM_RC_SUCCESS reply. */
+    resp[0] = 0x80; resp[1] = 0x01;
+    resp[2] = 0x00; resp[3] = 0x00; resp[4] = 0x00; resp[5] = 0x0A;
+    resp[6] = 0x00; resp[7] = 0x00; resp[8] = 0x00; resp[9] = 0x00;
+    *respSz = 10;
+    return 0;
+}
+
+static int test_responder_init_free(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+
+    printf("test_responder_init_free...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    wolfSPDM_RespFree(rctx);
+    /* Idempotent: re-free should be safe. */
+    wolfSPDM_RespFree(rctx);
+    wolfSPDM_RespFree(NULL);
+    TEST_PASS();
+}
+
+static int test_responder_setmode_rejects_both_off(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    int rc;
+
+    printf("test_responder_setmode_rejects_both_off...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    rc = wolfSPDM_RespSetMode(rctx, 0, 0);
+    TEST_ASSERT(rc != WOLFSPDM_SUCCESS, "Both modes off must error");
+    wolfSPDM_RespFree(rctx);
+    TEST_PASS();
+}
+
+/* Plaintext-bypass regression. With SPDM mode active, a raw TPM2 frame
+ * (tag 0x8001, the swtpm-mssim plaintext path) must be rejected with
+ * WOLFSPDM_E_FRAMING and never reach the dispatcher. */
+static int test_responder_no_plaintext_bypass(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    /* Use a buffer >= TCG header (16) so the test exercises the tag
+     * comparison, not just the length check. */
+    byte rawTpm[24];
+    byte outBuf[64];
+    word32 outSz = sizeof(outBuf);
+    int rc;
+
+    printf("test_responder_no_plaintext_bypass...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+#ifdef WOLFTPM_SPDM_TCG
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 1, 0));
+#else
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 0, 1));
+#endif
+    g_tpmCbInvocations = 0;
+    ASSERT_SUCCESS(wolfSPDM_RespSetTpmCallback(rctx, responder_tpm_stub, NULL));
+
+    /* Raw TPM2 frame: tag 0x8001 (TPM_ST_NO_SESSIONS), size 0x18,
+     * remainder zero. Length passes the 16-byte gate so the responder
+     * proceeds to the tag check and rejects on tag != 0x8101/0x8201. */
+    XMEMSET(rawTpm, 0, sizeof(rawTpm));
+    rawTpm[0] = 0x80; rawTpm[1] = 0x01;
+    rawTpm[5] = 0x18;
+    outSz = sizeof(outBuf);
+    rc = wolfSPDM_RespHandleMessage(rctx, rawTpm, sizeof(rawTpm),
+        outBuf, &outSz);
+    TEST_ASSERT(rc == WOLFSPDM_E_FRAMING,
+        "Tagged TPM2 frame must be rejected by tag check with E_FRAMING");
+    ASSERT_EQ(g_tpmCbInvocations, 0,
+        "TPM callback must NOT have been invoked");
+    wolfSPDM_RespFree(rctx);
+    TEST_PASS();
+}
+
+#if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
+
+/* In-process I/O glue: route the requester's outbound TCG frame to the
+ * responder's HandleMessage and copy the response back. */
+static int requester_to_responder_iocb(WOLFSPDM_CTX* spdmCtx,
+    const byte* txBuf, word32 txSz,
+    byte* rxBuf, word32* rxSz,
+    void* userCtx)
+{
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)userCtx;
+    (void)spdmCtx;
+    return wolfSPDM_RespHandleMessage(rctx, txBuf, txSz, rxBuf, rxSz);
+}
+
+/* PSK handshake + tunneled TPM2_CMD round-trip + END_SESSION, end-to-end. */
+static int test_responder_psk_roundtrip(void)
+{
+    static const byte testPsk[64] = {
+        0xdb,0xc2,0x19,0x22,0x91,0xd8,0x07,0x74,
+        0x24,0x41,0xb9,0x63,0xf6,0x71,0x28,0x41,
+        0xf7,0x69,0x7e,0x2e,0x39,0xc4,0x59,0x31,
+        0xf3,0xab,0xc5,0x36,0x58,0xc8,0xb9,0x33,
+        0x8b,0xd3,0x56,0x1c,0xab,0x5d,0x90,0xcf,
+        0x9e,0x49,0x32,0x95,0xbb,0x5b,0xd6,0xb2,
+        0xc4,0x55,0xe0,0xfd,0x19,0x39,0x2e,0x0c,
+        0xe4,0xf3,0x43,0x3c,0xbc,0xfc,0x70,0x47
+    };
+    WOLFSPDM_CTX req;
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    byte cmd[10];
+    int rc;
+
+    printf("test_responder_psk_roundtrip...\n");
+
+    ASSERT_SUCCESS(wolfSPDM_Init(&req));
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+
+    /* Bypass wolfSPDM_SetMode (vendor-gated) - set field directly so the
+     * test runs in a vendor-neutral build. */
+    req.mode = WOLFSPDM_MODE_NATIONS_PSK;
+    ASSERT_SUCCESS(wolfSPDM_SetPSK(&req, testPsk, sizeof(testPsk), NULL, 0));
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 0, 1));
+    ASSERT_SUCCESS(wolfSPDM_RespSetPSK(rctx, testPsk, sizeof(testPsk),
+        NULL, 0));
+
+    g_tpmCbInvocations = 0;
+    ASSERT_SUCCESS(wolfSPDM_RespSetTpmCallback(rctx, responder_tpm_stub,
+        NULL));
+    ASSERT_SUCCESS(wolfSPDM_SetIO(&req, requester_to_responder_iocb, rctx));
+
+    rc = wolfSPDM_Connect(&req);
+    TEST_ASSERT(rc == WOLFSPDM_SUCCESS, "PSK Connect failed");
+    ASSERT_EQ(wolfSPDM_IsConnected(&req), 1, "Requester not connected");
+
+    /* Tunnel a fake TPM2_Startup command via the VENDOR_DEFINED "TPM2_CMD"
+     * vendor message - same wrapping the real Nuvoton/Nations requester uses. */
+    XMEMSET(cmd, 0, sizeof(cmd));
+    cmd[0] = 0x80; cmd[1] = 0x01;
+    cmd[5] = 0x0A;
+    cmd[8] = 0x01; cmd[9] = 0x44;
+    rc = wolfSPDM_TCG_VendorCmdSecured(&req, WOLFSPDM_VDCODE_TPM2_CMD,
+        cmd, sizeof(cmd));
+    TEST_ASSERT(rc == WOLFSPDM_SUCCESS, "TPM2_CMD passthrough failed");
+    ASSERT_EQ(g_tpmCbInvocations, 1, "TPM stub must have run once");
+
+    ASSERT_SUCCESS(wolfSPDM_Disconnect(&req));
+
+    wolfSPDM_RespFree(rctx);
+    wolfSPDM_Free(&req);
+    TEST_PASS();
+}
+
+#endif /* WOLFTPM_SPDM_PSK && WOLFTPM_SPDM_TCG */
+
+#endif /* WOLFTPM_SPDM_RESPONDER */
+
 /* ----- Main ----- */
 
 int main(void)
@@ -2257,6 +2437,15 @@ int main(void)
     test_encrypt_decrypt_roundtrip();
 #ifdef WOLFTPM_SPDM_TCG
     test_encrypt_decrypt_roundtrip_tcg();
+#endif
+
+#ifdef WOLFTPM_SPDM_RESPONDER
+    test_responder_init_free();
+    test_responder_setmode_rejects_both_off();
+    test_responder_no_plaintext_bypass();
+#if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
+    test_responder_psk_roundtrip();
+#endif
 #endif
 
     printf("\n===========================================\n");

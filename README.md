@@ -39,6 +39,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
 * **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has ML-DSA + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
+* **SPDM attestation support** (DMTF DSP0274) over the TCG SPDM-over-TPM binding, with a TCG certificate handshake and a DSP0274 pre-shared-key (PSK) handshake, enabled with `--enable-spdm`. The fwTPM server includes an SPDM 1.3 responder so the stack can be exercised end-to-end in CI without discrete silicon. See [SPDM Attestation](#spdm-attestation) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
 
@@ -120,6 +121,27 @@ For the fwTPM server's PQC internals — the eight v1.85 commands,
 primary-key derivation, buffer constants, and spec-interpretation
 decisions — see
 [docs/FWTPM.md](docs/FWTPM.md#tpm-20-v185-post-quantum-support).
+
+
+## SPDM Attestation
+
+wolfTPM implements SPDM (Security Protocol and Data Model, DMTF DSP0274)
+for TPM 2.0 attestation over the TCG SPDM-over-TPM binding. Both the TCG
+certificate handshake and the DSP0274 pre-shared-key (PSK) handshake are
+supported, negotiating SPDM protocol version 1.3.
+
+For testing without discrete silicon, the `fwtpm_server` ships an SPDM 1.3
+responder that drives the same handshake the real Nuvoton and Nations
+parts use, so the SPDM stack can be exercised end-to-end in CI.
+
+Build with `--enable-spdm` plus at least one handshake mode
+(`--enable-tcg` for the certificate handshake, `--enable-psk` for the PSK
+handshake). Vendor wire-format adapters are optional (`--enable-nuvoton`,
+`--enable-nations`).
+
+See [src/spdm/README.md](src/spdm/README.md) and
+[src/fwtpm/README.md](src/fwtpm/README.md) for build instructions,
+responder modes, and the end-to-end test scripts.
 
 
 ## TPM 2.0 Overview

@@ -489,17 +489,15 @@ int wolfSPDM_ConnectTCG(WOLFSPDM_CTX* ctx)
     SPDM_CONNECT_STEP(ctx, "TCG Step 1: GET_VERSION\n",
         wolfSPDM_GetVersion(ctx));
 
-#ifdef WOLFSPDM_NATIONS
-    /* Steps 2-3: GET_CAPABILITIES + NEGOTIATE_ALGORITHMS
-     * Required by Nations (TCG spec mandates these before GET_PUB_KEY).
-     * Nuvoton skips these — its simplified flow goes directly to GET_PUB_KEY.*/
-    if (ctx->mode == WOLFSPDM_MODE_NATIONS) {
+    /* Steps 2-3: GET_CAPABILITIES + NEGOTIATE_ALGORITHMS.
+     * TCG SPDM Binding mandates these before GET_PUB_KEY. Nuvoton silicon
+     * uses a simplified flow that skips them, so gate at runtime by mode. */
+    if (ctx->mode != WOLFSPDM_MODE_NUVOTON) {
         SPDM_CONNECT_STEP(ctx, "TCG Step 2: GET_CAPABILITIES\n",
             wolfSPDM_TCG_GetCapabilities(ctx, WOLFSPDM_TCG_CAPS_FLAGS_DEFAULT));
         SPDM_CONNECT_STEP(ctx, "TCG Step 3: NEGOTIATE_ALGORITHMS\n",
             wolfSPDM_TCG_NegotiateAlgorithms(ctx));
     }
-#endif
 
     /* Step 4: GET_PUBK */
     wolfSPDM_DebugPrint(ctx, "TCG Step 4: GET_PUBK\n");

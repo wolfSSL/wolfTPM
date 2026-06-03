@@ -529,12 +529,25 @@ static int ctrl_nations_connect(WOLFTPM2_DEV* dev)
 int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
 {
     int rc, i;
+    int useNations = 0;
     WOLFTPM2_DEV dev;
 
     if (argc <= 1) { usage(); return 0; }
     for (i = 1; i < argc; i++) {
         if (XSTRCMP(argv[i], "-h") == 0 || XSTRCMP(argv[i], "--help") == 0) {
             usage(); return 0;
+        }
+        if (XSTRNCMP(argv[i], "--vendor=", 9) == 0) {
+            if (XSTRCMP(argv[i] + 9, "nations") == 0) {
+                useNations = 1;
+            }
+            else if (XSTRCMP(argv[i] + 9, "nuvoton") == 0) {
+                useNations = 0;
+            }
+            else {
+                printf("Unknown --vendor= value: %s\n", argv[i] + 9);
+                return BAD_FUNC_ARG;
+            }
         }
     }
 
@@ -551,70 +564,136 @@ int TPM2_SPDM_Ctrl(void* userCtx, int argc, char *argv[])
         return rc;
     }
 
-#ifdef WOLFSPDM_NUVOTON
+    /* Vendor selection: --vendor=nuvoton|nations chooses at runtime when
+     * both adapters are built. Single-vendor builds default to that
+     * vendor; dual builds default to Nuvoton unless overridden. */
+#if defined(WOLFSPDM_NUVOTON) && defined(WOLFSPDM_NATIONS)
+    if (useNations) {
+        wolfTPM2_SpdmSetNationsMode(&dev);
+    }
+    else {
+        wolfTPM2_SpdmSetNuvotonMode(&dev);
+    }
+    wolfTPM2_SPDM_SetTisIO(dev.spdmCtx);
+#elif defined(WOLFSPDM_NUVOTON)
+    (void)useNations;
     wolfTPM2_SpdmSetNuvotonMode(&dev);
     wolfTPM2_SPDM_SetTisIO(dev.spdmCtx);
 #elif defined(WOLFSPDM_NATIONS)
+    (void)useNations;
     wolfTPM2_SpdmSetNationsMode(&dev);
     wolfTPM2_SPDM_SetTisIO(dev.spdmCtx);
-#ifdef DEBUG_WOLFTPM
-    wolfSPDM_SetDebug(dev.spdmCtx->spdmCtx, 1);
+#else
+    (void)useNations;
 #endif
+#if defined(DEBUG_WOLFTPM) && \
+    (defined(WOLFSPDM_NUVOTON) || defined(WOLFSPDM_NATIONS))
+    wolfSPDM_SetDebug(dev.spdmCtx->spdmCtx, 1);
 #endif
 
     for (i = 1; i < argc; i++) {
+        int matched = 0;
+
+        /* --vendor= was consumed during the parse pass above; skip it
+         * here so it isn't reported as Unknown. */
+        if (XSTRNCMP(argv[i], "--vendor=", 9) == 0) {
+            continue;
+        }
+
 #ifdef WOLFSPDM_NUVOTON
-        if (XSTRCMP(argv[i], "--enable") == 0)
-            rc = ctrl_enable(&dev);
-        else if (XSTRCMP(argv[i], "--disable") == 0)
-            rc = ctrl_disable(&dev);
-        else if (XSTRCMP(argv[i], "--status") == 0)
-            rc = ctrl_status(&dev);
-        else if (XSTRCMP(argv[i], "--get-pubkey") == 0)
-            rc = ctrl_get_pubkey(&dev);
-        else if (XSTRCMP(argv[i], "--connect") == 0)
-            rc = ctrl_connect(&dev);
-        else if (XSTRCMP(argv[i], "--lock") == 0)
-            rc = ctrl_lock(&dev, 1);
-        else if (XSTRCMP(argv[i], "--unlock") == 0)
-            rc = ctrl_lock(&dev, 0);
-        else
-#endif
+        /* Nuvoton wire-format adapter: TCG handshake (Nuvoton flavor -
+         * skips GET_CAPABILITIES / NEGOTIATE_ALGORITHMS, fixed Algo Set B),
+         * Nuvoton GET_STATUS / SPDMONLY payload format, and the proprietary
+         * SPDM_ENABLE / SPDM_DISABLE vendor commands. In dual-vendor
+         * builds we only enter this block when useNations == 0. */
+        if (!matched && !useNations && XSTRCMP(argv[i], "--connect") == 0) {
+            rc = ctrl_connect(&dev); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--get-pubkey") == 0) {
+            rc = ctrl_get_pubkey(&dev); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--enable") == 0) {
+            rc = ctrl_enable(&dev); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--disable") == 0) {
+            rc = ctrl_disable(&dev); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--status") == 0) {
+            rc = ctrl_status(&dev); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--lock") == 0) {
+            rc = ctrl_lock(&dev, 1); matched = 1;
+        }
+        else if (!matched && !useNations
+                && XSTRCMP(argv[i], "--unlock") == 0) {
+            rc = ctrl_lock(&dev, 0); matched = 1;
+        }
+#endif /* WOLFSPDM_NUVOTON */
+
 #ifdef WOLFSPDM_NATIONS
-        if (XSTRCMP(argv[i], "--identity-key-set") == 0)
-            rc = ctrl_nations_identity_key_set(&dev, 1);
-        else if (XSTRCMP(argv[i], "--identity-key-unset") == 0)
-            rc = ctrl_nations_identity_key_set(&dev, 0);
-        else if (XSTRCMP(argv[i], "--get-pubkey") == 0)
-            rc = ctrl_nations_get_pubkey(&dev);
-        else if (XSTRCMP(argv[i], "--connect") == 0)
-            rc = ctrl_nations_connect(&dev);
-        else if (XSTRCMP(argv[i], "--status") == 0)
-            rc = ctrl_nations_status(&dev);
-        else if (XSTRCMP(argv[i], "--psk") == 0 && i + 1 < argc)
+        /* Nations wire-format adapter: TCG handshake (Nations flavor -
+         * always sends GET_CAPABILITIES), NSING GET_STS_ / SPDMONLY,
+         * PSK_SET_ / PSK_CLR_ provisioning, IdentityKeySet TPM2 cmd. */
+        if (!matched && XSTRCMP(argv[i], "--identity-key-set") == 0) {
+            rc = ctrl_nations_identity_key_set(&dev, 1); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--identity-key-unset") == 0) {
+            rc = ctrl_nations_identity_key_set(&dev, 0); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--get-pubkey") == 0) {
+            rc = ctrl_nations_get_pubkey(&dev); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--connect") == 0) {
+            rc = ctrl_nations_connect(&dev); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--status") == 0) {
+            rc = ctrl_nations_status(&dev); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--psk") == 0
+                && i + 1 < argc) {
             rc = ctrl_nations_psk_connect(&dev, argv[++i]);
-        else if (XSTRCMP(argv[i], "--psk-set") == 0 && i + 2 < argc)
-        {
+            matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--psk-set") == 0
+                && i + 2 < argc) {
             const char* pskArg = argv[++i];
             const char* authArg = argv[++i];
             rc = ctrl_nations_psk_set(&dev, pskArg, authArg);
+            matched = 1;
         }
-        else if (XSTRCMP(argv[i], "--psk-clear") == 0 && i + 1 < argc)
-            rc = ctrl_nations_psk_clear(&dev, argv[++i]);
-        else if (XSTRCMP(argv[i], "--lock") == 0)
-            rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 1);
-        else if (XSTRCMP(argv[i], "--unlock") == 0)
-            rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 0);
-        else if (XSTRCMP(argv[i], "--tpm-clear") == 0) {
+        else if (!matched && XSTRCMP(argv[i], "--psk-clear") == 0
+                && i + 1 < argc) {
+            rc = ctrl_nations_psk_clear(&dev, argv[++i]); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--lock") == 0) {
+            rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 1); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--unlock") == 0) {
+            rc = wolfTPM2_SpdmNationsSetOnlyMode(&dev, 0); matched = 1;
+        }
+        else if (!matched && XSTRCMP(argv[i], "--caps184") == 0) {
+            rc = ctrl_nations_caps184(&dev); matched = 1;
+        }
+#endif /* WOLFSPDM_NATIONS */
+
+        /* Generic admin - available whenever the library is built. */
+        if (!matched && XSTRCMP(argv[i], "--tpm-clear") == 0) {
             printf("\n=== TPM2_Clear ===\n");
             rc = wolfTPM2_Clear(&dev);
             printf("  %s (rc=0x%x)\n", rc == 0 ? "Success" : "FAILED", rc);
+            matched = 1;
         }
-        else if (XSTRCMP(argv[i], "--caps184") == 0)
-            rc = ctrl_nations_caps184(&dev);
-        else
-#endif
-        { printf("Unknown option: %s\n", argv[i]); usage(); rc = BAD_FUNC_ARG; }
+
+        if (!matched) {
+            printf("Unknown option: %s\n", argv[i]);
+            usage();
+            rc = BAD_FUNC_ARG;
+        }
         if (rc != 0) break;
     }
 
