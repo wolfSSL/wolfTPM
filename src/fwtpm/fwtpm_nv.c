@@ -1857,6 +1857,13 @@ int FWTPM_NV_SavePcrAuth(FWTPM_CTX* ctx)
 
 int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 {
+#ifdef FWTPM_NO_NV
+    /* No persistence without NV; nothing to save (callers treat as success) */
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return TPM_RC_SUCCESS;
+#else
     int rc;
     byte buf[1 + 12 + 4]; /* flags + DA params + resetCount */
     word32 pos = 0;
@@ -1877,6 +1884,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;
+#endif /* FWTPM_NO_NV */
 }
 
 int FWTPM_NV_SaveClock(FWTPM_CTX* ctx)
