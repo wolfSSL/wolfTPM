@@ -2875,7 +2875,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     Create_Out createOut;
 
     if (dev == NULL || keyBlob == NULL || parent == NULL ||
-            publicTemplate == NULL) {
+            publicTemplate == NULL || authSz < 0) {
         return BAD_FUNC_ARG;
     }
 

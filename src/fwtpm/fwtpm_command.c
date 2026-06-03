@@ -719,7 +719,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             if (rc == 0) {
                 ctx->resetCount++;
                 ctx->restartCount = 0;
-                FWTPM_NV_SaveFlags(ctx);
+                rc = FWTPM_NV_SaveFlags(ctx);
             }
         }
         else {
@@ -2236,7 +2236,7 @@ static TPM_RC FwCmd_ClockSet(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Clock may move forward but at most 2^32-1 ms per call (Part 1
          * Sec.17.5.3); reject a far-future value that would freeze it. */
         if (newTime < currentTime ||
-                newTime > currentTime + ((UINT64)1 << 32)) {
+                newTime > currentTime + 0xFFFFFFFFULL) {
             rc = TPM_RC_VALUE;
         }
     }
@@ -2420,6 +2420,8 @@ void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
     }
     FwFlushAllObjects(ctx);
     FwFlushAllSessions(ctx);
+    /* Saved-context replay set belongs to the prior client */
+    ctx->contextLiveCount = 0;
     for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
         if (ctx->hashSeq[i].used) {
             FwFreeHashSeq(&ctx->hashSeq[i]);
@@ -3040,14 +3042,19 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    if (rc == 0 &&
+            ctx->contextLiveCount >= (int)(sizeof(ctx->contextLive) /
+                sizeof(ctx->contextLive[0]))) {
+        /* No room to record another live context; emitting a blob we cannot
+         * track would have it rejected as non-live at load time. */
+        rc = TPM_RC_OBJECT_MEMORY;
+    }
+
     if (rc == 0) {
         /* TPMS_CONTEXT: sequence(8) | savedHandle(4) | hierarchy(4) | blob */
         ctx->contextSeqCounter++;
         /* Record this context as live so it loads at most once, in any order */
-        if (ctx->contextLiveCount < (int)(sizeof(ctx->contextLive) /
-                sizeof(ctx->contextLive[0]))) {
-            ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
-        }
+        ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
         seqLo = (UINT32)(ctx->contextSeqCounter & 0xFFFFFFFFu);
         TPM2_Packet_AppendU32(rsp, seqHi);
@@ -6633,13 +6640,18 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     .anySig.hashAlg;
             }
         }
-        /* A key with a declared scheme hash must not be used with a
-         * different wire hash (Part 3 Sec.17.2) */
-        else if (rc == 0 && encHashAlg != TPM_ALG_NULL &&
-                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL &&
-                encHashAlg != obj->pub.parameters.rsaDetail.scheme.details
-                    .anySig.hashAlg) {
-            rc = TPM_RC_SCHEME;
+        /* A key with a fixed scheme must not be used with a different wire
+         * scheme or hash (Part 3 Sec.17.2) */
+        else if (rc == 0 &&
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
+            if (encScheme != obj->pub.parameters.rsaDetail.scheme.scheme) {
+                rc = TPM_RC_SCHEME;
+            }
+            else if (encHashAlg != TPM_ALG_NULL &&
+                    encHashAlg != obj->pub.parameters.rsaDetail.scheme.details
+                        .anySig.hashAlg) {
+                rc = TPM_RC_SCHEME;
+            }
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -6796,13 +6808,18 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     .anySig.hashAlg;
             }
         }
-        /* A key with a declared scheme hash must not be used with a
-         * different wire hash (Part 3 Sec.17.2) */
-        else if (rc == 0 && decHashAlg != TPM_ALG_NULL &&
-                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL &&
-                decHashAlg != obj->pub.parameters.rsaDetail.scheme.details
-                    .anySig.hashAlg) {
-            rc = TPM_RC_SCHEME;
+        /* A key with a fixed scheme must not be used with a different wire
+         * scheme or hash (Part 3 Sec.17.2) */
+        else if (rc == 0 &&
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
+            if (decScheme != obj->pub.parameters.rsaDetail.scheme.scheme) {
+                rc = TPM_RC_SCHEME;
+            }
+            else if (decHashAlg != TPM_ALG_NULL &&
+                    decHashAlg != obj->pub.parameters.rsaDetail.scheme.details
+                        .anySig.hashAlg) {
+                rc = TPM_RC_SCHEME;
+            }
         }
 
     #ifdef DEBUG_WOLFTPM
@@ -11590,8 +11607,9 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     #endif
         ctx->globalNvWriteLock = 1;
         /* Persist so the lock survives a daemon restart (Resume) */
-        FWTPM_NV_SaveFlags(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc == 0)
+            FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -15911,7 +15929,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 }
                 /* Enforce any PolicyLocality constraint bound to the session */
                 if (pSess->hasRequiredLocality &&
-                    !((1 << ctx->activeLocality) & pSess->requiredLocality)) {
+                    (ctx->activeLocality > 4 ||
+                     !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
                     *rspSize = FwBuildErrorResponse(rspBuf,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;

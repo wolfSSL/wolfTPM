@@ -3629,14 +3629,20 @@ TPM_RC FwVerifySignatureCore(FWTPM_Object* obj,
                     rsaInit = 1;
             }
 
-            /* A key with a declared scheme hash must not verify a signature
-             * made under a different (e.g. downgraded) hash, and the digest
-             * length must match the signature hash (Part 3 Sec.20.2). */
+            /* A key with a fixed scheme must not verify a signature made
+             * under a different scheme (e.g. RSASSA vs RSAPSS) or a different
+             * (e.g. downgraded) hash (Part 3 Sec.20.2). */
             if (rc == 0 &&
-                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL &&
-                sig->signature.rsassa.hash !=
-                    obj->pub.parameters.rsaDetail.scheme.details.anySig.hashAlg) {
-                rc = TPM_RC_SCHEME;
+                obj->pub.parameters.rsaDetail.scheme.scheme != TPM_ALG_NULL) {
+                if (sig->sigAlg !=
+                        obj->pub.parameters.rsaDetail.scheme.scheme) {
+                    rc = TPM_RC_SCHEME;
+                }
+                else if (sig->signature.rsassa.hash !=
+                        obj->pub.parameters.rsaDetail.scheme.details
+                            .anySig.hashAlg) {
+                    rc = TPM_RC_SCHEME;
+                }
             }
             if (rc == 0 && digestSz !=
                     TPM2_GetHashDigestSize(sig->signature.rsassa.hash)) {

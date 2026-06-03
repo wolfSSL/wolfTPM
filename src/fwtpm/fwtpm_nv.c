@@ -134,9 +134,15 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
 
     ret = (int)fwrite(buf, 1, size, f);
     /* Flush to stable storage so a crash cannot lose committed NV state */
-    fflush(f);
+    if (fflush(f) != 0) {
+        fclose(f);
+        return TPM_RC_FAILURE;
+    }
 #if !defined(_WIN32)
-    fsync(fileno(f));
+    if (fsync(fileno(f)) != 0) {
+        fclose(f);
+        return TPM_RC_FAILURE;
+    }
 #endif
     fclose(f);
 
@@ -680,11 +686,15 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
     const char* nvPath = (const char*)ctx->nvHal.ctx;
     char keyPath[256];
     size_t nvLen;
-    FILE* f;
     int ok = 0;
 #if !defined(_WIN32)
     int kfd;
+    int rfd;
     int kflags = O_CREAT | O_EXCL | O_WRONLY;
+    int rflags = O_RDONLY;
+    struct stat kst;
+#else
+    FILE* f;
 #endif
 
     if (nvPath == NULL) {
@@ -697,18 +707,28 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
     XMEMCPY(keyPath, nvPath, nvLen);
     XMEMCPY(keyPath + nvLen, ".key", 5);
 
-    f = fopen(keyPath, "rb");
-    if (f != NULL) {
-        ok = ((int)fread(key, 1, FWTPM_NV_KEY_SIZE, f) == FWTPM_NV_KEY_SIZE);
-        fclose(f);
+#if !defined(_WIN32)
+    /* O_NOFOLLOW blocks a symlink swap to an attacker-chosen target on both
+     * the read and create paths. */
+    #ifdef O_NOFOLLOW
+    rflags |= O_NOFOLLOW;
+    #endif
+    rfd = open(keyPath, rflags);
+    if (rfd >= 0) {
+        /* Only trust a regular file we own with no group/other access */
+        if (fstat(rfd, &kst) == 0 && S_ISREG(kst.st_mode) &&
+                kst.st_uid == geteuid() &&
+                (kst.st_mode & (S_IRWXG | S_IRWXO)) == 0) {
+            ok = (read(rfd, key, FWTPM_NV_KEY_SIZE) ==
+                (ssize_t)FWTPM_NV_KEY_SIZE);
+        }
+        close(rfd);
     }
     else {
         if (wc_RNG_GenerateBlock(&ctx->rng, key, FWTPM_NV_KEY_SIZE) != 0) {
             return 0;
         }
-    #if !defined(_WIN32)
-        /* O_EXCL prevents a pre-creation race; O_NOFOLLOW blocks a symlink
-         * swap to an attacker-chosen target. */
+        /* O_EXCL prevents a pre-creation race */
         #ifdef O_NOFOLLOW
         kflags |= O_NOFOLLOW;
         #endif
@@ -718,15 +738,26 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
                 (ssize_t)FWTPM_NV_KEY_SIZE);
             close(kfd);
         }
-    #else
+    }
+#else
+    f = fopen(keyPath, "rb");
+    if (f != NULL) {
+        ok = ((int)fread(key, 1, FWTPM_NV_KEY_SIZE, f) == FWTPM_NV_KEY_SIZE);
+        fclose(f);
+    }
+    else {
+        if (wc_RNG_GenerateBlock(&ctx->rng, key, FWTPM_NV_KEY_SIZE) != 0) {
+            return 0;
+        }
         f = fopen(keyPath, "wb");
         if (f != NULL) {
             ok = ((int)fwrite(key, 1, FWTPM_NV_KEY_SIZE, f)
                 == FWTPM_NV_KEY_SIZE);
             fclose(f);
         }
-    #endif
     }
+#endif
+
     if (ok) {
         *keySz = FWTPM_NV_KEY_SIZE;
         return 1;
