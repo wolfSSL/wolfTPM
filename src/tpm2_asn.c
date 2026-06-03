@@ -381,7 +381,7 @@ int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
                 break;
             idx++;
         }
-        if (sig[idx++] == 0x00) {
+        if (idx < *sigSz && sig[idx++] == 0x00) {
             rc = 0;
             *pSig = &sig[idx];
             *sigSz -= idx;
