@@ -15581,6 +15581,7 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
     return NULL;
 }
 
+#ifndef FWTPM_NO_DA
 /* Return 1 if the handle is an NV index with TPMA_NV_NO_DA set. Such an
  * index is exempt from dictionary-attack lockout (Part 1 Sec.23.2). */
 static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
@@ -15597,6 +15598,7 @@ static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
 #endif
     return 0;
 }
+#endif /* !FWTPM_NO_DA */
 
 /* ================================================================== */
 /* Public API: FWTPM_ProcessCommand                                    */
