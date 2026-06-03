@@ -180,7 +180,8 @@ static int extractFW(
     }
 
     READ_BE32(size32, fw, fw_size, offset);
-    if (offset + size32 > fw_size) {
+    /* offset <= fw_size here; subtract to avoid size_t wrap on 32-bit */
+    if (size32 > fw_size - offset) {
         LOG("FW file too short");
         return -1;
     }
