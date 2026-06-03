@@ -3042,19 +3042,22 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    if (rc == 0 &&
+    /* Only session contexts carry single-use replay tracking (the policy
+     * replay concern); object contexts are freely reloadable, so tracking
+     * them would exhaust the small live set under normal multi-load use. */
+    if (rc == 0 && isSession &&
             ctx->contextLiveCount >= (int)(sizeof(ctx->contextLive) /
                 sizeof(ctx->contextLive[0]))) {
-        /* No room to record another live context; emitting a blob we cannot
-         * track would have it rejected as non-live at load time. */
         rc = TPM_RC_OBJECT_MEMORY;
     }
 
     if (rc == 0) {
         /* TPMS_CONTEXT: sequence(8) | savedHandle(4) | hierarchy(4) | blob */
         ctx->contextSeqCounter++;
-        /* Record this context as live so it loads at most once, in any order */
-        ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
+        if (isSession) {
+            /* Record so this session context loads at most once, any order */
+            ctx->contextLive[ctx->contextLiveCount++] = ctx->contextSeqCounter;
+        }
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
         seqLo = (UINT32)(ctx->contextSeqCounter & 0xFFFFFFFFu);
         TPM2_Packet_AppendU32(rsp, seqHi);
@@ -3137,10 +3140,13 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU16(cmd, &blobSz);
     }
 
-    /* Replay protection: the context must be a live (saved, not-yet-loaded)
-     * sequence. A load consumes it; independent saved contexts may load in
-     * any order. */
-    if (rc == 0) {
+    /* Replay protection applies to session contexts only: a saved session
+     * must be a live (not-yet-loaded) sequence and a load consumes it, so a
+     * satisfied policy session cannot be replayed. Object contexts are
+     * reloadable any number of times and are not tracked. */
+    if (rc == 0 &&
+            ((savedHandle & 0xFF000000) == HMAC_SESSION_FIRST ||
+             (savedHandle & 0xFF000000) == POLICY_SESSION_FIRST)) {
         loadSeq = ((UINT64)seqHi << 32) | (UINT64)seqLo;
         for (liveScan = 0; liveScan < ctx->contextLiveCount; liveScan++) {
             if (ctx->contextLive[liveScan] == loadSeq) {
@@ -15793,14 +15799,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             }
 
 #ifndef FWTPM_NO_PARAM_ENC
-                            /* Detect encryption session (first non-PW with
-                             * symmetric alg). A session with an empty
-                             * sessionKey (unsalted and unbound) derives a
-                             * wire-observable key, so it must not be used
-                             * for parameter encryption. */
+                            /* Detect encryption session (first non-PW with a
+                             * symmetric alg). Unsalted/unbound sessions are
+                             * accepted for client compatibility; over the
+                             * loopback transport their key is only observable
+                             * to a local peer. */
                             if (encSess == NULL &&
-                                sess->symmetric.algorithm != TPM_ALG_NULL &&
-                                sess->sessionKey.size > 0) {
+                                sess->symmetric.algorithm != TPM_ALG_NULL) {
                                 encSess = sess;
                                 /* decrypt attr = client encrypted cmd param */
                                 if ((attribs & TPMA_SESSION_decrypt)

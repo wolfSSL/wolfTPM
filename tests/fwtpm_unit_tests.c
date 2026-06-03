@@ -8672,10 +8672,10 @@ static void test_fwtpm_context_save(void)
 static void test_fwtpm_context_load_replay_rejected(void)
 {
     FWTPM_CTX ctx;
-    int rspSize = 0, ctxSzA, ctxSzB, pos;
-    UINT32 keyH;
-    byte savedCtxA[512];
-    byte savedCtxB[512];
+    int rspSize = 0, ctxSz, pos;
+    UINT32 keyH, sessH;
+    byte savedObj[MAX_CONTEXT_SIZE];
+    byte savedSess[MAX_CONTEXT_SIZE];
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -8686,50 +8686,60 @@ static void test_fwtpm_context_load_replay_rejected(void)
 #endif
     AssertIntNE(keyH, 0);
 
-    /* Save context A, then save context B while A is still outstanding */
+    /* Object contexts are freely reloadable (real TPM behavior, relied on by
+     * tpm2-tools): save once, load the same blob twice. */
     BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
     PutU32BE(gCmd + 10, keyH);
     FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    ctxSzA = rspSize - TPM2_HEADER_SIZE;
-    AssertIntGT(ctxSzA, 0);
-    memcpy(savedCtxA, gRsp + TPM2_HEADER_SIZE, ctxSzA);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, 0);
+    memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
 
-    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
-    PutU32BE(gCmd + 10, keyH);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    ctxSzB = rspSize - TPM2_HEADER_SIZE;
-    memcpy(savedCtxB, gRsp + TPM2_HEADER_SIZE, ctxSzB);
-
-    /* Load A first (older blob, B still outstanding) — must succeed */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
-    memcpy(gCmd + pos, savedCtxA, ctxSzA); pos += ctxSzA;
+    memcpy(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    /* Replaying A is rejected (single-use) */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
-    memcpy(gCmd + pos, savedCtxA, ctxSzA); pos += ctxSzA;
+    memcpy(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Session contexts are single-use: a satisfied policy/HMAC session must
+     * not be replayable. Save a session, load once, then reject the replay. */
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, sessH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, 0);
+    memcpy(savedSess, gRsp + TPM2_HEADER_SIZE, ctxSz);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedSess, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedSess, ctxSz); pos += ctxSz;
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
-    /* B is still loadable after A was consumed (any-order multi-context) */
-    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
-    memcpy(gCmd + pos, savedCtxB, ctxSzB); pos += ctxSzB;
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-
     FlushHandle(&ctx, keyH);
     FWTPM_Cleanup(&ctx);
-    printf("Test fwTPM:\tContextLoad replay + multi-context:\tPassed\n");
+    printf("Test fwTPM:\tContextLoad object reload + session replay:\tPassed\n");
 }
 
 /* When the command client changes, transient objects must be flushed so a
