@@ -181,10 +181,49 @@ make
 | Option                      | Description |
 |-----------------------------|-------------|
 | `--enable-spdm`             | Enable SPDM support (required) |
-| `--enable-nuvoton`          | Enable Nuvoton TPM hardware support |
-| `--enable-nations`          | Enable Nations NS350 hardware support |
+| `--enable-tcg`              | TCG SPDM Binding spec handshake (auto when fwtpm/nuvoton/nations on) |
+| `--enable-psk`              | DSP0274 PSK handshake (auto with `--enable-nations`; requires `--enable-tcg`) |
+| `--enable-fwtpm`            | Build fwtpm_server with the SPDM responder (no silicon needed) |
+| `--enable-nuvoton`          | Enable Nuvoton TPM hardware support (auto-enables `--enable-tcg`) |
+| `--enable-nations`          | Enable Nations NS350 hardware support (auto-enables `--enable-tcg --enable-psk`) |
 | `--enable-debug`            | Debug output with verbose SPDM tracing |
 | `--enable-smallstack`       | Heap-allocated SPDM context (default: static ~32 KB) |
+
+Incompatibility errors enforced by `configure`:
+- `--enable-nuvoton --disable-tcg` (Nuvoton uses TCG SPDM Binding)
+- `--enable-nations --disable-tcg` or `--enable-nations --disable-psk`
+- `--enable-psk --disable-tcg` (PSK rides on TCG framing)
+
+### fwtpm SPDM Responder (no silicon required)
+
+`fwtpm_server` ships an SPDM 1.3 responder so the full TCG + PSK stack
+can be exercised in CI without real hardware:
+
+```bash
+./src/fwtpm/fwtpm_server --spdm-tcg          # TCG cert handshake
+./src/fwtpm/fwtpm_server --spdm-psk \
+    --spdm-psk-hex dbc2192291d807742441b963f6712841...   # PSK handshake
+```
+
+Test it end-to-end:
+
+```bash
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-tcg
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-psk
+```
+
+### Vendor selection in dual-vendor builds
+
+When both `--enable-nuvoton` and `--enable-nations` are compiled in, the
+`spdm_ctrl` CLI selects which vendor adapter to use via an optional
+runtime flag:
+
+```bash
+./examples/spdm/spdm_ctrl --vendor=nuvoton --connect      # default
+./examples/spdm/spdm_ctrl --vendor=nations --connect
+```
+
+Single-vendor builds ignore `--vendor=`.
 
 ## Usage
 

@@ -726,7 +726,18 @@ typedef struct FWTPM_CTX {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     WC_RNG rng;
 #endif
+
+#ifdef WOLFTPM_SPDM_RESPONDER
+    /* Bit 0 = TCG, bit 1 = PSK. Zero disables SPDM at runtime. */
+    int spdmMode;
+    struct WOLFSPDM_RESP_CTX* spdmRespCtx;
+#endif
 } FWTPM_CTX;
+
+/* fwTPM SPDM mode bits - used with FWTPM_CTX.spdmMode. */
+#define FWTPM_SPDM_MODE_OFF   0x00
+#define FWTPM_SPDM_MODE_TCG   0x01
+#define FWTPM_SPDM_MODE_PSK   0x02
 
 /** @defgroup wolfTPM_fwTPM wolfTPM fwTPM (Firmware TPM)
  *

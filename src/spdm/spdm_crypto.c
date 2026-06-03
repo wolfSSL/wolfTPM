@@ -92,6 +92,14 @@ int wolfSPDM_GenerateEphemeralKey(WOLFSPDM_CTX* ctx)
         return WOLFSPDM_E_CRYPTO_FAIL;
     }
 
+    /* Attach RNG so timing-resistant scalar-mul inside wc_ecc_shared_secret
+     * doesn't fail with MISSING_RNG_E in builds that enable hardening. */
+    rc = wc_ecc_set_rng(&ctx->ephemeralKey, &ctx->rng);
+    if (rc != 0) {
+        wc_ecc_free(&ctx->ephemeralKey);
+        return WOLFSPDM_E_CRYPTO_FAIL;
+    }
+
     ctx->flags.ephemeralKeyInit = 1;
     wolfSPDM_DebugPrint(ctx, "Generated P-384 ephemeral key\n");
 

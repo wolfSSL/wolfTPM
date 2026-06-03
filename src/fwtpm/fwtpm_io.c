@@ -39,6 +39,10 @@
 #ifdef WOLFTPM_FWTPM_TIS
 #include <wolftpm/fwtpm/fwtpm_tis.h>
 #endif
+#ifdef WOLFTPM_SPDM_RESPONDER
+#include <wolftpm/spdm/spdm_responder.h>
+#include <wolftpm/spdm/spdm_types.h>
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -316,12 +320,61 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
     int rspSize = 0;
     int procRc;
     UINT32 netVal;
+    int dispatched = 0;
+#ifdef WOLFTPM_SPDM_RESPONDER
+    UINT16 firstTag = (cmdSize >= 2) ? FwLoadU16BE(ctx->cmdBuf) : 0;
+    int isSpdmFrame = (firstTag == 0x8101 || firstTag == 0x8201);
+    word32 outSz;
+    UINT32 cc;
 
-    procRc = FWTPM_ProcessCommand(ctx, ctx->cmdBuf, (int)cmdSize,
-        ctx->rspBuf, &rspSize, locality);
-    if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
-        rspSize = BuildErrorResponse(ctx->rspBuf, TPM_ST_NO_SESSIONS,
-            TPM_RC_FAILURE);
+    if (ctx->spdmMode != FWTPM_SPDM_MODE_OFF && isSpdmFrame) {
+        outSz = (word32)sizeof(ctx->rspBuf);
+        procRc = wolfSPDM_RespHandleMessage(ctx->spdmRespCtx,
+            ctx->cmdBuf, cmdSize, ctx->rspBuf, &outSz);
+        if (procRc == WOLFSPDM_E_FRAMING) {
+            /* Per wolfSPDM_RespHandleMessage's contract, an E_FRAMING
+             * return MUST drop the connection - it indicates a plaintext
+             * bypass attempt or other malformed inbound frame. */
+            return -1;
+        }
+        if (procRc != WOLFSPDM_SUCCESS) {
+            rspSize = BuildErrorResponse(ctx->rspBuf, TPM_ST_NO_SESSIONS,
+                TPM_RC_FAILURE);
+        }
+        else {
+            rspSize = (int)outSz;
+        }
+        dispatched = 1;
+    }
+    else if (ctx->spdmMode != FWTPM_SPDM_MODE_OFF && !isSpdmFrame &&
+             wolfSPDM_RespIsLocked(ctx->spdmRespCtx)) {
+        /* SPDMONLY locked: real silicon lets plaintext GetCapability
+         * through so wolfTPM2 can probe vendor IDs before establishing
+         * SPDM. Allowlist that one command; reject the rest. */
+        cc = (cmdSize >= 10) ? FwLoadU32BE(ctx->cmdBuf + 6) : 0;
+        if (cc == TPM_CC_GetCapability) {
+            procRc = FWTPM_ProcessCommand(ctx, ctx->cmdBuf, (int)cmdSize,
+                ctx->rspBuf, &rspSize, locality);
+            if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
+                rspSize = BuildErrorResponse(ctx->rspBuf,
+                    TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
+            }
+        }
+        else {
+            rspSize = BuildErrorResponse(ctx->rspBuf, TPM_ST_NO_SESSIONS,
+                TPM_RC_DISABLED);
+        }
+        dispatched = 1;
+    }
+#endif
+
+    if (!dispatched) {
+        procRc = FWTPM_ProcessCommand(ctx, ctx->cmdBuf, (int)cmdSize,
+            ctx->rspBuf, &rspSize, locality);
+        if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
+            rspSize = BuildErrorResponse(ctx->rspBuf, TPM_ST_NO_SESSIONS,
+                TPM_RC_FAILURE);
+        }
     }
 
     if (isSwtpm) {
@@ -385,6 +438,10 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, int clientFd)
     if (rc != TPM_RC_SUCCESS) {
         return rc;
     }
+
+    /* SPDM-mode payload inspection now lives in DispatchAndRespond after
+     * MSSIM unwrap, so the wolfTPM SWTPM client (which always MSSIM-wraps)
+     * works alongside the bus-snooping defence. */
 
     /* Check if this looks like a raw TPM command (swtpm protocol).
      * TPM commands start with tag 0x8001 or 0x8002 in big-endian. */

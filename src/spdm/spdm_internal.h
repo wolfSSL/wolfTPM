@@ -303,6 +303,11 @@ WOLFTPM_API int wolfSPDM_HkdfExpandLabel(byte spdmVersion, const byte* secret, w
     byte* out, word32 outSz);
 WOLFTPM_API int wolfSPDM_ComputeVerifyData(const byte* finishedKey, const byte* thHash,
     byte* verifyData);
+/* Cross-TU helper, not a shipped API - WOLFTPM_LOCAL keeps it out of the
+ * shared-library export table. spdm_internal.h is private to wolfSPDM. */
+WOLFTPM_LOCAL int wolfSPDM_BuildSignedHash(byte spdmVersion,
+    const char* contextStr, word32 contextStrLen,
+    const byte* inputDigest, byte* outputDigest);
 
 /* ----- Internal Function Declarations - Message Building ----- */
 

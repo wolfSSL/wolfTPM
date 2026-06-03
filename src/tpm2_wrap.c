@@ -1596,42 +1596,6 @@ int wolfTPM2_SpdmNationsIdentityKeySet(WOLFTPM2_DEV* dev, int set)
     return rc;
 }
 
-int wolfTPM2_SpdmConnectNationsPsk(WOLFTPM2_DEV* dev,
-    const byte* psk, word32 pskSz,
-    const byte* hint, word32 hintSz)
-{
-    int rc;
-
-    if (dev == NULL || dev->spdmCtx == NULL || psk == NULL || pskSz == 0) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* Auto-set TIS I/O callback */
-    rc = wolfTPM2_SPDM_SetTisIO(dev->spdmCtx);
-    if (rc != 0 && rc != NOT_COMPILED_IN) {
-        return rc;
-    }
-
-#ifdef DEBUG_WOLFTPM
-    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
-#endif
-
-    /* Set Nations PSK mode */
-    rc = wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, WOLFSPDM_MODE_NATIONS_PSK);
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* Set PSK for KDF */
-    rc = wolfSPDM_SetPSK(dev->spdmCtx->spdmCtx, psk, pskSz, hint, hintSz);
-    if (rc != 0) {
-        return rc;
-    }
-
-    /* Perform PSK handshake (may include inline PSK_SET if set) */
-    return wolfSPDM_Connect(dev->spdmCtx->spdmCtx);
-}
-
 int wolfTPM2_SpdmNationsGetStatus(WOLFTPM2_DEV* dev,
     WOLFSPDM_NATIONS_STATUS* status)
 {
@@ -1661,6 +1625,43 @@ int wolfTPM2_SpdmNationsPskClear(WOLFTPM2_DEV* dev,
 }
 
 #endif /* WOLFSPDM_NATIONS */
+
+#ifdef WOLFTPM_SPDM_PSK
+/* Spec-pure PSK handshake (DSP0274 PSK_EXCHANGE / PSK_FINISH). The
+ * underlying state machine runs the standard messages - the mode enum
+ * still uses the historical NATIONS_PSK name. */
+int wolfTPM2_SpdmConnectPsk(WOLFTPM2_DEV* dev,
+    const byte* psk, word32 pskSz,
+    const byte* hint, word32 hintSz)
+{
+    int rc;
+
+    if (dev == NULL || dev->spdmCtx == NULL || psk == NULL || pskSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_SPDM_SetTisIO(dev->spdmCtx);
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+        return rc;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    wolfSPDM_SetDebug(dev->spdmCtx->spdmCtx, 1);
+#endif
+
+    rc = wolfSPDM_SetMode(dev->spdmCtx->spdmCtx, WOLFSPDM_MODE_NATIONS_PSK);
+    if (rc != 0) {
+        return rc;
+    }
+
+    rc = wolfSPDM_SetPSK(dev->spdmCtx->spdmCtx, psk, pskSz, hint, hintSz);
+    if (rc != 0) {
+        return rc;
+    }
+
+    return wolfSPDM_Connect(dev->spdmCtx->spdmCtx);
+}
+#endif /* WOLFTPM_SPDM_PSK */
 
 #endif /* WOLFTPM_SPDM */
 

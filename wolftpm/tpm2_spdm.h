@@ -176,24 +176,10 @@ WOLFTPM_API void wolfTPM2_SPDM_FreeCtx(
 /* Nuvoton-Specific Functions (requires wolfSPDM with --enable-nuvoton)
  * -------------------------------------------------------------------------- */
 
-#ifdef WOLFTPM_SPDM_TCG
-
-/**
- * Set the built-in TIS I/O callback for routing SPDM through TPM SPI/I2C.
- * Uses the TPM TIS FIFO to send/receive raw SPDM messages.
- * TCG framing is handled internally by wolfSPDM_SendReceive().
- * Must be called after wolfTPM2_SPDM_InitCtx() and SetTPMCtx().
- *
- * Only available on hardware TPM builds (not LINUX_DEV, SWTPM, or WINAPI).
- *
- * @param ctx       wolfTPM2 SPDM context (with tpmCtx already set)
- * @return 0 on success, NOT_COMPILED_IN if TIS not available
- */
+/* Transport setter - works for any SPDM-over-TPM flow (cert or PSK). */
 WOLFTPM_API int wolfTPM2_SPDM_SetTisIO(
     WOLFTPM2_SPDM_CTX* ctx
 );
-
-#endif /* WOLFTPM_SPDM_TCG */
 
 #ifdef __cplusplus
     } /* extern "C" */

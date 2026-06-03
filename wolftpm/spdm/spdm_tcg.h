@@ -35,13 +35,8 @@
 
 #include <wolftpm/spdm/spdm_types.h>
 
-#ifdef WOLFTPM_SPDM_TCG
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/* ----- TCG SPDM Binding Constants (per TCG SPDM Binding Spec v1.0) ----- */
+/* Transport framing constants - needed by any SPDM-over-TPM build,
+ * not just the TCG cert handshake. */
 
 /* Message Tags */
 #define WOLFSPDM_TCG_TAG_CLEAR          0x8101  /* Clear (unencrypted) message */
@@ -49,6 +44,14 @@ extern "C" {
 
 /* Header Sizes */
 #define WOLFSPDM_TCG_HEADER_SIZE        16      /* TCG binding header size */
+
+#ifdef WOLFTPM_SPDM_TCG
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ----- TCG SPDM Binding Constants (per TCG SPDM Binding Spec v1.0) ----- */
 
 /* FIPS Service Indicator */
 #define WOLFSPDM_FIPS_NON_FIPS          0x00

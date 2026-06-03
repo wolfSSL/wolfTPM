@@ -48,6 +48,11 @@ enum WOLFSPDM_ERROR {
     WOLFSPDM_E_NO_MEMORY        = -15,  /* Memory allocation failed */
     WOLFSPDM_E_SESSION_INVALID  = -16,  /* Session ID invalid or mismatch */
     WOLFSPDM_E_KEY_EXCHANGE     = -17,  /* Key exchange failed */
+    WOLFSPDM_E_NOT_AVAILABLE    = -18,  /* Feature/mode not compiled in */
+    WOLFSPDM_E_FRAMING          = -19,  /* Frame did not parse (e.g. plaintext
+                                         * TPM2 sent while SPDM mode active -
+                                         * bus-snooping defence) */
+    WOLFSPDM_E_NOT_IMPL         = -20,  /* Handler not yet implemented */
 };
 
 /* Get human-readable error string */

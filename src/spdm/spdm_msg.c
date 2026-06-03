@@ -148,7 +148,7 @@ int wolfSPDM_BuildKeyExchange(WOLFSPDM_CTX* ctx, byte* buf, word32* bufSz)
  * combined_spdm_prefix = "dmtf-spdm-v1.X.*" x4 = 64 bytes
  * zero_pad = (36 - contextStrLen) bytes of 0x00
  * context_str = signing context string (variable length, max 36) */
-static int wolfSPDM_BuildSignedHash(byte spdmVersion,
+int wolfSPDM_BuildSignedHash(byte spdmVersion,
     const char* contextStr, word32 contextStrLen,
     const byte* inputDigest, byte* outputDigest)
 {

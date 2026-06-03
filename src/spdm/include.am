@@ -4,6 +4,7 @@
 
 if BUILD_SPDM
 
+# Side-agnostic SPDM core: same code feeds requester and responder.
 src_libwolftpm_la_SOURCES += \
     src/spdm/spdm_context.c \
     src/spdm/spdm_crypto.c \
@@ -11,17 +12,27 @@ src_libwolftpm_la_SOURCES += \
     src/spdm/spdm_msg.c \
     src/spdm/spdm_secured.c \
     src/spdm/spdm_session.c \
-    src/spdm/spdm_tcg.c \
     src/spdm/spdm_transcript.c
 
-# Vendor-specific SPDM code
+if BUILD_SPDM_TCG
+src_libwolftpm_la_SOURCES += src/spdm/spdm_tcg.c
+endif
+
+# Gated on the mode flag, not on a vendor flag - PSK isn't Nations-specific.
+if BUILD_SPDM_PSK
+src_libwolftpm_la_SOURCES += src/spdm/spdm_psk.c
+endif
+
 if BUILD_NUVOTON
 src_libwolftpm_la_SOURCES += src/spdm/spdm_nuvoton.c
 endif
 
 if BUILD_NATIONS
 src_libwolftpm_la_SOURCES += src/spdm/spdm_nations.c
-src_libwolftpm_la_SOURCES += src/spdm/spdm_psk.c
+endif
+
+if BUILD_FWTPM_SPDM
+src_libwolftpm_la_SOURCES += src/spdm/spdm_responder.c
 endif
 
 check_PROGRAMS += src/spdm/unit_test

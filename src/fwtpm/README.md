@@ -142,6 +142,42 @@ Key options: `--enable-fwtpm`, `--enable-fwtpm-only`, `--enable-swtpm`,
 `FWTPM_NO_ATTESTATION`, `FWTPM_NO_NV`, `FWTPM_NO_POLICY`, `FWTPM_NO_CREDENTIAL`,
 `FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`.
 
+## SPDM Responder Mode
+
+`fwtpm_server` ships an SPDM 1.3 responder so the SPDM stack (TCG cert
+handshake + DSP0274 PSK) can be tested without real silicon. When SPDM
+is on, the responder sits above the existing transport HAL and dispatches
+TCG-framed messages (tags `0x8101` clear, `0x8201` secured) into the SPDM
+state machine; plaintext TPM frames fall through to the regular dispatcher
+until the requester issues `SPDMONLY LOCK`, after which only `GetCapability`
+is allowed through in plaintext (matching Nuvoton/Nations silicon).
+
+Build with `--enable-fwtpm --enable-spdm` plus at least one of
+`--enable-tcg` / `--enable-psk`. Start in one of two modes:
+
+```bash
+./src/fwtpm/fwtpm_server --spdm-tcg              # TCG cert handshake
+./src/fwtpm/fwtpm_server --spdm-psk \
+    --spdm-psk-hex dbc2192291d807742441b963f6712841...   # PSK handshake
+./src/fwtpm/fwtpm_server --no-spdm               # plaintext only (default)
+```
+
+The responder generates a fresh P-384 identity keypair at startup (used
+for `GET_PUBK`/`KEY_EXCHANGE` signing); the private key never leaves
+`fwtpm_server` memory and the stack copy is zeroed with `wc_ForceZero`
+after handoff to the responder context.
+
+End-to-end coverage runs via the same script that drives real silicon:
+
+```bash
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-tcg
+./examples/spdm/spdm_test.sh ./examples/spdm/spdm_ctrl fwtpm-psk
+```
+
+CI exercises 7 build-only configure permutations + the two e2e modes on
+`ubuntu-latest`; the original `hw-spdm-test.yml` still runs the same
+script against Nuvoton + Nations on self-hosted Pi runners.
+
 ## TPM 2.0 Command Coverage
 
 ### Currently Implemented (105 commands)

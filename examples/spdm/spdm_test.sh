@@ -24,7 +24,11 @@ CAPS_DEMO="./examples/wrap/caps"
 UNIT_TEST="./tests/unit.test"
 GPIO_CHIP="gpiochip0"
 GPIO_PIN="4"
-VENDOR="${2:-nuvoton}"  # "nuvoton", "nations", or "nations-psk"
+VENDOR="${2:-nuvoton}"  # nuvoton, nations, nations-psk, fwtpm-tcg, fwtpm-psk
+FWTPM="${FWTPM:-./src/fwtpm/fwtpm_server}"
+FWTPM_PORT="${FWTPM_PORT:-22321}"
+FWTPM_PLAT_PORT="${FWTPM_PLAT_PORT:-22322}"
+FWTPM_PID=""
 PASS=0 FAIL=0 TOTAL=0
 
 # Nations PSK test data (from Vision/NSING reference PSK_DEMO_3)
@@ -41,11 +45,46 @@ else
     GREEN='' RED='' YELLOW='' NC=''
 fi
 
+# fwtpm modes route TPM/SPDM traffic over the swtpm socket. No GPIO line,
+# no NV provisioning persistence - the responder is started fresh per run.
+is_fwtpm_mode() {
+    [ "$VENDOR" = "fwtpm-tcg" ] || [ "$VENDOR" = "fwtpm-psk" ]
+}
+
 gpio_reset() {
+    if is_fwtpm_mode; then
+        return 0
+    fi
     gpioset "$GPIO_CHIP" "$GPIO_PIN=0" 2>/dev/null
     sleep 0.1
     gpioset "$GPIO_CHIP" "$GPIO_PIN=1" 2>/dev/null
     sleep 2
+}
+
+fwtpm_start() {
+    local mode="$1"
+    rm -f fwtpm_nv.bin NVChip 2>/dev/null
+    if [ "$mode" = "psk" ]; then
+        "$FWTPM" --spdm-psk --spdm-psk-hex "$NATIONS_PSK" \
+            --port "$FWTPM_PORT" --platform-port "$FWTPM_PLAT_PORT" \
+            --clear > /tmp/fwtpm_spdm_test.log 2>&1 &
+    else
+        "$FWTPM" --spdm-tcg --port "$FWTPM_PORT" \
+            --platform-port "$FWTPM_PLAT_PORT" --clear \
+            > /tmp/fwtpm_spdm_test.log 2>&1 &
+    fi
+    FWTPM_PID=$!
+    sleep 1
+    export TPM2_SWTPM_HOST=127.0.0.1
+    export TPM2_SWTPM_PORT="$FWTPM_PORT"
+}
+
+fwtpm_stop() {
+    if [ -n "$FWTPM_PID" ]; then
+        kill "$FWTPM_PID" 2>/dev/null || true
+        wait "$FWTPM_PID" 2>/dev/null || true
+        FWTPM_PID=""
+    fi
 }
 
 # normalize_nations_chip: bring NS350 to canonical clean state
@@ -226,8 +265,70 @@ elif [ "$VENDOR" = "nations-psk" ]; then
         echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
     fi
 
+elif [ "$VENDOR" = "fwtpm-tcg" ]; then
+    # fwtpm in TCG cert mode - mirrors the Nuvoton 6-test sequence against
+    # the software responder. Lock/unlock toggles the SPDMONLY runtime
+    # state in the responder; while locked, plaintext TPM frames are
+    # rejected with TPM_RC_DISABLED.
+    if [ ! -x "$FWTPM" ]; then
+        echo "Error: $FWTPM not found"
+        exit 1
+    fi
+    fwtpm_start tcg
+    trap 'fwtpm_stop' EXIT
+
+    run_test "SPDM status query" "$SPDM_DEMO" --status
+    run_test "SPDM session connect" "$SPDM_DEMO" --connect
+    run_test "Lock SPDM-only mode" "$SPDM_DEMO" --connect --lock
+
+    if [ -x "$UNIT_TEST" ]; then
+        run_test "Unit test over SPDM" "$UNIT_TEST"
+    else
+        echo -e "  ${YELLOW}Skipping: $UNIT_TEST not found${NC}"
+    fi
+
+    run_test "Unlock SPDM-only mode" "$SPDM_DEMO" --connect --unlock
+
+    if [ -x "$CAPS_DEMO" ]; then
+        run_test_caps "Cleartext caps (no SPDM)" "$CAPS_DEMO"
+    else
+        echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
+    fi
+
+elif [ "$VENDOR" = "fwtpm-psk" ]; then
+    # fwtpm in PSK mode - mirrors the Nations-PSK 12-test sequence, minus
+    # the two identity-key steps. IDENTITY_KEY_SET/UNSET are Nations
+    # TPM2 vendor commands (TPM_CC_Nations_IdentityKeySet) that write to
+    # vendor NV; they don't apply to a software TPM.
+    if [ ! -x "$FWTPM" ]; then
+        echo "Error: $FWTPM not found"
+        exit 1
+    fi
+    fwtpm_start psk
+    trap 'fwtpm_stop' EXIT
+
+    run_test "PSK provision (PSK_SET)" "$SPDM_DEMO" \
+        --psk-set "$NATIONS_PSK" "$NATIONS_CLEARAUTH"
+    run_test "Status (PSK provisioned)" "$SPDM_DEMO" --status
+    run_test "PSK session connect" "$SPDM_DEMO" --psk "$NATIONS_PSK"
+    run_test "PSK session connect (repeat)" "$SPDM_DEMO" --psk "$NATIONS_PSK"
+    run_test "PSK clear (PSK_CLEAR)" "$SPDM_DEMO" --psk-clear "$NATIONS_CLEARAUTH"
+    run_test "Status (PSK cleared)" "$SPDM_DEMO" --status
+    run_test "PSK re-provision (PSK_SET)" "$SPDM_DEMO" \
+        --psk-set "$NATIONS_PSK" "$NATIONS_CLEARAUTH"
+    run_test "PSK session connect (after re-provision)" "$SPDM_DEMO" \
+        --psk "$NATIONS_PSK"
+    run_test "Final PSK clear" "$SPDM_DEMO" --psk-clear "$NATIONS_CLEARAUTH"
+
+    if [ -x "$CAPS_DEMO" ]; then
+        run_test_caps "Cleartext caps (no SPDM)" "$CAPS_DEMO"
+    else
+        echo -e "  ${YELLOW}Skipping: $CAPS_DEMO not found${NC}"
+    fi
+
 else
-    echo "Error: Unknown vendor '$VENDOR'. Use 'nuvoton', 'nations', or 'nations-psk'."
+    echo "Error: Unknown vendor '$VENDOR'."
+    echo "Valid: nuvoton, nations, nations-psk, fwtpm-tcg, fwtpm-psk"
     exit 1
 fi
 
