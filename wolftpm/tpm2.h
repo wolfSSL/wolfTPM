@@ -4124,6 +4124,19 @@ WOLFTPM_API int TPM2_GetCurveSize(TPM_ECC_CURVE curveID);
 
 /*!
     \ingroup TPM2_Proprietary
+    \brief Determine the recommended message digest for a TPM ECC Curve
+
+    \return TPM_ALG_ID of the hash paired to the curve size (P256->SHA256,
+        P384->SHA384, P521->SHA512). Defaults to TPM_ALG_SHA256.
+
+    \param curveID value of type TPM_ECC_CURVE
+
+    \sa TPM2_GetCurveSize
+*/
+WOLFTPM_API TPM_ALG_ID TPM2_GetCurveHashAlg(TPM_ECC_CURVE curveID);
+
+/*!
+    \ingroup TPM2_Proprietary
     \brief Translate a wolfcrypt curve type to its corresponding TPM curve type
 
     \return integer value representing a wolfcrypt curve type

@@ -8224,19 +8224,31 @@ int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
-    int curveSz = TPM2_GetCurveSize(curve);
+    int curveSz;
 
-    if (publicTemplate == NULL || curveSz == 0)
+    if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(NO_ECC256) && defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
-    /* make sure we use a curve that is enabled */
+#ifdef NO_ECC256
+    /* P256 is compiled out of wolfCrypt; substitute the configured (enabled)
+     * default curve so callers requesting P256 still get a usable curve. This
+     * is availability-driven and applies to every caller (including the named
+     * EK/SRK/AIK templates) because the build simply cannot honor P256. The
+     * configurable default-curve preference lives in the public ECC template
+     * wrappers, not here, so explicit curves through this helper are honored. */
     if (curve == TPM_ECC_NIST_P256) {
-        curve = TPM_ECC_NIST_P384;
-        nameAlg = TPM_ALG_SHA384;
-        sigHash = TPM_ALG_SHA384;
+        curve = WOLFTPM2_ECC_DEFAULT_CURVE;
+        nameAlg = TPM2_GetCurveHashAlg(curve);
+        if (sigHash != TPM_ALG_NULL)
+            sigHash = nameAlg;
     }
 #endif
+
+    /* Compute curve size after any substitution so coordinate sizes and the
+     * AES wrap strength below match the curve actually used. */
+    curveSz = TPM2_GetCurveSize(curve);
+    if (curveSz == 0)
+        return BAD_FUNC_ARG;
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_ECC;
@@ -8280,10 +8292,35 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
         TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST);
 }
 
+/* Resolve a P256 "use the library default" request to the build-configured
+ * WOLFTPM2_ECC_DEFAULT_CURVE, pairing the name/sig hash via
+ * TPM2_GetCurveHashAlg. No-op when the default is P256 (the shipped default),
+ * so existing builds are unchanged. This lets a build make P384 (or another
+ * curve) the wrapper default - e.g. wolfTPM2_CreateSRK(TPM_ALG_ECC) - without
+ * editing call sites. The EK index templates (TCG-fixed curve and auth policy),
+ * the explicit-curve IAK/IDevID helpers, and the crypto callback (curve
+ * negotiated by wolfCrypt) intentionally do NOT use this and keep their exact
+ * curve. */
+static void wolfTPM2_ResolveDefaultEccCurve(TPM_ECC_CURVE* curve,
+    TPM_ALG_ID* nameAlg, TPM_ALG_ID* sigHash)
+{
+    if (*curve == TPM_ECC_NIST_P256 &&
+            WOLFTPM2_ECC_DEFAULT_CURVE != TPM_ECC_NIST_P256) {
+        *curve = WOLFTPM2_ECC_DEFAULT_CURVE;
+        if (nameAlg != NULL)
+            *nameAlg = TPM2_GetCurveHashAlg(*curve);
+        if (sigHash != NULL && *sigHash != TPM_ALG_NULL)
+            *sigHash = TPM2_GetCurveHashAlg(*curve);
+    }
+}
+
 int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
+    /* General-purpose ECC template API: a P256 request follows the configured
+     * default curve. */
+    wolfTPM2_ResolveDefaultEccCurve(&curve, &nameAlg, &sigHash);
     return GetKeyTemplateECC(publicTemplate, nameAlg,
         objectAttributes, curve, sigScheme, sigHash);
 }
@@ -8291,7 +8328,9 @@ int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
 int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme)
 {
-    return GetKeyTemplateECC(publicTemplate, WOLFTPM2_WRAP_DIGEST,
+    /* Route through the _ex wrapper so the configurable default curve applies
+     * to this general-purpose API as well. */
+    return wolfTPM2_GetKeyTemplate_ECC_ex(publicTemplate, WOLFTPM2_WRAP_DIGEST,
         objectAttributes, curve, sigScheme, WOLFTPM2_WRAP_DIGEST);
 }
 
@@ -8541,13 +8580,17 @@ int wolfTPM2_GetKeyTemplate_RSA_SRK(TPMT_PUBLIC* publicTemplate)
 
 int wolfTPM2_GetKeyTemplate_ECC_SRK(TPMT_PUBLIC* publicTemplate)
 {
+    TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
+    TPM_ALG_ID nameAlg = TPM_ALG_SHA256;
     TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_restricted | TPMA_OBJECT_decrypt | TPMA_OBJECT_noDA);
 
-    return GetKeyTemplateECC(publicTemplate, TPM_ALG_SHA256,
-        objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_NULL, TPM_ALG_NULL);
+    /* Storage primary defaults to P256 but follows WOLFTPM2_ECC_DEFAULT_CURVE. */
+    wolfTPM2_ResolveDefaultEccCurve(&curve, &nameAlg, NULL);
+    return GetKeyTemplateECC(publicTemplate, nameAlg,
+        objectAttributes, curve, TPM_ALG_NULL, TPM_ALG_NULL);
 }
 
 int wolfTPM2_GetKeyTemplate_RSA_AIK(TPMT_PUBLIC* publicTemplate)
@@ -8569,13 +8612,19 @@ int wolfTPM2_GetKeyTemplate_RSA_AIK(TPMT_PUBLIC* publicTemplate)
 int wolfTPM2_GetKeyTemplate_ECC_AIK(TPMT_PUBLIC* publicTemplate)
 {
     int ret;
+    TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
+    TPM_ALG_ID nameAlg = TPM_ALG_SHA256;
+    TPM_ALG_ID sigHash = TPM_ALG_SHA256;
     TPMA_OBJECT objectAttributes = (
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_restricted | TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
 
-    ret = GetKeyTemplateECC(publicTemplate, TPM_ALG_SHA256,
-        objectAttributes, TPM_ECC_NIST_P256, TPM_ALG_ECDSA, TPM_ALG_SHA256);
+    /* Attestation signing key defaults to P256 but follows the configured
+     * default curve. */
+    wolfTPM2_ResolveDefaultEccCurve(&curve, &nameAlg, &sigHash);
+    ret = GetKeyTemplateECC(publicTemplate, nameAlg,
+        objectAttributes, curve, TPM_ALG_ECDSA, sigHash);
     if (ret == 0) {
         publicTemplate->parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
     }

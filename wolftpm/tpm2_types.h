@@ -890,6 +890,31 @@ typedef int64_t  INT64;
     #define WOLFTPM2_WRAP_ECC_KEY_BITS (MAX_ECC_KEY_BITS*8)
 #endif
 
+/* Defines the library-default ECC curve used by the wrapper key templates that
+ * default to P256: wolfTPM2_GetKeyTemplate_ECC[_ex] and the storage/attestation
+ * primaries (wolfTPM2_GetKeyTemplate_ECC_SRK / _AIK, used by
+ * wolfTPM2_CreateSRK(TPM_ALG_ECC)). A P256 request through these follows this
+ * default, so a build can opt in to a stronger default (e.g. P384) without
+ * editing call sites. Override at build time, e.g.
+ * -DWOLFTPM2_ECC_DEFAULT_CURVE=TPM_ECC_NIST_P384. The matching name/sig hash is
+ * derived from the curve via TPM2_GetCurveHashAlg, so only the curve needs to
+ * be set. When left at the default of P256 the behavior is unchanged. The EK
+ * templates (TCG-fixed curve and auth policy), the explicit-curve IAK/IDevID
+ * helpers, and crypto-callback keys (curve negotiated by wolfCrypt) keep their
+ * exact curve. If P256 is compiled out (NO_ECC256) the default falls back to an
+ * enabled curve. */
+#ifndef WOLFTPM2_ECC_DEFAULT_CURVE
+    #if !defined(NO_ECC256)
+        #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P256
+    #elif defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
+        #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P384
+    #elif defined(HAVE_ECC521) && ECC_MIN_KEY_SZ <= 521
+        #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P521
+    #else
+        #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P256
+    #endif
+#endif
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
     /* Enable the crypto callback support */

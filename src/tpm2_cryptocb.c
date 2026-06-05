@@ -234,15 +234,13 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     TPMT_PUBLIC publicTemplate;
                     TPMI_ALG_HASH hashAlg;
 
-                    if (curve_id == TPM_ECC_NIST_P521)
-                        hashAlg = TPM_ALG_SHA512;
-                    else if (curve_id == TPM_ECC_NIST_P384)
-                        hashAlg = TPM_ALG_SHA384;
-                    else
-                        hashAlg = TPM_ALG_SHA256;
+                    hashAlg = TPM2_GetCurveHashAlg(curve_id);
 
                     XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
-                    rc = wolfTPM2_GetKeyTemplate_ECC_ex(&publicTemplate, hashAlg,
+                    /* Use the internal helper (not the public _ex wrapper) so
+                     * the curve wolfCrypt negotiated is honored exactly and is
+                     * not remapped by WOLFTPM2_ECC_DEFAULT_CURVE. */
+                    rc = GetKeyTemplateECC(&publicTemplate, hashAlg,
                         TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                         TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
                         curve_id, TPM_ALG_ECDSA, hashAlg);

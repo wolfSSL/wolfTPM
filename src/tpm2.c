@@ -7034,6 +7034,20 @@ int TPM2_GetCurveSize(TPM_ECC_CURVE curveID)
     return 0;
 }
 
+TPM_ALG_ID TPM2_GetCurveHashAlg(TPM_ECC_CURVE curveID)
+{
+    int curveSz = TPM2_GetCurveSize(curveID);
+
+    /* Pair the message digest strength to the curve size, matching the TCG
+     * recommended curve/hash combinations (P256/SHA256, P384/SHA384,
+     * P521/SHA512). */
+    if (curveSz >= 64) /* P521 (66), BP512 (64) */
+        return TPM_ALG_SHA512;
+    if (curveSz == 48) /* P384, BP384 */
+        return TPM_ALG_SHA384;
+    return TPM_ALG_SHA256; /* P256 and smaller */
+}
+
 int TPM2_GetTpmCurve(int curve_id)
 {
     int ret = -1;
