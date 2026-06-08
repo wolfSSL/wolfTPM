@@ -77,7 +77,8 @@ typedef UINT32 TPM_GENERATED;
 
 typedef enum {
     TPM_ALG_ERROR           = 0x0000,
-    TPM_ALG_RSA             = 0x0001,
+    TPM_ALG_FIRST           = 0x0001,
+    TPM_ALG_RSA             = TPM_ALG_FIRST,
     TPM_ALG_SHA             = 0x0004,
     TPM_ALG_SHA1            = TPM_ALG_SHA,
     TPM_ALG_HMAC            = 0x0005,

@@ -5794,8 +5794,17 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
 
     XMEMSET(&verifySeqCompleteOut, 0, sizeof(verifySeqCompleteOut));
     rc = TPM2_VerifySequenceComplete(&verifySeqCompleteIn, &verifySeqCompleteOut);
-    if (rc == TPM_RC_SUCCESS && validation != NULL) {
-        XMEMCPY(validation, &verifySeqCompleteOut.validation, sizeof(TPMT_TK_VERIFIED));
+    if (rc == TPM_RC_SUCCESS) {
+        if (validation != NULL) {
+            XMEMCPY(validation, &verifySeqCompleteOut.validation,
+                sizeof(TPMT_TK_VERIFIED));
+        }
+    }
+    else {
+        /* On an error return (e.g. TPM_RC_SIGNATURE) the TPM does not consume
+         * the sequence object. Flush it so repeated failed verifies do not
+         * exhaust transient memory (TPM_RC_OBJECT_MEMORY). */
+        wolfTPM2_UnloadHandle(dev, &seqHandleObj);
     }
 
     return rc;
