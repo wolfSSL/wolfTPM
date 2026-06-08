@@ -175,8 +175,7 @@ End-to-end coverage runs via the same script that drives real silicon:
 ```
 
 CI exercises 7 build-only configure permutations + the two e2e modes on
-`ubuntu-latest`; the original `hw-spdm-test.yml` still runs the same
-script against Nuvoton + Nations on self-hosted Pi runners.
+`ubuntu-latest` via `spdm-test.yml`, against the fwTPM SPDM responder.
 
 ## TPM 2.0 Command Coverage
 
