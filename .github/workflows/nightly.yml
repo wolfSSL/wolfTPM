@@ -10,8 +10,8 @@ name: Nightly CI
 #
 # repository_dispatch is API-only — there is no UI button to trigger
 # these workflows by hand. Maintainers cannot accidentally fire them.
-# Workflows that should never be batch-triggered (e.g. hw-spdm-test on
-# the self-hosted Pi runner) simply don't add the listener.
+# Workflows that should never be batch-triggered (e.g. self-hosted Pi
+# runner jobs) simply don't add the listener.
 
 on:
   schedule:

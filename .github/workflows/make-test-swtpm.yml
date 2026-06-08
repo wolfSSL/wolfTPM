@@ -151,8 +151,8 @@ jobs:
           - name: nuvoton-explicit-swtpm
             wolftpm_config: --enable-swtpm --enable-nuvoton --disable-fwtpm
 
-          # SPDM + vendor without any --disable flags (CI-path mirror of
-          # the hw-spdm-test.yml build line).
+          # SPDM + vendor without any --disable flags (build-only check of
+          # the vendor SPDM configure path).
           - name: spdm-nuvoton-autodisable
             wolfssl_config: --enable-wolftpm --enable-ecc --enable-sha384 --enable-aesgcm --enable-hkdf --enable-sp
             wolftpm_config: --enable-spdm --enable-nuvoton --enable-debug
