@@ -902,9 +902,13 @@ typedef int64_t  INT64;
  * templates (TCG-fixed curve and auth policy), the explicit-curve IAK/IDevID
  * helpers, and crypto-callback keys (curve negotiated by wolfCrypt) keep their
  * exact curve. If P256 is compiled out (NO_ECC256) the default falls back to an
- * enabled curve. */
+ * enabled curve. The auto-default also honors ECC_MIN_KEY_SZ: when P256 is
+ * compiled in (e.g. cannot be removed under FIPS-140) but ECC_MIN_KEY_SZ
+ * exceeds 256, the default rises to the smallest enabled curve that meets the
+ * minimum (e.g. P384), rather than picking a curve below the configured
+ * minimum key size. */
 #ifndef WOLFTPM2_ECC_DEFAULT_CURVE
-    #if !defined(NO_ECC256)
+    #if !defined(NO_ECC256) && ECC_MIN_KEY_SZ <= 256
         #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P256
     #elif defined(HAVE_ECC384) && ECC_MIN_KEY_SZ <= 384
         #define WOLFTPM2_ECC_DEFAULT_CURVE TPM_ECC_NIST_P384

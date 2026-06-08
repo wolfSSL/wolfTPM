@@ -329,6 +329,7 @@ make install
 
 WOLFTPM_USE_SYMMETRIC   Enables symmetric AES/Hashing/HMAC support for TLS examples.
 WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and shared secret for TLS examples.
+WOLFTPM2_ECC_DEFAULT_CURVE  Default ECC curve for wrapper key templates that request P256 (SRK/AIK/general ECC). Defaults to TPM_ECC_NIST_P256, or the smallest enabled curve meeting ECC_MIN_KEY_SZ. Override e.g. -DWOLFTPM2_ECC_DEFAULT_CURVE=TPM_ECC_NIST_P384.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 ```
