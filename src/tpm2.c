@@ -272,6 +272,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         packet->pos = authPos;
         TPM2_Packet_AppendAuthCmd(packet, &authCmd);
         authPos = packet->pos; /* update auth position */
+        TPM2_ForceZero(&authCmd, sizeof(authCmd));
     }
 
     /* Update the Auth Area total size in the command packet */
@@ -928,6 +929,8 @@ TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
         int i;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
+        if (in->toTest.count > MAX_ALG_LIST_SIZE)
+            in->toTest.count = MAX_ALG_LIST_SIZE;
         TPM2_Packet_AppendU32(&packet, in->toTest.count);
         for (i=0; i<(int)in->toTest.count; i++) {
             TPM2_Packet_AppendU16(&packet, in->toTest.algorithms[i]);
@@ -5047,6 +5050,10 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
         TPM2_Packet_AppendU32(&packet, in->auth);
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
+        if (in->setList.count > MAX_CAP_CC)
+            in->setList.count = MAX_CAP_CC;
+        if (in->clearList.count > MAX_CAP_CC)
+            in->clearList.count = MAX_CAP_CC;
         TPM2_Packet_AppendU32(&packet, in->setList.count);
         for (i=0; i<(int)in->setList.count; i++) {
             TPM2_Packet_AppendU32(&packet, in->setList.commandCodes[i]);

@@ -480,6 +480,7 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     if (rc == 0)
         rc = wc_HmacFinal(&hmac_ctx, hmac->buffer);
     wc_HmacFree(&hmac_ctx);
+    TPM2_ForceZero(&hmac_ctx, sizeof(hmac_ctx));
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("HMAC Auth: attrib %x, size %d\n", sessionAttributes, hmac->size);
