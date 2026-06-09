@@ -35,28 +35,17 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
         with:
-          repository: wolfssl/wolfssl
-          ref: master
-          path: wolfssl
-
-      - name: Build and install wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-              CFLAGS="-DWC_RSA_NO_PADDING"
-          make
-          sudo make install
-          sudo ldconfig
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -DWC_RSA_NO_PADDING
 
       - name: Build wolfTPM with fwTPM
         run: |
           ./autogen.sh
           ./configure --enable-fwtpm --enable-swtpm --enable-debug
-          make
+          make -j"$(nproc)"
 
       - name: Start fwtpm_server
         run: |

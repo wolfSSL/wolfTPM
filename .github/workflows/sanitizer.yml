@@ -76,28 +76,19 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
       - name: Install tpm2-tools
         run: |
           sudo apt-get update
           sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
 
-      - name: Build and install wolfSSL with ${{ matrix.name }}
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          CC=${{ matrix.cc || 'gcc' }} ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-              ${{ matrix.wolfssl_extra_config }} \
-              --prefix=/tmp/wolfssl-install \
-              CFLAGS="-DWC_RSA_NO_PADDING ${{ matrix.cflags }}" \
-              LDFLAGS="${{ matrix.ldflags }}"
-          make
-          make install
+      - name: Setup wolfSSL with ${{ matrix.name }}
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          cc: ${{ matrix.cc || 'gcc' }}
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen ${{ matrix.wolfssl_extra_config }}
+          cflags: -DWC_RSA_NO_PADDING ${{ matrix.cflags }}
+          ldflags: ${{ matrix.ldflags }}
+          prefix: /tmp/wolfssl-install
 
       - name: Build wolfTPM with fwTPM + ${{ matrix.name }}
         run: |
@@ -107,7 +98,7 @@ jobs:
               --with-wolfcrypt=/tmp/wolfssl-install \
               CFLAGS="${{ matrix.cflags }}" \
               LDFLAGS="${{ matrix.ldflags }}"
-          make
+          make -j"$(nproc)"
 
       - name: Run tests (make check)
         env:

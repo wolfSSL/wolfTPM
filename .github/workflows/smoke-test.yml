@@ -55,21 +55,11 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
         with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
-      - name: Build wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-              CFLAGS="-DWC_RSA_NO_PADDING"
-          make -j"$(nproc)"
-          sudo make install
-          sudo ldconfig
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -DWC_RSA_NO_PADDING
 
       - name: Setup ibmswtpm2 simulator
         if: matrix.config.needs_swtpm
@@ -82,7 +72,7 @@ jobs:
         if: matrix.config.needs_swtpm
         working-directory: ./ibmswtpm2/src
         run: |
-          make
+          make -j"$(nproc)"
           ./tpm_server &
 
       - name: Build wolfTPM (${{ matrix.config.name }})
