@@ -863,6 +863,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
         XMEMCMP(cipher.buffer, hashTestDig, cipher.size) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
     printf("Hash SHA256 test success\n");
@@ -889,6 +890,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
         XMEMCMP(cipher.buffer, hmacTestDig, cipher.size) != 0) {
         printf("HMAC SHA256 test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
 
@@ -940,6 +942,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     else {
         printf("Encrypt/Decrypt test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
 #else
@@ -984,6 +987,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     }
     else {
         printf("Encrypt/Decrypt (gen key) test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
 

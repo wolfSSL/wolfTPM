@@ -272,6 +272,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         packet->pos = authPos;
         TPM2_Packet_AppendAuthCmd(packet, &authCmd);
         authPos = packet->pos; /* update auth position */
+        TPM2_ForceZero(&authCmd, sizeof(authCmd));
     }
 
     /* Update the Auth Area total size in the command packet */
@@ -926,10 +927,14 @@ TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         int i;
+        UINT32 count;
         TPM2_Packet packet;
         TPM2_Packet_Init(ctx, &packet);
-        TPM2_Packet_AppendU32(&packet, in->toTest.count);
-        for (i=0; i<(int)in->toTest.count; i++) {
+        count = in->toTest.count;
+        if (count > MAX_ALG_LIST_SIZE)
+            count = MAX_ALG_LIST_SIZE;
+        TPM2_Packet_AppendU32(&packet, count);
+        for (i=0; i<(int)count; i++) {
             TPM2_Packet_AppendU16(&packet, in->toTest.algorithms[i]);
         }
         TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS,
@@ -5038,6 +5043,7 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
     rc = TPM2_AcquireLock(ctx);
     if (rc == TPM_RC_SUCCESS) {
         int i;
+        UINT32 setCount, clearCount;
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
         info.inHandleCnt = 1;
@@ -5047,12 +5053,18 @@ TPM_RC TPM2_PP_Commands(PP_Commands_In* in)
         TPM2_Packet_AppendU32(&packet, in->auth);
         TPM2_Packet_AppendAuth(&packet, ctx, &info);
 
-        TPM2_Packet_AppendU32(&packet, in->setList.count);
-        for (i=0; i<(int)in->setList.count; i++) {
+        setCount = in->setList.count;
+        if (setCount > MAX_CAP_CC)
+            setCount = MAX_CAP_CC;
+        clearCount = in->clearList.count;
+        if (clearCount > MAX_CAP_CC)
+            clearCount = MAX_CAP_CC;
+        TPM2_Packet_AppendU32(&packet, setCount);
+        for (i=0; i<(int)setCount; i++) {
             TPM2_Packet_AppendU32(&packet, in->setList.commandCodes[i]);
         }
-        TPM2_Packet_AppendU32(&packet, in->clearList.count);
-        for (i=0; i<(int)in->clearList.count; i++) {
+        TPM2_Packet_AppendU32(&packet, clearCount);
+        for (i=0; i<(int)clearCount; i++) {
             TPM2_Packet_AppendU32(&packet, in->clearList.commandCodes[i]);
         }
 

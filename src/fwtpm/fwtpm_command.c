@@ -2021,6 +2021,10 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
             TPM2_Packet_ParseU16(cmd, &hashAlg);
             TPM2_Packet_ParseU8(cmd, &sizeOfSelect);
+            if ((int)sizeOfSelect > cmdSize - cmd->pos) {
+                rc = TPM_RC_COMMAND_SIZE;
+                break;
+            }
             cmd->pos += sizeOfSelect; /* skip pcrSelect bytes */
 
             bank = FwGetPcrBankIndex(hashAlg);
@@ -2094,10 +2098,20 @@ static TPM_RC FwCmd_PCR_SetAuthPolicy(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse hashAlg and pcrNum */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &hashAlg);
+        if (policySz > 0 && TPM2_GetHashDigestSize(hashAlg) <= 0) {
+            rc = TPM_RC_HASH;
+        }
+    }
+    if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &pcrNum);
         if (pcrNum > PCR_LAST) {
             rc = TPM_RC_VALUE;
         }
+    }
+    /* authPolicy, when present, must match the hashAlg digest size */
+    if (rc == 0 && policySz > 0 &&
+            (int)policySz != TPM2_GetHashDigestSize(hashAlg)) {
+        rc = TPM_RC_SIZE;
     }
 
     if (rc == 0) {
@@ -2150,6 +2164,11 @@ static TPM_RC FwCmd_PCR_SetAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && newAuthSz > 0) {
         TPM2_Packet_ParseBytes(cmd, newAuthBuf, newAuthSz);
+    }
+
+    /* PCR auth must not exceed the SHA-256 bank digest size */
+    if (rc == 0 && (int)newAuthSz > TPM2_GetHashDigestSize(TPM_ALG_SHA256)) {
+        rc = TPM_RC_SIZE;
     }
 
     if (rc == 0) {
@@ -3189,8 +3208,10 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             int si;
             int found = 0;
 
+            /* Return the same error as an HMAC failure so the expected
+             * wrapped blob length is not disclosed to the caller */
             if ((int)dataLen != expectedWrapSz) {
-                rc = TPM_RC_SIZE;
+                rc = TPM_RC_INTEGRITY;
             }
             if (rc == 0) {
                 byte wrappedBuf[AES_BLOCK_SIZE + sizeof(FWTPM_Session) +
@@ -3647,6 +3668,11 @@ static TPM_RC FwCmd_HierarchyChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0 && newAuthSize > 0) {
         TPM2_Packet_ParseBytes(cmd, newAuthBuf, newAuthSize);
+    }
+
+    /* Hierarchy auth must not exceed the SHA-256 digest size */
+    if (rc == 0 && (int)newAuthSize > TPM2_GetHashDigestSize(TPM_ALG_SHA256)) {
+        rc = TPM_RC_SIZE;
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -4367,6 +4393,14 @@ static TPM_RC FwCmd_ObjectChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* newAuth must not exceed the object nameAlg digest size */
+    if (rc == 0 && obj != NULL) {
+        int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (digestSz > 0 && (int)newAuth.size > digestSz) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
     /* Update auth on live object */
     if (rc == 0) {
         XMEMCPY(&obj->authValue, &newAuth, sizeof(newAuth));
@@ -4644,6 +4678,15 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         XMEMSET(&inPublic, 0, sizeof(inPublic));
         TPM2_Packet_ParsePublic(cmd, &inPublic);
+    }
+
+    /* authValue (present only with inPrivate) must not exceed the
+     * object nameAlg digest size */
+    if (rc == 0 && inPrivSize > 0 && authValue.size > 0) {
+        int digestSz = TPM2_GetHashDigestSize(inPublic.publicArea.nameAlg);
+        if (digestSz > 0 && (int)authValue.size > digestSz) {
+            rc = TPM_RC_SIZE;
+        }
     }
 
     /* Parse hierarchy */
@@ -6038,6 +6081,14 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParsePublic(cmd, inPublic);
     }
 
+    /* userAuth must not exceed the object nameAlg digest size */
+    if (rc == 0 && userAuth.size > 0) {
+        int digestSz = TPM2_GetHashDigestSize(inPublic->publicArea.nameAlg);
+        if (digestSz > 0 && (int)userAuth.size > digestSz) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
     /* Note: CreateLoaded does NOT include outsideInfo or creationPCR
      * (unlike TPM2_Create). The input is: parentHandle + inSensitive + inPublic */
 
@@ -7203,6 +7254,14 @@ static TPM_RC FwCmd_HMAC_Start(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         if (rc == 0 && auth.size > 0) {
             TPM2_Packet_ParseBytes(cmd, auth.buffer, auth.size);
+        }
+    }
+
+    /* authValue must not exceed the keyedhash object nameAlg digest size */
+    if (rc == 0 && obj != NULL) {
+        int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (digestSz > 0 && (int)auth.size > digestSz) {
+            rc = TPM_RC_SIZE;
         }
     }
 
@@ -9999,8 +10058,9 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
         TPM2_Packet_ParseU16(cmd, &cpHashSz);
-        if (cpHashSz > sizeof(cpHashBuf) || cpHashSz == 0) {
+        if (expectedSz <= 0 || cpHashSz != (UINT16)expectedSz) {
             rc = TPM_RC_SIZE;
         }
     }
@@ -10065,8 +10125,9 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
         TPM2_Packet_ParseU16(cmd, &nameHashSz);
-        if (nameHashSz > sizeof(nameHashBuf) || nameHashSz == 0) {
+        if (expectedSz <= 0 || nameHashSz != (UINT16)expectedSz) {
             rc = TPM_RC_SIZE;
         }
     }
@@ -10879,6 +10940,15 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* authPolicy, when present, must match the nameAlg digest size */
+    if (rc == 0 && publicInfo.nvPublic.authPolicy.size > 0) {
+        int digestSz = TPM2_GetHashDigestSize(publicInfo.nvPublic.nameAlg);
+        if (digestSz <= 0 ||
+                (int)publicInfo.nvPublic.authPolicy.size != digestSz) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
     /* Validate NV index handle range */
     if (rc == 0) {
         UINT32 nvIdx = publicInfo.nvPublic.nvIndex;
@@ -11561,6 +11631,14 @@ static TPM_RC FwCmd_NV_ChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     nv = FwFindNvIndex(ctx, nvHandle);
     if (nv == NULL) {
         rc = FW_NV_HANDLE_ERR_1;
+    }
+
+    /* newAuth must not exceed the NV index nameAlg digest size */
+    if (rc == 0 && newAuthSize > 0) {
+        int digestSz = TPM2_GetHashDigestSize(nv->nvPublic.nameAlg);
+        if (digestSz > 0 && (int)newAuthSize > digestSz) {
+            rc = TPM_RC_SIZE;
+        }
     }
 
     if (rc == 0) {
@@ -13934,6 +14012,13 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_COMMAND_SIZE;
         }
     }
+    /* authValue must not exceed the signing key nameAlg digest size */
+    if (rc == 0 && obj != NULL) {
+        int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (digestSz > 0 && (int)authSz > digestSz) {
+            rc = TPM_RC_SIZE;
+        }
+    }
     /* Parse context (TPM2B_SIGNATURE_CTX) */
     if (rc == 0) {
         seq = FwAllocSignSeq(ctx, &seqHandle);
@@ -14098,6 +14183,13 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (cmd->pos + authSz > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+    /* authValue must not exceed the key nameAlg digest size */
+    if (rc == 0 && obj != NULL) {
+        int digestSz = TPM2_GetHashDigestSize(obj->pub.nameAlg);
+        if (digestSz > 0 && (int)authSz > digestSz) {
+            rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {

@@ -116,8 +116,11 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
             /* der size is base 64 decode length */
             word32 derSz = (word32)bufSz * 3 / 4 + 1;
             byte* derBuf = (byte*)XMALLOC(derSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            if (derBuf == NULL)
+            if (derBuf == NULL) {
+                XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                wc_FreeRng(&rng);
                 return MEMORY_E;
+            }
             rc = wc_KeyPemToDer((byte*)buf, (word32)bufSz, derBuf, derSz, password);
             if (rc >= 0) {
                 /* replace buf with DER */
@@ -125,6 +128,9 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 bufSz = rc;
                 buf = derBuf;
                 rc = 0;
+            }
+            else {
+                XFREE(derBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             }
         #else
             (void)password;

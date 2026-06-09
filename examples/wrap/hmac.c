@@ -201,6 +201,7 @@ int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[])
     if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
         XMEMCMP(cipher.buffer, hmacTestDig, cipher.size) != 0) {
         printf("HMAC SHA256 test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
     printf("HMAC SHA256 test with persistent key: PASSED\n");

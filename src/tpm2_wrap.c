@@ -2530,7 +2530,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     }
     else if (encDecAlg == TPM_ALG_XOR) {
         authSesIn.symmetric.algorithm = TPM_ALG_XOR;
-        authSesIn.symmetric.keyBits.xorr = TPM_ALG_SHA256;
+        authSesIn.symmetric.keyBits.xorr = authHash;
         authSesIn.symmetric.mode.sym = TPM_ALG_NULL;
     }
     else {
@@ -2969,6 +2969,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_Load key failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&loadIn, sizeof(loadIn));
         return rc;
     }
     keyBlob->handle.hndl = loadOut.objectHandle;
@@ -2978,6 +2979,7 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     printf("TPM2_Load Key Handle 0x%x\n", (word32)keyBlob->handle.hndl);
 #endif
 
+    TPM2_ForceZero(&loadIn, sizeof(loadIn));
     return rc;
 }
 
@@ -3448,6 +3450,8 @@ int wolfTPM2_ImportPrivateKey(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* parentKey,
 
 exit_import:
     TPM2_ForceZero(&symSeed, sizeof(symSeed));
+    TPM2_ForceZero(&importIn, sizeof(importIn));
+    TPM2_ForceZero(&importOut, sizeof(importOut));
     return rc;
 }
 
@@ -6663,6 +6667,9 @@ int wolfTPM2_NVCreateAuthPolicy_ex(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (dev == NULL || nv == NULL || parent == NULL) {
         return BAD_FUNC_ARG;
     }
+    if (maxSize > 0xFFFF) {
+        return BUFFER_E;
+    }
     if (auth != NULL && authSz > 0 &&
             authSz > (int)sizeof(in.auth.buffer)) {
         return BUFFER_E;
@@ -7495,19 +7502,23 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     in.hierarchy = TPM_RH_NULL;
     rc = TPM2_SequenceComplete(&in, &out);
 
-    /* mark hash handle as done */
-    hash->handle.hndl = TPM_RH_NULL;
-
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2_SequenceComplete failed 0x%x: %s: Handle 0x%x\n", rc,
             TPM2_GetRCString(rc), (word32)in.sequenceHandle);
     #endif
+        /* handle is only consumed by the TPM on success */
+        wolfTPM2_UnloadHandle(dev, &hash->handle);
         return rc;
     }
 
-    if (out.result.size > *digestSz)
-        out.result.size = *digestSz;
+    /* mark hash handle as done */
+    hash->handle.hndl = TPM_RH_NULL;
+
+    if (out.result.size > *digestSz) {
+        *digestSz = out.result.size;
+        return BUFFER_E;
+    }
     *digestSz = out.result.size;
     XMEMCPY(digest, out.result.buffer, *digestSz);
 
@@ -7587,6 +7598,7 @@ static int wolfTPM2_ComputeSymmetricUnique(WOLFTPM2_DEV* dev, int hashAlg,
                 unique->size = hashSz;
         }
         wc_HashFree(&hash, hashType);
+        TPM2_ForceZero(&hash, sizeof(hash));
     }
 #else
     (void)hashAlg;
@@ -7930,6 +7942,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     #endif
         TPM2_ForceZero(&createIn.inSensitive,
             sizeof(createIn.inSensitive));
+        TPM2_ForceZero(&createOut, sizeof(createOut));
+        TPM2_ForceZero(&loadIn, sizeof(loadIn));
         return rc;
     }
     key->handle.hndl = loadOut.objectHandle;
@@ -7943,6 +7957,8 @@ int wolfTPM2_LoadKeyedHashKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif
 
     TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
+    TPM2_ForceZero(&createOut, sizeof(createOut));
+    TPM2_ForceZero(&loadIn, sizeof(loadIn));
 
     return rc;
 }
@@ -9311,6 +9327,10 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
             in->parameters.eccDetail.scheme.scheme;
         out->parameters.eccDetail.scheme.details.any.hashAlg =
             in->parameters.eccDetail.scheme.details.any.hashAlg;
+        if (in->parameters.eccDetail.scheme.scheme == TPM_ALG_ECDAA) {
+            out->parameters.eccDetail.scheme.details.ecdaa.count =
+                in->parameters.eccDetail.scheme.details.ecdaa.count;
+        }
         out->parameters.eccDetail.curveID =
             in->parameters.eccDetail.curveID;
         out->parameters.eccDetail.kdf.scheme =

@@ -967,6 +967,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         XMEMCMP(cmdOut.seqComp.result.buffer, hashTestDig,
                                                 TPM_SHA256_DIGEST_SIZE) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");
+        rc = TPM_RC_TESTING;
         goto exit;
     }
     printf("Hash SHA256 test success\n");
@@ -1678,6 +1679,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         }
         else {
             printf("Encrypt/Decrypt test failed, result not as expected!\n");
+            rc = TPM_RC_TESTING;
             goto exit;
         }
     }

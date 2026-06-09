@@ -151,7 +151,7 @@ int FWTPM_Cleanup(FWTPM_CTX* ctx)
     wc_FreeRng(&ctx->rng);
     wolfCrypt_Cleanup();
 
-    XMEMSET(ctx, 0, sizeof(FWTPM_CTX));
+    TPM2_ForceZero(ctx, sizeof(FWTPM_CTX));
 
     return rc;
 }
