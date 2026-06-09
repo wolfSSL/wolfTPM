@@ -149,7 +149,7 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-store=", XSTRLEN("-store=")) == 0) {
             persistHandle = (word32)XSTRTOUL(argv[argc-1] + XSTRLEN("-store="),
                 NULL, 0);
-            if (persistHandle < 0x81000000 && persistHandle > 0x810FFFF) {
+            if (persistHandle < 0x81000000 || persistHandle > 0x81FFFFFF) {
                 printf("Invalid storage handle %s\n", argv[argc-1] + 7);
                 persistHandle = 0;
             }
