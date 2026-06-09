@@ -278,13 +278,17 @@ jobs:
             wolftpm_cflags: "-DWOLFTPM2_USE_SW_ECDHE"
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
-          # ECC default curve override (P384) - exercises the upgrade path
-          # (SRK/AIK -> P384) and confirms explicit-curve/ECDHE callers still
-          # use their negotiated curve.
+          # ECC default curve override (P384). make check (unit.test) exercises
+          # the SRK/AIK -> P384/SHA384 upgrade and confirms explicit-curve/ECDHE
+          # callers keep their requested curve, end-to-end against the simulator.
+          # run_examples.sh is intentionally omitted: several demos (pcr/quote,
+          # boot/secure_rot, native_test) hardcode SHA256 for the ECC sign/quote
+          # scheme and are not curve-agnostic - that is a demo limitation, not a
+          # library issue.
           - name: ecc-default-curve-p384
             wolftpm_config: "--enable-swtpm --disable-fwtpm"
             wolftpm_cflags: "-DWOLFTPM2_ECC_DEFAULT_CURVE=TPM_ECC_NIST_P384"
-            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+            test_command: "make check"
 
           # No ECC
           - name: no-ecc

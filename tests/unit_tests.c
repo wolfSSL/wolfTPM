@@ -2268,9 +2268,11 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
     WOLFTPM2_KEY srk;
     WOLFTPM2_KEY peer;
     TPMT_PUBLIC pub;
-    byte xBuf[32];
-    byte yBuf[32];
+    byte xBuf[MAX_ECC_KEY_BYTES];
+    byte yBuf[MAX_ECC_KEY_BYTES];
     word32 xSz, ySz;
+    TPM_ECC_CURVE curve;
+    TPM_ALG_ID nameAlg;
 
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&srk, 0, sizeof(srk));
@@ -2285,24 +2287,30 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
      * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
     (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
 
-    /* Create an ECC SRK to harvest valid P-256 X/Y coordinates from. */
+    /* Create an ECC SRK to harvest valid X/Y coordinates from. The SRK follows
+     * WOLFTPM2_ECC_DEFAULT_CURVE, so use its actual curve/nameAlg (not a
+     * hardcoded P256) and size the buffers for any curve. */
     XMEMSET(&pub, 0, sizeof(pub));
     rc = wolfTPM2_GetKeyTemplate_ECC_SRK(&pub);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &srk, TPM_RH_OWNER, &pub, NULL, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
+    curve = srk.pub.publicArea.parameters.eccDetail.curveID;
+    nameAlg = srk.pub.publicArea.nameAlg;
     xSz = srk.pub.publicArea.unique.ecc.x.size;
     ySz = srk.pub.publicArea.unique.ecc.y.size;
     AssertIntGT(xSz, 0);
     AssertIntGT(ySz, 0);
+    AssertIntLE(xSz, (word32)sizeof(xBuf));
+    AssertIntLE(ySz, (word32)sizeof(yBuf));
     XMEMCPY(xBuf, srk.pub.publicArea.unique.ecc.x.buffer, xSz);
     XMEMCPY(yBuf, srk.pub.publicArea.unique.ecc.y.buffer, ySz);
 
     /* Load same coordinates as a peer ECDH key with the decrypt attribute */
-    rc = wolfTPM2_LoadEccPublicKey_ex(&dev, &peer, TPM_ECC_NIST_P256,
+    rc = wolfTPM2_LoadEccPublicKey_ex(&dev, &peer, curve,
         xBuf, xSz, yBuf, ySz,
-        TPM_ALG_ECDH, TPM_ALG_SHA256,
+        TPM_ALG_ECDH, nameAlg,
         TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
@@ -2315,7 +2323,7 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
 
     /* Legacy wolfTPM2_LoadEccPublicKey: still defaults to ECDSA + sign */
     XMEMSET(&peer, 0, sizeof(peer));
-    rc = wolfTPM2_LoadEccPublicKey(&dev, &peer, TPM_ECC_NIST_P256,
+    rc = wolfTPM2_LoadEccPublicKey(&dev, &peer, curve,
         xBuf, xSz, yBuf, ySz);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
