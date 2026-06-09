@@ -111,6 +111,7 @@ int wolfSPDM_ComputeVerifyData(const byte* finishedKey, const byte* thHash,
 
     rc = wc_HmacFinal(&hmac, verifyData);
     wc_HmacFree(&hmac);
+    wc_ForceZero(&hmac, sizeof(hmac));
 
     return (rc == 0) ? WOLFSPDM_SUCCESS : WOLFSPDM_E_CRYPTO_FAIL;
 }
