@@ -52,26 +52,16 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
       - name: ASLR workaround
         run: sudo sysctl vm.mmap_rnd_bits=28
 
-      - name: Build wolfSSL with fuzzer support
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          CC=clang ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-            ${{ matrix.wolfssl_extra_flags }} \
-            CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING" \
-            LDFLAGS="-fsanitize=address"
-          make -j$(nproc)
-          sudo make install
-          sudo ldconfig
+      - name: Setup wolfSSL with fuzzer support
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          cc: clang
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen ${{ matrix.wolfssl_extra_flags }}
+          cflags: -fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING
+          ldflags: -fsanitize=address
 
       - name: Build fuzz target
         run: |

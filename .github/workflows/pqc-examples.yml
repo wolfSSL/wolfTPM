@@ -23,29 +23,18 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-          ref: master
-
       - name: Install build deps + tpm2-tools
         run: |
           sudo apt-get update
           sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
 
-      - name: Build wolfSSL with PQC
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-                      --enable-dilithium --enable-mlkem --enable-experimental \
-                      --enable-harden \
-                      CFLAGS="-DWC_RSA_NO_PADDING"
-          make
-          sudo make install
-          sudo ldconfig
+      - name: Setup wolfSSL with PQC
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: >-
+            --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+          cflags: -DWC_RSA_NO_PADDING
 
       - name: Build wolfTPM with v1.85 + fwTPM + debug
         run: |
@@ -55,7 +44,7 @@ jobs:
           # --enable-debug=verbose: full client + fwTPM dispatch logs so
           # CI failures (e.g. keyload integrity) come with TPM-side trace.
           ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
-          make
+          make -j"$(nproc)"
 
       # ----- Tier 1: make check -----
       # Runs unit.test (wrapper) + fwtpm_unit.test (handler) + tpm2-tools

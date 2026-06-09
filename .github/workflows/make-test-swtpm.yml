@@ -333,27 +333,16 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@master
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@master
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-          ref: ${{ matrix.wolfssl_ref || 'master' }}
-
+      # Build (or restore from cache) + install wolfSSL. The action caches the
+      # built ./wolfssl tree keyed on the resolved wolfSSL commit + this config,
+      # so identical-config jobs (and repeat pushes) skip the rebuild. The ~40
+      # default-config matrix entries all share one cache entry.
       - name: Setup wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          WOLFSSL_CONFIG="${{ matrix.wolfssl_config || '--enable-wolftpm --enable-pkcallbacks' }}"
-          WOLFSSL_CFLAGS="${{ matrix.wolfssl_cflags || '' }}"
-          if [ -n "$WOLFSSL_CFLAGS" ]; then
-            ./configure $WOLFSSL_CONFIG CFLAGS="$WOLFSSL_CFLAGS"
-          else
-            ./configure $WOLFSSL_CONFIG
-          fi
-          make
-          sudo make install
-          sudo ldconfig
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          ref: ${{ matrix.wolfssl_ref || 'master' }}
+          configure-flags: ${{ matrix.wolfssl_config || '--enable-wolftpm --enable-pkcallbacks' }}
+          cflags: ${{ matrix.wolfssl_cflags }}
 
       # For old-wolfssl test: checkout and build old wolfSSL for linking
       - name: Checkout old wolfSSL
@@ -400,7 +389,7 @@ jobs:
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         working-directory: ./ibmswtpm2/src
         run: |
-          make
+          make -j"$(nproc)"
           echo "Starting TPM simulator on port $TPM_PORT"
           ./tpm_server -port $TPM_PORT &
 
@@ -432,7 +421,7 @@ jobs:
               ./configure $WOLFTPM_CONFIG
             fi
           fi
-          make
+          make -j"$(nproc)"
 
       - name: Run tests
         if: matrix.test_command && matrix.test_command != 'true'

@@ -62,23 +62,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
         with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-          persist-credentials: false
-
-      - name: Build & install wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --prefix=$HOME/wolfssl-install \
-                      --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-                      --enable-aescfb \
-                      CFLAGS="-DWC_RSA_NO_PADDING"
-          make -j"$(nproc)"
-          make install
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-aescfb
+          cflags: -DWC_RSA_NO_PADDING
+          prefix: $HOME/wolfssl-install
 
       - name: Build wolfTPM (${{ matrix.name }})
         run: |
@@ -115,23 +104,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
         with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-          persist-credentials: false
-
-      - name: Build & install wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --prefix=$HOME/wolfssl-install \
-                      --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-                      --enable-aescfb \
-                      CFLAGS="-DWC_RSA_NO_PADDING"
-          make -j"$(nproc)"
-          make install
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-aescfb
+          cflags: -DWC_RSA_NO_PADDING
+          prefix: $HOME/wolfssl-install
 
       - name: Build wolfTPM with full SPDM + vendor support
         # spdm_ctrl's --connect/--status/--lock CLI dispatch is gated on

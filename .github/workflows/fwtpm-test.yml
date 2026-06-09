@@ -210,12 +210,6 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
       - name: Install tpm2-tools
         if: ${{ !matrix.build_only && runner.os != 'macOS' }}
         run: |
@@ -234,27 +228,13 @@ jobs:
           brew install autoconf automake libtool pkg-config
           echo "tpm2-tools install skipped on macOS; fwtpm_check.sh handles absence"
 
-      - name: Build wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          CONFIGURE_ARGS="${{ matrix.wolfssl_config }}"
-          EXTRA_CFLAGS="${{ matrix.extra_cflags }}"
-          EXTRA_LDFLAGS="${{ matrix.extra_ldflags }}"
-          WOLFSSL_CFLAGS="-DWC_RSA_NO_PADDING"
-          if [ -n "$EXTRA_CFLAGS" ]; then
-            WOLFSSL_CFLAGS="$WOLFSSL_CFLAGS $EXTRA_CFLAGS"
-          fi
-          CONFIGURE_ARGS="$CONFIGURE_ARGS CFLAGS=\"$WOLFSSL_CFLAGS\""
-          if [ -n "$EXTRA_LDFLAGS" ]; then
-            CONFIGURE_ARGS="$CONFIGURE_ARGS LDFLAGS=\"$EXTRA_LDFLAGS\""
-          fi
-          CC=${{ matrix.cc || 'gcc' }} eval ./configure $CONFIGURE_ARGS
-          make
-          sudo make install
-          if command -v ldconfig >/dev/null 2>&1; then
-            sudo ldconfig
-          fi
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          cc: ${{ matrix.cc || 'gcc' }}
+          configure-flags: ${{ matrix.wolfssl_config }}
+          cflags: -DWC_RSA_NO_PADDING ${{ matrix.extra_cflags }}
+          ldflags: ${{ matrix.extra_ldflags }}
 
       - name: Build wolfTPM
         run: |
@@ -269,11 +249,13 @@ jobs:
             CONFIGURE_ARGS="$CONFIGURE_ARGS LDFLAGS=\"$EXTRA_LDFLAGS\""
           fi
           CC=${{ matrix.cc || 'gcc' }} eval ./configure $CONFIGURE_ARGS
+          # nproc is Linux-only; the fwtpm-macos-socket entry needs the fallback.
+          JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
           MAKE_CFLAGS="${{ matrix.make_cflags }}"
           if [ -n "$MAKE_CFLAGS" ]; then
-            make CFLAGS="$MAKE_CFLAGS"
+            make -j"$JOBS" CFLAGS="$MAKE_CFLAGS"
           else
-            make
+            make -j"$JOBS"
           fi
 
       - name: Run tests (make check)
@@ -413,7 +395,7 @@ jobs:
           ./autogen.sh
           ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
               CFLAGS="-DWC_RSA_NO_PADDING"
-          make
+          make -j"$(nproc)"
           make install
           ldconfig
 
@@ -461,33 +443,23 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Checkout wolfSSL
-        uses: actions/checkout@v4
-        with:
-          repository: wolfssl/wolfssl
-          path: wolfssl
-
       - name: Install valgrind + tpm2-tools
         run: |
           sudo apt-get update
           sudo apt-get install -y valgrind tpm2-tools libtss2-tcti-mssim0
 
-      - name: Build wolfSSL
-        working-directory: ./wolfssl
-        run: |
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-              CFLAGS="-DWC_RSA_NO_PADDING -g -O1"
-          make
-          sudo make install
-          sudo ldconfig
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -DWC_RSA_NO_PADDING -g -O1
 
       - name: Build wolfTPM (${{ matrix.name }})
         run: |
           ./autogen.sh
           ./configure --enable-fwtpm --enable-swtpm --enable-debug \
               CFLAGS="${{ matrix.extra_cflags }} -g -O1"
-          make
+          make -j"$(nproc)"
 
       - name: Run unit.test under valgrind
         run: |

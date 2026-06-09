@@ -1,0 +1,135 @@
+name: Setup wolfSSL
+description: >-
+  Build (or restore from cache) and install wolfSSL for wolfTPM CI. Resolves the
+  requested ref to a commit so the cache key is stable per upstream commit,
+  restores the previously built ./wolfssl tree on a hit, and otherwise does a
+  shallow clone + parallel build. The full source tree is left in ./wolfssl so
+  run_examples.sh can exec $WOLFSSL_PATH/examples/server/server.
+
+inputs:
+  configure-flags:
+    description: wolfSSL ./configure enable/disable flags (no CFLAGS/LDFLAGS here).
+    required: false
+    default: --enable-wolftpm --enable-pkcallbacks
+  cflags:
+    description: Extra CFLAGS. Passed only when non-empty so wolfSSL keeps its default optimization flags.
+    required: false
+    default: ""
+  ldflags:
+    description: Extra LDFLAGS. Passed only when non-empty.
+    required: false
+    default: ""
+  cc:
+    description: C compiler to build wolfSSL with.
+    required: false
+    default: gcc
+  prefix:
+    description: >-
+      Install prefix. Empty (default) installs to /usr/local via sudo + ldconfig.
+      When set, configures --prefix and installs without sudo (for --with-wolfcrypt).
+    required: false
+    default: ""
+  ref:
+    description: wolfSSL git ref (branch, tag, or commit) to build.
+    required: false
+    default: master
+  parallel:
+    description: Pass -j$(nproc) to make when "true".
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve wolfSSL ${{ inputs.ref }} and compute cache key
+      id: key
+      shell: bash
+      run: |
+        set -eo pipefail
+        # Resolve the ref to a commit so the cache key tracks the upstream tree,
+        # not a moving branch name. ls-remote returns nothing for a raw SHA, in
+        # which case the ref already is the commit.
+        URL=https://github.com/wolfSSL/wolfssl.git
+        # Peel annotated tags to their commit (the ^{} line); branches and
+        # lightweight tags have no ^{} line so this is empty for them. Fall
+        # back to the direct ref, then to treating the ref as a raw commit.
+        SHA=$(git ls-remote "$URL" "${{ inputs.ref }}^{}" | awk 'NR==1{print $1}')
+        if [ -z "$SHA" ]; then
+          SHA=$(git ls-remote "$URL" "${{ inputs.ref }}" | awk 'NR==1{print $1}')
+        fi
+        if [ -z "$SHA" ]; then
+          SHA="${{ inputs.ref }}"
+        fi
+        # Fold every build-affecting input into the key so different configs do
+        # not collide and identical configs (across jobs/workflows) share a hit.
+        # macOS runners have shasum, not sha256sum.
+        HASH_CMD="sha256sum"
+        command -v sha256sum >/dev/null 2>&1 || HASH_CMD="shasum -a 256"
+        CFGHASH=$(printf '%s\037%s\037%s\037%s\037%s' \
+            "${{ inputs.configure-flags }}" \
+            "${{ inputs.cflags }}" \
+            "${{ inputs.ldflags }}" \
+            "${{ inputs.cc }}" \
+            "${{ inputs.prefix }}" | $HASH_CMD | cut -c1-16)
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "cache-key=wolfssl-${{ runner.os }}-${SHA}-${CFGHASH}-v1" >> "$GITHUB_OUTPUT"
+        echo "wolfSSL ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
+
+    - name: Restore wolfSSL build cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        # Cache the whole built source tree: install needs the libs, and
+        # run_examples.sh needs examples/server + examples/client + certs.
+        path: wolfssl
+        key: ${{ steps.key.outputs.cache-key }}
+
+    - name: Build wolfSSL (cache miss)
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eo pipefail
+        rm -rf wolfssl
+        # Fetch the exact resolved commit so the built tree matches the cache
+        # key. GitHub allows fetching any reachable commit, so this works for
+        # branch tips, peeled tags, and raw commit SHAs alike.
+        git init -q wolfssl
+        cd wolfssl
+        git remote add origin https://github.com/wolfSSL/wolfssl.git
+        git fetch --depth 1 origin "${{ steps.key.outputs.sha }}"
+        git checkout -q --detach FETCH_HEAD
+        ./autogen.sh
+        ARGS='${{ inputs.configure-flags }}'
+        if [ -n "${{ inputs.prefix }}" ]; then
+          ARGS="$ARGS --prefix=${{ inputs.prefix }}"
+        fi
+        # Only append CFLAGS/LDFLAGS when non-empty: an empty CFLAGS= would
+        # override wolfSSL's default -Os/-O2 selection.
+        if [ -n "${{ inputs.cflags }}" ]; then
+          ARGS="$ARGS CFLAGS=\"${{ inputs.cflags }}\""
+        fi
+        if [ -n "${{ inputs.ldflags }}" ]; then
+          ARGS="$ARGS LDFLAGS=\"${{ inputs.ldflags }}\""
+        fi
+        eval CC="${{ inputs.cc }}" ./configure $ARGS
+        if [ "${{ inputs.parallel }}" = "true" ]; then
+          make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+        else
+          make
+        fi
+
+    - name: Install wolfSSL
+      shell: bash
+      run: |
+        set -eo pipefail
+        cd wolfssl
+        # On a cache hit the tree is already built (mtimes preserved by the
+        # cache tar), so this only copies artifacts into place.
+        if [ -n "${{ inputs.prefix }}" ]; then
+          make install
+        else
+          sudo make install
+          if command -v ldconfig >/dev/null 2>&1; then
+            sudo ldconfig
+          fi
+        fi
