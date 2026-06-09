@@ -2268,9 +2268,11 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
     WOLFTPM2_KEY srk;
     WOLFTPM2_KEY peer;
     TPMT_PUBLIC pub;
-    byte xBuf[32];
-    byte yBuf[32];
+    byte xBuf[MAX_ECC_KEY_BYTES];
+    byte yBuf[MAX_ECC_KEY_BYTES];
     word32 xSz, ySz;
+    TPM_ECC_CURVE curve;
+    TPM_ALG_ID nameAlg;
 
     XMEMSET(&dev, 0, sizeof(dev));
     XMEMSET(&srk, 0, sizeof(srk));
@@ -2285,24 +2287,30 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
      * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
     (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
 
-    /* Create an ECC SRK to harvest valid P-256 X/Y coordinates from. */
+    /* Create an ECC SRK to harvest valid X/Y coordinates from. The SRK follows
+     * WOLFTPM2_ECC_DEFAULT_CURVE, so use its actual curve/nameAlg (not a
+     * hardcoded P256) and size the buffers for any curve. */
     XMEMSET(&pub, 0, sizeof(pub));
     rc = wolfTPM2_GetKeyTemplate_ECC_SRK(&pub);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     rc = wolfTPM2_CreatePrimaryKey(&dev, &srk, TPM_RH_OWNER, &pub, NULL, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
 
+    curve = srk.pub.publicArea.parameters.eccDetail.curveID;
+    nameAlg = srk.pub.publicArea.nameAlg;
     xSz = srk.pub.publicArea.unique.ecc.x.size;
     ySz = srk.pub.publicArea.unique.ecc.y.size;
     AssertIntGT(xSz, 0);
     AssertIntGT(ySz, 0);
+    AssertIntLE(xSz, (word32)sizeof(xBuf));
+    AssertIntLE(ySz, (word32)sizeof(yBuf));
     XMEMCPY(xBuf, srk.pub.publicArea.unique.ecc.x.buffer, xSz);
     XMEMCPY(yBuf, srk.pub.publicArea.unique.ecc.y.buffer, ySz);
 
     /* Load same coordinates as a peer ECDH key with the decrypt attribute */
-    rc = wolfTPM2_LoadEccPublicKey_ex(&dev, &peer, TPM_ECC_NIST_P256,
+    rc = wolfTPM2_LoadEccPublicKey_ex(&dev, &peer, curve,
         xBuf, xSz, yBuf, ySz,
-        TPM_ALG_ECDH, TPM_ALG_SHA256,
+        TPM_ALG_ECDH, nameAlg,
         TPMA_OBJECT_decrypt | TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
@@ -2315,7 +2323,7 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
 
     /* Legacy wolfTPM2_LoadEccPublicKey: still defaults to ECDSA + sign */
     XMEMSET(&peer, 0, sizeof(peer));
-    rc = wolfTPM2_LoadEccPublicKey(&dev, &peer, TPM_ECC_NIST_P256,
+    rc = wolfTPM2_LoadEccPublicKey(&dev, &peer, curve,
         xBuf, xSz, yBuf, ySz);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(peer.pub.publicArea.parameters.eccDetail.scheme.scheme,
@@ -2538,7 +2546,77 @@ static void test_TPM2_BrainpoolCurveMapping(void)
     AssertIntEQ(TPM2_GetCurveSize(TPM_ECC_BP_P384_R1), 48);
     AssertIntEQ(TPM2_GetCurveSize(TPM_ECC_BP_P512_R1), 64);
 
+    /* TPM2_GetCurveHashAlg pairs the digest strength to the curve size,
+     * per TCG recommended combinations. */
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_NIST_P256), TPM_ALG_SHA256);
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_NIST_P384), TPM_ALG_SHA384);
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_NIST_P521), TPM_ALG_SHA512);
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_BP_P256_R1), TPM_ALG_SHA256);
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_BP_P384_R1), TPM_ALG_SHA384);
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_BP_P512_R1), TPM_ALG_SHA512); /* 64 -> SHA512 */
+    AssertIntEQ(TPM2_GetCurveHashAlg(TPM_ECC_BN_P638), TPM_ALG_SHA512);
+
     printf("Test TPM Wrapper:\tBrainpool curve mapping:\tPassed\n");
+#endif
+}
+
+/* The no-explicit-curve named templates (SRK, AIK) follow the build's
+ * WOLFTPM2_ECC_DEFAULT_CURVE: a no-op in the shipped P256 build, an upgrade
+ * when overridden to e.g. P384. The explicit-curve APIs (general ECC/_ex) and
+ * the TCG-fixed EK templates honor the exact curve requested (except under
+ * NO_ECC256, where P256 is unavailable to every caller - those checks are
+ * guarded for that case). */
+static void test_TPM2_EccDefaultCurveTemplate(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    TPMT_PUBLIC t;
+
+#ifndef NO_ECC256
+    /* Explicit-curve APIs must honor exactly what is passed: an explicit P256
+     * request stays P256 even in a WOLFTPM2_ECC_DEFAULT_CURVE override build.
+     * This is the regression guard for protocol-bound callers (e.g. ECDH),
+     * whose shared secret breaks if the curve is silently remapped. */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC(&t, TPMA_OBJECT_sign,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC_ex(&t, TPM_ALG_SHA256,
+        TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_ECDSA, TPM_ALG_SHA256), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
+#endif
+
+    /* The storage primary (wolfTPM2_CreateSRK ECC path) follows the default. */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC_SRK(&t), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, WOLFTPM2_ECC_DEFAULT_CURVE);
+    AssertIntEQ(t.nameAlg, TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+
+    /* The attestation signing key (AIK) follows the default. This block
+     * exercises the sigHash arg of the resolver, so lock in name and sig
+     * hash too. */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC_AIK(&t), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, WOLFTPM2_ECC_DEFAULT_CURVE);
+    AssertIntEQ(t.nameAlg, TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+    AssertIntEQ(t.parameters.eccDetail.scheme.details.ecdsa.hashAlg,
+        TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+
+#ifndef NO_ECC256
+    /* EK P256 NV index is TCG-fixed and must NOT follow the default curve. */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_EKIndex(TPM2_NV_EK_ECC_P256, &t), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
+    AssertIntEQ(t.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(t.authPolicy.size, sizeof(TPM_20_EK_AUTH_POLICY));
+#else
+    /* Under NO_ECC256 the EK P256 index is substituted to an enabled curve for
+     * every caller. Verify the name hash matches the substituted curve and a
+     * (non-empty) auth policy was selected for that same hash - i.e. nameAlg
+     * and authPolicy stay consistent (regression guard for the prior mismatch
+     * where nameAlg became SHA384/SHA512 but the SHA256 policy was copied). */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_EKIndex(TPM2_NV_EK_ECC_P256, &t), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, WOLFTPM2_ECC_DEFAULT_CURVE);
+    AssertIntEQ(t.nameAlg, TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+    AssertIntGT(t.authPolicy.size, 0);
+#endif
+
+    printf("Test TPM Wrapper:\tECC default-curve template:\tPassed\n");
 #endif
 }
 
@@ -4965,6 +5043,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParsePoint_OuterResync();
     test_TPM2_ParseSignature_NullAlg();
     test_TPM2_BrainpoolCurveMapping();
+    test_TPM2_EccDefaultCurveTemplate();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
     test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_VerifyHashTicket_DigestSize();

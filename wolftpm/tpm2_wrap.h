@@ -3490,7 +3490,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_RSA_ex(TPMT_PUBLIC* publicTemplate,
 
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new ECC key template
     \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
-    \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID
+    \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID; the requested curve is used exactly as given (the configurable WOLFTPM2_ECC_DEFAULT_CURVE applies only to the no-curve SRK/AIK templates, not to this explicit-curve API)
     \param sigScheme integer value of TPM_ALG_ID type, specifying a TPM supported signature scheme
 
     \sa wolfTPM2_GetKeyTemplate_ECC_ex
@@ -3512,7 +3512,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     \param publicTemplate pointer to an empty structure of TPMT_PUBLIC type, to store the new ECC key template
     \param nameAlg integer value of TPM_ALG_ID type, specifying a TPM supported hashing algorithm, typically TPM_ALG_SHA256 for SHA 256
     \param objectAttributes integer value of TPMA_OBJECT type, can contain one or more attributes, e.g. TPMA_OBJECT_fixedTPM
-    \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID
+    \param curve integer value of TPM_ECC_CURVE type, specifying a TPM supported ECC curve ID; the requested curve is used exactly as given (the configurable WOLFTPM2_ECC_DEFAULT_CURVE applies only to the no-curve SRK/AIK templates, not to this explicit-curve API)
     \param sigScheme integer value of TPM_ALG_ID type, specifying a TPM supported signature scheme
     \param sigHash integer value of TPM_ALG_ID type, specifying a TPM supported signature hash scheme
 
