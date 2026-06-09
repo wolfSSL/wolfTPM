@@ -1159,11 +1159,13 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             UINT32 handle = 0;
             int i;
             FwNvUnmarshalU32(value, &vPos, vMax, &handle);
-            for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
-                if (ctx->persistent[i].used &&
-                    ctx->persistent[i].handle == handle) {
-                    XMEMSET(&ctx->persistent[i], 0, sizeof(FWTPM_Object));
-                    break;
+            if (handle >= PERSISTENT_FIRST && handle <= PERSISTENT_LAST) {
+                for (i = 0; i < FWTPM_MAX_PERSISTENT; i++) {
+                    if (ctx->persistent[i].used &&
+                        ctx->persistent[i].handle == handle) {
+                        XMEMSET(&ctx->persistent[i], 0, sizeof(FWTPM_Object));
+                        break;
+                    }
                 }
             }
             break;
