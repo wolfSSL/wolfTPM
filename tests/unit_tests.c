@@ -3526,6 +3526,38 @@ static void test_wolfTPM_ImportPublicKey(void)
     wolfTPM2_Cleanup(&dev);
 }
 
+/* Returns 1 if the connected TPM has at least one PCR allocated in the @alg
+ * bank. Lets bank-specific tests adapt to whatever the hardware exposes
+ * instead of assuming a fixed bank (e.g. a TPM provisioned with SHA-384 PCRs
+ * only). */
+static int test_pcr_bank_allocated(TPM_ALG_ID alg)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_PCR_SELECTION* sel;
+    word32 i;
+    int j;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_PCRS;
+    in.property = 0;
+    in.propertyCount = 1;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
+        return 0;
+
+    sel = &out.capabilityData.data.assignedPCR;
+    for (i = 0; i < sel->count; i++) {
+        if (sel->pcrSelections[i].hash == alg) {
+            for (j = 0; j < sel->pcrSelections[i].sizeofSelect; j++) {
+                if (sel->pcrSelections[i].pcrSelect[j] != 0)
+                    return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 /* Test vector from ibmtss policy authorize test for SHA2-256 */
 static void test_wolfTPM2_PCRPolicy(void)
 {
@@ -3569,6 +3601,16 @@ static void test_wolfTPM2_PCRPolicy(void)
 
     AssertIntEQ(XMEMCMP(digest, expectedPolicyAuth, sizeof(expectedPolicyAuth)),
         0);
+
+    /* The remaining checks use fixed SHA-256 PCR vectors. A TPM without a
+     * SHA-256 PCR bank allocated cannot match them, so skip that portion
+     * rather than fail (the policy-authorize math above still runs). */
+    if (!test_pcr_bank_allocated(pcrAlg)) {
+        printf("Test TPM Wrapper: %-40s Skipped (no SHA-256 PCR bank)\n",
+            "PCRPolicy bank:");
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
 
     rc = wolfTPM2_ResetPCR(&dev, pcrIndex);
     AssertIntEQ(rc, 0);
@@ -4833,6 +4875,87 @@ static void test_wolfTPM2_MLKEM_RoundTrip(WOLFTPM2_DEV* dev,
 #endif /* ML-KEM support */
 
 /* Main PQC test function */
+/* Returns 1 if the connected TPM advertises @alg in its TPM_CAP_ALGS list.
+ * Used to skip sub-tests for optional algorithms (e.g. Hash-ML-DSA) that a
+ * given TPM may not implement, without hard-coding any model check. */
+static int test_alg_supported(TPM_ALG_ID alg)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+    word32 i;
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = TPM_ALG_FIRST;
+    in.propertyCount = MAX_CAP_ALGS;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS)
+        return 0;
+
+    algs = &out.capabilityData.data.algorithms;
+    for (i = 0; i < algs->count; i++) {
+        if (algs->algProperties[i].alg == alg)
+            return 1;
+    }
+    return 0;
+}
+
+/* Regression for the VerifySequenceComplete flush-on-error fix: looping
+ * failed verifies must not exhaust transient memory (TPM_RC_OBJECT_MEMORY).
+ * Uses an ECC key to cover the classical (non-PQC) wrapper path. */
+static void test_wolfTPM2_VerifySequence_NoLeak(void)
+{
+    int rc, i;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY eccKey;
+    TPMT_PUBLIC pub;
+    TPM_HANDLE seqHandle;
+    TPMT_TK_VERIFIED validation;
+    byte msg[32];
+    byte badSig[64]; /* ECC P-256 r||s, deliberately invalid */
+
+    XMEMSET(&eccKey, 0, sizeof(eccKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(msg, 0xAB, sizeof(msg));
+    XMEMSET(badSig, 0xAA, sizeof(badSig));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreatePrimaryKey(&dev, &eccKey, TPM_RH_OWNER, &pub, NULL, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "VerifySequence no-leak:");
+        wolfTPM2_Cleanup(&dev);
+        return;
+    }
+
+    /* More iterations than the TPM has transient slots. Without the fix the
+     * leaked sequence objects exhaust memory and a later call returns
+     * TPM_RC_OBJECT_MEMORY; with it each failed verify is flushed. */
+    for (i = 0; i < 8; i++) {
+        rc = wolfTPM2_VerifySequenceStart(&dev, &eccKey, NULL, 0, &seqHandle);
+        if (rc == TPM_RC_SUCCESS) {
+            rc = wolfTPM2_VerifySequenceComplete(&dev, seqHandle, &eccKey,
+                msg, (int)sizeof(msg), badSig, (int)sizeof(badSig),
+                &validation);
+        }
+        AssertIntNE(rc, TPM_RC_OBJECT_MEMORY);
+        AssertIntNE(rc, TPM_RC_SUCCESS); /* bad signature must be rejected */
+    }
+
+    wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "VerifySequence no-leak:");
+}
+
 static void test_wolfTPM2_PQC(void)
 {
     int rc;
@@ -4857,10 +4980,15 @@ static void test_wolfTPM2_PQC(void)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
-    /* Create storage key */
+    /* Create storage key (exercises CreateSRK), then flush it immediately.
+     * It is not used as a parent below, and holding it would consume one of
+     * the few transient object slots on constrained hardware, leaving no
+     * room for a sub-test's own primary plus a sign-sequence object
+     * (TPM_RC_OBJECT_MEMORY). */
     rc = wolfTPM2_CreateSRK(&dev, &storageKey, TPM_ALG_ECC,
         (byte*)gStorageKeyAuth, sizeof(gStorageKeyAuth)-1);
     AssertIntEQ(rc, 0);
+    wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 
     /* Create a real ML-DSA-65 primary key so Sign/Verify sequence tests
      * operate on an actual handle. Pure-MLDSA SignDigest is deferred
@@ -4896,9 +5024,17 @@ static void test_wolfTPM2_PQC(void)
     /* Bug-fix regressions: each test exercises a wrapper / native-API path
      * that no existing test covers, so a re-introduction of the underlying
      * fix would silently pass CI without these. */
-    test_wolfTPM2_MLDSA_VerifySequence_DataChain(&dev);
-    test_wolfTPM2_HashMLDSA_SignSequence_Streaming(&dev);
-    test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(&dev);
+    /* These sub-tests each create a HASH_MLDSA key (DataChain included), so
+     * only run them when the TPM advertises TPM_ALG_HASH_MLDSA. */
+    if (test_alg_supported(TPM_ALG_HASH_MLDSA)) {
+        test_wolfTPM2_MLDSA_VerifySequence_DataChain(&dev);
+        test_wolfTPM2_HashMLDSA_SignSequence_Streaming(&dev);
+        test_wolfTPM2_HashMLDSA_SignDigest_RoundTrip(&dev);
+    }
+    else {
+        printf("Test TPM Wrapper: %-40s Skipped (no Hash-ML-DSA)\n",
+            "Hash-ML-DSA:");
+    }
     test_TPM2_SignSequenceStart_NoSession(&dev, &mldsaKey);
     test_wolfTPM2_MLDSA_SignSequence_NonEmptyAuth(&dev, &mldsaPub);
 
@@ -5132,6 +5268,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PQC_Sizes();
     /* Then run TPM-dependent PQC tests */
     test_wolfTPM2_PQC();
+    test_wolfTPM2_VerifySequence_NoLeak();
     #endif
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();

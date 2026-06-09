@@ -125,6 +125,29 @@ static void bench_stats_asym_finish(const char* algo, int strength,
         count, total, milliEach, opsSec);
 }
 
+/* True if rc means the TPM does not implement the operation (so the bench
+ * can skip it instead of aborting). Masks parameter bits on FMT1 codes. */
+static int bench_unsupported(int rc)
+{
+    return ((rc & 0xBF) == TPM_RC_SCHEME) || WOLFTPM_IS_COMMAND_UNAVAILABLE(rc);
+}
+
+/* Print timing on success, "Skipped" if the op was not implemented. Returns
+ * 0 when handled (the bench should continue) or rc on a hard error. */
+static int bench_asym_done(const char* algo, int strength, const char* desc,
+    int count, double start, int rc)
+{
+    if (rc == 0) {
+        bench_stats_asym_finish(algo, strength, desc, count, start);
+        return 0;
+    }
+    if (bench_unsupported(rc)) {
+        printf("%-6s %5d %-9s Skipped (not supported)\n", algo, strength, desc);
+        return 0;
+    }
+    return rc;
+}
+
 static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
     const byte* in, word32 inSz, byte* digest, word32 digestSz, double maxDuration)
 {
@@ -192,6 +215,146 @@ exit:
     return rc;
 }
 
+#ifdef WOLFTPM_V185
+/* Benchmark Pure ML-DSA: key gen, sign and verify (sign/verify sequence). */
+static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
+    double maxKeyGenDurSec)
+{
+    int rc, count;
+    double start;
+    WOLFTPM2_KEY mldsaKey;
+    TPMT_PUBLIC publicTemplate;
+    TPMT_TK_VERIFIED validation;
+    TPM_HANDLE seqHandle;
+    WOLFTPM2_HANDLE seqObj;
+    byte message[TPM_SHA256_DIGEST_SIZE];
+    byte sig[MAX_MLDSA_SIG_SIZE];
+    int sigSz;
+
+    XMEMSET(&mldsaKey, 0, sizeof(mldsaKey));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+    XMEMSET(message, 0x11, sizeof(message));
+
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&publicTemplate,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_MLDSA_65, 0);
+    if (rc != 0) return rc;
+
+    bench_stats_start(&count, &start);
+    do {
+        if (count > 0)
+            wolfTPM2_UnloadHandle(dev, &mldsaKey.handle);
+        rc = wolfTPM2_CreatePrimaryKey(dev, &mldsaKey, TPM_RH_OWNER,
+            &publicTemplate, NULL, 0);
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxKeyGenDurSec));
+    rc = bench_asym_done("ML-DSA", 65, "key gen", count, start, rc);
+    if (rc != 0)
+        return rc;
+    if (count == 0)
+        return 0; /* ML-DSA not implemented; skip the rest of the section */
+
+    /* Pure ML-DSA is one-shot: the message is supplied to Complete. */
+    bench_stats_start(&count, &start);
+    do {
+        sigSz = (int)sizeof(sig);
+        rc = wolfTPM2_SignSequenceStart(dev, &mldsaKey, NULL, 0, &seqHandle);
+        if (rc == 0) {
+            rc = wolfTPM2_SignSequenceComplete(dev, seqHandle, &mldsaKey,
+                message, (int)sizeof(message), sig, &sigSz);
+            if (rc != 0) {
+                /* SignSequenceComplete does not consume the sequence on
+                 * error; flush it so the transient slot is not leaked. */
+                XMEMSET(&seqObj, 0, sizeof(seqObj));
+                seqObj.hndl = seqHandle;
+                wolfTPM2_UnloadHandle(dev, &seqObj);
+            }
+        }
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxDuration));
+    rc = bench_asym_done("ML-DSA", 65, "sign", count, start, rc);
+    if (rc != 0) goto exit;
+
+    bench_stats_start(&count, &start);
+    do {
+        rc = wolfTPM2_VerifySequenceStart(dev, &mldsaKey, NULL, 0, &seqHandle);
+        if (rc == 0)
+            rc = wolfTPM2_VerifySequenceComplete(dev, seqHandle, &mldsaKey,
+                message, (int)sizeof(message), sig, sigSz, &validation);
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxDuration));
+    rc = bench_asym_done("ML-DSA", 65, "verify", count, start, rc);
+    if (rc != 0) goto exit;
+
+exit:
+    wolfTPM2_UnloadHandle(dev, &mldsaKey.handle);
+    return rc;
+}
+
+/* Benchmark ML-KEM: key gen, encapsulate and decapsulate. */
+static int bench_pqc_mlkem(WOLFTPM2_DEV* dev, double maxDuration,
+    double maxKeyGenDurSec)
+{
+    int rc, count;
+    double start;
+    WOLFTPM2_KEY mlkemKey;
+    TPMT_PUBLIC publicTemplate;
+    byte ciphertext[1600];
+    int ciphertextSz;
+    byte secret[64];
+    int secretSz;
+
+    XMEMSET(&mlkemKey, 0, sizeof(mlkemKey));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(&publicTemplate,
+        TPMA_OBJECT_decrypt | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_MLKEM_768);
+    if (rc != 0) return rc;
+
+    bench_stats_start(&count, &start);
+    do {
+        if (count > 0)
+            wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
+        rc = wolfTPM2_CreatePrimaryKey(dev, &mlkemKey, TPM_RH_OWNER,
+            &publicTemplate, NULL, 0);
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxKeyGenDurSec));
+    rc = bench_asym_done("ML-KEM", 768, "key gen", count, start, rc);
+    if (rc != 0)
+        return rc;
+    if (count == 0)
+        return 0; /* ML-KEM not implemented; skip the rest of the section */
+
+    bench_stats_start(&count, &start);
+    do {
+        ciphertextSz = (int)sizeof(ciphertext);
+        secretSz = (int)sizeof(secret);
+        rc = wolfTPM2_Encapsulate(dev, &mlkemKey, ciphertext, &ciphertextSz,
+            secret, &secretSz);
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxDuration));
+    rc = bench_asym_done("ML-KEM", 768, "encap", count, start, rc);
+    if (rc != 0) goto exit;
+
+    bench_stats_start(&count, &start);
+    do {
+        secretSz = (int)sizeof(secret);
+        rc = wolfTPM2_Decapsulate(dev, &mlkemKey, ciphertext, ciphertextSz,
+            secret, &secretSz);
+        if (rc != 0) break;
+    } while (bench_stats_check(start, &count, maxDuration));
+    rc = bench_asym_done("ML-KEM", 768, "decap", count, start, rc);
+    if (rc != 0) goto exit;
+
+exit:
+    wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
+    return rc;
+}
+#endif /* WOLFTPM_V185 */
+
 static void usage(void)
 {
     printf("Expected usage:\n");
@@ -223,6 +386,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     TPM2B_ECC_POINT pubPoint;
     double start;
     int count;
+    int skipDec = 0; /* skip a decrypt op whose paired encrypt was unsupported */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     double maxDuration = TPM2_BENCH_DURATION_SEC;
@@ -387,18 +551,26 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         cipher.size = sizeof(cipher.buffer); /* encrypted data */
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
             message.buffer, message.size, cipher.buffer, &cipher.size);
-        if (rc != 0) goto exit;
+        if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("RSA", 2048, "Public", count, start);
+    skipDec = (rc != 0 && bench_unsupported(rc));
+    rc = bench_asym_done("RSA", 2048, "Public", count, start, rc);
+    if (rc != 0) goto exit;
 
-    bench_stats_start(&count, &start);
-    do {
-        plain.size = sizeof(plain.buffer);
-        rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_NULL,
-            cipher.buffer, cipher.size, plain.buffer, &plain.size);
+    if (skipDec) {
+        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", 2048, "Private");
+    }
+    else {
+        bench_stats_start(&count, &start);
+        do {
+            plain.size = sizeof(plain.buffer);
+            rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_NULL,
+                cipher.buffer, cipher.size, plain.buffer, &plain.size);
+            if (rc != 0) break;
+        } while (bench_stats_check(start, &count, maxDuration));
+        rc = bench_asym_done("RSA", 2048, "Private", count, start, rc);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("RSA", 2048, "Private", count, start);
+    }
 
 
     /* Perform RSA encrypt / decrypt (OAEP pad) */
@@ -410,18 +582,27 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         cipher.size = sizeof(cipher.buffer); /* encrypted data */
         rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
             message.buffer, message.size, cipher.buffer, &cipher.size);
-        if (rc != 0) goto exit;
+        if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("RSA", 2048, "Pub  OAEP", count, start);
+    skipDec = (rc != 0 && bench_unsupported(rc));
+    rc = bench_asym_done("RSA", 2048, "Pub  OAEP", count, start, rc);
+    if (rc != 0) goto exit;
 
-    bench_stats_start(&count, &start);
-    do {
-        plain.size = sizeof(plain.buffer);
-        rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
-            cipher.buffer, cipher.size, plain.buffer, &plain.size);
+    if (skipDec) {
+        printf("%-6s %5d %-9s Skipped (not supported)\n", "RSA", 2048,
+            "Priv OAEP");
+    }
+    else {
+        bench_stats_start(&count, &start);
+        do {
+            plain.size = sizeof(plain.buffer);
+            rc = wolfTPM2_RsaDecrypt(&dev, &rsaKey, TPM_ALG_OAEP,
+                cipher.buffer, cipher.size, plain.buffer, &plain.size);
+            if (rc != 0) break;
+        } while (bench_stats_check(start, &count, maxDuration));
+        rc = bench_asym_done("RSA", 2048, "Priv OAEP", count, start, rc);
         if (rc != 0) goto exit;
-    } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("RSA", 2048, "Priv OAEP", count, start);
+    }
 
     rc = wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);
     if (rc != 0) goto exit;
@@ -454,17 +635,19 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         cipher.size = sizeof(cipher.buffer); /* signature */
         rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,
             cipher.buffer, &cipher.size);
-        if (rc != 0) goto exit;
+        if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("ECDSA", 256, "sign", count, start);
+    rc = bench_asym_done("ECDSA", 256, "sign", count, start, rc);
+    if (rc != 0) goto exit;
 
     bench_stats_start(&count, &start);
     do {
         rc = wolfTPM2_VerifyHash(&dev, &eccKey, cipher.buffer, cipher.size,
             message.buffer, message.size);
-        if (rc != 0) goto exit;
+        if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("ECDSA", 256, "verify", count, start);
+    rc = bench_asym_done("ECDSA", 256, "verify", count, start, rc);
+    if (rc != 0) goto exit;
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
@@ -486,12 +669,27 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
         cipher.size = sizeof(cipher.buffer);
         rc = wolfTPM2_ECDHGen(&dev, &eccKey, &pubPoint,
             cipher.buffer, &cipher.size);
-        if (rc != 0) goto exit;
+        if (rc != 0) break;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_asym_finish("ECDHE", 256, "agree", count, start);
+    rc = bench_asym_done("ECDHE", 256, "agree", count, start, rc);
+    if (rc != 0) goto exit;
 
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
+
+#ifdef WOLFTPM_V185
+    /* Post-quantum (TPM 2.0 v1.85). Skipped under parameter encryption: the
+     * large PQC public-key responses exceed the parameter-decryption buffer
+     * (TPM_RC_... BUFFER_E). Free the storage key first so the larger PQC keys
+     * fit within the TPM's transient object slots. */
+    if (paramEncAlg == TPM_ALG_NULL) {
+        wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+        rc = bench_pqc_mldsa(&dev, maxDuration, maxKeyGenDurSec);
+        if (rc != 0) goto exit;
+        rc = bench_pqc_mlkem(&dev, maxDuration, maxKeyGenDurSec);
+        if (rc != 0) goto exit;
+    }
+#endif
 
 exit:
     if (rc != 0) {

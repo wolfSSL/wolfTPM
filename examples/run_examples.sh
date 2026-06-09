@@ -331,6 +331,20 @@ if [ $ENABLE_V185 -eq 1 ]; then
         RESULT=$?
         [ $RESULT -ne 0 ] && echo -e "mlkem_encap mlkem=$PS failed! $RESULT" && exit 1
     done
+
+    echo -e "PQC negative verify (mldsa_verify_neg)"
+    for PS in 44 65 87; do
+        ./examples/pqc/mldsa_verify_neg -mldsa=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mldsa_verify_neg mldsa=$PS failed! $RESULT" && exit 1
+    done
+
+    echo -e "PQC negative decap (mlkem_decap_neg)"
+    for PS in 512 768 1024; do
+        ./examples/pqc/mlkem_decap_neg -mlkem=$PS >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "mlkem_decap_neg mlkem=$PS failed! $RESULT" && exit 1
+    done
 fi
 
 
