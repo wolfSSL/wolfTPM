@@ -377,6 +377,39 @@ static void test_wolfTPM2_GetRandom(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_wolfTPM2_HashFinish_BufferTooSmall(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HASH hash;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz;
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    XMEMSET(&hash, 0, sizeof(hash));
+    rc = wolfTPM2_HashStart(&dev, &hash, TPM_ALG_SHA256, NULL, 0);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_HashUpdate(&dev, &hash, (const byte*)"abc", 3);
+    AssertIntEQ(rc, 0);
+
+    /* Undersized buffer must be rejected, not silently truncated, and the
+     * required size reported back to the caller. */
+    digestSz = 1;
+    rc = wolfTPM2_HashFinish(&dev, &hash, digest, &digestSz);
+    AssertIntEQ(BUFFER_E, rc);
+    AssertIntEQ(TPM_SHA256_DIGEST_SIZE, (int)digestSz);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "HashFinish BufferTooSmall:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "HashFinish BufferTooSmall:");
+#endif
+}
+
 static void test_TPM2_PCRSel(void)
 {
     int rc = 0;
@@ -4926,6 +4959,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
+    test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
