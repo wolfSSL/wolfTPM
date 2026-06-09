@@ -198,6 +198,14 @@ typedef int64_t  INT64;
     #define ENCODING_TYPE_PEM  CTC_FILETYPE_PEM
     #define ENCODING_TYPE_ASN1 CTC_FILETYPE_ASN1
 
+    /* wolfCrypt (which normally defines this) is not compiled in; provide an
+     * overridable fallback so the WOLFTPM2_ECC_DEFAULT_CURVE selection below
+     * still evaluates under -Werror=undef. Keeps the historical P256 default;
+     * override via -DECC_MIN_KEY_SZ to raise it. */
+    #ifndef ECC_MIN_KEY_SZ
+        #define ECC_MIN_KEY_SZ 256
+    #endif
+
 #ifndef WOLFTPM_CUSTOM_TYPES
     #ifndef WOLFTPM2_NO_HEAP
     #define XMALLOC(s, h, t)  malloc((size_t)(s))

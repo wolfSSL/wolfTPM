@@ -278,6 +278,14 @@ jobs:
             wolftpm_cflags: "-DWOLFTPM2_USE_SW_ECDHE"
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
 
+          # ECC default curve override (P384) - exercises the upgrade path
+          # (SRK/AIK -> P384) and confirms explicit-curve/ECDHE callers still
+          # use their negotiated curve.
+          - name: ecc-default-curve-p384
+            wolftpm_config: "--enable-swtpm --disable-fwtpm"
+            wolftpm_cflags: "-DWOLFTPM2_ECC_DEFAULT_CURVE=TPM_ECC_NIST_P384"
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+
           # No ECC
           - name: no-ecc
             wolfssl_config: --enable-wolftpm --disable-ecc

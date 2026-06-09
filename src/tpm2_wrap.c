@@ -8230,12 +8230,8 @@ int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
         return BAD_FUNC_ARG;
 
 #ifdef NO_ECC256
-    /* P256 is compiled out of wolfCrypt; substitute the configured (enabled)
-     * default curve so callers requesting P256 still get a usable curve. This
-     * is availability-driven and applies to every caller (including the named
-     * EK/SRK/AIK templates) because the build simply cannot honor P256. The
-     * configurable default-curve preference lives in the public ECC template
-     * wrappers, not here, so explicit curves through this helper are honored. */
+    /* P256 compiled out; substitute an enabled curve (availability-driven, all
+     * callers) since the build cannot honor P256. */
     if (curve == TPM_ECC_NIST_P256) {
         curve = WOLFTPM2_ECC_DEFAULT_CURVE;
         nameAlg = TPM2_GetCurveHashAlg(curve);
@@ -8293,14 +8289,11 @@ int wolfTPM2_GetKeyTemplate_RSA(TPMT_PUBLIC* publicTemplate,
 }
 
 /* Resolve a P256 "use the library default" request to the build-configured
- * WOLFTPM2_ECC_DEFAULT_CURVE, pairing the name/sig hash via
- * TPM2_GetCurveHashAlg. No-op when the default is P256 (the shipped default),
- * so existing builds are unchanged. This lets a build make P384 (or another
- * curve) the wrapper default - e.g. wolfTPM2_CreateSRK(TPM_ALG_ECC) - without
- * editing call sites. The EK index templates (TCG-fixed curve and auth policy),
- * the explicit-curve IAK/IDevID helpers, and the crypto callback (curve
- * negotiated by wolfCrypt) intentionally do NOT use this and keep their exact
- * curve. */
+ * WOLFTPM2_ECC_DEFAULT_CURVE, pairing the name/sig hash via TPM2_GetCurveHashAlg.
+ * No-op when the default is P256 (the shipped default). Used only by the
+ * no-explicit-curve named templates (SRK/AIK) so a build can make P384 the
+ * default - e.g. wolfTPM2_CreateSRK(TPM_ALG_ECC). The explicit-curve APIs
+ * (_ECC/_ex, EK, IAK/IDevID) and the crypto callback honor the exact curve. */
 static void wolfTPM2_ResolveDefaultEccCurve(TPM_ECC_CURVE* curve,
     TPM_ALG_ID* nameAlg, TPM_ALG_ID* sigHash)
 {
@@ -8318,9 +8311,9 @@ int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash)
 {
-    /* General-purpose ECC template API: a P256 request follows the configured
-     * default curve. */
-    wolfTPM2_ResolveDefaultEccCurve(&curve, &nameAlg, &sigHash);
+    /* Explicit-curve API: the requested curve is honored exactly (an explicit
+     * P256 is NOT remapped to WOLFTPM2_ECC_DEFAULT_CURVE - protocol-bound
+     * callers such as ECDH depend on the exact curve). */
     return GetKeyTemplateECC(publicTemplate, nameAlg,
         objectAttributes, curve, sigScheme, sigHash);
 }
@@ -8328,9 +8321,8 @@ int wolfTPM2_GetKeyTemplate_ECC_ex(TPMT_PUBLIC* publicTemplate,
 int wolfTPM2_GetKeyTemplate_ECC(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve, TPM_ALG_ID sigScheme)
 {
-    /* Route through the _ex wrapper so the configurable default curve applies
-     * to this general-purpose API as well. */
-    return wolfTPM2_GetKeyTemplate_ECC_ex(publicTemplate, WOLFTPM2_WRAP_DIGEST,
+    /* Explicit-curve API: the requested curve is honored exactly. */
+    return GetKeyTemplateECC(publicTemplate, WOLFTPM2_WRAP_DIGEST,
         objectAttributes, curve, sigScheme, WOLFTPM2_WRAP_DIGEST);
 }
 
@@ -8441,25 +8433,30 @@ int wolfTPM2_GetKeyTemplate_EK(TPMT_PUBLIC* publicTemplate, TPM_ALG_ID alg,
     }
 
     if (rc == 0) {
-        if (nameAlg == TPM_ALG_SHA256 && !highRange) {
+        /* Select the auth policy from the resolved publicTemplate->nameAlg, not
+         * the local nameAlg: under NO_ECC256 GetKeyTemplateECC may have
+         * substituted the curve and rewritten nameAlg to the paired hash, and
+         * the policy must match the name hash actually used. */
+        TPM_ALG_ID policyNameAlg = publicTemplate->nameAlg;
+        if (policyNameAlg == TPM_ALG_SHA256 && !highRange) {
             publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY);
             XMEMCPY(publicTemplate->authPolicy.buffer,
                 TPM_20_EK_AUTH_POLICY, publicTemplate->authPolicy.size);
         }
-        else if (nameAlg == TPM_ALG_SHA256) {
+        else if (policyNameAlg == TPM_ALG_SHA256) {
             publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY_SHA256);
             XMEMCPY(publicTemplate->authPolicy.buffer,
                 TPM_20_EK_AUTH_POLICY_SHA256, publicTemplate->authPolicy.size);
         }
     #ifdef WOLFSSL_SHA384
-        else if (nameAlg == TPM_ALG_SHA384) {
+        else if (policyNameAlg == TPM_ALG_SHA384) {
             publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY_SHA384);
             XMEMCPY(publicTemplate->authPolicy.buffer,
                 TPM_20_EK_AUTH_POLICY_SHA384, publicTemplate->authPolicy.size);
         }
     #endif
     #ifdef WOLFSSL_SHA512
-        else if (nameAlg == TPM_ALG_SHA512) {
+        else if (policyNameAlg == TPM_ALG_SHA512) {
             publicTemplate->authPolicy.size = sizeof(TPM_20_EK_AUTH_POLICY_SHA512);
             XMEMCPY(publicTemplate->authPolicy.buffer,
                 TPM_20_EK_AUTH_POLICY_SHA512, publicTemplate->authPolicy.size);

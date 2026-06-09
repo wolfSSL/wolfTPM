@@ -2552,23 +2552,29 @@ static void test_TPM2_BrainpoolCurveMapping(void)
 #endif
 }
 
-/* The P256-defaulting wrapper templates (general ECC, SRK, AIK) follow the
- * build's WOLFTPM2_ECC_DEFAULT_CURVE: a no-op in the shipped P256 build, an
- * upgrade when overridden to e.g. P384. The EK templates are TCG-fixed and keep
- * their exact curve and policy (except under NO_ECC256, where P256 is
- * unavailable to every caller - the EK checks are guarded for that case). */
+/* The no-explicit-curve named templates (SRK, AIK) follow the build's
+ * WOLFTPM2_ECC_DEFAULT_CURVE: a no-op in the shipped P256 build, an upgrade
+ * when overridden to e.g. P384. The explicit-curve APIs (general ECC/_ex) and
+ * the TCG-fixed EK templates honor the exact curve requested (except under
+ * NO_ECC256, where P256 is unavailable to every caller - those checks are
+ * guarded for that case). */
 static void test_TPM2_EccDefaultCurveTemplate(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     TPMT_PUBLIC t;
 
-    /* P256 through the general API follows the configured default + paired
-     * hash. In an overridden build this proves the upgrade; in the default
-     * P256 build it is a no-op. */
+#ifndef NO_ECC256
+    /* Explicit-curve APIs must honor exactly what is passed: an explicit P256
+     * request stays P256 even in a WOLFTPM2_ECC_DEFAULT_CURVE override build.
+     * This is the regression guard for protocol-bound callers (e.g. ECDH),
+     * whose shared secret breaks if the curve is silently remapped. */
     AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC(&t, TPMA_OBJECT_sign,
         TPM_ECC_NIST_P256, TPM_ALG_ECDSA), 0);
-    AssertIntEQ(t.parameters.eccDetail.curveID, WOLFTPM2_ECC_DEFAULT_CURVE);
-    AssertIntEQ(t.nameAlg, TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+    AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC_ex(&t, TPM_ALG_SHA256,
+        TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_ECDSA, TPM_ALG_SHA256), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
+#endif
 
     /* The storage primary (wolfTPM2_CreateSRK ECC path) follows the default. */
     AssertIntEQ(wolfTPM2_GetKeyTemplate_ECC_SRK(&t), 0);
@@ -2585,14 +2591,21 @@ static void test_TPM2_EccDefaultCurveTemplate(void)
         TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
 
 #ifndef NO_ECC256
-    /* EK P256 NV index is TCG-fixed and must NOT follow the default curve.
-     * Skipped under NO_ECC256: there GetKeyTemplateECC substitutes P256 for an
-     * enabled curve for every caller, including the EK, because the build
-     * cannot honor P256 at all. */
+    /* EK P256 NV index is TCG-fixed and must NOT follow the default curve. */
     AssertIntEQ(wolfTPM2_GetKeyTemplate_EKIndex(TPM2_NV_EK_ECC_P256, &t), 0);
     AssertIntEQ(t.parameters.eccDetail.curveID, TPM_ECC_NIST_P256);
     AssertIntEQ(t.nameAlg, TPM_ALG_SHA256);
     AssertIntEQ(t.authPolicy.size, sizeof(TPM_20_EK_AUTH_POLICY));
+#else
+    /* Under NO_ECC256 the EK P256 index is substituted to an enabled curve for
+     * every caller. Verify the name hash matches the substituted curve and a
+     * (non-empty) auth policy was selected for that same hash - i.e. nameAlg
+     * and authPolicy stay consistent (regression guard for the prior mismatch
+     * where nameAlg became SHA384/SHA512 but the SHA256 policy was copied). */
+    AssertIntEQ(wolfTPM2_GetKeyTemplate_EKIndex(TPM2_NV_EK_ECC_P256, &t), 0);
+    AssertIntEQ(t.parameters.eccDetail.curveID, WOLFTPM2_ECC_DEFAULT_CURVE);
+    AssertIntEQ(t.nameAlg, TPM2_GetCurveHashAlg(WOLFTPM2_ECC_DEFAULT_CURVE));
+    AssertIntGT(t.authPolicy.size, 0);
 #endif
 
     printf("Test TPM Wrapper:\tECC default-curve template:\tPassed\n");
