@@ -1,0 +1,88 @@
+# wolfTPM deterministic security rules (Semgrep).
+#
+# These encode wolfTPM invariants that are decidable by pattern and currently
+# have zero hits, so they pass today and fail the build on any future
+# violation. Run with: semgrep scan --config .github/semgrep-rules.yml --error
+#
+# Style/maintainability is intentionally out of scope (owned by codespell,
+# Coverity, and the CodeQL security suite). These rules only enforce security
+# invariants. The vendored src/spdm/ and src/fwtpm/ trees, the HAL platform
+# drivers, and the swtpm socket transport carry their own platform libc usage
+# and are excluded where noted.
+
+rules:
+  - id: wolftpm-no-unbounded-libc
+    languages: [c]
+    severity: ERROR
+    message: >-
+      Unbounded C library function. A length cannot be bounded to the
+      destination buffer here, so a long source runs past it (CWE-120, CWE-787).
+      Use a length-bounded alternative (XMEMCPY/XMEMMOVE with an explicit size,
+      XSNPRINTF/snprintf).
+    paths:
+      include:
+        - src/
+        - hal/
+        - wolftpm/
+    pattern-either:
+      - pattern: gets(...)
+      - pattern: strcpy(...)
+      - pattern: strcat(...)
+      - pattern: sprintf(...)
+      - pattern: vsprintf(...)
+
+  - id: wolftpm-no-command-exec
+    languages: [c]
+    severity: ERROR
+    message: >-
+      Process/shell execution in the core library. Spawning a command from
+      library code is an injection sink (CWE-78) and is not a wolfTPM idiom.
+      Remove it; the TPM is reached over a transport, never via a shell.
+    paths:
+      include:
+        - src/
+        - hal/
+        - wolftpm/
+    pattern-either:
+      - pattern: system(...)
+      - pattern: popen(...)
+      - pattern: execl(...)
+      - pattern: execlp(...)
+      - pattern: execle(...)
+      - pattern: execv(...)
+      - pattern: execvp(...)
+      - pattern: execvpe(...)
+
+  # The core protocol/marshaling/crypto layer (everything under src/ except the
+  # vendored trees and the swtpm socket dev-transport) routes every memory and
+  # string operation through the wolfSSL X-wrappers and has zero raw libc calls.
+  # HAL platform drivers and the swtpm socket shim are platform glue and are not
+  # in scope here.
+  - id: wolftpm-core-use-x-wrappers
+    languages: [c]
+    severity: ERROR
+    message: >-
+      Raw libc call in the core wolfTPM library. wolfTPM targets bare-metal
+      platforms where libc may be absent, so the core protocol layer must route
+      memory/string operations through the wolfSSL X-wrappers (XMEMCPY, XMEMSET,
+      XMEMMOVE, XMEMCMP, XSTRLEN, XMALLOC, XFREE). Use the wrapper, not the raw
+      call.
+    paths:
+      include:
+        - src/
+      exclude:
+        - src/spdm/
+        - src/fwtpm/
+        - src/tpm2_swtpm.c
+    pattern-either:
+      - pattern: memcpy(...)
+      - pattern: memmove(...)
+      - pattern: memset(...)
+      - pattern: memcmp(...)
+      - pattern: strlen(...)
+      - pattern: strcmp(...)
+      - pattern: strncmp(...)
+      - pattern: malloc(...)
+      - pattern: calloc(...)
+      - pattern: realloc(...)
+      - pattern: free(...)
