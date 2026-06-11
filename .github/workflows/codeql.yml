@@ -28,7 +28,7 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
-      - name: Install tpm2-tools
+      - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y autoconf automake libtool

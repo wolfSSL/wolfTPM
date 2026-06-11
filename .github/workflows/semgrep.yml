@@ -25,10 +25,12 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
+      # Pin Semgrep so the gate is deterministic: a future release cannot
+      # change rule behavior or fail the build out from under a PR.
       - name: Install Semgrep
-        run: pip install --quiet semgrep
+        run: pip install --quiet semgrep==1.166.0
 
       # --error makes the job fail on any finding. The rules self-scope via
       # their `paths:` blocks, so scanning the whole tree is fine.
