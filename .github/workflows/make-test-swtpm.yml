@@ -14,8 +14,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Auto-resolve the latest wolfSSL -stable tag so the suite also runs against
+  # the version users actually ship, not just master.
+  discover:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -340,6 +347,15 @@ jobs:
             wolfssl_config: "--enable-wolftpm --enable-pkcallbacks --enable-keygen"
             wolftpm_config: "--enable-fwtpm"
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+
+          # Default suite against the latest wolfSSL -stable release (not just
+          # master), to catch wolfTPM relying on a master-only wolfSSL symbol
+          # that the shipped release does not yet have.
+          - name: default-latest-stable
+            wolfssl_ref: ${{ needs.discover.outputs.latest-stable }}
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+            needs_dist: true
+            needs_install: true
 
     steps:
       - name: Checkout wolfTPM
