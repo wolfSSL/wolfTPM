@@ -17,45 +17,35 @@ permissions:
   contents: read
 
 jobs:
-  # Resolve the latest -stable wolfSSL tag at run time so we don't have to
-  # bump this workflow every release. Floor (v5.8.0) and master are fixed:
-  # v5.8.0 exercises wolfTPM's non-PQC backward-compat path (the v1.85 PQC
-  # code uses the post-v5.9.1 wc_MlDsaKey_* API and is skipped on this row),
-  # and master surfaces upstream drift on the nightly run.
+  # Auto-resolve the latest -stable wolfSSL tag (and its PQC eligibility) via
+  # the shared reusable workflow, so this file never needs a version bump.
+  resolve-wolfssl:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
+  # Build the wolfTPM PQC test matrix from the resolved latest -stable.
+  #   * v5.8.0-stable: fixed backward-compat floor, classic (no PQC).
+  #   * latest -stable: auto-resolved. Classic on v5.9.1 (and earlier); PQC
+  #     (v185 ML-DSA/ML-KEM) only once latest is > v5.9.1, i.e. v5.9.2 onward,
+  #     because the wc_MlDsaKey_* API the v1.85 code uses lands post-v5.9.1.
+  #   * master: always PQC, to surface upstream drift.
+  # So today this runs v5.8.0 + v5.9.1 classic and master PQC; when v5.9.2
+  # ships it is picked up automatically and gains its own PQC row.
   discover-versions:
     name: Resolve wolfSSL version matrix
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: resolve-wolfssl
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      latest-stable: ${{ steps.set-matrix.outputs.latest-stable }}
     steps:
-      - name: Resolve latest -stable wolfSSL tag
+      - name: Build wolfTPM version matrix
         id: set-matrix
+        env:
+          LATEST: ${{ needs.resolve-wolfssl.outputs.latest-stable }}
+          LATEST_PQC: ${{ needs.resolve-wolfssl.outputs.latest-pqc }}
         run: |
           set -euo pipefail
-          # List remote v*-stable tags, version-sort, take the highest.
-          # Equivalent to `git tag -l 'v*-stable' | sort -V | tail -1` in a
-          # local clone, but avoids cloning just to read tag names.
-          LATEST=$(git ls-remote --tags --refs https://github.com/wolfSSL/wolfssl.git 'v*-stable' \
-                     | awk -F/ '{print $NF}' | sort -V | tail -n 1)
-          if [ -z "${LATEST:-}" ]; then
-            echo "::error::Could not resolve latest wolfSSL -stable tag from remote"
-            exit 1
-          fi
-          echo "Latest stable wolfSSL: $LATEST"
-          echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
-          # Enable PQC when $LATEST is strictly newer than v5.9.1-stable
-          # (any v5.9.2+, v5.10+, v6+, ...). The wc_MlDsaKey_* API lands
-          # post-v5.9.1-stable in wolfSSL PR #10436.
-          PQC_FLOOR="v5.9.1-stable"
-          if [ "$(printf '%s\n%s\n' "$PQC_FLOOR" "$LATEST" | sort -V | tail -n1)" != "$PQC_FLOOR" ]; then
-            LATEST_PQC_ELIGIBLE=true
-          else
-            LATEST_PQC_ELIGIBLE=false
-          fi
-          echo "latest-stable PQC eligible: $LATEST_PQC_ELIGIBLE"
-          MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC_ELIGIBLE" '{
+          MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC" '{
             include: [
               {"wolfssl-version":"v5.8.0-stable","wolfssl-ref":"v5.8.0-stable","cache-key":"wolfssl-nopqc-v5.8.0-v1","pqc":false},
               {"wolfssl-version":$latest,"wolfssl-ref":$latest,"cache-key":("wolfssl-" + (if $latest_pqc then "pqc" else "nopqc" end) + "-" + $latest + "-v1"),"pqc":$latest_pqc},

@@ -1,0 +1,63 @@
+name: Resolve wolfSSL versions
+
+on:
+  workflow_call:
+    outputs:
+      matrix:
+        description: 'JSON matrix include of wolfSSL refs (master + latest -stable), each with a pqc flag'
+        value: ${{ jobs.resolve.outputs.matrix }}
+      refs:
+        description: 'JSON array of wolfSSL refs ([latest -stable, master]) for use as a matrix axis'
+        value: ${{ jobs.resolve.outputs.refs }}
+      latest-stable:
+        description: 'Latest wolfSSL v*-stable tag resolved at run time'
+        value: ${{ jobs.resolve.outputs.latest-stable }}
+      latest-pqc:
+        description: 'true when latest -stable is strictly newer than the v5.9.1 PQC floor'
+        value: ${{ jobs.resolve.outputs.latest-pqc }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve wolfSSL version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      refs: ${{ steps.set-matrix.outputs.refs }}
+      latest-stable: ${{ steps.set-matrix.outputs.latest-stable }}
+      latest-pqc: ${{ steps.set-matrix.outputs.latest-pqc }}
+    steps:
+      - name: Resolve latest -stable wolfSSL tag and PQC eligibility
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          LATEST=$(git ls-remote --tags --refs https://github.com/wolfSSL/wolfssl.git 'v*-stable' \
+                     | awk -F/ '{print $NF}' | sort -V | tail -n 1)
+          if [ -z "${LATEST:-}" ]; then
+            echo "::error::Could not resolve latest wolfSSL -stable tag from remote"
+            exit 1
+          fi
+          echo "Latest stable wolfSSL: $LATEST"
+          echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
+          # Enable PQC only when $LATEST is strictly newer than v5.9.1-stable.
+          # The wc_MlDsaKey_* API lands post-v5.9.1-stable; older stables only
+          # ship the legacy ML-DSA API.
+          PQC_FLOOR="v5.9.1-stable"
+          if [ "$(printf '%s\n%s\n' "$PQC_FLOOR" "$LATEST" | sort -V | tail -n 1)" != "$PQC_FLOOR" ]; then
+            LATEST_PQC=true
+          else
+            LATEST_PQC=false
+          fi
+          echo "latest-stable PQC eligible: $LATEST_PQC"
+          echo "latest-pqc=$LATEST_PQC" >> "$GITHUB_OUTPUT"
+          MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC" '{
+            include: [
+              {"wolfssl-version":$latest,"wolfssl-ref":$latest,"pqc":$latest_pqc},
+              {"wolfssl-version":"master","wolfssl-ref":"master","pqc":true}
+            ]
+          }')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          REFS=$(jq -nc --arg latest "$LATEST" '[$latest, "master"]')
+          echo "refs=$REFS" >> "$GITHUB_OUTPUT"
