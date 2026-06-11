@@ -46,17 +46,17 @@ jobs:
           # Same base sanitizers, but linked against the latest wolfSSL -stable
           # release instead of master.
           - name: "ASan (latest-stable)"
-            wolfssl_ref: ${{ needs.discover.outputs.latest-stable }}
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
             cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1"
             ldflags: "-fsanitize=address"
             asan_options: "detect_leaks=0"
           - name: "UBSan (latest-stable)"
-            wolfssl_ref: ${{ needs.discover.outputs.latest-stable }}
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
             cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=undefined"
             ubsan_options: "halt_on_error=1:print_stacktrace=1"
           - name: "LeakSan (latest-stable)"
-            wolfssl_ref: ${{ needs.discover.outputs.latest-stable }}
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
             cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=leak"
 

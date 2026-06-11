@@ -352,7 +352,7 @@ jobs:
           # master), to catch wolfTPM relying on a master-only wolfSSL symbol
           # that the shipped release does not yet have.
           - name: default-latest-stable
-            wolfssl_ref: ${{ needs.discover.outputs.latest-stable }}
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
             test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
             needs_dist: true
             needs_install: true

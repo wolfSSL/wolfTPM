@@ -41,8 +41,8 @@ jobs:
       - name: Build wolfTPM version matrix
         id: set-matrix
         env:
-          LATEST: ${{ needs.resolve-wolfssl.outputs.latest-stable }}
-          LATEST_PQC: ${{ needs.resolve-wolfssl.outputs.latest-pqc }}
+          LATEST: ${{ needs.resolve-wolfssl.outputs.latest_stable }}
+          LATEST_PQC: ${{ needs.resolve-wolfssl.outputs.latest_pqc }}
         run: |
           set -euo pipefail
           MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC" '{

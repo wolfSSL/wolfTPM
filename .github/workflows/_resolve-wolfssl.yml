@@ -9,12 +9,12 @@ on:
       refs:
         description: 'JSON array of wolfSSL refs ([latest -stable, master]) for use as a matrix axis'
         value: ${{ jobs.resolve.outputs.refs }}
-      latest-stable:
+      latest_stable:
         description: 'Latest wolfSSL v*-stable tag resolved at run time'
-        value: ${{ jobs.resolve.outputs.latest-stable }}
-      latest-pqc:
+        value: ${{ jobs.resolve.outputs.latest_stable }}
+      latest_pqc:
         description: 'true when latest -stable is strictly newer than the v5.9.1 PQC floor'
-        value: ${{ jobs.resolve.outputs.latest-pqc }}
+        value: ${{ jobs.resolve.outputs.latest_pqc }}
 
 permissions:
   contents: read
@@ -26,8 +26,8 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       refs: ${{ steps.set-matrix.outputs.refs }}
-      latest-stable: ${{ steps.set-matrix.outputs.latest-stable }}
-      latest-pqc: ${{ steps.set-matrix.outputs.latest-pqc }}
+      latest_stable: ${{ steps.set-matrix.outputs.latest_stable }}
+      latest_pqc: ${{ steps.set-matrix.outputs.latest_pqc }}
     steps:
       - name: Resolve latest -stable wolfSSL tag and PQC eligibility
         id: set-matrix
@@ -40,7 +40,7 @@ jobs:
             exit 1
           fi
           echo "Latest stable wolfSSL: $LATEST"
-          echo "latest-stable=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "latest_stable=$LATEST" >> "$GITHUB_OUTPUT"
           # Enable PQC only when $LATEST is strictly newer than v5.9.1-stable.
           # The wc_MlDsaKey_* API lands post-v5.9.1-stable; older stables only
           # ship the legacy ML-DSA API.
@@ -51,7 +51,7 @@ jobs:
             LATEST_PQC=false
           fi
           echo "latest-stable PQC eligible: $LATEST_PQC"
-          echo "latest-pqc=$LATEST_PQC" >> "$GITHUB_OUTPUT"
+          echo "latest_pqc=$LATEST_PQC" >> "$GITHUB_OUTPUT"
           MATRIX=$(jq -nc --arg latest "$LATEST" --argjson latest_pqc "$LATEST_PQC" '{
             include: [
               {"wolfssl-version":$latest,"wolfssl-ref":$latest,"pqc":$latest_pqc},
