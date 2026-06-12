@@ -14,9 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Auto-resolve the latest wolfSSL -stable tag so the base sanitizers also run
+  # against the shipped release, not just master. The v185/PQC rows stay on
+  # master because their ML-DSA/ML-KEM API lands post-v5.9.1-stable.
+  discover:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    uses: ./.github/workflows/_resolve-wolfssl.yml
+
   sanitizer_test:
     name: ${{ matrix.name }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -32,6 +40,23 @@ jobs:
             ldflags: "-fsanitize=undefined"
             ubsan_options: "halt_on_error=1:print_stacktrace=1"
           - name: "LeakSan"
+            cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=leak"
+
+          # Same base sanitizers, but linked against the latest wolfSSL -stable
+          # release instead of master.
+          - name: "ASan (latest-stable)"
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
+            cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1"
+            ldflags: "-fsanitize=address"
+            asan_options: "detect_leaks=0"
+          - name: "UBSan (latest-stable)"
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
+            cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=undefined"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
+          - name: "LeakSan (latest-stable)"
+            wolfssl_ref: ${{ needs.discover.outputs.latest_stable }}
             cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
             ldflags: "-fsanitize=leak"
 
@@ -84,6 +109,7 @@ jobs:
       - name: Setup wolfSSL with ${{ matrix.name }}
         uses: ./.github/actions/setup-wolfssl
         with:
+          ref: ${{ matrix.wolfssl_ref || 'master' }}
           cc: ${{ matrix.cc || 'gcc' }}
           configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen ${{ matrix.wolfssl_extra_config }}
           cflags: -DWC_RSA_NO_PADDING ${{ matrix.cflags }}
