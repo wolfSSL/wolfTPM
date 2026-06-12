@@ -1253,9 +1253,19 @@ run_test "tpm2_sign consumes TK_HASHCHECK ticket" \
         "$TEST_TMPDIR/hs_digest.bin"
 
 # Negative: tamper ticket bytes; sign should reject (TPM_RC_TICKET).
+# Overwrite the trailing half with 0xAA rather than forcing a single fixed
+# byte: the HMAC digest lives at the end of the ticket and a fixed-value
+# single-byte write is a no-op whenever that byte already holds the chosen
+# value (~1/256 per run, since the hierarchy proof is randomized per server
+# start) — the source of the intermittent CI failures.
 cp "$TEST_TMPDIR/hs_ticket.bin" "$TEST_TMPDIR/hs_ticket.bad"
-printf '\x55' | dd of="$TEST_TMPDIR/hs_ticket.bad" \
-    bs=1 count=1 seek=16 conv=notrunc 2>/dev/null
+HS_TICKET_SIZE=$(wc -c < "$TEST_TMPDIR/hs_ticket.bad")
+HS_TAMPER_OFFSET=$((HS_TICKET_SIZE / 2))
+HS_TAMPER_LEN=$((HS_TICKET_SIZE - HS_TAMPER_OFFSET))
+dd if=/dev/zero bs=1 count="$HS_TAMPER_LEN" 2>/dev/null \
+    | tr '\000' '\252' \
+    | dd of="$TEST_TMPDIR/hs_ticket.bad" \
+        bs=1 seek="$HS_TAMPER_OFFSET" conv=notrunc 2>/dev/null
 run_test_fail "tpm2_sign rejects tampered TK_HASHCHECK (TPM_RC_TICKET)" \
     tpm2_sign -c "$TEST_TMPDIR/hs_sign.ctx" \
         -g sha256 -d -t "$TEST_TMPDIR/hs_ticket.bad" \
