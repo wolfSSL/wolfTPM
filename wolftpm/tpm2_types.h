@@ -47,6 +47,7 @@
 #endif
 
 #include <wolftpm/visibility.h>
+#include <wolftpm/tpm2_pqc.h>
 
 #ifdef WOLFTPM_WINAPI
     #ifdef _WIN32
@@ -692,14 +693,14 @@ typedef int64_t  INT64;
 #define NUM_POLICY_PCR 1
 #endif
 #ifndef MAX_COMMAND_SIZE
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_PQC
         #define MAX_COMMAND_SIZE 8192
     #else
         #define MAX_COMMAND_SIZE 4096
     #endif
 #endif
 #ifndef MAX_RESPONSE_SIZE
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_PQC
         #define MAX_RESPONSE_SIZE 8192
     #else
         #define MAX_RESPONSE_SIZE 4096
@@ -750,7 +751,7 @@ typedef int64_t  INT64;
 #ifndef MAX_CAP_HANDLES
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Post-Quantum Cryptography (PQC) Size Definitions - TCG v185 RC4.
  * These size the public TPM2B_* ABI buffers, so they MUST match the
  * largest spec-defined parameter set — a client only enabling MLDSA-44
@@ -808,7 +809,7 @@ typedef int64_t  INT64;
 #ifndef MAX_SHARED_SECRET_SIZE
 #define MAX_SHARED_SECRET_SIZE      64
 #endif
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 #ifndef HASH_COUNT
     #ifndef WOLFTPM2_NO_WOLFCRYPT
         /* Calculate hash count based on wolfCrypt enables */

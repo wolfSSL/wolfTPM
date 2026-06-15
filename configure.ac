@@ -787,20 +787,43 @@ AC_ARG_ENABLE([v185],
     [ ENABLED_V185=detect ]
     )
 AC_ARG_ENABLE([pqc],
-    [AS_HELP_STRING([--enable-pqc],[Alias for --enable-v185 (post-quantum: ML-DSA / ML-KEM)])],
+    [AS_HELP_STRING([--enable-pqc],[Enable the lean post-quantum subset (ML-DSA / ML-KEM only, excludes the non-PQC v1.85 spec code that --enable-v185 adds)])],
     [ ENABLED_PQC=$enableval ],
     [ ENABLED_PQC=detect ]
     )
 
-# An explicit "yes" on either flag wins. An explicit "no" on either
-# disables. Mixed (e.g. --enable-pqc + --disable-v185) treats explicit
-# "no" as the safer choice and disables.
+# Per-algorithm / per-operation trimming, mirroring the wolfSSL flag syntax.
+# These only take effect when PQC (or v1.85) is enabled; default is everything.
+AC_ARG_ENABLE([mldsa],
+    [AS_HELP_STRING([--enable-mldsa@<:@=all|sign-only|verify-only|no@:>@],[Limit wolfTPM ML-DSA support (default: all)])],
+    [ ENABLED_TPM_MLDSA=$enableval ],
+    [ ENABLED_TPM_MLDSA=all ]
+    )
+AC_ARG_ENABLE([mlkem],
+    [AS_HELP_STRING([--enable-mlkem@<:@=all|enc|dec|no@:>@],[Limit wolfTPM ML-KEM support (default: all)])],
+    [ ENABLED_TPM_MLKEM=$enableval ],
+    [ ENABLED_TPM_MLKEM=all ]
+    )
+AC_ARG_ENABLE([hash-mldsa],
+    [AS_HELP_STRING([--disable-hash-mldsa],[Drop pre-hash ML-DSA key support (default: enabled with ML-DSA)])],
+    [ ENABLED_TPM_HASH_MLDSA=$enableval ],
+    [ ENABLED_TPM_HASH_MLDSA=yes ]
+    )
+
+# Resolve the entry points into one mode: no / pqc (lean) / v185 (full).
+#   --enable-v185 => full v1.85 (non-PQC spec code + PQC), also defines PQC
+#   --enable-pqc  => lean PQC subset only (smaller)
+# An explicit "no" on either disables. --enable-v185 wins over --enable-pqc.
+ENABLED_PQC_MODE=no
 if test "x$ENABLED_V185" = "xno" || test "x$ENABLED_PQC" = "xno"
 then
-    ENABLED_V185=no
-elif test "x$ENABLED_V185" = "xyes" || test "x$ENABLED_PQC" = "xyes"
+    ENABLED_PQC_MODE=no
+elif test "x$ENABLED_V185" = "xyes"
 then
-    ENABLED_V185=yes
+    ENABLED_PQC_MODE=v185
+elif test "x$ENABLED_PQC" = "xyes"
+then
+    ENABLED_PQC_MODE=pqc
 else
     # Neither flag specified — try auto-detect, but only when the natural
     # consumer (fwTPM + wolfCrypt) is being built. Without fwTPM there is
@@ -832,17 +855,21 @@ else
         if test "x$WOLFTPM_HAVE_MLDSA_FN" = "xyes" && \
            test "x$WOLFTPM_HAVE_MLKEM_FN" = "xyes"
         then
-            AC_MSG_NOTICE([wolfCrypt ML-DSA + ML-KEM detected; auto-enabling --enable-v185 (use --disable-v185 or --disable-pqc to opt out)])
-            ENABLED_V185=yes
-        else
-            ENABLED_V185=no
+            AC_MSG_NOTICE([wolfCrypt ML-DSA + ML-KEM detected; auto-enabling --enable-v185 (use --disable-v185/--disable-pqc to opt out, or --enable-pqc for the lean PQC subset)])
+            ENABLED_PQC_MODE=v185
         fi
-    else
-        ENABLED_V185=no
     fi
 fi
 
-if test "x$ENABLED_V185" = "xyes"
+# fwTPM server source is gated on WOLFTPM_V185; the lean PQC subset targets
+# the client library. If building fwTPM, promote lean PQC to full v1.85.
+if test "x$ENABLED_PQC_MODE" = "xpqc" && test "x$ENABLED_FWTPM" = "xyes"
+then
+    AC_MSG_NOTICE([fwTPM requires full v1.85; promoting --enable-pqc to --enable-v185])
+    ENABLED_PQC_MODE=v185
+fi
+
+if test "x$ENABLED_PQC_MODE" != "xno"
 then
     # Explicit opt-in: re-probe so we fail at configure time (with a
     # clear hint about wolfSSL flags) rather than deep inside the compile
@@ -874,9 +901,41 @@ then
     [AC_MSG_RESULT([no])
      AC_MSG_ERROR([wolfTPM PQC requires wolfSSL >= v5.8.0-stable. Please upgrade wolfSSL.])])
 
-    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
+    if test "x$ENABLED_PQC_MODE" = "xv185"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_V185"
+    else
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_PQC"
+    fi
+
+    # Per-algorithm / per-operation trimming (emit WOLFTPM_NO_* opt-outs).
+    case "x$ENABLED_TPM_MLDSA" in
+        xall|xyes) ;;
+        xno)          AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLDSA" ;;
+        xsign-only)   AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLDSA_VERIFY" ;;
+        xverify-only) AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLDSA_SIGN" ;;
+        *) AC_MSG_ERROR([invalid --enable-mldsa=$ENABLED_TPM_MLDSA (use all|sign-only|verify-only|no)]) ;;
+    esac
+    case "x$ENABLED_TPM_MLKEM" in
+        xall|xyes) ;;
+        xno)  AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLKEM" ;;
+        xenc) AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLKEM_DECAP" ;;
+        xdec) AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_MLKEM_ENCAP" ;;
+        *) AC_MSG_ERROR([invalid --enable-mlkem=$ENABLED_TPM_MLKEM (use all|enc|dec|no)]) ;;
+    esac
+    # v1.85 is a post-quantum spec; enabling it with no PQC algorithm at all
+    # is contradictory — point the user at --disable-pqc instead.
+    if test "x$ENABLED_TPM_MLDSA" = "xno" && test "x$ENABLED_TPM_MLKEM" = "xno"
+    then
+        AC_MSG_ERROR([--enable-pqc/--enable-v185 with both --enable-mldsa=no and --enable-mlkem=no leaves no PQC algorithm; use --disable-pqc to build without post-quantum support])
+    fi
+    if test "x$ENABLED_TPM_HASH_MLDSA" = "xno"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NO_HASH_MLDSA"
+    fi
 fi
-AM_CONDITIONAL([BUILD_V185], [test "x$ENABLED_V185" = "xyes"])
+AM_CONDITIONAL([BUILD_V185], [test "x$ENABLED_PQC_MODE" = "xv185"])
+AM_CONDITIONAL([BUILD_PQC], [test "x$ENABLED_PQC_MODE" != "xno"])
 
 # HARDEN FLAGS
 AX_HARDEN_CC_COMPILER_FLAGS
@@ -1075,3 +1134,10 @@ echo "   * fwTPM TIS/SHM:             $ENABLED_FWTPM_TIS"
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
 echo "   * SPDM Support:              $ENABLED_SPDM"
+echo "   * Post-Quantum (v185/pqc):   $ENABLED_PQC_MODE"
+if test "x$ENABLED_PQC_MODE" != "xno"
+then
+echo "       ML-DSA:                  $ENABLED_TPM_MLDSA"
+echo "       ML-KEM:                  $ENABLED_TPM_MLKEM"
+echo "       Hash-ML-DSA:             $ENABLED_TPM_HASH_MLDSA"
+fi

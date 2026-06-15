@@ -38,7 +38,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Support for HMAC Sessions.
 * Support for reading Endorsement certificates (EK Credential Profile).
 * Includes a portable firmware TPM 2.0 implementation (fwTPM, also known as fTPM / swtpm) for embedded platforms without a discrete TPM chip. See [Firmware TPM (fwTPM / fTPM / swtpm)](#firmware-tpm-fwtpm--ftpm--swtpm) below.
-* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-pqc` (alias for `--enable-v185`). Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has ML-DSA + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
+* **Post-quantum cryptography support** via TPM 2.0 Library Specification v1.85: ML-DSA (FIPS 204) signing and ML-KEM (FIPS 203) key encapsulation, enabled with `--enable-v185` (full v1.85) or the leaner `--enable-pqc` (ML-DSA / ML-KEM only), with per-operation trimming via `--enable-mldsa`/`--enable-mlkem`. Auto-detected when `--enable-fwtpm` is built against a wolfCrypt that has ML-DSA + ML-KEM. Both the client library and the fwTPM server implement the eight new v1.85 PQC commands. See [Post-Quantum Cryptography (v1.85)](#post-quantum-cryptography-v185) below.
 * **SPDM attestation support** (DMTF DSP0274) over the TCG SPDM-over-TPM binding, with a TCG certificate handshake and a DSP0274 pre-shared-key (PSK) handshake, enabled with `--enable-spdm`. The fwTPM server includes an SPDM 1.3 responder so the stack can be exercised end-to-end in CI without discrete silicon. See [SPDM Attestation](#spdm-attestation) below.
 
 Note: See [examples/README.md](examples/README.md) for details on using the examples.
@@ -101,10 +101,41 @@ sudo make install
 make
 ```
 
-`--enable-pqc` is an alias for `--enable-v185`; both turn on the same
-WOLFTPM_V185 build flag. If you omit them but `--enable-fwtpm` is set
-and wolfCrypt has ML-DSA + ML-KEM available, configure auto-detects
-PQC and enables it. Pass `--disable-pqc` to opt out explicitly.
+`--enable-v185` turns on the full v1.85 build (`WOLFTPM_V185`): the PQC
+algorithms plus the non-PQC v1.85 spec additions. `--enable-pqc` turns on
+just the lean PQC subset (`WOLFTPM_PQC`) — ML-DSA / ML-KEM only — which is
+smaller for deployments that do not need the rest of v1.85. If you omit both
+but `--enable-fwtpm` is set and wolfCrypt has ML-DSA + ML-KEM available,
+configure auto-detects and enables full v1.85. Pass `--disable-pqc` to opt
+out explicitly.
+
+#### Trimming the PQC footprint
+
+To compile only the operations you call (smaller binary, no malloc needed),
+mirror the wolfSSL flags:
+
+```
+# ML-DSA verify-only + ML-KEM encapsulate-only (no sign, no decapsulate)
+./configure --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc
+```
+
+| Flag | Values | Drops |
+|------|--------|-------|
+| `--enable-mldsa` | `all` (default) / `sign-only` / `verify-only` / `no` | the unselected ML-DSA operation |
+| `--enable-mlkem` | `all` (default) / `enc` / `dec` / `no` | the unselected ML-KEM operation |
+| `--disable-hash-mldsa` | — | pre-hash ML-DSA key support |
+
+These map to `WOLFTPM_NO_MLDSA_SIGN`, `WOLFTPM_NO_MLKEM_DECAP`, etc., which
+embedded integrators can also pass directly via `CFLAGS` without autotools.
+Existing `--enable-v185` builds are unaffected (every operation defaults on).
+Disabling both algorithms (`--enable-mldsa=no --enable-mlkem=no`) is a configure
+error — use `--disable-pqc` to build without any post-quantum support.
+
+The same flags also trim the fwTPM server: `--enable-fwtpm
+--enable-mldsa=verify-only` builds a server that implements only ML-DSA verify
+(the sign command handlers, dispatch entries, and crypto are compiled out).
+fwTPM always builds the full v1.85 spec surface, so the trims apply on top of
+`WOLFTPM_V185`.
 
 ### Running the examples
 

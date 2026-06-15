@@ -1,0 +1,161 @@
+name: PQC Build Matrix (v1.85 trimming)
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Exhaustive build of every ML-DSA x ML-KEM trimming combination, for both the
+# client library (--disable-fwtpm) and the fwTPM server (--enable-fwtpm), to
+# prove each per-operation gate compiles and links (lib + server + unit tests).
+# The (mldsa=no, mlkem=no) combo is intentionally absent: it is a configure
+# error (no PQC algorithm) verified by the reject-no-pqc job below. Runtime
+# make check on the full op set is covered by pqc-examples.yml.
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cli-mldsa_all-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=all --disable-fwtpm --disable-examples
+          - name: cli-mldsa_all-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=enc --disable-fwtpm --disable-examples
+          - name: cli-mldsa_all-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=dec --disable-fwtpm --disable-examples
+          - name: cli-mldsa_all-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=no --disable-fwtpm --disable-examples
+          - name: cli-mldsa_signonly-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=all --disable-fwtpm --disable-examples
+          - name: cli-mldsa_signonly-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=enc --disable-fwtpm --disable-examples
+          - name: cli-mldsa_signonly-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=dec --disable-fwtpm --disable-examples
+          - name: cli-mldsa_signonly-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=no --disable-fwtpm --disable-examples
+          - name: cli-mldsa_verifyonly-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=all --disable-fwtpm --disable-examples
+          - name: cli-mldsa_verifyonly-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc --disable-fwtpm --disable-examples
+          - name: cli-mldsa_verifyonly-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=dec --disable-fwtpm --disable-examples
+          - name: cli-mldsa_verifyonly-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=no --disable-fwtpm --disable-examples
+          - name: cli-mldsa_no-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=all --disable-fwtpm --disable-examples
+          - name: cli-mldsa_no-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=enc --disable-fwtpm --disable-examples
+          - name: cli-mldsa_no-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=dec --disable-fwtpm --disable-examples
+          - name: fw-mldsa_all-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=all --enable-fwtpm --disable-examples
+          - name: fw-mldsa_all-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=enc --enable-fwtpm --disable-examples
+          - name: fw-mldsa_all-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=dec --enable-fwtpm --disable-examples
+          - name: fw-mldsa_all-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=no --enable-fwtpm --disable-examples
+          - name: fw-mldsa_signonly-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=all --enable-fwtpm --disable-examples
+          - name: fw-mldsa_signonly-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=enc --enable-fwtpm --disable-examples
+          - name: fw-mldsa_signonly-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=dec --enable-fwtpm --disable-examples
+          - name: fw-mldsa_signonly-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=sign-only --enable-mlkem=no --enable-fwtpm --disable-examples
+          - name: fw-mldsa_verifyonly-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=all --enable-fwtpm --disable-examples
+          - name: fw-mldsa_verifyonly-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc --enable-fwtpm --disable-examples
+          - name: fw-mldsa_verifyonly-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=dec --enable-fwtpm --disable-examples
+          - name: fw-mldsa_verifyonly-mlkem_no
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=no --enable-fwtpm --disable-examples
+          - name: fw-mldsa_no-mlkem_all
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=all --enable-fwtpm --disable-examples
+          - name: fw-mldsa_no-mlkem_enc
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=enc --enable-fwtpm --disable-examples
+          - name: fw-mldsa_no-mlkem_dec
+            wolftpm_config: --enable-pqc --enable-mldsa=no --enable-mlkem=dec --enable-fwtpm --disable-examples
+          - name: cli-disable-pqc
+            wolftpm_config: --disable-pqc --disable-fwtpm --disable-examples
+          - name: cli-v185-full
+            wolftpm_config: --enable-v185 --disable-fwtpm --disable-examples
+          - name: cli-verifyencap-nohash
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc --disable-hash-mldsa --disable-fwtpm --disable-examples
+          - name: fw-disable-pqc
+            wolftpm_config: --disable-pqc --enable-fwtpm --disable-examples
+          - name: fw-v185-full
+            wolftpm_config: --enable-v185 --enable-fwtpm --disable-examples
+          - name: fw-verifyencap-nohash
+            wolftpm_config: --enable-pqc --enable-mldsa=verify-only --enable-mlkem=enc --disable-hash-mldsa --enable-fwtpm --disable-examples
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Setup wolfSSL with PQC
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: >-
+            --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            --enable-aescfb
+          cflags: -DWC_RSA_NO_PADDING
+
+      - name: Build wolfTPM (${{ matrix.name }})
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }}
+          make -j"$(nproc)"
+
+      - name: Show resolved PQC options
+        run: grep -E "WOLFTPM_(V185|PQC|NO_ML|NO_HASH|MLDSA|MLKEM)" wolftpm/options.h || true
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pqc-build-${{ matrix.name }}-logs
+          path: |
+            config.log
+          retention-days: 5
+
+  reject-no-pqc:
+    # --enable-pqc with both algorithms off must FAIL at configure with a clear
+    # message (no PQC algorithm). Verifies the guard, not just that it builds.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+      - name: Setup wolfSSL with PQC
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: >-
+            --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            --enable-dilithium --enable-mlkem --enable-experimental --enable-harden
+            --enable-aescfb
+          cflags: -DWC_RSA_NO_PADDING
+      - name: configure must reject mldsa=no + mlkem=no
+        run: |
+          ./autogen.sh
+          if ./configure --enable-pqc --enable-mldsa=no --enable-mlkem=no \
+               --disable-fwtpm --disable-examples 2>err.log; then
+            echo "ERROR: configure accepted a no-PQC-algorithm build"; exit 1
+          fi
+          grep -q "leaves no PQC algorithm" err.log \
+            || { echo "ERROR: wrong/no error message"; cat err.log; exit 1; }
+          echo "PASS: rejected with the expected message"

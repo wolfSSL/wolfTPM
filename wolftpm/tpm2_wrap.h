@@ -2102,7 +2102,7 @@ WOLFTPM_API int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev,
     int digestSz, TPMI_ALG_SIG_SCHEME sigAlg, TPMI_ALG_HASH hashAlg,
     TPMT_TK_VERIFIED* checkTicket);
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Post-Quantum Cryptography: Start a signing sequence with context support
@@ -2400,7 +2400,7 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
 */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet);
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 /*!
     \ingroup wolfTPM2_Wrappers

@@ -25,7 +25,7 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
-# Detect WOLFTPM_V185 (post-quantum keys). Probe several known generated /
+# Detect WOLFTPM_V185/WOLFTPM_PQC (post-quantum keys). Probe several known generated /
 # installed header locations: autoconf may write src/config.h or config.h
 # depending on AC_CONFIG_HEADERS, and tracked headers under wolftpm/ may
 # also gate the macro. ENABLE_V185 may be set by the caller to override.
@@ -34,7 +34,7 @@ if [ -z "$ENABLE_V185" ]; then
     for cfg in src/config.h config.h ../src/config.h ../config.h \
                wolftpm/options.h wolftpm/version.h; do
         if [ -f "$cfg" ] && grep -qE \
-                '^[[:space:]]*#[[:space:]]*define[[:space:]]+WOLFTPM_V185([[:space:]]|$)' \
+                '^[[:space:]]*#[[:space:]]*define[[:space:]]+WOLFTPM_(V185|PQC)([[:space:]]|$)' \
                 "$cfg"; then
             ENABLE_V185=1
             break

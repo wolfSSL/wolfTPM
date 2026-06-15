@@ -7,6 +7,7 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_packet.h \
                          wolftpm/tpm2_tis.h \
                          wolftpm/tpm2_types.h \
+                         wolftpm/tpm2_pqc.h \
                          wolftpm/tpm2_wrap.h \
                          wolftpm/tpm2_linux.h \
                          wolftpm/tpm2_swtpm.h \

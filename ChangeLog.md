@@ -1,5 +1,21 @@
 # Release Notes
 
+## wolfTPM Release 4.1.0 (TBD)
+
+**Detail**
+
+* Added fine-grained post-quantum build macros so the v1.85 PQC footprint can be
+  trimmed to the operations actually used. New layered gates: `WOLFTPM_PQC`
+  (lean ML-DSA / ML-KEM, the new meaning of `--enable-pqc`) sits under the full
+  `WOLFTPM_V185`; `WOLFTPM_MLDSA` / `WOLFTPM_MLKEM` per algorithm; and
+  `WOLFTPM_MLDSA_SIGN` / `WOLFTPM_MLDSA_VERIFY` / `WOLFTPM_MLKEM_ENCAP` /
+  `WOLFTPM_MLKEM_DECAP` / `WOLFTPM_HASH_MLDSA` per operation, with matching
+  `WOLFTPM_NO_*` opt-outs resolved in `wolftpm/tpm2_pqc.h`.
+* Added `--enable-mldsa[=all|sign-only|verify-only|no]`,
+  `--enable-mlkem[=all|enc|dec|no]`, and `--disable-hash-mldsa` configure flags
+  (mirroring the wolfSSL syntax). `--enable-pqc` now selects the lean PQC subset
+  and excludes the non-PQC v1.85 spec code; `--enable-v185` is unchanged (full).
+
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 
 **Summary**

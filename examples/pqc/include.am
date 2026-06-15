@@ -2,7 +2,7 @@
 # All paths should be given relative to the root
 
 if BUILD_EXAMPLES
-if BUILD_V185
+if BUILD_PQC
 
 noinst_PROGRAMS += examples/pqc/pqc_mssim_e2e
 examples_pqc_pqc_mssim_e2e_SOURCES      = examples/pqc/pqc_mssim_e2e.c

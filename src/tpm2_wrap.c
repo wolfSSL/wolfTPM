@@ -2283,7 +2283,7 @@ static int wolfTPM2_EncryptSecret_RSA(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
 }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_RSA && !WC_NO_RNG */
 
-#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM_ENCAP) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
 #if defined(HAVE_LIBOQS)
@@ -2412,7 +2412,7 @@ static int wolfTPM2_EncryptSecret_MLKEM(const WOLFTPM2_KEY* tpmKey,
 
     return rc;
 }
-#endif /* WOLFTPM_V185 && ML-KEM enabled */
+#endif /* WOLFTPM_MLKEM_ENCAP && ML-KEM enabled */
 
 int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     TPM2B_DATA *data, TPM2B_ENCRYPTED_SECRET *secret,
@@ -2446,7 +2446,7 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
             rc = wolfTPM2_EncryptSecret_RSA(dev, tpmKey, data, secret, label);
             break;
     #endif
-    #if defined(WOLFTPM_V185) && \
+    #if defined(WOLFTPM_MLKEM_ENCAP) && \
         (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
          defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
         case TPM_ALG_MLKEM:
@@ -5413,9 +5413,9 @@ int wolfTPM2_VerifyHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         TPM_ALG_NULL, hashAlg, NULL);
 }
 
-#ifdef WOLFTPM_V185
 /* Post-Quantum Cryptography (PQC) Wrapper Functions - TPM 2.0 v185 */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 int wolfTPM2_SignSequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
 {
@@ -5551,7 +5551,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
                 rc = BUFFER_E;
             }
         }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_MLDSA) {
             /* Pure ML-DSA: bare TPM2B, no hash field. */
             int sigOutSz = signSeqCompleteOut.signature.signature.mldsa.size;
@@ -5579,7 +5579,7 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
                 rc = BUFFER_E;
             }
         }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
         else {
             /* Unknown algorithm */
             rc = BUFFER_E;
@@ -5588,7 +5588,9 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
 
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 int wolfTPM2_VerifySequenceStart(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* context, int contextSz, TPM_HANDLE* sequenceHandle)
 {
@@ -5693,7 +5695,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
             return BUFFER_E;
         }
     }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
         if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.mldsa.buffer)) {
             return BUFFER_E;
@@ -5767,7 +5769,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         signature.signature.rsassa.sig.size = (UINT16)sigSz;
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
         /* Pure ML-DSA: bare TPM2B signature, no hash. */
         signature.sigAlg = TPM_ALG_MLDSA;
@@ -5789,7 +5791,7 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
         XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
     }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
     else {
         /* Unknown key type */
         return BAD_FUNC_ARG;
@@ -5813,7 +5815,9 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
 
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, const byte* context, int contextSz,
     byte* sig, int* sigSz)
@@ -5883,7 +5887,7 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                 rc = BUFFER_E;
             }
         }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         else if (signDigestOut.signature.sigAlg == TPM_ALG_MLDSA) {
             /* Pure ML-DSA: bare TPM2B, no hash field. */
             int sigOutSz = signDigestOut.signature.signature.mldsa.size;
@@ -5910,7 +5914,7 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
                 rc = BUFFER_E;
             }
         }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
         else {
             /* Unknown algorithm */
             rc = BUFFER_E;
@@ -5919,7 +5923,9 @@ int wolfTPM2_SignDigest(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* digest, int digestSz, const byte* sig, int sigSz,
     const byte* context, int contextSz, TPMT_TK_VERIFIED* validation)
@@ -5984,7 +5990,7 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         signature.signature.rsassa.sig.size = (UINT16)sigSz;
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
     }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
         /* Pure ML-DSA: bare TPM2B signature, no hash. */
         signature.sigAlg = TPM_ALG_MLDSA;
@@ -6006,7 +6012,7 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         signature.signature.hash_mldsa.signature.size = (UINT16)sigSz;
         XMEMCPY(signature.signature.hash_mldsa.signature.buffer, sig, sigSz);
     }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
     else {
         /* Unknown key type */
         return BAD_FUNC_ARG;
@@ -6026,7 +6032,9 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLKEM_ENCAP
 int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     byte* ciphertext, int* ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
 {
@@ -6069,7 +6077,9 @@ int wolfTPM2_Encapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+#endif /* WOLFTPM_MLKEM_ENCAP */
 
+#ifdef WOLFTPM_MLKEM_DECAP
 int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const byte* ciphertext, int ciphertextSz, byte* sharedSecret, int* sharedSecretSz)
 {
@@ -6111,7 +6121,9 @@ int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     return rc;
 }
+#endif /* WOLFTPM_MLKEM_DECAP */
 
+#ifdef WOLFTPM_MLDSA
 /* GetKeyTemplate_MLDSA - Create a key template for ML-DSA signing keys */
 int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
@@ -6133,7 +6145,9 @@ int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
         (allowExternalMu ? YES : NO);
     return TPM_RC_SUCCESS;
 }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_HASH_MLDSA
 /* GetKeyTemplate_HASH_MLDSA - Create a key template for Pre-Hash ML-DSA signing keys */
 int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
@@ -6154,7 +6168,9 @@ int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
     publicTemplate->parameters.hash_mldsaDetail.hashAlg = hashAlg;
     return TPM_RC_SUCCESS;
 }
+#endif /* WOLFTPM_HASH_MLDSA */
 
+#ifdef WOLFTPM_MLKEM
 /* GetKeyTemplate_MLKEM - Create a key template for ML-KEM decryption keys */
 int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet)
@@ -6175,7 +6191,7 @@ int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
     publicTemplate->parameters.mlkemDetail.symmetric.algorithm = TPM_ALG_NULL;
     return TPM_RC_SUCCESS;
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
 
 /* Generate ECC key-pair with NULL hierarchy and load (populates handle) */
 int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
@@ -8812,7 +8828,7 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
         case TPM_ALG_SYMCIPHER:
             ret = publicTemplate->parameters.symDetail.sym.keyBits.sym / 8;
             break;
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_MLDSA
         case TPM_ALG_MLDSA:
         case TPM_ALG_HASH_MLDSA: {
             TPMI_MLDSA_PARAMETER_SET ps =
@@ -8826,6 +8842,8 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
             else                          ret = BAD_FUNC_ARG;
             break;
         }
+    #endif /* WOLFTPM_MLDSA */
+    #ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM: {
             TPMI_MLKEM_PARAMETER_SET ps =
                 publicTemplate->parameters.mlkemDetail.parameterSet;
@@ -8836,7 +8854,7 @@ static int GetKeyTemplateSize(TPMT_PUBLIC* publicTemplate)
             else                            ret = BAD_FUNC_ARG;
             break;
         }
-    #endif /* WOLFTPM_V185 */
+    #endif /* WOLFTPM_MLKEM */
         case TPM_ALG_KEYEDHASH:
         default:
             ret = BAD_FUNC_ARG;
@@ -8920,7 +8938,7 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             }
             publicTemplate->unique.sym.size = uniqueSz;
             break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         /* TPMU_PUBLIC_ID shares the mldsa arm between MLDSA and HASH_MLDSA
          * (Part 2 Table 225 note — one union field, two selectors). */
         case TPM_ALG_MLDSA:
@@ -8943,6 +8961,8 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             }
             publicTemplate->unique.mldsa.size = uniqueSz;
             break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM:
             if (uniqueSz == 0) {
                 uniqueSz = keySz;
@@ -8962,7 +8982,7 @@ int wolfTPM2_SetKeyTemplate_Unique(TPMT_PUBLIC* publicTemplate,
             }
             publicTemplate->unique.mlkem.size = uniqueSz;
             break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
         case TPM_ALG_KEYEDHASH:
             /* not supported */
             ret = BAD_FUNC_ARG;
@@ -9351,7 +9371,7 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
         wolfTPM2_CopyEccParam(&out->unique.ecc.y,
             &in->unique.ecc.y);
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
         out->parameters.mldsaDetail.parameterSet =
             in->parameters.mldsaDetail.parameterSet;
@@ -9378,6 +9398,8 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
         XMEMCPY(out->unique.mldsa.buffer, in->unique.mldsa.buffer,
             out->unique.mldsa.size);
         break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
     case TPM_ALG_MLKEM:
         wolfTPM2_CopySymmetric(&out->parameters.mlkemDetail.symmetric,
             &in->parameters.mlkemDetail.symmetric);
@@ -9390,7 +9412,7 @@ static void wolfTPM2_CopyPubT(TPMT_PUBLIC* out, const TPMT_PUBLIC* in)
         XMEMCPY(out->unique.mlkem.buffer, in->unique.mlkem.buffer,
             out->unique.mlkem.size);
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     default:
         wolfTPM2_CopySymmetric(&out->parameters.asymDetail.symmetric,
             &in->parameters.asymDetail.symmetric);

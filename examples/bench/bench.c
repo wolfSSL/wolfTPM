@@ -215,7 +215,7 @@ exit:
     return rc;
 }
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Benchmark Pure ML-DSA: key gen, sign and verify (sign/verify sequence). */
 static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     double maxKeyGenDurSec)
@@ -353,7 +353,7 @@ exit:
     wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
     return rc;
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 static void usage(void)
 {
@@ -677,7 +677,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* Post-quantum (TPM 2.0 v1.85). Skipped under parameter encryption: the
      * large PQC public-key responses exceed the parameter-decryption buffer
      * (TPM_RC_... BUFFER_E). Free the storage key first so the larger PQC keys
