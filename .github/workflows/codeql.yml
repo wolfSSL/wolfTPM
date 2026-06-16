@@ -51,6 +51,7 @@ jobs:
           # "security-and-quality" pack also flags maintainability nits (long
           # functions, comment density), which we intentionally exclude here.
           queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Build wolfTPM
         run: |

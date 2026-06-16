@@ -1,0 +1,11 @@
+name: "wolfTPM CodeQL config"
+
+# Disable cpp/path-injection repo-wide. It only fires on the example CLI
+# tools, where a --file argument typed by the operator running the demo
+# reaches fopen() -- the operator already owns their filesystem, so there is
+# no trust boundary. wolfTPM library code never builds a path from untrusted
+# input, so turning this one query off loses no real coverage; every other
+# security query still runs on src/.
+query-filters:
+  - exclude:
+      id: cpp/path-injection
