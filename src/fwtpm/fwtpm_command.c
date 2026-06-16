@@ -16379,7 +16379,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 #endif /* !FWTPM_NO_PARAM_ENC */
 
             if (cmdAuths[j].sess == NULL) {
-                /* Password session: empty nonce + attributes + empty hmac */
+                /* Password session: continueSession is always SET in the
+                 * response per TPM 2.0 Part 1 Section 16.4. Empty nonce +
+                 * attributes + empty hmac. */
+                rspAttribs |= TPMA_SESSION_continueSession;
                 TPM2_Packet_AppendU16(&rspPkt, 0); /* nonce size = 0 */
                 TPM2_Packet_AppendU8(&rspPkt, rspAttribs);
                 TPM2_Packet_AppendU16(&rspPkt, 0); /* hmac size = 0 */

@@ -792,6 +792,50 @@ static void test_fwtpm_pcr_extend_and_read(void)
     fwtpm_pass("PCR_Extend + Read(16):", 0);
 }
 
+/* Per TPM 2.0 Part 1 Section 16.4, a password authorization (TPM_RS_PW)
+ * must return sessionAttributes with continueSession SET, regardless of
+ * whether the command set the bit. */
+static void test_fwtpm_pw_session_continue_set(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize = 0, cmdSz;
+    byte attr;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* PCR_Extend on PCR 16 with an empty-password session; command
+     * attributes byte is 0 (continueSession not set). */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    memset(gCmd + cmdSz, 0x42, 32); cmdSz += 32;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response auth area tail: nonce(2)=0 + attr(1) + hmac(2)=0.
+     * The attributes byte is the 3rd byte from the end. */
+    AssertIntGT(rspSize, 4);
+    attr = gRsp[rspSize - 3];
+    AssertIntEQ(attr & TPMA_SESSION_continueSession,
+        TPMA_SESSION_continueSession);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tPassword session continueSession SET:\tPassed\n");
+}
+
 /* PCR_Event into DRTM PCR 17 must require locality 4 (Part 1 Sec.11.4.6). */
 static void test_fwtpm_pcr_event_drtm_locality_enforced(void)
 {
@@ -9204,6 +9248,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* PCR operations */
     test_fwtpm_pcr_read();
     test_fwtpm_pcr_extend_and_read();
+    test_fwtpm_pw_session_continue_set();
     test_fwtpm_pcr_event_drtm_locality_enforced();
     test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
