@@ -48,6 +48,78 @@
 
 #include <wolftpm/visibility.h>
 
+/* Resolve the TPM 2.0 v1.85 / post-quantum feature macros into a single,
+ * consistent set used by every translation unit. Entry points (set by the
+ * user or by configure) are the umbrella WOLFTPM_V185 / WOLFTPM_PQC and the
+ * WOLFTPM_NO_* opt-outs; the positive per-algorithm and per-operation macros
+ * below are derived here so the rest of the tree only tests the resolved set.
+ *
+ *   WOLFTPM_V185        - full v1.85 spec; guards the non-PQC additions
+ *                         (firmware/SVN properties, alg-name/id mappings,
+ *                         debug print) and additively defines WOLFTPM_PQC
+ *   WOLFTPM_PQC         - ML-DSA / ML-KEM only (lean entry point; excludes
+ *                         the non-PQC v1.85 code guarded by WOLFTPM_V185)
+ *   WOLFTPM_MLDSA       - ML-DSA family: WOLFTPM_MLDSA_SIGN / _VERIFY /
+ *                         WOLFTPM_HASH_MLDSA
+ *   WOLFTPM_MLKEM       - ML-KEM family: WOLFTPM_MLKEM_ENCAP / _DECAP
+ *
+ * Everything is on by default once its parent is enabled; opt out with the
+ * matching WOLFTPM_NO_* macro. Existing --enable-v185 builds are unchanged.
+ */
+/* Tier 1: the full v1.85 umbrella additively enables the PQC subset. The
+ * non-PQC v1.85 spec code stays guarded by WOLFTPM_V185 directly, so a lean
+ * WOLFTPM_PQC build (without WOLFTPM_V185) leaves it out. */
+#ifdef WOLFTPM_V185
+    #if !defined(WOLFTPM_NO_PQC) && !defined(WOLFTPM_PQC)
+        #define WOLFTPM_PQC
+    #endif
+#endif
+/* Tier 2: PQC algorithm families. */
+#ifdef WOLFTPM_PQC
+    #if !defined(WOLFTPM_NO_MLDSA) && !defined(WOLFTPM_MLDSA)
+        #define WOLFTPM_MLDSA
+    #endif
+    #if !defined(WOLFTPM_NO_MLKEM) && !defined(WOLFTPM_MLKEM)
+        #define WOLFTPM_MLKEM
+    #endif
+#endif
+/* Tier 3: per-operation gates under each family. */
+#ifdef WOLFTPM_MLDSA
+    #if !defined(WOLFTPM_NO_MLDSA_SIGN) && !defined(WOLFTPM_MLDSA_SIGN)
+        #define WOLFTPM_MLDSA_SIGN
+    #endif
+    #if !defined(WOLFTPM_NO_MLDSA_VERIFY) && !defined(WOLFTPM_MLDSA_VERIFY)
+        #define WOLFTPM_MLDSA_VERIFY
+    #endif
+    #if !defined(WOLFTPM_NO_HASH_MLDSA) && !defined(WOLFTPM_HASH_MLDSA)
+        #define WOLFTPM_HASH_MLDSA
+    #endif
+#endif
+#ifdef WOLFTPM_MLKEM
+    #if !defined(WOLFTPM_NO_MLKEM_ENCAP) && !defined(WOLFTPM_MLKEM_ENCAP)
+        #define WOLFTPM_MLKEM_ENCAP
+    #endif
+    #if !defined(WOLFTPM_NO_MLKEM_DECAP) && !defined(WOLFTPM_MLKEM_DECAP)
+        #define WOLFTPM_MLKEM_DECAP
+    #endif
+#endif
+/* Consistency fold-ups: drop a feature whose prerequisites are all disabled. */
+#if defined(WOLFTPM_HASH_MLDSA) && !defined(WOLFTPM_MLDSA_SIGN) && \
+    !defined(WOLFTPM_MLDSA_VERIFY)
+    #undef WOLFTPM_HASH_MLDSA
+#endif
+#if defined(WOLFTPM_MLDSA) && !defined(WOLFTPM_MLDSA_SIGN) && \
+    !defined(WOLFTPM_MLDSA_VERIFY)
+    #undef WOLFTPM_MLDSA
+#endif
+#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM_MLKEM_ENCAP) && \
+    !defined(WOLFTPM_MLKEM_DECAP)
+    #undef WOLFTPM_MLKEM
+#endif
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM_MLDSA) && !defined(WOLFTPM_MLKEM)
+    #undef WOLFTPM_PQC
+#endif
+
 #ifdef WOLFTPM_WINAPI
     #ifdef _WIN32
         #include <winsock2.h>
@@ -692,14 +764,14 @@ typedef int64_t  INT64;
 #define NUM_POLICY_PCR 1
 #endif
 #ifndef MAX_COMMAND_SIZE
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_PQC
         #define MAX_COMMAND_SIZE 8192
     #else
         #define MAX_COMMAND_SIZE 4096
     #endif
 #endif
 #ifndef MAX_RESPONSE_SIZE
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_PQC
         #define MAX_RESPONSE_SIZE 8192
     #else
         #define MAX_RESPONSE_SIZE 4096
@@ -750,7 +822,7 @@ typedef int64_t  INT64;
 #ifndef MAX_CAP_HANDLES
 #define MAX_CAP_HANDLES (MAX_CAP_DATA / sizeof(TPM_HANDLE))
 #endif
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Post-Quantum Cryptography (PQC) Size Definitions - TCG v185 RC4.
  * These size the public TPM2B_* ABI buffers, so they MUST match the
  * largest spec-defined parameter set — a client only enabling MLDSA-44
@@ -808,7 +880,7 @@ typedef int64_t  INT64;
 #ifndef MAX_SHARED_SECRET_SIZE
 #define MAX_SHARED_SECRET_SIZE      64
 #endif
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 #ifndef HASH_COUNT
     #ifndef WOLFTPM2_NO_WOLFCRYPT
         /* Calculate hash count based on wolfCrypt enables */

@@ -3249,7 +3249,7 @@ TPM_RC TPM2_VerifySignature(VerifySignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA_VERIFY
             /* TPM2_VerifySignature should produce TPM_ST_VERIFIED (metadata
              * TPMS_EMPTY, no wire bytes) per Part 3 Sec.20.4.1. Parse
              * defensively so a non-conformant TPM returning
@@ -3323,9 +3323,9 @@ TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out)
     return rc;
 }
 
-#ifdef WOLFTPM_V185
 /* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
     SignSequenceStart_Out* out)
 {
@@ -3378,7 +3378,9 @@ TPM_RC TPM2_SignSequenceStart(SignSequenceStart_In* in,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
     VerifySequenceStart_Out* out)
 {
@@ -3430,7 +3432,9 @@ TPM_RC TPM2_VerifySequenceStart(VerifySequenceStart_In* in,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
     SignSequenceComplete_Out* out)
 {
@@ -3475,7 +3479,9 @@ TPM_RC TPM2_SignSequenceComplete(SignSequenceComplete_In* in,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
     VerifySequenceComplete_Out* out)
 {
@@ -3525,7 +3531,7 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA_VERIFY
             /* Spec mandates TPM_ST_MESSAGE_VERIFIED here (Part 3
              * Sec.20.3.1, TPMS_EMPTY metadata), but parse defensively in
              * case a non-conformant TPM returns DIGEST_VERIFIED -- mirrors
@@ -3550,7 +3556,9 @@ TPM_RC TPM2_VerifySequenceComplete(VerifySequenceComplete_In* in,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out)
 {
     TPM_RC rc;
@@ -3601,7 +3609,9 @@ TPM_RC TPM2_SignDigest(SignDigest_In* in, SignDigest_Out* out)
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
     VerifyDigestSignature_Out* out)
 {
@@ -3648,7 +3658,7 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
 
             TPM2_Packet_ParseU16(&packet, &out->validation.tag);
             TPM2_Packet_ParseU32(&packet, &out->validation.hierarchy);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA_VERIFY
             /* v185 rc4 Part 2 Sec.10.6.4 Table 110 — TPMU_TK_VERIFIED_META.
              * TPM2_VerifyDigestSignature produces TPM_ST_DIGEST_VERIFIED whose
              * metadata carries a TPM_ALG_ID (the hash/XOF used). Other tag
@@ -3673,7 +3683,9 @@ TPM_RC TPM2_VerifyDigestSignature(VerifyDigestSignature_In* in,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLKEM_ENCAP
 TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
 {
     TPM_RC rc;
@@ -3750,7 +3762,9 @@ TPM_RC TPM2_Encapsulate(Encapsulate_In* in, Encapsulate_Out* out)
     }
     return rc;
 }
+#endif /* WOLFTPM_MLKEM_ENCAP */
 
+#ifdef WOLFTPM_MLKEM_DECAP
 TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
 {
     TPM_RC rc;
@@ -3806,7 +3820,7 @@ TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out)
     }
     return rc;
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM_DECAP */
 
 TPM_RC TPM2_SetCommandCodeAuditStatus(SetCommandCodeAuditStatus_In* in)
 {

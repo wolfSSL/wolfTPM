@@ -75,7 +75,7 @@ static void usage(void)
     printf("* -sym: Use Symmetric Cipher for key generation\n");
     printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
     printf("* -keyedhash: Use Keyed Hash for key generation\n");
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     printf("* -mldsa[=44|65|87]: Use ML-DSA for signing (v1.85, default 65)\n");
     printf("* -hash_mldsa[=44|65|87]: Use Hash-ML-DSA for signing "
            "(v1.85, default 65 with SHA-256 pre-hash)\n");
@@ -102,7 +102,7 @@ static void usage(void)
     printf("\t* Symmetric key, AES, CBC mode, 128 bits, "\
            "with XOR parameter encryption\n");
     printf("\t\t keygen -sym=aescbc256 -xor\n");
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     printf("\t* ML-DSA-65 signing key\n");
     printf("\t\t keygen -mldsa\n");
     printf("\t* Hash-ML-DSA-87 with SHA-256 pre-hash\n");
@@ -112,7 +112,7 @@ static void usage(void)
 #endif
 }
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
 {
     int n = XATOI(optVal);
@@ -136,7 +136,7 @@ static int mlkemParamSet(const char* optVal, TPMI_MLKEM_PARAMETER_SET* ps)
         default:   return TPM_RC_FAILURE;
     }
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 static int symChoice(const char* symMode, TPM_ALG_ID* algSym, int* keyBits)
 {
@@ -176,7 +176,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c / keyload.c */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65;   /* default */
     TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
 #endif
@@ -228,7 +228,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_KEYEDHASH;
             bAIK = 0;
         }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
         else if (XSTRCMP(argv[argc-1], "-mldsa") == 0 ||
                  XSTRNCMP(argv[argc-1], "-mldsa=",
                      XSTRLEN("-mldsa=")) == 0) {
@@ -265,7 +265,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_MLKEM;
             bAIK = 0;
         }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
         else if (XSTRCMP(argv[argc-1], "-t") == 0) {
             bAIK = 0;
         }
@@ -405,7 +405,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 "not symmetric or keyedhash keys.\n");
             rc = BAD_FUNC_ARG;
         }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
         else if (alg == TPM_ALG_MLDSA || alg == TPM_ALG_HASH_MLDSA ||
                  alg == TPM_ALG_MLKEM) {
             printf("AIK template is RSA or ECC only; PQC keys use their "
@@ -454,7 +454,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPM_ALG_SHA256, YES, NO);
             publicTemplate.objectAttributes |= TPMA_OBJECT_sensitiveDataOrigin;
         }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
         else if (alg == TPM_ALG_MLDSA) {
             printf("ML-DSA template (parameter set %u)\n",
                 (unsigned)mldsaPs);
@@ -484,7 +484,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
                 mlkemPs);
         }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
         else {
             rc = BAD_FUNC_ARG;
         }

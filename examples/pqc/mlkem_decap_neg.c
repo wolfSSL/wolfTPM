@@ -35,7 +35,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_V185)
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
 
 static void usage(void)
 {
@@ -194,12 +195,13 @@ exit:
     return rc;
 }
 
-#endif /* !WOLFTPM2_NO_WRAPPER && WOLFTPM_V185 */
+#endif /* !WOLFTPM2_NO_WRAPPER && PQC ops */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 {
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_V185)
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP)
     int rc = mlkem_decap_neg_run(argc, argv);
     return (rc == 0) ? 0 : 1;
 #else

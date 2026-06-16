@@ -34,7 +34,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_V185)
+#if !defined(WOLFTPM2_NO_WRAPPER) && \
+    defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY) && \
+    defined(WOLFTPM_MLKEM_ENCAP) && defined(WOLFTPM_MLKEM_DECAP) && \
+    defined(WOLFTPM_HASH_MLDSA)
 
 /* Guard against the CopyPubT-class bug where the server-side key exists
  * and the handle works, but the client-side TPM2B buffer is zero-filled
@@ -245,11 +248,11 @@ done:
     return 1;
 }
 
-#else /* !WOLFTPM_V185 || WOLFTPM2_NO_WRAPPER */
+#else /* PQC ops not all enabled, or no wrapper */
 
 int main(void)
 {
-    printf("pqc_mssim_e2e: WOLFTPM_V185 + wrapper API required; skipping.\n");
+    printf("pqc_mssim_e2e: PQC (ML-DSA+ML-KEM) + wrapper API required; skipping.\n");
     return 77; /* autoconf convention for SKIP */
 }
 

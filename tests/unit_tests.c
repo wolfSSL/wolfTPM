@@ -845,7 +845,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY tpmKey;
     TPM2B_DATA data;
     TPM2B_ENCRYPTED_SECRET secret;
-#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     WOLFTPM2_KEY mlkemKey;
@@ -875,7 +875,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, &data, NULL, "SECRET");
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
-#if defined(WOLFTPM_V185) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     /* MLKEM path (v1.85 Part 1 Sec.24): caller encapsulates under the TPM's
@@ -2774,7 +2774,7 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
         "Signature ECSCHNORR/SM2 serialize:");
 }
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Round-trip the v1.85 PQC arms of TPMT_SIGNATURE through the packet
  * marshaler. Pure ML-DSA (Table 217 mldsa arm) is bare TPM2B + bytes —
  * no hash field. Hash-ML-DSA prefixes a hashAlg before the TPM2B. The
@@ -2941,7 +2941,7 @@ static void test_TPM2_Public_PQC_Roundtrip(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Public PQC roundtrip:");
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 static void test_TPM2_Sensitive_Roundtrip(void)
 {
@@ -3057,7 +3057,7 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.sym.buffer,
         rsaPriv, sizeof(rsaPriv)), 0);
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* ML-DSA sensitive roundtrip — regression for missing PQC arm in
      * TPM2_Packet_ParseSensitive (would silently drop the private bytes
      * before the parse-side fix). */
@@ -3129,7 +3129,7 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     AssertIntEQ(sensOut.sensitiveArea.sensitive.mlkem.size, sizeof(rsaPriv));
     AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.mlkem.buffer,
         rsaPriv, sizeof(rsaPriv)), 0);
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
@@ -3212,7 +3212,7 @@ static void test_GetAlgId(void)
     AssertIntEQ(TPM2_GetAlgId("SHA3_256"), TPM_ALG_SHA3_256);
     AssertIntEQ(TPM2_GetAlgId("SHA3_384"), TPM_ALG_SHA3_384);
     AssertIntEQ(TPM2_GetAlgId("SHA3_512"), TPM_ALG_SHA3_512);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     AssertIntEQ(TPM2_GetAlgId("ML-KEM"), TPM_ALG_MLKEM);
     AssertIntEQ(TPM2_GetAlgId("ML-DSA"), TPM_ALG_MLDSA);
     AssertIntEQ(TPM2_GetAlgId("HashML-DSA"), TPM_ALG_HASH_MLDSA);
@@ -4395,7 +4395,7 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
     printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
 }
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
 /* TODO: Remove TPM_RC_COMMAND_CODE skip logic once we have a TPM simulator
@@ -5155,7 +5155,7 @@ static void test_wolfTPM2_PQC_Sizes(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "PQC Sizes:");
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -5222,7 +5222,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     test_TPM2_Signature_PQC_Serialize();
     test_TPM2_Public_PQC_Roundtrip();
 #endif
@@ -5262,7 +5262,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ST33_FirmwareUpgrade();
     #endif
     #endif
-    #ifdef WOLFTPM_V185
+    #ifdef WOLFTPM_PQC
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
     test_wolfTPM2_PQC_Sizes();

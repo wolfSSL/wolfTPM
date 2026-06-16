@@ -845,7 +845,7 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
         TPM2_Packet_AppendU16(packet, sens->sym.size);
         TPM2_Packet_AppendBytes(packet, sens->sym.buffer, sens->sym.size);
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
         if (sens->mldsa.size > sizeof(sens->mldsa.buffer))
@@ -853,13 +853,15 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
         TPM2_Packet_AppendU16(packet, sens->mldsa.size);
         TPM2_Packet_AppendBytes(packet, sens->mldsa.buffer, sens->mldsa.size);
         break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
     case TPM_ALG_MLKEM:
         if (sens->mlkem.size > sizeof(sens->mlkem.buffer))
             sens->mlkem.size = sizeof(sens->mlkem.buffer);
         TPM2_Packet_AppendU16(packet, sens->mlkem.size);
         TPM2_Packet_AppendBytes(packet, sens->mlkem.buffer, sens->mlkem.size);
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     }
 
     TPM2_Packet_PlaceU16(packet, tmpSz);
@@ -908,7 +910,7 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
         TPM2_Packet_ParseU16Buf(packet, &sens->sym.size,
             sens->sym.buffer, (UINT16)sizeof(sens->sym.buffer));
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
         /* Mirror the AppendSensitive arms above so PQC TPM2B_SENSITIVE
@@ -919,11 +921,13 @@ void TPM2_Packet_ParseSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive)
         TPM2_Packet_ParseU16Buf(packet, &sens->mldsa.size,
             sens->mldsa.buffer, (UINT16)sizeof(sens->mldsa.buffer));
         break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
     case TPM_ALG_MLKEM:
         TPM2_Packet_ParseU16Buf(packet, &sens->mlkem.size,
             sens->mlkem.buffer, (UINT16)sizeof(sens->mlkem.buffer));
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     default:
         /* Unknown sensitiveType — skip composite to keep packet position
          * synchronized with the declared outer size */
@@ -1066,7 +1070,7 @@ void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_AppendU16(packet, parameters->eccDetail.curveID);
             TPM2_Packet_AppendKdfScheme(packet, &parameters->eccDetail.kdf);
             break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         case TPM_ALG_MLDSA:
             TPM2_Packet_AppendU16(packet, parameters->mldsaDetail.parameterSet);
             TPM2_Packet_AppendU8(packet, parameters->mldsaDetail.allowExternalMu);
@@ -1075,11 +1079,13 @@ void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_AppendU16(packet, parameters->hash_mldsaDetail.parameterSet);
             TPM2_Packet_AppendU16(packet, parameters->hash_mldsaDetail.hashAlg);
             break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM:
             TPM2_Packet_AppendSymmetric(packet, &parameters->mlkemDetail.symmetric);
             TPM2_Packet_AppendU16(packet, parameters->mlkemDetail.parameterSet);
             break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
         default:
             TPM2_Packet_AppendSymmetric(packet, &parameters->asymDetail.symmetric);
             TPM2_Packet_AppendAsymScheme(packet, &parameters->asymDetail.scheme);
@@ -1109,7 +1115,7 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_ParseU16(packet, &parameters->eccDetail.curveID);
             TPM2_Packet_ParseKdfScheme(packet, &parameters->eccDetail.kdf);
             break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         case TPM_ALG_MLDSA:
             TPM2_Packet_ParseU16(packet, &parameters->mldsaDetail.parameterSet);
             TPM2_Packet_ParseU8(packet, (BYTE*)&parameters->mldsaDetail.allowExternalMu);
@@ -1118,11 +1124,13 @@ void TPM2_Packet_ParsePublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
             TPM2_Packet_ParseU16(packet, &parameters->hash_mldsaDetail.parameterSet);
             TPM2_Packet_ParseU16(packet, (UINT16*)&parameters->hash_mldsaDetail.hashAlg);
             break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM:
             TPM2_Packet_ParseSymmetric(packet, &parameters->mlkemDetail.symmetric);
             TPM2_Packet_ParseU16(packet, &parameters->mlkemDetail.parameterSet);
             break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
         default:
             TPM2_Packet_ParseSymmetric(packet, &parameters->asymDetail.symmetric);
             TPM2_Packet_ParseAsymScheme(packet, &parameters->asymDetail.scheme);
@@ -1161,19 +1169,21 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
     case TPM_ALG_ECC:
         TPM2_Packet_AppendEccPoint(packet, &publicArea->unique.ecc);
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
         TPM2_Packet_AppendU16(packet, publicArea->unique.mldsa.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.mldsa.buffer,
             publicArea->unique.mldsa.size);
         break;
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
     case TPM_ALG_MLKEM:
         TPM2_Packet_AppendU16(packet, publicArea->unique.mlkem.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.mlkem.buffer,
             publicArea->unique.mlkem.size);
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     default:
         /* TPMS_DERIVE derive; ? */
         break;
@@ -1229,7 +1239,7 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         case TPM_ALG_ECC:
             TPM2_Packet_ParseEccPoint(packet, &pub->publicArea.unique.ecc);
             break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         case TPM_ALG_MLDSA:
         case TPM_ALG_HASH_MLDSA:
         {
@@ -1248,6 +1258,8 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
             }
             break;
         }
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
         case TPM_ALG_MLKEM:
         {
             UINT16 wireSize;
@@ -1265,7 +1277,7 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
             }
             break;
         }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
         default:
             /* TPMS_DERIVE derive; ? */
             break;
@@ -1324,7 +1336,7 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     case TPM_ALG_NULL:
         /* Legitimate zero-payload signature - nothing to append. */
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     /* v185 rc4 Part 2 Sec.11.3.5 Table 217 note: Pure ML-DSA is a TPM2B
      * (size + bytes, no hash field); HashML-DSA is a TPMS (hash + size + bytes).
      * The union arms differ in type; the switch dispatches accordingly. */
@@ -1341,7 +1353,7 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
             sig->signature.hash_mldsa.signature.buffer,
             sig->signature.hash_mldsa.signature.size);
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
     default:
     #ifdef DEBUG_WOLFTPM
         printf("AppendSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);
@@ -1420,7 +1432,7 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     case TPM_ALG_NULL:
         /* Legitimate zero-payload signature - nothing to consume. */
         break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
         /* Pure ML-DSA signature is a bare TPM2B: size + bytes, no hash. */
         TPM2_Packet_ParseU16(packet, &wireSize);
@@ -1456,7 +1468,7 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
                 wireSize - sig->signature.hash_mldsa.signature.size);
         }
         break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
     default:
     #ifdef DEBUG_WOLFTPM
         printf("ParseSignature: unrecognized sigAlg 0x%x\n", sig->sigAlg);

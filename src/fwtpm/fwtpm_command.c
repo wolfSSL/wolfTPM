@@ -73,7 +73,7 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
     TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
 static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #endif
 static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
@@ -440,7 +440,7 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
                 *authVal = seqEnt->authValue.buffer;
                 *authValSz = seqEnt->authValue.size;
             }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
             else {
                 /* v1.85 sign/verify sequences also carry their own
                  * authValue. Without this lookup the password/HMAC
@@ -642,7 +642,7 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
 static void FwFlushAllObjects(FWTPM_CTX* ctx);
 static void FwFlushAllSessions(FWTPM_CTX* ctx);
 static void FwFreeHashSeq(FWTPM_HashSeq* seq);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
 static void FwFreeSignSeq(FWTPM_SignSeq* seq);
 #endif
 
@@ -686,7 +686,7 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                     FwFreeHashSeq(&ctx->hashSeq[i]);
                 }
             }
-        #ifdef WOLFTPM_V185
+        #ifdef WOLFTPM_MLDSA
             for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
                 if (ctx->signSeq[i].used) {
                     FwFreeSignSeq(&ctx->signSeq[i]);
@@ -2446,7 +2446,7 @@ void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
             FwFreeHashSeq(&ctx->hashSeq[i]);
         }
     }
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
         if (ctx->signSeq[i].used) {
             FwFreeSignSeq(&ctx->signSeq[i]);
@@ -2707,7 +2707,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
 #endif /* HAVE_ECC */
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
             /* ML-DSA primary key: derive 32-byte seed xi via KDFa, then run
              * FIPS 204 deterministic keygen. Private material on the wire
              * is the seed itself per TCG Part 2 Table 210. */
@@ -2745,6 +2745,9 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
 
+#endif /* WOLFTPM_MLDSA */
+
+#ifdef WOLFTPM_MLKEM
             /* ML-KEM primary key: derive 64-byte seed (d||z) via KDFa, then
              * run FIPS 203 deterministic keygen. Private material on the
              * wire is the seed per TCG Part 2 Table 206. */
@@ -2762,7 +2765,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 break;
             }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
 
             case TPM_ALG_KEYEDHASH: {
                 /* HMAC key or sealed data object.
@@ -2981,7 +2984,7 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 FwFreeObject(obj);
             }
             else {
-            #ifdef WOLFTPM_V185
+            #ifdef WOLFTPM_MLDSA
                 FWTPM_SignSeq* seq = FwFindSignSeq(ctx, flushHandle);
                 if (seq != NULL) {
                     FwFreeSignSeq(seq);
@@ -4109,7 +4112,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
 #endif /* HAVE_ECC */
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
@@ -4141,7 +4144,9 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 break;
             }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_MLKEM
             case TPM_ALG_MLKEM: {
                 TPMI_MLKEM_PARAMETER_SET ps =
                     inPublic->publicArea.parameters.mlkemDetail.parameterSet;
@@ -4158,7 +4163,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 break;
             }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
             case TPM_ALG_KEYEDHASH: {
                 /* HMAC key or data object.
                  * If caller supplied sensitive.data, use it as the key
@@ -6125,7 +6130,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 break;
             }
 #endif /* HAVE_ECC */
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
             /* ML-DSA ordinary key: seed is random bytes (Part 1 Sec.24.6.2);
              * FIPS 204 keygen is then deterministic from the seed. */
             case TPM_ALG_MLDSA:
@@ -6157,7 +6162,9 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 break;
             }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_MLKEM
             case TPM_ALG_MLKEM: {
                 TPMI_MLKEM_PARAMETER_SET ps =
                     inPublic->publicArea.parameters.mlkemDetail.parameterSet;
@@ -6174,7 +6181,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 break;
             }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
             case TPM_ALG_KEYEDHASH: {
                 TPMI_ALG_HASH hashAlg;
                 TPMI_ALG_KEYEDHASH_SCHEME scheme =
@@ -7390,7 +7397,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 dataSize = 0;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
     FWTPM_HashSeq* seq;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     FWTPM_SignSeq* signSeq = NULL;
 #endif
 
@@ -7404,7 +7411,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &seqHandle);
 
         seq = FwFindHashSeq(ctx, seqHandle);
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         if (seq == NULL) {
             /* Not a hash sequence — check sign/verify sequence slots. */
             signSeq = FwFindSignSeq(ctx, seqHandle);
@@ -7443,7 +7450,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, dataBuf, dataSize);
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
         if (signSeq != NULL) {
             /* Capture leading bytes for the restricted-key
              * TPM_GENERATED_VALUE check (Part 3 Sec.20.6.1). For Hash-ML-DSA
@@ -7540,7 +7547,7 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
     int paramSzPos, paramStart;
     int trc;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
     FWTPM_SignSeq* misRoutedSign = NULL;
 #endif
 
@@ -7556,7 +7563,7 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         seq = FwFindHashSeq(ctx, seqHandle);
         if (seq == NULL) {
             rc = TPM_RC_HANDLE;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
             /* Free a sign/verify slot mis-routed here so it doesn't leak. */
             misRoutedSign = FwFindSignSeq(ctx, seqHandle);
             if (misRoutedSign != NULL) FwFreeSignSeq(misRoutedSign);
@@ -13686,11 +13693,11 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
-#ifdef WOLFTPM_V185
 /* ================================================================== */
 /* v1.85 PQC Commands                                                  */
 /* ================================================================== */
 
+#ifdef WOLFTPM_MLKEM_ENCAP
 /* --- TPM2_Encapsulate (CC 0x01A7) --- */
 static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -13764,7 +13771,9 @@ static TPM_RC FwCmd_Encapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     FWTPM_FREE_VAR(ciphertext);
     return rc;
 }
+#endif /* WOLFTPM_MLKEM_ENCAP */
 
+#ifdef WOLFTPM_MLKEM_DECAP
 /* --- TPM2_Decapsulate (CC 0x01A8) --- */
 static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -13871,7 +13880,9 @@ static TPM_RC FwCmd_Decapsulate(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     FWTPM_FREE_VAR(ciphertext);
     return rc;
 }
+#endif /* WOLFTPM_MLKEM_DECAP */
 
+#ifdef WOLFTPM_MLDSA
 /* --- Sign/Verify sequence slot helpers --- */
 static FWTPM_SignSeq* FwAllocSignSeq(FWTPM_CTX* ctx, TPM_HANDLE* handle)
 {
@@ -13948,7 +13959,9 @@ static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
     seq->hashCtxInit = 1;
     return TPM_RC_SUCCESS;
 }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* --- TPM2_SignSequenceStart (CC 0x01AA) --- */
 static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -14124,7 +14137,9 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* --- TPM2_VerifySequenceStart (CC 0x01A9) --- */
 static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -14298,7 +14313,9 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* --- TPM2_SignSequenceComplete (CC 0x01A4) --- */
 static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -14646,7 +14663,9 @@ static TPM_RC FwCmd_SignSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_VAR(sigOut);
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* --- TPM2_VerifySequenceComplete (CC 0x01A3) --- */
 static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -14994,7 +15013,9 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(sigBuf);
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
+#ifdef WOLFTPM_MLDSA_SIGN
 /* --- TPM2_SignDigest (CC 0x01A6) --- */
 static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -15227,7 +15248,9 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     FWTPM_FREE_VAR(sigOut);
     return rc;
 }
+#endif /* WOLFTPM_MLDSA_SIGN */
 
+#ifdef WOLFTPM_MLDSA_VERIFY
 /* --- TPM2_VerifyDigestSignature (CC 0x01A5) --- */
 static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -15462,7 +15485,7 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(sigBuf);
     return rc;
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA_VERIFY */
 
 /* ================================================================== */
 /* Command Dispatch Table                                              */
@@ -15634,15 +15657,21 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- Vendor --- */
     { TPM_CC_Vendor_TCG_Test,    FwCmd_Vendor_TCG_Test,      0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-#ifdef WOLFTPM_V185
     /* --- v1.85 PQC handlers --- */
+#ifdef WOLFTPM_MLKEM_ENCAP
     { TPM_CC_Encapsulate,            FwCmd_Encapsulate,            1, 0, 0, FW_CMD_FLAG_DEC },
+#endif
+#ifdef WOLFTPM_MLKEM_DECAP
     { TPM_CC_Decapsulate,            FwCmd_Decapsulate,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif
+#ifdef WOLFTPM_MLDSA_SIGN
     { TPM_CC_SignSequenceStart,      FwCmd_SignSequenceStart,      1, 0, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySequenceStart,    FwCmd_VerifySequenceStart,    1, 0, 1, FW_CMD_FLAG_ENC },
     { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, 0 },
     { TPM_CC_SignDigest,             FwCmd_SignDigest,             1, 1, 0, FW_CMD_FLAG_ENC },
+#endif
+#ifdef WOLFTPM_MLDSA_VERIFY
+    { TPM_CC_VerifySequenceStart,    FwCmd_VerifySequenceStart,    1, 0, 1, FW_CMD_FLAG_ENC },
+    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, 0 },
     { TPM_CC_VerifyDigestSignature,  FwCmd_VerifyDigestSignature,  1, 0, 0, FW_CMD_FLAG_ENC },
 #endif
 };

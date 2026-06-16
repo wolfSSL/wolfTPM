@@ -59,7 +59,7 @@
 #include <wolfssl/wolfcrypt/aes.h>
 #endif
 #include <wolfssl/wolfcrypt/hmac.h>
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 #include <wolfssl/version.h>
 #include <wolfssl/wolfcrypt/wc_mldsa.h>
 #include <wolfssl/wolfcrypt/wc_mlkem.h>
@@ -680,7 +680,7 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
 }
 #endif /* HAVE_ECC */
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLDSA
 /* ================================================================== */
 /* v1.85 PQC primary-key derivation (ML-DSA / ML-KEM)                  */
 /* ================================================================== */
@@ -703,6 +703,9 @@ static int FwGetWcMldsaLevel(TPMI_MLDSA_PARAMETER_SET ps)
     }
 }
 
+#endif /* WOLFTPM_MLDSA */
+
+#ifdef WOLFTPM_MLKEM
 /* Map TPM v1.85 ML-KEM parameter set to wolfCrypt ML-KEM type. */
 static int FwGetWcMlkemType(TPMI_MLKEM_PARAMETER_SET ps)
 {
@@ -714,6 +717,9 @@ static int FwGetWcMlkemType(TPMI_MLKEM_PARAMETER_SET ps)
     }
 }
 
+#endif /* WOLFTPM_MLKEM */
+
+#ifdef WOLFTPM_MLDSA
 /** \brief Derive 32-byte ML-DSA seed xi from hierarchy primary seed via KDFa.
  *  Caller selects label: "MLDSA" for TPM_ALG_MLDSA or "HASH_MLDSA" for
  *  TPM_ALG_HASH_MLDSA (interpretation, pending Part 4 v185 publication).
@@ -733,6 +739,9 @@ TPM_RC FwDeriveMldsaPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
     return TPM_RC_SUCCESS;
 }
 
+#endif /* WOLFTPM_MLDSA */
+
+#ifdef WOLFTPM_MLKEM
 /** \brief Derive 64-byte ML-KEM seed (d || z) from hierarchy primary seed
  *  via KDFa using the label "MLKEM" (interpretation, pending Part 4 v185
  *  publication). The derived seed is fed into FIPS 203 deterministic
@@ -752,6 +761,9 @@ TPM_RC FwDeriveMlkemPrimaryKeySeed(TPMI_ALG_HASH nameAlg,
     return TPM_RC_SUCCESS;
 }
 
+#endif /* WOLFTPM_MLKEM */
+
+#ifdef WOLFTPM_MLDSA
 /** \brief Generate ML-DSA keypair deterministically from a 32-byte seed xi
  *  (FIPS 204 Algorithm 1 ML-DSA.KeyGen). Exports public key to pubOut.
  *  The expanded private key is not returned — callers hold the 32-byte seed
@@ -811,6 +823,9 @@ TPM_RC FwGenerateMldsaKey(TPMI_MLDSA_PARAMETER_SET parameterSet,
     return rc;
 }
 
+#endif /* WOLFTPM_MLDSA */
+
+#ifdef WOLFTPM_MLKEM
 /** \brief Generate ML-KEM keypair deterministically from a 64-byte seed (d||z)
  *  (FIPS 203 Algorithm 16 ML-KEM.KeyGen_internal). Exports public key to
  *  pubOut. Private key on the wire is the 64-byte seed per TCG Table 206. */
@@ -1368,6 +1383,9 @@ TPM_RC FwDecapsulateEcdhDhkem(WC_RNG* rng, const FWTPM_Object* recipObj,
 }
 #endif /* HAVE_ECC */
 
+#endif /* WOLFTPM_MLKEM */
+
+#ifdef WOLFTPM_MLDSA
 /* Internal helper: rebuild a deterministic ML-DSA keypair from its stored
  * 32-byte xi seed and return a ready-to-use wc_MlDsaKey plus wcLevel. */
 static TPM_RC FwLoadMldsaFromSeed(TPMI_MLDSA_PARAMETER_SET parameterSet,
@@ -1639,7 +1657,7 @@ TPM_RC FwVerifyMldsaHash(TPMI_MLDSA_PARAMETER_SET parameterSet,
     FWTPM_FREE_VAR(keyVar);
     return rc;
 }
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
 
 #ifndef NO_RSA
 #ifdef WOLFSSL_KEY_GEN
@@ -2556,7 +2574,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLKEM
     if (keyObj->pub.type == TPM_ALG_MLKEM) {
         /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
          *   K = ML-KEM.Decap(privateKey, ciphertext)
@@ -2593,7 +2611,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
         (void)oaepLabel; (void)oaepLabelSz;
     }
     else
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     {
         (void)ctx; (void)encSeedBuf; (void)encSeedSz;
         (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
@@ -2801,7 +2819,7 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
     }
     else
 #endif /* HAVE_ECC */
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_MLKEM
     if (keyObj->pub.type == TPM_ALG_MLKEM) {
         /* ML-KEM Labeled KEM per Part 1 Sec.47.4 Eq.66:
          *   (K, ciphertext) = ML-KEM.Encap(publicKey)
@@ -2849,7 +2867,7 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
         (void)oaepLabel; (void)oaepLabelSz;
     }
     else
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLKEM */
     {
         (void)ctx; (void)oaepLabel; (void)oaepLabelSz; (void)kdfLabel;
         (void)seedBuf; (void)seedBufSz; (void)seedSzOut;

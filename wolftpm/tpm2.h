@@ -119,7 +119,7 @@ typedef enum {
     TPM_ALG_CBC             = 0x0042,
     TPM_ALG_CFB             = 0x0043,
     TPM_ALG_ECB             = 0x0044,
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* Post-Quantum Algorithms - TPM 2.0 Library v185 */
     TPM_ALG_MLKEM           = 0x00A0,
     TPM_ALG_MLDSA           = 0x00A1,
@@ -144,7 +144,7 @@ typedef enum {
 } TPM_ECC_CURVE_T;
 typedef UINT16 TPM_ECC_CURVE;
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* ML-KEM Parameter Sets (TCG Algorithm Registry v2.0) */
 typedef UINT16 TPMI_MLKEM_PARAMETER_SET;
 #define TPM_MLKEM_NONE              0x0000
@@ -158,7 +158,7 @@ typedef UINT16 TPMI_MLDSA_PARAMETER_SET;
 #define TPM_MLDSA_44                0x0001
 #define TPM_MLDSA_65                0x0002
 #define TPM_MLDSA_87                0x0003
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 /* Command Codes */
 typedef enum {
@@ -275,7 +275,7 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* Post-Quantum Cryptography Commands - TPM 2.0 Library v185 */
     TPM_CC_VerifySequenceComplete   = 0x000001A3,
     TPM_CC_SignSequenceComplete     = 0x000001A4,
@@ -407,7 +407,7 @@ typedef enum {
     TPM_RC_ECC_POINT        = RC_FMT1 + 0x027,
     /* TCG Part 2 Sec.6.6.3 Table 17 -- present since v1.16, not v1.85 */
     TPM_RC_PARMS              = RC_FMT1 + 0x02A,
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* v185 rc4 Part 2 Sec.6.6.3 Table 17 additions */
     TPM_RC_EXT_MU             = RC_FMT1 + 0x02B,
     TPM_RC_ONE_SHOT_SIGNATURE = RC_FMT1 + 0x02C,
@@ -520,7 +520,7 @@ typedef enum {
     TPM_ST_AUTH_SECRET          = 0x8023,
     TPM_ST_HASHCHECK            = 0x8024,
     TPM_ST_AUTH_SIGNED          = 0x8025,
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     TPM_ST_MESSAGE_VERIFIED     = 0x8026,
     TPM_ST_DIGEST_VERIFIED      = 0x8027,
 #endif
@@ -955,7 +955,7 @@ enum TPMA_MODES_mask {
     TPMA_MODES_FIPS_140_3 = 0x00000002,
 };
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* v185 rc4 Part 2 Sec.8.13 Table 46 - bitfield returned from
  * TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES, TPM_PT_ML_PARAMETER_SETS)
  * indicating which ML-KEM/ML-DSA parameter sets the TPM supports. */
@@ -1071,7 +1071,7 @@ typedef struct TPM2B_IV {
     BYTE buffer[MAX_SYM_BLOCK_SIZE];
 } TPM2B_IV;
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Post-Quantum Cryptography (PQC) Types */
 typedef struct TPM2B_SIGNATURE_CTX {
     UINT16 size;
@@ -1125,7 +1125,7 @@ typedef struct TPM2B_MLDSA_SIGNATURE {
     UINT16 size;
     BYTE buffer[MAX_MLDSA_SIG_SIZE];
 } TPM2B_MLDSA_SIGNATURE;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 
 /* Names */
@@ -1166,7 +1166,7 @@ typedef struct TPMT_TK_CREATION {
 typedef struct TPMT_TK_VERIFIED {
     TPM_ST tag;
     TPMI_RH_HIERARCHY hierarchy;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* v185 rc4 Part 2 Sec.10.6.5 Table 112 / Sec.10.6.4 Table 110 — [tag]metadata.
      * Empty on the wire for TPM_ST_VERIFIED and TPM_ST_MESSAGE_VERIFIED.
      * For TPM_ST_DIGEST_VERIFIED carries the TPM_ALG_ID (hash/XOF used).
@@ -1640,7 +1640,7 @@ typedef struct TPMS_SIGNATURE_ECC {
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDSA;
 typedef TPMS_SIGNATURE_ECC TPMS_SIGNATURE_ECDAA;
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* v185 rc4 Part 2 Sec.11.2.7.2 Table 208 — TPMS_SIGNATURE_HASH_MLDSA carries
  * the pre-hash algorithm together with the signature bytes. Used for
  * TPM_ALG_HASH_MLDSA signatures only. */
@@ -1648,7 +1648,7 @@ typedef struct TPMS_SIGNATURE_HASH_MLDSA {
     TPMI_ALG_HASH hash;
     TPM2B_MLDSA_SIGNATURE signature;
 } TPMS_SIGNATURE_HASH_MLDSA;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 typedef union TPMU_SIGNATURE {
     TPMS_SIGNATURE_ECDSA ecdsa;
@@ -1657,14 +1657,14 @@ typedef union TPMU_SIGNATURE {
     TPMS_SIGNATURE_RSAPSS rsapss;
     TPMT_HA hmac;
     TPMS_SCHEME_HASH any;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     /* v185 rc4 Part 2 Sec.11.3.5 Table 217. Note: mldsa arm is TPM2B (bare
      * signature bytes with no hash field) because Pure ML-DSA does not
      * select a hash; hash_mldsa arm is TPMS (hash + signature) for the
      * pre-hashed variant. See Table 217 note. */
     TPM2B_MLDSA_SIGNATURE mldsa;
     TPMS_SIGNATURE_HASH_MLDSA hash_mldsa;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 } TPMU_SIGNATURE;
 
 typedef struct TPMT_SIGNATURE {
@@ -1680,7 +1680,7 @@ typedef union TPMU_ENCRYPTED_SECRET {
     BYTE rsa[MAX_RSA_KEY_BYTES];          /* TPM_ALG_RSA */
     BYTE symmetric[sizeof(TPM2B_DIGEST)]; /* TPM_ALG_SYMCIPHER */
     BYTE keyedHash[sizeof(TPM2B_DIGEST)]; /* TPM_ALG_KEYEDHASH */
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     BYTE mlkem[MAX_MLKEM_CT_SIZE];        /* TPM_ALG_MLKEM (v1.85 T222) */
 #endif
 } TPMU_ENCRYPTED_SECRET;
@@ -1701,7 +1701,7 @@ typedef union TPMU_PUBLIC_ID {
     TPM2B_PUBLIC_KEY_RSA rsa; /* TPM_ALG_RSA */
     TPMS_ECC_POINT ecc;       /* TPM_ALG_ECC */
     TPMS_DERIVE derive;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     TPM2B_PUBLIC_KEY_MLDSA mldsa;  /* TPM_ALG_MLDSA or TPM_ALG_HASH_MLDSA */
     TPM2B_PUBLIC_KEY_MLKEM mlkem;  /* TPM_ALG_MLKEM */
 #endif
@@ -1731,7 +1731,7 @@ typedef struct TPMS_ECC_PARMS {
     TPMT_KDF_SCHEME kdf;
 } TPMS_ECC_PARMS;
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* TPMS_MLDSA_PARMS - TCG v185 RC4 Table 229 */
 typedef struct TPMS_MLDSA_PARMS {
     TPMI_MLDSA_PARAMETER_SET parameterSet;  /* ML-DSA parameter set ID */
@@ -1749,7 +1749,7 @@ typedef struct TPMS_MLKEM_PARMS {
     TPMT_SYM_DEF_OBJECT symmetric;          /* For restricted decryption key */
     TPMI_MLKEM_PARAMETER_SET parameterSet;  /* ML-KEM parameter set */
 } TPMS_MLKEM_PARMS;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 typedef union TPMU_PUBLIC_PARMS {
     TPMS_KEYEDHASH_PARMS keyedHashDetail;
@@ -1757,7 +1757,7 @@ typedef union TPMU_PUBLIC_PARMS {
     TPMS_RSA_PARMS rsaDetail;
     TPMS_ECC_PARMS eccDetail;
     TPMS_ASYM_PARMS asymDetail;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     TPMS_MLDSA_PARMS mldsaDetail;           /* TPM_ALG_MLDSA - sign only */
     TPMS_HASH_MLDSA_PARMS hash_mldsaDetail; /* TPM_ALG_HASH_MLDSA - sign only */
     TPMS_MLKEM_PARMS mlkemDetail;           /* TPM_ALG_MLKEM - decrypt only */
@@ -1803,7 +1803,7 @@ typedef union TPMU_SENSITIVE_COMPOSITE {
     TPM2B_SENSITIVE_DATA bits;  /* TPM_ALG_KEYEDHASH */
     TPM2B_SYM_KEY sym;          /* TPM_ALG_SYMCIPHER */
     TPM2B_PRIVATE_VENDOR_SPECIFIC any;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     TPM2B_PRIVATE_KEY_MLDSA mldsa;  /* TPM_ALG_MLDSA/HASH_MLDSA - seed Xi */
     TPM2B_PRIVATE_KEY_MLKEM mlkem;  /* TPM_ALG_MLKEM - seed (d||z) */
 #endif
@@ -2799,7 +2799,7 @@ typedef struct {
 } Sign_Out;
 WOLFTPM_API TPM_RC TPM2_Sign(Sign_In* in, Sign_Out* out);
 
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
 /* Post-Quantum Cryptography (PQC) Commands - TPM 2.0 v185 */
 
 /* v185 rc4 Part 3 Sec.17.6.3 Table 89 — {keyHandle, auth, context} */
@@ -2895,7 +2895,7 @@ typedef struct {
     TPM2B_SHARED_SECRET sharedSecret;
 } Decapsulate_Out;
 WOLFTPM_API TPM_RC TPM2_Decapsulate(Decapsulate_In* in, Decapsulate_Out* out);
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
 
 typedef struct {
     TPMI_RH_PROVISION auth;
