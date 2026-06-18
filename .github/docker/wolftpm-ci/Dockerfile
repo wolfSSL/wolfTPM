@@ -23,8 +23,11 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     clang-tools \
     cmake \
     git \
+    iproute2 \
+    libssl-dev \
     libtool \
     libtss2-tcti-mssim0 \
+    openssl \
     pkg-config \
     sudo \
     tpm2-tools \

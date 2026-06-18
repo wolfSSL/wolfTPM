@@ -89,15 +89,16 @@ jobs:
             cxx: clang++-17
 
     steps:
+      # Checkout first so the local apt-retry composite action is on disk.
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
       # Version-specific compilers are not baked into the CI image; keep this
       # job on the host runner and just make apt resilient to mirror timeouts.
       - name: Install compiler
         uses: ./.github/actions/apt-retry
         with:
           packages: ${{ matrix.cc }}
-
-      - name: Checkout wolfTPM
-        uses: actions/checkout@v4
 
       - name: Download wolfSSL
         uses: actions/download-artifact@v4
