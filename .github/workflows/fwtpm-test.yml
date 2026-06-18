@@ -312,14 +312,16 @@ jobs:
   ibmswtpm-tpm2tools:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # tpm2-tools baked into the CI image — no apt mirror on the happy path.
-    container:
-      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    # Host runner: tpm2-tools activatecredential hits a tpm2-tools OpenSSL
+    # credential-integrity quirk inside a container, so stay on the host
+    # (where it passes) and just make apt resilient to mirror timeouts.
     steps:
       - uses: actions/checkout@master
+
+      - name: Install tpm2-tools
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: tpm2-tools libtss2-tcti-mssim0
 
       - name: Build IBM SW TPM
         uses: ./.github/actions/setup-ibmswtpm
