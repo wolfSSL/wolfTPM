@@ -224,6 +224,9 @@ jobs:
     # cmake baked into the CI image — no apt mirror on the happy path.
     container:
       image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@master
 

@@ -22,6 +22,9 @@ jobs:
     # and bring up lo inside it; the default Docker cap set lacks SYS_ADMIN.
     container:
       image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
     timeout-minutes: 30
 
