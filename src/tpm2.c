@@ -6914,7 +6914,7 @@ const char* TPM2_GetAlgName(TPM_ALG_ID alg)
             return "AES-CFB";
         case TPM_ALG_ECB:
             return "AES-ECB";
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
         case TPM_ALG_MLKEM:
             return "ML-KEM";
         case TPM_ALG_MLDSA:
@@ -7005,7 +7005,7 @@ TPM_ALG_ID TPM2_GetAlgId(const char* name)
         return TPM_ALG_SHA3_384;
     if (!XSTRCMP(name, "SHA3_512"))
         return TPM_ALG_SHA3_512;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
     if (!XSTRCMP(name, "ML-KEM"))
         return TPM_ALG_MLKEM;
     if (!XSTRCMP(name, "ML-DSA"))
@@ -7414,7 +7414,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
             TPM2_PrintBin(pub->publicArea.unique.ecc.y.buffer, pub->publicArea.unique.ecc.y.size);
             #endif
             break;
-#ifdef WOLFTPM_V185
+#ifdef WOLFTPM_PQC
         case TPM_ALG_MLDSA:
         case TPM_ALG_HASH_MLDSA:
             printf("  %s: parameterSet 0x%X, unique size %d\n",
@@ -7438,7 +7438,7 @@ void TPM2_PrintPublicArea(const TPM2B_PUBLIC* pub)
                 pub->publicArea.unique.mlkem.size);
             #endif
             break;
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_PQC */
         default:
             /* derive does not seem to have specific fields in the parameters struct */
             printf("Derive Type: unique label size %d, context size %d\n",
