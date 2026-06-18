@@ -328,22 +328,19 @@ jobs:
           # transient salt keys for HMAC sessions which consume extra slots
           max-loaded-objects: 7
 
-      - name: Start IBM SW TPM
+      # Start the simulator and run the tests in one step: GitHub reaps a
+      # step's background processes between steps in container jobs, so a
+      # server started in a separate step would be gone by the test step.
+      - name: Run tpm2-tools tests
         run: |
           ibmswtpm2/src/tpm_server &
-          echo $! > /tmp/tpm_server.pid
+          TPM_PID=$!
           sleep 1
-          kill -0 $(cat /tmp/tpm_server.pid)
-
-      - name: Run tpm2-tools tests
-        run: scripts/tpm2_tools_test.sh --no-start
-
-      - name: Stop IBM SW TPM
-        if: always()
-        run: |
-          if [ -f /tmp/tpm_server.pid ]; then
-            kill $(cat /tmp/tpm_server.pid) 2>/dev/null || true
-          fi
+          kill -0 "$TPM_PID"
+          scripts/tpm2_tools_test.sh --no-start
+          rc=$?
+          kill "$TPM_PID" 2>/dev/null || true
+          exit $rc
 
   # ----------------------------------------------------------------
   # fwTPM STM32 emulator test (m33mu Cortex-M33 simulator)

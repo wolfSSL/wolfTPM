@@ -69,7 +69,9 @@ jobs:
     name: ${{ matrix.cc }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Headroom for an occasionally-slow apt mirror installing a version-specific
+    # compiler (apt-retry handles real failures; this avoids a hard cancel).
+    timeout-minutes: 12
     needs: build_wolfssl
     strategy:
       fail-fast: false

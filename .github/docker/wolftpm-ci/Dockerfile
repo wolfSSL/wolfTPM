@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     cmake \
     git \
     iproute2 \
+    libclang-rt-18-dev \
     libssl-dev \
     libtool \
     libtss2-tcti-mssim0 \
@@ -32,4 +33,5 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     sudo \
     tpm2-tools \
     valgrind \
+    zip \
     && rm -rf /var/lib/apt/lists/*
