@@ -1,0 +1,101 @@
+name: Setup wolfCOSE
+description: >-
+  Build (or restore from cache) wolfCOSE for wolfTPM CI. Resolves the requested
+  ref to a commit so the cache key is stable per upstream commit, restores the
+  previously built ./wolfcose tree on a hit, and otherwise does a shallow clone
+  + parallel build. wolfCOSE links against an already-installed wolfSSL (its
+  sole crypto dependency), so pass the wolfSSL commit it builds against via
+  wolfssl-sha to keep the cache keyed to that pairing. Run setup-wolfssl first.
+
+inputs:
+  ref:
+    description: wolfCOSE git ref (branch, tag, or commit) to build.
+    required: false
+    default: master
+  wolfssl-sha:
+    description: >-
+      The wolfSSL commit wolfCOSE is built against (from setup-wolfssl). Folded
+      into the cache key so a wolfSSL bump invalidates the wolfCOSE build.
+    required: false
+    default: ""
+  extra-cflags:
+    description: Extra CFLAGS passed to wolfCOSE make as EXTRA_CFLAGS.
+    required: false
+    default: ""
+  make-target:
+    description: make target to build (empty builds the default static lib).
+    required: false
+    default: ""
+  cc:
+    description: C compiler to build wolfCOSE with.
+    required: false
+    default: gcc
+  parallel:
+    description: Pass -j$(nproc) to make when "true".
+    required: false
+    default: "true"
+
+outputs:
+  path:
+    description: Path to the built wolfCOSE source tree.
+    value: wolfcose
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve wolfCOSE ${{ inputs.ref }} and compute cache key
+      id: key
+      shell: bash
+      run: |
+        set -eo pipefail
+        # Resolve the ref to a commit so the cache key tracks the upstream tree,
+        # not a moving branch name. ls-remote returns nothing for a raw SHA.
+        URL=https://github.com/wolfSSL/wolfCOSE.git
+        SHA=$(git ls-remote "$URL" "${{ inputs.ref }}^{}" | awk 'NR==1{print $1}')
+        if [ -z "$SHA" ]; then
+          SHA=$(git ls-remote "$URL" "${{ inputs.ref }}" | awk 'NR==1{print $1}')
+        fi
+        if [ -z "$SHA" ]; then
+          SHA="${{ inputs.ref }}"
+        fi
+        # Fold the wolfSSL SHA and build-affecting inputs into the key so the
+        # wolfCOSE cache is invalidated when any of them change.
+        HASH_CMD="sha256sum"
+        command -v sha256sum >/dev/null 2>&1 || HASH_CMD="shasum -a 256"
+        CFGHASH=$(printf '%s\037%s\037%s\037%s' \
+            "${{ inputs.wolfssl-sha }}" \
+            "${{ inputs.extra-cflags }}" \
+            "${{ inputs.make-target }}" \
+            "${{ inputs.cc }}" | $HASH_CMD | cut -c1-16)
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "cache-key=wolfcose-${{ runner.os }}-${SHA}-${CFGHASH}-v1" >> "$GITHUB_OUTPUT"
+        echo "wolfCOSE ${{ inputs.ref }} -> $SHA (cfg $CFGHASH)"
+
+    - name: Restore wolfCOSE build cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: wolfcose
+        key: ${{ steps.key.outputs.cache-key }}
+
+    - name: Build wolfCOSE (cache miss)
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eo pipefail
+        rm -rf wolfcose
+        # Fetch the exact resolved commit so the built tree matches the key.
+        git init -q wolfcose
+        cd wolfcose
+        git remote add origin https://github.com/wolfSSL/wolfCOSE.git
+        git fetch --depth 1 origin "${{ steps.key.outputs.sha }}"
+        git checkout -q --detach FETCH_HEAD
+        ARGS=""
+        if [ -n "${{ inputs.extra-cflags }}" ]; then
+          ARGS="$ARGS EXTRA_CFLAGS=\"${{ inputs.extra-cflags }}\""
+        fi
+        JOBS=""
+        if [ "${{ inputs.parallel }}" = "true" ]; then
+          JOBS="-j$(nproc 2>/dev/null || echo 2)"
+        fi
+        eval CC="${{ inputs.cc }}" make $JOBS ${{ inputs.make-target }} $ARGS

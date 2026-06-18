@@ -63,16 +63,12 @@ jobs:
 
       - name: Setup ibmswtpm2 simulator
         if: matrix.config.needs_swtpm
-        uses: actions/checkout@v4
-        with:
-          repository: kgoldman/ibmswtpm2
-          path: ibmswtpm2
+        uses: ./.github/actions/setup-ibmswtpm
 
       - name: Start TPM simulator
         if: matrix.config.needs_swtpm
         working-directory: ./ibmswtpm2/src
         run: |
-          make -j"$(nproc)"
           ./tpm_server &
 
       - name: Build wolfTPM (${{ matrix.config.name }})

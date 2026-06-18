@@ -372,36 +372,45 @@ jobs:
           configure-flags: ${{ matrix.wolfssl_config || '--enable-wolftpm --enable-pkcallbacks' }}
           cflags: ${{ matrix.wolfssl_cflags }}
 
-      # For old-wolfssl test: checkout and build old wolfSSL for linking
-      - name: Checkout old wolfSSL
+      # For old-wolfssl test: checkout and build old wolfSSL for linking.
+      # Pinned tag + fixed patch, so the cache is keyed on both and the build
+      # is restored on virtually every run.
+      - name: Cache old wolfSSL build
         if: matrix.name == 'old-wolfssl'
+        id: wolfssl_old_cache
+        uses: actions/cache@v4
+        with:
+          path: wolfssl-old
+          key: wolfssl-old-${{ runner.os }}-v4.7.0-stable-${{ hashFiles('.github/workflows/wolfssl-v4.7.0.patch') }}-v1
+      - name: Checkout old wolfSSL
+        if: matrix.name == 'old-wolfssl' && steps.wolfssl_old_cache.outputs.cache-hit != 'true'
         uses: actions/checkout@master
         with:
           repository: wolfssl/wolfssl
           path: wolfssl-old
           ref: v4.7.0-stable
       - name: Apply wolfssl-v4.7.0.patch to old wolfSSL
-        if: matrix.name == 'old-wolfssl'
+        if: matrix.name == 'old-wolfssl' && steps.wolfssl_old_cache.outputs.cache-hit != 'true'
         working-directory: ./wolfssl-old
         run: |
           git apply ../.github/workflows/wolfssl-v4.7.0.patch
-      - name: Setup old wolfSSL for linking
-        if: matrix.name == 'old-wolfssl'
+      - name: Build old wolfSSL for linking
+        if: matrix.name == 'old-wolfssl' && steps.wolfssl_old_cache.outputs.cache-hit != 'true'
         working-directory: ./wolfssl-old
         run: |
           ./autogen.sh
           ./configure --enable-wolftpm --disable-examples CFLAGS="-DWOLFSSL_PUBLIC_MP -DWOLFSSL_TEST_CERT -DWOLFSSL_KEY_GEN -DNO_WRITEV"
-
           make
+      - name: Install old wolfSSL
+        if: matrix.name == 'old-wolfssl'
+        working-directory: ./wolfssl-old
+        run: |
           sudo make install
           sudo ldconfig
 
       - name: Setup ibmswtpm2
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
-        uses: actions/checkout@master
-        with:
-          repository: kgoldman/ibmswtpm2
-          path: ibmswtpm2
+        uses: ./.github/actions/setup-ibmswtpm
 
       - name: Generate TPM port
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
@@ -417,14 +426,16 @@ jobs:
         if: matrix.needs_swtpm == true || matrix.needs_swtpm == null
         working-directory: ./ibmswtpm2/src
         run: |
-          make -j"$(nproc)"
           echo "Starting TPM simulator on port $TPM_PORT"
           ./tpm_server -port $TPM_PORT &
 
+      # Mono is a large, niche package set not baked into the CI image; just
+      # make apt resilient to mirror timeouts.
       - name: Install mono
         if: matrix.needs_mono == true
-        run: |
-          sudo apt-get install -y mono-mcs mono-tools-devel nunit nunit-console
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: mono-mcs mono-tools-devel nunit nunit-console
 
       - name: Build wolfTPM
         run: |

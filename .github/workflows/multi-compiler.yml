@@ -20,18 +20,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Cache the built wolfSSL tree keyed on the resolved upstream commit so it
+      # is rebuilt only when wolfSSL master moves, not on every CI run.
+      - name: Resolve wolfSSL commit
+        id: wolfssl_rev
+        run: echo "sha=$(git ls-remote https://github.com/wolfSSL/wolfssl.git master | awk 'NR==1{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache wolfSSL build
+        id: wolfssl_cache
+        uses: actions/cache@v4
+        with:
+          path: wolfssl
+          key: wolfssl-multicompiler-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+
       - name: Checkout wolfSSL
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: wolfssl/wolfssl
           path: wolfssl
+          ref: ${{ steps.wolfssl_rev.outputs.sha }}
 
       - name: Build wolfSSL
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
         working-directory: ./wolfssl
         run: |
           ./autogen.sh
           ./configure --enable-wolftpm --enable-pkcallbacks
           make -j$(nproc)
+
+      - name: Install wolfSSL
+        working-directory: ./wolfssl
+        run: |
           sudo make install
           sudo ldconfig
 
@@ -69,10 +89,12 @@ jobs:
             cxx: clang++-17
 
     steps:
+      # Version-specific compilers are not baked into the CI image; keep this
+      # job on the host runner and just make apt resilient to mirror timeouts.
       - name: Install compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.cc }}
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: ${{ matrix.cc }}
 
       - name: Checkout wolfTPM
         uses: actions/checkout@v4

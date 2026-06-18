@@ -17,16 +17,17 @@ jobs:
   pqc-examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # Deps baked into the CI image — no apt mirror on the happy path. The
+    # added caps let `make check` create a network namespace (unshare --net)
+    # and bring up lo inside it; the default Docker cap set lacks SYS_ADMIN.
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0
+      options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
     timeout-minutes: 30
 
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
-
-      - name: Install build deps + tpm2-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
 
       - name: Setup wolfSSL with PQC
         uses: ./.github/actions/setup-wolfssl

@@ -1,0 +1,53 @@
+name: apt install with retry
+description: >-
+  Install apt packages with bounded retries and an Acquire timeout, so a slow
+  or flaky mirror retries instead of cancelling the job. Used by the jobs that
+  cannot move into the ghcr CI image (mixed-OS matrices, version-specific
+  compilers, large niche package sets). Jobs whose deps are baked into
+  ghcr.io/wolfssl/wolftpm-ci use `container:` instead of this action.
+
+inputs:
+  packages:
+    description: Space-separated list of apt packages to install.
+    required: true
+  retries:
+    description: Number of attempts before failing.
+    required: false
+    default: "3"
+  retry-delay:
+    description: Initial delay between attempts (seconds, grows each attempt).
+    required: false
+    default: "10"
+  sudo:
+    description: Prefix apt with sudo (set "false" when already root).
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install ${{ inputs.packages }}
+      shell: bash
+      run: |
+        set -u
+        export DEBIAN_FRONTEND=noninteractive
+        SUDO=""
+        if [ "${{ inputs.sudo }}" = "true" ] && command -v sudo >/dev/null 2>&1; then
+          SUDO="sudo"
+        fi
+        RETRIES="${{ inputs.retries }}"
+        DELAY="${{ inputs.retry-delay }}"
+        TIMEOUT="-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+        for i in $(seq 1 "$RETRIES"); do
+          if $SUDO apt-get $TIMEOUT update -q && \
+             $SUDO apt-get install -y ${{ inputs.packages }}; then
+            exit 0
+          fi
+          if [ "$i" -eq "$RETRIES" ]; then
+            echo "::error::apt-get failed after $RETRIES attempts"
+            exit 1
+          fi
+          echo "::warning::apt-get failed (attempt $i/$RETRIES), retrying in ${DELAY}s..."
+          sleep "$DELAY"
+          DELAY=$((DELAY * 2))
+        done

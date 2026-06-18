@@ -28,10 +28,12 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
+      # CodeQL's action is fiddly inside a custom container, so keep this job
+      # on the host runner and just make apt resilient to mirror timeouts.
       - name: Install build tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: autoconf automake libtool
 
       # Full-feature wolfSSL so every wolfTPM code path is compiled and
       # therefore visible to CodeQL.
