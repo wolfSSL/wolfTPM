@@ -2,7 +2,7 @@ name: Publish wolfTPM CI image
 
 # Builds .github/docker/wolftpm-ci/Dockerfile and pushes it to
 # ghcr.io/<owner>/wolftpm-ci:<tag>. CI jobs consume this image via
-# `container: image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0`
+# `container: image: ghcr.io/wolfssl/wolftpm-ci:v1.0`
 # so they no longer run `sudo apt-get install` on every run (the source of
 # mirror-timeout flakes).
 #

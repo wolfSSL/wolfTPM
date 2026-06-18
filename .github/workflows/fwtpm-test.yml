@@ -314,7 +314,7 @@ jobs:
     runs-on: ubuntu-latest
     # tpm2-tools baked into the CI image — no apt mirror on the happy path.
     container:
-      image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -433,7 +433,7 @@ jobs:
     # Deps baked into the CI image — no apt mirror on the happy path. The added
     # caps let the fwtpm tests create a network namespace (unshare --net).
     container:
-      image: ghcr.io/${{ github.repository_owner }}/wolftpm-ci:v1.0
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
