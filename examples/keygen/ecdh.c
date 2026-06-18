@@ -40,12 +40,14 @@
 /* --- BEGIN TPM2 ECDH example -- */
 /******************************************************************************/
 
+#ifdef HAVE_ECC
 static void usage(void)
 {
     printf("Expected Usage:\n");
     printf("./examples/keygen/ecdh\n");
     printf("* Demonstrates ECDH key agreement using NIST P-256\n");
 }
+#endif
 
 int TPM2_ECDH_Example(void* userCtx, int argc, char* argv[])
 {

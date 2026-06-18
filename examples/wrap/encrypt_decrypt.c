@@ -46,8 +46,8 @@
 static void usage(void)
 {
     printf("Expected Usage:\n");
-    printf("./examples/wrap/encrypt_decrypt [-aesctr] [-aescbc] [-aescfb]\n");
-    printf("* AES mode defaults to CTR; use -aescbc or -aescfb to override\n");
+    printf("./examples/wrap/encrypt_decrypt [-aescfb] [-aesctr] [-aescbc]\n");
+    printf("* AES mode defaults to CFB; use -aesctr or -aescbc to override\n");
     printf("* NOTE: many TPM's disable TPM2_EncryptDecrypt entirely due to\n");
     printf("        export controls (see examples/tpm_test.h); when enabled\n");
     printf("        the supported mode varies by TPM\n");
@@ -63,10 +63,12 @@ int TPM2_EncryptDecrypt_Example(void* userCtx, int argc, char* argv[])
     TPMT_PUBLIC publicTemplate;
     /* TPM2_EncryptDecrypt is frequently disabled entirely due to export
      * controls (see comments in examples/tpm_test.h); when enabled the
-     * supported mode varies by TPM. Default to CTR; -aescbc / -aescfb
-     * override. A fully disabled command is handled gracefully below. */
-    TPM_ALG_ID mode = TPM_ALG_CTR;
-    const char* modeName = "AES-CTR";
+     * supported mode varies by TPM. Default to CFB, the mode guaranteed
+     * when EncryptDecrypt is enabled (matches TEST_AES_MODE in
+     * examples/tpm_test.h); -aesctr / -aescbc override. A fully disabled
+     * command is handled gracefully below. */
+    TPM_ALG_ID mode = TPM_ALG_CFB;
+    const char* modeName = "AES-CFB";
     byte message[ENCDEC_MSG_SIZE];
     byte cipher[ENCDEC_MSG_SIZE];
     byte plain[ENCDEC_MSG_SIZE];
@@ -117,16 +119,21 @@ int TPM2_EncryptDecrypt_Example(void* userCtx, int argc, char* argv[])
     }
 
     /* Create or load the Storage Root Key (SRK) */
+#ifdef NO_RSA
+    rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_ECC);
+#else
     rc = getPrimaryStoragekey(&dev, &storage, TPM_ALG_RSA);
+#endif
     if (rc != 0) {
         printf("getPrimaryStoragekey failed 0x%x: %s\n", rc,
             wolfTPM2_GetRCString(rc));
         goto exit;
     }
 
-    /* Create and load a 128-bit symmetric key under the SRK
-     * (isSign=NO, isDecrypt=YES) */
-    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, mode, NO, YES);
+    /* Create and load a 128-bit symmetric key under the SRK. Both sign
+     * (encrypt) and decrypt attributes are required so the same key can be
+     * used in both EncryptDecrypt directions. */
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, 128, mode, YES, YES);
     if (rc != 0) {
         printf("wolfTPM2_GetKeyTemplate_Symmetric failed 0x%x: %s\n", rc,
             wolfTPM2_GetRCString(rc));

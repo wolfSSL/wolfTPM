@@ -75,20 +75,31 @@ int TPM2_Hash_Example(void* userCtx, int argc, char* argv[])
             hashAlg = TPM_ALG_SHA256;
             hashAlgName = "SHA-256";
         }
-    #ifdef WOLFSSL_SHA384
         else if (XSTRCMP(argv[i], "-sha384") == 0) {
+        #ifdef WOLFSSL_SHA384
             hashAlg = TPM_ALG_SHA384;
             hashAlgName = "SHA-384";
+        #else
+            printf("SHA-384 not enabled in this build\n");
+            return 0;
+        #endif
         }
-    #endif
-    #ifdef WOLFSSL_SHA512
         else if (XSTRCMP(argv[i], "-sha512") == 0) {
+        #ifdef WOLFSSL_SHA512
             hashAlg = TPM_ALG_SHA512;
             hashAlgName = "SHA-512";
+        #else
+            printf("SHA-512 not enabled in this build\n");
+            return 0;
+        #endif
         }
-    #endif
         else if (argv[i][0] != '-') {
             message = argv[i];
+        }
+        else {
+            printf("Unknown option: %s\n", argv[i]);
+            usage();
+            return -1;
         }
     }
 

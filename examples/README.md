@@ -30,7 +30,7 @@ Small focused examples for common TPM crypto operations:
 
 * `./examples/wrap/getrandom [bytes]` - get random bytes from the TPM RNG (default 32).
 * `./examples/wrap/hash` - hash a message with a TPM hash sequence (SHA-256 default, `-sha384`/`-sha512`).
-* `./examples/wrap/encrypt_decrypt [-aesctr|-aescbc|-aescfb]` - symmetric encrypt/decrypt round-trip (AES-CTR default). Many TPMs disable TPM2_EncryptDecrypt entirely due to export controls; the example skips gracefully when it is unavailable.
+* `./examples/wrap/encrypt_decrypt [-aescfb|-aesctr|-aescbc]` - symmetric encrypt/decrypt round-trip (AES-CFB default). Many TPMs disable TPM2_EncryptDecrypt entirely due to export controls; the example skips gracefully when it is unavailable.
 * `./examples/keygen/ecdh` - ECDH (P-256) key agreement producing a shared secret.
 
 
