@@ -194,6 +194,38 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     [ $RESULT -ne 0 ] && echo -e "wrap_test (AES param enc) failed! $RESULT" && exit 1
 fi
 
+# Crypto primitive tests
+echo -e "Crypto primitive tests"
+./examples/wrap/getrandom >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "getrandom failed! $RESULT" && exit 1
+./examples/wrap/getrandom 16 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "getrandom (16) failed! $RESULT" && exit 1
+./examples/wrap/hash >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hash failed! $RESULT" && exit 1
+./examples/wrap/hash -sha384 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hash (SHA-384) failed! $RESULT" && exit 1
+./examples/wrap/hash -sha512 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "hash (SHA-512) failed! $RESULT" && exit 1
+./examples/wrap/encrypt_decrypt >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "encrypt_decrypt (AES-CTR) failed! $RESULT" && exit 1
+./examples/wrap/encrypt_decrypt -aescbc >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "encrypt_decrypt (AES-CBC) failed! $RESULT" && exit 1
+./examples/wrap/encrypt_decrypt -aescfb >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "encrypt_decrypt (AES-CFB) failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ECC -eq 1 ]; then
+    ./examples/keygen/ecdh >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "ecdh failed! $RESULT" && exit 1
+fi
+
 # HMAC tests
 echo -e "HMAC tests"
 ./examples/wrap/hmac >> $TPMPWD/run.out 2>&1
