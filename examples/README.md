@@ -24,6 +24,16 @@ Demonstrates calling the wolfTPM2_* wrapper API's.
 `./examples/wrap/wrap_test`
 
 
+## Crypto Primitive Examples
+
+Small focused examples for common TPM crypto operations:
+
+* `./examples/wrap/getrandom [bytes]` - get random bytes from the TPM RNG (default 32).
+* `./examples/wrap/hash` - hash a message with a TPM hash sequence (SHA-256 default, `-sha384`/`-sha512`).
+* `./examples/wrap/encrypt_decrypt [-aesctr|-aescbc|-aescfb]` - symmetric encrypt/decrypt round-trip (AES-CTR default). Many TPMs disable TPM2_EncryptDecrypt entirely due to export controls; the example skips gracefully when it is unavailable.
+* `./examples/keygen/ecdh` - ECDH (P-256) key agreement producing a shared secret.
+
+
 ## Attestation Use Cases
 
 ### TPM signed timestamp, TPM2.0 GetTime
