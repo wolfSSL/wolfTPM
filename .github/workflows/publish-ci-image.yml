@@ -18,13 +18,11 @@ name: Publish wolfTPM CI image
 #
 # Triggers:
 #   - push to master/main when the Dockerfile or this workflow changes
-#   - push to the ci_ghcr_image branch (TEMP: lets a fork build the image on
-#     push while bringing this up; drop this branch entry before merge)
 #   - workflow_dispatch for manual rebuilds
 
 on:
   push:
-    branches: [ 'master', 'main', 'ci_ghcr_image' ]
+    branches: [ 'master', 'main' ]
     paths:
       - '.github/docker/wolftpm-ci/**'
       - '.github/workflows/publish-ci-image.yml'
