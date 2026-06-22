@@ -181,6 +181,10 @@ WOLFTPM_API int wolfTPM2_SPDM_SetTisIO(
     WOLFTPM2_SPDM_CTX* ctx
 );
 
+/* Validate a framed response size against caller and I/O buffer sizes */
+WOLFTPM_API int wolfTPM2_SPDM_ValidateRspSz(word32 rspSz, word32 rxSz,
+    word32 ioBufSz);
+
 #ifdef __cplusplus
     } /* extern "C" */
 #endif

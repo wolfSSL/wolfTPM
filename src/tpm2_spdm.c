@@ -66,6 +66,16 @@
 /* TIS I/O Callback (SPI/I2C TPM transport for SPDM) */
 /* -------------------------------------------------------------------------- */
 
+/* Bound a framed response size against both the caller buffer and the local
+ * I/O buffer before copying into the caller's rxBuf. */
+int wolfTPM2_SPDM_ValidateRspSz(word32 rspSz, word32 rxSz, word32 ioBufSz)
+{
+    if (rspSz > rxSz || rspSz > ioBufSz) {
+        return -1;
+    }
+    return 0;
+}
+
 #ifdef WOLFTPM_SPDM_TIS_IO
 /* TIS I/O callback for routing wolfSPDM through TPM SPI/I2C FIFO.
  * This matches the WOLFSPDM_IO_CB signature. TCG framing (headers) is
@@ -117,7 +127,7 @@ static int wolfTPM2_SPDM_TisIoCb(
     XMEMCPY(&rspSz, &ioBuf[2], sizeof(UINT32));
     rspSz = TPM2_Packet_SwapU32(rspSz);
 
-    if (rspSz > *rxSz || rspSz > sizeof(ioBuf)) {
+    if (wolfTPM2_SPDM_ValidateRspSz(rspSz, *rxSz, sizeof(ioBuf)) != 0) {
         return -1;
     }
 
@@ -171,7 +181,10 @@ static int wolfTPM2_SPDM_SwtpmIoCb(
     XMEMCPY(&rspSz, &ioBuf[2], sizeof(word32));
     rspSz = TPM2_Packet_SwapU32(rspSz);
 
-    if (rspSz < TPM2_HEADER_SIZE || rspSz > *rxSz || rspSz > sizeof(ioBuf)) {
+    if (rspSz < TPM2_HEADER_SIZE) {
+        return -1;
+    }
+    if (wolfTPM2_SPDM_ValidateRspSz(rspSz, *rxSz, sizeof(ioBuf)) != 0) {
         return -1;
     }
 

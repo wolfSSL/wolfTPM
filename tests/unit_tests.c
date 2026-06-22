@@ -31,6 +31,7 @@
 #include <wolftpm/tpm2_asn.h>
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_tis.h>
+#include <wolftpm/tpm2_spdm.h>
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -3136,6 +3137,22 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
+#ifdef WOLFTPM_SPDM
+/* Pin the rxBuf bound in the SPDM I/O callbacks: a response larger than the
+ * caller buffer must be rejected even when it fits the local I/O buffer. */
+static void test_wolfTPM2_SPDM_ValidateRspSz(void)
+{
+    word32 ioBufSz = MAX_RESPONSE_SIZE;
+    word32 rxSz = 256;
+
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(rxSz, rxSz, ioBufSz), 0);
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(rxSz + 1, rxSz, ioBufSz), -1);
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(ioBufSz + 1, ioBufSz, ioBufSz), -1);
+
+    printf("Test TPM2:        %-40s Passed\n", "SPDM ValidateRspSz:");
+}
+#endif /* WOLFTPM_SPDM */
+
 /* Pin the TIS response-size bounds so a mutation dropping the buffer-bound or
  * the MAX_RESPONSE_SIZE term is caught. */
 static void test_TPM2_TIS_ValidateRspSz(void)
@@ -5454,6 +5471,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #ifdef WOLFTPM_SPDM
+    test_wolfTPM2_SPDM_ValidateRspSz();
     test_wolfTPM2_SPDM_Functions();
 #endif
 #endif /* !WOLFTPM2_NO_WRAPPER */
