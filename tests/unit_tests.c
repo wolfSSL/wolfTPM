@@ -30,6 +30,7 @@
 #include <wolftpm/tpm2_param_enc.h>
 #include <wolftpm/tpm2_asn.h>
 #include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_tis.h>
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -3135,6 +3136,27 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
+/* Pin the TIS response-size bounds so a mutation dropping the buffer-bound or
+ * the MAX_RESPONSE_SIZE term is caught. */
+static void test_TPM2_TIS_ValidateRspSz(void)
+{
+    int packetSize = 1024;
+
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(TPM2_HEADER_SIZE, packetSize),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(packetSize, packetSize),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(packetSize + 1, packetSize),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(MAX_RESPONSE_SIZE, MAX_RESPONSE_SIZE),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(-1, packetSize),
+        TPM_RC_FAILURE);
+
+    printf("Test TPM2:        %-40s Passed\n", "TIS ValidateRspSz:");
+}
+
 /* A zero-size TPM2B_PUBLIC must clear publicArea so stale fields from a reused
  * struct cannot survive a parse. */
 static void test_TPM2_ParsePublic_EmptyClears(void)
@@ -5376,6 +5398,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
+    test_TPM2_TIS_ValidateRspSz();
     test_TPM2_ParsePublic_EmptyClears();
     test_TPM2_AppendSensitive_Clamp();
     test_KeySealTemplate();
