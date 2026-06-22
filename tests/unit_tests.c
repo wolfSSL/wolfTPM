@@ -3228,6 +3228,42 @@ static void test_TPM2_AppendSensitive_Clamp(void)
     printf("Test TPM2:        %-40s Passed\n", "AppendSensitive clamp:");
 }
 
+/* Roundtrip a maximum-size inner payload (size == buffer capacity) so the
+ * parse-side ParseU16Buf clamp branch is exercised with valid data. */
+static void test_TPM2_Sensitive_MaxRoundtrip(void)
+{
+    TPM2_Packet packet;
+    byte buf[1024];
+    TPM2B_SENSITIVE sensIn, sensOut;
+    word16 cap, i;
+
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    cap = (word16)sizeof(sensIn.sensitiveArea.sensitive.rsa.buffer);
+    sensIn.sensitiveArea.sensitive.rsa.size = cap;
+    for (i = 0; i < cap; i++) {
+        sensIn.sensitiveArea.sensitive.rsa.buffer[i] = (byte)(i & 0xFF);
+    }
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_RSA);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.rsa.size, cap);
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.rsa.buffer,
+        sensIn.sensitiveArea.sensitive.rsa.buffer, cap), 0);
+
+    printf("Test TPM2:        %-40s Passed\n", "Sensitive max roundtrip:");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -5418,6 +5454,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_TIS_ValidateRspSz();
     test_TPM2_ParsePublic_EmptyClears();
     test_TPM2_AppendSensitive_Clamp();
+    test_TPM2_Sensitive_MaxRoundtrip();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();
