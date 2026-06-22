@@ -29,6 +29,7 @@
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
 #include <wolftpm/tpm2_asn.h>
+#include <wolftpm/tpm2_swtpm.h>
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -3826,6 +3827,29 @@ static void test_wolfTPM2_SPDM_Functions(void)
 }
 #endif /* WOLFTPM_SPDM */
 
+#ifdef WOLFTPM_SWTPM
+/* Pin the swtpm response-size bounds so a mutation dropping either the
+ * lower (header) or upper (buffer) bound is caught. */
+static void test_TPM2_SwtpmValidateRspSz(void)
+{
+    int packetSize = 4096;
+
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, TPM2_HEADER_SIZE),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, (uint32_t)packetSize),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, TPM2_HEADER_SIZE - 1),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, (uint32_t)packetSize + 1),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, 0xFFFFFFFFUL),
+        TPM_RC_FAILURE);
+
+    printf("Test TPM2:        %-40s Passed\n", "Swtpm ValidateRspSz:");
+}
+#endif /* WOLFTPM_SWTPM */
+
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
 /* Craft a key-blob file with a small valid public area and an oversized
@@ -5322,6 +5346,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
     test_TPM2_GetHashDigestSize_AllAlgs();
+    #ifdef WOLFTPM_SWTPM
+    test_TPM2_SwtpmValidateRspSz();
+    #endif
     #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
         !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     test_readKeyBlob_PrivOverflow();
