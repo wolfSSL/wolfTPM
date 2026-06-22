@@ -39,6 +39,9 @@
 #include <examples/wrap/wrap_test.h>
 
 #include <stdio.h>
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+#include <fcntl.h>
+#endif
 
 /* Test Fail Helpers */
 #ifndef NO_ABORT
@@ -4009,6 +4012,21 @@ static void test_TPM2_SwtpmValidateRspSz(void)
 
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+/* Create a temp file for writing with owner-only permissions, so the test
+ * does not leave a world-writable file as plain fopen("wb") would. */
+static XFILE openTestFileWrite(const char* fn)
+{
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    int fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        return XBADFILE;
+    }
+    return fdopen(fd, "wb");
+#else
+    return XFOPEN(fn, "wb");
+#endif
+}
+
 /* Craft a key-blob file with a small valid public area and an oversized
  * private tail, then load it with readKeyBlob(). A canary placed directly
  * after the keyblob catches any write past it. No TPM is required. */
@@ -4049,7 +4067,7 @@ static void test_readKeyBlob_PrivOverflow(void)
     privTailSz = sizeof(guarded.key.priv) + sizeof(filler);
     privSizeMarker = 32;
 
-    fp = XFOPEN(filename, "wb");
+    fp = openTestFileWrite(filename);
     AssertNotNull(fp);
     XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
     XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
@@ -4078,7 +4096,7 @@ static void test_readKeyBlob_PrivOverflow(void)
     /* Rejection branch: priv.size marker larger than the destination buffer
      * must be refused with BUFFER_E before any bytes are read. */
     bigMarker = (UINT16)(sizeof(guarded.key.priv.buffer) + 1);
-    fp = XFOPEN(filename, "wb");
+    fp = openTestFileWrite(filename);
     AssertNotNull(fp);
     XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
     XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
@@ -4091,7 +4109,7 @@ static void test_readKeyBlob_PrivOverflow(void)
 
     /* Rejection branch: pub.size marker larger than the public area buffer. */
     bigMarker = (UINT16)sizeof(pubAreaBuffer);
-    fp = XFOPEN(filename, "wb");
+    fp = openTestFileWrite(filename);
     AssertNotNull(fp);
     XFWRITE(&bigMarker, 1, sizeof(bigMarker), fp);
     XFCLOSE(fp);
