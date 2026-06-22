@@ -170,6 +170,19 @@ int wolfSPDM_DeriveFromHandshakeSecret(WOLFSPDM_CTX* ctx,
             ctx->rspDataKey, ctx->rspDataIv);
     }
 
+    if (rc != WOLFSPDM_SUCCESS) {
+        /* wipe any partially derived material so it cannot carry into a
+         * reused ctx */
+        wc_ForceZero(ctx->reqHsSecret, sizeof(ctx->reqHsSecret));
+        wc_ForceZero(ctx->rspHsSecret, sizeof(ctx->rspHsSecret));
+        wc_ForceZero(ctx->reqFinishedKey, sizeof(ctx->reqFinishedKey));
+        wc_ForceZero(ctx->rspFinishedKey, sizeof(ctx->rspFinishedKey));
+        wc_ForceZero(ctx->reqDataKey, sizeof(ctx->reqDataKey));
+        wc_ForceZero(ctx->rspDataKey, sizeof(ctx->rspDataKey));
+        wc_ForceZero(ctx->reqDataIv, sizeof(ctx->reqDataIv));
+        wc_ForceZero(ctx->rspDataIv, sizeof(ctx->rspDataIv));
+    }
+
     return rc;
 }
 
