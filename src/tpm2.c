@@ -6529,6 +6529,8 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
         TPM2_Packet_ParseBytes(&packet, &nonceBuf[randSz], outSz);
         randSz += outSz;
     }
+    /* response buffer held freshly generated random; wipe before return */
+    TPM2_ForceZero(buffer, sizeof(buffer));
 #endif
 
     return rc;
