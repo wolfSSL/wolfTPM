@@ -3089,6 +3089,8 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
     TPM2_ForceZero(&createLoadedIn.inSensitive,
         sizeof(createLoadedIn.inSensitive));
+    TPM2_ForceZero(&createLoadedOut.outPrivate,
+        sizeof(createLoadedOut.outPrivate));
     return rc;
 }
 
