@@ -450,14 +450,19 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     rc = wolfTPM2_SPDM_SecuredExchange(spdmCtx,
         packet->buf, packet->pos, tpmResp, &tpmRespSz);
-    if (rc != 0)
+    if (rc != 0) {
+        TPM2_ForceZero(tpmResp, sizeof(tpmResp));
         return rc;
+    }
 
-    if (tpmRespSz > MAX_RESPONSE_SIZE)
+    if (tpmRespSz > MAX_RESPONSE_SIZE) {
+        TPM2_ForceZero(tpmResp, sizeof(tpmResp));
         return TPM_RC_SIZE;
+    }
     XMEMCPY(packet->buf, tpmResp, tpmRespSz);
     packet->pos = 0;
     packet->size = tpmRespSz;
+    TPM2_ForceZero(tpmResp, sizeof(tpmResp));
     return TPM_RC_SUCCESS;
 }
 #endif /* WOLFTPM_SPDM */
