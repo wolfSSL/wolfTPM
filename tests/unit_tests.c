@@ -3210,21 +3210,48 @@ static void test_TPM2_AppendSensitive_Clamp(void)
     TPM2_Packet packet;
     byte buf[1024];
     TPM2B_SENSITIVE sens;
-    word16 bufCap;
+    word16 rsaCap, eccCap, bitsCap, symCap;
+
+    rsaCap = (word16)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
+    eccCap = (word16)sizeof(sens.sensitiveArea.sensitive.ecc.buffer);
+    bitsCap = (word16)sizeof(sens.sensitiveArea.sensitive.bits.buffer);
+    symCap = (word16)sizeof(sens.sensitiveArea.sensitive.sym.buffer);
 
     XMEMSET(&sens, 0, sizeof(sens));
     sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
-    bufCap = (word16)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
-    sens.sensitiveArea.sensitive.rsa.size = bufCap + 100;
-
-    XMEMSET(buf, 0, sizeof(buf));
+    sens.sensitiveArea.sensitive.rsa.size = rsaCap + 100;
     XMEMSET(&packet, 0, sizeof(packet));
     packet.buf = buf;
     packet.size = sizeof(buf);
-
     TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.rsa.size, rsaCap);
 
-    AssertIntEQ(sens.sensitiveArea.sensitive.rsa.size, bufCap);
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_ECC;
+    sens.sensitiveArea.sensitive.ecc.size = eccCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.ecc.size, eccCap);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_KEYEDHASH;
+    sens.sensitiveArea.sensitive.bits.size = bitsCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.bits.size, bitsCap);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
+    sens.sensitiveArea.sensitive.sym.size = symCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.sym.size, symCap);
 
     printf("Test TPM2:        %-40s Passed\n", "AppendSensitive clamp:");
 }
