@@ -1214,6 +1214,9 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 
     TPM2_Packet_ParseU16(packet, &pub->size);
     pubStartPos = (packet != NULL) ? packet->pos : 0;
+    if (pub->size == 0) {
+        XMEMSET(&pub->publicArea, 0, sizeof(pub->publicArea));
+    }
     if (pub->size > 0) {
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);

@@ -3135,6 +3135,34 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
+/* A zero-size TPM2B_PUBLIC must clear publicArea so stale fields from a reused
+ * struct cannot survive a parse. */
+static void test_TPM2_ParsePublic_EmptyClears(void)
+{
+    TPM2_Packet packet;
+    byte buf[8];
+    TPM2B_PUBLIC pub;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_RSA;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.objectAttributes = 0xFFFFFFFFUL;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_ParsePublic(&packet, &pub);
+
+    AssertIntEQ(pub.size, 0);
+    AssertIntEQ(pub.publicArea.type, 0);
+    AssertIntEQ(pub.publicArea.nameAlg, 0);
+    AssertIntEQ(pub.publicArea.objectAttributes, 0);
+
+    printf("Test TPM2:        %-40s Passed\n", "ParsePublic empty clears:");
+}
+
 /* An oversized inner size on a classic arm must be clamped to the arm buffer
  * size, matching the PQC arms, so AppendBytes does not over-read the source. */
 static void test_TPM2_AppendSensitive_Clamp(void)
@@ -5348,6 +5376,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
+    test_TPM2_ParsePublic_EmptyClears();
     test_TPM2_AppendSensitive_Clamp();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
