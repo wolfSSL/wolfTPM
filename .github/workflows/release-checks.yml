@@ -26,14 +26,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Cache the wolfSSL install prefix keyed on the resolved upstream commit
+      # so wolfSSL is rebuilt only when master moves, not on every CI run.
+      - name: Resolve wolfSSL commit
+        id: wolfssl_rev
+        run: echo "sha=$(git ls-remote https://github.com/wolfSSL/wolfssl.git master | awk 'NR==1{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache wolfSSL install
+        id: wolfssl_cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/wolfssl-install
+          key: wolfssl-release-checks-${{ runner.os }}-${{ steps.wolfssl_rev.outputs.sha }}-v1
+
       - name: Checkout wolfSSL
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: wolfssl/wolfssl
           path: wolfssl
-          ref: master
+          ref: ${{ steps.wolfssl_rev.outputs.sha }}
 
       - name: Build wolfSSL
+        if: steps.wolfssl_cache.outputs.cache-hit != 'true'
         working-directory: ./wolfssl
         run: |
           ./autogen.sh
@@ -95,14 +110,15 @@ jobs:
     name: scan-build (clang static analysis)
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # clang-tools (scan-build) baked into the CI image — no apt mirror.
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 15
     needs: build_wolfssl
     steps:
-      - name: Install clang tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-tools
-
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 

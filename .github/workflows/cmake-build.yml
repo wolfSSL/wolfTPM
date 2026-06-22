@@ -139,12 +139,13 @@ jobs:
 #pull wolfTPM
     - uses: actions/checkout@master
 
-# Install cmake
+# Install cmake (matrix includes a Windows leg, so this job stays on the host
+# runner; apt is made resilient instead of moving into the Linux CI image)
     - name: Install cmake
       if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake
+      uses: ./.github/actions/apt-retry
+      with:
+        packages: cmake
 
 #pull and build wolfssl
     # Every matrix entry builds the identical wolfSSL (only the wolfTPM options
@@ -220,13 +221,14 @@ jobs:
     name: CMake static export check
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # cmake baked into the CI image — no apt mirror on the happy path.
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@master
-
-      - name: Install cmake
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake
 
       # Same wolfSSL config as the matrix build above, so it shares that cache
       # entry (key includes only OS + commit, not the wolfTPM options).

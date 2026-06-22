@@ -59,6 +59,12 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover-versions
     runs-on: ubuntu-latest
+    # Build tools baked into the CI image — no apt mirror on the happy path.
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -67,11 +73,6 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
-
-      - name: Install build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool
 
       - name: Cache wolfSSL ${{ matrix.wolfssl-version }}
         if: matrix.wolfssl-version != 'master'

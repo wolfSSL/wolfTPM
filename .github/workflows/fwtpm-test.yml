@@ -210,11 +210,13 @@ jobs:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
 
+      # Matrix includes a macOS leg, so this job stays on the host runner;
+      # apt is made resilient rather than moving into the Linux CI image.
       - name: Install tpm2-tools
         if: ${{ !matrix.build_only && runner.os != 'macOS' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: tpm2-tools libtss2-tcti-mssim0
 
       - name: macOS build deps (skip tpm2-tools)
         if: ${{ !matrix.build_only && runner.os == 'macOS' }}
@@ -310,40 +312,37 @@ jobs:
   ibmswtpm-tpm2tools:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # Host runner: tpm2-tools activatecredential hits a tpm2-tools OpenSSL
+    # credential-integrity quirk inside a container, so stay on the host
+    # (where it passes) and just make apt resilient to mirror timeouts.
     steps:
       - uses: actions/checkout@master
 
+      - name: Install tpm2-tools
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: tpm2-tools libtss2-tcti-mssim0
+
       - name: Build IBM SW TPM
-        run: |
-          git clone --depth=1 https://github.com/kgoldman/ibmswtpm2.git
-          cd ibmswtpm2/src
+        uses: ./.github/actions/setup-ibmswtpm
+        with:
           # Increase transient object slots — tpm2-tools ESYS creates
           # transient salt keys for HMAC sessions which consume extra slots
-          sed -i 's/#define MAX_LOADED_OBJECTS.*/#define MAX_LOADED_OBJECTS 7/' \
-              TpmProfile_Misc.h
-          make -j$(nproc)
+          max-loaded-objects: 7
 
-      - name: Install tpm2-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
-
-      - name: Start IBM SW TPM
+      # Start the simulator and run the tests in one step: GitHub reaps a
+      # step's background processes between steps in container jobs, so a
+      # server started in a separate step would be gone by the test step.
+      - name: Run tpm2-tools tests
         run: |
           ibmswtpm2/src/tpm_server &
-          echo $! > /tmp/tpm_server.pid
+          TPM_PID=$!
           sleep 1
-          kill -0 $(cat /tmp/tpm_server.pid)
-
-      - name: Run tpm2-tools tests
-        run: scripts/tpm2_tools_test.sh --no-start
-
-      - name: Stop IBM SW TPM
-        if: always()
-        run: |
-          if [ -f /tmp/tpm_server.pid ]; then
-            kill $(cat /tmp/tpm_server.pid) 2>/dev/null || true
-          fi
+          kill -0 "$TPM_PID"
+          scripts/tpm2_tools_test.sh --no-start
+          rc=$?
+          kill "$TPM_PID" 2>/dev/null || true
+          exit $rc
 
   # ----------------------------------------------------------------
   # fwTPM STM32 emulator test (m33mu Cortex-M33 simulator)
@@ -369,10 +368,13 @@ jobs:
           ref: fwtpm_stm32h5
           path: wolftpm-examples
 
+      # Runs inside the m33mu CI container (already root, no sudo); just make
+      # apt resilient to mirror timeouts.
       - name: Install build dependencies
-        run: |
-          apt-get update -qq
-          apt-get install -y -qq autoconf automake libtool
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: autoconf automake libtool
+          sudo: "false"
 
       - name: Install STM32Cube H5 SDK
         run: |
@@ -427,6 +429,14 @@ jobs:
   fwtpm-valgrind:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # Deps baked into the CI image — no apt mirror on the happy path. The added
+    # caps let the fwtpm tests create a network namespace (unshare --net).
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --cap-add=SYS_ADMIN --cap-add=NET_ADMIN --cap-add=NET_RAW
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -442,11 +452,6 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
-
-      - name: Install valgrind + tpm2-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y valgrind tpm2-tools libtss2-tcti-mssim0
 
       - name: Setup wolfSSL
         uses: ./.github/actions/setup-wolfssl

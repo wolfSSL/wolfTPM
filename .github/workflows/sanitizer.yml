@@ -26,6 +26,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     needs: discover
     runs-on: ubuntu-latest
+    # Host runner: tpm2-tools make-check (activatecredential) hits a tpm2-tools
+    # OpenSSL credential-integrity quirk inside a container, so stay on the host
+    # (where it passes) and just make apt resilient to mirror timeouts.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -102,9 +105,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install tpm2-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tpm2-tools libtss2-tcti-mssim0
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: tpm2-tools libtss2-tcti-mssim0
 
       - name: Setup wolfSSL with ${{ matrix.name }}
         uses: ./.github/actions/setup-wolfssl

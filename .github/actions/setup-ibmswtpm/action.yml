@@ -1,0 +1,94 @@
+name: Setup ibmswtpm2
+description: >-
+  Build (or restore from cache) the IBM SW TPM 2.0 simulator for wolfTPM CI.
+  Resolves the requested ref to a commit so the cache key is stable per
+  upstream commit, restores the previously built ./ibmswtpm2 tree on a hit, and
+  otherwise does a shallow clone + parallel build. The built simulator is left
+  at ./ibmswtpm2/src/tpm_server so callers can launch it (port/lifecycle stay
+  in the workflow, since they differ per job).
+
+inputs:
+  ref:
+    description: ibmswtpm2 git ref (branch, tag, or commit) to build.
+    required: false
+    default: master
+  max-loaded-objects:
+    description: >-
+      When set, patch TpmProfile_Misc.h MAX_LOADED_OBJECTS to this value before
+      building (tpm2-tools ESYS needs extra transient object slots). Empty keeps
+      the upstream default. Folded into the cache key so variants do not collide.
+    required: false
+    default: ""
+  parallel:
+    description: Pass -j$(nproc) to make when "true".
+    required: false
+    default: "true"
+
+outputs:
+  server-path:
+    description: Path to the built tpm_server binary.
+    value: ibmswtpm2/src/tpm_server
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve ibmswtpm2 ${{ inputs.ref }} and compute cache key
+      id: key
+      shell: bash
+      run: |
+        set -eo pipefail
+        # Resolve the ref to a commit so the cache key tracks the upstream tree,
+        # not a moving branch name. ls-remote returns nothing for a raw SHA, in
+        # which case the ref already is the commit.
+        URL=https://github.com/kgoldman/ibmswtpm2.git
+        SHA=$(git ls-remote "$URL" "${{ inputs.ref }}^{}" | awk 'NR==1{print $1}')
+        if [ -z "$SHA" ]; then
+          SHA=$(git ls-remote "$URL" "${{ inputs.ref }}" | awk 'NR==1{print $1}')
+        fi
+        if [ -z "$SHA" ]; then
+          SHA="${{ inputs.ref }}"
+        fi
+        # The MAX_LOADED_OBJECTS patch produces a different binary, so fold it
+        # into the key as a variant suffix (empty -> "default").
+        VARIANT="${{ inputs.max-loaded-objects }}"
+        if [ -z "$VARIANT" ]; then
+          VARIANT="default"
+        else
+          VARIANT="mlo${VARIANT}"
+        fi
+        echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+        echo "cache-key=ibmswtpm2-${{ runner.os }}-${SHA}-${VARIANT}-v1" >> "$GITHUB_OUTPUT"
+        echo "ibmswtpm2 ${{ inputs.ref }} -> $SHA (variant $VARIANT)"
+
+    - name: Restore ibmswtpm2 build cache
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ibmswtpm2
+        key: ${{ steps.key.outputs.cache-key }}
+
+    - name: Build ibmswtpm2 (cache miss)
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eo pipefail
+        rm -rf ibmswtpm2
+        # Fetch the exact resolved commit so the built tree matches the cache
+        # key (GitHub allows fetching any reachable commit).
+        git init -q ibmswtpm2
+        cd ibmswtpm2
+        git remote add origin https://github.com/kgoldman/ibmswtpm2.git
+        git fetch --depth 1 origin "${{ steps.key.outputs.sha }}"
+        git checkout -q --detach FETCH_HEAD
+        cd src
+        if [ -n "${{ inputs.max-loaded-objects }}" ]; then
+          # Increase transient object slots: tpm2-tools ESYS creates transient
+          # salt keys for HMAC sessions which consume extra slots.
+          sed -i 's/#define MAX_LOADED_OBJECTS.*/#define MAX_LOADED_OBJECTS ${{ inputs.max-loaded-objects }}/' \
+              TpmProfile_Misc.h
+        fi
+        if [ "${{ inputs.parallel }}" = "true" ]; then
+          make -j"$(nproc 2>/dev/null || echo 2)"
+        else
+          make
+        fi
