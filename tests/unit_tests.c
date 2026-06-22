@@ -3826,6 +3826,77 @@ static void test_wolfTPM2_SPDM_Functions(void)
 }
 #endif /* WOLFTPM_SPDM */
 
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+/* Craft a key-blob file with a small valid public area and an oversized
+ * private tail, then load it with readKeyBlob(). A canary placed directly
+ * after the keyblob catches any write past it. No TPM is required. */
+static void test_readKeyBlob_PrivOverflow(void)
+{
+    int rc;
+    int pubAreaSize = 0;
+    word32 i;
+    size_t privTailSz, remaining, chunk;
+    UINT16 privSizeMarker;
+    XFILE fp;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    byte filler[64];
+    WOLFTPM2_KEYBLOB tmpl;
+    const char* filename = "keyblob_overflow_test.raw";
+    struct {
+        WOLFTPM2_KEYBLOB key;
+        byte canary[128];
+    } guarded;
+
+    XMEMSET(&tmpl, 0, sizeof(tmpl));
+
+    /* Build a real minimal public area so TPM2_ParsePublic() accepts it and
+     * readKeyBlob proceeds to the private read. */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&tmpl.pub.publicArea,
+        TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, 0);
+    rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+        &pubAreaSize, &tmpl.pub);
+    AssertIntEQ(rc, 0);
+
+    /* Private tail longer than the destination so the pre-fix path, which
+     * reads the whole remaining file into &key->priv, overflows past the
+     * keyblob. Keep the size marker small and valid so the post-read sanity
+     * check passes. */
+    privTailSz = sizeof(guarded.key.priv) + sizeof(filler);
+    privSizeMarker = 32;
+
+    fp = XFOPEN(filename, "wb");
+    AssertNotNull(fp);
+    XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
+    XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
+    XFWRITE(&privSizeMarker, 1, sizeof(privSizeMarker), fp);
+    XMEMSET(filler, 0xAB, sizeof(filler));
+    remaining = privTailSz - sizeof(privSizeMarker);
+    while (remaining > 0) {
+        chunk = (remaining < sizeof(filler)) ? remaining : sizeof(filler);
+        XFWRITE(filler, 1, chunk, fp);
+        remaining -= chunk;
+    }
+    XFCLOSE(fp);
+
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    XMEMSET(guarded.canary, 0x5A, sizeof(guarded.canary));
+
+    rc = readKeyBlob(filename, &guarded.key);
+    (void)rc;
+
+    for (i = 0; i < sizeof(guarded.canary); i++) {
+        AssertIntEQ(guarded.canary[i], 0x5A);
+    }
+
+    remove(filename);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "readKeyBlob priv overflow:");
+}
+#endif
+
 /* Test creating key and exporting keyblob as buffer,
  * importing and loading key. */
 static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
@@ -5251,6 +5322,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
     test_TPM2_GetHashDigestSize_AllAlgs();
+    #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+        !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    test_readKeyBlob_PrivOverflow();
+    #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
