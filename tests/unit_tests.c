@@ -3135,6 +3135,32 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
+/* An oversized inner size on a classic arm must be clamped to the arm buffer
+ * size, matching the PQC arms, so AppendBytes does not over-read the source. */
+static void test_TPM2_AppendSensitive_Clamp(void)
+{
+    TPM2_Packet packet;
+    byte buf[1024];
+    TPM2B_SENSITIVE sens;
+    word16 bufCap;
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    bufCap = (word16)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
+    sens.sensitiveArea.sensitive.rsa.size = bufCap + 100;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+
+    AssertIntEQ(sens.sensitiveArea.sensitive.rsa.size, bufCap);
+
+    printf("Test TPM2:        %-40s Passed\n", "AppendSensitive clamp:");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -5322,6 +5348,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
+    test_TPM2_AppendSensitive_Clamp();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();

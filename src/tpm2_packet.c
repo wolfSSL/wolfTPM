@@ -830,18 +830,26 @@ void TPM2_Packet_AppendSensitive(TPM2_Packet* packet, TPM2B_SENSITIVE* sensitive
 
     switch (sensitive->sensitiveArea.sensitiveType) {
     case TPM_ALG_RSA:
+        if (sens->rsa.size > sizeof(sens->rsa.buffer))
+            sens->rsa.size = sizeof(sens->rsa.buffer);
         TPM2_Packet_AppendU16(packet, sens->rsa.size);
         TPM2_Packet_AppendBytes(packet, sens->rsa.buffer, sens->rsa.size);
         break;
     case TPM_ALG_ECC:
+        if (sens->ecc.size > sizeof(sens->ecc.buffer))
+            sens->ecc.size = sizeof(sens->ecc.buffer);
         TPM2_Packet_AppendU16(packet, sens->ecc.size);
         TPM2_Packet_AppendBytes(packet, sens->ecc.buffer, sens->ecc.size);
         break;
     case TPM_ALG_KEYEDHASH:
+        if (sens->bits.size > sizeof(sens->bits.buffer))
+            sens->bits.size = sizeof(sens->bits.buffer);
         TPM2_Packet_AppendU16(packet, sens->bits.size);
         TPM2_Packet_AppendBytes(packet, sens->bits.buffer, sens->bits.size);
         break;
     case TPM_ALG_SYMCIPHER:
+        if (sens->sym.size > sizeof(sens->sym.buffer))
+            sens->sym.size = sizeof(sens->sym.buffer);
         TPM2_Packet_AppendU16(packet, sens->sym.size);
         TPM2_Packet_AppendBytes(packet, sens->sym.buffer, sens->sym.size);
         break;
