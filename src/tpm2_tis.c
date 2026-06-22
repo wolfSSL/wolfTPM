@@ -203,6 +203,8 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 
     XMEMCPY(result, &rxBuf[TPM_TIS_HEADER_SZ], len);
+    TPM2_ForceZero(txBuf, sizeof(txBuf));
+    TPM2_ForceZero(rxBuf, sizeof(rxBuf));
 #endif
     TPM2_TIS_UNLOCK();
 #ifdef WOLFTPM_DEBUG_IO
@@ -243,6 +245,8 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
+    TPM2_ForceZero(txBuf, sizeof(txBuf));
+    TPM2_ForceZero(rxBuf, sizeof(rxBuf));
 #endif
     TPM2_TIS_UNLOCK();
 #ifdef WOLFTPM_DEBUG_IO
