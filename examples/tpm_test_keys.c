@@ -255,7 +255,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             if (bytes_read != sizeof(key->priv.size)) {
                 printf("Read %zu, expected private size marker of %zu bytes\n",
                     bytes_read, sizeof(key->priv.size));
-                goto exit;
+                rc = BUFFER_E; goto exit;
             }
             if (key->priv.size > sizeof(key->priv.buffer)) {
                 printf("Private key size is too large\n");
@@ -265,7 +265,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             if (bytes_read != key->priv.size) {
                 printf("Read %zu, expected private blob %zu bytes\n",
                     bytes_read, (size_t)key->priv.size);
-                goto exit;
+                rc = BUFFER_E; goto exit;
             }
             rc = 0; /* success */
         }

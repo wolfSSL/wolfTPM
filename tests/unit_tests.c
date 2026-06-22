@@ -3203,7 +3203,8 @@ static void test_TPM2_ParsePublic_EmptyClears(void)
 }
 
 /* An oversized inner size on a classic arm must be clamped to the arm buffer
- * size, matching the PQC arms, so AppendBytes does not over-read the source. */
+ * size, matching the PQC arms, so AppendBytes does not over-read the source.
+ * Each arm has its own buffer member so all four are exercised. */
 static void test_TPM2_AppendSensitive_Clamp(void)
 {
     TPM2_Packet packet;
@@ -3991,6 +3992,7 @@ static void test_readKeyBlob_PrivOverflow(void)
     word32 i;
     size_t privTailSz, remaining, chunk;
     UINT16 privSizeMarker;
+    UINT16 bigMarker;
     XFILE fp;
     byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
     byte filler[64];
@@ -4044,6 +4046,31 @@ static void test_readKeyBlob_PrivOverflow(void)
         AssertIntEQ(guarded.canary[i], 0x5A);
     }
 
+    remove(filename);
+
+    /* Rejection branch: priv.size marker larger than the destination buffer
+     * must be refused with BUFFER_E before any bytes are read. */
+    bigMarker = (UINT16)(sizeof(guarded.key.priv.buffer) + 1);
+    fp = XFOPEN(filename, "wb");
+    AssertNotNull(fp);
+    XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
+    XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
+    XFWRITE(&bigMarker, 1, sizeof(bigMarker), fp);
+    XFCLOSE(fp);
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    rc = readKeyBlob(filename, &guarded.key);
+    AssertIntEQ(rc, BUFFER_E);
+    remove(filename);
+
+    /* Rejection branch: pub.size marker larger than the public area buffer. */
+    bigMarker = (UINT16)sizeof(pubAreaBuffer);
+    fp = XFOPEN(filename, "wb");
+    AssertNotNull(fp);
+    XFWRITE(&bigMarker, 1, sizeof(bigMarker), fp);
+    XFCLOSE(fp);
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    rc = readKeyBlob(filename, &guarded.key);
+    AssertIntEQ(rc, BUFFER_E);
     remove(filename);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "readKeyBlob priv overflow:");
