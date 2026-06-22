@@ -555,12 +555,14 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = TPM2_Packet_SwapU32(tss_word);
-        rc = TPM2_SwtpmValidateRspSz(packet->size, rspSz);
-        if (rc != TPM_RC_SUCCESS) {
-            #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("Response size(%u) out of range (header=%d, buf=%d)\n",
-                   rspSz, TPM2_HEADER_SIZE, packet->size);
-            #endif
+        if (rc == TPM_RC_SUCCESS) {
+            rc = TPM2_SwtpmValidateRspSz(packet->size, rspSz);
+            if (rc != TPM_RC_SUCCESS) {
+                #ifdef WOLFTPM_DEBUG_VERBOSE
+                printf("Response size(%u) out of range (header=%d, buf=%d)\n",
+                       rspSz, TPM2_HEADER_SIZE, packet->size);
+                #endif
+            }
         }
     }
 
