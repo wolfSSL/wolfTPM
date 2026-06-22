@@ -377,7 +377,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
 
     /* Extra step for open-drain with pull-up mode */
     if (gpioMode == TPM_GPIO_MODE_PULLUP) {
-        newConfig.GpioPullUp &= ~(1 << gpioNum);
+        newConfig.GpioPullUp |= (1 << gpioNum);
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
