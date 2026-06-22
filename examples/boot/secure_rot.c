@@ -252,6 +252,9 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
     if (rc == 0) {
         digestSz = nvPublic.dataSize;
+        if (digestSz > (int)sizeof(digest)) {
+            digestSz = (int)sizeof(digest);
+        }
     }
 
     /* Read access */
