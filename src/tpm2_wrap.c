@@ -9199,6 +9199,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
     TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
+    TPM2_ForceZero(&createOut.outPrivate, sizeof(createOut.outPrivate));
 
     return rc;
 }
