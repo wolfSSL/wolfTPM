@@ -35,6 +35,10 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[]);
 int TPM2_Wrapper_Hmac(void* userCtx);
 int TPM2_Wrapper_HmacArgs(void* userCtx, int argc, char *argv[]);
 
+int TPM2_GetRandom_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_Hash_Example(void* userCtx, int argc, char *argv[]);
+int TPM2_EncryptDecrypt_Example(void* userCtx, int argc, char *argv[]);
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif
