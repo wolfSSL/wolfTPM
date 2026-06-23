@@ -2515,6 +2515,92 @@ static void test_wolfTPM2_VerifyHashTicket_DigestSize(void)
 #endif
 }
 
+/* Transparent TPM_RC_RETRY resubmit is configurable. Verify the default seeded
+ * by init, the setter/getter round-trip, and rejection of bad arguments. */
+static void test_wolfTPM2_CommandRetries(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+
+    rc = wolfTPM2_SetCommandRetries(NULL, 1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_GetCommandRetries(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SetCommandRetries(&dev, -1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* retries is seeded before any HAL IO setup, so the default holds even on
+     * builds without a default IO callback where init returns an error */
+    (void)TPM2_Init_minimal(&dev.ctx);
+    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), WOLFTPM_MAX_RETRIES);
+
+    rc = wolfTPM2_SetCommandRetries(&dev, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), 0);
+
+    rc = wolfTPM2_SetCommandRetries(&dev, 7);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), 7);
+
+    TPM2_Cleanup(&dev.ctx);
+
+    printf("Test TPM Wrapper:\tCommandRetries config:\t\tPassed\n");
+}
+
+/* Exercise the TPM_RC_RETRY resubmit bookkeeping directly: header/size restore,
+ * command-body preservation, retry-count decrement, and surfacing TPM_RC_RETRY
+ * once the count is exhausted - the parts of the loop most likely to regress. */
+static void test_TPM2_Packet_RetryRestore(void)
+{
+    TPM2_Packet packet;
+    byte buf[TPM2_HEADER_SIZE + 4];
+    byte hdr[TPM2_HEADER_SIZE];
+    int retries;
+
+    XMEMSET(hdr, 0xAA, sizeof(hdr));
+    XMEMSET(buf, 0x00, sizeof(buf));
+    buf[TPM2_HEADER_SIZE] = 0xBB; /* command body byte, must survive a resend */
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = TPM2_HEADER_SIZE; /* shrunk by a prior TPM2_Packet_Parse */
+
+    /* A non-retry response must not resubmit and must leave state untouched */
+    retries = 2;
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_SUCCESS, &retries, &packet,
+        hdr, (int)sizeof(buf)), 0);
+    AssertIntEQ(retries, 2);
+    AssertIntEQ(packet.size, TPM2_HEADER_SIZE);
+
+    /* RETRY with budget: resubmit, header + size restored, body preserved */
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_RETRY, &retries, &packet,
+        hdr, (int)sizeof(buf)), 1);
+    AssertIntEQ(retries, 1);
+    AssertIntEQ(packet.size, (int)sizeof(buf));
+    AssertIntEQ(buf[0], 0xAA);
+    AssertIntEQ(buf[TPM2_HEADER_SIZE], 0xBB);
+
+    /* Second RETRY exhausts the budget */
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_RETRY, &retries, &packet,
+        hdr, (int)sizeof(buf)), 1);
+    AssertIntEQ(retries, 0);
+
+    /* Budget exhausted: RETRY is surfaced to the caller, no resubmit */
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_RETRY, &retries, &packet,
+        hdr, (int)sizeof(buf)), 0);
+    AssertIntEQ(retries, 0);
+
+    /* NULL guards */
+    retries = 1;
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_RETRY, NULL, &packet,
+        hdr, (int)sizeof(buf)), 0);
+    AssertIntEQ(TPM2_Packet_RetryRestore(TPM_RC_RETRY, &retries, NULL,
+        hdr, (int)sizeof(buf)), 0);
+
+    printf("Test TPM Wrapper:\tRetryRestore logic:\t\tPassed\n");
+}
+
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
  * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
@@ -5699,6 +5785,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetKeyTemplate_ex_nameAlg();
     test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_VerifyHashTicket_DigestSize();
+    test_wolfTPM2_CommandRetries();
+    test_TPM2_Packet_RetryRestore();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();

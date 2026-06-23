@@ -750,6 +750,22 @@ int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev)
     return (int)dev->ctx.did_vid; /* return something besides INVALID_DEVID */
 }
 
+int wolfTPM2_SetCommandRetries(WOLFTPM2_DEV* dev, int retries)
+{
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return TPM2_SetCommandRetries(&dev->ctx, retries);
+}
+
+int wolfTPM2_GetCommandRetries(WOLFTPM2_DEV* dev)
+{
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    return TPM2_GetCommandRetries(&dev->ctx);
+}
+
 int wolfTPM2_SelfTest(WOLFTPM2_DEV* dev)
 {
     int rc;

@@ -571,6 +571,18 @@ typedef int64_t  INT64;
 #define TPM_SPI_WAIT_RETRY 50
 #endif
 
+/* Number of times to transparently resubmit a command on TPM_RC_RETRY.
+ * The TPM returns TPM_RC_RETRY when momentarily busy (e.g. persisting the
+ * daUsed flag on first auth use of a non-noDA key). Set to 0, or define
+ * WOLFTPM_NO_RETRY, to disable and pass TPM_RC_RETRY back to the caller. */
+#ifdef WOLFTPM_NO_RETRY
+    #undef  WOLFTPM_MAX_RETRIES
+    #define WOLFTPM_MAX_RETRIES 0
+#endif
+#ifndef WOLFTPM_MAX_RETRIES
+#define WOLFTPM_MAX_RETRIES 3
+#endif
+
 #ifndef MAX_SYM_BLOCK_SIZE
 #define MAX_SYM_BLOCK_SIZE 20
 #endif
