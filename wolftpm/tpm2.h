@@ -3782,7 +3782,7 @@ WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCt
 /*!
     \ingroup TPM2_Proprietary
     \brief Sets the number of times a command is transparently resubmitted on TPM_RC_RETRY
-    \brief The TPM returns TPM_RC_RETRY when momentarily busy (for example persisting the daUsed flag on first auth use of a non-noDA key). Defaults to WOLFTPM_MAX_RETRIES; set to 0 to disable and have TPM_RC_RETRY returned to the caller.
+    \brief The TPM returns TPM_RC_RETRY when momentarily busy (for example persisting the daUsed flag on first auth use of a non-noDA key). Disabled by default (WOLFTPM_MAX_RETRIES is 0); pass a count > 0 to enable transparent resubmit. A count of 0 returns TPM_RC_RETRY to the caller.
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: the TPM2 context is NULL or retries is negative
