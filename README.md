@@ -363,6 +363,8 @@ WOLFTPM2_USE_SW_ECDHE   Disables use of TPM for ECC ephemeral key generation and
 WOLFTPM2_ECC_DEFAULT_CURVE  Default ECC curve for wrapper key templates that request P256 (SRK/AIK/general ECC). Defaults to TPM_ECC_NIST_P256, or the smallest enabled curve meeting ECC_MIN_KEY_SZ. Override e.g. -DWOLFTPM2_ECC_DEFAULT_CURVE=TPM_ECC_NIST_P384.
 TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
+WOLFTPM_MAX_RETRIES     Number of times a command is transparently resubmitted when the TPM returns TPM_RC_RETRY (momentarily busy, e.g. persisting the daUsed flag on first auth use of a non-noDA AIK/SUDI key). Defaults to 3. Adjust at runtime with TPM2_SetCommandRetries().
+WOLFTPM_NO_RETRY        Compiles out the TPM_RC_RETRY auto-resubmit handling; TPM_RC_RETRY is returned to the caller for manual handling.
 ```
 
 Note: For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:

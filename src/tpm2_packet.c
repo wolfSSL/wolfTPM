@@ -1625,6 +1625,7 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_RETRY
 int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries, TPM2_Packet* packet,
     const byte* cmdHdr, int origSize)
 {
@@ -1639,6 +1640,7 @@ int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries, TPM2_Packet* packet,
     packet->size = origSize;
     return 1;
 }
+#endif /* !WOLFTPM_NO_RETRY */
 
 int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
 {

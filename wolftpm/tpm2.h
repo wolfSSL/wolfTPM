@@ -2230,8 +2230,10 @@ typedef struct TPM2_CTX {
     unsigned int spdmOnlyDetected:1; /* TPM_RC_DISABLED from Startup */
 #endif
 
+#ifndef WOLFTPM_NO_RETRY
     /* Additional resubmit attempts on TPM_RC_RETRY (0 disables) */
     int retries;
+#endif
 } TPM2_CTX;
 
 
@@ -3776,6 +3778,7 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
 */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
 
+#ifndef WOLFTPM_NO_RETRY
 /*!
     \ingroup TPM2_Proprietary
     \brief Sets the number of times a command is transparently resubmitted on TPM_RC_RETRY
@@ -3788,7 +3791,6 @@ WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCt
     \param retries number of additional resubmit attempts on TPM_RC_RETRY (0 disables)
 
     \sa TPM2_GetCommandRetries
-    \sa wolfTPM2_SetCommandRetries
 */
 WOLFTPM_API TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries);
 
@@ -3802,9 +3804,9 @@ WOLFTPM_API TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries);
     \param ctx pointer to a TPM2_CTX struct
 
     \sa TPM2_SetCommandRetries
-    \sa wolfTPM2_SetCommandRetries
 */
 WOLFTPM_API int TPM2_GetCommandRetries(TPM2_CTX* ctx);
+#endif /* !WOLFTPM_NO_RETRY */
 
 /*!
     \ingroup TPM2_Proprietary

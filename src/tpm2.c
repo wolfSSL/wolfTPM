@@ -735,6 +735,7 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_RETRY
 TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries)
 {
     TPM_RC rc;
@@ -761,6 +762,7 @@ int TPM2_GetCommandRetries(TPM2_CTX* ctx)
     /* atomic int read, no lock needed; the setter takes the lock */
     return ctx->retries;
 }
+#endif /* !WOLFTPM_NO_RETRY */
 
 /* If timeoutTries <= 0 then it will not try and startup chip and will
  * use existing default locality */
@@ -775,7 +777,9 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
+#ifndef WOLFTPM_NO_RETRY
     ctx->retries = WOLFTPM_MAX_RETRIES;
+#endif
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_WolfCrypt_Init();

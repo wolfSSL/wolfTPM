@@ -343,34 +343,6 @@ WOLFTPM_API int wolfTPM2_GetTpmDevId(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
-    \brief Sets the number of times a command is transparently resubmitted on TPM_RC_RETRY
-    \brief The TPM returns TPM_RC_RETRY when momentarily busy (for example persisting the daUsed flag on first auth use of a non-noDA key such as an AIK or SUDI key). wolfTPM resends the identical command up to this many times. Defaults to WOLFTPM_MAX_RETRIES; set to 0 to disable and have TPM_RC_RETRY returned to the caller.
-
-    \return TPM_RC_SUCCESS: successful
-    \return BAD_FUNC_ARG: dev is NULL or retries is negative
-
-    \param dev pointer to a populated structure of WOLFTPM2_DEV type
-    \param retries number of additional resubmit attempts on TPM_RC_RETRY (0 disables)
-
-    \sa wolfTPM2_GetCommandRetries
-*/
-WOLFTPM_API int wolfTPM2_SetCommandRetries(WOLFTPM2_DEV* dev, int retries);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
-    \brief Returns the number of times a command is transparently resubmitted on TPM_RC_RETRY
-
-    \return the configured retry count on success
-    \return BAD_FUNC_ARG: dev is a NULL pointer
-
-    \param dev pointer to a populated structure of WOLFTPM2_DEV type
-
-    \sa wolfTPM2_SetCommandRetries
-*/
-WOLFTPM_API int wolfTPM2_GetCommandRetries(WOLFTPM2_DEV* dev);
-
-/*!
-    \ingroup wolfTPM2_Wrappers
     \brief Asks the TPM to perform its self test
 
     \return TPM_RC_SUCCESS: successful

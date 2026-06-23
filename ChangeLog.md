@@ -31,9 +31,9 @@
   resubmitted when the TPM reports it is momentarily busy (for example
   persisting the daUsed flag on first auth use of a non-noDA AIK/SUDI key),
   matching the TCG ESYS behavior. Resubmit count defaults to `WOLFTPM_MAX_RETRIES`
-  (3) and is configurable at runtime via `wolfTPM2_SetCommandRetries` /
-  `TPM2_SetCommandRetries`; define `WOLFTPM_NO_RETRY` or set the count to 0 to
-  disable and return `TPM_RC_RETRY` to the caller.
+  (3) and is configurable at runtime via `TPM2_SetCommandRetries`; define
+  `WOLFTPM_NO_RETRY` or set the count to 0 to disable and return `TPM_RC_RETRY`
+  to the caller.
 
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 

@@ -2515,34 +2515,35 @@ static void test_wolfTPM2_VerifyHashTicket_DigestSize(void)
 #endif
 }
 
+#ifndef WOLFTPM_NO_RETRY
 /* Transparent TPM_RC_RETRY resubmit is configurable. Verify the default seeded
  * by init, the setter/getter round-trip, and rejection of bad arguments. */
-static void test_wolfTPM2_CommandRetries(void)
+static void test_TPM2_CommandRetries(void)
 {
     int rc;
     WOLFTPM2_DEV dev;
 
     XMEMSET(&dev, 0, sizeof(dev));
 
-    rc = wolfTPM2_SetCommandRetries(NULL, 1);
+    rc = TPM2_SetCommandRetries(NULL, 1);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    rc = wolfTPM2_GetCommandRetries(NULL);
+    rc = TPM2_GetCommandRetries(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
-    rc = wolfTPM2_SetCommandRetries(&dev, -1);
+    rc = TPM2_SetCommandRetries(&dev.ctx, -1);
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
     /* retries is seeded before any HAL IO setup, so the default holds even on
      * builds without a default IO callback where init returns an error */
     (void)TPM2_Init_minimal(&dev.ctx);
-    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), WOLFTPM_MAX_RETRIES);
+    AssertIntEQ(TPM2_GetCommandRetries(&dev.ctx), WOLFTPM_MAX_RETRIES);
 
-    rc = wolfTPM2_SetCommandRetries(&dev, 0);
+    rc = TPM2_SetCommandRetries(&dev.ctx, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), 0);
+    AssertIntEQ(TPM2_GetCommandRetries(&dev.ctx), 0);
 
-    rc = wolfTPM2_SetCommandRetries(&dev, 7);
+    rc = TPM2_SetCommandRetries(&dev.ctx, 7);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(wolfTPM2_GetCommandRetries(&dev), 7);
+    AssertIntEQ(TPM2_GetCommandRetries(&dev.ctx), 7);
 
     TPM2_Cleanup(&dev.ctx);
 
@@ -2600,6 +2601,7 @@ static void test_TPM2_Packet_RetryRestore(void)
 
     printf("Test TPM Wrapper:\tRetryRestore logic:\t\tPassed\n");
 }
+#endif /* !WOLFTPM_NO_RETRY */
 
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
@@ -5785,8 +5787,10 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetKeyTemplate_ex_nameAlg();
     test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_VerifyHashTicket_DigestSize();
-    test_wolfTPM2_CommandRetries();
+#ifndef WOLFTPM_NO_RETRY
+    test_TPM2_CommandRetries();
     test_TPM2_Packet_RetryRestore();
+#endif
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();
