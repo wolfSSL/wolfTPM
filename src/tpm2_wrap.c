@@ -2943,6 +2943,7 @@ int wolfTPM2_CreateKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
     TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
+    TPM2_ForceZero(&createOut.outPrivate, sizeof(createOut.outPrivate));
     return rc;
 }
 
@@ -3088,6 +3089,8 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
 
     TPM2_ForceZero(&createLoadedIn.inSensitive,
         sizeof(createLoadedIn.inSensitive));
+    TPM2_ForceZero(&createLoadedOut.outPrivate,
+        sizeof(createLoadedOut.outPrivate));
     return rc;
 }
 
@@ -9196,6 +9199,7 @@ int wolfTPM2_CreateKeySeal_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     wolfTPM2_CopyPriv(&keyBlob->priv, &createOut.outPrivate);
 
     TPM2_ForceZero(&createIn.inSensitive, sizeof(createIn.inSensitive));
+    TPM2_ForceZero(&createOut.outPrivate, sizeof(createOut.outPrivate));
 
     return rc;
 }

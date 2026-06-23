@@ -24,10 +24,10 @@
  * (SignSequenceComplete), Sec.17.6 (VerifySequenceStart), Sec.20.3
  * (VerifySequenceComplete).
  *
- * Pure ML-DSA is one-shot on the sign path: SequenceUpdate is rejected
- * with TPM_RC_ONE_SHOT_SIGNATURE, the full message must arrive via the
- * SignSequenceComplete buffer. Verify sequences do accept Update per
- * Sec.20.3 and this example uses that path to exercise both idioms. */
+ * Pure ML-DSA is streamable on both sign and verify: SequenceUpdate is
+ * accepted (only multi-pass schemes such as EdDSA are one-shot). This
+ * example passes the whole message via SignSequenceComplete on sign and
+ * streams it through SequenceUpdate on verify to exercise both idioms. */
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>
@@ -144,9 +144,8 @@ static int mldsa_sign_run(int argc, char *argv[])
         (unsigned)mldsaKey.handle.hndl,
         (unsigned)mldsaKey.pub.publicArea.unique.mldsa.size);
 
-    /* Sign: Pure ML-DSA is one-shot per Sec.17.5. Message goes via
-     * SignSequenceComplete's buffer parameter, not via SequenceUpdate
-     * (which returns TPM_RC_ONE_SHOT_SIGNATURE for Pure MLDSA keys). */
+    /* Sign: pass the whole message via SignSequenceComplete's buffer.
+     * Pure ML-DSA also accepts SequenceUpdate since it is streamable. */
     rc = wolfTPM2_SignSequenceStart(&dev, &mldsaKey, NULL, 0, &seqHandle);
     if (rc != TPM_RC_SUCCESS) {
         printf("SignSequenceStart failed 0x%x: %s\n",

@@ -224,7 +224,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
             goto exit;
         }
         fileSz -= bytes_read;
-        if (key->pub.size > sizeof(UINT16) + sizeof(pubAreaBuffer)) {
+        if (sizeof(UINT16) + key->pub.size > sizeof(pubAreaBuffer)) {
             printf("Public key size is too large\n");
             rc = BUFFER_E; goto exit;
         }
@@ -249,11 +249,23 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
 
         if (fileSz > 0) {
             printf("Reading the private part of the key\n");
-            bytes_read = XFREAD(&key->priv, 1, fileSz, fp);
-            if (bytes_read != fileSz) {
+            /* Read and validate the size marker before the buffer so a
+             * crafted file cannot overflow priv */
+            bytes_read = XFREAD(&key->priv.size, 1, sizeof(key->priv.size), fp);
+            if (bytes_read != sizeof(key->priv.size)) {
+                printf("Read %zu, expected private size marker of %zu bytes\n",
+                    bytes_read, sizeof(key->priv.size));
+                rc = BUFFER_E; goto exit;
+            }
+            if (key->priv.size > sizeof(key->priv.buffer)) {
+                printf("Private key size is too large\n");
+                rc = BUFFER_E; goto exit;
+            }
+            bytes_read = XFREAD(key->priv.buffer, 1, key->priv.size, fp);
+            if (bytes_read != key->priv.size) {
                 printf("Read %zu, expected private blob %zu bytes\n",
-                    bytes_read, fileSz);
-                goto exit;
+                    bytes_read, (size_t)key->priv.size);
+                rc = BUFFER_E; goto exit;
             }
             rc = 0; /* success */
         }

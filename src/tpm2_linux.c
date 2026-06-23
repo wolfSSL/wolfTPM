@@ -92,15 +92,19 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 #include <string.h>
 
 /* TPM Device Path Configuration:
- * - /dev/tpm0: TPM raw device (default)
- * - /dev/tpmrm0: TPM resource manager (requires kernel 5.12+)
- *                Enabled with WOLFTPM_USE_TPMRM
+ * - /dev/tpmrm0: TPM resource manager (requires kernel 5.12+), preferred as it
+ *                isolates and flushes per-connection transient objects/sessions
+ * - /dev/tpm0: TPM raw device, no in-kernel resource management
+ * The default prefers the resource manager and falls back to the raw device
+ * when it is unavailable. Define WOLFTPM_USE_TPMRM for resource manager only,
+ * or set TPM2_LINUX_DEV to pin a specific device.
  */
 #ifndef TPM2_LINUX_DEV
 #ifdef WOLFTPM_USE_TPMRM
     #define TPM2_LINUX_DEV "/dev/tpmrm0"
 #else
-    #define TPM2_LINUX_DEV "/dev/tpm0"
+    #define TPM2_LINUX_DEV "/dev/tpmrm0"
+    #define TPM2_LINUX_DEV_FALLBACK "/dev/tpm0"
 #endif
 #endif
 
@@ -121,14 +125,23 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     int rc_poll, nfds = 1; /* Polling single TPM dev file */
     struct pollfd fds;
     int rspSz = 0;
+    const char* devName = TPM2_LINUX_DEV;
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("Command size: %d\n", packet->pos);
     TPM2_PrintBin(packet->buf, packet->pos);
 #endif
 
-    if (ctx->fd < 0)
+    if (ctx->fd < 0) {
         ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
+#ifdef TPM2_LINUX_DEV_FALLBACK
+        if (ctx->fd < 0) {
+            ctx->fd = open(TPM2_LINUX_DEV_FALLBACK, O_RDWR | O_NONBLOCK);
+            if (ctx->fd >= 0)
+                devName = TPM2_LINUX_DEV_FALLBACK;
+        }
+#endif
+    }
     if (ctx->fd >= 0) {
         /* Send the TPM command */
         if (write(ctx->fd, packet->buf, packet->pos) == packet->pos) {
@@ -147,11 +160,11 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
                 else {
                 #ifdef DEBUG_WOLFTPM
                     if (ret == 0) {
-                        printf("Received EOF from %s\n", TPM2_LINUX_DEV);
+                        printf("Received EOF from %s\n", devName);
                     }
                     else {
                         printf("Failed to read from %s (ret %zd):"
-                            " errno %d = %s\n", TPM2_LINUX_DEV, ret,
+                            " errno %d = %s\n", devName, ret,
                             errno, strerror(errno));
                     }
                 #endif
@@ -161,7 +174,7 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             else {
             #ifdef DEBUG_WOLFTPM
                 printf("Failed poll on %s: errno %d = %s\n",
-                    TPM2_LINUX_DEV, errno, strerror(errno));
+                    devName, errno, strerror(errno));
             #endif
                 rc = TPM_RC_FAILURE;
             }
@@ -169,19 +182,19 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         else {
         #ifdef DEBUG_WOLFTPM
             printf("Failed write to %s: errno %d = %s\n",
-                TPM2_LINUX_DEV, errno, strerror(errno));
+                devName, errno, strerror(errno));
         #endif
             rc = TPM_RC_FAILURE;
         }
     }
     else if (ctx->fd == -1 && errno == EACCES) {
         printf("Permission denied on %s\n"
-            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV);
+            "Use sudo or add tss group to user.\n", devName);
     }
     else {
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open %s: errno %d = %s\n",
-            TPM2_LINUX_DEV, errno, strerror(errno));
+            devName, errno, strerror(errno));
     #endif
     }
 

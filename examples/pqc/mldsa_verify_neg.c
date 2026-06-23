@@ -163,7 +163,7 @@ static int mldsa_verify_neg_run(int argc, char *argv[])
         goto exit;
     }
 
-    /* Sign the message (Pure ML-DSA is one-shot via Complete's buffer). */
+    /* Sign the message via Complete's buffer (Pure ML-DSA is streamable). */
     rc = wolfTPM2_SignSequenceStart(&dev, &mldsaKey, NULL, 0, &seqHandle);
     if (rc == TPM_RC_SUCCESS) {
         rc = wolfTPM2_SignSequenceComplete(&dev, seqHandle, &mldsaKey,

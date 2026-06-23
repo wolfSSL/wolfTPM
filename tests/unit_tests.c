@@ -29,6 +29,9 @@
 #include <wolftpm/tpm2_wrap.h>
 #include <wolftpm/tpm2_param_enc.h>
 #include <wolftpm/tpm2_asn.h>
+#include <wolftpm/tpm2_swtpm.h>
+#include <wolftpm/tpm2_tis.h>
+#include <wolftpm/tpm2_spdm.h>
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -36,6 +39,9 @@
 #include <examples/wrap/wrap_test.h>
 
 #include <stdio.h>
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+#include <fcntl.h>
+#endif
 
 /* Test Fail Helpers */
 #ifndef NO_ABORT
@@ -3134,6 +3140,161 @@ static void test_TPM2_Sensitive_Roundtrip(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "Sensitive roundtrip:");
 }
 
+#ifdef WOLFTPM_SPDM
+/* Pin the rxBuf bound in the SPDM I/O callbacks: a response larger than the
+ * caller buffer must be rejected even when it fits the local I/O buffer. */
+static void test_wolfTPM2_SPDM_ValidateRspSz(void)
+{
+    word32 ioBufSz = MAX_RESPONSE_SIZE;
+    word32 rxSz = 256;
+
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(rxSz, rxSz, ioBufSz), 0);
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(rxSz + 1, rxSz, ioBufSz), -1);
+    AssertIntEQ(wolfTPM2_SPDM_ValidateRspSz(ioBufSz + 1, ioBufSz, ioBufSz), -1);
+
+    printf("Test TPM2:        %-40s Passed\n", "SPDM ValidateRspSz:");
+}
+#endif /* WOLFTPM_SPDM */
+
+/* Pin the TIS response-size bounds so a mutation dropping the buffer-bound or
+ * the MAX_RESPONSE_SIZE term is caught. */
+static void test_TPM2_TIS_ValidateRspSz(void)
+{
+    int packetSize = 1024;
+
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(TPM2_HEADER_SIZE, packetSize),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(packetSize, packetSize),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(packetSize + 1, packetSize),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(MAX_RESPONSE_SIZE, MAX_RESPONSE_SIZE),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_TIS_ValidateRspSz(-1, packetSize),
+        TPM_RC_FAILURE);
+
+    printf("Test TPM2:        %-40s Passed\n", "TIS ValidateRspSz:");
+}
+
+/* A zero-size TPM2B_PUBLIC must clear publicArea so stale fields from a reused
+ * struct cannot survive a parse. */
+static void test_TPM2_ParsePublic_EmptyClears(void)
+{
+    TPM2_Packet packet;
+    byte buf[8];
+    TPM2B_PUBLIC pub;
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_RSA;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.objectAttributes = 0xFFFFFFFFUL;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_ParsePublic(&packet, &pub);
+
+    AssertIntEQ(pub.size, 0);
+    AssertIntEQ(pub.publicArea.type, 0);
+    AssertIntEQ(pub.publicArea.nameAlg, 0);
+    AssertIntEQ(pub.publicArea.objectAttributes, 0);
+
+    printf("Test TPM2:        %-40s Passed\n", "ParsePublic empty clears:");
+}
+
+/* An oversized inner size on a classic arm must be clamped to the arm buffer
+ * size, matching the PQC arms, so AppendBytes does not over-read the source.
+ * Each arm has its own buffer member so all four are exercised. */
+static void test_TPM2_AppendSensitive_Clamp(void)
+{
+    TPM2_Packet packet;
+    byte buf[1024];
+    TPM2B_SENSITIVE sens;
+    word16 rsaCap, eccCap, bitsCap, symCap;
+
+    rsaCap = (word16)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
+    eccCap = (word16)sizeof(sens.sensitiveArea.sensitive.ecc.buffer);
+    bitsCap = (word16)sizeof(sens.sensitiveArea.sensitive.bits.buffer);
+    symCap = (word16)sizeof(sens.sensitiveArea.sensitive.sym.buffer);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    sens.sensitiveArea.sensitive.rsa.size = rsaCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.rsa.size, rsaCap);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_ECC;
+    sens.sensitiveArea.sensitive.ecc.size = eccCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.ecc.size, eccCap);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_KEYEDHASH;
+    sens.sensitiveArea.sensitive.bits.size = bitsCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.bits.size, bitsCap);
+
+    XMEMSET(&sens, 0, sizeof(sens));
+    sens.sensitiveArea.sensitiveType = TPM_ALG_SYMCIPHER;
+    sens.sensitiveArea.sensitive.sym.size = symCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendSensitive(&packet, &sens);
+    AssertIntEQ(sens.sensitiveArea.sensitive.sym.size, symCap);
+
+    printf("Test TPM2:        %-40s Passed\n", "AppendSensitive clamp:");
+}
+
+/* Roundtrip a maximum-size inner payload (size == buffer capacity) so the
+ * parse-side ParseU16Buf clamp branch is exercised with valid data. */
+static void test_TPM2_Sensitive_MaxRoundtrip(void)
+{
+    TPM2_Packet packet;
+    byte buf[1024];
+    TPM2B_SENSITIVE sensIn, sensOut;
+    word16 cap, i;
+
+    XMEMSET(&sensIn, 0, sizeof(sensIn));
+    sensIn.sensitiveArea.sensitiveType = TPM_ALG_RSA;
+    cap = (word16)sizeof(sensIn.sensitiveArea.sensitive.rsa.buffer);
+    sensIn.sensitiveArea.sensitive.rsa.size = cap;
+    for (i = 0; i < cap; i++) {
+        sensIn.sensitiveArea.sensitive.rsa.buffer[i] = (byte)(i & 0xFF);
+    }
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSensitive(&packet, &sensIn);
+
+    packet.pos = 0;
+    XMEMSET(&sensOut, 0, sizeof(sensOut));
+    TPM2_Packet_ParseSensitive(&packet, &sensOut);
+
+    AssertIntEQ(sensOut.sensitiveArea.sensitiveType, TPM_ALG_RSA);
+    AssertIntEQ(sensOut.sensitiveArea.sensitive.rsa.size, cap);
+    AssertIntEQ(XMEMCMP(sensOut.sensitiveArea.sensitive.rsa.buffer,
+        sensIn.sensitiveArea.sensitive.rsa.buffer, cap), 0);
+
+    printf("Test TPM2:        %-40s Passed\n", "Sensitive max roundtrip:");
+}
+
 static void test_KeySealTemplate(void)
 {
     int rc;
@@ -3825,6 +3986,141 @@ static void test_wolfTPM2_SPDM_Functions(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "SPDM Functions:");
 }
 #endif /* WOLFTPM_SPDM */
+
+#ifdef WOLFTPM_SWTPM
+/* Pin the swtpm response-size bounds so a mutation dropping either the
+ * lower (header) or upper (buffer) bound is caught. */
+static void test_TPM2_SwtpmValidateRspSz(void)
+{
+    int packetSize = 4096;
+
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, TPM2_HEADER_SIZE),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, (uint32_t)packetSize),
+        TPM_RC_SUCCESS);
+
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, TPM2_HEADER_SIZE - 1),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, (uint32_t)packetSize + 1),
+        TPM_RC_FAILURE);
+    AssertIntEQ(TPM2_SwtpmValidateRspSz(packetSize, 0xFFFFFFFFUL),
+        TPM_RC_FAILURE);
+
+    printf("Test TPM2:        %-40s Passed\n", "Swtpm ValidateRspSz:");
+}
+#endif /* WOLFTPM_SWTPM */
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+/* Create a temp file for writing with owner-only permissions, so the test
+ * does not leave a world-writable file as plain fopen("wb") would. */
+static XFILE openTestFileWrite(const char* fn)
+{
+#if defined(__linux__) || defined(__APPLE__) || defined(__unix__)
+    int fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        return XBADFILE;
+    }
+    return fdopen(fd, "wb");
+#else
+    return XFOPEN(fn, "wb");
+#endif
+}
+
+/* Craft a key-blob file with a small valid public area and an oversized
+ * private tail, then load it with readKeyBlob(). A canary placed directly
+ * after the keyblob catches any write past it. No TPM is required. */
+static void test_readKeyBlob_PrivOverflow(void)
+{
+    int rc;
+    int pubAreaSize = 0;
+    word32 i;
+    size_t privTailSz, remaining, chunk;
+    UINT16 privSizeMarker;
+    UINT16 bigMarker;
+    XFILE fp;
+    byte pubAreaBuffer[sizeof(TPM2B_PUBLIC)];
+    byte filler[64];
+    WOLFTPM2_KEYBLOB tmpl;
+    const char* filename = "keyblob_overflow_test.raw";
+    struct {
+        WOLFTPM2_KEYBLOB key;
+        byte canary[128];
+    } guarded;
+
+    XMEMSET(&tmpl, 0, sizeof(tmpl));
+
+    /* Build a real minimal public area so TPM2_ParsePublic() accepts it and
+     * readKeyBlob proceeds to the private read. */
+    rc = wolfTPM2_GetKeyTemplate_ECC(&tmpl.pub.publicArea,
+        TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    AssertIntEQ(rc, 0);
+    rc = TPM2_AppendPublic(pubAreaBuffer, (word32)sizeof(pubAreaBuffer),
+        &pubAreaSize, &tmpl.pub);
+    AssertIntEQ(rc, 0);
+
+    /* Private tail longer than the destination so the pre-fix path, which
+     * reads the whole remaining file into &key->priv, overflows past the
+     * keyblob. Keep the size marker small and valid so the post-read sanity
+     * check passes. */
+    privTailSz = sizeof(guarded.key.priv) + sizeof(filler);
+    privSizeMarker = 32;
+
+    fp = openTestFileWrite(filename);
+    AssertNotNull(fp);
+    XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
+    XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
+    XFWRITE(&privSizeMarker, 1, sizeof(privSizeMarker), fp);
+    XMEMSET(filler, 0xAB, sizeof(filler));
+    remaining = privTailSz - sizeof(privSizeMarker);
+    while (remaining > 0) {
+        chunk = (remaining < sizeof(filler)) ? remaining : sizeof(filler);
+        XFWRITE(filler, 1, chunk, fp);
+        remaining -= chunk;
+    }
+    XFCLOSE(fp);
+
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    XMEMSET(guarded.canary, 0x5A, sizeof(guarded.canary));
+
+    rc = readKeyBlob(filename, &guarded.key);
+    (void)rc;
+
+    for (i = 0; i < sizeof(guarded.canary); i++) {
+        AssertIntEQ(guarded.canary[i], 0x5A);
+    }
+
+    remove(filename);
+
+    /* Rejection branch: priv.size marker larger than the destination buffer
+     * must be refused with BUFFER_E before any bytes are read. */
+    bigMarker = (UINT16)(sizeof(guarded.key.priv.buffer) + 1);
+    fp = openTestFileWrite(filename);
+    AssertNotNull(fp);
+    XFWRITE(&tmpl.pub.size, 1, sizeof(tmpl.pub.size), fp);
+    XFWRITE(pubAreaBuffer, 1, sizeof(UINT16) + tmpl.pub.size, fp);
+    XFWRITE(&bigMarker, 1, sizeof(bigMarker), fp);
+    XFCLOSE(fp);
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    rc = readKeyBlob(filename, &guarded.key);
+    AssertIntEQ(rc, BUFFER_E);
+    remove(filename);
+
+    /* Rejection branch: pub.size marker larger than the public area buffer. */
+    bigMarker = (UINT16)sizeof(pubAreaBuffer);
+    fp = openTestFileWrite(filename);
+    AssertNotNull(fp);
+    XFWRITE(&bigMarker, 1, sizeof(bigMarker), fp);
+    XFCLOSE(fp);
+    XMEMSET(&guarded, 0, sizeof(guarded));
+    rc = readKeyBlob(filename, &guarded.key);
+    AssertIntEQ(rc, BUFFER_E);
+    remove(filename);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "readKeyBlob priv overflow:");
+}
+#endif
 
 /* Test creating key and exporting keyblob as buffer,
  * importing and loading key. */
@@ -5227,6 +5523,10 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
+    test_TPM2_TIS_ValidateRspSz();
+    test_TPM2_ParsePublic_EmptyClears();
+    test_TPM2_AppendSensitive_Clamp();
+    test_TPM2_Sensitive_MaxRoundtrip();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
     test_GetAlgId();
@@ -5251,6 +5551,13 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
     test_TPM2_GetHashDigestSize_AllAlgs();
+    #ifdef WOLFTPM_SWTPM
+    test_TPM2_SwtpmValidateRspSz();
+    #endif
+    #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
+        !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    test_readKeyBlob_PrivOverflow();
+    #endif
     test_wolfTPM2_KeyBlob(TPM_ALG_RSA);
     test_wolfTPM2_KeyBlob(TPM_ALG_ECC);
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
@@ -5273,6 +5580,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_Cleanup();
     test_wolfTPM2_thread_local_storage();
 #ifdef WOLFTPM_SPDM
+    test_wolfTPM2_SPDM_ValidateRspSz();
     test_wolfTPM2_SPDM_Functions();
 #endif
 #endif /* !WOLFTPM2_NO_WRAPPER */

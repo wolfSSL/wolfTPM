@@ -478,6 +478,18 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     return rc;
 }
 
+/* Validate a swtpm-reported response size against the receive buffer before
+ * it is used to read into packet->buf. Rejects undersized headers and any
+ * length that would overflow the buffer. */
+int TPM2_SwtpmValidateRspSz(int packetSize, uint32_t rspSz)
+{
+    int rc = TPM_RC_SUCCESS;
+    if (rspSz < TPM2_HEADER_SIZE || rspSz > (uint32_t)packetSize) {
+        rc = TPM_RC_FAILURE;
+    }
+    return rc;
+}
+
 /* Talk to a TPM through socket
  * return TPM_RC_SUCCESS on success,
  *        TPM_RC_FAILURE on other errors
@@ -543,13 +555,14 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
         rspSz = TPM2_Packet_SwapU32(tss_word);
-        if (rspSz < TPM2_HEADER_SIZE ||
-                rspSz > (uint32_t)packet->size) {
-            #ifdef WOLFTPM_DEBUG_VERBOSE
-            printf("Response size(%u) out of range (header=%d, buf=%d)\n",
-                   rspSz, TPM2_HEADER_SIZE, packet->size);
-            #endif
-            rc = TPM_RC_FAILURE;
+        if (rc == TPM_RC_SUCCESS) {
+            rc = TPM2_SwtpmValidateRspSz(packet->size, rspSz);
+            if (rc != TPM_RC_SUCCESS) {
+                #ifdef WOLFTPM_DEBUG_VERBOSE
+                printf("Response size(%u) out of range (header=%d, buf=%d)\n",
+                       rspSz, TPM2_HEADER_SIZE, packet->size);
+                #endif
+            }
         }
     }
 
