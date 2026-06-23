@@ -6003,16 +6003,6 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_ForceZero(aesKey, sizeof(aesKey));
         TPM2_ForceZero(hmacKeyBuf, sizeof(hmacKeyBuf));
     }
-    else if (rc == 0) {
-        /* newParent == NULL: output plaintext + empty seed */
-        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
-        TPM2_Packet_AppendU16(rsp, (UINT16)plainSensSz);
-        if (plainSensSz > 0) {
-            TPM2_Packet_AppendBytes(rsp, plainSens, plainSensSz);
-        }
-        TPM2_Packet_AppendU16(rsp, 0); /* empty outSymSeed */
-        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
-    }
 
     TPM2_ForceZero(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_FREE_BUF(dupBuf);
