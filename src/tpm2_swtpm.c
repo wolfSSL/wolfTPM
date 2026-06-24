@@ -238,6 +238,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     speed_t baud;
     int baudInt;
     struct stat devStat;
+    int fdFlags;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -245,7 +246,10 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     /* Note: TPM2_SWTPM_HOST env var is checked by caller
      * (TPM2_SWTPM_SendCommand) before invoking SwTpmConnect */
 
-    fd = open(host, O_RDWR | O_NOCTTY | O_CLOEXEC | O_NOFOLLOW);
+    /* Allow symlinked serial paths (no O_NOFOLLOW); S_ISCHR below rejects
+     * non-char-device swaps and O_NOCTTY avoids tty hijack. O_NONBLOCK keeps
+     * open() from hanging on a FIFO/no-carrier line; cleared after validation. */
+    fd = open(host, O_RDWR | O_NOCTTY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0) {
     #ifdef DEBUG_WOLFTPM
         printf("Failed to open UART device %s: %s\n", host, strerror(errno));
@@ -261,6 +265,15 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     }
     /* Verify the opened path is a character device */
     if (fstat(fd, &devStat) != 0 || !S_ISCHR(devStat.st_mode)) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    /* Restore blocking mode now that the target is a validated char device, so
+     * reads honor the termios VMIN/VTIME timeouts configured below. Fail hard if
+     * it cannot be cleared, rather than leaving a non-blocking fd for reads. */
+    fdFlags = fcntl(fd, F_GETFL);
+    if (fdFlags == -1 ||
+            fcntl(fd, F_SETFL, fdFlags & ~O_NONBLOCK) == -1) {
         close(fd);
         return TPM_RC_FAILURE;
     }

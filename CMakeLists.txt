@@ -39,6 +39,10 @@ set(WOLFTPM_FWTPM_FUZZ "no" CACHE STRING
     "Enable fwTPM fuzz target (requires libFuzzer, default: disabled)")
 set_property(CACHE WOLFTPM_FWTPM_FUZZ
     PROPERTY STRINGS "yes;no")
+set(WOLFTPM_FWTPM_NV_APPEND_ONLY "no" CACHE STRING
+    "Enable append-only NV journal for write-once flash fwTPM ports (default: disabled)")
+set_property(CACHE WOLFTPM_FWTPM_NV_APPEND_ONLY
+    PROPERTY STRINGS "yes;no")
 
 # fwtpm-only forces fwtpm on
 if(WOLFTPM_FWTPM_ONLY)
@@ -523,6 +527,9 @@ if(WOLFTPM_FWTPM)
     if(WOLFTPM_FWTPM_TIS)
         target_compile_definitions(fwtpm_server PRIVATE "WOLFTPM_FWTPM_TIS")
     endif()
+    if(WOLFTPM_FWTPM_NV_APPEND_ONLY)
+        target_compile_definitions(fwtpm_server PRIVATE "WOLFTPM_FWTPM_NV_APPEND_ONLY")
+    endif()
     target_link_libraries(fwtpm_server PRIVATE wolftpm_wolfssl_dep)
     target_include_directories(fwtpm_server PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -546,6 +553,9 @@ if(WOLFTPM_FWTPM)
         "WOLFTPM_FWTPM"
         "FWTPM_NV_FILE=\"fwtpm_test_nv.bin\""
     )
+    if(WOLFTPM_FWTPM_NV_APPEND_ONLY)
+        target_compile_definitions(fwtpm_unit_test PRIVATE "WOLFTPM_FWTPM_NV_APPEND_ONLY")
+    endif()
     target_link_libraries(fwtpm_unit_test PRIVATE wolftpm_wolfssl_dep)
     target_include_directories(fwtpm_unit_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -562,6 +572,9 @@ if(WOLFTPM_FWTPM)
             ${FWTPM_CORE_SOURCES}
         )
         target_compile_definitions(fwtpm_fuzz PRIVATE "WOLFTPM_FWTPM")
+        if(WOLFTPM_FWTPM_NV_APPEND_ONLY)
+            target_compile_definitions(fwtpm_fuzz PRIVATE "WOLFTPM_FWTPM_NV_APPEND_ONLY")
+        endif()
         target_link_libraries(fwtpm_fuzz PRIVATE wolftpm_wolfssl_dep)
         target_include_directories(fwtpm_fuzz PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}

@@ -66,3 +66,6 @@ tests_fuzz_fwtpm_fuzz_LDADD    = $(LIB_STATIC_ADD)
 endif
 
 endif
+
+# Ship the ports guide even when not built
+EXTRA_DIST += src/fwtpm/ports/README.md

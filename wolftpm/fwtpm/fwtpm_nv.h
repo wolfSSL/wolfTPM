@@ -90,6 +90,10 @@ typedef struct FWTPM_NV_HEADER {
 #define FWTPM_NV_TAG_FREE              0xFFFF  /* Erased flash */
 #define FWTPM_NV_TAG_INVALID           0x0000  /* Sentinel/deleted */
 
+/* Append-only MAC checkpoint: HMAC over the body before it + 0xFF pad in the
+ * value; skipped on replay. */
+#define FWTPM_NV_TAG_MAC               0x00F0
+
 /* Hierarchy seeds (48 bytes each) */
 #define FWTPM_NV_TAG_OWNER_SEED        0x0001
 #define FWTPM_NV_TAG_ENDORSEMENT_SEED  0x0002
@@ -176,7 +180,11 @@ WOLFTPM_API int FWTPM_NV_Save(FWTPM_CTX* ctx);
 
     \param ctx pointer to an initialized FWTPM_CTX
     \param hal pointer to a caller-populated FWTPM_NV_HAL (the struct
-        must remain valid for the lifetime of the context)
+        must remain valid for the lifetime of the context). The caller MUST
+        zero-initialize the struct (e.g. XMEMSET(&hal, 0, sizeof(hal)))
+        before populating fields: the appendOnly bit-field and reserved bits
+        must be 0 unless append-only mode is intentionally enabled, otherwise
+        an indeterminate appendOnly bit can select write-once behavior.
 
     \sa FWTPM_NV_Init
 */

@@ -59,6 +59,16 @@
 /* TLV header size: tag(2) + length(2) */
 #define TLV_HDR_SIZE  4
 
+/* Append-only is active only when both the HAL opts in and the feature is
+ * built. Reading the field through this macro keeps the byte-addressable MAC
+ * write/verify and writePos validation active if a port sets appendOnly
+ * without WOLFTPM_FWTPM_NV_APPEND_ONLY (rather than silently dropping them). */
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    #define FW_NV_APPEND_ONLY(hal)  ((hal)->appendOnly)
+#else
+    #define FW_NV_APPEND_ONLY(hal)  (0)
+#endif
+
 /* ========================================================================= */
 /* File-based NV backend                                                     */
 /* ========================================================================= */
@@ -171,7 +181,9 @@ static FWTPM_NV_HAL fwNvDefaultHal = {
     FwNvFileErase,
     (void*)FWTPM_NV_FILE,
     FWTPM_NV_MAX_SIZE,
-    NULL  /* get_integrity_key: file backend uses a key file */
+    NULL, /* get_integrity_key: file backend uses a key file */
+    0,    /* writeAlign: none */
+    0     /* appendOnly: 0 (byte-addressable) */
 };
 
 #endif /* !NO_FILESYSTEM */
@@ -788,11 +800,96 @@ static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
     return 0;
 }
 
+/* Write via the HAL. Byte-addressable backends pass through. In append-only
+ * mode (writeAlign > 1) writes are forward into erased space; bytes accumulate
+ * in a pending program granule, flushed once full so a cell is never rewritten
+ * and hal->write is a plain program. A new granule must start aligned. */
+static int FwNvHalWrite(FWTPM_CTX* ctx, word32 offset, const byte* buf,
+    word32 size)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+
+    if (hal->write == NULL) {
+        return TPM_RC_FAILURE;
+    }
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (FW_NV_APPEND_ONLY(hal) && hal->writeAlign > 1) {
+        word32 align = hal->writeAlign;
+        word32 src = 0;
+        word32 n;
+        int rc;
+
+        if (size == 0) {
+            return TPM_RC_SUCCESS;
+        }
+        if (size > hal->maxSize || offset > hal->maxSize - size) {
+            return TPM_RC_FAILURE;
+        }
+        if (ctx->nvGranuleFill == 0 ||
+                offset != ctx->nvGranuleBase + ctx->nvGranuleFill) {
+            if (ctx->nvGranuleFill != 0 || (offset % align) != 0) {
+                return TPM_RC_FAILURE; /* must start a granule aligned */
+            }
+            ctx->nvGranuleBase = offset;
+        }
+        while (src < size) {
+            n = align - ctx->nvGranuleFill;
+            if (n > size - src) {
+                n = size - src;
+            }
+            XMEMCPY((byte*)ctx->nvGranule + ctx->nvGranuleFill, buf + src, n);
+            ctx->nvGranuleFill += n;
+            src += n;
+            if (ctx->nvGranuleFill == align) {
+                rc = hal->write(hal->ctx, ctx->nvGranuleBase,
+                    (const byte*)ctx->nvGranule, align);
+                if (rc != 0) {
+                    return TPM_RC_FAILURE;
+                }
+                ctx->nvGranuleBase += align;
+                ctx->nvGranuleFill = 0;
+            }
+        }
+        return TPM_RC_SUCCESS;
+    }
+#endif
+    return hal->write(hal->ctx, offset, buf, size);
+}
+
+/* Read via the HAL, overlaying the pending program granule (append-only) so a
+ * freshly appended entry reads back before it is flushed (e.g. for the MAC). */
+static int FwNvHalRead(FWTPM_CTX* ctx, word32 offset, byte* buf, word32 size)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    int rc;
+
+    if (hal->read == NULL) {
+        return TPM_RC_FAILURE;
+    }
+    rc = hal->read(hal->ctx, offset, buf, size);
+    if (rc != 0) {
+        return TPM_RC_FAILURE;
+    }
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (FW_NV_APPEND_ONLY(hal) && hal->writeAlign > 1 &&
+            ctx->nvGranuleFill > 0 && size > 0) {
+        word32 pStart = ctx->nvGranuleBase;
+        word32 pEnd = ctx->nvGranuleBase + ctx->nvGranuleFill;
+        word32 a = (offset > pStart) ? offset : pStart;
+        word32 b = ((offset + size) < pEnd) ? (offset + size) : pEnd;
+        if (a < b) {
+            XMEMCPY(buf + (a - offset),
+                (const byte*)ctx->nvGranule + (a - pStart), b - a);
+        }
+    }
+#endif
+    return TPM_RC_SUCCESS;
+}
+
 /* HMAC-SHA256 over the journal body [header .. writePos). */
 static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
     word32 keySz, byte* macOut)
 {
-    FWTPM_NV_HAL* hal = &ctx->nvHal;
     FWTPM_DECLARE_VAR(hmac, Hmac);
     byte chunk[256];
     word32 off = sizeof(FWTPM_NV_HEADER);
@@ -809,7 +906,7 @@ static int FwNvComputeJournalMac(FWTPM_CTX* ctx, const byte* key,
         if (n > sizeof(chunk)) {
             n = sizeof(chunk);
         }
-        rc = hal->read(hal->ctx, off, chunk, n);
+        rc = FwNvHalRead(ctx, off, chunk, n);
         if (rc == 0) {
             rc = wc_HmacUpdate(hmac, chunk, n);
         }
@@ -843,20 +940,93 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
     FwStoreU32LE(hdr + 8,  ctx->nvWritePos);
     FwStoreU32LE(hdr + 12, hal->maxSize);
 
-    rc = hal->write(hal->ctx, 0, hdr, sizeof(hdr));
+    rc = FwNvHalWrite(ctx, 0, hdr, sizeof(hdr));
 
-    /* Refresh the trailing journal MAC so a tampered journal is detected
-     * on the next load. The MAC sits at writePos and is rewritten after
-     * every append. */
-    if (rc == TPM_RC_SUCCESS && FwNvGetIntegrityKey(ctx, key, &keySz)) {
+    /* Rewrite the trailing MAC in place (byte-addressable only; append-only
+     * commits integrity via FwNvAppendCheckpoint instead). */
+    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
+            FwNvGetIntegrityKey(ctx, key, &keySz)) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         if (rc == TPM_RC_SUCCESS) {
-            rc = hal->write(hal->ctx, ctx->nvWritePos, mac, sizeof(mac));
+            rc = FwNvHalWrite(ctx, ctx->nvWritePos, mac, sizeof(mac));
         }
         TPM2_ForceZero(key, sizeof(key));
     }
     return rc;
 }
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+/* Append-only commit: append a MAC-checkpoint entry over the body so far, with
+ * 0xFF pad in its value to round writePos up to writeAlign (the next commit
+ * then starts on a fresh program granule; the loader skips it on replay). */
+static int FwNvAppendCheckpoint(FWTPM_CTX* ctx)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    byte key[FWTPM_NV_KEY_SIZE];
+    byte mac[FWTPM_NV_MAC_SIZE];
+    byte tlvHdr[TLV_HDR_SIZE];
+    byte ff[64];
+    word32 keySz = 0;
+    word32 macLen = 0;
+    word32 align;
+    word32 padLen;
+    word32 valueLen;
+    word32 padDone;
+    word32 padChunk;
+    int haveKey;
+    int rc = TPM_RC_SUCCESS;
+
+    if (hal->write == NULL) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* MAC over [header .. current writePos) (this entry not included). */
+    haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey) {
+        rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
+        TPM2_ForceZero(key, sizeof(key));
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
+        macLen = FWTPM_NV_MAC_SIZE;
+    }
+
+    /* Pad so writePos lands on a writeAlign boundary after this entry. */
+    align = hal->writeAlign;
+    if (align < 1) {
+        align = 1;
+    }
+    padLen = (align - ((ctx->nvWritePos + TLV_HDR_SIZE + macLen) % align))
+        % align;
+    valueLen = macLen + padLen;
+    if (valueLen > 0xFFFF) {
+        return TPM_RC_FAILURE; /* writeAlign too large for a TLV length */
+    }
+
+    FwStoreU16LE(tlvHdr, FWTPM_NV_TAG_MAC);
+    FwStoreU16LE(tlvHdr + 2, (UINT16)valueLen);
+    rc = FwNvHalWrite(ctx, ctx->nvWritePos, tlvHdr, TLV_HDR_SIZE);
+    if (rc == TPM_RC_SUCCESS && macLen > 0) {
+        rc = FwNvHalWrite(ctx, ctx->nvWritePos + TLV_HDR_SIZE, mac, macLen);
+    }
+    /* Write 0xFF alignment pad (0xFF leaves write-once cells erased). */
+    XMEMSET(ff, 0xFF, sizeof(ff));
+    padDone = 0;
+    while (rc == TPM_RC_SUCCESS && padDone < padLen) {
+        padChunk = padLen - padDone;
+        if (padChunk > sizeof(ff)) {
+            padChunk = sizeof(ff);
+        }
+        rc = FwNvHalWrite(ctx,
+            ctx->nvWritePos + TLV_HDR_SIZE + macLen + padDone, ff, padChunk);
+        padDone += padChunk;
+    }
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->nvWritePos += TLV_HDR_SIZE + valueLen;
+    }
+    return rc;
+}
+#endif /* WOLFTPM_FWTPM_NV_APPEND_ONLY */
 
 /* Append a single TLV entry to the journal */
 static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
@@ -864,6 +1034,7 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
 {
     FWTPM_NV_HAL* hal = &ctx->nvHal;
     word32 entrySize = TLV_HDR_SIZE + valueLen;
+    word32 reserve = FWTPM_NV_MAC_SIZE;
     byte tlvHdr[TLV_HDR_SIZE];
     int rc;
 
@@ -871,8 +1042,13 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
         return TPM_RC_FAILURE;
     }
 
+    /* Append-only also appends a checkpoint and rounds up to a granule. */
+    if (FW_NV_APPEND_ONLY(hal)) {
+        reserve = TLV_HDR_SIZE + FWTPM_NV_MAC_SIZE + hal->writeAlign;
+    }
+
     /* Reserve room for the trailing journal MAC written after each append */
-    if (ctx->nvWritePos + entrySize + FWTPM_NV_MAC_SIZE > hal->maxSize) {
+    if (ctx->nvWritePos + entrySize + reserve > hal->maxSize) {
         /* If already compacting, NV is genuinely full */
         if (ctx->nvCompacting) {
             return TPM_RC_NV_SPACE;
@@ -883,7 +1059,7 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
             return rc;
         }
         /* After compaction, check again */
-        if (ctx->nvWritePos + entrySize + FWTPM_NV_MAC_SIZE > hal->maxSize) {
+        if (ctx->nvWritePos + entrySize + reserve > hal->maxSize) {
             return TPM_RC_NV_SPACE;
         }
     }
@@ -892,15 +1068,25 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
     FwStoreU16LE(tlvHdr, tag);
     FwStoreU16LE(tlvHdr + 2, valueLen);
 
-    rc = hal->write(hal->ctx, ctx->nvWritePos, tlvHdr, TLV_HDR_SIZE);
+    rc = FwNvHalWrite(ctx, ctx->nvWritePos, tlvHdr, TLV_HDR_SIZE);
     if (rc == TPM_RC_SUCCESS && valueLen > 0) {
-        rc = hal->write(hal->ctx, ctx->nvWritePos + TLV_HDR_SIZE,
+        rc = FwNvHalWrite(ctx, ctx->nvWritePos + TLV_HDR_SIZE,
             value, valueLen);
     }
     if (rc == TPM_RC_SUCCESS) {
         ctx->nvWritePos += entrySize;
-        /* Update header with new writePos */
-        rc = FwNvWriteHeader(ctx);
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+        /* Commit via a checkpoint; compaction emits one at the end instead. */
+        if (FW_NV_APPEND_ONLY(hal)) {
+            if (!ctx->nvCompacting) {
+                rc = FwNvAppendCheckpoint(ctx);
+            }
+        }
+        else
+#endif
+        {
+            rc = FwNvWriteHeader(ctx); /* byte-addressable: header + MAC */
+        }
     }
     return rc;
 }
@@ -1241,6 +1427,239 @@ int FWTPM_NV_SetHAL(FWTPM_CTX* ctx, FWTPM_NV_HAL* hal)
     return TPM_RC_SUCCESS;
 }
 
+/* Generate fresh hierarchy seeds and default state, then persist via a compact
+ * save. Used on first run and whenever an existing journal cannot be loaded or
+ * authenticated. */
+static int FwNvGenFreshState(FWTPM_CTX* ctx)
+{
+    int rc;
+
+#ifdef DEBUG_WOLFTPM
+    printf("fwTPM: No NV state found, generating fresh seeds\n");
+#endif
+
+    rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed, FWTPM_SEED_SIZE);
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->endorsementSeed,
+            FWTPM_SEED_SIZE);
+    }
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->platformSeed,
+            FWTPM_SEED_SIZE);
+    }
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->nullSeed, FWTPM_SEED_SIZE);
+    }
+    if (rc != 0) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Auth values start empty */
+    XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
+    XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
+    XMEMSET(&ctx->platformAuth, 0, sizeof(ctx->platformAuth));
+    XMEMSET(&ctx->lockoutAuth, 0, sizeof(ctx->lockoutAuth));
+
+#ifndef FWTPM_NO_DA
+    /* DA protection defaults */
+    ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+    ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
+    ctx->daLockoutRecovery = FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY;
+    ctx->daFailedTries = 0;
+    ctx->daUsed = 0;
+    ctx->orderly = 1;
+#endif
+
+    /* PCR auth/policy defaults */
+    ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
+
+    /* Save initial state (compact write) */
+    rc = FWTPM_NV_Save(ctx);
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("fwTPM: Warning: Failed to save initial NV state (%d)\n", rc);
+    }
+#endif
+    return rc;
+}
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+/* Decide whether a checkpoint entry that failed authentication is a torn
+ * (power-loss) write rather than tamper. Append-only programs whole writeAlign
+ * granules in order, so a torn checkpoint leaves its trailing granule erased
+ * (all 0xFF); a completely written checkpoint always has real bytes there. A
+ * storage attacker can only program bits (1->0), so an erased trailing granule
+ * cannot be forged. Returns 1 if the entry looks torn, 0 if fully written. */
+static int FwNvCheckpointTorn(FWTPM_CTX* ctx, word32 entryPos, word32 entryLen)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    byte tail[FWTPM_NV_MAX_WRITE_ALIGN];
+    word32 align = hal->writeAlign;
+    word32 i;
+
+    if (align <= 1 || align > sizeof(tail) || entryLen < align) {
+        return 0; /* no granule semantics: treat a failing checkpoint as tamper */
+    }
+    if (hal->read(hal->ctx, entryPos + entryLen - align, tail, align)
+            != TPM_RC_SUCCESS) {
+        return 0;
+    }
+    for (i = 0; i < align; i++) {
+        if (tail[i] != 0xFF) {
+            return 0; /* trailing granule programmed: fully written */
+        }
+    }
+    return 1; /* trailing granule erased: torn write */
+}
+
+/* Load an append-only journal: scan for the last MAC checkpoint that
+ * authenticates the body before it, replay only the entries it covers, and
+ * rewrite cleanly if a torn trailing commit remains. A fully written
+ * checkpoint that fails authentication after a valid one is treated as
+ * tamper/rollback and rejected (only a torn trailing granule is recovered).
+ * Returns TPM_RC_SUCCESS (loaded), TPM_RC_NV_UNINITIALIZED (regenerate), or a
+ * negative error. */
+static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
+    word32* valueBufSzP)
+{
+    FWTPM_NV_HAL* hal = &ctx->nvHal;
+    byte tlvHdr[TLV_HDR_SIZE];
+    byte vKey[FWTPM_NV_KEY_SIZE];
+    byte storedMac[FWTPM_NV_MAC_SIZE];
+    byte calcMac[FWTPM_NV_MAC_SIZE];
+    byte* valueBuf = *valueBufP;
+    word32 valueBufSz = *valueBufSzP;
+    word32 vKeySz = 0;
+    word32 scanPos;
+    word32 lastMacStart = 0;
+    word32 lastMacEnd = 0;
+    word32 committedEnd;
+    word32 pos;
+    UINT16 tag, len;
+    int haveKey;
+    int tamper = 0;
+    int dirtyTail = 0;
+    int rc = TPM_RC_SUCCESS;
+
+    haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+
+    /* Pass 1: locate the last authenticated MAC checkpoint. */
+    scanPos = (word32)sizeof(FWTPM_NV_HEADER);
+    while (scanPos + TLV_HDR_SIZE <= hal->maxSize) {
+        if (hal->read(hal->ctx, scanPos, tlvHdr, TLV_HDR_SIZE)
+                != TPM_RC_SUCCESS) {
+            break;
+        }
+        tag = FwLoadU16LE(tlvHdr);
+        len = FwLoadU16LE(tlvHdr + 2);
+        if (tag == FWTPM_NV_TAG_FREE) {
+            break; /* erased space: end of journal */
+        }
+        if (scanPos + TLV_HDR_SIZE + len > hal->maxSize) {
+            /* Non-free tag with no room for its body: a torn partial header
+             * (e.g. tag programmed, length still erased) left at the append
+             * offset. Mark the tail dirty so it is compacted away. */
+            dirtyTail = 1;
+            break;
+        }
+        if (tag == FWTPM_NV_TAG_MAC) {
+            int ok = 1;
+            if (haveKey) {
+                ok = 0;
+                if (len >= FWTPM_NV_MAC_SIZE) {
+                    /* MAC covers [header, scanPos). */
+                    ctx->nvWritePos = scanPos;
+                    if (hal->read(hal->ctx, scanPos + TLV_HDR_SIZE, storedMac,
+                            FWTPM_NV_MAC_SIZE) == TPM_RC_SUCCESS &&
+                        FwNvComputeJournalMac(ctx, vKey, vKeySz, calcMac)
+                            == TPM_RC_SUCCESS &&
+                        TPM2_ConstantCompare(storedMac, calcMac,
+                            FWTPM_NV_MAC_SIZE) == 0) {
+                        ok = 1;
+                    }
+                }
+            }
+            if (ok) {
+                lastMacStart = scanPos;
+                lastMacEnd = scanPos + TLV_HDR_SIZE + len;
+            }
+            else if (haveKey && len >= FWTPM_NV_MAC_SIZE && lastMacEnd != 0 &&
+                    !FwNvCheckpointTorn(ctx, scanPos, TLV_HDR_SIZE + len)) {
+                /* A fully written checkpoint that fails authentication after a
+                 * valid one is tamper/rollback, not a torn tail: reject. */
+                tamper = 1;
+                break;
+            }
+        }
+        scanPos += TLV_HDR_SIZE + len;
+    }
+    if (haveKey) {
+        TPM2_ForceZero(vKey, sizeof(vKey));
+    }
+
+    if (tamper || lastMacEnd == 0) {
+        /* Detected tamper, or no authenticated checkpoint at all. A valid save
+         * always ends with a checkpoint (keyed or not), so an uncheckpointed
+         * image is incomplete: discard (caller regenerates fresh state). */
+        return TPM_RC_NV_UNINITIALIZED;
+    }
+
+    committedEnd = lastMacStart;   /* replay data before this checkpoint */
+    ctx->nvWritePos = lastMacEnd;  /* next append position (aligned) */
+
+    /* Pass 2: replay committed data entries (skip MAC checkpoints). */
+    pos = (word32)sizeof(FWTPM_NV_HEADER);
+    while (pos + TLV_HDR_SIZE <= committedEnd) {
+        if (hal->read(hal->ctx, pos, tlvHdr, TLV_HDR_SIZE) != TPM_RC_SUCCESS) {
+            rc = TPM_RC_FAILURE;
+            break;
+        }
+        tag = FwLoadU16LE(tlvHdr);
+        len = FwLoadU16LE(tlvHdr + 2);
+        if (tag == FWTPM_NV_TAG_FREE) {
+            break;
+        }
+        if (pos + TLV_HDR_SIZE + len > committedEnd) {
+            break;
+        }
+        if (tag != FWTPM_NV_TAG_MAC) {
+            if (len > valueBufSz) {
+                byte* newBuf;
+                newBuf = (byte*)XMALLOC(len, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                if (newBuf == NULL) {
+                    rc = TPM_RC_MEMORY;
+                    break;
+                }
+                XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+                valueBuf = newBuf;
+                valueBufSz = len;
+            }
+            if (len > 0) {
+                if (hal->read(hal->ctx, pos + TLV_HDR_SIZE, valueBuf, len)
+                        != TPM_RC_SUCCESS) {
+                    rc = TPM_RC_FAILURE;
+                    break;
+                }
+            }
+            FwNvProcessEntry(ctx, tag, valueBuf, len);
+        }
+        pos += TLV_HDR_SIZE + len;
+    }
+
+    *valueBufP = valueBuf;
+    *valueBufSzP = valueBufSz;
+
+    /* A torn commit after the last good checkpoint (trailing data entries, or
+     * a partial header at the append offset) leaves un-erased cells that block
+     * future appends; rewrite the recovered state cleanly. */
+    if (rc == TPM_RC_SUCCESS && (scanPos > lastMacEnd || dirtyTail)) {
+        rc = FWTPM_NV_Save(ctx);
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_FWTPM_NV_APPEND_ONLY */
+
 int FWTPM_NV_Init(FWTPM_CTX* ctx)
 {
     int rc;
@@ -1273,6 +1692,13 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     }
 #endif
 
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    /* Append-only program granule must fit the in-context staging buffer. */
+    if (FW_NV_APPEND_ONLY(hal) && hal->writeAlign > FWTPM_NV_MAX_WRITE_ALIGN) {
+        return BAD_FUNC_ARG;
+    }
+#endif
+
     /* Allocate value read buffer */
     valueBuf = (byte*)XMALLOC(valueBufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (valueBuf == NULL) {
@@ -1289,7 +1715,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         hdr.maxSize  = FwLoadU32LE(hdrBuf + 12);
     }
 
-    if (rc == TPM_RC_SUCCESS &&
+    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
         /* Validate writePos against HAL bounds before using it */
@@ -1300,10 +1726,10 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         }
     }
 
-    /* Authenticate the journal before replaying it. A failed MAC means the
-     * journal was tampered, so it is discarded and fresh state generated
-     * rather than loading forged objects, clock, PCR state, or keys. */
-    if (rc == TPM_RC_SUCCESS &&
+    /* Authenticate the journal before replaying it; a failed MAC discards it
+     * and regenerates rather than loading forged state. (Append-only
+     * authenticates per-checkpoint in FwNvInitAppendOnly instead.) */
+    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
         ctx->nvWritePos = hdr.writePos;
@@ -1323,6 +1749,18 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         }
     }
 
+    /* Append-only journals derive writePos by scanning (see FwNvInitAppendOnly). */
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    if (rc == TPM_RC_SUCCESS && FW_NV_APPEND_ONLY(hal) &&
+        hdr.magic == FWTPM_NV_MAGIC &&
+        hdr.version == FWTPM_NV_VERSION) {
+        rc = FwNvInitAppendOnly(ctx, &valueBuf, &valueBufSz);
+        if (rc == TPM_RC_NV_UNINITIALIZED) {
+            rc = FwNvGenFreshState(ctx); /* no authenticated journal */
+        }
+    }
+    else
+#endif
     if (rc == TPM_RC_SUCCESS &&
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
@@ -1396,56 +1834,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
                 "(found %d, expected %d) — regenerating seeds\n",
                 (int)hdr.version, (int)FWTPM_NV_VERSION);
         }
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: No NV state found, generating fresh seeds\n");
-    #endif
-
-        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed,
-            FWTPM_SEED_SIZE);
-        if (rc == 0) {
-            rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->endorsementSeed,
-                FWTPM_SEED_SIZE);
-        }
-        if (rc == 0) {
-            rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->platformSeed,
-                FWTPM_SEED_SIZE);
-        }
-        if (rc == 0) {
-            rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->nullSeed,
-                FWTPM_SEED_SIZE);
-        }
-        if (rc != 0) {
-            XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-            return TPM_RC_FAILURE;
-        }
-
-        /* Auth values start empty */
-        XMEMSET(&ctx->ownerAuth, 0, sizeof(ctx->ownerAuth));
-        XMEMSET(&ctx->endorsementAuth, 0, sizeof(ctx->endorsementAuth));
-        XMEMSET(&ctx->platformAuth, 0, sizeof(ctx->platformAuth));
-        XMEMSET(&ctx->lockoutAuth, 0, sizeof(ctx->lockoutAuth));
-
-    #ifndef FWTPM_NO_DA
-        /* DA protection defaults */
-        ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
-        ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
-        ctx->daLockoutRecovery = FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY;
-        ctx->daFailedTries = 0;
-        ctx->daUsed = 0;
-        ctx->orderly = 1;
-    #endif
-
-        /* PCR auth/policy defaults */
-        ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
-
-        /* Save initial state (compact write) */
-        rc = FWTPM_NV_Save(ctx);
-    #ifdef DEBUG_WOLFTPM
-        if (rc != TPM_RC_SUCCESS) {
-            printf("fwTPM: Warning: Failed to save initial NV state (%d)\n",
-                rc);
-        }
-    #endif
+        rc = FwNvGenFreshState(ctx);
     }
 
     XFREE(valueBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -1488,6 +1877,12 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     if (hal->erase != NULL) {
         rc = hal->erase(hal->ctx, 0, hal->maxSize);
     }
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    /* Freshly erased: reset the pending granule so the rewrite streams from 0. */
+    ctx->nvGranuleBase = 0;
+    ctx->nvGranuleFill = 0;
+#endif
 
     /* Reset write position to after header (only if erase succeeded) */
     if (rc == 0) {
@@ -1746,9 +2141,18 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         }
     }
 
-    /* Update header with final writePos */
+    /* Seal the journal: append-only adds one trailing checkpoint (header was
+     * written after the erase); byte-addressable updates the header in place. */
     if (rc == 0) {
-        rc = FwNvWriteHeader(ctx);
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+        if (FW_NV_APPEND_ONLY(hal)) {
+            rc = FwNvAppendCheckpoint(ctx);
+        }
+        else
+#endif
+        {
+            rc = FwNvWriteHeader(ctx);
+        }
     }
 
 #ifdef DEBUG_WOLFTPM
