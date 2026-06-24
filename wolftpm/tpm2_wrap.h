@@ -862,10 +862,35 @@ WOLFTPM_API int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index, const W
     \param encDecAlg integer value, specifying the algorithm in case of parameter encryption (TPM_ALG_CFB or TPM_ALG_XOR). Any value not CFB or XOR is considered NULL and parameter encryption is disabled.
 
     \sa wolfTPM2_SetAuthSession
+    \sa wolfTPM2_StartSession_ex
 */
 WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
     WOLFTPM2_HANDLE* bind, TPM_SE sesType, int encDecAlg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Create a TPM session selecting the session auth/hash algorithm
+    \note Use this instead of wolfTPM2_StartSession when the session digest must match a non-default hash, such as SHA-512 policy digests in post-quantum environments
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param session pointer to an empty WOLFTPM2_SESSION struct
+    \param tpmKey pointer to a WOLFTPM2_KEY that will be used as a salt for the session
+    \param bind pointer to a WOLFTPM2_HANDLE that will be used to make the session bounded
+    \param sesType byte value, the session type (HMAC, Policy or Trial)
+    \param encDecAlg integer value, specifying the algorithm in case of parameter encryption (TPM_ALG_CFB or TPM_ALG_XOR). Any value not CFB or XOR is considered NULL and parameter encryption is disabled.
+    \param authHash hash algorithm for the session (for example TPM_ALG_SHA256 or TPM_ALG_SHA512). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_StartSession
+    \sa wolfTPM2_SetAuthSession
+*/
+WOLFTPM_API int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* session, WOLFTPM2_KEY* tpmKey,
+    WOLFTPM2_HANDLE* bind, TPM_SE sesType, int encDecAlg,
+    TPMI_ALG_HASH authHash);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -884,6 +909,26 @@ WOLFTPM_API int wolfTPM2_StartSession(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
                                                     WOLFTPM2_SESSION* tpmSession);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Creates a TPM EK policy session selecting the session auth/hash algorithm
+    \note This wrapper can be used only if the EK authorization is not changed from default
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_FAILURE: check TPM return code, check available handles, check TPM IO
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to an empty WOLFTPM2_SESSION struct
+    \param authHash hash algorithm for the session (for example TPM_ALG_SHA256 or TPM_ALG_SHA512). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_CreateAuthSession_EkPolicy
+    \sa wolfTPM2_StartSession_ex
+*/
+WOLFTPM_API int wolfTPM2_CreateAuthSession_EkPolicy_ex(WOLFTPM2_DEV* dev,
+                                                    WOLFTPM2_SESSION* tpmSession,
+                                                    TPMI_ALG_HASH authHash);
 
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -2373,6 +2418,24 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Create an ML-DSA key template selecting the name algorithm (TCG v185)
+    \return TPM_RC_SUCCESS on success, BAD_FUNC_ARG if publicTemplate is NULL
+    \param publicTemplate Pointer to TPMT_PUBLIC structure to populate
+    \param objectAttributes Key attributes (sign flag will be enforced, decrypt cleared)
+    \param parameterSet ML-DSA parameter set (TPM_MLDSA_44, TPM_MLDSA_65, or TPM_MLDSA_87)
+    \param allowExternalMu Non-zero to allow TPM2_SignDigest/VerifyDigestSignature
+    \param nameAlg Object name algorithm (e.g. TPM_ALG_SHA512). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_GetKeyTemplate_MLDSA
+*/
+#ifdef WOLFTPM_MLDSA
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_MLDSA_ex(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    int allowExternalMu, TPMI_ALG_HASH nameAlg);
+#endif
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Create a key template for Pre-Hash ML-DSA signing keys (TCG v185)
     \return TPM_RC_SUCCESS on success, BAD_FUNC_ARG if publicTemplate is NULL
     \param publicTemplate Pointer to TPMT_PUBLIC structure to populate
@@ -2389,6 +2452,24 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Create a Pre-Hash ML-DSA key template selecting the name algorithm (TCG v185)
+    \return TPM_RC_SUCCESS on success, BAD_FUNC_ARG if publicTemplate is NULL
+    \param publicTemplate Pointer to TPMT_PUBLIC structure to populate
+    \param objectAttributes Key attributes (sign flag will be enforced, decrypt cleared)
+    \param parameterSet ML-DSA parameter set (TPM_MLDSA_44, TPM_MLDSA_65, or TPM_MLDSA_87)
+    \param hashAlg Pre-hash algorithm (e.g., TPM_ALG_SHA256)
+    \param nameAlg Object name algorithm (e.g. TPM_ALG_SHA512). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_GetKeyTemplate_HASH_MLDSA
+*/
+#ifdef WOLFTPM_HASH_MLDSA
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_HASH_MLDSA_ex(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH hashAlg, TPMI_ALG_HASH nameAlg);
+#endif
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Create a key template for ML-KEM decryption keys (TCG v185)
     \return TPM_RC_SUCCESS on success, BAD_FUNC_ARG if publicTemplate is NULL
     \param publicTemplate Pointer to TPMT_PUBLIC structure to populate
@@ -2400,6 +2481,23 @@ WOLFTPM_API int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
 */
 WOLFTPM_API int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Create an ML-KEM key template selecting the name algorithm (TCG v185)
+    \return TPM_RC_SUCCESS on success, BAD_FUNC_ARG if publicTemplate is NULL
+    \param publicTemplate Pointer to TPMT_PUBLIC structure to populate
+    \param objectAttributes Key attributes (decrypt flag will be enforced, sign cleared)
+    \param parameterSet ML-KEM parameter set (TPM_MLKEM_512, TPM_MLKEM_768, or TPM_MLKEM_1024)
+    \param nameAlg Object name algorithm (e.g. TPM_ALG_SHA512). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_GetKeyTemplate_MLKEM
+*/
+#ifdef WOLFTPM_MLKEM
+WOLFTPM_API int wolfTPM2_GetKeyTemplate_MLKEM_ex(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH nameAlg);
+#endif
 #endif /* WOLFTPM_PQC */
 
 /*!
@@ -2538,6 +2636,30 @@ WOLFTPM_API int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Perform RSA encryption selecting the padding scheme hash algorithm
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param key pointer to a struct of WOLFTPM2_KEY type, holding a TPM key material
+    \param padScheme integer value of TPM_ALG_ID type, specifying the padding scheme
+    \param msg pointer to a byte buffer, containing the arbitrary data for encryption
+    \param msgSz integer value, specifying the size of the arbitrary data buffer
+    \param out pointer to a byte buffer, where the encrypted data will be stored
+    \param outSz integer value, specifying the size of the encrypted data buffer
+    \param hashAlg hash for the padding scheme (e.g. TPM_ALG_SHA512 for OAEP). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_RsaEncrypt
+    \sa wolfTPM2_RsaDecrypt_ex
+*/
+WOLFTPM_API int wolfTPM2_RsaEncrypt_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* msg, int msgSz, byte* out, int* outSz,
+    TPMI_ALG_HASH hashAlg);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Perform RSA decryption using a TPM 2.0 key
 
     \return TPM_RC_SUCCESS: successful
@@ -2556,6 +2678,30 @@ WOLFTPM_API int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 */
 WOLFTPM_API int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Perform RSA decryption selecting the padding scheme hash algorithm
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param key pointer to a struct of WOLFTPM2_KEY type, holding a TPM key material
+    \param padScheme integer value of TPM_ALG_ID type, specifying the padding scheme
+    \param in pointer to a byte buffer, containing the encrypted data
+    \param inSz integer value, specifying the size of the encrypted data buffer
+    \param msg pointer to a byte buffer, containing the decrypted data
+    \param[in,out] msgSz pointer to size of the encrypted data buffer, on return set actual size
+    \param hashAlg hash for the padding scheme (e.g. TPM_ALG_SHA512 for OAEP). TPM_ALG_NULL selects the wrapper default.
+
+    \sa wolfTPM2_RsaDecrypt
+    \sa wolfTPM2_RsaEncrypt_ex
+*/
+WOLFTPM_API int wolfTPM2_RsaDecrypt_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz,
+    TPMI_ALG_HASH hashAlg);
 
 
 /*!

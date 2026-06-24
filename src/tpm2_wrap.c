@@ -1965,16 +1965,17 @@ int wolfTPM2_SetSessionHandle(WOLFTPM2_DEV* dev, int index,
 }
 
 
-int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
-                                        WOLFTPM2_SESSION* tpmSession)
+int wolfTPM2_CreateAuthSession_EkPolicy_ex(WOLFTPM2_DEV* dev,
+                                        WOLFTPM2_SESSION* tpmSession,
+                                        TPMI_ALG_HASH authHash)
 {
     int rc = TPM_RC_FAILURE;
     PolicySecret_In policySecretIn;
     PolicySecret_Out policySecretOut;
 
     /* Endorsement Key requires authorization with Policy */
-    rc = wolfTPM2_StartSession(dev, tpmSession, NULL, NULL,
-                               TPM_SE_POLICY, TPM_ALG_NULL);
+    rc = wolfTPM2_StartSession_ex(dev, tpmSession, NULL, NULL,
+                               TPM_SE_POLICY, TPM_ALG_NULL, authHash);
     if (rc == TPM_RC_SUCCESS) {
         #ifdef DEBUG_WOLFTPM
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
@@ -1992,6 +1993,13 @@ int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
         #endif
     }
     return rc;
+}
+
+int wolfTPM2_CreateAuthSession_EkPolicy(WOLFTPM2_DEV* dev,
+                                        WOLFTPM2_SESSION* tpmSession)
+{
+    return wolfTPM2_CreateAuthSession_EkPolicy_ex(dev, tpmSession,
+        WOLFTPM2_WRAP_DIGEST);
 }
 
 int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
@@ -2474,28 +2482,39 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
     return rc;
 }
 
-int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     WOLFTPM2_KEY* tpmKey, WOLFTPM2_HANDLE* bind, TPM_SE sesType,
-    int encDecAlg)
+    int encDecAlg, TPMI_ALG_HASH authHash)
 {
     int rc = TPM_RC_SUCCESS;
     StartAuthSession_In  authSesIn;
     StartAuthSession_Out authSesOut;
-    TPM2B_DATA keyIn;
-    TPMI_ALG_HASH authHash = WOLFTPM2_WRAP_DIGEST;
+    WOLFTPM2_HANDLE sessionHandle;
+    byte keyIn[TPM_MAX_DIGEST_SIZE * 2];
+    UINT16 keyInSz = 0;
     int hashDigestSz;
 
     if (dev == NULL || session == NULL)
         return BAD_FUNC_ARG;
 
+    /* TPM_ALG_NULL selects the wrapper default hash */
+    if (authHash == TPM_ALG_NULL)
+        authHash = WOLFTPM2_WRAP_DIGEST;
+
     XMEMSET(session, 0, sizeof(WOLFTPM2_SESSION));
     XMEMSET(&authSesIn, 0, sizeof(authSesIn));
+    XMEMSET(&authSesOut, 0, sizeof(authSesOut));
+    XMEMSET(keyIn, 0, sizeof(keyIn));
 
     authSesIn.authHash = authHash;
     hashDigestSz = TPM2_GetHashDigestSize(authHash);
     if (hashDigestSz <= 0 ||
         hashDigestSz > (int)sizeof(authSesIn.nonceCaller.buffer)) {
         return BUFFER_E;
+    }
+    /* reject session hashes weaker than the wrapper default */
+    if (hashDigestSz < TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        return BAD_FUNC_ARG;
     }
 
     /* set session auth for key */
@@ -2580,19 +2599,17 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
 
     /* Calculate "key" and store into auth */
     /* key is bindAuthValue || salt */
-    XMEMSET(&keyIn, 0, sizeof(keyIn));
     if (bind && bind->auth.size > 0) {
         if (bind->auth.size > (UINT16)sizeof(bind->auth.buffer)) {
             rc = BUFFER_E;
         }
         if (rc == TPM_RC_SUCCESS) {
-            if ((keyIn.size + bind->auth.size) > (UINT16)sizeof(keyIn.buffer)) {
+            if ((keyInSz + bind->auth.size) > (UINT16)sizeof(keyIn)) {
                 rc = BUFFER_E;
             }
             else {
-                XMEMCPY(&keyIn.buffer[keyIn.size], bind->auth.buffer,
-                    bind->auth.size);
-                keyIn.size += bind->auth.size;
+                XMEMCPY(&keyIn[keyInSz], bind->auth.buffer, bind->auth.size);
+                keyInSz += bind->auth.size;
             }
         }
     }
@@ -2601,21 +2618,21 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             rc = BUFFER_E;
         }
         if (rc == TPM_RC_SUCCESS) {
-            if ((keyIn.size + session->salt.size) > (UINT16)sizeof(keyIn.buffer)) {
+            if ((keyInSz + session->salt.size) > (UINT16)sizeof(keyIn)) {
                 rc = BUFFER_E;
             }
             else {
-                XMEMCPY(&keyIn.buffer[keyIn.size], session->salt.buffer,
+                XMEMCPY(&keyIn[keyInSz], session->salt.buffer,
                     session->salt.size);
-                keyIn.size += session->salt.size;
+                keyInSz += session->salt.size;
             }
         }
     }
 
-    if (rc == TPM_RC_SUCCESS && keyIn.size > 0) {
+    if (rc == TPM_RC_SUCCESS && keyInSz > 0) {
         session->handle.auth.size = hashDigestSz;
         rc = TPM2_KDFa_ex(authSesIn.authHash,
-            keyIn.buffer, keyIn.size, "ATH",
+            keyIn, keyInSz, "ATH",
             authSesOut.nonceTPM.buffer, authSesOut.nonceTPM.size,
             authSesIn.nonceCaller.buffer, authSesIn.nonceCaller.size,
             session->handle.auth.buffer, session->handle.auth.size);
@@ -2667,10 +2684,25 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
             TPM2_GetAlgName(authSesIn.symmetric.algorithm));
 #endif
     }
+    else {
+        /* flush the started session so a post-start failure does not leak
+         * a scarce TPM session slot */
+        XMEMSET(&sessionHandle, 0, sizeof(sessionHandle));
+        sessionHandle.hndl = authSesOut.sessionHandle;
+        (void)wolfTPM2_UnloadHandle(dev, &sessionHandle);
+    }
 
-    TPM2_ForceZero(&keyIn, sizeof(keyIn));
+    TPM2_ForceZero(keyIn, sizeof(keyIn));
 
     return rc;
+}
+
+int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
+    WOLFTPM2_KEY* tpmKey, WOLFTPM2_HANDLE* bind, TPM_SE sesType,
+    int encDecAlg)
+{
+    return wolfTPM2_StartSession_ex(dev, session, tpmKey, bind, sesType,
+        encDecAlg, WOLFTPM2_WRAP_DIGEST);
 }
 
 
@@ -6128,12 +6160,21 @@ int wolfTPM2_Decapsulate(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 #ifdef WOLFTPM_MLDSA
 /* GetKeyTemplate_MLDSA - Create a key template for ML-DSA signing keys */
-int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
+int wolfTPM2_GetKeyTemplate_MLDSA_ex(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
-    int allowExternalMu)
+    int allowExternalMu, TPMI_ALG_HASH nameAlg)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
+
+    /* TPM_ALG_NULL selects the wrapper default name algorithm */
+    if (nameAlg == TPM_ALG_NULL)
+        nameAlg = WOLFTPM2_WRAP_DIGEST;
+    /* reject object Name hashes weaker than the wrapper default */
+    if (TPM2_GetHashDigestSize(nameAlg) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        return BAD_FUNC_ARG;
+    }
 
     /* TCG v185: MLDSA is sign-only. Enforce correct attributes. */
     objectAttributes &= ~TPMA_OBJECT_decrypt;
@@ -6141,23 +6182,40 @@ int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_MLDSA;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.mldsaDetail.parameterSet = parameterSet;
     publicTemplate->parameters.mldsaDetail.allowExternalMu =
         (allowExternalMu ? YES : NO);
     return TPM_RC_SUCCESS;
 }
+
+int wolfTPM2_GetKeyTemplate_MLDSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    int allowExternalMu)
+{
+    return wolfTPM2_GetKeyTemplate_MLDSA_ex(publicTemplate, objectAttributes,
+        parameterSet, allowExternalMu, WOLFTPM2_WRAP_DIGEST);
+}
 #endif /* WOLFTPM_MLDSA */
 
 #ifdef WOLFTPM_HASH_MLDSA
 /* GetKeyTemplate_HASH_MLDSA - Create a key template for Pre-Hash ML-DSA signing keys */
-int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
+int wolfTPM2_GetKeyTemplate_HASH_MLDSA_ex(TPMT_PUBLIC* publicTemplate,
     TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
-    TPMI_ALG_HASH hashAlg)
+    TPMI_ALG_HASH hashAlg, TPMI_ALG_HASH nameAlg)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
+
+    /* TPM_ALG_NULL selects the wrapper default name algorithm */
+    if (nameAlg == TPM_ALG_NULL)
+        nameAlg = WOLFTPM2_WRAP_DIGEST;
+    /* reject object Name hashes weaker than the wrapper default */
+    if (TPM2_GetHashDigestSize(nameAlg) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        return BAD_FUNC_ARG;
+    }
 
     /* TCG v185: HASH_MLDSA is sign-only. Enforce correct attributes. */
     objectAttributes &= ~TPMA_OBJECT_decrypt;
@@ -6165,21 +6223,39 @@ int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_HASH_MLDSA;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.hash_mldsaDetail.parameterSet = parameterSet;
     publicTemplate->parameters.hash_mldsaDetail.hashAlg = hashAlg;
     return TPM_RC_SUCCESS;
 }
+
+int wolfTPM2_GetKeyTemplate_HASH_MLDSA(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLDSA_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH hashAlg)
+{
+    return wolfTPM2_GetKeyTemplate_HASH_MLDSA_ex(publicTemplate,
+        objectAttributes, parameterSet, hashAlg, WOLFTPM2_WRAP_DIGEST);
+}
 #endif /* WOLFTPM_HASH_MLDSA */
 
 #ifdef WOLFTPM_MLKEM
 /* GetKeyTemplate_MLKEM - Create a key template for ML-KEM decryption keys */
-int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
-    TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet)
+int wolfTPM2_GetKeyTemplate_MLKEM_ex(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet,
+    TPMI_ALG_HASH nameAlg)
 {
     if (publicTemplate == NULL)
         return BAD_FUNC_ARG;
+
+    /* TPM_ALG_NULL selects the wrapper default name algorithm */
+    if (nameAlg == TPM_ALG_NULL)
+        nameAlg = WOLFTPM2_WRAP_DIGEST;
+    /* reject object Name hashes weaker than the wrapper default */
+    if (TPM2_GetHashDigestSize(nameAlg) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        return BAD_FUNC_ARG;
+    }
 
     /* TCG v185: MLKEM is decrypt-only. Enforce correct attributes. */
     objectAttributes &= ~TPMA_OBJECT_sign;
@@ -6187,12 +6263,19 @@ int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
 
     XMEMSET(publicTemplate, 0, sizeof(TPMT_PUBLIC));
     publicTemplate->type = TPM_ALG_MLKEM;
-    publicTemplate->nameAlg = TPM_ALG_SHA256;
+    publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.mlkemDetail.parameterSet = parameterSet;
     /* symmetric field: TPM_ALG_NULL for unrestricted key */
     publicTemplate->parameters.mlkemDetail.symmetric.algorithm = TPM_ALG_NULL;
     return TPM_RC_SUCCESS;
+}
+
+int wolfTPM2_GetKeyTemplate_MLKEM(TPMT_PUBLIC* publicTemplate,
+    TPMA_OBJECT objectAttributes, TPMI_MLKEM_PARAMETER_SET parameterSet)
+{
+    return wolfTPM2_GetKeyTemplate_MLKEM_ex(publicTemplate, objectAttributes,
+        parameterSet, WOLFTPM2_WRAP_DIGEST);
 }
 #endif /* WOLFTPM_MLKEM */
 
@@ -6423,8 +6506,9 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
 }
 
 
-int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    TPM_ALG_ID padScheme, const byte* msg, int msgSz, byte* out, int* outSz)
+int wolfTPM2_RsaEncrypt_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* msg, int msgSz, byte* out, int* outSz,
+    TPMI_ALG_HASH hashAlg)
 {
     int rc;
     RSA_Encrypt_In  rsaEncIn;
@@ -6432,6 +6516,16 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || msg == NULL || out == NULL ||
                                                                 outSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* TPM_ALG_NULL selects the wrapper default scheme hash */
+    if (hashAlg == TPM_ALG_NULL)
+        hashAlg = WOLFTPM2_WRAP_DIGEST;
+    /* OAEP MGF uses the scheme hash; reject weaker than the default */
+    if (padScheme == TPM_ALG_OAEP &&
+            TPM2_GetHashDigestSize(hashAlg) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
         return BAD_FUNC_ARG;
     }
 
@@ -6448,7 +6542,7 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(rsaEncIn.message.buffer, msg, rsaEncIn.message.size);
     /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaEncIn.inScheme.scheme = padScheme;
-    rsaEncIn.inScheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    rsaEncIn.inScheme.details.anySig.hashAlg = hashAlg;
 
 #if 0
     /* Optional label */
@@ -6482,8 +6576,16 @@ int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     return rc;
 }
 
-int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz)
+int wolfTPM2_RsaEncrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* msg, int msgSz, byte* out, int* outSz)
+{
+    return wolfTPM2_RsaEncrypt_ex(dev, key, padScheme, msg, msgSz, out, outSz,
+        WOLFTPM2_WRAP_DIGEST);
+}
+
+int wolfTPM2_RsaDecrypt_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz,
+    TPMI_ALG_HASH hashAlg)
 {
     int rc;
     RSA_Decrypt_In  rsaDecIn;
@@ -6491,6 +6593,16 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || in == NULL || msg == NULL ||
                                                                 msgSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* TPM_ALG_NULL selects the wrapper default scheme hash */
+    if (hashAlg == TPM_ALG_NULL)
+        hashAlg = WOLFTPM2_WRAP_DIGEST;
+    /* OAEP MGF uses the scheme hash; reject weaker than the default */
+    if (padScheme == TPM_ALG_OAEP &&
+            TPM2_GetHashDigestSize(hashAlg) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
         return BAD_FUNC_ARG;
     }
 
@@ -6507,7 +6619,7 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     XMEMCPY(rsaDecIn.cipherText.buffer, in, inSz);
     /* TPM_ALG_NULL, TPM_ALG_OAEP, TPM_ALG_RSASSA or TPM_ALG_RSAPSS */
     rsaDecIn.inScheme.scheme = padScheme;
-    rsaDecIn.inScheme.details.anySig.hashAlg = WOLFTPM2_WRAP_DIGEST;
+    rsaDecIn.inScheme.details.anySig.hashAlg = hashAlg;
 
 #if 0
     /* Optional label */
@@ -6539,6 +6651,13 @@ int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     TPM2_ForceZero(&rsaDecOut, sizeof(rsaDecOut));
 
     return rc;
+}
+
+int wolfTPM2_RsaDecrypt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_ALG_ID padScheme, const byte* in, int inSz, byte* msg, int* msgSz)
+{
+    return wolfTPM2_RsaDecrypt_ex(dev, key, padScheme, in, inSz, msg, msgSz,
+        WOLFTPM2_WRAP_DIGEST);
 }
 
 int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)

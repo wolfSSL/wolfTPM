@@ -667,6 +667,56 @@ static void test_wolfTPM2_StartSession_SaltedEncryptAttrs(void)
 #endif
 }
 
+static void test_wolfTPM2_StartSession_ex_authHash(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA512)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tStartSession_ex SHA512:\tSkipped\n");
+        return;
+    }
+
+    /* default (SHA-256) selected via TPM_ALG_NULL */
+    rc = wolfTPM2_StartSession_ex(&dev, &session, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL, TPM_ALG_NULL);
+    if (rc == TPM_RC_SUCCESS) {
+        AssertIntEQ(session.authHash, WOLFTPM2_WRAP_DIGEST);
+        wolfTPM2_UnloadHandle(&dev, &session.handle);
+    }
+
+    /* explicit SHA-512 selection */
+    rc = wolfTPM2_StartSession_ex(&dev, &session, NULL, NULL,
+        TPM_SE_POLICY, TPM_ALG_NULL, TPM_ALG_SHA512);
+    if (rc == TPM_RC_SUCCESS) {
+        AssertIntEQ(session.authHash, TPM_ALG_SHA512);
+        wolfTPM2_UnloadHandle(&dev, &session.handle);
+        printf("Test TPM Wrapper:\tStartSession_ex SHA512:\tPassed\n");
+    }
+    else {
+        printf("Test TPM Wrapper:\tStartSession_ex SHA512:\tSkipped\n");
+    }
+
+    /* a session hash weaker than the default is rejected (no TPM needed) */
+#ifndef NO_SHA
+    if (TPM2_GetHashDigestSize(TPM_ALG_SHA1) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        rc = wolfTPM2_StartSession_ex(&dev, &session, NULL, NULL,
+            TPM_SE_POLICY, TPM_ALG_NULL, TPM_ALG_SHA1);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+#endif
+
+    wolfTPM2_Cleanup(&dev);
+#endif
+}
+
 static void test_wolfTPM2_PolicyHash(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -2552,6 +2602,122 @@ static void test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE(void)
 
     printf("Test TPM Wrapper:\tRsaEncDec oversized:\t\tPassed\n");
 #endif
+}
+
+/* Exercise the _ex padding-scheme hash selection (e.g. SHA-512 OAEP). The
+ * BAD_FUNC_ARG and BUFFER_E paths fire before the TPM is contacted, so this
+ * does not require a working TPM connection. */
+static void test_wolfTPM2_RsaEncryptDecrypt_ex(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY key;
+    byte oversized[MAX_RSA_KEY_BYTES + 16];
+    byte out[MAX_RSA_KEY_BYTES];
+    int outSz = (int)sizeof(out);
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&key, 0, sizeof(key));
+    XMEMSET(oversized, 0xAB, sizeof(oversized));
+    key.handle.hndl = 0x80000000;
+
+    rc = wolfTPM2_RsaEncrypt_ex(NULL, &key, TPM_ALG_OAEP,
+        oversized, 1, out, &outSz, TPM_ALG_SHA512);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_RsaEncrypt_ex(&dev, &key, TPM_ALG_OAEP,
+        oversized, (int)sizeof(oversized), out, &outSz, TPM_ALG_SHA512);
+    AssertIntEQ(rc, BUFFER_E);
+
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_RsaDecrypt_ex(&dev, &key, TPM_ALG_OAEP,
+        oversized, (int)sizeof(oversized), out, &outSz, TPM_ALG_SHA512);
+    AssertIntEQ(rc, BUFFER_E);
+
+#ifndef NO_SHA
+    /* OAEP with a hash weaker than the default is rejected */
+    if (TPM2_GetHashDigestSize(TPM_ALG_SHA1) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        outSz = (int)sizeof(out);
+        rc = wolfTPM2_RsaEncrypt_ex(&dev, &key, TPM_ALG_OAEP,
+            oversized, 1, out, &outSz, TPM_ALG_SHA1);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+#endif
+
+    printf("Test TPM Wrapper:\tRsaEncDec_ex SHA512:\t\tPassed\n");
+#endif
+}
+
+/* Verify the PQC key-template _ex wrappers select the object name algorithm
+ * and that the original wrappers keep the default. Pure struct population,
+ * no TPM required. */
+static void test_wolfTPM2_GetKeyTemplate_ex_nameAlg(void)
+{
+#if defined(WOLFTPM_PQC) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    TPMT_PUBLIC pub;
+    TPMA_OBJECT attr = TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth;
+
+#ifdef WOLFTPM_MLDSA
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&pub, attr, TPM_MLDSA_65, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, WOLFTPM2_WRAP_DIGEST);
+
+    rc = wolfTPM2_GetKeyTemplate_MLDSA_ex(&pub, attr, TPM_MLDSA_65, 0,
+        TPM_ALG_SHA512);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, TPM_ALG_SHA512);
+
+    rc = wolfTPM2_GetKeyTemplate_MLDSA_ex(&pub, attr, TPM_MLDSA_65, 0,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, WOLFTPM2_WRAP_DIGEST);
+#endif
+
+#ifdef WOLFTPM_HASH_MLDSA
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA(&pub, attr, TPM_MLDSA_65,
+        TPM_ALG_SHA256);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, WOLFTPM2_WRAP_DIGEST);
+
+    rc = wolfTPM2_GetKeyTemplate_HASH_MLDSA_ex(&pub, attr, TPM_MLDSA_65,
+        TPM_ALG_SHA256, TPM_ALG_SHA512);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, TPM_ALG_SHA512);
+#endif
+
+#ifdef WOLFTPM_MLKEM
+    XMEMSET(&pub, 0, sizeof(pub));
+    rc = wolfTPM2_GetKeyTemplate_MLKEM(&pub, attr, TPM_MLKEM_768);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, WOLFTPM2_WRAP_DIGEST);
+
+    rc = wolfTPM2_GetKeyTemplate_MLKEM_ex(&pub, attr, TPM_MLKEM_768,
+        TPM_ALG_SHA512);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pub.nameAlg, TPM_ALG_SHA512);
+
+#ifndef NO_SHA
+    /* a name algorithm weaker than the default is rejected */
+    if (TPM2_GetHashDigestSize(TPM_ALG_SHA1) <
+            TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST)) {
+        rc = wolfTPM2_GetKeyTemplate_MLKEM_ex(&pub, attr, TPM_MLKEM_768,
+            TPM_ALG_SHA1);
+        AssertIntEQ(rc, BAD_FUNC_ARG);
+    }
+#endif
+#endif
+
+    (void)attr;
+    (void)rc;
+    printf("Test TPM Wrapper:\tGetKeyTemplate _ex nameAlg:\tPassed\n");
+#endif /* WOLFTPM_PQC */
 }
 
 /* TPM2_GetTpmCurve / TPM2_GetWolfCurve must map wolfCrypt's
@@ -5475,6 +5641,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();
+    test_wolfTPM2_StartSession_ex_authHash();
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
@@ -5511,6 +5678,8 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_BrainpoolCurveMapping();
     test_TPM2_EccDefaultCurveTemplate();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
+    test_wolfTPM2_RsaEncryptDecrypt_ex();
+    test_wolfTPM2_GetKeyTemplate_ex_nameAlg();
     test_wolfTPM2_SignHashScheme_DigestSize();
     test_wolfTPM2_VerifyHashTicket_DigestSize();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
