@@ -49,6 +49,14 @@ static void usage(void)
     printf("* filename: for saving the TPMS_ATTEST structure to a file\n");
     printf("* -ecc: Use RSA or ECC for SRK/AIK\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+#ifdef WOLFTPM_MLKEM
+    printf("* -mlkem[=512|768|1024]: Use an ML-KEM key as the param-enc "
+           "session salt (v1.85, default 768)\n");
+#endif
+#ifdef WOLFTPM_MLDSA
+    printf("* -mldsa[=44|65|87]: Use an ML-DSA key as the param-enc "
+           "session bind (v1.85, default 65)\n");
+#endif
     printf("Demo usage without parameters, generates quote over PCR%d and\n"
            "saves the output TPMS_ATTEST structure to \"quote.blob\" file.\n",
            TPM2_TEST_PCR);
@@ -80,6 +88,11 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     } cmdOut;
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    TPM_ALG_ID pqcParamEncAlg = TPM_ALG_NULL;
+    int pqcParamSet = 0;
+    WOLFTPM2_KEY pqcKey;
+#endif
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     XFILE f;
 #endif
@@ -87,6 +100,9 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     XMEMSET(&storage, 0, sizeof(storage));
     XMEMSET(&aik, 0, sizeof(aik));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    XMEMSET(&pqcKey, 0, sizeof(pqcKey));
+#endif
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -123,8 +139,29 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        else if (parsePqcParamEncArg(argv[argc-1], &pqcParamEncAlg,
+                     &pqcParamSet) != 0) {
+            /* PQC option; an unsupported parameter set (alg left NULL) is a
+             * fatal typo, not a silent drop of parameter encryption. */
+            if (pqcParamEncAlg == TPM_ALG_NULL) {
+                usage();
+                return 0;
+            }
+        }
+#endif
         argc--;
     }
+
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    /* A PQC param-enc key only supplies the salt/bind material; a symmetric
+     * session cipher is still required. Default to AES-CFB if none given. */
+    if (pqcParamEncAlg != TPM_ALG_NULL && paramEncAlg == TPM_ALG_NULL) {
+        paramEncAlg = TPM_ALG_CFB;
+        printf("PQC param-enc key selected; defaulting session cipher to "
+            "AES-CFB.\n");
+    }
+#endif
 
     printf("PCR Quote example - Demo of signed PCR measurement\n");
     printf("\tOutput file: %s\n", outputFile);
@@ -198,9 +235,20 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         if (alg == TPM_ALG_RSA)
             bindKey = NULL; /* cannot bind to key without RSA enabled */
     #endif
-        /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
-            TPM_SE_HMAC, paramEncAlg);
+    #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        if (pqcParamEncAlg != TPM_ALG_NULL) {
+            /* Use a PQC primary as the param-enc session key: ML-KEM salt
+             * or ML-DSA bind. The RSA/ECC SRK stays the AIK parent. */
+            rc = getPrimaryParamEncKey(&dev, &tpmSession, &pqcKey,
+                pqcParamEncAlg, pqcParamSet, paramEncAlg);
+        }
+        else
+    #endif
+        {
+            /* Start an authenticated session (salted / unbound) with parameter encryption */
+            rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
+                TPM_SE_HMAC, paramEncAlg);
+        }
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
@@ -334,6 +382,9 @@ exit:
     wolfTPM2_UnloadHandle(&dev, &aik.handle);
     wolfTPM2_UnloadHandle(&dev, &storage.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    wolfTPM2_UnloadHandle(&dev, &pqcKey.handle);
+#endif
 
     wolfTPM2_Cleanup(&dev);
 

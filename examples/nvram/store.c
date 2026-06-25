@@ -57,6 +57,14 @@ static void usage(void)
     printf("* -priv: Store only the private part of the key\n");
     printf("* -pub: Store only the public part of the key\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+#ifdef WOLFTPM_MLKEM
+    printf("* -mlkem[=512|768|1024]: Use an ML-KEM key as the param-enc "
+           "session salt (v1.85, default 768)\n");
+#endif
+#ifdef WOLFTPM_MLDSA
+    printf("* -mldsa[=44|65|87]: Use an ML-DSA key as the param-enc "
+           "session bind (v1.85, default 65)\n");
+#endif
 }
 
 int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
@@ -71,6 +79,11 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     TPMI_RH_NV_AUTH authHandle = TPM_RH_OWNER; /* or TPM_RH_PLATFORM */
     const char* filename = "keyblob.bin";
     int paramEncAlg = TPM_ALG_NULL;
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    TPM_ALG_ID pqcParamEncAlg = TPM_ALG_NULL;
+    int pqcParamSet = 0;
+    WOLFTPM2_KEY pqcKey;
+#endif
     int partialStore = 0;
     int offset = 0;
     /* Needed for TPM2_AppendPublic */
@@ -121,6 +134,17 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-pub") == 0) {
             partialStore = PUBLIC_PART_ONLY;
         }
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        else if (parsePqcParamEncArg(argv[argc-1], &pqcParamEncAlg,
+                     &pqcParamSet) != 0) {
+            /* PQC option; an unsupported parameter set (alg left NULL) is a
+             * fatal typo, not a silent drop of parameter encryption. */
+            if (pqcParamEncAlg == TPM_ALG_NULL) {
+                usage();
+                return 0;
+            }
+        }
+#endif
         else if (argv[argc-1][0] != '-') {
             filename = argv[argc-1];
         }
@@ -129,6 +153,16 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
         }
         argc--;
     };
+
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    /* A PQC param-enc key only supplies the salt/bind material; a symmetric
+     * session cipher is still required. Default to AES-CFB if none given. */
+    if (pqcParamEncAlg != TPM_ALG_NULL && paramEncAlg == TPM_ALG_NULL) {
+        paramEncAlg = TPM_ALG_CFB;
+        printf("PQC param-enc key selected; defaulting session cipher to "
+            "AES-CFB.\n");
+    }
+#endif
 
     if (paramEncAlg == TPM_ALG_CFB) {
         printf("Parameter Encryption: Enabled. (AES CFB)\n\n");
@@ -144,6 +178,9 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&keyBlob, 0, sizeof(keyBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&parent, 0, sizeof(parent));
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    XMEMSET(&pqcKey, 0, sizeof(pqcKey));
+#endif
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -152,9 +189,20 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     }
 
     if (paramEncAlg != TPM_ALG_NULL) {
-        /* Start TPM session for parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
-                TPM_SE_HMAC, paramEncAlg);
+    #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        if (pqcParamEncAlg != TPM_ALG_NULL) {
+            /* Use a PQC primary as the param-enc session key: ML-KEM salt
+             * or ML-DSA bind. */
+            rc = getPrimaryParamEncKey(&dev, &tpmSession, &pqcKey,
+                pqcParamEncAlg, pqcParamSet, paramEncAlg);
+        }
+        else
+    #endif
+        {
+            /* Start TPM session for parameter encryption */
+            rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
+                    TPM_SE_HMAC, paramEncAlg);
+        }
         if (rc != 0) goto exit;
         printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
             (word32)tpmSession.handle.hndl);
@@ -246,6 +294,9 @@ exit:
     }
 
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    wolfTPM2_UnloadHandle(&dev, &pqcKey.handle);
+#endif
     wolfTPM2_Cleanup(&dev);
 
     return rc;

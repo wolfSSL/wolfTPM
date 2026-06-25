@@ -10,7 +10,8 @@ noinst_PROGRAMS += examples/wrap/wrap_test \
                    examples/wrap/encrypt_decrypt
 noinst_HEADERS  += examples/wrap/wrap_test.h
 
-examples_wrap_wrap_test_SOURCES      = examples/wrap/wrap_test.c
+examples_wrap_wrap_test_SOURCES      = examples/wrap/wrap_test.c \
+                                       examples/tpm_test_keys.c
 examples_wrap_wrap_test_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_wrap_wrap_test_DEPENDENCIES = src/libwolftpm.la
 

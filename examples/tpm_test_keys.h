@@ -52,6 +52,29 @@ WOLFTPM_LOCAL int getPrimaryStoragekey(WOLFTPM2_DEV* pDev,
                                        WOLFTPM2_KEY* pStorageKey,
                                        TPM_ALG_ID alg);
 
+#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
+/* Create a transient PQC primary and start an HMAC param-enc session using it:
+ * ML-KEM as the session salt key, ML-DSA as the bind key (with a transient SRK
+ * salt, since sign-only ML-DSA cannot supply one). The session is started but
+ * not assigned a slot; the caller calls wolfTPM2_SetAuthSession() and later
+ * unloads pqcKey->handle and session->handle. */
+WOLFTPM_LOCAL int getPrimaryParamEncKey(WOLFTPM2_DEV* pDev,
+                                        WOLFTPM2_SESSION* session,
+                                        WOLFTPM2_KEY* pqcKey,
+                                        TPM_ALG_ID pqcAlg,
+                                        int paramSet,
+                                        int paramEncAlg);
+
+/* Parse a PQC parameter-set value ("mlkem[=512|768|1024]" /
+ * "mldsa[=44|65|87]"). Returns 1 on a valid value (sets the alg and paramSet
+ * outputs), -1 if a PQC algorithm is named with an unsupported set (printed),
+ * or 0 if not a PQC value. parsePqcParamEncArg() takes the "-" option form. */
+WOLFTPM_LOCAL int parsePqcParamSet(const char* val, TPM_ALG_ID* alg,
+                                   int* paramSet);
+WOLFTPM_LOCAL int parsePqcParamEncArg(const char* arg, TPM_ALG_ID* alg,
+                                      int* paramSet);
+#endif
+
 WOLFTPM_LOCAL int getRSAkey(WOLFTPM2_DEV* pDev,
                             WOLFTPM2_KEY* pStorageKey,
                             WOLFTPM2_KEY* key,

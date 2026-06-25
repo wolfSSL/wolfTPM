@@ -47,6 +47,10 @@ static void usage(void)
     printf("Primary Key Type:\n");
     printf("\t-rsa: Use RSA for asymmetric key generation (DEFAULT)\n");
     printf("\t-ecc: Use ECC for asymmetric key generation \n");
+#ifdef WOLFTPM_MLDSA
+    printf("\t-mldsa[=44|65|87]: Use ML-DSA for primary key generation "
+           "(v1.85, default 65)\n");
+#endif
     printf("Hierarchy:\n");
     printf("\t-oh: Create keys under the Owner Hierarchy (DEFAULT)\n");
     printf("\t-eh: Create keys under the Endorsement Hierarchy\n");
@@ -77,7 +81,25 @@ static void usage(void)
     printf("\t* Create SRK used by wolfTPM:\n");
     printf("\t\tcreate_primary -rsa -oh -auth=ThisIsMyStorageKeyAuth "
                                        "-store=0x81000200\n");
+#ifdef WOLFTPM_MLDSA
+    printf("\t* Create an ML-DSA-65 primary key:\n");
+    printf("\t\tcreate_primary -mldsa -oh\n");
+#endif
 }
+
+#ifdef WOLFTPM_MLDSA
+static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
+{
+    int n = XATOI(optVal);
+    switch (n) {
+        case 0:  /* missing or empty suffix, use default */
+        case 65: *ps = TPM_MLDSA_65; return TPM_RC_SUCCESS;
+        case 44: *ps = TPM_MLDSA_44; return TPM_RC_SUCCESS;
+        case 87: *ps = TPM_MLDSA_87; return TPM_RC_SUCCESS;
+        default: return TPM_RC_FAILURE;
+    }
+}
+#endif /* WOLFTPM_MLDSA */
 
 int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
 {
@@ -98,6 +120,9 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
 #ifdef WOLFTPM_PROVISIONING
     int useIAKTemplate = 0, useIDevIDTemplate = 0;
 #endif
+#ifdef WOLFTPM_MLDSA
+    TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65; /* default param set */
+#endif
 
     if (argc >= 2) {
         if (XSTRCMP(argv[1], "-?") == 0 ||
@@ -114,6 +139,19 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
             alg = TPM_ALG_ECC;
         }
+#ifdef WOLFTPM_MLDSA
+        else if (XSTRCMP(argv[argc-1], "-mldsa") == 0 ||
+                 XSTRNCMP(argv[argc-1], "-mldsa=",
+                     XSTRLEN("-mldsa=")) == 0) {
+            const char* optVal = (argv[argc-1][6] == '=') ?
+                argv[argc-1] + 7 : "";
+            if (mldsaParamSet(optVal, &mldsaPs) != TPM_RC_SUCCESS) {
+                usage();
+                return 0;
+            }
+            alg = TPM_ALG_MLDSA;
+        }
+#endif
         else if (XSTRCMP(argv[argc-1], "-aes") == 0) {
             paramEncAlg = TPM_ALG_CFB;
         }
@@ -221,6 +259,17 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
         else
             rc = wolfTPM2_GetKeyTemplate_ECC_SRK(&publicTemplate);
     }
+#ifdef WOLFTPM_MLDSA
+    else if (alg == TPM_ALG_MLDSA) {
+        /* ML-DSA is sign-only and has no AIK/IAK/IDevID variant; the
+         * wrapper enforces TPMA_OBJECT_sign and clears decrypt. */
+        rc = wolfTPM2_GetKeyTemplate_MLDSA(&publicTemplate,
+            TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
+            TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+            TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+            mldsaPs, 0 /* allowExternalMu: 0 avoids TPM_RC_EXT_MU */);
+    }
+#endif
     else {
         rc = BAD_FUNC_ARG;
     }

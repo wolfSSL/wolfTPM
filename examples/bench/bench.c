@@ -215,7 +215,7 @@ exit:
     return rc;
 }
 
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
 /* Benchmark Pure ML-DSA: key gen, sign and verify (sign/verify sequence). */
 static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     double maxKeyGenDurSec)
@@ -291,7 +291,9 @@ exit:
     wolfTPM2_UnloadHandle(dev, &mldsaKey.handle);
     return rc;
 }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_MLKEM
 /* Benchmark ML-KEM: key gen, encapsulate and decapsulate. */
 static int bench_pqc_mlkem(WOLFTPM2_DEV* dev, double maxDuration,
     double maxKeyGenDurSec)
@@ -353,7 +355,7 @@ exit:
     wolfTPM2_UnloadHandle(dev, &mlkemKey.handle);
     return rc;
 }
-#endif /* WOLFTPM_PQC */
+#endif /* WOLFTPM_MLKEM */
 
 static void usage(void)
 {
@@ -677,17 +679,21 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_UnloadHandle(&dev, &eccKey.handle);
     if (rc != 0) goto exit;
 
-#ifdef WOLFTPM_PQC
+#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
     /* Post-quantum (TPM 2.0 v1.85). Skipped under parameter encryption: the
      * large PQC public-key responses exceed the parameter-decryption buffer
      * (TPM_RC_... BUFFER_E). Free the storage key first so the larger PQC keys
      * fit within the TPM's transient object slots. */
     if (paramEncAlg == TPM_ALG_NULL) {
         wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
+    #ifdef WOLFTPM_MLDSA
         rc = bench_pqc_mldsa(&dev, maxDuration, maxKeyGenDurSec);
         if (rc != 0) goto exit;
+    #endif
+    #ifdef WOLFTPM_MLKEM
         rc = bench_pqc_mlkem(&dev, maxDuration, maxKeyGenDurSec);
         if (rc != 0) goto exit;
+    #endif
     }
 #endif
 
