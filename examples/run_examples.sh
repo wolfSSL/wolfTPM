@@ -383,6 +383,20 @@ if [ $ENABLE_V185 -eq 1 ]; then
         [ $RESULT -ne 0 ] && echo -e "create_primary mldsa=$PS failed! $RESULT" && exit 1
     done
 
+    echo -e "PQC usage-error checks (invalid parameter sets must be rejected)"
+    # These return before touching the TPM; a zero exit means an invalid
+    # parameter set was silently accepted as the default.
+    ./examples/keygen/create_primary -mldsa=0 -oh >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "create_primary -mldsa=0 should fail!" && exit 1
+    ./examples/keygen/create_primary -mldsa=abc -oh >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "create_primary -mldsa=abc should fail!" && exit 1
+    # An invalid PQC option must stay fatal even after a valid one (argv is
+    # parsed right-to-left), in either argument order.
+    ./examples/wrap/wrap_test -aes -mldsa=999 -mlkem=768 >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "wrap_test -mldsa=999 -mlkem=768 should fail!" && exit 1
+    ./examples/wrap/wrap_test -aes -mlkem=768 -mldsa=999 >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "wrap_test -mlkem=768 -mldsa=999 should fail!" && exit 1
+
     echo -e "PQC parameter encryption (ML-KEM salt / ML-DSA bind)"
     # ML-KEM as the param-enc session salt, ML-DSA as the param-enc session
     # bind; exercise AES-CFB and XOR across child-create, attestation and NV.

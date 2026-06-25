@@ -4,6 +4,9 @@ project(wolftpm_wrap_test)
 
 # Include source code for wrap test
 target_sources(app PRIVATE ${ZEPHYR_WOLFTPM_MODULE_DIR}/examples/wrap/wrap_test.c)
+# wrap_test calls PQC param-enc helpers from examples/tpm_test_keys.c under
+# WOLFTPM_MLKEM / WOLFTPM_MLDSA; compile it so those references resolve.
+target_sources(app PRIVATE ${ZEPHYR_WOLFTPM_MODULE_DIR}/examples/tpm_test_keys.c)
 target_sources(app PRIVATE ${app_sources})
 
 # Include header files

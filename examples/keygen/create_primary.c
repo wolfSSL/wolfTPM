@@ -90,9 +90,20 @@ static void usage(void)
 #ifdef WOLFTPM_MLDSA
 static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
 {
-    int n = XATOI(optVal);
+    int n;
+    const char* p;
+
+    if (optVal[0] == '\0') { /* missing or empty suffix, use default */
+        *ps = TPM_MLDSA_65;
+        return TPM_RC_SUCCESS;
+    }
+    /* reject non-digit input (e.g. -mldsa=abc) before XATOI */
+    for (p = optVal; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9')
+            return TPM_RC_FAILURE;
+    }
+    n = XATOI(optVal);
     switch (n) {
-        case 0:  /* missing or empty suffix, use default */
         case 65: *ps = TPM_MLDSA_65; return TPM_RC_SUCCESS;
         case 44: *ps = TPM_MLDSA_44; return TPM_RC_SUCCESS;
         case 87: *ps = TPM_MLDSA_87; return TPM_RC_SUCCESS;
@@ -147,7 +158,7 @@ int TPM2_CreatePrimaryKey_Example(void* userCtx, int argc, char *argv[])
                 argv[argc-1] + 7 : "";
             if (mldsaParamSet(optVal, &mldsaPs) != TPM_RC_SUCCESS) {
                 usage();
-                return 0;
+                return -1;
             }
             alg = TPM_ALG_MLDSA;
         }

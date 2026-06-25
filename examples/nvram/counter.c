@@ -74,6 +74,7 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
 #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
     TPM_ALG_ID pqcParamEncAlg = TPM_ALG_NULL;
     int pqcParamSet = 0;
+    int pqcRc = 0;
     WOLFTPM2_KEY pqcKey;
 #endif
     word32 nvIndex = TPM2_DEMO_NV_COUNTER_INDEX;
@@ -121,13 +122,15 @@ int TPM2_NVRAM_Counter_Example(void* userCtx, int argc, char *argv[])
             paramEncAlg = TPM_ALG_XOR;
         }
 #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
-        else if (parsePqcParamEncArg(argv[argc-1], &pqcParamEncAlg,
-                     &pqcParamSet) != 0) {
-            /* PQC option; an unsupported parameter set (alg left NULL) is a
-             * fatal typo, not a silent drop of parameter encryption. */
-            if (pqcParamEncAlg == TPM_ALG_NULL) {
+        else if ((pqcRc = parsePqcParamEncArg(argv[argc-1], &pqcParamEncAlg,
+                     &pqcParamSet)) != 0) {
+            /* An unsupported parameter set (parser returns -1) is a fatal typo,
+             * not a silent drop of parameter encryption. Branch on the parser
+             * result directly: pqcParamEncAlg may already hold a valid alg from
+             * an earlier PQC option (argv is parsed right-to-left). */
+            if (pqcRc < 0) {
                 usage();
-                return 0;
+                return -1;
             }
         }
 #endif

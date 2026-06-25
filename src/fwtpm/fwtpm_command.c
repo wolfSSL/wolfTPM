@@ -224,7 +224,7 @@ static int FwBuildParamEncKey(FWTPM_Session* sess, TPM_HANDLE authHandle,
 static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
     TPM_HANDLE authHandle, byte* paramData, UINT32 paramSz)
 {
-    int rc;
+    int rc = TPM_RC_FAILURE;
     byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
     int keyBufSz = 0;
 
@@ -247,6 +247,9 @@ static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             paramData, paramSz, 0); /* decrypt */
     }
+    else {
+        rc = TPM_RC_SYMMETRIC; /* unsupported param-enc cipher */
+    }
 
     TPM2_ForceZero(keyBuf, sizeof(keyBuf));
     (void)ctx;
@@ -257,7 +260,7 @@ static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
 static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
     TPM_HANDLE authHandle, byte* paramData, UINT32 paramSz)
 {
-    int rc;
+    int rc = TPM_RC_FAILURE;
     byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
     int keyBufSz = 0;
 
@@ -280,6 +283,9 @@ static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             sess->nonceCaller.buffer, sess->nonceCaller.size,
             paramData, paramSz, 1); /* encrypt */
+    }
+    else {
+        rc = TPM_RC_SYMMETRIC; /* unsupported param-enc cipher */
     }
 
     TPM2_ForceZero(keyBuf, sizeof(keyBuf));
