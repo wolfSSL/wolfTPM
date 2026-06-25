@@ -452,7 +452,13 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         packet->buf, packet->pos, tpmResp, &tpmRespSz);
     if (rc != 0) {
         TPM2_ForceZero(tpmResp, sizeof(tpmResp));
-        return rc;
+    #ifdef DEBUG_WOLFTPM
+        printf("SPDM secured exchange failed: %d\n", rc);
+    #endif
+        /* SPDM is active: never downgrade to cleartext. Map the (negative)
+         * transport error to a positive TPM RC so the caller treats it as a
+         * hard failure instead of "SPDM not active". */
+        return TPM_RC_FAILURE;
     }
 
     if (tpmRespSz > MAX_RESPONSE_SIZE) {
@@ -467,6 +473,25 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 }
 #endif /* WOLFTPM_SPDM */
 
+/* Send the finalized command in packet over the SPDM secured channel when a
+ * session is active, otherwise over the raw transport. Once SPDM is active an
+ * exchange failure is returned as-is and never falls back to a cleartext send,
+ * so a forced SPDM failure cannot downgrade the link. */
+static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    TPM_RC rc;
+
+#ifdef WOLFTPM_SPDM
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc >= 0)
+        return rc; /* SPDM active: success or hard failure, no cleartext */
+    /* rc < 0: SPDM not active, use normal transport */
+#endif
+    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+
+    return rc;
+}
+
 #ifdef WOLFTPM_NO_RETRY
 /* Submit the finalized command in packet (length cmdSz) and parse the
  * response, returning the TPM response code. */
@@ -478,19 +503,9 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* send command requires packet->pos to be the total command length */
     packet->pos = cmdSz;
 
-#ifdef WOLFTPM_SPDM
-    rc = TPM2_SPDM_SendCommand(ctx, packet);
-    if (rc >= 0) {
-        if (rc != TPM_RC_SUCCESS)
-            return rc; /* SPDM active but failed, do not retry cleartext */
-    }
-    else /* rc < 0: SPDM not active, use normal transport */
-#endif
-    {
-        rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
-    }
+    rc = TPM2_DispatchCommand(ctx, packet);
     if (rc != 0)
-        return rc; /* transport error */
+        return rc; /* transport or SPDM error */
 
     /* parse response header and extract the TPM response code */
     rc = TPM2_Packet_Parse(rc, packet);
@@ -518,19 +533,9 @@ static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* send command requires packet->pos to be the total command length */
         packet->pos = cmdSz;
 
-    #ifdef WOLFTPM_SPDM
-        rc = TPM2_SPDM_SendCommand(ctx, packet);
-        if (rc >= 0) {
-            if (rc != TPM_RC_SUCCESS)
-                return rc; /* SPDM active but failed, do not retry cleartext */
-        }
-        else /* rc < 0: SPDM not active, use normal transport */
-    #endif
-        {
-            rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
-        }
+        rc = TPM2_DispatchCommand(ctx, packet);
         if (rc != 0)
-            return rc; /* transport error */
+            return rc; /* transport or SPDM error */
 
         /* parse response header and extract the TPM response code */
         rc = TPM2_Packet_Parse(rc, packet);
