@@ -225,6 +225,22 @@ static void test_wolfTPM2_GetCapabilities(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+static void test_wolfTPM2_DictionaryAttack(void)
+{
+    /* Argument validation (non-destructive; the functional lockout/recovery
+     * path is exercised by examples/management/da_check and the fwTPM unit
+     * tests). */
+    AssertIntEQ(wolfTPM2_DictionaryAttackLockReset(NULL), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_DictionaryAttackParameters(NULL, 32, 0, 0),
+        BAD_FUNC_ARG);
+    /* newMaxTries of 0 is rejected client-side */
+    AssertIntEQ(wolfTPM2_DictionaryAttackParameters((WOLFTPM2_DEV*)1, 0, 0, 0),
+        BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper: %-40s %s\n", "Dictionary Attack args:",
+        "Passed");
+}
+
 /* test for wolfTPM2_ReadPublicKey */
 static void test_wolfTPM2_ReadPublicKey(void)
 {
@@ -5469,6 +5485,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_OpenExisting();
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
+    test_wolfTPM2_DictionaryAttack();
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();

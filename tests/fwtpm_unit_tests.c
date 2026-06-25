@@ -8423,6 +8423,18 @@ static void test_fwtpm_change_pps(void)
     fwtpm_pass("ChangePPS:", 0);
 }
 
+/* Mock clock HAL state (shared by DA self-heal and clock HAL tests) */
+static UINT64 gMockClockMs;
+static int    gMockClockCalls;
+static void*  gMockClockCtxSeen;
+
+static UINT64 mock_clock_get_ms(void* ctx)
+{
+    gMockClockCalls++;
+    gMockClockCtxSeen = ctx;
+    return gMockClockMs;
+}
+
 #ifndef FWTPM_NO_DA
 static void test_fwtpm_da_parameters_and_reset(void)
 {
@@ -8478,6 +8490,755 @@ static void test_fwtpm_da_parameters_zero_maxtries_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tDA Parameters maxTries=0 rejected:\tPassed\n");
 }
+
+/* Query a single TPM property via GetCapability and return its value. */
+static UINT32 DaGetCapProp(FWTPM_CTX* ctx, UINT32 prop)
+{
+    int cmdSz, rspSize = 0;
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, prop); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    /* hdr(10)+moreData(1)+cap(4)+count(4)=19: prop@19, value@23. Assert the
+     * returned tag matches so an absent property fails loudly rather than
+     * silently returning the next property's value. */
+    AssertIntEQ((int)GetU32BE(gRsp + 19), (int)prop);
+    return GetU32BE(gRsp + 23);
+}
+
+/* Set DA parameters (lockoutAuth empty) so tests run with short thresholds. */
+static TPM_RC DaSetParams(FWTPM_CTX* ctx, UINT32 maxTries, UINT32 recovery,
+    UINT32 lockoutRecovery)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_DictionaryAttackParameters); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, maxTries); pos += 4;
+    PutU32BE(gCmd + pos, recovery); pos += 4;
+    PutU32BE(gCmd + pos, lockoutRecovery); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* GetCapability reports the DA parameters and lockout state. */
+static void test_fwtpm_da_getcap_properties(void)
+{
+    FWTPM_CTX ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    AssertIntEQ(DaSetParams(&ctx, 5, 120, 600), TPM_RC_SUCCESS);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_MAX_AUTH_FAIL), 5);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_INTERVAL), 120);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_RECOVERY), 600);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
+    AssertFalse(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
+        TPMA_PERMANENT_inLockout);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA GetCapability properties:", 0);
+}
+
+/* Send a command with a wrong (non-empty) password to a given handle. */
+static TPM_RC DaSendBadAuthTo(FWTPM_CTX* ctx, UINT32 cc, UINT32 handle)
+{
+    int pos = 0, rspSize = 0;
+    static const byte badPw[] = { 'b', 'a', 'd' };
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, cc); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, badPw, (int)sizeof(badPw));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* The platform hierarchy is not DA-protected: a failed platformAuth reports
+ * AUTH_FAIL (not LOCKOUT) and never feeds the counter. */
+static void test_fwtpm_da_platform_exempt(void)
+{
+    FWTPM_CTX ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
+        TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    /* Repeated failures must neither count nor lock. */
+    AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
+        TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ(ctx.lockoutAuthFailed, 0);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA platform hierarchy exempt:", 0);
+}
+
+/* Startup(SU_STATE) exercises the Restart/Resume DA-flag persist branch. */
+static void test_fwtpm_da_startup_state(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, cmdSz;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_STATE); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.restartCount, 1);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA Startup(SU_STATE) persist:", 0);
+}
+
+#ifdef HAVE_ECC
+/* Create an ECC-P256 sign primary in the owner hierarchy with empty auth and
+ * the caller-supplied object attributes. Returns the transient handle. */
+static UINT32 DaMakeEccSignKey(FWTPM_CTX* ctx, UINT32 attributes)
+{
+    int pos = 0, pubStart, pubLen, sensStart, sensLen, rspSize = 0;
+
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    sensLen = pos - sensStart - 2;
+    PutU16BE(gCmd + sensStart, (UINT16)sensLen);
+
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + pos, attributes); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    pubLen = pos - pubStart - 2;
+    PutU16BE(gCmd + pubStart, (UINT16)pubLen);
+
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) != TPM_RC_SUCCESS) return 0;
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* Send a Sign command with a deliberately wrong password. Authorization is
+ * checked before the handler, so this fails at auth (driving DA accounting)
+ * without needing well-formed sign parameters. */
+static TPM_RC DaSignWrongAuth(FWTPM_CTX* ctx, UINT32 keyH)
+{
+    int pos = 0, rspSize = 0;
+    static const byte badPw[] = { 'b', 'a', 'd' };
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, keyH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, badPw, (int)sizeof(badPw));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A noDA object must never feed the lockout counter; a DA-protected object
+ * must. This exercises the FwHandleIsNoDA object path (the noDA-on-objects
+ * fix). */
+static void test_fwtpm_da_noda_object_exempt(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 daKey, noDaKey;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* noDA sign key (attr includes TPMA_OBJECT_noDA = 0x400) */
+    noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
+    AssertIntNE(noDaKey, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ(ctx.daUsed, 0);
+
+    /* DA-protected sign key (no noDA bit) */
+    daKey = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(daKey, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+    AssertIntEQ(ctx.daUsed, 1);
+
+    /* Setting DA parameters also resets a non-zero counter (TCG Part 3). */
+    AssertIntEQ(DaSetParams(&ctx, 5, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA noDA object exempt:", 0);
+}
+
+/* Failed auth drives lockout; LockReset recovers. */
+static void test_fwtpm_da_lockout_and_reset(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int rspSize = 0, cmdSz;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 1);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 2);
+    AssertTrue(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
+        TPMA_PERMANENT_inLockout);
+
+    /* A non-whitelisted command is now rejected with LOCKOUT. */
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
+
+    /* Lifecycle commands are exempt: Shutdown works during lockout. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + cmdSz, TPM_SU_STATE); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* DictionaryAttackLockReset clears the counter. */
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ((int)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER), 0);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA lockout + LockReset:", 0);
+}
+
+/* A noDA key stays usable during active lockout (gate exempts it): a wrong-auth
+ * use yields AUTH_FAIL, not LOCKOUT. */
+static void test_fwtpm_da_noda_usable_during_lockout(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 daKey, noDaKey;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+
+    noDaKey = DaMakeEccSignKey(&ctx, 0x00040472); /* noDA set */
+    daKey = DaMakeEccSignKey(&ctx, 0x00040072);   /* noDA clear */
+    AssertIntNE(noDaKey, 0);
+    AssertIntNE(daKey, 0);
+
+    /* Drive lockout with the DA key. */
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
+    /* The DA key is now gated... */
+    AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
+    /* ...but the noDA key is still processed (AUTH_FAIL, not LOCKOUT) and does
+     * not feed the counter. */
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA noDA usable during lockout:", 0);
+}
+
+/* failedTries self-heals as recoveryTime elapses (clock HAL injected). */
+static void test_fwtpm_da_selfheal(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int rspSize = 0, cmdSz;
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(DaSetParams(&ctx, 10, 1 /*sec*/, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+
+    /* Advance 3s (>= 2 recovery intervals) and run a benign command. */
+    gMockClockMs = 3000;
+    (void)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA self-heal:", 0);
+}
+
+#ifndef FWTPM_NO_NV
+/* failedTries persists across reload; a non-orderly restart adds the +1
+ * penalty, an orderly Shutdown does not. */
+static void test_fwtpm_da_persist_failedtries(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int rspSize = 0, cmdSz;
+    (void)remove(FWTPM_NV_FILE);
+
+    /* Boot 1: two failures, then a clean Shutdown (orderly). */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 100, 0, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Shutdown);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    /* Boot 2: orderly shutdown means no penalty, counter persists at 2. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+
+    /* One more failure, then drop power without Shutdown (non-orderly). */
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 3);
+    FWTPM_Cleanup(&ctx);
+
+    /* Boot 3: counter persists across the non-orderly reload. With no clock
+     * HAL the +1 non-orderly penalty is not charged (clockless targets cannot
+     * self-heal, so they must not accumulate). */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ((int)ctx.daFailedTries, 3);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA persist failedTries:", 0);
+}
+
+/* With a clock HAL, a non-orderly restart charges the +1 penalty (and the
+ * lockoutAuth lock survives a reboot when lockoutRecovery != 0). */
+static void test_fwtpm_da_nonorderly_penalty(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int rspSize = 0, cmdSz;
+    (void)remove(FWTPM_NV_FILE);
+
+    /* Boot 1 (clock present): one failure, then non-orderly power loss. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(DaSetParams(&ctx, 100, 0, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+    FWTPM_Cleanup(&ctx);
+
+    /* Boot 2 (clock present): non-orderly restart adds the +1 penalty -> 2. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA non-orderly penalty (clocked):", 0);
+}
+
+/* A power-cycle while in lockout must not brick the TPM: Startup must still be
+ * accepted (not DA-gated) and DictionaryAttackLockReset must recover. */
+static void test_fwtpm_da_reboot_in_lockout_recovers(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    (void)remove(FWTPM_NV_FILE);
+
+    /* Boot 1: drive into lockout (maxTries=2), then drop power (non-orderly). */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 0, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
+    AssertTrue(ctx.daFailedTries >= ctx.daMaxTries);
+    FWTPM_Cleanup(&ctx);
+
+    /* Boot 2: Startup must succeed despite the persisted lockout, and
+     * DictionaryAttackLockReset must recover. */
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertTrue(ctx.daFailedTries >= ctx.daMaxTries);
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        TPM_RH_LOCKOUT), TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA reboot-in-lockout recovers:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
+/* Send a lockout-hierarchy command (LockReset / Parameters) with a given
+ * password. Parameters carries three U32 args. */
+static TPM_RC DaSendLockoutCmd(FWTPM_CTX* ctx, UINT32 cc,
+    const byte* pw, int pwSz)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, cc); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_LOCKOUT); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, pw, pwSz);
+    if (cc == TPM_CC_DictionaryAttackParameters) {
+        PutU32BE(gCmd + pos, 32); pos += 4;  /* newMaxTries */
+        PutU32BE(gCmd + pos, 0); pos += 4;   /* newRecoveryTime */
+        PutU32BE(gCmd + pos, 0); pos += 4;   /* lockoutRecovery */
+    }
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* A failed lockoutAuth locks the lockout hierarchy: DA reset/parameters are
+ * then rejected even with the correct auth, until lockoutRecovery elapses. */
+static void test_fwtpm_da_lockoutauth_failure(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, cmdSz;
+    static const byte lkAuth[] = { 'l', 'k', 'a' };
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Establish a non-empty lockoutAuth and a short lockoutRecovery. */
+    ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
+    memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
+    ctx.daLockoutRecovery = 1; /* second */
+
+    /* The first wrong lockoutAuth reports AUTH_FAIL but arms the lock. */
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        NULL, 0), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+
+    /* Even the correct auth is now rejected while the lockout lock holds. */
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackParameters,
+        lkAuth, (int)sizeof(lkAuth)), TPM_RC_LOCKOUT);
+
+    /* Brute-force via lockoutAuth-authorized Clear is also rate-limited (not an
+     * unlimited stream of AUTH_FAIL). */
+    AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_LOCKOUT);
+
+    /* Advance past lockoutRecovery; a benign command self-heals the lock. */
+    gMockClockMs = 2000;
+    (void)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER);
+    AssertIntEQ(ctx.lockoutAuthFailed, 0);
+
+    /* Correct auth works again. */
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        lkAuth, (int)sizeof(lkAuth)), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA lockoutAuth lock + recovery:", 0);
+}
+
+#ifndef FWTPM_NO_NV
+/* Init + optional clock HAL + Startup(CLEAR). Returns the Startup RC. */
+static int DaManualStartup(FWTPM_CTX* ctx, int withClock)
+{
+    int rspSize = 0, cmdSz;
+    if (FWTPM_Init(ctx) != 0) {
+        return -1;
+    }
+    if (withClock) {
+        gMockClockMs = 0;
+        if (FWTPM_Clock_SetHAL(ctx, mock_clock_get_ms, NULL) != 0) {
+            return -1;
+        }
+    }
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    return (int)GetRspRC(gRsp);
+}
+
+/* The lockoutAuth lock survives a reboot when a clock HAL is present and
+ * lockoutRecovery != 0, but a clockless reboot clears it (so clockless targets
+ * keep a reboot recovery path). */
+static void test_fwtpm_da_lockoutauth_persist(void)
+{
+    FWTPM_CTX ctx;
+    static const byte lkAuth[] = { 'l', 'k', 'a' };
+
+    /* Scenario A: clock present, default lockoutRecovery (>0) -> persists. */
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 1), TPM_RC_SUCCESS);
+    ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
+    memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        NULL, 0), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        NULL, 0), TPM_RC_LOCKOUT);
+    FWTPM_Cleanup(&ctx);
+
+    /* Scenario B: clockless reboot clears the lock. */
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 0), TPM_RC_SUCCESS);
+    ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
+    memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        NULL, 0), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.lockoutAuthFailed, 0);
+    /* The lock cleared on the clockless reboot, so a correctly-authorized
+     * reset now succeeds (lockoutAuth persisted via the Cleanup full save). */
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        lkAuth, (int)sizeof(lkAuth)), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+
+    /* Scenario C: clock present but lockoutRecovery == 0 -> reboot clears. */
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 1), TPM_RC_SUCCESS);
+    ctx.daLockoutRecovery = 0;
+    ctx.lockoutAuth.size = (UINT16)sizeof(lkAuth);
+    memcpy(ctx.lockoutAuth.buffer, lkAuth, sizeof(lkAuth));
+    AssertIntEQ(DaSendLockoutCmd(&ctx, TPM_CC_DictionaryAttackLockReset,
+        NULL, 0), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.lockoutAuthFailed, 1);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(DaManualStartup(&ctx, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(ctx.lockoutAuthFailed, 0);
+    FWTPM_Cleanup(&ctx);
+
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA lockoutAuth persists across reboot:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
+/* TPM2_Clear restores DA state (counter and parameters) to defaults. */
+static void test_fwtpm_da_clear_resets(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(DaSetParams(&ctx, 2, 30, 300), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    /* Drive into full lockout so the inLockout bit is set. */
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_LOCKOUT);
+    AssertTrue(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
+        TPMA_PERMANENT_inLockout);
+
+    /* Clear is allowed during lockout and resets DA state to defaults. */
+    AssertIntEQ(SendSimpleSessionCmd(&ctx, TPM_CC_Clear, TPM_RH_LOCKOUT),
+        TPM_RC_SUCCESS);
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ((int)ctx.daMaxTries, FWTPM_DA_DEFAULT_MAX_TRIES);
+    AssertIntEQ(ctx.orderly, 1);
+    AssertFalse(DaGetCapProp(&ctx, TPM_PT_PERMANENT) &
+        TPMA_PERMANENT_inLockout);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA Clear resets state:", 0);
+}
+
+/* TPM_PT_PERMANENT reports the auth-set and disableClear bits. */
+static void test_fwtpm_da_permanent_bits(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 perm;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    ctx.ownerAuth.size = 4;
+    ctx.endorsementAuth.size = 4;
+    ctx.lockoutAuth.size = 4;
+    ctx.disableClear = 1;
+
+    perm = DaGetCapProp(&ctx, TPM_PT_PERMANENT);
+    AssertTrue(perm & TPMA_PERMANENT_ownerAuthSet);
+    AssertTrue(perm & TPMA_PERMANENT_endorsementAuthSet);
+    AssertTrue(perm & TPMA_PERMANENT_lockoutAuthSet);
+    AssertTrue(perm & TPMA_PERMANENT_disableClear);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA PERMANENT bits:", 0);
+}
+
+/* The partial self-heal branch forgives some-but-not-all tries and carries the
+ * residual baseline forward. */
+static void test_fwtpm_da_selfheal_partial(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key;
+    int rspSize = 0, cmdSz;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(FWTPM_Init(&ctx), 0);
+    gMockClockMs = 0;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    AssertIntEQ(DaSetParams(&ctx, 10, 1 /*sec*/, 0), TPM_RC_SUCCESS);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, key), TPM_RC_AUTH_FAIL);
+    AssertIntEQ((int)ctx.daFailedTries, 3);
+
+    /* One recovery interval forgives exactly one try (partial). */
+    gMockClockMs = 1000;
+    (void)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER);
+    AssertIntEQ((int)ctx.daFailedTries, 2);
+
+    /* The next interval forgives one more, proving the baseline carried. */
+    gMockClockMs = 2000;
+    (void)DaGetCapProp(&ctx, TPM_PT_LOCKOUT_COUNTER);
+    AssertIntEQ((int)ctx.daFailedTries, 1);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA self-heal partial:", 0);
+}
+
+/* An HMAC session authorizing a DA-protected object also arms daUsed (arming
+ * runs before HMAC verification). */
+static void test_fwtpm_da_hmac_arms_daused(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 key, sessH;
+    int pos = 0, authStart, rspSize = 0;
+
+    (void)remove(FWTPM_NV_FILE);
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    key = DaMakeEccSignKey(&ctx, 0x00040072);
+    AssertIntNE(key, 0);
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(ctx.daUsed, 0);
+
+    /* Sign authorized by the HMAC session (garbage HMAC). The auth area is
+     * well-formed so the session resolves and arms daUsed; verification then
+     * fails. */
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
+    PutU32BE(gCmd + pos, key); pos += 4;
+    authStart = pos;
+    PutU32BE(gCmd + pos, 0); pos += 4;       /* authSize placeholder */
+    PutU32BE(gCmd + pos, sessH); pos += 4;   /* session handle */
+    PutU16BE(gCmd + pos, 16); pos += 2;      /* nonceCaller size */
+    memset(gCmd + pos, 0xAA, 16); pos += 16;
+    gCmd[pos++] = 0x01;                       /* attributes: continueSession */
+    PutU16BE(gCmd + pos, 32); pos += 2;      /* hmac size */
+    memset(gCmd + pos, 0xCC, 32); pos += 32; /* garbage hmac */
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(ctx.daUsed, 1);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA HMAC session arms daUsed:", 0);
+}
+#endif /* HAVE_ECC */
 #endif /* !FWTPM_NO_DA */
 
 static void test_fwtpm_read_public(void)
@@ -9059,18 +9820,6 @@ static void test_fwtpm_clock_set(void)
 /* HAL registration tests                                              */
 /* ================================================================== */
 
-/* Mock clock HAL state */
-static UINT64 gMockClockMs;
-static int    gMockClockCalls;
-static void*  gMockClockCtxSeen;
-
-static UINT64 mock_clock_get_ms(void* ctx)
-{
-    gMockClockCalls++;
-    gMockClockCtxSeen = ctx;
-    return gMockClockMs;
-}
-
 static void test_fwtpm_clock_sethal(void)
 {
     FWTPM_CTX ctx;
@@ -9149,6 +9898,143 @@ static int mock_nv_erase(void* c, word32 off, word32 sz)
     gMockNvErases++;
     return TPM_RC_SUCCESS;
 }
+
+#ifndef FWTPM_NO_DA
+static void PutU32LE(byte* p, UINT32 v)
+{
+    p[0] = (byte)(v & 0xFF);
+    p[1] = (byte)((v >> 8) & 0xFF);
+    p[2] = (byte)((v >> 16) & 0xFF);
+    p[3] = (byte)((v >> 24) & 0xFF);
+}
+
+/* Build a minimal NV journal (header + one FLAGS entry) in gMockNvStore and
+ * load it through the mock HAL (no integrity key, so the MAC check is skipped).
+ * This lets the FLAGS reload paths be exercised with hand-crafted bytes. */
+static void DaLoadCraftedFlags(FWTPM_CTX* ctx, const byte* flagsVal,
+    int flagsLen)
+{
+    FWTPM_NV_HAL hal;
+    word32 writePos = 16 + 4 + (word32)flagsLen; /* header + TLV hdr + value */
+
+    memset(gMockNvStore, 0xFF, sizeof(gMockNvStore));
+    PutU32LE(gMockNvStore + 0, 0x66775450);   /* magic "fwTP" */
+    PutU32LE(gMockNvStore + 4, 4);            /* version (TLV journal) */
+    PutU32LE(gMockNvStore + 8, writePos);
+    PutU32LE(gMockNvStore + 12, MOCK_NV_SIZE);
+    gMockNvStore[16] = 0x30; gMockNvStore[17] = 0x00;  /* FLAGS tag (LE) */
+    gMockNvStore[18] = (byte)(flagsLen & 0xFF);
+    gMockNvStore[19] = (byte)((flagsLen >> 8) & 0xFF);
+    memcpy(gMockNvStore + 20, flagsVal, (size_t)flagsLen);
+
+    memset(ctx, 0, sizeof(*ctx));
+    memset(&hal, 0, sizeof(hal));   /* get_integrity_key == NULL -> no MAC */
+    hal.read = mock_nv_read;
+    hal.write = mock_nv_write;
+    hal.erase = mock_nv_erase;
+    hal.maxSize = MOCK_NV_SIZE;
+    AssertIntEQ(FWTPM_NV_SetHAL(ctx, &hal), 0);
+    AssertIntEQ(FWTPM_Init(ctx), 0);
+}
+
+/* An older journal lacking the trailing daFailedTries field must load as a
+ * clean checkpoint (no spurious lockout penalty on upgrade). */
+static void test_fwtpm_da_oldformat_journal(void)
+{
+    FWTPM_CTX ctx;
+    byte val[17];  /* flags8 + maxTries + recoveryTime + lockoutRecovery + reset */
+
+    val[0] = 0x04;                 /* legacy flags: orderly bit set */
+    PutU32LE(val + 1, 32);         /* daMaxTries */
+    PutU32LE(val + 5, 600);        /* daRecoveryTime */
+    PutU32LE(val + 9, 86400);      /* daLockoutRecovery */
+    PutU32LE(val + 13, 7);         /* resetCount */
+
+    DaLoadCraftedFlags(&ctx, val, (int)sizeof(val));
+    AssertIntEQ((int)ctx.daFailedTries, 0);
+    AssertIntEQ(ctx.orderly, 1);
+    AssertIntEQ(ctx.lockoutAuthFailed, 0);
+    AssertIntEQ((int)ctx.resetCount, 7);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("DA old-format journal load:", 0);
+}
+
+/* A replayed/out-of-range daFailedTries is clamped on load. */
+static void test_fwtpm_da_failedtries_clamp(void)
+{
+    FWTPM_CTX ctx;
+    byte val[21];  /* old 17 bytes + daFailedTries */
+
+    val[0] = 0x04;                 /* orderly bit set */
+    PutU32LE(val + 1, 32);         /* daMaxTries */
+    PutU32LE(val + 5, 600);
+    PutU32LE(val + 9, 86400);
+    PutU32LE(val + 13, 0);         /* resetCount */
+    PutU32LE(val + 17, 0x00010000);/* daFailedTries = 65536 (> 0xFFFF) */
+
+    DaLoadCraftedFlags(&ctx, val, (int)sizeof(val));
+    AssertIntEQ((int)ctx.daFailedTries, (int)ctx.daMaxTries);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("DA failedTries clamp on load:", 0);
+}
+
+/* A persisted lockout must survive reload even when the clock source returns a
+ * large (RTC-like / clockOffset-advanced) value: self-heal must not measure
+ * elapsed time from an unseeded baseline and wipe the counter. */
+static void test_fwtpm_da_no_selfheal_wipe_on_reload(void)
+{
+    FWTPM_CTX ctx;
+    byte val[21];
+    int rspSize = 0, cmdSz;
+
+    val[0] = 0x04;                 /* orderly */
+    PutU32LE(val + 1, 32);         /* daMaxTries */
+    PutU32LE(val + 5, 600);        /* daRecoveryTime */
+    PutU32LE(val + 9, 86400);      /* daLockoutRecovery */
+    PutU32LE(val + 13, 0);         /* resetCount */
+    PutU32LE(val + 17, 32);        /* daFailedTries = maxTries (locked) */
+
+    DaLoadCraftedFlags(&ctx, val, (int)sizeof(val));
+    AssertIntEQ((int)ctx.daFailedTries, 32);
+
+    /* Register a clock returning a large value, as an RTC or an advanced
+     * clockOffset would after reboot. */
+    gMockClockMs = 5000000;
+    AssertIntEQ(FWTPM_Clock_SetHAL(&ctx, mock_clock_get_ms, NULL), 0);
+
+    /* A pre-Startup GetCapability must not heal the loaded counter. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_LOCKOUT_COUNTER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ((int)ctx.daFailedTries, 32);
+
+    /* Startup seeds the self-heal baseline; the lockout still holds. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 12, TPM_CC_Startup);
+    PutU16BE(gCmd + cmdSz, TPM_SU_CLEAR); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertTrue(ctx.daFailedTries >= ctx.daMaxTries);
+
+    /* A post-Startup command at the same clock value must not wipe it. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_LOCKOUT_COUNTER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertTrue(ctx.daFailedTries >= ctx.daMaxTries);
+
+    FWTPM_Cleanup(&ctx);
+    (void)remove(FWTPM_NV_FILE);
+    fwtpm_pass("DA no self-heal wipe on reload:", 0);
+}
+#endif /* !FWTPM_NO_DA */
 #endif /* !FWTPM_NO_NV */
 
 /* Register a mock NV HAL before FWTPM_Init and verify that NV writes
@@ -9379,6 +10265,31 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_DA
     test_fwtpm_da_parameters_and_reset();
     test_fwtpm_da_parameters_zero_maxtries_rejected();
+    test_fwtpm_da_getcap_properties();
+    test_fwtpm_da_platform_exempt();
+    test_fwtpm_da_startup_state();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_da_oldformat_journal();
+    test_fwtpm_da_failedtries_clamp();
+    test_fwtpm_da_no_selfheal_wipe_on_reload();
+#endif
+#ifdef HAVE_ECC
+    test_fwtpm_da_noda_object_exempt();
+    test_fwtpm_da_lockout_and_reset();
+    test_fwtpm_da_noda_usable_during_lockout();
+    test_fwtpm_da_selfheal();
+    test_fwtpm_da_selfheal_partial();
+    test_fwtpm_da_hmac_arms_daused();
+    test_fwtpm_da_lockoutauth_failure();
+    test_fwtpm_da_clear_resets();
+    test_fwtpm_da_permanent_bits();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_da_persist_failedtries();
+    test_fwtpm_da_nonorderly_penalty();
+    test_fwtpm_da_reboot_in_lockout_recovers();
+    test_fwtpm_da_lockoutauth_persist();
+#endif
+#endif
 #endif
 
     /* Policy */

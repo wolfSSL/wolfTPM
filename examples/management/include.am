@@ -3,7 +3,8 @@
 
 if BUILD_EXAMPLES
 noinst_PROGRAMS += examples/management/flush \
-                   examples/management/tpmclear
+                   examples/management/tpmclear \
+                   examples/management/da_check
 
 noinst_HEADERS  += examples/management/management.h
 
@@ -14,11 +15,17 @@ examples_management_flush_DEPENDENCIES = src/libwolftpm.la
 examples_management_tpmclear_SOURCES      = examples/management/tpmclear.c
 examples_management_tpmclear_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_management_tpmclear_DEPENDENCIES = src/libwolftpm.la
+
+examples_management_da_check_SOURCES      = examples/management/da_check.c
+examples_management_da_check_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_management_da_check_DEPENDENCIES = src/libwolftpm.la
 endif
 
 example_managementdir = $(exampledir)/management
 dist_example_management_DATA = examples/management/flush.c \
-                               examples/management/tpmclear.c
+                               examples/management/tpmclear.c \
+                               examples/management/da_check.c
 
 DISTCLEANFILES+= examples/management/.libs/flush \
-                 examples/management/.libs/tpmclear
+                 examples/management/.libs/tpmclear \
+                 examples/management/.libs/da_check

@@ -301,6 +301,39 @@ jobs:
           retention-days: 5
 
   # ----------------------------------------------------------------
+  # Dictionary Attack TPM_RC_RETRY (daUsed) end-to-end.
+  # Builds the server with -DFWTPM_DA_USED_RETRY so it returns TPM_RC_RETRY on
+  # the first DA-protected auth use, then runs only da_check -lockout (which
+  # rides through RC_RETRY and exercises lockout/recovery). Kept separate from
+  # the examples matrix because the RETRY emulation breaks non-retry-aware
+  # clients sharing one server (e.g. unit.test).
+  # ----------------------------------------------------------------
+  fwtpm-da-retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+          cflags: -DWC_RSA_NO_PADDING
+
+      - name: Build wolfTPM (FWTPM_DA_USED_RETRY)
+        run: |
+          ./autogen.sh
+          ./configure --enable-fwtpm --enable-swtpm --enable-debug \
+            CFLAGS="-DFWTPM_DA_USED_RETRY"
+          make -j"$(nproc)"
+
+      - name: Run DA RC_RETRY end-to-end
+        run: |
+          ./tests/fwtpm_da_retry.sh || rc=$?
+          # 77 is the autotools "skip" code; treat it as a pass.
+          [ "${rc:-0}" -eq 0 ] || [ "${rc:-0}" -eq 77 ]
+
+  # ----------------------------------------------------------------
   # tpm2-tools compatibility test against IBM SW TPM
   # Validates that tpm2_tools_test.sh works on a reference TPM.
   #

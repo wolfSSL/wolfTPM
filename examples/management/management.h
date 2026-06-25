@@ -28,6 +28,7 @@
 
 int TPM2_Flush_Tool(void* userCtx, int argc, char *argv[]);
 int TPM2_Clear_Tool(void* userCtx, int argc, char *argv[]);
+int TPM2_DA_Check_Example(void* userCtx, int argc, char *argv[]);
 
 #ifdef __cplusplus
     }  /* extern "C" */

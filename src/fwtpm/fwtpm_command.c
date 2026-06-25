@@ -73,6 +73,9 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
     TPMI_RH_NV_INDEX nvHandle, UINT32 attributes, int isWrite);
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
+#ifndef FWTPM_NO_DA
+static UINT64 FwDaNowMs(FWTPM_CTX* ctx);
+#endif
 #ifdef WOLFTPM_MLDSA
 static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #endif
@@ -676,6 +679,31 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     }
 
     if (rc == 0) {
+    #ifndef FWTPM_NO_DA
+        /* Non-orderly shutdown penalty (Part 1 Sec.19.8.5): if the prior
+         * session armed DA tracking but did not shut down cleanly, charge one
+         * failed try so a power-cycle cannot reset the lockout for free. Only
+         * applied when a clock HAL is present; clockless targets cannot
+         * self-heal, so charging the penalty there would let routine unclean
+         * power-off accumulate into lockout. */
+        if (ctx->clockHal.get_ms != NULL &&
+                !ctx->orderly && ctx->daFailedTries < ctx->daMaxTries) {
+            ctx->daFailedTries++;
+        }
+        ctx->orderly = 1;
+        ctx->daUsed = 0;
+        /* The failed-lockoutAuth lock recovers on reboot when lockoutRecovery
+         * is 0, or when there is no clock HAL to time-heal it (clockless
+         * targets must keep a reboot recovery path). Otherwise it persists and
+         * recovers on the timer, so a power-cycle cannot brute-force
+         * lockoutAuth. */
+        if (ctx->daLockoutRecovery == 0 || ctx->clockHal.get_ms == NULL) {
+            ctx->lockoutAuthFailed = 0;
+        }
+        ctx->daSelfHealMs = FwDaNowMs(ctx);
+        ctx->daLockoutHealMs = FwDaNowMs(ctx);
+    #endif
+
         if (startupType == TPM_SU_CLEAR) {
             /* Flush all transient objects, sessions, hash sequences,
              * primary cache, and reset PCRs */
@@ -725,16 +753,19 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         else {
             /* TPM Restart/Resume: bump volatile restartCount */
             ctx->restartCount++;
+            rc = FWTPM_NV_SaveFlags(ctx);
         }
 
-        ctx->wasStarted = 1;
-
-    #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: Startup(%s)\n",
-            startupType == TPM_SU_CLEAR ? "CLEAR" : "STATE");
-    #endif
-
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        /* Only report success and mark the TPM started if the state writes
+         * above succeeded; otherwise the non-zero rc yields an error response. */
+        if (rc == 0) {
+            ctx->wasStarted = 1;
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: Startup(%s)\n",
+                startupType == TPM_SU_CLEAR ? "CLEAR" : "STATE");
+        #endif
+            FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        }
     }
 
     return rc;
@@ -774,6 +805,11 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             FwFlushAllSessions(ctx);
         }
 
+    #ifndef FWTPM_NO_DA
+        /* Mark a clean orderly checkpoint so the next startup applies no
+         * non-orderly DA penalty. */
+        ctx->orderly = 1;
+    #endif
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
             return rc;
@@ -1213,11 +1249,18 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             #endif
                   0 },
             #endif
+                { TPM_PT_PERMANENT,         0 }, /* patched at emission */
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
                 { TPM_PT_HR_TRANSIENT_AVAIL, 0 },
                 { TPM_PT_HR_PERSISTENT,     0 },
                 { TPM_PT_HR_PERSISTENT_AVAIL, FWTPM_MAX_PERSISTENT },
+            #ifndef FWTPM_NO_DA
+                { TPM_PT_LOCKOUT_COUNTER,   0 }, /* patched: daFailedTries */
+                { TPM_PT_MAX_AUTH_FAIL,     0 }, /* patched: daMaxTries */
+                { TPM_PT_LOCKOUT_INTERVAL,  0 }, /* patched: daRecoveryTime */
+                { TPM_PT_LOCKOUT_RECOVERY,  0 }, /* patched: daLockoutRecovery */
+            #endif
             };
             int totalProps = (int)(sizeof(allProps) / sizeof(allProps[0]));
             int startIdx = 0;
@@ -1239,6 +1282,32 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 UINT32 val  = allProps[startIdx + i].val;
                 if (prop == TPM_PT_TOTAL_COMMANDS)
                     val = (UINT32)FwGetCmdCount();
+                else if (prop == TPM_PT_PERMANENT) {
+                    val = 0;
+                    if (ctx->ownerAuth.size > 0)
+                        val |= TPMA_PERMANENT_ownerAuthSet;
+                    if (ctx->endorsementAuth.size > 0)
+                        val |= TPMA_PERMANENT_endorsementAuthSet;
+                    if (ctx->lockoutAuth.size > 0)
+                        val |= TPMA_PERMANENT_lockoutAuthSet;
+                    if (ctx->disableClear)
+                        val |= TPMA_PERMANENT_disableClear;
+                #ifndef FWTPM_NO_DA
+                    if (ctx->daMaxTries > 0 &&
+                            ctx->daFailedTries >= ctx->daMaxTries)
+                        val |= TPMA_PERMANENT_inLockout;
+                #endif
+                }
+            #ifndef FWTPM_NO_DA
+                else if (prop == TPM_PT_LOCKOUT_COUNTER)
+                    val = ctx->daFailedTries;
+                else if (prop == TPM_PT_MAX_AUTH_FAIL)
+                    val = ctx->daMaxTries;
+                else if (prop == TPM_PT_LOCKOUT_INTERVAL)
+                    val = ctx->daRecoveryTime;
+                else if (prop == TPM_PT_LOCKOUT_RECOVERY)
+                    val = ctx->daLockoutRecovery;
+            #endif
                 TPM2_Packet_AppendU32(rsp, prop);
                 TPM2_Packet_AppendU32(rsp, val);
             }
@@ -3423,6 +3492,27 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
             /* Reset disableClear per spec */
             ctx->disableClear = 0;
+
+        #ifndef FWTPM_NO_DA
+            /* Clear resets lockoutAuth and DA state to defaults
+             * (Part 3 Sec.24.6) */
+            TPM2_ForceZero(ctx->lockoutAuth.buffer,
+                sizeof(ctx->lockoutAuth.buffer));
+            ctx->lockoutAuth.size = 0;
+            ctx->daFailedTries = 0;
+            ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+            ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
+            ctx->daLockoutRecovery = FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY;
+            ctx->daUsed = 0;
+            ctx->orderly = 1;
+            ctx->lockoutAuthFailed = 0;
+            ctx->daSelfHealMs = FwDaNowMs(ctx);
+            ctx->daLockoutHealMs = 0;
+            /* Persist the cleared lockoutAuth and the DA flags so a Clear
+             * survives an unclean reboot. */
+            (void)FWTPM_NV_SaveAuth(ctx, TPM_RH_LOCKOUT);
+            (void)FWTPM_NV_SaveFlags(ctx);
+        #endif
 
             FwRspNoParams(rsp, cmdTag);
         }
@@ -11721,6 +11811,10 @@ static TPM_RC FwCmd_DictionaryAttackLockReset(FWTPM_CTX* ctx,
         printf("fwTPM: DictionaryAttackLockReset\n");
     #endif
         ctx->daFailedTries = 0;
+        ctx->lockoutAuthFailed = 0;
+        ctx->daLockoutHealMs = 0;
+        ctx->daSelfHealMs = FwDaNowMs(ctx);
+        (void)FWTPM_NV_SaveFlags(ctx);
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -11767,7 +11861,12 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
         ctx->daMaxTries = newMaxTries;
         ctx->daRecoveryTime = newRecoveryTime;
         ctx->daLockoutRecovery = lockoutRecovery;
-        FWTPM_NV_SaveFlags(ctx);
+        /* Per TCG Part 3, setting DA parameters also resets the counter. */
+        ctx->daFailedTries = 0;
+        ctx->lockoutAuthFailed = 0;
+        ctx->daLockoutHealMs = 0;
+        ctx->daSelfHealMs = FwDaNowMs(ctx);
+        (void)FWTPM_NV_SaveFlags(ctx);
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -15693,10 +15792,21 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
 }
 
 #ifndef FWTPM_NO_DA
-/* Return 1 if the handle is an NV index with TPMA_NV_NO_DA set. Such an
- * index is exempt from dictionary-attack lockout (Part 1 Sec.23.2). */
+/* Return 1 if the handle names an entity exempt from dictionary-attack
+ * lockout: an NV index with TPMA_NV_NO_DA, or an object with
+ * TPMA_OBJECT_noDA (Part 1 Sec.19.8.4). Such entities never feed the
+ * failed-tries counter and remain usable during lockout. */
 static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
+    FWTPM_Object* obj;
+
+    if ((handle & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
+        (handle & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
+        obj = FwFindObject(ctx, handle);
+        if (obj != NULL && (obj->pub.objectAttributes & TPMA_OBJECT_noDA)) {
+            return 1;
+        }
+    }
 #ifndef FWTPM_NO_NV
     if ((handle & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
         FWTPM_NvIndex* nv = FwFindNvIndex(ctx, handle);
@@ -15704,9 +15814,106 @@ static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
             return 1;
         }
     }
-#else
-    (void)ctx; (void)handle;
 #endif
+    return 0;
+}
+
+/* DA timing uses the volatile, reset-on-boot millisecond source (the raw clock
+ * HAL), NOT FWTPM_Clock_GetMs: the latter adds the persisted clockOffset, which
+ * TPM2_ClockSet can advance arbitrarily and which survives reboot — either
+ * would let time-based self-heal wipe the persisted lockout (Part 1 Sec.19.8.3
+ * drives DA from Time, not Clock). Returns 0 when no clock HAL is registered. */
+static UINT64 FwDaNowMs(FWTPM_CTX* ctx)
+{
+    if (ctx->clockHal.get_ms != NULL) {
+        return ctx->clockHal.get_ms(ctx->clockHal.ctx);
+    }
+    return 0;
+}
+
+/* Self-heal the DA state as time passes (Part 1 Sec.19.8.3). One failed try
+ * is forgiven every daRecoveryTime seconds; the lockoutAuth lock clears after
+ * daLockoutRecovery seconds. Requires a clock HAL (FWTPM_Clock_SetHAL); with
+ * no time source recovery is reboot-only. Reductions are intentionally not
+ * persisted: a non-orderly reload re-derives them conservatively from the
+ * last durable counter (fail-safe). */
+static void FwDaSelfHeal(FWTPM_CTX* ctx)
+{
+    UINT64 now;
+    UINT64 elapsedSec, heals;
+
+    /* Only after Startup, which seeds the baselines: running before then would
+     * measure elapsed time from an unseeded (zero) baseline and wrongly heal.
+     * No clock HAL means reboot/LockReset-only recovery. */
+    if (!ctx->wasStarted || ctx->clockHal.get_ms == NULL) {
+        return;
+    }
+    now = FwDaNowMs(ctx);
+
+    if (ctx->daFailedTries == 0 || ctx->daRecoveryTime == 0) {
+        ctx->daSelfHealMs = now;
+    }
+    else if (now > ctx->daSelfHealMs) {
+        elapsedSec = (now - ctx->daSelfHealMs) / 1000;
+        heals = elapsedSec / ctx->daRecoveryTime;
+        if (heals >= (UINT64)ctx->daFailedTries) {
+            ctx->daFailedTries = 0;
+            ctx->daSelfHealMs = now;
+        }
+        else if (heals > 0) {
+            ctx->daFailedTries -= (UINT32)heals;
+            ctx->daSelfHealMs += heals * (UINT64)ctx->daRecoveryTime * 1000;
+        }
+    }
+
+    if (ctx->lockoutAuthFailed && ctx->daLockoutRecovery != 0 &&
+            now > ctx->daLockoutHealMs &&
+            (now - ctx->daLockoutHealMs) / 1000 >=
+                (UINT64)ctx->daLockoutRecovery) {
+        ctx->lockoutAuthFailed = 0;
+        ctx->daLockoutHealMs = 0;
+    }
+}
+
+/* Record an authorization failure for DA accounting. Returns 1 only when the
+ * failing command must itself be answered with TPM_RC_LOCKOUT (the failedTries
+ * threshold was just reached); otherwise returns 0 (the caller reports
+ * TPM_RC_AUTH_FAIL). The platform hierarchy is exempt (Part 1 Sec.19.8); a
+ * failed lockoutAuth arms the lockout-hierarchy lock once but still reports
+ * AUTH_FAIL — subsequent reset/parameter attempts are rejected by the gate. */
+static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
+{
+    /* The platform hierarchy is not DA-protected: a failed platformAuth must
+     * not feed the counter or trigger lockout. */
+    if (entityH == TPM_RH_PLATFORM) {
+        return 0;
+    }
+    if (entityH == TPM_RH_LOCKOUT) {
+        /* Record the lock once per episode. Repeated failures must not reset
+         * the recovery timer or append a journal entry each time, which would
+         * be a flash-wear / lock-extension DoS via wrong-auth Clear/LockReset. */
+        if (!ctx->lockoutAuthFailed) {
+            ctx->lockoutAuthFailed = 1;
+            ctx->daLockoutHealMs = FwDaNowMs(ctx);
+            ctx->orderly = 0;
+            (void)FWTPM_NV_SaveFlags(ctx);
+        }
+        return 0;
+    }
+    if (!FwHandleIsNoDA(ctx, entityH)) {
+        /* Cap at maxTries so a command that bypasses the lockout gate (e.g. a
+         * noDA primary handle with a DA-protected secondary auth) cannot grow
+         * the counter or append NV entries without bound while already
+         * locked. */
+        if (ctx->daFailedTries < ctx->daMaxTries) {
+            ctx->daFailedTries++;
+            ctx->orderly = 0;
+            (void)FWTPM_NV_SaveFlags(ctx);
+        }
+        if (ctx->daFailedTries >= ctx->daMaxTries) {
+            return 1;
+        }
+    }
     return 0;
 }
 #endif /* !FWTPM_NO_DA */
@@ -16093,8 +16300,32 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * Per TPM 2.0 spec, certain commands must still be allowed during lockout
      * (e.g., GetCapability, DictionaryAttackLockReset for recovery). */
 #ifndef FWTPM_NO_DA
+    /* Self-heal first so elapsed time can clear lockout before the gate. */
+    FwDaSelfHeal(ctx);
+
+    /* A failed lockoutAuth locks the lockout hierarchy itself for
+     * daLockoutRecovery seconds, so lockoutAuth cannot be brute-forced
+     * (Part 1 Sec.19.8.2). Reject any command that authorizes via lockoutAuth
+     * (auth handle == TPM_RH_LOCKOUT: LockReset, Parameters, Clear/lockout,
+     * etc.) — but not Clear via platformAuth, which is the recovery path. */
+    if (ctx->lockoutAuthFailed && entry->authHandleCnt > 0 &&
+            cmdHandleCnt > 0 && cmdHandles[0] == TPM_RH_LOCKOUT) {
+        *rspSize = FwBuildErrorResponse(rspBuf,
+            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+        return TPM_RC_SUCCESS;
+    }
+
     if (ctx->daFailedTries >= ctx->daMaxTries && ctx->daMaxTries > 0) {
-        if (cmdCode != TPM_CC_GetCapability &&
+        /* Startup/Shutdown are lifecycle commands and must never be DA-gated:
+         * with failedTries persisted, gating Startup would brick a TPM that
+         * power-cycled while in lockout (Startup blocked, so LockReset can
+         * never run). Clear is the platform/lockout-authorized recovery escape
+         * hatch and is likewise exempt (DA protects entity auth, not the
+         * platform hierarchy). */
+        if (cmdCode != TPM_CC_Startup &&
+            cmdCode != TPM_CC_Shutdown &&
+            cmdCode != TPM_CC_Clear &&
+            cmdCode != TPM_CC_GetCapability &&
             cmdCode != TPM_CC_SelfTest &&
             cmdCode != TPM_CC_GetRandom &&
             cmdCode != TPM_CC_DictionaryAttackLockReset &&
@@ -16105,6 +16336,39 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             *rspSize = FwBuildErrorResponse(rspBuf,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
             return TPM_RC_SUCCESS;
+        }
+    }
+
+    /* daUsed: the first use of a DA-protected (non-noDA) object/NV auth after
+     * startup must persist that DA tracking is armed, so a later power loss is
+     * penalized (Part 1 Sec.19.8.5). A real TPM returns TPM_RC_RETRY while it
+     * writes NV; emulate that under FWTPM_DA_USED_RETRY so callers exercise
+     * resubmit. The flag/orderly-state is persisted regardless of the macro. */
+    if (!ctx->daUsed) {
+        int armDa = 0;
+        for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+            TPM_HANDLE eH = cmdHandles[pj];
+            int isObj =
+                (eH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
+                (eH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000) ||
+                (eH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000);
+            if ((cmdAuths[pj].handle == TPM_RS_PW ||
+                 (cmdAuths[pj].sess != NULL &&
+                  cmdAuths[pj].sess->sessionType == TPM_SE_HMAC)) &&
+                isObj && !FwHandleIsNoDA(ctx, eH)) {
+                armDa = 1;
+                break;
+            }
+        }
+        if (armDa) {
+            ctx->daUsed = 1;
+            ctx->orderly = 0;
+            (void)FWTPM_NV_SaveFlags(ctx);
+        #ifdef FWTPM_DA_USED_RETRY
+            *rspSize = FwBuildErrorResponse(rspBuf,
+                TPM_ST_NO_SESSIONS, TPM_RC_RETRY);
+            return TPM_RC_SUCCESS;
+        #endif
         }
     }
 #endif
@@ -16157,14 +16421,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                /* A failed auth against a NO_DA index must not feed lockout */
-                if (!FwHandleIsNoDA(ctx, entityH)) {
-                    ctx->daFailedTries++;
-                    if (ctx->daFailedTries >= ctx->daMaxTries) {
-                        *rspSize = FwBuildErrorResponse(rspBuf,
-                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                        return TPM_RC_SUCCESS;
-                    }
+                if (FwDaRegisterFailure(ctx, entityH)) {
+                    *rspSize = FwBuildErrorResponse(rspBuf,
+                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                    return TPM_RC_SUCCESS;
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf,
@@ -16254,14 +16514,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                /* A failed auth against a NO_DA index must not feed lockout */
-                if (!FwHandleIsNoDA(ctx, entityH)) {
-                    ctx->daFailedTries++;
-                    if (ctx->daFailedTries >= ctx->daMaxTries) {
-                        *rspSize = FwBuildErrorResponse(rspBuf,
-                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                        return TPM_RC_SUCCESS;
-                    }
+                if (FwDaRegisterFailure(ctx, entityH)) {
+                    *rspSize = FwBuildErrorResponse(rspBuf,
+                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                    return TPM_RC_SUCCESS;
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf,

@@ -15,6 +15,18 @@
   `--enable-mlkem[=all|enc|dec|no]`, and `--disable-hash-mldsa` configure flags
   (mirroring the wolfSSL syntax). `--enable-pqc` now selects the lean PQC subset
   and excludes the non-PQC v1.85 spec code; `--enable-v185` is unchanged (full).
+* Hardened fwTPM Dictionary Attack (DA) protection to the TCG spec: `noDA` is now
+  honored on objects (`TPMA_OBJECT_noDA`), not just NV indices; `failedTries` is
+  persisted in NV with the non-orderly-shutdown +1 penalty; `recoveryTime`
+  self-heal and a separate `lockoutRecovery` for lockoutAuth are implemented; and
+  `TPM2_GetCapability` reports the DA properties (`TPM_PT_MAX_AUTH_FAIL`,
+  `TPM_PT_LOCKOUT_INTERVAL`/`_RECOVERY`/`_COUNTER`, `TPM_PT_PERMANENT.inLockout`).
+  New `FWTPM_DA_USED_RETRY` build macro emulates a real TPM returning
+  `TPM_RC_RETRY` while it persists `daUsed` on the first DA-protected auth use.
+  Added `wolfTPM2_DictionaryAttackLockReset` / `wolfTPM2_DictionaryAttackParameters`
+  client wrappers, DA/noDA/lockout/self-heal/persistence unit tests, an
+  `examples/management/da_check` end-to-end example, and the
+  `tests/fwtpm_da_retry.sh` CI harness.
 
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 

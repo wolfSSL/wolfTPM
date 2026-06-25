@@ -38,5 +38,6 @@ endif
 # TPM make check: manages server, runs unit.test + run_examples.sh
 # Used for --enable-fwtpm builds
 if BUILD_FWTPM
-dist_noinst_SCRIPTS += tests/fwtpm_check.sh
+dist_noinst_SCRIPTS += tests/fwtpm_check.sh \
+                       tests/fwtpm_da_retry.sh
 endif

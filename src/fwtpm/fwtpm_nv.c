@@ -59,11 +59,6 @@
 /* TLV header size: tag(2) + length(2) */
 #define TLV_HDR_SIZE  4
 
-/* Dictionary-attack bounds used to sanitize values replayed from the
- * integrity-unprotected NV journal. */
-#define FWTPM_DA_DEFAULT_MAX_TRIES  32
-#define FWTPM_DA_MAX_TRIES_LIMIT    0xFFFF
-
 /* ========================================================================= */
 /* File-based NV backend                                                     */
 /* ========================================================================= */
@@ -1052,12 +1047,30 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                     ctx->daMaxTries > FWTPM_DA_MAX_TRIES_LIMIT) {
                 ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
             }
-            ctx->daFailedTries = 0; /* volatile - reset on load */
+            ctx->daUsed = 0; /* per-boot, reset on load */
         #endif
             /* resetCount trails the DA fields in newer journals */
             if (vPos + 4 <= vMax) {
                 FwNvUnmarshalU32(value, &vPos, vMax, &ctx->resetCount);
             }
+        #ifndef FWTPM_NO_DA
+            /* daFailedTries trails resetCount in journals that record it.
+             * Older journals lack it: treat as a clean orderly checkpoint so
+             * an upgrade does not trigger a spurious lockout penalty. */
+            if (vPos + 4 <= vMax) {
+                FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daFailedTries);
+                if (ctx->daFailedTries > FWTPM_DA_MAX_TRIES_LIMIT) {
+                    ctx->daFailedTries = ctx->daMaxTries;
+                }
+                ctx->orderly = (flags8 & 0x04) ? 1 : 0;
+                ctx->lockoutAuthFailed = (flags8 & 0x08) ? 1 : 0;
+            }
+            else {
+                ctx->daFailedTries = 0;
+                ctx->orderly = 1;
+                ctx->lockoutAuthFailed = 0;
+            }
+        #endif
             break;
         }
 
@@ -1414,10 +1427,12 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
 
     #ifndef FWTPM_NO_DA
         /* DA protection defaults */
-        ctx->daMaxTries = 32;
-        ctx->daRecoveryTime = 600;
-        ctx->daLockoutRecovery = 86400;
+        ctx->daMaxTries = FWTPM_DA_DEFAULT_MAX_TRIES;
+        ctx->daRecoveryTime = FWTPM_DA_DEFAULT_RECOVERY;
+        ctx->daLockoutRecovery = FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY;
         ctx->daFailedTries = 0;
+        ctx->daUsed = 0;
+        ctx->orderly = 1;
     #endif
 
         /* PCR auth/policy defaults */
@@ -1580,13 +1595,21 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         pos = 0;
         FwNvMarshalU8(buf, &pos, bufSz,
             (UINT8)((ctx->disableClear ? 0x01 : 0x00) |
-            (ctx->globalNvWriteLock ? 0x02 : 0x00)));
+            (ctx->globalNvWriteLock ? 0x02 : 0x00)
+        #ifndef FWTPM_NO_DA
+            | (ctx->orderly ? 0x04 : 0x00)
+            | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
+        #endif
+            ));
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daMaxTries);
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daRecoveryTime);
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daLockoutRecovery);
     #endif
         FwNvMarshalU32(buf, &pos, bufSz, ctx->resetCount);
+    #ifndef FWTPM_NO_DA
+        FwNvMarshalU32(buf, &pos, bufSz, ctx->daFailedTries);
+    #endif
         rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     }
 
@@ -1867,7 +1890,7 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
     return TPM_RC_SUCCESS;
 #else
     int rc;
-    byte buf[1 + 12 + 4]; /* flags + DA params + resetCount */
+    byte buf[1 + 12 + 4 + 4]; /* flags + DA params + resetCount + failedTries */
     word32 pos = 0;
 
     if (ctx == NULL) {
@@ -1876,13 +1899,21 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
 
     FwNvMarshalU8(buf, &pos, sizeof(buf),
         (UINT8)((ctx->disableClear ? 0x01 : 0x00) |
-            (ctx->globalNvWriteLock ? 0x02 : 0x00)));
+            (ctx->globalNvWriteLock ? 0x02 : 0x00)
+#ifndef FWTPM_NO_DA
+            | (ctx->orderly ? 0x04 : 0x00)
+            | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
+#endif
+            ));
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daMaxTries);
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daRecoveryTime);
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daLockoutRecovery);
 #endif
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->resetCount);
+#ifndef FWTPM_NO_DA
+    FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daFailedTries);
+#endif
 
     rc = FwNvAppendEntry(ctx, FWTPM_NV_TAG_FLAGS, buf, (UINT16)pos);
     return rc;
