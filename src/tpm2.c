@@ -467,23 +467,52 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 }
 #endif /* WOLFTPM_SPDM */
 
+#ifdef WOLFTPM_NO_RETRY
+/* Submit the finalized command in packet (length cmdSz) and parse the
+ * response, returning the TPM response code. */
+static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
+    UINT32 cmdSz)
+{
+    TPM_RC rc;
+
+    /* send command requires packet->pos to be the total command length */
+    packet->pos = cmdSz;
+
+#ifdef WOLFTPM_SPDM
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc >= 0) {
+        if (rc != TPM_RC_SUCCESS)
+            return rc; /* SPDM active but failed, do not retry cleartext */
+    }
+    else /* rc < 0: SPDM not active, use normal transport */
+#endif
+    {
+        rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+    }
+    if (rc != 0)
+        return rc; /* transport error */
+
+    /* parse response header and extract the TPM response code */
+    rc = TPM2_Packet_Parse(rc, packet);
+
+    return rc;
+}
+#else
 /* Submit the finalized command in packet (length cmdSz) and parse the
  * response, returning the TPM response code. On TPM_RC_RETRY the TPM is
  * momentarily busy (e.g. persisting the daUsed flag on first auth use of a
  * non-noDA key) and asks for the identical command to be resubmitted; the
  * error response is header-only, so restoring the command header and resending
  * up to ctx->retries times recovers transparently. */
-static TPM_RC TPM2_TransmitWithRetry(TPM2_CTX* ctx, TPM2_Packet* packet,
+static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
     UINT32 cmdSz)
 {
     TPM_RC rc;
-#ifndef WOLFTPM_NO_RETRY
     byte cmdHdr[TPM2_HEADER_SIZE];
     int origSize = packet->size;
     int retries = ctx->retries;
 
     XMEMCPY(cmdHdr, packet->buf, TPM2_HEADER_SIZE);
-#endif
 
     for (;;) {
         /* send command requires packet->pos to be the total command length */
@@ -506,7 +535,6 @@ static TPM_RC TPM2_TransmitWithRetry(TPM2_CTX* ctx, TPM2_Packet* packet,
         /* parse response header and extract the TPM response code */
         rc = TPM2_Packet_Parse(rc, packet);
 
-    #ifndef WOLFTPM_NO_RETRY
         if (TPM2_Packet_RetryRestore(rc, &retries, packet, cmdHdr, origSize)) {
         #ifdef DEBUG_WOLFTPM
             printf("TPM_RC_RETRY: resubmitting command, %d retries left\n",
@@ -514,12 +542,12 @@ static TPM_RC TPM2_TransmitWithRetry(TPM2_CTX* ctx, TPM2_Packet* packet,
         #endif
             continue;
         }
-    #endif
         break;
     }
 
     return rc;
 }
+#endif /* WOLFTPM_NO_RETRY */
 
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info)
@@ -561,8 +589,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
             return rc;
     }
 
-    /* submit command and wait for response, auto-resubmitting on TPM_RC_RETRY */
-    rc = TPM2_TransmitWithRetry(ctx, packet, cmdSz);
+    /* submit command and parse the response */
+    rc = TPM2_TransmitCommand(ctx, packet, cmdSz);
     respSz = packet->size;
 
     /* restart the unmarshalling position */
@@ -595,8 +623,8 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
 
-    /* submit command and wait for response, auto-resubmitting on TPM_RC_RETRY */
-    rc = TPM2_TransmitWithRetry(ctx, packet, (UINT32)packet->pos);
+    /* submit command and parse the response */
+    rc = TPM2_TransmitCommand(ctx, packet, (UINT32)packet->pos);
 
     return rc;
 }
