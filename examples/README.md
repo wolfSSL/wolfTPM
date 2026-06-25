@@ -8,6 +8,8 @@ The PKCS #7 and TLS examples require generating CSR's and signing them using a t
 
 To enable parameter encryption use `-aes` for AES-CFB mode or `-xor` for XOR mode. Only some TPM commands / responses support parameter encryption. If the TPM2_ API has .flags `CMD_FLAG_ENC2` or `CMD_FLAG_DEC2` set then the command will use parameter encryption / decryption.
 
+On a v1.85 PQC capable TPM the parameter encryption session can also be keyed with a post-quantum primary: pass `-mlkem` to salt the session with an ML-KEM key or `-mldsa` to bind it to an ML-DSA key (`keygen` uses `-paramkey=mlkem|mldsa` since `-mlkem`/`-mldsa` there select the child key). See "Parameter Encryption" below.
+
 There are some vendor specific examples, like the TPM 2.0 extra GPIO examples for ST33 and NPCT75x.
 
 ## Native API Test
@@ -89,6 +91,17 @@ This behavior depends on the `sessionAttributes`:
 - `TPMA_SESSION_decrypt` for command response
 
 Either one can be set separately or both can be set in one authorization session. This is up to the user (developer).
+
+### Post-quantum session keys (v1.85)
+
+The parameter encryption session can be keyed with a post-quantum primary instead of an RSA/ECC storage key. ML-KEM is decrypt capable and is used as the session salt key; ML-DSA is sign only and is used as the session bind key. The RSA/ECC storage key (where one is needed, such as the parent of a created child) is unchanged. `wrap_test`, `pcr/quote`, and `nvram/store` and `nvram/counter` accept `-mlkem[=512|768|1024]` and `-mldsa[=44|65|87]`; `keygen` uses `-paramkey=mlkem[=...]` / `-paramkey=mldsa[=...]` because `-mlkem`/`-mldsa` there select the child key. This requires a v1.85 PQC capable TPM.
+
+```sh
+./examples/wrap/wrap_test -aes -mlkem=768
+./examples/pcr/quote 16 quote.blob -ecc -xor -mldsa=65
+./examples/nvram/counter -aes -mldsa=65
+./examples/keygen/keygen keyblob.bin -ecc -aes -paramkey=mlkem=768
+```
 
 ## CSR
 
