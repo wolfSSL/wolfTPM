@@ -328,8 +328,16 @@ non-orderly shutdown adds a one-try penalty; on clockless builds neither applies
 power-off cannot accumulate into lockout. A failed `lockoutAuth` locks the
 lockout hierarchy: that lock persists across reboot and clears after
 `lockoutRecovery` seconds, except when `lockoutRecovery` is 0 (reboot-only
-recovery). `Startup`/`Shutdown` are never DA-gated, so a reboot in lockout can
-always recover. Entities marked `noDA` (`TPMA_OBJECT_noDA` on objects,
+recovery). Because the clock HAL reports milliseconds *since boot*, this timer
+measures continuous post-boot uptime, not wall-clock time across reboots — a
+device that reboots more often than `lockoutRecovery` extends its effective
+recovery window. The lock only blocks commands authorized via `lockoutAuth`
+(`DictionaryAttackLockReset`, `DictionaryAttackParameters`, lockout-authorized
+`Clear`); the platform hierarchy is always an escape hatch —
+`TPM2_ClearControl(platformAuth, clearDisable=NO)` then `TPM2_Clear(platformAuth)`
+recovers even when `disableClear` was set. `Startup`/`Shutdown` are never
+DA-gated, so a reboot in lockout can always recover. Entities marked `noDA`
+(`TPMA_OBJECT_noDA` on objects,
 `TPMA_NV_NO_DA` on NV indices) never feed the counter and stay usable during
 lockout. `TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES)` reports
 `TPM_PT_MAX_AUTH_FAIL`, `TPM_PT_LOCKOUT_INTERVAL`, `TPM_PT_LOCKOUT_RECOVERY`,

@@ -696,7 +696,9 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
          * is 0, or when there is no clock HAL to time-heal it (clockless
          * targets must keep a reboot recovery path). Otherwise it persists and
          * recovers on the timer, so a power-cycle cannot brute-force
-         * lockoutAuth. */
+         * lockoutAuth. The clock HAL is ms-since-boot, so re-seeding the heal
+         * baseline below measures recovery as continuous post-boot uptime; a
+         * power-cycle restarts the window rather than clearing the lock. */
         if (ctx->daLockoutRecovery == 0 || ctx->clockHal.get_ms == NULL) {
             ctx->lockoutAuthFailed = 0;
         }
