@@ -169,8 +169,12 @@ static SOCKET_T CreateListenSocket(int port)
         return FWTPM_INVALID_FD;
     }
 
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-        (const char*)&optval, sizeof(optval));
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+            (const char*)&optval, sizeof(optval)) != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: setsockopt(SO_REUSEADDR) failed\n");
+    #endif
+    }
 
     XMEMSET(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
