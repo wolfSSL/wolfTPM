@@ -199,15 +199,42 @@ static int FwGetPcrBankIndex(UINT16 hashAlg)
  * TPM2_ParamEnc_AESCFB). See wolftpm/tpm2_param_enc.h */
 
 #ifndef FWTPM_NO_PARAM_ENC
+/* Build the parameter-encryption key = sessionKey || authValue, where authValue
+ * is the bind authValue when the encrypt session authorizes its own bind entity
+ * (TPM 2.0 Part 1 "Symmetric Encrypt" - the encrypt key keeps the authorized
+ * entity's authValue even when bound). authHandle is the handle the session
+ * authorizes (0 for a secondary encrypt-only session). */
+static int FwBuildParamEncKey(FWTPM_Session* sess, TPM_HANDLE authHandle,
+    byte* keyBuf, int keyBufMax, int* keyBufSz)
+{
+    int sz = sess->sessionKey.size;
+    if (sz < 0 || sz > keyBufMax)
+        return TPM_RC_FAILURE;
+    XMEMCPY(keyBuf, sess->sessionKey.buffer, sz);
+    if (sess->bindHandle != 0 && sess->bindHandle == authHandle &&
+            sess->bindAuth.size > 0 && sz + sess->bindAuth.size <= keyBufMax) {
+        XMEMCPY(keyBuf + sz, sess->bindAuth.buffer, sess->bindAuth.size);
+        sz += sess->bindAuth.size;
+    }
+    *keyBufSz = sz;
+    return 0;
+}
+
 /* Decrypt first TPM2B parameter of incoming command (param encryption) */
 static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
-    byte* paramData, UINT32 paramSz)
+    TPM_HANDLE authHandle, byte* paramData, UINT32 paramSz)
 {
-    int rc = 0;
+    int rc;
+    byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
+    int keyBufSz = 0;
+
+    rc = FwBuildParamEncKey(sess, authHandle, keyBuf, (int)sizeof(keyBuf),
+        &keyBufSz);
+    if (rc != 0)
+        return rc;
 
     if (sess->symmetric.algorithm == TPM_ALG_XOR) {
-        rc = TPM2_ParamEnc_XOR(sess->authHash,
-            sess->sessionKey.buffer, sess->sessionKey.size,
+        rc = TPM2_ParamEnc_XOR(sess->authHash, keyBuf, keyBufSz,
             sess->nonceCaller.buffer, sess->nonceCaller.size,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             paramData, paramSz);
@@ -215,42 +242,47 @@ static int FwParamDecryptCmd(FWTPM_CTX* ctx, FWTPM_Session* sess,
     else if (sess->symmetric.algorithm == TPM_ALG_AES &&
              sess->symmetric.mode.aes == TPM_ALG_CFB) {
         rc = TPM2_ParamEnc_AESCFB(sess->authHash,
-            sess->symmetric.keyBits.aes,
-            sess->sessionKey.buffer, sess->sessionKey.size,
+            sess->symmetric.keyBits.aes, keyBuf, keyBufSz,
             sess->nonceCaller.buffer, sess->nonceCaller.size,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             paramData, paramSz, 0); /* decrypt */
     }
 
+    TPM2_ForceZero(keyBuf, sizeof(keyBuf));
     (void)ctx;
     return rc;
 }
 
 /* Encrypt first TPM2B parameter of outgoing response (param encryption) */
 static int FwParamEncryptRsp(FWTPM_CTX* ctx, FWTPM_Session* sess,
-    byte* paramData, UINT32 paramSz)
+    TPM_HANDLE authHandle, byte* paramData, UINT32 paramSz)
 {
-    int rc = 0;
+    int rc;
+    byte keyBuf[TPM_MAX_DIGEST_SIZE * 2];
+    int keyBufSz = 0;
 
+    rc = FwBuildParamEncKey(sess, authHandle, keyBuf, (int)sizeof(keyBuf),
+        &keyBufSz);
+    if (rc != 0)
+        return rc;
+
+    /* Response direction: nonceTPM first, nonceCaller second */
     if (sess->symmetric.algorithm == TPM_ALG_XOR) {
-        /* Response direction: nonceTPM first, nonceCaller second */
-        rc = TPM2_ParamEnc_XOR(sess->authHash,
-            sess->sessionKey.buffer, sess->sessionKey.size,
+        rc = TPM2_ParamEnc_XOR(sess->authHash, keyBuf, keyBufSz,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             sess->nonceCaller.buffer, sess->nonceCaller.size,
             paramData, paramSz);
     }
     else if (sess->symmetric.algorithm == TPM_ALG_AES &&
              sess->symmetric.mode.aes == TPM_ALG_CFB) {
-        /* Response direction: nonceTPM first, nonceCaller second */
         rc = TPM2_ParamEnc_AESCFB(sess->authHash,
-            sess->symmetric.keyBits.aes,
-            sess->sessionKey.buffer, sess->sessionKey.size,
+            sess->symmetric.keyBits.aes, keyBuf, keyBufSz,
             sess->nonceTPM.buffer, sess->nonceTPM.size,
             sess->nonceCaller.buffer, sess->nonceCaller.size,
             paramData, paramSz, 1); /* encrypt */
     }
 
+    TPM2_ForceZero(keyBuf, sizeof(keyBuf));
     (void)ctx;
     return rc;
 }
@@ -8330,23 +8362,17 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* Compute session key: KDFa(authHash, salt||bindAuth, "ATH",
-     * nonceTPM, nonceCaller, digestSize)
-     * Per TPM 2.0 Part 1 Section 19.6.8: if both tpmKey and bind are
-     * TPM_RH_NULL (no salt, no bind auth) then sessionKey = {} (empty). */
+    /* sessionKey = KDFa(authHash, bindAuth || salt, "ATH", ...) per TPM 2.0
+     * Part 1 Sec.19.6.8 - bind authValue FIRST, then salt. Unbound + unsalted
+     * yields an empty sessionKey. */
     if (rc == 0) {
-        byte keyIn[TPM_MAX_DIGEST_SIZE * 2]; /* salt || bindAuth */
+        byte keyIn[TPM_MAX_DIGEST_SIZE * 2]; /* bindAuth || salt */
         int keyInSz = 0;
 
-        /* Append salt if present */
-        if (saltSize > 0) {
-            XMEMCPY(keyIn, salt, saltSize);
-            keyInSz = saltSize;
-        }
-        /* Append bind entity auth if bound */
         if (bind != TPM_RH_NULL) {
             TPM2B_AUTH bindAuth;
             XMEMSET(&bindAuth, 0, sizeof(bindAuth));
+            sess->bindHandle = bind;
             /* Hierarchy handles: use hierarchy auth from ctx */
             if (bind == TPM_RH_OWNER) {
                 XMEMCPY(&bindAuth, &ctx->ownerAuth, sizeof(TPM2B_AUTH));
@@ -8382,14 +8408,30 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     keyInSz += bindAuth.size;
                 }
             }
+            /* Retain the bind authValue: parameter encryption appends it to
+             * the key when the session authorizes its own bind entity. */
+            if (rc == 0) {
+                XMEMCPY(&sess->bindAuth, &bindAuth, sizeof(TPM2B_AUTH));
+            }
             TPM2_ForceZero(&bindAuth, sizeof(bindAuth));
         }
+        /* Then append salt if present */
+        if (rc == 0 && saltSize > 0) {
+            if (keyInSz + saltSize <= (int)sizeof(keyIn)) {
+                XMEMCPY(keyIn + keyInSz, salt, saltSize);
+                keyInSz += saltSize;
+            }
+        }
 
-        if (keyInSz == 0) {
-            /* Unsalted, unbound: sessionKey is empty per spec */
+        if (saltSize == 0 && bind == TPM_RH_NULL) {
+            /* Unsalted AND unbound: sessionKey is empty per spec */
             sess->sessionKey.size = 0;
         }
         else {
+            /* Salted and/or bound: compute the sessionKey. For a session
+             * bound to an entity with an EmptyAuth, keyInSz is 0 here and
+             * KDFa runs over a zero-length key input - the sessionKey is
+             * still computed (Part 1 Bound Session Key Generation). */
             int sessKeyRc;
             sess->sessionKey.size = (UINT16)nonceSize;
             sessKeyRc = TPM2_KDFa_ex(authHash,
@@ -15959,6 +16001,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     TPM_RC rc = TPM_RC_SUCCESS;
 #ifndef FWTPM_NO_PARAM_ENC
     FWTPM_Session* encSess = NULL;  /* Session requesting param encryption */
+    TPM_HANDLE encAuthHandle = 0;   /* Handle the encrypt session authorizes */
     int doEncCmd = 0;               /* Decrypt incoming encrypted param */
     int doEncRsp = 0;               /* Encrypt outgoing response param */
 #endif
@@ -16152,6 +16195,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                             if (encSess == NULL &&
                                 sess->symmetric.algorithm != TPM_ALG_NULL) {
                                 encSess = sess;
+                                /* The first authHandleCnt handles are the ones
+                                 * that require authorization, in order, so auth
+                                 * session i authorizes handle i for
+                                 * i < authHandleCnt. Beyond that the session is
+                                 * a secondary encrypt-only session and
+                                 * authorizes no handle. */
+                                if (cmdAuthCnt < (int)entry->authHandleCnt &&
+                                        cmdAuthCnt < cmdHandleCnt) {
+                                    encAuthHandle = cmdHandles[cmdAuthCnt];
+                                }
                                 /* decrypt attr = client encrypted cmd param */
                                 if ((attribs & TPMA_SESSION_decrypt)
                                     &&
@@ -16563,7 +16616,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         UINT16 paramSz;
         paramSz = FwLoadU16BE(cmdBuf + cpStart);
         if (paramSz > 0 && cpStart + 2 + paramSz <= cmdSize) {
-            rc = (TPM_RC)FwParamDecryptCmd(ctx, encSess,
+            rc = (TPM_RC)FwParamDecryptCmd(ctx, encSess, encAuthHandle,
                 (byte*)cmdBuf + cpStart + 2, paramSz);
             if (rc != 0) {
             #ifdef DEBUG_WOLFTPM
@@ -16649,7 +16702,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             firstParamSz = FwLoadU16BE(rspBuf + rspParamStart);
             if (firstParamSz > 0 &&
                 rspParamStart + 2 + firstParamSz <= rspParamEnd) {
-                int encRc = FwParamEncryptRsp(ctx, encSess,
+                int encRc = FwParamEncryptRsp(ctx, encSess, encAuthHandle,
                     rspBuf + rspParamStart + 2, firstParamSz);
                 if (encRc != 0) {
                 #ifdef DEBUG_WOLFTPM

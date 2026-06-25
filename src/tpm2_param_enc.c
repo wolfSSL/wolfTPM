@@ -180,12 +180,33 @@ int TPM2_ParamEnc_AESCFB(
 
 #ifndef WOLFTPM_FWTPM
 
-/* Build combined HMAC key from session key + bind key */
+/* The parameter-encryption key is sessionKey || authValue(authorized entity)
+ * (TPM 2.0 Part 1, "Symmetric Encrypt" - unlike the command HMAC, the encrypt
+ * key keeps the authValue even when the session is bound to that entity). The
+ * authorized authValue is normally already folded into session->auth; the
+ * exception is a session bound to the entity it authorizes, where the bind
+ * rule leaves session->auth as just the session key and the authValue is in
+ * session->bind. Fold session->bind back in only for that case (bound,
+ * name == bindName, session->auth still the session key). */
+static TPM2B_AUTH* TPM2_ParamEncBindKey(TPM2_AUTH_SESSION* session)
+{
+    int digestSz = TPM2_GetHashDigestSize(session->authHash);
+    if (session->bind != NULL && digestSz > 0 &&
+            session->name.size > 0 &&
+            session->name.size == session->bindName.size &&
+            XMEMCMP(session->name.name, session->bindName.name,
+                session->name.size) == 0 &&
+            session->auth.size <= (UINT16)digestSz) {
+        return session->bind;
+    }
+    return NULL;
+}
+
+/* Build combined param-enc key from session key + optional bind authValue. */
 static int TPM2_BuildParamKey(TPM2B_AUTH* sessKey, TPM2B_AUTH* bindKey,
     BYTE* keyBuf, UINT32* keyBufSz)
 {
     UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
-
     if (sessKey->size > sizeof(sessKey->buffer)) {
         return BUFFER_E;
     }
@@ -195,7 +216,6 @@ static int TPM2_BuildParamKey(TPM2B_AUTH* sessKey, TPM2B_AUTH* bindKey,
     if (sessKey->size + bindKeySz > MAX_SYM_DATA) {
         return BUFFER_E;
     }
-
     XMEMCPY(keyBuf, sessKey->buffer, sessKey->size);
     *keyBufSz = sessKey->size;
     if (bindKey != NULL && bindKey->size > 0) {
@@ -217,19 +237,14 @@ TPM_RC TPM2_ParamEnc_CmdRequest(TPM2_AUTH_SESSION *session,
 #ifdef WOLFTPM_DEBUG_SECRETS
     TPM2_PrintBin(session->auth.buffer, session->auth.size);
 #endif
-    if (session->bind != NULL) {
-        printf("CmdEnc Extra Key %d\n", session->bind->size);
-    #ifdef WOLFTPM_DEBUG_SECRETS
-        TPM2_PrintBin(session->bind->buffer, session->bind->size);
-    #endif
-    }
     printf("CmdEnc Nonce caller %d\n", session->nonceCaller.size);
     TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
     printf("CmdEnc Nonce TPM %d\n", session->nonceTPM.size);
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth, session->bind, keyBuf, &keyBufSz);
+    rc = TPM2_BuildParamKey(&session->auth, TPM2_ParamEncBindKey(session),
+        keyBuf, &keyBufSz);
     if (rc != 0) {
         return rc;
     }
@@ -268,19 +283,14 @@ TPM_RC TPM2_ParamDec_CmdResponse(TPM2_AUTH_SESSION *session,
 #ifdef WOLFTPM_DEBUG_SECRETS
     TPM2_PrintBin(session->auth.buffer, session->auth.size);
 #endif
-    if (session->bind != NULL) {
-        printf("RspDec Extra Key %d\n", session->bind->size);
-    #ifdef WOLFTPM_DEBUG_SECRETS
-        TPM2_PrintBin(session->bind->buffer, session->bind->size);
-    #endif
-    }
     printf("RspDec Nonce caller %d\n", session->nonceCaller.size);
     TPM2_PrintBin(session->nonceCaller.buffer, session->nonceCaller.size);
     printf("RspDec Nonce TPM %d\n", session->nonceTPM.size);
     TPM2_PrintBin(session->nonceTPM.buffer, session->nonceTPM.size);
 #endif
 
-    rc = TPM2_BuildParamKey(&session->auth, session->bind, keyBuf, &keyBufSz);
+    rc = TPM2_BuildParamKey(&session->auth, TPM2_ParamEncBindKey(session),
+        keyBuf, &keyBufSz);
     if (rc != 0) {
         return rc;
     }

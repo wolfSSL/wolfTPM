@@ -1984,6 +1984,7 @@ typedef struct TPM2_AUTH_SESSION {
     TPM2B_NAME name;
     TPM2B_AUTH auth;
     TPM2B_AUTH* bind;
+    TPM2B_NAME bindName; /* bind entity Name; see TPM2_ParamEncBindKey */
 
     unsigned int policyAuth : 1; /* if policy auth should be used */
     unsigned int policyPass : 1;

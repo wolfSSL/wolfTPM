@@ -1899,8 +1899,15 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
         session->policyAuth = tpmSession->handle.policyAuth;
         session->policyPass = tpmSession->handle.policyPass;
 
-        /* Capture pointer to bind */
+        /* Capture the bind auth pointer and the bind entity Name (set by
+         * wolfTPM2_StartSession). Used by parameter encryption to tell whether
+         * the session authorizes its own bind entity. */
         session->bind = tpmSession->bind;
+        session->bindName.size = tpmSession->handle.name.size;
+        if (session->bindName.size > (UINT16)sizeof(session->bindName.name))
+            session->bindName.size = (UINT16)sizeof(session->bindName.name);
+        XMEMCPY(session->bindName.name, tpmSession->handle.name.name,
+            session->bindName.size);
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
@@ -2629,7 +2636,13 @@ int wolfTPM2_StartSession_ex(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         }
     }
 
-    if (rc == TPM_RC_SUCCESS && keyInSz > 0) {
+    /* Compute the sessionKey when salted or bound. A bound EmptyAuth session
+     * still derives a key (KDFa over a zero-length input); only a fully
+     * unbound, unsalted session keeps an empty sessionKey. Gate on the bind
+     * handle value (not just the pointer) so a NULL-handle bind matches the
+     * TPM's own bound-ness test. */
+    if (rc == TPM_RC_SUCCESS &&
+            (keyInSz > 0 || (bind != NULL && bind->hndl != TPM_RH_NULL))) {
         session->handle.auth.size = hashDigestSz;
         rc = TPM2_KDFa_ex(authSesIn.authHash,
             keyIn, keyInSz, "ATH",
