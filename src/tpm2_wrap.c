@@ -7538,6 +7538,53 @@ int wolfTPM2_Clear(WOLFTPM2_DEV* dev)
     return rc;
 }
 
+int wolfTPM2_DictionaryAttackLockReset(WOLFTPM2_DEV* dev)
+{
+    int rc;
+    DictionaryAttackLockReset_In in;
+
+    if (dev == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.lockHandle = TPM_RH_LOCKOUT;
+
+    rc = TPM2_DictionaryAttackLockReset(&in);
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_DictionaryAttackLockReset failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
+int wolfTPM2_DictionaryAttackParameters(WOLFTPM2_DEV* dev,
+    word32 newMaxTries, word32 newRecoveryTime, word32 lockoutRecovery)
+{
+    int rc;
+    DictionaryAttackParameters_In in;
+
+    /* newMaxTries of 0 would permanently disable lockout enforcement */
+    if (dev == NULL || newMaxTries == 0)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.lockHandle = TPM_RH_LOCKOUT;
+    in.newMaxTries = newMaxTries;
+    in.newRecoveryTime = newRecoveryTime;
+    in.lockoutRecovery = lockoutRecovery;
+
+    rc = TPM2_DictionaryAttackParameters(&in);
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_DictionaryAttackParameters failed %d: %s\n", rc,
+            wolfTPM2_GetRCString(rc));
+    }
+#endif
+    return rc;
+}
+
 /* Hashing */
 /* usageAuth: Optional auth for handle */
 int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,

@@ -110,6 +110,27 @@
 #define FWTPM_MAX_RANDOM_BYTES 48
 #endif
 
+/* Dictionary Attack (DA) feature toggles:
+ *   FWTPM_NO_DA          - compile out all DA lockout protection.
+ *   FWTPM_DA_USED_RETRY  - emulate real-TPM behavior where the first use of a
+ *                          DA-protected (non-noDA) authorization after startup
+ *                          persists the daUsed flag to NV and returns
+ *                          TPM_RC_RETRY, prompting the caller to resubmit.
+ *                          Off by default. The client does not auto-resubmit;
+ *                          callers must resend the command on TPM_RC_RETRY. */
+#ifndef FWTPM_DA_DEFAULT_MAX_TRIES
+#define FWTPM_DA_DEFAULT_MAX_TRIES          32
+#endif
+#ifndef FWTPM_DA_DEFAULT_RECOVERY
+#define FWTPM_DA_DEFAULT_RECOVERY           600     /* seconds */
+#endif
+#ifndef FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY
+#define FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY   86400   /* seconds */
+#endif
+#ifndef FWTPM_DA_MAX_TRIES_LIMIT
+#define FWTPM_DA_MAX_TRIES_LIMIT            0xFFFF
+#endif
+
 /* Maximum transient objects loaded at once (TPM 2.0 spec minimum: 3) */
 #ifndef FWTPM_MAX_OBJECTS
 #define FWTPM_MAX_OBJECTS      3
@@ -633,10 +654,16 @@ typedef struct FWTPM_CTX {
     int globalNvWriteLock;      /* NV_GlobalWriteLock (reset on Startup CLEAR) */
 #ifndef FWTPM_NO_DA
     /* Dictionary Attack protection state */
-    UINT32 daFailedTries;       /* Current failed auth count (volatile) */
+    UINT32 daFailedTries;       /* Failed auth count, persisted in NV */
     UINT32 daMaxTries;          /* Threshold before lockout (default 32) */
     UINT32 daRecoveryTime;      /* Seconds to decrement failedTries */
     UINT32 daLockoutRecovery;   /* Seconds to fully recover. 0=reboot only */
+    UINT64 daSelfHealMs;        /* Clock ms baseline for failedTries self-heal */
+    UINT64 daLockoutHealMs;     /* Clock ms when lockoutAuthFailed was set */
+    int daUsed;                 /* DA-protected auth used this boot (volatile) */
+    int orderly;                /* 1 = last NV checkpoint was clean (persisted) */
+    int lockoutAuthFailed;      /* lockoutAuth lock; persisted (reboot-clears
+                                 * only when clockless or lockoutRecovery==0) */
 #endif
     int activeLocality;
     UINT64 clockOffset;         /* Clock offset set by ClockSet */

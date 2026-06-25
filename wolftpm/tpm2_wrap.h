@@ -3234,6 +3234,38 @@ WOLFTPM_API int wolfTPM2_Clear(WOLFTPM2_DEV* dev);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Reset the dictionary attack lockout failed-tries counter
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_LOCKOUT: lockoutAuth is in its recovery interval
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+
+    \sa wolfTPM2_DictionaryAttackParameters
+*/
+WOLFTPM_API int wolfTPM2_DictionaryAttackLockReset(WOLFTPM2_DEV* dev);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Set the dictionary attack lockout parameters
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_LOCKOUT: lockoutAuth is in its recovery interval
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param newMaxTries failed auths before lockout (must be non-zero)
+    \param newRecoveryTime seconds to forgive one failed try (0 = reboot only)
+    \param lockoutRecovery seconds before a failed lockoutAuth recovers
+
+    \sa wolfTPM2_DictionaryAttackLockReset
+*/
+WOLFTPM_API int wolfTPM2_DictionaryAttackParameters(WOLFTPM2_DEV* dev,
+    word32 newMaxTries, word32 newRecoveryTime, word32 lockoutRecovery);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Helper function to start a TPM generated hash
 
     \return TPM_RC_SUCCESS: successful

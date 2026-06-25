@@ -311,6 +311,56 @@ existing state.
 | `TPM2_PolicyLocality` | Restrict policy to specific locality |
 | `TPM2_PolicySigned` | Authorize policy with external signing key |
 
+### Dictionary Attack (DA) Protection
+
+| Command | Description |
+|---------|-------------|
+| `TPM2_DictionaryAttackParameters` | Set `maxTries`, `recoveryTime`, `lockoutRecovery` |
+| `TPM2_DictionaryAttackLockReset` | Reset the failed-tries counter (lockoutAuth) |
+
+fwTPM follows the TPM 2.0 spec (Part 1 Sec.19.8). A failed authorization of a
+DA-protected entity increments `failedTries`; once it reaches `maxTries` the TPM
+returns `TPM_RC_LOCKOUT`. `failedTries` is persisted in NV on every failure, so
+a power cycle cannot reset it. When a clock HAL is registered
+(`FWTPM_Clock_SetHAL`) it self-heals one try per `recoveryTime` seconds, and a
+non-orderly shutdown adds a one-try penalty; on clockless builds neither applies
+(recovery is via `DictionaryAttackLockReset`/`Clear` only) so routine unclean
+power-off cannot accumulate into lockout. A failed `lockoutAuth` locks the
+lockout hierarchy: that lock persists across reboot and clears after
+`lockoutRecovery` seconds, except when `lockoutRecovery` is 0 (reboot-only
+recovery). Because the clock HAL reports milliseconds *since boot*, this timer
+measures continuous post-boot uptime, not wall-clock time across reboots — a
+device that reboots more often than `lockoutRecovery` extends its effective
+recovery window. The lock only blocks commands authorized via `lockoutAuth`
+(`DictionaryAttackLockReset`, `DictionaryAttackParameters`, lockout-authorized
+`Clear`); the platform hierarchy is always an escape hatch —
+`TPM2_ClearControl(platformAuth, clearDisable=NO)` then `TPM2_Clear(platformAuth)`
+recovers even when `disableClear` was set. `Startup`/`Shutdown` are never
+DA-gated, so a reboot in lockout can always recover. Entities marked `noDA`
+(`TPMA_OBJECT_noDA` on objects,
+`TPMA_NV_NO_DA` on NV indices) never feed the counter and stay usable during
+lockout. `TPM2_GetCapability(TPM_CAP_TPM_PROPERTIES)` reports
+`TPM_PT_MAX_AUTH_FAIL`, `TPM_PT_LOCKOUT_INTERVAL`, `TPM_PT_LOCKOUT_RECOVERY`,
+`TPM_PT_LOCKOUT_COUNTER`, and the `inLockout` bit of `TPM_PT_PERMANENT`.
+
+Durable accounting writes the NV FLAGS entry on each DA-protected failure (and
+on the first DA-protected auth use per boot). This is bounded per boot — the
+lockout gate stops counting once locked — but on flash-backed targets it adds
+wear and makes failed-auth latency NV-bound; size the NV backend accordingly.
+
+The first use of a DA-protected (non-`noDA`) authorization after startup makes a
+real TPM persist a `daUsed` flag to NV and return `TPM_RC_RETRY` ("resubmit the
+identical command") while it writes. Build with `FWTPM_DA_USED_RETRY` to emulate
+this so clients exercise their resubmit/retry handling. It is off by default;
+DA accounting and persistence are active regardless. Compile out all DA logic
+with `FWTPM_NO_DA`.
+
+Coverage: DA/noDA/lockout/self-heal/persistence unit tests in
+`tests/fwtpm_unit_tests.c`, the `examples/management/da_check` end-to-end example
+(add `-lockout` for the destructive lockout/recovery path), and the
+`tests/fwtpm_da_retry.sh` harness that exercises the `TPM_RC_RETRY` path against
+a `FWTPM_DA_USED_RETRY` build.
+
 ### NV RAM
 
 | Command | Description |
@@ -453,6 +503,10 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 | `FWTPM_MAX_SESSIONS` | 8 | Maximum concurrent auth sessions |
 | `FWTPM_MAX_NV_INDICES` | 16 | Maximum NV RAM index slots |
 | `FWTPM_MAX_NV_DATA` | 2048 | Maximum data per NV index (bytes) |
+| `FWTPM_DA_DEFAULT_MAX_TRIES` | 32 | DA failed-auth count before lockout |
+| `FWTPM_DA_DEFAULT_RECOVERY` | 600 | DA self-heal interval (seconds per try) |
+| `FWTPM_DA_DEFAULT_LOCKOUT_RECOVERY` | 86400 | lockoutAuth recovery time (seconds) |
+| `FWTPM_DA_MAX_TRIES_LIMIT` | 0xFFFF | Upper clamp for a replayed `maxTries`/`failedTries` |
 | `FWTPM_MAX_DATA_BUF` | 1024 | Internal buffer for HMAC, hash, general data |
 | `FWTPM_MAX_PUB_BUF` | 512 | Internal buffer for public area, signatures |
 | `FWTPM_MAX_DER_SIG_BUF` | 256 | Internal buffer for DER signatures, ECC points |
@@ -554,6 +608,12 @@ to reduce code size on constrained targets.
 | `FWTPM_NO_NV` | not defined | `NV_DefineSpace`, `NV_UndefineSpace`, `NV_ReadPublic`, `NV_Write`, `NV_Read`, `NV_Extend`, `NV_Increment`, `NV_WriteLock`, `NV_ReadLock`, `NV_Certify` |
 | `FWTPM_NO_POLICY` | not defined | `PolicyGetDigest`, `PolicyRestart`, `PolicyPCR`, `PolicyPassword`, `PolicyAuthValue`, `PolicyCommandCode`, `PolicyOR`, `PolicySecret`, `PolicyAuthorize`, `PolicyNV` |
 | `FWTPM_NO_CREDENTIAL` | not defined | `MakeCredential`, `ActivateCredential` |
+| `FWTPM_NO_DA` | not defined | `DictionaryAttackParameters`, `DictionaryAttackLockReset`, and all lockout accounting |
+
+The `FWTPM_DA_USED_RETRY` macro (off by default) does not remove commands; it
+makes the server return `TPM_RC_RETRY` on the first DA-protected auth use after
+startup, emulating a real TPM persisting `daUsed`. See
+[Dictionary Attack (DA) Protection](#dictionary-attack-da-protection).
 
 **Minimal build example** (measured boot only):
 

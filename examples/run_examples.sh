@@ -115,6 +115,18 @@ RESULT=$?
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "create primary owner rsa key stored failed! $RESULT" && exit 1
 
+# Dictionary Attack (DA / noDA) check. Signs with a DA-protected key (rides
+# through any TPM_RC_RETRY) and shows a noDA key never trips lockout. The
+# destructive lockout path is opt-in via -lockout and not run here. Requires the
+# wrapper and ECC (its body is compiled out otherwise).
+if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_ECC -eq 1 ] && \
+        [ -x ./examples/management/da_check ]; then
+    echo -e "Dictionary Attack (DA / noDA) check"
+    ./examples/management/da_check >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "da_check failed! $RESULT" && exit 1
+fi
+
 if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     # Provisioning examples (required --enable-provisioning)
     ./examples/keygen/create_primary -rsa -eh -iak -keep >> $TPMPWD/run.out 2>&1
