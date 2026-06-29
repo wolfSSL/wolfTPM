@@ -116,7 +116,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
     word32 secretSz = 0;
     const char* publicKeyFile = NULL;
     const char* outFile = "sealblob.bin";
-    const char* policyFile = "policyauth.bin";
+    const char* policyFile = NULL;
     byte policyDigest[WC_MAX_DIGEST_SIZE];
     word32 policyDigestSz = 0;
 
@@ -151,9 +151,16 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-secrethex=", XSTRLEN("-secrethex=")) == 0) {
             const char* secretStr = argv[argc-1] + XSTRLEN("-secrethex=");
             word32 secretStrSz = (word32)XSTRLEN(secretStr);
+            int secretHexSz;
             if (secretStrSz > (word32)(sizeof(secret)*2-1))
                 secretStrSz = (word32)(sizeof(secret)*2-1);
-            secretSz = hexToByte(secretStr, secret, secretStrSz);
+            secretHexSz = hexToByte(secretStr, secret, secretStrSz);
+            if (secretHexSz < 0) {
+                printf("Invalid secret hex string\n");
+                usage();
+                return -1;
+            }
+            secretSz = (word32)secretHexSz;
         }
         else if (XSTRNCMP(argv[argc-1], "-policy=",
                 XSTRLEN("-policy=")) == 0) {

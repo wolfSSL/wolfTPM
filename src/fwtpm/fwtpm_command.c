@@ -9948,14 +9948,24 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0 && operandBSz > 0) {
-        wc_HashUpdate(hashCtx, wcHash, operandB, operandBSz);
+        if (wc_HashUpdate(hashCtx, wcHash, operandB, operandBSz) != 0)
+            rc = TPM_RC_FAILURE;
     }
     if (rc == 0) {
         FwStoreU16BE(tmpBuf, offset);
-        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
+        if (wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
         FwStoreU16BE(tmpBuf, operation);
-        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
-        wc_HashFinal(hashCtx, wcHash, argsHash);
+        if (wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_HashFinal(hashCtx, wcHash, argsHash) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
         wc_HashFree(hashCtx, wcHash);
         hashCtxInit = 0;
     }
@@ -9972,15 +9982,28 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        wc_HashUpdate(hashCtx, wcHash,
-            sess->policyDigest.buffer, sess->policyDigest.size);
+        if (wc_HashUpdate(hashCtx, wcHash,
+                sess->policyDigest.buffer, sess->policyDigest.size) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
         FwStoreU32BE(ccBuf, cc);
-        wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
-        wc_HashUpdate(hashCtx, wcHash, argsHash, dSz);
-        if (nvNameSz > 0) {
-            wc_HashUpdate(hashCtx, wcHash, nvName, nvNameSz);
-        }
-        wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer);
+        if (wc_HashUpdate(hashCtx, wcHash, ccBuf, 4) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_HashUpdate(hashCtx, wcHash, argsHash, dSz) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && nvNameSz > 0) {
+        if (wc_HashUpdate(hashCtx, wcHash, nvName, nvNameSz) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        if (wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer) != 0)
+            rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
         sess->policyDigest.size = (UINT16)dSz;
         wc_HashFree(hashCtx, wcHash);
         hashCtxInit = 0;
