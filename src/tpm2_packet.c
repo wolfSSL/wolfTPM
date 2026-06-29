@@ -1625,6 +1625,23 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_RETRY
+int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries, TPM2_Packet* packet,
+    const byte* cmdHdr, int origSize)
+{
+    if (rc != TPM_RC_RETRY || retries == NULL || *retries <= 0 ||
+            packet == NULL || packet->buf == NULL || cmdHdr == NULL) {
+        return 0;
+    }
+    (*retries)--;
+    /* A TPM_RC_RETRY response is header-only, so the command body survives;
+     * restore the clobbered header and the buffer size for an identical resend */
+    XMEMCPY(packet->buf, cmdHdr, TPM2_HEADER_SIZE);
+    packet->size = origSize;
+    return 1;
+}
+#endif /* !WOLFTPM_NO_RETRY */
+
 int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
 {
     word32 cmdSz = packet->pos; /* get total packet size */

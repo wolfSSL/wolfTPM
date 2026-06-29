@@ -241,6 +241,10 @@ WOLFTPM_LOCAL void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out
 
 WOLFTPM_LOCAL TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet);
 WOLFTPM_LOCAL int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc);
+#ifndef WOLFTPM_NO_RETRY
+WOLFTPM_TEST_API int TPM2_Packet_RetryRestore(TPM_RC rc, int* retries,
+    TPM2_Packet* packet, const byte* cmdHdr, int origSize);
+#endif
 
 
 WOLFTPM_LOCAL int TPM2_GetCmdAuthCount(TPM2_CTX* ctx, const CmdInfo_t* info);

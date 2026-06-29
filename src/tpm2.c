@@ -452,7 +452,13 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         packet->buf, packet->pos, tpmResp, &tpmRespSz);
     if (rc != 0) {
         TPM2_ForceZero(tpmResp, sizeof(tpmResp));
-        return rc;
+    #ifdef DEBUG_WOLFTPM
+        printf("SPDM secured exchange failed: %d\n", rc);
+    #endif
+        /* SPDM is active: never downgrade to cleartext. Map the (negative)
+         * transport error to a positive TPM RC so the caller treats it as a
+         * hard failure instead of "SPDM not active". */
+        return TPM_RC_FAILURE;
     }
 
     if (tpmRespSz > MAX_RESPONSE_SIZE) {
@@ -466,6 +472,87 @@ static TPM_RC TPM2_SPDM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return TPM_RC_SUCCESS;
 }
 #endif /* WOLFTPM_SPDM */
+
+/* Send the finalized command in packet over the SPDM secured channel when a
+ * session is active, otherwise over the raw transport. Once SPDM is active an
+ * exchange failure is returned as-is and never falls back to a cleartext send,
+ * so a forced SPDM failure cannot downgrade the link. */
+static TPM_RC TPM2_DispatchCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    TPM_RC rc;
+
+#ifdef WOLFTPM_SPDM
+    rc = TPM2_SPDM_SendCommand(ctx, packet);
+    if (rc >= 0)
+        return rc; /* SPDM active: success or hard failure, no cleartext */
+    /* rc < 0: SPDM not active, use normal transport */
+#endif
+    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
+
+    return rc;
+}
+
+#ifdef WOLFTPM_NO_RETRY
+/* Submit the finalized command in packet (length cmdSz) and parse the
+ * response, returning the TPM response code. */
+static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
+    UINT32 cmdSz)
+{
+    TPM_RC rc;
+
+    /* send command requires packet->pos to be the total command length */
+    packet->pos = cmdSz;
+
+    rc = TPM2_DispatchCommand(ctx, packet);
+    if (rc != 0)
+        return rc; /* transport or SPDM error */
+
+    /* parse response header and extract the TPM response code */
+    rc = TPM2_Packet_Parse(rc, packet);
+
+    return rc;
+}
+#else
+/* Submit the finalized command in packet (length cmdSz) and parse the
+ * response, returning the TPM response code. On TPM_RC_RETRY the TPM is
+ * momentarily busy (e.g. persisting the daUsed flag on first auth use of a
+ * non-noDA key) and asks for the identical command to be resubmitted; the
+ * error response is header-only, so restoring the command header and resending
+ * up to ctx->retries times recovers transparently. */
+static TPM_RC TPM2_TransmitCommand(TPM2_CTX* ctx, TPM2_Packet* packet,
+    UINT32 cmdSz)
+{
+    TPM_RC rc;
+    byte cmdHdr[TPM2_HEADER_SIZE];
+    int origSize = packet->size;
+    int retries = ctx->retries;
+
+    XMEMCPY(cmdHdr, packet->buf, TPM2_HEADER_SIZE);
+
+    for (;;) {
+        /* send command requires packet->pos to be the total command length */
+        packet->pos = cmdSz;
+
+        rc = TPM2_DispatchCommand(ctx, packet);
+        if (rc != 0)
+            return rc; /* transport or SPDM error */
+
+        /* parse response header and extract the TPM response code */
+        rc = TPM2_Packet_Parse(rc, packet);
+
+        if (TPM2_Packet_RetryRestore(rc, &retries, packet, cmdHdr, origSize)) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM_RC_RETRY: resubmitting command, %d retries left\n",
+                retries);
+        #endif
+            continue;
+        }
+        break;
+    }
+
+    return rc;
+}
+#endif /* WOLFTPM_NO_RETRY */
 
 static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info)
@@ -507,26 +594,8 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
             return rc;
     }
 
-    /* reset packet->pos to total command length (send command requires it) */
-    packet->pos = cmdSz;
-
-    /* submit command and wait for response */
-#ifdef WOLFTPM_SPDM
-    rc = TPM2_SPDM_SendCommand(ctx, packet);
-    if (rc >= 0) {
-        if (rc != TPM_RC_SUCCESS)
-            return rc; /* SPDM active but failed, do not retry cleartext */
-    }
-    else /* rc < 0: SPDM not active, use normal transport */
-#endif
-    {
-        rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
-    }
-    if (rc != 0)
-        return rc;
-
-    /* parse response */
-    rc = TPM2_Packet_Parse(rc, packet);
+    /* submit command and parse the response */
+    rc = TPM2_TransmitCommand(ctx, packet, cmdSz);
     respSz = packet->size;
 
     /* restart the unmarshalling position */
@@ -559,22 +628,10 @@ static TPM_RC TPM2_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     if (ctx == NULL || packet == NULL)
         return BAD_FUNC_ARG;
 
-#ifdef WOLFTPM_SPDM
-    rc = TPM2_SPDM_SendCommand(ctx, packet);
-    if (rc >= 0) {
-        if (rc != TPM_RC_SUCCESS)
-            return rc; /* SPDM active but failed, do not retry cleartext */
-        return TPM2_Packet_Parse(rc, packet);
-    }
-    /* rc < 0 means SPDM not active, fall through to normal transport */
-#endif
+    /* submit command and parse the response */
+    rc = TPM2_TransmitCommand(ctx, packet, (UINT32)packet->pos);
 
-    /* submit command and wait for response */
-    rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
-    if (rc != 0)
-        return rc;
-
-    return TPM2_Packet_Parse(rc, packet);
+    return rc;
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -711,6 +768,35 @@ TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
     return rc;
 }
 
+#ifndef WOLFTPM_NO_RETRY
+TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries)
+{
+    TPM_RC rc;
+
+    if (ctx == NULL || retries < 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        ctx->retries = retries;
+
+        TPM2_ReleaseLock(ctx);
+    }
+
+    return rc;
+}
+
+int TPM2_GetCommandRetries(TPM2_CTX* ctx)
+{
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    /* atomic int read, no lock needed; the setter takes the lock */
+    return ctx->retries;
+}
+#endif /* !WOLFTPM_NO_RETRY */
+
 /* If timeoutTries <= 0 then it will not try and startup chip and will
  * use existing default locality */
 TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
@@ -723,6 +809,10 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     }
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
+
+#ifndef WOLFTPM_NO_RETRY
+    ctx->retries = WOLFTPM_MAX_RETRIES;
+#endif
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     rc = TPM2_WolfCrypt_Init();

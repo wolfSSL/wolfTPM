@@ -27,6 +27,14 @@
   client wrappers, DA/noDA/lockout/self-heal/persistence unit tests, an
   `examples/management/da_check` end-to-end example, and the
   `tests/fwtpm_da_retry.sh` CI harness.
+* Added optional transparent `TPM_RC_RETRY` handling so commands can be
+  automatically resubmitted when the TPM reports it is momentarily busy (for
+  example persisting the daUsed flag on first auth use of an externally
+  provisioned non-noDA AIK/SUDI key). Disabled by default to preserve the raw
+  TPM response code; opt in via `TPM2_SetCommandRetries` at runtime or
+  `-DWOLFTPM_MAX_RETRIES=N` at build time. Define `WOLFTPM_NO_RETRY` to compile
+  the handling out entirely. wolfTPM's own key templates set `noDA` and never
+  trigger it.
 
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 

@@ -2229,6 +2229,11 @@ typedef struct TPM2_CTX {
     void* spdmCtx; /* Pointer to WOLFTPM2_SPDM_CTX when session active */
     unsigned int spdmOnlyDetected:1; /* TPM_RC_DISABLED from Startup */
 #endif
+
+#ifndef WOLFTPM_NO_RETRY
+    /* Additional resubmit attempts on TPM_RC_RETRY (0 disables) */
+    int retries;
+#endif
 } TPM2_CTX;
 
 
@@ -3772,6 +3777,36 @@ WOLFTPM_API TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries);
     \sa wolfTPM2_Init
 */
 WOLFTPM_API TPM_RC TPM2_SetHalIoCb(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx);
+
+#ifndef WOLFTPM_NO_RETRY
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Sets the number of times a command is transparently resubmitted on TPM_RC_RETRY
+    \brief The TPM returns TPM_RC_RETRY when momentarily busy (for example persisting the daUsed flag on first auth use of a non-noDA key). Disabled by default (WOLFTPM_MAX_RETRIES is 0); pass a count > 0 to enable transparent resubmit. A count of 0 returns TPM_RC_RETRY to the caller.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: the TPM2 context is NULL or retries is negative
+
+    \param ctx pointer to a TPM2_CTX struct
+    \param retries number of additional resubmit attempts on TPM_RC_RETRY (0 disables)
+
+    \sa TPM2_GetCommandRetries
+*/
+WOLFTPM_API TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries);
+
+/*!
+    \ingroup TPM2_Proprietary
+    \brief Returns the number of times a command is transparently resubmitted on TPM_RC_RETRY
+
+    \return the configured retry count on success
+    \return BAD_FUNC_ARG: the TPM2 context is a NULL pointer
+
+    \param ctx pointer to a TPM2_CTX struct
+
+    \sa TPM2_SetCommandRetries
+*/
+WOLFTPM_API int TPM2_GetCommandRetries(TPM2_CTX* ctx);
+#endif /* !WOLFTPM_NO_RETRY */
 
 /*!
     \ingroup TPM2_Proprietary
