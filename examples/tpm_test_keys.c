@@ -430,6 +430,168 @@ int getPrimaryStoragekey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey,
     return rc;
 }
 
+#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
+int getPrimaryParamEncKey(WOLFTPM2_DEV* pDev, WOLFTPM2_SESSION* session,
+    WOLFTPM2_KEY* pqcKey, TPM_ALG_ID pqcAlg, int paramSet, int paramEncAlg)
+{
+    int rc;
+    TPMT_PUBLIC publicTemplate;
+#ifdef WOLFTPM_MLDSA
+    WOLFTPM2_KEY saltKey; /* transient SRK salt for the ML-DSA bound session */
+#if !defined(NO_RSA)
+    TPM_ALG_ID saltAlg = TPM_ALG_RSA;
+#else
+    TPM_ALG_ID saltAlg = TPM_ALG_ECC;
+#endif
+#endif
+    const char* pqcAuth = "pqcParamEnc"; /* primary userAuth; the bind auth for
+                                          * ML-DSA, immaterial for the ML-KEM
+                                          * salt key */
+
+    if (pDev == NULL || session == NULL || pqcKey == NULL)
+        return BAD_FUNC_ARG;
+
+    XMEMSET(pqcKey, 0, sizeof(*pqcKey));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+#ifdef WOLFTPM_MLDSA
+    XMEMSET(&saltKey, 0, sizeof(saltKey));
+#endif
+
+    if (pqcAlg == TPM_ALG_MLKEM) {
+    #ifdef WOLFTPM_MLKEM
+        /* ML-KEM salt key: restricted decryption, which requires a symmetric
+         * definition (a TPM rejects a restricted key without one). */
+        rc = wolfTPM2_GetKeyTemplate_MLKEM(&publicTemplate,
+            TPMA_OBJECT_decrypt | TPMA_OBJECT_restricted |
+            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_noDA, (TPMI_MLKEM_PARAMETER_SET)paramSet);
+        if (rc == TPM_RC_SUCCESS) {
+            publicTemplate.parameters.mlkemDetail.symmetric.algorithm =
+                TPM_ALG_AES;
+            publicTemplate.parameters.mlkemDetail.symmetric.keyBits.aes = 128;
+            publicTemplate.parameters.mlkemDetail.symmetric.mode.aes =
+                TPM_ALG_CFB;
+        }
+    #else
+        (void)paramSet;
+        return NOT_COMPILED_IN;
+    #endif
+    }
+    else if (pqcAlg == TPM_ALG_MLDSA) {
+    #ifdef WOLFTPM_MLDSA
+        /* ML-DSA is sign-only; it can only be a session bind entity. */
+        rc = wolfTPM2_GetKeyTemplate_MLDSA(&publicTemplate,
+            TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
+            TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
+            TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
+            (TPMI_MLDSA_PARAMETER_SET)paramSet, 0);
+    #else
+        (void)paramSet;
+        return NOT_COMPILED_IN;
+    #endif
+    }
+    else {
+        return BAD_FUNC_ARG;
+    }
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
+
+    rc = wolfTPM2_CreatePrimaryKey(pDev, pqcKey, TPM_RH_OWNER, &publicTemplate,
+        (const byte*)pqcAuth, (int)XSTRLEN(pqcAuth));
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
+    printf("PQC param-enc key: %s primary 0x%x\n", TPM2_GetAlgName(pqcAlg),
+        (word32)pqcKey->handle.hndl);
+
+    /* ML-KEM keys the session salt (tpmKey). ML-DSA is sign-only so it can
+     * only bind; a transient SRK provides the salt (confidentiality) while the
+     * ML-DSA key supplies the binding. */
+    if (pqcAlg == TPM_ALG_MLKEM) {
+        rc = wolfTPM2_StartSession(pDev, session, pqcKey, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+    }
+    else {
+    #ifdef WOLFTPM_MLDSA
+        rc = wolfTPM2_CreateSRK(pDev, &saltKey, saltAlg, NULL, 0);
+        if (rc == TPM_RC_SUCCESS) {
+            rc = wolfTPM2_StartSession(pDev, session, &saltKey,
+                &pqcKey->handle, TPM_SE_HMAC, paramEncAlg);
+            /* salt is baked into the session key; drop the salt key handle */
+            wolfTPM2_UnloadHandle(pDev, &saltKey.handle);
+        }
+    #endif
+    }
+    if (rc != TPM_RC_SUCCESS) {
+        printf("PQC param-enc StartSession failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        wolfTPM2_UnloadHandle(pDev, &pqcKey->handle);
+        XMEMSET(pqcKey, 0, sizeof(*pqcKey));
+    }
+    return rc;
+}
+
+/* Returns 1 and sets the alg and paramSet outputs for a valid PQC value, -1 if
+ * the value names a PQC algorithm but with an unsupported parameter set
+ * (message printed), or 0 if it is not a PQC option. Outputs are committed
+ * only on success. An empty suffix ("mlkem=") uses the default like "mlkem". */
+int parsePqcParamSet(const char* val, TPM_ALG_ID* alg, int* paramSet)
+{
+    int n;
+    int localSet;
+
+    if (val == NULL || alg == NULL || paramSet == NULL)
+        return 0;
+#ifdef WOLFTPM_MLKEM
+    if (XSTRCMP(val, "mlkem") == 0 ||
+            XSTRNCMP(val, "mlkem=", 6) == 0) {
+        n = (val[5] == '=' && val[6] != '\0') ? XATOI(&val[6]) : 768;
+        if (n == 512)
+            localSet = TPM_MLKEM_512;
+        else if (n == 768)
+            localSet = TPM_MLKEM_768;
+        else if (n == 1024)
+            localSet = TPM_MLKEM_1024;
+        else {
+            printf("Invalid ML-KEM parameter set: %d (use 512, 768, or 1024)\n",
+                n);
+            return -1;
+        }
+        *alg = TPM_ALG_MLKEM;
+        *paramSet = localSet;
+        return 1;
+    }
+#endif
+#ifdef WOLFTPM_MLDSA
+    if (XSTRCMP(val, "mldsa") == 0 ||
+            XSTRNCMP(val, "mldsa=", 6) == 0) {
+        n = (val[5] == '=' && val[6] != '\0') ? XATOI(&val[6]) : 65;
+        if (n == 44)
+            localSet = TPM_MLDSA_44;
+        else if (n == 65)
+            localSet = TPM_MLDSA_65;
+        else if (n == 87)
+            localSet = TPM_MLDSA_87;
+        else {
+            printf("Invalid ML-DSA parameter set: %d (use 44, 65, or 87)\n", n);
+            return -1;
+        }
+        *alg = TPM_ALG_MLDSA;
+        *paramSet = localSet;
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+int parsePqcParamEncArg(const char* arg, TPM_ALG_ID* alg, int* paramSet)
+{
+    if (arg == NULL || arg[0] != '-')
+        return 0;
+    return parsePqcParamSet(arg + 1, alg, paramSet);
+}
+#endif /* WOLFTPM_MLDSA || WOLFTPM_MLKEM */
+
 int getRSAkey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* pStorageKey, WOLFTPM2_KEY* key,
     void* pWolfRsaKey, int tpmDevId, const byte* auth, int authSz,
     TPMT_PUBLIC* publicTemplate)

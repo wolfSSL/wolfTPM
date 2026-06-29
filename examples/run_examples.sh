@@ -376,6 +376,73 @@ if [ $ENABLE_V185 -eq 1 ]; then
         [ $RESULT -ne 0 ] && echo -e "mlkem_encap mlkem=$PS failed! $RESULT" && exit 1
     done
 
+    echo -e "PQC primary key (create_primary -mldsa)"
+    for PS in 44 65 87; do
+        ./examples/keygen/create_primary -mldsa=$PS -oh >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "create_primary mldsa=$PS failed! $RESULT" && exit 1
+    done
+
+    echo -e "PQC usage-error checks (invalid parameter sets must be rejected)"
+    # These return before touching the TPM; a zero exit means an invalid
+    # parameter set was silently accepted as the default.
+    ./examples/keygen/create_primary -mldsa=0 -oh >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "create_primary -mldsa=0 should fail!" && exit 1
+    ./examples/keygen/create_primary -mldsa=abc -oh >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "create_primary -mldsa=abc should fail!" && exit 1
+    # An invalid PQC option must stay fatal even after a valid one (argv is
+    # parsed right-to-left), in either argument order.
+    ./examples/wrap/wrap_test -aes -mldsa=999 -mlkem=768 >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "wrap_test -mldsa=999 -mlkem=768 should fail!" && exit 1
+    ./examples/wrap/wrap_test -aes -mlkem=768 -mldsa=999 >> $TPMPWD/run.out 2>&1
+    [ $? -eq 0 ] && echo -e "wrap_test -mlkem=768 -mldsa=999 should fail!" && exit 1
+
+    echo -e "PQC parameter encryption (ML-KEM salt / ML-DSA bind)"
+    # ML-KEM as the param-enc session salt, ML-DSA as the param-enc session
+    # bind; exercise AES-CFB and XOR across child-create, attestation and NV.
+    # The ML-DSA primary used as the bind entity has an EmptyAuth, so the
+    # -mldsa cases below are the regression for the bound/EmptyAuth sessionKey
+    # derivation: pre-fix these failed with a param-enc HMAC mismatch.
+    ./examples/wrap/wrap_test -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "wrap_test -aes -mlkem failed! $RESULT" && exit 1
+    ./examples/wrap/wrap_test -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "wrap_test -xor -mldsa failed! $RESULT" && exit 1
+    ./examples/pcr/quote 16 quote.blob -ecc -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "quote -aes -mlkem failed! $RESULT" && exit 1
+    ./examples/pcr/quote 16 quote.blob -ecc -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "quote -xor -mldsa failed! $RESULT" && exit 1
+    ./examples/nvram/counter -aes -mlkem=768 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "counter -aes -mlkem failed! $RESULT" && exit 1
+    ./examples/nvram/counter -xor -mldsa=65 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "counter -xor -mldsa failed! $RESULT" && exit 1
+    # store/read round-trip (uses the keyblob.bin kept from earlier), both the
+    # ML-DSA bind and ML-KEM salt param-enc paths; read destroys the NV index.
+    ./examples/nvram/store -aes -mldsa=65 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "store -aes -mldsa failed! $RESULT" && exit 1
+    ./examples/nvram/read -aes >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "read -aes (after store -mldsa) failed! $RESULT" && exit 1
+    ./examples/nvram/store -xor -mlkem=768 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "store -xor -mlkem failed! $RESULT" && exit 1
+    ./examples/nvram/read -xor >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "read -xor (after store -mlkem) failed! $RESULT" && exit 1
+    ./examples/keygen/keygen pqcpe.bin -ecc -aes -paramkey=mlkem=768 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen -paramkey=mlkem failed! $RESULT" && exit 1
+    ./examples/keygen/keygen pqcpe.bin -ecc -xor -paramkey=mldsa=65 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keygen -paramkey=mldsa failed! $RESULT" && exit 1
+    rm -f pqcpe.bin quote.blob
+
     echo -e "PQC negative verify (mldsa_verify_neg)"
     for PS in 44 65 87; do
         ./examples/pqc/mldsa_verify_neg -mldsa=$PS >> $TPMPWD/run.out 2>&1

@@ -733,6 +733,277 @@ static void test_wolfTPM2_StartSession_ex_authHash(void)
 #endif
 }
 
+/* Bind an AES-CFB param-enc session to an EmptyAuth SRK and create a child
+ * under it. The pre-fix code left a bound EmptyAuth sessionKey empty, breaking
+ * the HMAC; this command fails pre-fix. */
+static void test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY child;
+    WOLFTPM2_SESSION session;
+    TPMT_PUBLIC publicTemplate;
+#if !defined(NO_RSA)
+    TPM_ALG_ID srkAlg = TPM_ALG_RSA;
+#else
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&child, 0, sizeof(child));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    /* Skip cleanly when no TPM is reachable. */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tBound EmptyAuth param-enc:\tSkipped\n");
+        return;
+    }
+
+    /* Storage root key with an EmptyAuth (auth NULL, authSz 0). */
+    rc = wolfTPM2_CreateSRK(&dev, &srk, srkAlg, NULL, 0);
+    if (rc != 0) {
+        /* Environmental (TPM busy / unsupported). Treat as skip. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tBound EmptyAuth param-enc:\tSkipped\n");
+        return;
+    }
+
+    /* Bind an HMAC session to the EmptyAuth SRK with AES-CFB param enc. */
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, &srk.handle,
+        TPM_SE_HMAC, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Slot 1: the create/load wrappers own slot 0 (parent auth), so the
+     * param-enc session lives in slot 1 to survive into the command. */
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Create+load a child under the EmptyAuth SRK; fails pre-fix. */
+#if !defined(NO_RSA)
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+#else
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#endif
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_CreateAndLoadKey(&dev, &child, &srk.handle,
+        &publicTemplate, NULL, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Clear the session slot, then release handles. */
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &child.handle);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tBound EmptyAuth param-enc:\tPassed\n");
+#endif
+}
+
+/* Run TPM2_CreateLoaded under a salted AES-CFB param-enc session. Pre-fix the
+ * missing response outHandleCnt mis-parsed the rpHash offset and the reply was
+ * rejected with TPM_RC_HMAC. */
+static void test_wolfTPM2_CreateLoaded_ParamEnc(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    (!defined(NO_RSA) || defined(HAVE_ECC))
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEYBLOB child;
+    WOLFTPM2_SESSION session;
+    TPMT_PUBLIC publicTemplate;
+#if !defined(NO_RSA)
+    TPM_ALG_ID srkAlg = TPM_ALG_RSA;
+#else
+    TPM_ALG_ID srkAlg = TPM_ALG_ECC;
+#endif
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&child, 0, sizeof(child));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
+
+    /* Skip cleanly when no TPM is reachable. */
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tCreateLoaded param-enc:\tSkipped\n");
+        return;
+    }
+
+    rc = wolfTPM2_CreateSRK(&dev, &srk, srkAlg, NULL, 0);
+    if (rc != 0) {
+        /* Environmental (TPM busy / unsupported). Treat as skip. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tCreateLoaded param-enc:\tSkipped\n");
+        return;
+    }
+
+    /* Salted AES-CFB parameter-encryption session in slot 1; slot 0 is left
+     * for the parent auth that wolfTPM2_CreateLoadedKey sets internally. */
+    rc = wolfTPM2_StartSession(&dev, &session, &srk, NULL,
+        TPM_SE_HMAC, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+#if !defined(NO_RSA)
+    rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA);
+#else
+    rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
+        TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+#endif
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* CreateLoaded under the param-enc session. Fails pre-fix with
+     * TPM_RC_HMAC; a TPM that does not implement CreateLoaded is a skip. */
+    rc = wolfTPM2_CreateLoadedKey(&dev, &child, &srk.handle,
+        &publicTemplate, NULL, 0);
+    if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+        printf("Test TPM Wrapper:\tCreateLoaded param-enc:\tSkipped\n");
+    }
+    else {
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        wolfTPM2_UnloadHandle(&dev, &child.handle);
+        printf("Test TPM Wrapper:\tCreateLoaded param-enc:\tPassed\n");
+    }
+
+    /* Clear the session slot, then release handles. */
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_UnloadHandle(&dev, &srk.handle);
+    wolfTPM2_Cleanup(&dev);
+#else
+    printf("Test TPM Wrapper:\tCreateLoaded param-enc:\tSkipped\n");
+#endif
+}
+
+/* Exercise the bound-own-entity branch of TPM2_ParamEncBindKey: the
+ * parameter-encryption key for a session that authorizes its own bind entity
+ * is sessionKey || authValue. An HMAC session cannot authorize in slot 0, so
+ * this uses a bound policy session (the examples/nvram/extend.c pattern): write
+ * a POLICYWRITE NV index (policy PolicyPCR(16), auth "cpusecret") under a bound
+ * AES-CFB policy session, then read it back. A wrong param-enc key corrupts the
+ * stored data even though the write command itself succeeds. */
+static void test_wolfTPM2_BoundOwnEntity_ParamEnc(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_SESSION trial;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_AUTH_INDEX;
+    const byte nvAuth[] = "cpusecret";
+    const int nvAuthSz = (int)sizeof(nvAuth) - 1;
+    word32 nvAttributes;
+    byte policyDigest[TPM_SHA256_DIGEST_SIZE];
+    word32 policyDigestSz = (word32)sizeof(policyDigest);
+    byte pcrArray[1];
+    byte buf[8];
+    byte readBuf[8];
+    word32 readSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&trial, 0, sizeof(trial));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
+    XMEMSET(buf, 0x11, sizeof(buf));
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    pcrArray[0] = 16; /* resettable debug PCR */
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tBound own-entity param-enc:\tSkipped\n");
+        return;
+    }
+
+    /* Compute the index authPolicy = PolicyPCR(16) with a trial session
+     * (the write helper re-runs PolicyPCR with the same selection). */
+    rc = wolfTPM2_StartSession(&dev, &trial, NULL, NULL, TPM_SE_TRIAL,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_PolicyPCR(&dev, trial.handle.hndl, TPM_ALG_SHA256,
+        pcrArray, 1);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_GetPolicyDigest(&dev, trial.handle.hndl, policyDigest,
+        &policyDigestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    wolfTPM2_UnloadHandle(&dev, &trial.handle);
+
+    parent.hndl = TPM_RH_OWNER;
+    nvAttributes = TPMA_NV_POLICYWRITE | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA;
+    rc = wolfTPM2_NVCreateAuthPolicy(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), (byte*)nvAuth, nvAuthSz,
+        policyDigest, (int)policyDigestSz);
+    if (rc != 0 && rc != TPM_RC_NV_DEFINED) {
+        /* Environmental (NV space / unsupported). Treat as skip. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tBound own-entity param-enc:\tSkipped\n");
+        return;
+    }
+    /* Load the NV handle's auth and Name for the bind. */
+    rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, (byte*)nvAuth, nvAuthSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Bound AES-CFB policy session (slot 0) authorizing its own bind entity. */
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, &nv.handle,
+        TPM_SE_POLICY, TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 0, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Write under the bound policy session - the data is parameter-encrypted
+     * with the folded key. */
+    rc = wolfTPM2_NVWriteAuthPolicy(&dev, &session, TPM_ALG_SHA256, pcrArray, 1,
+        &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Read back with plain password auth (no param enc) and verify the data
+     * round-tripped. A doubled or dropped bind authValue would have stored
+     * garbage even though the write command itself succeeded. */
+    wolfTPM2_SetAuthSession(&dev, 0, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tBound own-entity param-enc:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tBound own-entity param-enc:\tSkipped\n");
+#endif
+}
+
 static void test_wolfTPM2_PolicyHash(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -917,7 +1188,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     WOLFTPM2_KEY tpmKey;
     TPM2B_DATA data;
     TPM2B_ENCRYPTED_SECRET secret;
-#if defined(WOLFTPM_PQC) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     WOLFTPM2_KEY mlkemKey;
@@ -947,7 +1218,7 @@ static void test_wolfTPM2_EncryptSecret(void)
     rc = wolfTPM2_EncryptSecret(&dev, &tpmKey, &data, NULL, "SECRET");
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
-#if defined(WOLFTPM_PQC) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+#if defined(WOLFTPM_MLKEM) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
     (defined(WOLFSSL_HAVE_MLKEM) || defined(WOLFSSL_KYBER512) || \
      defined(WOLFSSL_KYBER768) || defined(WOLFSSL_KYBER1024))
     /* MLKEM path (v1.85 Part 1 Sec.24): caller encapsulates under the TPM's
@@ -4961,7 +5232,11 @@ static void test_TPM2_GetHashDigestSize_AllAlgs(void)
     printf("Test TPM2:\t\tGetHashDigestSize all algs:\tPassed\n");
 }
 
-#ifdef WOLFTPM_PQC
+/* These PQC unit tests call both ML-DSA and ML-KEM wrappers, so they compile
+ * only when both families are present (a WOLFTPM_NO_MLDSA or WOLFTPM_NO_MLKEM
+ * build excludes the matching wrapper definitions). CI always builds full
+ * PQC, so coverage is unchanged there. */
+#if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
 /* Post-Quantum Cryptography (PQC) Unit Tests - TPM 2.0 v185 */
 
 /* TODO: Remove TPM_RC_COMMAND_CODE skip logic once we have a TPM simulator
@@ -5721,7 +5996,7 @@ static void test_wolfTPM2_PQC_Sizes(void)
 
     printf("Test TPM Wrapper: %-40s Passed\n", "PQC Sizes:");
 }
-#endif /* WOLFTPM_PQC */
+#endif /* WOLFTPM_MLDSA && WOLFTPM_MLKEM */
 
 #endif /* !WOLFTPM2_NO_WRAPPER */
 
@@ -5747,6 +6022,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();
     test_wolfTPM2_StartSession_ex_authHash();
+    test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
+    test_wolfTPM2_CreateLoaded_ParamEnc();
+    test_wolfTPM2_BoundOwnEntity_ParamEnc();
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
@@ -5847,7 +6125,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ST33_FirmwareUpgrade();
     #endif
     #endif
-    #ifdef WOLFTPM_PQC
+    #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
     test_wolfTPM2_PQC_Sizes();

@@ -75,15 +75,27 @@ static void usage(void)
     printf("* -sym: Use Symmetric Cipher for key generation\n");
     printf("\tDefault Symmetric Cipher is AES CTR with 256 bits\n");
     printf("* -keyedhash: Use Keyed Hash for key generation\n");
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
     printf("* -mldsa[=44|65|87]: Use ML-DSA for signing (v1.85, default 65)\n");
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
     printf("* -hash_mldsa[=44|65|87]: Use Hash-ML-DSA for signing "
            "(v1.85, default 65 with SHA-256 pre-hash)\n");
+#endif
+#ifdef WOLFTPM_MLKEM
     printf("* -mlkem[=512|768|1024]: Use ML-KEM for key encapsulation "
            "(v1.85, default 768)\n");
 #endif
     printf("* -t: Use default template (otherwise AIK)\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
+#ifdef WOLFTPM_MLKEM
+    printf("* -paramkey=mlkem[=512|768|1024]: Use an ML-KEM key as the "
+           "param-enc session salt (v1.85, default 768)\n");
+#endif
+#ifdef WOLFTPM_MLDSA
+    printf("* -paramkey=mldsa[=44|65|87]: Use an ML-DSA key as the "
+           "param-enc session bind (v1.85, default 65)\n");
+#endif
     printf("* -unique=[value]\n");
     printf("\t* Used for the KDF of the create\n");
     printf("* -auth=pass: Use custom password for key authentication\n");
@@ -102,17 +114,21 @@ static void usage(void)
     printf("\t* Symmetric key, AES, CBC mode, 128 bits, "\
            "with XOR parameter encryption\n");
     printf("\t\t keygen -sym=aescbc256 -xor\n");
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
     printf("\t* ML-DSA-65 signing key\n");
     printf("\t\t keygen -mldsa\n");
+#endif
+#ifdef WOLFTPM_HASH_MLDSA
     printf("\t* Hash-ML-DSA-87 with SHA-256 pre-hash\n");
     printf("\t\t keygen -hash_mldsa=87\n");
+#endif
+#ifdef WOLFTPM_MLKEM
     printf("\t* ML-KEM-1024 key encapsulation key\n");
     printf("\t\t keygen -mlkem=1024\n");
 #endif
 }
 
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
 static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
 {
     int n = XATOI(optVal);
@@ -124,7 +140,9 @@ static int mldsaParamSet(const char* optVal, TPMI_MLDSA_PARAMETER_SET* ps)
         default: return TPM_RC_FAILURE;
     }
 }
+#endif /* WOLFTPM_MLDSA */
 
+#ifdef WOLFTPM_MLKEM
 static int mlkemParamSet(const char* optVal, TPMI_MLKEM_PARAMETER_SET* ps)
 {
     int n = XATOI(optVal);
@@ -136,7 +154,7 @@ static int mlkemParamSet(const char* optVal, TPMI_MLKEM_PARAMETER_SET* ps)
         default:   return TPM_RC_FAILURE;
     }
 }
-#endif /* WOLFTPM_PQC */
+#endif /* WOLFTPM_MLKEM */
 
 static int symChoice(const char* symMode, TPM_ALG_ID* algSym, int* keyBits)
 {
@@ -176,8 +194,15 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_RSA; /* default matches seal.c / keyload.c */
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
-#ifdef WOLFTPM_PQC
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    TPM_ALG_ID pqcParamEncAlg = TPM_ALG_NULL;
+    int pqcParamSet = 0;
+    WOLFTPM2_KEY pqcKey;
+#endif
+#ifdef WOLFTPM_MLDSA
     TPMI_MLDSA_PARAMETER_SET mldsaPs = TPM_MLDSA_65;   /* default */
+#endif
+#ifdef WOLFTPM_MLKEM
     TPMI_MLKEM_PARAMETER_SET mlkemPs = TPM_MLKEM_768;  /* default */
 #endif
     WOLFTPM2_SESSION tpmSession;
@@ -228,7 +253,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_KEYEDHASH;
             bAIK = 0;
         }
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
         else if (XSTRCMP(argv[argc-1], "-mldsa") == 0 ||
                  XSTRNCMP(argv[argc-1], "-mldsa=",
                      XSTRLEN("-mldsa=")) == 0) {
@@ -241,6 +266,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_MLDSA;
             bAIK = 0;
         }
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_HASH_MLDSA
         else if (XSTRCMP(argv[argc-1], "-hash_mldsa") == 0 ||
                  XSTRNCMP(argv[argc-1], "-hash_mldsa=",
                      XSTRLEN("-hash_mldsa=")) == 0) {
@@ -253,6 +280,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_HASH_MLDSA;
             bAIK = 0;
         }
+#endif /* WOLFTPM_HASH_MLDSA */
+#ifdef WOLFTPM_MLKEM
         else if (XSTRCMP(argv[argc-1], "-mlkem") == 0 ||
                  XSTRNCMP(argv[argc-1], "-mlkem=",
                      XSTRLEN("-mlkem=")) == 0) {
@@ -265,7 +294,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             alg = TPM_ALG_MLKEM;
             bAIK = 0;
         }
-#endif /* WOLFTPM_PQC */
+#endif /* WOLFTPM_MLKEM */
         else if (XSTRCMP(argv[argc-1], "-t") == 0) {
             bAIK = 0;
         }
@@ -281,6 +310,18 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
         }
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        else if (XSTRNCMP(argv[argc-1], "-paramkey=",
+                     XSTRLEN("-paramkey=")) == 0) {
+            /* PQC key for the param-enc session, e.g. "mlkem=768"/"mldsa=65" */
+            const char* pkVal = argv[argc-1] + XSTRLEN("-paramkey=");
+            if (parsePqcParamSet(pkVal, &pqcParamEncAlg, &pqcParamSet) != 1) {
+                printf("Invalid -paramkey value: %s\n", pkVal);
+                usage();
+                return 0;
+            }
+        }
+#endif
         else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
             uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
         }
@@ -310,6 +351,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     XMEMSET(&primaryBlob, 0, sizeof(primaryBlob));
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
     XMEMSET(&auth, 0, sizeof(auth));
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    XMEMSET(&pqcKey, 0, sizeof(pqcKey));
+#endif
 
     /* Only use the ECC SRK for ECC child keys; RSA, SYMCIPHER, KEYEDHASH
      * all stay on the RSA SRK so that keyload/seal can round-trip them. */
@@ -322,6 +366,16 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             return 0;
         }
     }
+
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    /* A PQC param-enc key only supplies the salt/bind material; a symmetric
+     * session cipher is still required. Default to AES-CFB if none given. */
+    if (pqcParamEncAlg != TPM_ALG_NULL && paramEncAlg == TPM_ALG_NULL) {
+        paramEncAlg = TPM_ALG_CFB;
+        printf("PQC param-enc key selected; defaulting session cipher to "
+            "AES-CFB.\n");
+    }
+#endif
 
     printf("TPM2.0 Key generation example\n");
     printf("\tKey Blob: %s\n", outputFile);
@@ -364,9 +418,20 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         if (srkAlg == TPM_ALG_RSA)
             bindKey = NULL; /* cannot bind to key without RSA enabled */
     #endif
-        /* Start an authenticated session (salted / unbound) with parameter encryption */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
-            TPM_SE_HMAC, paramEncAlg);
+    #if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+        if (pqcParamEncAlg != TPM_ALG_NULL) {
+            /* Use a PQC primary as the param-enc session key: ML-KEM salt
+             * or ML-DSA bind. This replaces the salted-to-SRK session. */
+            rc = getPrimaryParamEncKey(&dev, &tpmSession, &pqcKey,
+                pqcParamEncAlg, pqcParamSet, paramEncAlg);
+        }
+        else
+    #endif
+        {
+            /* Start an authenticated session (salted / unbound) with parameter encryption */
+            rc = wolfTPM2_StartSession(&dev, &tpmSession, bindKey, NULL,
+                TPM_SE_HMAC, paramEncAlg);
+        }
         if (rc != 0) goto exit;
         printf("HMAC Session: Handle 0x%x\n",
             (word32)tpmSession.handle.hndl);
@@ -405,7 +470,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 "not symmetric or keyedhash keys.\n");
             rc = BAD_FUNC_ARG;
         }
-#ifdef WOLFTPM_PQC
+#if defined(WOLFTPM_MLDSA) || defined(WOLFTPM_MLKEM)
         else if (alg == TPM_ALG_MLDSA || alg == TPM_ALG_HASH_MLDSA ||
                  alg == TPM_ALG_MLKEM) {
             printf("AIK template is RSA or ECC only; PQC keys use their "
@@ -454,7 +519,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPM_ALG_SHA256, YES, NO);
             publicTemplate.objectAttributes |= TPMA_OBJECT_sensitiveDataOrigin;
         }
-#ifdef WOLFTPM_PQC
+#ifdef WOLFTPM_MLDSA
         else if (alg == TPM_ALG_MLDSA) {
             printf("ML-DSA template (parameter set %u)\n",
                 (unsigned)mldsaPs);
@@ -462,10 +527,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM |
                 TPMA_OBJECT_fixedParent | TPMA_OBJECT_sensitiveDataOrigin |
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
-                mldsaPs, 0 /* allowExternalMu — TPM_RC_EXT_MU at create
+                mldsaPs, 0 /* allowExternalMu - TPM_RC_EXT_MU at create
                             * per Part 2 Sec.12.2.3.6 when SET on a TPM
-                            * without μ-direct sign support */);
+                            * without mu-direct sign support */);
         }
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_HASH_MLDSA
         else if (alg == TPM_ALG_HASH_MLDSA) {
             printf("Hash-ML-DSA template (parameter set %u, pre-hash %s)\n",
                 (unsigned)mldsaPs, TPM2_GetAlgName(TPM_ALG_SHA256));
@@ -475,6 +542,8 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
                 mldsaPs, TPM_ALG_SHA256);
         }
+#endif /* WOLFTPM_HASH_MLDSA */
+#ifdef WOLFTPM_MLKEM
         else if (alg == TPM_ALG_MLKEM) {
             printf("ML-KEM template (parameter set %u)\n",
                 (unsigned)mlkemPs);
@@ -484,7 +553,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
                 TPMA_OBJECT_userWithAuth | TPMA_OBJECT_noDA,
                 mlkemPs);
         }
-#endif /* WOLFTPM_PQC */
+#endif /* WOLFTPM_MLKEM */
         else {
             rc = BAD_FUNC_ARG;
         }
@@ -613,6 +682,9 @@ exit:
         wolfTPM2_UnloadHandle(&dev, &primary->handle);
     wolfTPM2_UnloadHandle(&dev, &newKeyBlob.handle);
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
+#if defined(WOLFTPM_MLKEM) || defined(WOLFTPM_MLDSA)
+    wolfTPM2_UnloadHandle(&dev, &pqcKey.handle);
+#endif
 
     wolfTPM2_Cleanup(&dev);
     return rc;

@@ -126,3 +126,49 @@ by loading it back:
 A successful load prints `Loaded key to 0x80000000`. The full 18-way
 matrix (three variants x three parameter sets) is exercised by
 `examples/run_examples.sh` when v1.85 is detected in `config.h`.
+
+### PQC keys for parameter encryption
+
+A post-quantum primary can key a TPM 2.0 parameter-encryption session:
+ML-KEM (decrypt capable) is used as the session salt key and ML-DSA
+(sign only) as the session bind key. The session protects the command's
+first sized parameter the same way an RSA/ECC salted session does. Any
+RSA/ECC storage key the example needs (for example the parent of a
+created child) is unchanged.
+
+Note on ML-DSA confidentiality: parameter-encryption confidentiality comes
+from the session key, which a bound session derives from the bind entity's
+authValue (TPM 2.0 Library Part 1, Salted Session). A sign-only ML-DSA key
+cannot exchange a salt, and the example's bind authValue is a public
+constant, so an ML-DSA bind alone provides session binding but no
+confidentiality against a bus observer. To keep the advertised encryption
+real, the helper additionally creates a transient SRK and uses it as the
+asymmetric salt for the ML-DSA session: confidentiality comes from the
+encrypted salt while the ML-DSA key supplies the binding. A real deployment
+that relies on a bare bound session for confidentiality must use a bind
+entity whose authValue is secret and was not sent in cleartext.
+
+`wrap_test`, `pcr/quote`, and `nvram/store` and `nvram/counter` take
+`-mlkem[=512|768|1024]` and `-mldsa[=44|65|87]`. `keygen` uses
+`-paramkey=mlkem[=...]` / `-paramkey=mldsa[=...]` because its `-mlkem` /
+`-mldsa` already select the child key algorithm.
+
+```
+./examples/wrap/wrap_test -aes -mlkem=768
+./examples/pcr/quote 16 quote.blob -ecc -xor -mldsa=65
+./examples/nvram/counter -aes -mldsa=65
+./examples/keygen/keygen keyblob.bin -ecc -aes -paramkey=mlkem=768
+```
+
+ML-KEM is a restricted decryption (salt) key, which requires a symmetric
+definition; the example helper sets AES-128-CFB on it (a TPM rejects a
+restricted key with no symmetric algorithm via `TPM_RC_SYMMETRIC`).
+
+### `create_primary` ML-DSA primary
+
+`examples/keygen/create_primary` can create an ML-DSA primary key:
+
+```
+./examples/keygen/create_primary -mldsa            # default MLDSA-65
+./examples/keygen/create_primary -mldsa=87 -oh
+```

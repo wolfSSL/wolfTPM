@@ -41,6 +41,9 @@ build/
 examples/wrap/wrap_test
 examples/wrap/caps
 examples/wrap/hmac
+examples/wrap/getrandom
+examples/wrap/hash
+examples/wrap/encrypt_decrypt
 examples/native/native_test
 examples/bench/bench
 examples/csr/csr
@@ -56,6 +59,7 @@ examples/pcr/reset
 examples/timestamp/clock_set
 examples/management/flush
 examples/management/tpmclear
+examples/management/da_check
 pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
@@ -70,6 +74,7 @@ examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
 examples/keygen/external_import
+examples/keygen/ecdh
 examples/pqc/mldsa_sign
 examples/pqc/mlkem_encap
 examples/pqc/pqc_mssim_e2e
@@ -207,6 +212,7 @@ examples/firmware/*.MANIFESTHASH
 src/fwtpm/fwtpm_server
 fwtpm_nv.bin
 fwtpm_test_nv.bin
+fwtpm_test_nv.bin.key
 
 # Fuzz artifacts (corpus generated at runtime by gen_corpus.py)
 tests/fuzz/corpus/
