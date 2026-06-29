@@ -29,17 +29,16 @@ AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
 
-WOLFTPM_LIBRARY_VERSION=17:0:0
-#                        | | |
-#                 +------+ | +---+
-#                 |        |     |
-#                current:revision:age
-#                 |        |     |
-#                 |        |     +- increment if source code has changed
-#                 |        |        set to zero if [current] or [revision] is incremented
-#                 |        +- increment if interfaces have been added
-#                 |           set to zero if [current] is incremented
-#                 +- increment if interfaces have been removed or changed
+WOLFTPM_LIBRARY_VERSION_FIRST=17
+#                              ^--- current (installed so name: current-age)
+WOLFTPM_LIBRARY_VERSION_SECOND=0
+#                               ^-- revision
+WOLFTPM_LIBRARY_VERSION_THIRD=0
+#                              ^--- age
+WOLFTPM_LIBRARY_VERSION=${WOLFTPM_LIBRARY_VERSION_FIRST}:${WOLFTPM_LIBRARY_VERSION_SECOND}:${WOLFTPM_LIBRARY_VERSION_THIRD}
+AC_SUBST([WOLFTPM_LIBRARY_VERSION_FIRST])
+AC_SUBST([WOLFTPM_LIBRARY_VERSION_SECOND])
+AC_SUBST([WOLFTPM_LIBRARY_VERSION_THIRD])
 AC_SUBST([WOLFTPM_LIBRARY_VERSION])
 
 
@@ -990,6 +989,10 @@ AC_SUBST([AM_CPPFLAGS])
 AC_SUBST([AM_CFLAGS])
 AC_SUBST([AM_LDFLAGS])
 AC_SUBST([CPPCHECK])
+
+# SBOM generation
+AC_PATH_PROG([PYTHON3], [python3])
+AC_PATH_PROG([PYSPDXTOOLS], [pyspdxtools])
 
 # FINAL
 AC_CONFIG_FILES([Makefile])

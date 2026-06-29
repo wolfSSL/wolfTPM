@@ -770,3 +770,127 @@ install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/wolftpm/
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/
         DESTINATION include/wolftpm
         FILES_MATCHING PATTERN "*.h")
+
+
+####################################################
+# SBOM generation target
+####################################################
+#
+# Usage:
+#   cmake -B build -DWOLFSSL_DIR=/path/to/wolfssl/source .
+#   cmake --build build
+#   cmake --build build --target sbom
+#
+# WOLFSSL_DIR must point to a wolfssl source tree that contains
+# scripts/gen-sbom (available on the feat/sbom-embedded branch).
+#
+# Outputs written to the build directory:
+#   wolftpm-<version>.cdx.json   (CycloneDX)
+#   wolftpm-<version>.spdx.json  (SPDX JSON)
+#   wolftpm-<version>.spdx       (SPDX tag-value, pyspdxtools validation output)
+
+if(BUILD_WOLFTPM_LIB)
+    set(WOLFSSL_DIR "" CACHE PATH
+        "Path to wolfssl source tree with scripts/gen-sbom")
+
+    # Derive the version from wolftpm/version.h, NOT from PROJECT_VERSION.
+    # autotools `make sbom` uses PACKAGE_VERSION, which is sourced from
+    # version.h. Reading the same header here keeps the cmake and autotools
+    # SBOMs bit-identical in the version field even if the project() call in
+    # this file drifts out of sync with the header.
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/version.h"
+         _sbom_version_line
+         REGEX "^#define[ \t]+LIBWOLFTPM_VERSION_STRING[ \t]+\"")
+    string(REGEX REPLACE
+           "^#define[ \t]+LIBWOLFTPM_VERSION_STRING[ \t]+\"([^\"]+)\".*" "\\1"
+           SBOM_VERSION "${_sbom_version_line}")
+    if(NOT SBOM_VERSION)
+        message(FATAL_ERROR
+            "sbom: could not parse LIBWOLFTPM_VERSION_STRING from "
+            "wolftpm/version.h")
+    endif()
+
+    # Validate the SBOM prerequisites at configure time so the user learns
+    # what is missing immediately, instead of after a full library build.
+    #
+    # These checks must NOT abort configuration of a normal build: someone who
+    # just wants `cmake -B build && cmake --build build` should never be forced
+    # to set WOLFSSL_DIR. So when a prerequisite is missing we still define a
+    # `sbom` target, but one that prints the reason and fails at build time.
+    # Only when the user explicitly opts in via -DWOLFSSL_DIR=... and that path
+    # turns out to be wrong do we hard-error at configure time, because at that
+    # point the user clearly intends to build SBOMs and a typo'd path is a
+    # mistake worth surfacing right away.
+    find_program(PYTHON3_CMD python3)
+    find_program(PYSPDXTOOLS_CMD pyspdxtools)
+
+    set(_sbom_error "")
+    if(WOLFSSL_DIR STREQUAL "")
+        set(_sbom_error
+            "WOLFSSL_DIR is not set. Re-run cmake with -DWOLFSSL_DIR=/path/to/wolfssl")
+    elseif(NOT EXISTS "${WOLFSSL_DIR}/scripts/gen-sbom")
+        # User opted in with a bad path -> fail configure now, not at build.
+        message(FATAL_ERROR
+            "sbom: ${WOLFSSL_DIR}/scripts/gen-sbom not found.\n"
+            "      Check that WOLFSSL_DIR points to a wolfSSL tree with "
+            "SBOM support.")
+    elseif(NOT PYTHON3_CMD)
+        set(_sbom_error "'python3' not found in PATH. Cannot generate SBOM.")
+    elseif(NOT PYSPDXTOOLS_CMD)
+        set(_sbom_error
+            "'pyspdxtools' not found in PATH (install: pip install spdx-tools)")
+    endif()
+
+    if(NOT _sbom_error STREQUAL "")
+        # Prerequisite missing: keep configuration working, but make the sbom
+        # target fail loudly if someone actually invokes it.
+        add_custom_target(sbom
+            VERBATIM
+            COMMAND ${CMAKE_COMMAND} -E echo "sbom: ${_sbom_error}"
+            COMMAND ${CMAKE_COMMAND} -E false
+            COMMENT "SBOM prerequisites missing")
+        return()
+    endif()
+
+    set(SBOM_CDX     "${CMAKE_BINARY_DIR}/wolftpm-${SBOM_VERSION}.cdx.json")
+    set(SBOM_SPDX    "${CMAKE_BINARY_DIR}/wolftpm-${SBOM_VERSION}.spdx.json")
+    set(SBOM_SPDX_TV "${CMAKE_BINARY_DIR}/wolftpm-${SBOM_VERSION}.spdx")
+    set(SBOM_STAGING "${CMAKE_BINARY_DIR}/_sbom_staging")
+
+    # Staged install path. install(TARGETS wolftpm) above hardcodes
+    # `LIBRARY DESTINATION lib`, so the .so always lands in lib/, never lib64/.
+    # ${CMAKE_SHARED_LIBRARY_SUFFIX} resolves to .so on Linux / .dylib on mac.
+    set(SBOM_LIB
+        "${SBOM_STAGING}/lib/libwolftpm${CMAKE_SHARED_LIBRARY_SUFFIX}")
+
+    # ${OPTION_FILE} is the generated wolftpm/options.h, the same compile-time
+    # option fingerprint autotools `make sbom` feeds to gen-sbom via
+    # --options-h. Using it (rather than a raw `cc -dM` dump, which would only
+    # capture compiler builtins) keeps the cmake SBOM consistent with autotools.
+    add_custom_target(sbom
+        VERBATIM
+        # Stage a clean install so gen-sbom inspects the same artifact layout
+        # the user would actually ship.
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBOM_STAGING}
+        COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
+                --prefix ${SBOM_STAGING}
+        COMMAND ${PYTHON3_CMD} ${WOLFSSL_DIR}/scripts/gen-sbom
+                --name wolftpm
+                --version ${SBOM_VERSION}
+                --supplier "wolfSSL Inc."
+                --license-file ${CMAKE_SOURCE_DIR}/LICENSE
+                --options-h ${OPTION_FILE}
+                --lib ${SBOM_LIB}
+                --cdx-out ${SBOM_CDX}
+                --spdx-out ${SBOM_SPDX}
+        # Validate the SPDX JSON and emit the tag-value rendering as a side
+        # effect; a malformed SBOM makes pyspdxtools exit non-zero and fails
+        # the target.
+        COMMAND ${PYSPDXTOOLS_CMD} --infile ${SBOM_SPDX}
+                --outfile ${SBOM_SPDX_TV}
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBOM_STAGING}
+        COMMENT "Generating SBOM for wolfTPM ${SBOM_VERSION}")
+
+    # gen-sbom reads the staged library, so the library must build first.
+    add_dependencies(sbom wolftpm)
+endif()
