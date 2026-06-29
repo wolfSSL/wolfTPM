@@ -415,6 +415,17 @@ then
     fi
 fi
 
+# Append-only NV journal for write-once flash fwTPM ports (opt-in)
+AC_ARG_ENABLE([fwtpm-nv-appendonly],
+    [AS_HELP_STRING([--enable-fwtpm-nv-appendonly],[Enable the append-only NV journal mode for write-once flash fwTPM ports (default: disabled)])],
+    [ ENABLED_FWTPM_NV_APPENDONLY=$enableval ],
+    [ ENABLED_FWTPM_NV_APPENDONLY=no ]
+    )
+if test "x$ENABLED_FWTPM_NV_APPENDONLY" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_NV_APPEND_ONLY"
+fi
+
 # Fuzz target
 AC_ARG_ENABLE([fuzz],
     [AS_HELP_STRING([--enable-fuzz],[Enable fuzz targets (default: disabled)])],

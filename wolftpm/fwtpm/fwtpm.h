@@ -623,6 +623,11 @@ struct FWTPM_NV_HAL_S {
      * success. When NULL the default file backend uses an auto-created key
      * file; integrity verification is always performed when a key exists. */
     int (*get_integrity_key)(void* ctx, byte* key, word32* keySz);
+    /* Program granule in bytes for append-only flash (0/1 = byte-writable). */
+    word32 writeAlign;
+    /* Append-only (write-once flash) mode; needs WOLFTPM_FWTPM_NV_APPEND_ONLY.
+     * Remaining bits reserved. */
+    unsigned int appendOnly : 1;
 };
 
 /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
@@ -630,6 +635,13 @@ struct FWTPM_CLOCK_HAL_S {
     UINT64 (*get_ms)(void* ctx);  /* Return milliseconds since boot */
     void* ctx;
 };
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+/* Max append-only program granule; sizes the pending-granule buffer. */
+#ifndef FWTPM_NV_MAX_WRITE_ALIGN
+#define FWTPM_NV_MAX_WRITE_ALIGN 64
+#endif
+#endif
 
 /* fwTPM context - holds all TPM state */
 typedef struct FWTPM_CTX {
@@ -747,6 +759,15 @@ typedef struct FWTPM_CTX {
     /* NV journal write position (next append offset) */
     word32 nvWritePos;
     int nvCompacting;   /* Guard flag to prevent cyclic recursion during NV compaction */
+
+#ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
+    /* Append-only pending program granule (word-backed for alignment; element
+     * count rounded up so an odd FWTPM_NV_MAX_WRITE_ALIGN override still fits). */
+    word32 nvGranule[(FWTPM_NV_MAX_WRITE_ALIGN + sizeof(word32) - 1)
+        / sizeof(word32)];
+    word32 nvGranuleBase;   /* aligned offset of the pending granule */
+    word32 nvGranuleFill;   /* bytes buffered (0..writeAlign) */
+#endif
 
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;

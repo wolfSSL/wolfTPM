@@ -43,7 +43,7 @@ fwTPM can replace a hardware TPM for:
 |------|------|
 | `fwtpm_command.c` | TPM 2.0 command processor and dispatch table (~9500 lines) |
 | `fwtpm_io.c` | Transport layer -- SWTPM TCP socket protocol (default) |
-| `fwtpm_nv.c` | NV storage -- file-based (default), HAL-abstracted for embedded |
+| `fwtpm_nv.c` | NV storage -- file-based (default); HAL-abstracted, with a built-in append-only mode for write-once flash |
 | `fwtpm_tis.c` | TIS register state machine (transport-agnostic) |
 | `fwtpm_tis_shm.c` | POSIX shared memory + semaphore TIS transport |
 | `fwtpm_main.c` | Server entry point, CLI argument parsing |
@@ -120,6 +120,7 @@ make
 | `--enable-fwtpm` | Build `fwtpm_server` binary (alongside client library) |
 | `--enable-fwtpm-only` | Build only `fwtpm_server` (no client library, examples, or tests) |
 | `--enable-swtpm` | Use SWTPM TCP socket transport (ports 2321/2322) |
+| `--enable-fwtpm-nv-appendonly` | Append-only NV journal for write-once flash ports (off by default) |
 | `--enable-debug` | Enable debug logging |
 
 | Compile Define | Set By |
@@ -129,6 +130,7 @@ make
 | `WOLFTPM_FWTPM_HAL` | `--enable-fwtpm` without `--enable-swtpm` |
 | `WOLFTPM_FWTPM_TIS` | `--enable-fwtpm` without `--enable-swtpm` |
 | `WOLFTPM_ADV_IO` | Set with `WOLFTPM_FWTPM_HAL` |
+| `WOLFTPM_FWTPM_NV_APPEND_ONLY` | `--enable-fwtpm-nv-appendonly` (CMake `WOLFTPM_FWTPM_NV_APPEND_ONLY=yes`) |
 
 
 ## Usage
@@ -189,6 +191,51 @@ The server stores persistent state (hierarchy seeds, auth values, PCR state,
 NV indices) in `fwtpm_nv.bin` (configurable via `FWTPM_NV_FILE`). On first
 start, seeds are randomly generated and saved. Subsequent starts reload
 existing state.
+
+#### NV Storage HAL (embedded ports)
+
+NV access is abstracted behind `FWTPM_NV_HAL` (`read`/`write`/`erase`/`ctx`/
+`maxSize`/`get_integrity_key`). The default backend is the file above; an
+embedded port supplies its own HAL and registers it before `FWTPM_Init()`.
+
+The journal is log-structured. On a byte-addressable backend (the file
+default) it writes TLV entries at byte-granular offsets, rewrites the header in
+place, and rewrites a trailing integrity MAC after every append. Internal flash
+and NOR are write-once and program-granularity aligned, so they cannot service
+in-place rewrites. Build with `--enable-fwtpm-nv-appendonly`
+(`-DWOLFTPM_FWTPM_NV_APPEND_ONLY`) and set `appendOnly` and `writeAlign` on the
+HAL; the journal then runs in append-only mode: the header is written only at
+compaction, `writePos` is derived by scanning on load, and each commit is
+sealed with an appended MAC-checkpoint entry padded up to `writeAlign`. The
+existing `read`/`write`/`erase` HAL is the integration point - no separate
+adapter.
+
+```c
+/* Native flash HAL. In append-only mode the journal only ever calls write()
+ * with writeAlign-aligned, forward, into-erased bytes, so write() is a simple
+ * flash program; erase() erases the region (sector loop); read() reads raw. */
+FWTPM_NV_HAL hal;
+XMEMSET(&hal, 0, sizeof(hal));
+hal.read = myRead; hal.write = myProgram; hal.erase = myErase;
+hal.ctx = myCtx; hal.maxSize = NV_SIZE;
+hal.appendOnly = 1;
+hal.writeAlign = PROG_SIZE;            /* flash word size, e.g. 16 (STM32H5) */
+hal.get_integrity_key = myDeviceSecret;/* recommended on flash */
+FWTPM_NV_SetHAL(&ctx, &hal);           /* before FWTPM_Init() */
+```
+
+In append-only mode the journal buffers a pending program granule internally and
+flushes full, aligned granules through `write()`, so a programmed cell is never
+rewritten and a whole sector is erased only on compaction. The header sector is
+therefore not erased on every append, and a torn final commit (e.g. on power
+loss) is ignored on the next load while all previously committed state survives.
+A `get_integrity_key` callback is strongly recommended on flash so the MAC
+checkpoints authenticate the journal and reject a torn or tampered tail.
+`writeAlign <= 1` selects no buffering, so byte-writable NV (EEPROM/FRAM) works
+with a plain `write()`. Compaction still erases the whole region before
+rewriting, so a power loss during compaction itself remains a vulnerable window
+(a future two-region ping-pong layout would close it). See
+`src/fwtpm/ports/README.md` for the full porting guide.
 
 
 ## Supported TPM 2.0 Commands
@@ -520,6 +567,7 @@ All macros are compile-time overridable (e.g., `-DFWTPM_MAX_OBJECTS=8`).
 | `FWTPM_CMD_PORT` | 2321 | Default TCP command port |
 | `FWTPM_PLAT_PORT` | 2322 | Default TCP platform port |
 | `FWTPM_NV_FILE` | `"fwtpm_nv.bin"` | Default NV storage file path |
+| `FWTPM_NV_MAX_WRITE_ALIGN` | 64 | Max append-only program granule in bytes (upper bound on a HAL's `writeAlign`); sizes the pending-granule buffer when `WOLFTPM_FWTPM_NV_APPEND_ONLY` is set |
 | `FWTPM_PCR_BANKS` | 2 | Number of PCR banks (SHA-256 + SHA-384) |
 | `FWTPM_TIS_BURST_COUNT` | 64 | TIS FIFO burst count (bytes per transfer) |
 | `FWTPM_TIS_FIFO_SIZE` | 4096 | TIS command/response FIFO size |
