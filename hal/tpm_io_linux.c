@@ -393,7 +393,7 @@
             else {
                 devLen = (int)XSTRLEN(TPM2_SPI_DEV);
                 /* tries spidev0.[0-4] */
-                if (TPM2_SPI_DEV[devLen-1] <= MAX_SPI_DEV_CS) {
+                if (TPM2_SPI_DEV[devLen-1] < MAX_SPI_DEV_CS) {
                     TPM2_SPI_DEV[devLen-1]++;
                     goto tryagain;
                 }
