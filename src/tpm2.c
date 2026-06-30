@@ -293,7 +293,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     return rc;
 }
 
-static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
+int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     CmdInfo_t* info, TPM_CC cmdCode, UINT32 respSz)
 {
     int rc = TPM_RC_SUCCESS;
@@ -306,6 +306,11 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* Response Parameter Size */
     TPM2_Packet_ParseU32(packet, &paramSz);
+    /* Bound paramSz to the response so authPos cannot wrap past the buffer */
+    if ((UINT32)packet->pos > respSz ||
+            paramSz > respSz - (UINT32)packet->pos) {
+        return TPM_RC_SIZE;
+    }
     param = &packet->buf[packet->pos]; /* Mark parameter data */
     authPos = packet->pos + paramSz;
 

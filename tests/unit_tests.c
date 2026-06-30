@@ -2874,6 +2874,79 @@ static void test_TPM2_Packet_RetryRestore(void)
 }
 #endif /* !WOLFTPM_NO_RETRY */
 
+/* A sessioned response whose attacker-controlled parameterSize wraps UINT32
+ * when added to packet->pos must be rejected up front. Without the bounds
+ * check the wrapped authPos passes the "respSz > authPos" guard and the
+ * oversized parameterSize flows into TPM2_CalcRpHash as an out-of-bounds
+ * read length. The bounds check itself is build-independent. */
+static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[1];
+    TPM2_Packet packet;
+    CmdInfo_t info;
+    byte buf[128];
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(session, 0, sizeof(session));
+    XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(buf, 0, sizeof(buf));
+
+    /* parameterSize field at offset TPM2_HEADER_SIZE: 0xFFFFFFF8 makes
+     * authPos = pos + paramSz wrap to a small in-range value */
+    buf[TPM2_HEADER_SIZE + 0] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 1] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 2] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 3] = 0xF8;
+
+    session[0].sessionHandle = HMAC_SESSION_FIRST;
+    session[0].authHash = TPM_ALG_SHA256;
+    ctx.session = session;
+
+    info.authCnt = 1;
+    info.inHandleCnt = 0;
+    info.outHandleCnt = 0;
+    info.flags = 0;
+
+    packet.buf = buf;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* A valid in-range parameterSize must not be rejected */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x04;
+    info.authCnt = 0;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* A response too small to hold the parsed parameterSize must be rejected */
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)(TPM2_HEADER_SIZE + 2));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* An exact-fit parameterSize (paramSz == respSz - pos) must be accepted */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = (byte)(sizeof(buf) - (TPM2_HEADER_SIZE + 4));
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    printf("Test TPM Wrapper:\tResponseProcess paramSize overflow:\tPassed\n");
+}
+
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
  * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
@@ -6069,6 +6142,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_CommandRetries();
     test_TPM2_Packet_RetryRestore();
 #endif
+    test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();
