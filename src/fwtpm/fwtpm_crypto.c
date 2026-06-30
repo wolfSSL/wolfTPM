@@ -2447,6 +2447,11 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
                 TPM2_ForceZero(seedBuf, seedBufSz);
                 rc = TPM_RC_FAILURE;
             }
+            else if (rc > seedBufSz) {
+                /* Bound output to caller buffer */
+                TPM2_ForceZero(seedBuf, seedBufSz);
+                rc = TPM_RC_FAILURE;
+            }
             else {
                 *seedSzOut = rc;
                 rc = 0;

@@ -8423,7 +8423,8 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         /* Then append salt if present */
         if (rc == 0 && saltSize > 0) {
-            if (keyInSz + saltSize <= (int)sizeof(keyIn)) {
+            if (keyInSz + saltSize <= (int)sizeof(keyIn) &&
+                saltSize <= (int)sizeof(salt)) {
                 XMEMCPY(keyIn + keyInSz, salt, saltSize);
                 keyInSz += saltSize;
             }
