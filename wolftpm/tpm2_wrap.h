@@ -1237,6 +1237,10 @@ WOLFTPM_API int wolfTPM2_LoadRsaPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ke
     \param scheme value of TPMI_ALG_RSA_SCHEME type, specifying the RSA scheme
     \param hashAlg integer value of TPMI_ALG_HASH type, specifying a supported TPM 2.0 hash algorithm
 
+    \note The imported key is created with both sign and decrypt usage. To
+    import a single-purpose key, call wolfTPM2_ImportRsaPrivateKeySeed with a
+    restricted objectAttributes set.
+
     \sa wolfTPM2_ImportRsaPrivateKeySeed
     \sa wolfTPM2_LoadRsaPrivateKey
     \sa wolfTPM2_LoadRsaPrivateKey_ex
@@ -1427,6 +1431,10 @@ WOLFTPM_API int wolfTPM2_LoadEccPublicKey_ex(WOLFTPM2_DEV* dev,
     \param eccPubYSz integer value of word32 type, specifying the point Y buffer size
     \param eccPriv pointer to a byte buffer containing the private material
     \param eccPrivSz integer value of word32 type, specifying the private material size
+
+    \note The imported key is created with both sign and decrypt usage. To
+    import a single-purpose key, call wolfTPM2_ImportEccPrivateKeySeed with a
+    restricted objectAttributes set.
 
     \sa wolfTPM2_ImportEccPrivateKeySeed
     \sa wolfTPM2_LoadEccPrivateKey
