@@ -257,7 +257,13 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
                 XMEMCPY(buf, &packet->buf[packet->pos], sizeToCopy);
             }
         }
-        packet->pos += size;
+        if (size > 0 && packet->pos + size > packet->size) {
+            /* Clamp pos on truncated read */
+            packet->pos = packet->size;
+        }
+        else {
+            packet->pos += size;
+        }
     }
 }
 
