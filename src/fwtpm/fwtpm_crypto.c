@@ -2443,11 +2443,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
                 WC_RSA_OAEP_PAD, wcHash,
                 FwGetMgfType(nameAlg), (byte*)(uintptr_t)oaepLabel,
                 oaepLabelSz);
-            if (rc <= 0) {
-                TPM2_ForceZero(seedBuf, seedBufSz);
-                rc = TPM_RC_FAILURE;
-            }
-            else if (rc > seedBufSz) {
+            if (rc <= 0 || rc > seedBufSz) {
                 /* Bound output to caller buffer */
                 TPM2_ForceZero(seedBuf, seedBufSz);
                 rc = TPM_RC_FAILURE;
