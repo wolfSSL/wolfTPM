@@ -34,6 +34,13 @@
 #define WOLFTPM_LOCALITY_DEFAULT 0
 #endif
 
+/* Number of poll attempts when requesting a locality at runtime. A legitimate
+ * grant is near-instant, so this is kept small to fail fast when a locality
+ * cannot be granted (unlike TPM_TIMEOUT_TRIES used for chip startup). */
+#ifndef WOLFTPM_LOCALITY_TIMEOUT_TRIES
+#define WOLFTPM_LOCALITY_TIMEOUT_TRIES 1000
+#endif
+
 #define TPM_TIS_READ       0x80
 #define TPM_TIS_WRITE      0x00
 
@@ -58,6 +65,8 @@ WOLFTPM_LOCAL int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status
 WOLFTPM_LOCAL int TPM2_TIS_Status(TPM2_CTX* ctx, byte* status);
 WOLFTPM_LOCAL int TPM2_TIS_GetInfo(TPM2_CTX* ctx);
 WOLFTPM_LOCAL int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout);
+WOLFTPM_LOCAL int TPM2_TIS_RequestLocalityEx(TPM2_CTX* ctx, int locality, int timeout);
+WOLFTPM_LOCAL int TPM2_TIS_ReleaseLocality(TPM2_CTX* ctx, int locality);
 WOLFTPM_LOCAL int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality, byte* access);
 WOLFTPM_LOCAL int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout);
 WOLFTPM_LOCAL int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value, word32 len);

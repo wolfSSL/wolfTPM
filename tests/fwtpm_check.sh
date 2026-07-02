@@ -382,6 +382,33 @@ else
     SKIP=$((SKIP + 1))
 fi
 
+# --- fwTPM PCR reset locality (end-to-end) ---
+# Both transports carry the command locality: the mssim/socket transport in its
+# SEND_COMMAND framing, and the TIS/SHM transport via the ACCESS-register
+# handshake driven by wolfTPM2_SetLocality. So this exercises the fwTPM's
+# per-PCR locality enforcement end-to-end in either mode.
+FWTPM_RESET="$BUILD_DIR/examples/pcr/reset"
+if [ -x "$FWTPM_RESET" ]; then
+    echo ""
+    echo "=== fwTPM PCR reset locality ==="
+    cd "$BUILD_DIR"
+    LOC_OK=1
+    # PCR 20 resets at locality 2, PCR 17 at locality 4; both rejected at 0.
+    TPM2_SWTPM_PORT="$FWTPM_PORT" "$FWTPM_RESET" 20 -loc=2 2>&1 \
+        | grep -q "TPM2_PCR_Reset success" || LOC_OK=0
+    TPM2_SWTPM_PORT="$FWTPM_PORT" "$FWTPM_RESET" 17 -loc=4 2>&1 \
+        | grep -q "TPM2_PCR_Reset success" || LOC_OK=0
+    TPM2_SWTPM_PORT="$FWTPM_PORT" "$FWTPM_RESET" 17 -loc=0 2>&1 \
+        | grep -q "TPM_RC_LOCALITY" || LOC_OK=0
+    if [ $LOC_OK -eq 1 ]; then
+        PASS=$((PASS + 1))
+        echo "PASS: fwTPM PCR reset locality"
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: fwTPM PCR reset locality"
+    fi
+fi
+
 # --- Run examples ---
 
 if [ $SKIP_EXAMPLES -eq 1 ]; then

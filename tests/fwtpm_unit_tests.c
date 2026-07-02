@@ -8207,6 +8207,40 @@ static void test_fwtpm_gettestresult_needs_test_then_success(void)
     printf("Test fwTPM:\tGetTestResult NEEDS_TEST then SUCCESS:\tPassed\n");
 }
 
+/* Send TPM2_PCR_Reset for pcrIndex from the given locality; return the RC. */
+static TPM_RC SendPcrResetLoc(FWTPM_CTX* ctx, int pcrIndex, int locality)
+{
+    int pos = 0, rspSize = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
+    PutU32BE(gCmd + pos, (UINT32)pcrIndex); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, locality);
+    return GetRspRC(gRsp);
+}
+
+/* Send TPM2_PCR_Extend (one SHA-256 zero digest) for pcrIndex from the given
+ * locality; return the RC. */
+static TPM_RC SendPcrExtendLoc(FWTPM_CTX* ctx, int pcrIndex, int locality)
+{
+    int pos = 0, rspSize = 0;
+    byte digest[32];
+    memset(digest, 0, sizeof(digest));
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PCR_Extend); pos += 4;
+    PutU32BE(gCmd + pos, (UINT32)pcrIndex); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, 1); pos += 4;               /* digestCount */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;  /* hashAlg */
+    memcpy(gCmd + pos, digest, 32); pos += 32;       /* digest */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, locality);
+    return GetRspRC(gRsp);
+}
+
 static void test_fwtpm_pcr_reset(void)
 {
     FWTPM_CTX ctx;
@@ -8221,41 +8255,168 @@ static void test_fwtpm_pcr_reset(void)
     fwtpm_pass("PCR_Reset(16):", 0);
 }
 
-/* Per TCG PC Client TPM Profile Table 5, PCR 17 (DRTM MLE) may only be
- * reset from locality 4. The default test locality is 0, so the reset
- * must be rejected with TPM_RC_LOCALITY. Same expectation for PCR 22
- * which requires locality 3 or 4. */
+/* Per the TCG PC Client TPM Profile per-PCR reset locality map:
+ *   PCR 16, 23 reset from localities 0-3 (not 4);
+ *   PCR 17-19 reset only from locality 4;
+ *   PCR 20-22 reset from localities 2-4;
+ *   PCR 0-15 are never user-resettable.
+ * Verify both the reject (wrong locality) and allow (correct locality) paths. */
 static void test_fwtpm_pcr_reset_locality_enforced(void)
 {
     FWTPM_CTX ctx;
-    int pos, rspSize;
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-    PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
-    PutU32BE(gCmd + pos, 17); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+    /* PCR 16 / 23: allowed at loc 0-3, rejected at loc 4 */
+    AssertIntEQ(SendPcrResetLoc(&ctx, 16, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 23, 3), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 16, 4), TPM_RC_LOCALITY);
 
-    pos = 0;
-    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
-    PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_PCR_Reset); pos += 4;
-    PutU32BE(gCmd + pos, 22); pos += 4;
-    pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU32BE(gCmd + 2, (UINT32)pos);
-    rspSize = 0;
-    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_LOCALITY);
+    /* PCR 0-15: never resettable */
+    AssertIntEQ(SendPcrResetLoc(&ctx, 0, 0), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 15, 4), TPM_RC_LOCALITY);
+
+    /* PCR 20-22: rejected at loc 0/1, allowed at loc 2-4 */
+    AssertIntEQ(SendPcrResetLoc(&ctx, 20, 0), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 20, 1), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 20, 2), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 21, 3), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 22, 4), TPM_RC_SUCCESS);
+
+    /* PCR 17-19: locality 4 only */
+    AssertIntEQ(SendPcrResetLoc(&ctx, 17, 0), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 17, 3), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 17, 4), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 18, 4), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrResetLoc(&ctx, 19, 4), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("PCR_Reset locality enforced (LOCALITY):", 0);
+    fwtpm_pass("PCR_Reset locality map enforced:", 0);
+}
+
+/* Per-PCR extend locality map: 0-16,23 any; 17,18 loc2-4; 19 loc2-3;
+ * 20 loc1-3; 21,22 loc2. Verify reject and allow paths. */
+static void test_fwtpm_pcr_extend_locality_enforced(void)
+{
+    FWTPM_CTX ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Non-DRTM PCRs extend at any locality (incl. 0) */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 0, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 16, 0), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 23, 0), TPM_RC_SUCCESS);
+
+    /* DRTM PCRs rejected at locality 0 */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 17, 0), TPM_RC_LOCALITY);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 22, 0), TPM_RC_LOCALITY);
+
+    /* 17,18: loc 2-4 */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 17, 2), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 18, 4), TPM_RC_SUCCESS);
+    /* 19: loc 2-3, not 4 */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 19, 3), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 19, 4), TPM_RC_LOCALITY);
+    /* 20: loc 1-3, not 4 */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 20, 1), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 20, 4), TPM_RC_LOCALITY);
+    /* 21,22: loc 2 only */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 21, 2), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, 22, 3), TPM_RC_LOCALITY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_Extend locality map enforced:", 0);
+}
+
+/* TPM_CAP_PCR_PROPERTIES must report a well-formed TPML_TAGGED_PCR_PROPERTY
+ * whose RESET_Lx / EXTEND_Lx / DRTM_RESET bitmaps match the enforcement table. */
+static int PcrSelHas(const byte* sel, int selSz, int pcr)
+{
+    int byteIdx = pcr / 8;
+    if (byteIdx >= selSz)
+        return 0;
+    return (sel[byteIdx] >> (pcr % 8)) & 1;
+}
+
+static void test_fwtpm_pcr_properties_capability(void)
+{
+    FWTPM_CTX ctx;
+    int pos, rspSize, p, i;
+    UINT32 cap, count;
+    byte resetL0[8], resetL4[8], extendL0[8], drtm[8];
+    int gotResetL0 = 0, gotResetL4 = 0, gotExtendL0 = 0, gotDrtm = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(resetL0, 0, sizeof(resetL0));
+    memset(resetL4, 0, sizeof(resetL4));
+    memset(extendL0, 0, sizeof(extendL0));
+    memset(drtm, 0, sizeof(drtm));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_GetCapability); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CAP_PCR_PROPERTIES); pos += 4;
+    PutU32BE(gCmd + pos, TPM_PT_PCR_FIRST); pos += 4;
+    PutU32BE(gCmd + pos, 32); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* header(10) + moreData(1) + capability(4) + count(4) + properties */
+    p = TPM2_HEADER_SIZE + 1;
+    cap = GetU32BE(gRsp + p); p += 4;
+    AssertIntEQ(cap, TPM_CAP_PCR_PROPERTIES);
+    count = GetU32BE(gRsp + p); p += 4;
+    AssertIntGT((int)count, 0);
+
+    for (i = 0; i < (int)count; i++) {
+        UINT32 tag = GetU32BE(gRsp + p); p += 4;
+        int wireSz = gRsp[p]; p += 1;
+        int selSz = (wireSz > 8) ? 8 : wireSz;
+        if (tag == TPM_PT_PCR_RESET_L0) {
+            memcpy(resetL0, gRsp + p, selSz); gotResetL0 = 1;
+        }
+        else if (tag == TPM_PT_PCR_RESET_L4) {
+            memcpy(resetL4, gRsp + p, selSz); gotResetL4 = 1;
+        }
+        else if (tag == TPM_PT_PCR_EXTEND_L0) {
+            memcpy(extendL0, gRsp + p, selSz); gotExtendL0 = 1;
+        }
+        else if (tag == TPM_PT_PCR_DRTM_RESET) {
+            memcpy(drtm, gRsp + p, selSz); gotDrtm = 1;
+        }
+        p += wireSz; /* advance past the select bytes */
+    }
+
+    AssertIntEQ(gotResetL0, 1);
+    AssertIntEQ(gotResetL4, 1);
+    AssertIntEQ(gotExtendL0, 1);
+    AssertIntEQ(gotDrtm, 1);
+
+    /* RESET_L0: 16 and 23 set; 17 and 20 clear */
+    AssertIntEQ(PcrSelHas(resetL0, 8, 16), 1);
+    AssertIntEQ(PcrSelHas(resetL0, 8, 23), 1);
+    AssertIntEQ(PcrSelHas(resetL0, 8, 17), 0);
+    AssertIntEQ(PcrSelHas(resetL0, 8, 20), 0);
+    /* RESET_L4: 17-22 set; 16 and 23 clear */
+    AssertIntEQ(PcrSelHas(resetL4, 8, 17), 1);
+    AssertIntEQ(PcrSelHas(resetL4, 8, 22), 1);
+    AssertIntEQ(PcrSelHas(resetL4, 8, 16), 0);
+    AssertIntEQ(PcrSelHas(resetL4, 8, 23), 0);
+    /* EXTEND_L0: 0,16,23 set; 17 clear */
+    AssertIntEQ(PcrSelHas(extendL0, 8, 0), 1);
+    AssertIntEQ(PcrSelHas(extendL0, 8, 16), 1);
+    AssertIntEQ(PcrSelHas(extendL0, 8, 17), 0);
+    /* DRTM_RESET: 17-22 set; 16 clear */
+    AssertIntEQ(PcrSelHas(drtm, 8, 17), 1);
+    AssertIntEQ(PcrSelHas(drtm, 8, 22), 1);
+    AssertIntEQ(PcrSelHas(drtm, 8, 16), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR_PROPERTIES capability map:", 0);
 }
 
 static void test_fwtpm_pcr_event(void)
@@ -10441,6 +10602,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
     test_fwtpm_pcr_reset();
     test_fwtpm_pcr_reset_locality_enforced();
+    test_fwtpm_pcr_extend_locality_enforced();
+    test_fwtpm_pcr_properties_capability();
     test_fwtpm_pcr_event();
 
     /* Clock */

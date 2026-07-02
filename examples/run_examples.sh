@@ -1184,6 +1184,19 @@ echo -e "Endorsement Key (EK) and Certificate"
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "get_ek_certs failed! $RESULT" && exit 1
 
+# PCR reset locality (-loc): exercise wolfTPM2_SetLocality where the backend
+# supports it. Probe at locality 0 (a no-op); if supported, verify DRTM PCR 17
+# is rejected at locality 0 (TPM_RC_LOCALITY) - true for any TCG TPM.
+echo -e "PCR reset locality (-loc)"
+./examples/pcr/reset 16 -loc=0 >> $TPMPWD/run.out 2>&1
+if [ $? -eq 0 ]; then
+    LOC_OUT=$(./examples/pcr/reset 17 -loc=0 2>&1)
+    echo "$LOC_OUT" >> $TPMPWD/run.out
+    echo "$LOC_OUT" | grep -q "TPM_RC_LOCALITY"
+    [ $? -ne 0 ] && echo -e "pcr reset -loc reject failed!" && exit 1
+else
+    echo -e "  -loc not supported by this backend, skipping"
+fi
 
 rm -f keyblob.bin
 
