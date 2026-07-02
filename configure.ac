@@ -474,6 +474,23 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
 fi
 
+# Optional TPM hardware reset (nRST) HAL control via Linux GPIO char device.
+# Accepts an optional GPIO line number (default ST33 GPIO24 / Pi pin 18, Nuvoton GPIO4).
+AC_ARG_ENABLE([hal-reset],
+    [AS_HELP_STRING([--enable-hal-reset@<:@=LINE@:>@],[Enable TPM nRST reset HAL (optional GPIO line; default ST33 GPIO24, Nuvoton GPIO4) (default: disabled)])],
+    [ ENABLED_HAL_RESET=$enableval ],
+    [ ENABLED_HAL_RESET=no ]
+    )
+if test "x$ENABLED_HAL_RESET" != "xno"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_HAL_RESET"
+    case "x$ENABLED_HAL_RESET" in
+        xyes) ;;
+        *) AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_RESET_LINE=$ENABLED_HAL_RESET" ;;
+    esac
+    ENABLED_HAL_RESET=yes
+fi
+
 # Microchip ATTPM20
 AC_ARG_ENABLE([mchp],,
     [ ENABLED_MCHP=$enableval ],
@@ -1132,6 +1149,7 @@ if test "x$ENABLED_SWTPM" = "xyes"; then
 fi
 echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
+echo "   * HAL Reset (nRST GPIO):     $ENABLED_HAL_RESET"
 
 echo "   * Infineon SLB967X           $ENABLED_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST"

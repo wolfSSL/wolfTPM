@@ -1076,6 +1076,9 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     return rc;
 }
 
+/* Per-PCR reset/extend locality helper (defined with its tables below). */
+static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
+
 /* --- TPM2_GetCapability (CC 0x017A) --- */
 static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -1355,24 +1358,62 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_PCR_PROPERTIES: {
-            int numBanks = FWTPM_PCR_BANKS;
-            if (propertyCount < (UINT32)numBanks)
-                numBanks = (int)propertyCount;
+            /* Emit a TPML_TAGGED_PCR_PROPERTY generated from the per-PCR
+             * locality table, so this report matches the reset/extend
+             * enforcement above and what a real TPM returns. kind: 0=extend at
+             * loc, 1=reset at loc, 2=SAVE (PCR 0-15), 3=DRTM_RESET (reset@loc4). */
+            static const struct { UINT32 tag; byte kind; byte loc; } pcrProps[] = {
+                { TPM_PT_PCR_SAVE,       2, 0 },
+                { TPM_PT_PCR_EXTEND_L0,  0, 0 },
+                { TPM_PT_PCR_RESET_L0,   1, 0 },
+                { TPM_PT_PCR_EXTEND_L1,  0, 1 },
+                { TPM_PT_PCR_RESET_L1,   1, 1 },
+                { TPM_PT_PCR_EXTEND_L2,  0, 2 },
+                { TPM_PT_PCR_RESET_L2,   1, 2 },
+                { TPM_PT_PCR_EXTEND_L3,  0, 3 },
+                { TPM_PT_PCR_RESET_L3,   1, 3 },
+                { TPM_PT_PCR_EXTEND_L4,  0, 4 },
+                { TPM_PT_PCR_RESET_L4,   1, 4 },
+                { TPM_PT_PCR_DRTM_RESET, 3, 4 }
+            };
+            int totalProps = (int)(sizeof(pcrProps) / sizeof(pcrProps[0]));
+            int startIdx = 0;
+            int numOut, p, set;
+            UINT32 ii;
+            UINT32 tag;
+            byte kind, loc;
+            byte sel[PCR_SELECT_MAX];
 
-            TPM2_Packet_AppendU32(rsp, (UINT32)numBanks);
-            if (numBanks > 0) {
-                TPM2_Packet_AppendU32(rsp, TPM_ALG_SHA256);
-                TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
+            for (startIdx = 0; startIdx < totalProps; startIdx++) {
+                if (pcrProps[startIdx].tag >= property)
+                    break;
             }
-            if (numBanks > 1) {
-                TPM2_Packet_AppendU32(rsp, TPM_ALG_SHA384);
+            numOut = totalProps - startIdx;
+            if (numOut < 0)
+                numOut = 0;
+            if ((UINT32)numOut > propertyCount)
+                numOut = (int)propertyCount;
+
+            TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
+            for (ii = 0; ii < (UINT32)numOut; ii++) {
+                tag  = pcrProps[startIdx + ii].tag;
+                kind = pcrProps[startIdx + ii].kind;
+                loc  = pcrProps[startIdx + ii].loc;
+                XMEMSET(sel, 0, sizeof(sel));
+                for (p = 0; p < IMPLEMENTATION_PCR; p++) {
+                    if (kind == 2)
+                        set = (p < 16);
+                    else if (kind == 3)
+                        set = FwPcrLocalityAllowed(p, 4, 1);
+                    else
+                        set = FwPcrLocalityAllowed(p, (int)loc, (int)kind);
+                    if (set)
+                        sel[p / 8] |= (byte)(1u << (p % 8));
+                }
+                TPM2_Packet_AppendU32(rsp, tag);
                 TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
+                for (p = 0; p < PCR_SELECT_MAX; p++)
+                    TPM2_Packet_AppendU8(rsp, sel[p]);
             }
             break;
         }
@@ -1775,6 +1816,59 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 }
 
 /* --- TPM2_PCR_Extend (CC 0x0182) --- */
+/* Per-PCR locality bitmaps (bit L set = locality L may reset/extend the PCR),
+ * per the TCG PC Client profile. Single source of truth for reset/extend
+ * enforcement and the TPM_CAP_PCR_PROPERTIES report.
+ *   reset:  0-15 never; 16,23 loc0-3; 17-19 loc4; 20-22 loc2-4.
+ *   extend: 0-16,23 any; 17,18 loc2-4; 19 loc2-3; 20 loc1-3; 21,22 loc2. */
+#define FW_LOC(l)  (1u << (l))
+#define FW_LOC_ALL (FW_LOC(0) | FW_LOC(1) | FW_LOC(2) | FW_LOC(3) | FW_LOC(4))
+
+static const byte fwPcrResetLocality[IMPLEMENTATION_PCR] = {
+    /*  0- 7 */ 0, 0, 0, 0, 0, 0, 0, 0,
+    /*  8-15 */ 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 16 */ FW_LOC(0) | FW_LOC(1) | FW_LOC(2) | FW_LOC(3),
+    /* 17 */ FW_LOC(4),
+    /* 18 */ FW_LOC(4),
+    /* 19 */ FW_LOC(4),
+    /* 20 */ FW_LOC(2) | FW_LOC(3) | FW_LOC(4),
+    /* 21 */ FW_LOC(2) | FW_LOC(3) | FW_LOC(4),
+    /* 22 */ FW_LOC(2) | FW_LOC(3) | FW_LOC(4),
+    /* 23 */ FW_LOC(0) | FW_LOC(1) | FW_LOC(2) | FW_LOC(3)
+};
+
+static const byte fwPcrExtendLocality[IMPLEMENTATION_PCR] = {
+    /*  0- 7 */ FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL,
+                FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL,
+    /*  8-15 */ FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL,
+                FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL, FW_LOC_ALL,
+    /* 16 */ FW_LOC_ALL,
+    /* 17 */ FW_LOC(2) | FW_LOC(3) | FW_LOC(4),
+    /* 18 */ FW_LOC(2) | FW_LOC(3) | FW_LOC(4),
+    /* 19 */ FW_LOC(2) | FW_LOC(3),
+    /* 20 */ FW_LOC(1) | FW_LOC(2) | FW_LOC(3),
+    /* 21 */ FW_LOC(2),
+    /* 22 */ FW_LOC(2),
+    /* 23 */ FW_LOC_ALL
+};
+
+/* Return 1 if locality may reset (isReset != 0) or extend (isReset == 0) the
+ * given PCR, else 0. Out-of-range PCR or locality is not allowed. */
+static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset)
+{
+    byte mask;
+
+    if (pcrIndex < 0 || pcrIndex >= IMPLEMENTATION_PCR) {
+        return 0;
+    }
+    if (locality < 0 || locality > 4) {
+        return 0;
+    }
+    mask = isReset ? fwPcrResetLocality[pcrIndex]
+                   : fwPcrExtendLocality[pcrIndex];
+    return (mask & (byte)FW_LOC(locality)) ? 1 : 0;
+}
+
 static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -1796,6 +1890,15 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_ParseU32(cmd, &pcrHandle);
         if (pcrHandle > PCR_LAST) {
             rc = TPM_RC_VALUE;
+        }
+    }
+
+    /* Enforce the per-PCR extend locality (e.g. DRTM PCRs 17-22 cannot be
+     * extended from locality 0). Same source-of-truth table as PCR_Reset. */
+    if (rc == 0) {
+        pcrIndex = pcrHandle - PCR_FIRST;
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
+            rc = TPM_RC_LOCALITY;
         }
     }
 
@@ -1889,28 +1992,16 @@ static TPM_RC FwCmd_PCR_Reset(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
+    /* Enforce the per-PCR reset locality from the source-of-truth table:
+     *   PCR 0-15 (SRTM) are never user-resettable (map is 0; reset only via
+     *     TPM2_Startup(CLEAR)).
+     *   PCR 16, 23 reset from localities 0-3; PCR 17-19 from locality 4;
+     *     PCR 20-22 from localities 2-4 (TCG PC Client TPM Profile).
+     * Without this, a caller at locality 0 could wipe DRTM PCRs and defeat
+     * attestation policies sealed to them. */
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        /* PCR 0-15 (SRTM) are not user-resettable per TPM 2.0 Part 2
-         * Table 3-8; they reset only via TPM2_Startup(CLEAR). */
-        if (pcrIndex < 16) {
-            rc = TPM_RC_LOCALITY;
-        }
-    }
-
-    /* Per TCG PC Client TPM Profile Table 5, PCR_Reset locality rules
-     * for indices 16..23 are:
-     *   16, 23 — any locality
-     *   17     — locality 4 only (DRTM MLE)
-     *   18..22 — locality 3 or 4 (DRTM ACM/OS)
-     * Without this check any caller at locality 0 can wipe DRTM PCRs
-     * and defeat attestation policies sealed to them. */
-    if (rc == 0) {
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 1)) {
             rc = TPM_RC_LOCALITY;
         }
     }
@@ -1966,15 +2057,11 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
-     * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
+    /* PCR_Event extends the target PCR, so enforce the extend locality from
+     * the source-of-truth table (DRTM PCRs 17-22 are restricted). */
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
             rc = TPM_RC_LOCALITY;
         }
     }
@@ -7883,13 +7970,9 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Extend the result into the PCR */
     if (rc == 0 && pcrHandle <= PCR_LAST) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
-         * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        /* This extends the target PCR, so enforce the extend locality from the
+         * source-of-truth table (DRTM PCRs 17-22 are restricted). */
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
             rc = TPM_RC_LOCALITY;
         }
         bank = FwGetPcrBankIndex(seqHashAlg);

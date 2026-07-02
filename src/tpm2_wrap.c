@@ -24,6 +24,7 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_param_enc.h>
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
@@ -6682,6 +6683,69 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
     rc = TPM2_PCR_Reset(&pcrReset);
     (void)dev;
     return rc;
+}
+
+int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality)
+{
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_WINAPI)
+    /* The Linux kernel driver and Windows TBS own the TPM locality */
+    (void)dev;
+    (void)locality;
+    return NOT_COMPILED_IN;
+#elif defined(WOLFTPM_SWTPM)
+    /* The swtpm/mssim transport carries the locality with each command
+     * (see TPM2_SWTPM_SendCommand), so just record it for subsequent
+     * commands - no TIS handshake is involved. */
+    if (dev == NULL || locality < 0 || locality > 4) {
+        return BAD_FUNC_ARG;
+    }
+    dev->ctx.locality = locality;
+    return TPM_RC_SUCCESS;
+#else
+    int rc;
+    int oldLocality;
+
+    if (dev == NULL || locality < 0 || locality > 4) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+    /* When the Linux kernel driver is in use the kernel owns the locality */
+    if (dev->ctx.fd >= 0) {
+        return NOT_COMPILED_IN;
+    }
+#endif
+
+    oldLocality = dev->ctx.locality;
+    if (oldLocality == locality) {
+        return TPM_RC_SUCCESS; /* already active */
+    }
+
+    /* Try to acquire the target while holding the current locality (bounded
+     * timeout, so it fails fast when the TPM does not preempt). */
+    rc = TPM2_TIS_RequestLocalityEx(&dev->ctx, locality,
+        WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+    if (rc < 0) {
+        /* No preemption: relinquish the current locality and retry */
+        (void)TPM2_TIS_ReleaseLocality(&dev->ctx, oldLocality);
+        rc = TPM2_TIS_RequestLocalityEx(&dev->ctx, locality,
+            WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+        if (rc < 0) {
+            /* Not grantable - restore the old locality so the TPM stays usable */
+            (void)TPM2_TIS_RequestLocalityEx(&dev->ctx, oldLocality,
+                WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+        }
+    }
+    else if (oldLocality < locality) {
+        /* Preempted the lower locality; relinquish it now */
+        (void)TPM2_TIS_ReleaseLocality(&dev->ctx, oldLocality);
+    }
+    if (rc >= 0) {
+        rc = TPM_RC_SUCCESS;
+    }
+
+    return rc;
+#endif
 }
 
 /* TODO: Version that can read up to 8 PCR's at a time */

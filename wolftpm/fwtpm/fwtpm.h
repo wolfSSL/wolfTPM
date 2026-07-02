@@ -678,7 +678,10 @@ typedef struct FWTPM_CTX {
     int lockoutAuthFailed;      /* lockoutAuth lock; persisted (reboot-clears
                                  * only when clockless or lockoutRecovery==0) */
 #endif
-    int activeLocality;
+    int activeLocality;         /* locality of the command being processed */
+    int tisLocality;            /* TIS transport: locality that currently owns
+                                 * the interface (ACCESS active locality);
+                                 * 0-4 = owner, -1 = none */
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
     UINT32 restartCount;        /* TPM Restart/Resume count, volatile */

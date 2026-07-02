@@ -2751,6 +2751,30 @@ WOLFTPM_API int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex);
 
 /*!
     \ingroup wolfTPM2_Wrappers
+    \brief Change the active TPM locality at runtime
+    \note Startup uses WOLFTPM_LOCALITY_DEFAULT (0); this switches so subsequent
+        commands run at the given locality (e.g. loc 2/3 to reset PCRs not
+        resettable at loc 0). For the built-in TIS driver it performs the ACCESS
+        handshake (request, then release-and-request if the TPM does not preempt,
+        restoring the old locality on failure); for the SWTPM/mssim transport it
+        records the locality (sent with each command). The Linux kernel driver and
+        Windows TBS own the locality and return NOT_COMPILED_IN. Return to locality
+        0 when done.
+
+    \return TPM_RC_SUCCESS: locality granted and now active
+    \return TPM_RC_TIMEOUT: the TPM did not grant the requested locality
+    \return NOT_COMPILED_IN: locality switching is not supported for this backend
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param locality integer value, specifying the TPM locality (0 to 4)
+
+    \sa wolfTPM2_ResetPCR
+*/
+WOLFTPM_API int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Extend a PCR register with a user provided digest
     \note Make sure to specify the correct hashing algorithm
 

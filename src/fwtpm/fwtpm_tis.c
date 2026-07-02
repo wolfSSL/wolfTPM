@@ -72,6 +72,8 @@ static UINT32 TisBuildSts(BYTE stsFlags, UINT16 burstCount)
 static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 {
     UINT32 offset = TisRegOffset(regs->reg_addr);
+    /* The client sends the full TIS address; the locality is in bits 12-15. */
+    int loc = (int)((regs->reg_addr >> 12) & 0xF);
     UINT32 len = regs->reg_len;
     FWTPM_DECLARE_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
 
@@ -86,17 +88,22 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
         switch (offset) {
             case FWTPM_TIS_ACCESS:
                 if (val & FWTPM_ACCESS_REQUEST_USE) {
-                    /* Grant locality 0 */
-                    regs->access = FWTPM_ACCESS_VALID |
-                                  FWTPM_ACCESS_ACTIVE_LOCALITY;
-                    regs->sts = TisBuildSts(
-                        FWTPM_STS_VALID | FWTPM_STS_COMMAND_READY,
-                        FWTPM_TIS_BURST_COUNT);
+                    /* Grant the requested locality if the interface is free or
+                     * already owned by it (release-before-request: a different
+                     * owner must relinquish first - the host handles that). */
+                    if (ctx->tisLocality < 0 || ctx->tisLocality == loc) {
+                        ctx->tisLocality = loc;
+                        regs->sts = TisBuildSts(
+                            FWTPM_STS_VALID | FWTPM_STS_COMMAND_READY,
+                            FWTPM_TIS_BURST_COUNT);
+                    }
                 }
                 if (val & FWTPM_ACCESS_ACTIVE_LOCALITY) {
-                    /* Release locality */
-                    regs->access = FWTPM_ACCESS_VALID;
-                    regs->sts = TisBuildSts(0, 0);
+                    /* Release the locality only if it is the current owner */
+                    if (ctx->tisLocality == loc) {
+                        ctx->tisLocality = -1;
+                        regs->sts = TisBuildSts(0, 0);
+                    }
                 }
                 break;
 
@@ -133,7 +140,8 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
                     procRc = FWTPM_ProcessCommand(ctx,
                         localCmd, (int)localCmdLen,
-                        regs->rsp_buf, &rspSize, 0 /* locality */);
+                        regs->rsp_buf, &rspSize,
+                        (ctx->tisLocality < 0 ? 0 : ctx->tisLocality));
                     FWTPM_FREE_BUF(localCmd);
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
                         /* Build minimal error response
@@ -245,7 +253,12 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
         switch (offset) {
             case FWTPM_TIS_ACCESS:
-                val = regs->access;
+                /* Report per requested locality: VALID always set, plus
+                 * ACTIVE_LOCALITY only for the current owner. Never 0xFF (the
+                 * host treats 0xFF as an unimplemented/absent locality). */
+                val = FWTPM_ACCESS_VALID |
+                    ((ctx->tisLocality == loc) ?
+                        FWTPM_ACCESS_ACTIVE_LOCALITY : 0);
                 break;
 
             case FWTPM_TIS_STS:
@@ -395,6 +408,9 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
 
     /* Auto power-on in TIS mode (no platform port to signal power) */
     ctx->powerOn = 1;
+
+    /* Power-on: no locality owns the interface yet */
+    ctx->tisLocality = -1;
 
     return TPM_RC_SUCCESS;
 }
