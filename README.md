@@ -401,6 +401,8 @@ make
 
 Note: The `--enable-firmware` option enables firmware upgrade support for ST33 TPMs. This adds the `st33_fw_update` example tool for performing firmware updates.
 
+Raspberry Pi wiring: ST33KTPM2X SPI is on `/dev/spidev0.0` with `nRST` (active low) on GPIO24 (pin 18); Nuvoton uses GPIO4. Optionally drive nRST from code with `--enable-hal-reset` and `TPM2_IoCb_Reset()` (see `hal/README.md`).
+
 ### Building Microchip ATTPM20
 
 Build wolfTPM:

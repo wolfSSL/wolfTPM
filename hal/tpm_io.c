@@ -239,6 +239,26 @@ int TPM2_IoCb(TPM2_CTX* ctx, const BYTE* txBuf, BYTE* rxBuf,
 }
 
 #endif /* WOLFTPM_ADV_IO */
+
+#ifdef WOLFTPM_HAL_RESET
+/* Pulse the TPM hardware reset (nRST) line to reset the TPM. Dispatches to the
+ * platform implementation. Returns TPM_RC_SUCCESS on success. */
+int TPM2_IoCb_Reset(TPM2_CTX* ctx, void* userCtx)
+{
+    int ret = TPM_RC_FAILURE;
+#if defined(__linux__)
+    ret = TPM2_IoCb_Linux_Reset(ctx, userCtx);
+#else
+    (void)ctx;
+    (void)userCtx;
+    #ifdef DEBUG_WOLFTPM
+    printf("TPM reset HAL not implemented for this platform\n");
+    #endif
+#endif
+    return ret;
+}
+#endif /* WOLFTPM_HAL_RESET */
+
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 
 /******************************************************************************/
