@@ -98,15 +98,17 @@ effect. The reset pin must be connected and controllable by the host.
 to a host-controllable GPIO. Without reset pin control, SPDM mode changes
 cannot be applied and recovery from SPDM-only mode is not possible.
 
-### Raspberry Pi Example (GPIO 4)
+The reset line is board specific. On a Raspberry Pi, Nuvoton uses GPIO4 and the
+ST33KTPM uses GPIO24 (pin 18); confirm your wiring before toggling.
 
 ```bash
-# Assert reset low, wait, release high, wait for TPM startup
+# Assert reset low, release high, wait for TPM startup (Nuvoton GPIO4 shown)
 gpioset gpiochip0 4=0 && sleep 0.1 && gpioset gpiochip0 4=1 && sleep 2
+# ST33: use line 24 instead of 4
 ```
 
-Other platforms will use their own GPIO control mechanism. The key requirement
-is toggling the TPM reset line (active low) with sufficient hold time.
+wolfTPM can also drive this from code: build with `--enable-hal-reset` and call
+`TPM2_IoCb_Reset()` (default line: ST33 GPIO24, Nuvoton GPIO4). See `hal/README.md`.
 
 ## Automated Test Suite
 

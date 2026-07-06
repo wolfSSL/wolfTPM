@@ -59,6 +59,13 @@ int TPM2_IoCb(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
 * `WOLFTPM_CHECK_WAIT_STATE`: Enables check of the wait state during a SPI transaction. Most TPM 2.0 chips require this and typically only require 0-2 wait cycles depending on the command. Only the Infineon TPM's guarantee no wait states.
 * `WOLFTPM_ADV_IO`: Enables advanced IO callback mode that includes TIS register and read/write flag. This is requires for I2C, but can be used with SPI also.
 * `WOLFTPM_DEBUG_IO`: Enable logging of the IO (if using the example HAL).
+* `WOLFTPM_HAL_RESET`: Optional TPM hardware reset (nRST) control in the example HAL (`--enable-hal-reset`). On Linux, `TPM2_IoCb_Reset(&dev->ctx, userCtx)` pulses nRST (active low) via the GPIO char device (raw GPIO v2 uAPI, no libgpiod).
+
+## TPM reset (nRST) HAL macros (when `WOLFTPM_HAL_RESET` is set)
+
+* `WOLFTPM_RESET_GPIOCHIP`: GPIO char device. Default: `/dev/gpiochip0`
+* `WOLFTPM_RESET_LINE`: GPIO line wired to nRST. Default: ST33 = `24` (GPIO24, Pi pin 18), Nuvoton = `4` (GPIO4). Also settable via `--enable-hal-reset=<line>`.
+* `WOLFTPM_RESET_HOLD_US` / `WOLFTPM_RESET_SETTLE_US`: reset hold / post-reset settle time (us). Defaults: `300000` / `1000000`.
 
 ## Additional Compiler macros
 
