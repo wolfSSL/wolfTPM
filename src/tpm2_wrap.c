@@ -24,6 +24,7 @@
 #endif
 
 #include <wolftpm/tpm2_wrap.h>
+#include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_param_enc.h>
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
@@ -6699,6 +6700,93 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
     rc = TPM2_PCR_Reset(&pcrReset);
     (void)dev;
     return rc;
+}
+
+int wolfTPM2_SetLocality(WOLFTPM2_DEV* dev, int locality)
+{
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_WINAPI)
+    /* The Linux kernel driver and Windows TBS own the TPM locality */
+    (void)dev;
+    (void)locality;
+    return NOT_COMPILED_IN;
+#elif defined(WOLFTPM_SWTPM)
+    /* The swtpm/mssim transport carries the locality with each command
+     * (see TPM2_SWTPM_SendCommand), so just record it for subsequent
+     * commands - no TIS handshake is involved. */
+    if (dev == NULL || locality < 0 || locality > 4) {
+        return BAD_FUNC_ARG;
+    }
+    dev->ctx.locality = locality;
+    return TPM_RC_SUCCESS;
+#else
+    /* Built-in TIS driver (SPI/memory-mapped). The fwtpm-tis CI config exercises
+     * both the immediate-grant and the release-and-retry branches below: the
+     * fwTPM SHM-TIS emulation does not preempt (like the ST33), so switching
+     * locality there forces the release-then-retry path. Only the
+     * restore-on-failure branch (target ungrantable) is not auto-triggered; it
+     * was checked on the ST33 over SPI. */
+    int rc;
+    int oldLocality;
+
+    if (dev == NULL || locality < 0 || locality > 4) {
+        return BAD_FUNC_ARG;
+    }
+
+#ifdef WOLFTPM_I2C
+    /* The I2C HAL transmits only the low 8 address bits, so the TIS locality
+     * (address bits 12+) never reaches the TPM. A non-zero locality would read
+     * back locality 0's ACCESS register and falsely appear granted, so reject
+     * it until locality-aware I2C addressing is implemented. */
+    if (locality != 0) {
+        return NOT_COMPILED_IN;
+    }
+#endif
+
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+    /* When the Linux kernel driver is in use the kernel owns the locality */
+    if (dev->ctx.fd >= 0) {
+        return NOT_COMPILED_IN;
+    }
+#endif
+
+    oldLocality = dev->ctx.locality;
+    if (oldLocality == locality) {
+        return TPM_RC_SUCCESS; /* already active */
+    }
+
+    /* TPM2_TIS_RequestLocalityEx returns the granted locality (0-4) on success,
+     * or a TPM_RC_* code on failure (which may be positive), so success is
+     * exactly rc == locality. Try to acquire the target while holding the
+     * current locality (bounded timeout, so it fails fast when the TPM does not
+     * preempt). */
+    rc = TPM2_TIS_RequestLocalityEx(&dev->ctx, locality,
+        WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+    if (rc != locality) {
+        /* No preemption: relinquish the current locality and retry */
+        (void)TPM2_TIS_ReleaseLocality(&dev->ctx, oldLocality);
+        rc = TPM2_TIS_RequestLocalityEx(&dev->ctx, locality,
+            WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+        if (rc != locality) {
+            /* Not grantable - restore the old locality so the TPM stays usable.
+             * If that restore also fails, rc still holds the failed (non-success)
+             * target request, so the caller sees an error and can re-init.
+             * This branch is reached only when the target locality is
+             * ungrantable; the fwTPM SHM emulation and CI cannot force that, so
+             * it is regression-verified only on ST33 hardware (over SPI). */
+            (void)TPM2_TIS_RequestLocalityEx(&dev->ctx, oldLocality,
+                WOLFTPM_LOCALITY_TIMEOUT_TRIES);
+        }
+    }
+    else if (oldLocality < locality) {
+        /* Preempted the lower locality; relinquish it now */
+        (void)TPM2_TIS_ReleaseLocality(&dev->ctx, oldLocality);
+    }
+    if (rc == locality) {
+        rc = TPM_RC_SUCCESS; /* granted; ctx->locality now the target */
+    }
+
+    return rc;
+#endif
 }
 
 /* TODO: Version that can read up to 8 PCR's at a time */

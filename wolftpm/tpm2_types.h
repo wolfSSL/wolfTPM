@@ -699,6 +699,11 @@ typedef int64_t  INT64;
 #ifndef NUM_LOCALITIES
 #define NUM_LOCALITIES 1
 #endif
+#ifndef WOLFTPM_LOCALITY_MAX
+/* Highest TPM locality index (localities 0-4 per TPM 2.0); not NUM_LOCALITIES,
+ * which is the platform locality count. */
+#define WOLFTPM_LOCALITY_MAX 4
+#endif
 #ifndef MAX_HANDLE_NUM
 #define MAX_HANDLE_NUM 3
 #endif

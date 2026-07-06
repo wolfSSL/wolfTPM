@@ -1184,6 +1184,22 @@ echo -e "Endorsement Key (EK) and Certificate"
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "get_ek_certs failed! $RESULT" && exit 1
 
+# PCR reset locality (-loc): smoke-exercise wolfTPM2_SetLocality. Reset PCR 16
+# at locality 0 (universally resettable, a no-op switch). This runs against
+# whichever backend is present (ibmswtpm2, fwTPM, ...) so it does not assert the
+# backend-specific per-PCR map - that rigor lives in tests/fwtpm_check.sh.
+echo -e "PCR reset locality (-loc)"
+LOC_OUT=$(./examples/pcr/reset 16 -loc=0 2>&1)
+echo "$LOC_OUT" >> $TPMPWD/run.out
+if echo "$LOC_OUT" | grep -q "TPM2_PCR_Reset success"; then
+    : # -loc supported and works
+elif echo "$LOC_OUT" | grep -qiE "not compiled in|NOT_COMPILED_IN"; then
+    # kernel (/dev/tpm0) and Windows TBS own the locality; TPM2_GetRCString
+    # renders NOT_COMPILED_IN as "Feature not compiled in" under wolfCrypt.
+    echo -e "  -loc not supported by this backend, skipping"
+else
+    echo -e "pcr reset -loc failed!" && exit 1
+fi
 
 rm -f keyblob.bin
 

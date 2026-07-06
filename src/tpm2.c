@@ -739,7 +739,13 @@ TPM_RC TPM2_ChipStartup(TPM2_CTX* ctx, int timeoutTries)
         rc = TPM2_TIS_StartupWait(ctx, timeoutTries);
         if (rc == TPM_RC_SUCCESS) {
 
-            /* Request locality for TPM module */
+            /* Request locality for TPM module. When built with
+             * WOLFTPM_TIS_RESET_STALE_LOCALITY this also relinquishes a stale
+             * non-default locality left active by a prior session (for example
+             * after wolfTPM2_SetLocality) that would otherwise block acquiring
+             * the default one on TPMs that do not preempt. That self-heal is
+             * off by default, so a default build simply requests the default
+             * locality without relinquishing anything. */
             rc = TPM2_TIS_RequestLocality(ctx, timeoutTries);
             if (rc == TPM_RC_SUCCESS) {
 

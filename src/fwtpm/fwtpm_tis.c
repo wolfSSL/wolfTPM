@@ -72,8 +72,15 @@ static UINT32 TisBuildSts(BYTE stsFlags, UINT16 burstCount)
 static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 {
     UINT32 offset = TisRegOffset(regs->reg_addr);
+    /* The client sends the full TIS address; the locality is in bits 12-15. */
+    int loc = (int)((regs->reg_addr >> 12) & 0xF);
     UINT32 len = regs->reg_len;
+    /* Only the locality that owns the interface may drive the command engine
+     * (STS/GO/FIFO). ACCESS and read-only ID/INT registers are not gated. */
+    int isOwner;
     FWTPM_DECLARE_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
+
+    isOwner = (ctx->tisLocality >= 0 && loc == ctx->tisLocality);
 
     if (regs->reg_is_write) {
         /* --- Write operations --- */
@@ -85,23 +92,46 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
         switch (offset) {
             case FWTPM_TIS_ACCESS:
-                if (val & FWTPM_ACCESS_REQUEST_USE) {
-                    /* Grant locality 0 */
-                    regs->access = FWTPM_ACCESS_VALID |
-                                  FWTPM_ACCESS_ACTIVE_LOCALITY;
-                    regs->sts = TisBuildSts(
-                        FWTPM_STS_VALID | FWTPM_STS_COMMAND_READY,
-                        FWTPM_TIS_BURST_COUNT);
-                }
-                if (val & FWTPM_ACCESS_ACTIVE_LOCALITY) {
-                    /* Release locality */
-                    regs->access = FWTPM_ACCESS_VALID;
-                    regs->sts = TisBuildSts(0, 0);
+                /* Only localities 0-4 exist; ignore requests for any other
+                 * (an out-of-range locality must not own the interface). */
+                if (loc >= 0 && loc <= 4) {
+                    if (val & FWTPM_ACCESS_REQUEST_USE) {
+                        /* Grant if the interface is free or already owned by it
+                         * (release-before-request: a different owner must
+                         * relinquish first - the host handles that). */
+                        if (ctx->tisLocality < 0 || ctx->tisLocality == loc) {
+                            /* On a fresh grant (interface was unowned) clear any
+                             * leftover command/response FIFO state so the new
+                             * owner cannot drain the previous locality's bytes
+                             * without first writing COMMAND_READY. */
+                            if (ctx->tisLocality < 0) {
+                                regs->cmd_len = 0;
+                                regs->fifo_write_pos = 0;
+                                regs->fifo_read_pos = 0;
+                                regs->rsp_len = 0;
+                            }
+                            ctx->tisLocality = loc;
+                            regs->sts = TisBuildSts(
+                                FWTPM_STS_VALID | FWTPM_STS_COMMAND_READY,
+                                FWTPM_TIS_BURST_COUNT);
+                        }
+                    }
+                    if (val & FWTPM_ACCESS_ACTIVE_LOCALITY) {
+                        /* Release only if it is the current owner */
+                        if (ctx->tisLocality == loc) {
+                            ctx->tisLocality = -1;
+                            regs->sts = TisBuildSts(0, 0);
+                        }
+                    }
                 }
                 break;
 
             case FWTPM_TIS_STS:
             case FWTPM_TIS_STS + 1: /* burst count write (ignored) */
+                /* A non-owning locality cannot ready/execute the FIFO */
+                if (!isOwner) {
+                    break;
+                }
                 if (val & FWTPM_STS_COMMAND_READY) {
                     /* Reset FIFO for new command */
                     regs->cmd_len = 0;
@@ -117,24 +147,28 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                      * prevent TOCTOU if cmd_buf is in shared memory */
                     UINT32 localCmdLen;
                     int rspSize = 0;
-                    int procRc;
+                    int procRc = TPM_RC_FAILURE;
+                    TPM_RC rc = TPM_RC_SUCCESS; /* FWTPM_ALLOC_BUF sets on OOM */
 
                     FWTPM_ALLOC_BUF(localCmd, FWTPM_TIS_FIFO_SIZE);
+                    if (rc == TPM_RC_SUCCESS) {
+                        localCmdLen = regs->cmd_len;
+                        if (localCmdLen > FWTPM_TIS_FIFO_SIZE) {
+                            localCmdLen = FWTPM_TIS_FIFO_SIZE;
+                        }
+                        XMEMCPY(localCmd, regs->cmd_buf, localCmdLen);
 
-                    localCmdLen = regs->cmd_len;
-                    if (localCmdLen > FWTPM_TIS_FIFO_SIZE) {
-                        localCmdLen = FWTPM_TIS_FIFO_SIZE;
+                    #ifdef DEBUG_WOLFTPM
+                        printf("fwTPM TIS: GO cmd_len=%u\n", localCmdLen);
+                    #endif
+
+                        /* Gated to the owner above, so loc == ctx->tisLocality:
+                         * execute under the addressed (owning) locality. */
+                        procRc = FWTPM_ProcessCommand(ctx,
+                            localCmd, (int)localCmdLen,
+                            regs->rsp_buf, &rspSize, loc);
+                        FWTPM_FREE_BUF(localCmd);
                     }
-                    XMEMCPY(localCmd, regs->cmd_buf, localCmdLen);
-
-                #ifdef DEBUG_WOLFTPM
-                    printf("fwTPM TIS: GO cmd_len=%u\n", localCmdLen);
-                #endif
-
-                    procRc = FWTPM_ProcessCommand(ctx,
-                        localCmd, (int)localCmdLen,
-                        regs->rsp_buf, &rspSize, 0 /* locality */);
-                    FWTPM_FREE_BUF(localCmd);
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
                         /* Build minimal error response
                          * TPM_ST_NO_SESSIONS = 0x8001 (big-endian) */
@@ -174,6 +208,10 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 UINT32 space;
                 /* Snapshot write position to local for TOCTOU safety */
                 UINT32 wpos = regs->fifo_write_pos;
+                /* Only the owning locality may load the command FIFO */
+                if (!isOwner) {
+                    break;
+                }
                 if (wpos >= FWTPM_TIS_FIFO_SIZE) {
                     regs->fifo_write_pos = 0;
                     break;
@@ -245,18 +283,26 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
         switch (offset) {
             case FWTPM_TIS_ACCESS:
-                val = regs->access;
+                /* Report per requested locality: VALID always set, plus
+                 * ACTIVE_LOCALITY only for the current owner. Never 0xFF (the
+                 * host treats 0xFF as an unimplemented/absent locality). */
+                val = FWTPM_ACCESS_VALID |
+                    ((ctx->tisLocality == loc) ?
+                        FWTPM_ACCESS_ACTIVE_LOCALITY : 0);
                 break;
 
             case FWTPM_TIS_STS:
-                val = regs->sts;
+                /* Only the owner sees command/data state; a non-owner gets
+                 * VALID only (no COMMAND_READY/DATA_AVAIL to act on). */
+                val = isOwner ? regs->sts : (UINT32)FWTPM_STS_VALID;
                 break;
 
             case FWTPM_TIS_BURST_COUNT_REG:
                 /* Burst count is at offset 0x0019, which is bytes [1..2]
                  * of the 4-byte STS register. Return just the burst count
-                 * portion (upper 16 bits shifted down). */
-                val = (regs->sts >> 8) & 0xFFFFu;
+                 * portion (upper 16 bits shifted down). A non-owner cannot
+                 * transfer, so it reads a zero burst count. */
+                val = isOwner ? ((regs->sts >> 8) & 0xFFFFu) : 0;
                 break;
 
             case FWTPM_TIS_DATA_FIFO:
@@ -272,6 +318,11 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                  * our clamped len), so any stale shared-memory bytes would
                  * leak prior-operation data into the client. */
                 XMEMSET(regs->reg_data, 0, sizeof(regs->reg_data));
+                /* Only the owning locality may drain the response FIFO;
+                 * a non-owner gets the zero-filled buffer (no data). */
+                if (!isOwner) {
+                    return;
+                }
                 if (rpos > rlen || rpos >= sizeof(regs->rsp_buf)) {
                     avail = 0;
                 }
@@ -382,8 +433,9 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
     regs->magic = FWTPM_TIS_MAGIC;
     regs->version = FWTPM_TIS_VERSION;
 
-    /* Power-on register defaults */
-    regs->access = FWTPM_ACCESS_VALID;
+    /* Power-on register defaults. ACCESS is not stored here: it is served
+     * dynamically per access from ctx->tisLocality (see TisHandleRegAccess),
+     * so the regs->access field is left zeroed by the XMEMSET above. */
     regs->sts = TisBuildSts(0, 0);
     regs->intf_caps = FWTPM_INTF_BURST_COUNT_STATIC |
                      FWTPM_INTF_DATA_AVAIL_INT |
@@ -395,6 +447,9 @@ int FWTPM_TIS_Init(FWTPM_CTX* ctx)
 
     /* Auto power-on in TIS mode (no platform port to signal power) */
     ctx->powerOn = 1;
+
+    /* Power-on: no locality owns the interface yet */
+    ctx->tisLocality = -1;
 
     return TPM_RC_SUCCESS;
 }

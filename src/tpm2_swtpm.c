@@ -512,6 +512,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     int rc = TPM_RC_SUCCESS;
     uint32_t rspSz = 0;
     uint32_t tss_word;
+    byte localityByte;
     const char* swtpmHost = TPM2_SWTPM_HOST;
     const char* swtpmPort = XSTRINGIFY(TPM2_SWTPM_PORT);
 #ifndef NO_GETENV
@@ -548,9 +549,12 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
 
-    /* locality */
+    /* locality (single byte; copy through a byte so the value - not the
+     * low byte of the host-endian int ctx->locality - is what goes on the
+     * wire, otherwise localities 1-4 serialize as 0 on big-endian hosts) */
     if (rc == TPM_RC_SUCCESS) {
-        rc = SwTpmTransmit(ctx, &ctx->locality, sizeof(uint8_t));
+        localityByte = (byte)ctx->locality;
+        rc = SwTpmTransmit(ctx, &localityByte, sizeof(localityByte));
     }
 
     /* buffer size */
