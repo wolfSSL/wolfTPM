@@ -6335,10 +6335,10 @@ int wolfTPM2_EccZToBuffer(byte* out, int* outSz, const TPM2B_ECC_PARAMETER* z)
     if (out == NULL || outSz == NULL || z == NULL) {
         return BAD_FUNC_ARG;
     }
-    if ((int)z->size > *outSz) {
+    if (z->size > (UINT16)sizeof(z->buffer) || (int)z->size > *outSz) {
         return BUFFER_E;
     }
-    *outSz = z->size;
+    *outSz = (int)z->size;
     XMEMCPY(out, z->buffer, z->size);
     return TPM_RC_SUCCESS;
 }
