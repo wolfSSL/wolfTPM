@@ -1554,7 +1554,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             case TPM_ALG_NULL:
                 /* Supported - skip remaining type-specific params */
                 break;
-        #ifdef WOLFTPM_V185
+        #ifdef WOLFTPM_MLDSA
             /* Part 2 Sec.12.2.3.6: TestParms for ML-DSA / Hash-ML-DSA / ML-KEM
              * MUST validate the parameterSet range, and for ML-DSA MUST
              * return TPM_RC_EXT_MU when allowExternalMu=YES on a TPM that
@@ -1611,6 +1611,8 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
+        #endif /* WOLFTPM_MLDSA */
+        #ifdef WOLFTPM_MLKEM
             case TPM_ALG_MLKEM: {
                 /* TPMS_MLKEM_PARMS = symmetric (TPMT_SYM_DEF_OBJECT+) +
                  * parameterSet. Use the existing TPMT symmetric parser so
@@ -1640,7 +1642,7 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
                 break;
             }
-        #endif /* WOLFTPM_V185 */
+        #endif /* WOLFTPM_MLKEM */
             default:
                 /* Unrecognized algorithm type. TPM_RC_PARMS only exists
                  * under WOLFTPM_V185; fall back to TPM_RC_TYPE otherwise. */

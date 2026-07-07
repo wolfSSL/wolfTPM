@@ -6482,6 +6482,34 @@ static void test_fwtpm_mlkem_primary_determinism(void)
 }
 #endif /* WOLFTPM_V185 */
 
+#ifdef WOLFTPM_MLDSA
+/* TestParms for a supported ML-DSA parameter set with allowExternalMu=NO must
+ * report TPM_RC_SUCCESS. Guarded on WOLFTPM_MLDSA so it also runs in the lean
+ * WOLFTPM_PQC build where the PQC arms were previously gated out. */
+static void test_fwtpm_testparms_mldsa_supported_returns_success(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_MLDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_MLDSA_65); pos += 2;
+    gCmd[pos++] = NO; /* allowExternalMu */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("TestParms MLDSA supported ps (SUCCESS):", 1);
+}
+#endif /* WOLFTPM_MLDSA */
+
 /* ================================================================== */
 /* 9. Hash Sequence                                                    */
 /* ================================================================== */
@@ -10515,6 +10543,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu();
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
     test_fwtpm_signdigest_wrong_digest_size_returns_size();
+#endif /* WOLFTPM_V185 */
+#ifdef WOLFTPM_MLDSA
+    test_fwtpm_testparms_mldsa_supported_returns_success();
+#endif
+#ifdef WOLFTPM_V185
     test_fwtpm_signseqcomplete_x509sign_returns_attributes();
     test_fwtpm_sign_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
