@@ -139,6 +139,7 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     rc = readKeyBlob(keyblob, &akKey);
     if (rc != TPM_RC_SUCCESS) {
         printf("Failure to read keyblob.\n");
+        goto exit;
     }
     rc = wolfTPM2_LoadKey(&dev, &akKey, &primary->handle);
     if (rc != TPM_RC_SUCCESS) {
