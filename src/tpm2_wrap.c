@@ -4615,11 +4615,12 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     exponent = tpmKey->pub.publicArea.parameters.rsaDetail.exponent;
     if (exponent == 0)
         exponent = RSA_DEFAULT_PUBLIC_EXPONENT;
-    e[3] = (exponent >> 24) & 0xFF;
-    e[2] = (exponent >> 16) & 0xFF;
-    e[1] = (exponent >> 8)  & 0xFF;
-    e[0] =  exponent        & 0xFF;
-    eSz = e[3] ? 4 : e[2] ? 3 : e[1] ? 2 : e[0] ? 1 : 0; /* calc size */
+    /* big-endian, matching wc_RsaPublicKeyDecodeRaw and RsaKey_Exponent */
+    e[0] = (exponent >> 24) & 0xFF;
+    e[1] = (exponent >> 16) & 0xFF;
+    e[2] = (exponent >> 8)  & 0xFF;
+    e[3] =  exponent        & 0xFF;
+    eSz = e[0] ? 4 : e[1] ? 3 : e[2] ? 2 : e[3] ? 1 : 0; /* significant bytes */
 
     /* load public key */
     nSz = tpmKey->pub.publicArea.unique.rsa.size;
@@ -4628,8 +4629,8 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     }
     XMEMCPY(n, tpmKey->pub.publicArea.unique.rsa.buffer, nSz);
 
-    /* load public key portion into wolf RsaKey */
-    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
+    /* load public key portion into wolf RsaKey (pass trailing significant e) */
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e + (sizeof(e) - eSz), eSz, wolfKey);
 
     return rc;
 }

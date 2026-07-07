@@ -2695,6 +2695,48 @@ static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
 }
 #endif /* WOLFTPM_MFG_IDENTITY && !SLB9672 && !SLB9673 */
 
+/* wolfTPM2_RsaKey_TpmToWolf must preserve the exponent for multi-byte
+ * non-palindromic values. The exponent bytes are big-endian on the wolfCrypt
+ * side, so a little-endian build would corrupt e.g. 0x010003. */
+static void test_wolfTPM2_RsaKey_TpmToWolf_Exponent(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && \
+    !defined(WOLFTPM2_NO_WRAPPER)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    RsaKey wolfKey;
+    byte eOut[8];
+    byte nOut[256];
+    word32 eOutSz = (word32)sizeof(eOut);
+    word32 nOutSz = (word32)sizeof(nOut);
+    word32 exponent = 0x010003; /* non-palindromic multi-byte exponent */
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+
+    tpmKey.pub.publicArea.type = TPM_ALG_RSA;
+    tpmKey.pub.publicArea.parameters.rsaDetail.exponent = exponent;
+    tpmKey.pub.publicArea.unique.rsa.size = 128;
+    XMEMSET(tpmKey.pub.publicArea.unique.rsa.buffer, 0xC7, 128);
+
+    rc = wc_InitRsaKey(&wolfKey, NULL);
+    AssertIntEQ(0, rc);
+
+    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &tpmKey, &wolfKey);
+    AssertIntEQ(0, rc);
+
+    rc = wc_RsaFlattenPublicKey(&wolfKey, eOut, &eOutSz, nOut, &nOutSz);
+    AssertIntEQ(0, rc);
+
+    /* Round-trip: decoded exponent must equal the original TPM exponent */
+    AssertIntEQ((int)exponent, (int)wolfTPM2_RsaKey_Exponent(eOut, eOutSz));
+
+    wc_FreeRsaKey(&wolfKey);
+    printf("Test TPM Wrapper: %-40s Passed\n", "RsaKey_TpmToWolf exponent:");
+#endif
+}
+
 /* The ECDH shared-secret copy must reject a TPM response x-coordinate larger
  * than the caller's output buffer. TPM2_Packet_ParseEccPoint clamps only to
  * MAX_ECC_KEY_BYTES, so a MITM/crafted response can report a point.x.size
@@ -6255,6 +6297,7 @@ int unit_tests(int argc, char *argv[])
     !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
     test_wolfTPM2_SetIdentityAuth_RequiresPassword();
 #endif
+    test_wolfTPM2_RsaKey_TpmToWolf_Exponent();
     test_wolfTPM2_EccZToBuffer();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
