@@ -2663,6 +2663,49 @@ static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
      * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
     (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
 
+/* The ECDH shared-secret copy must reject a TPM response x-coordinate larger
+ * than the caller's output buffer. TPM2_Packet_ParseEccPoint clamps only to
+ * MAX_ECC_KEY_BYTES, so a MITM/crafted response can report a point.x.size
+ * bigger than a curve-sized caller buffer; copying it would overflow. */
+static void test_wolfTPM2_EccZToBuffer(void)
+{
+    int rc;
+    int outSz;
+    TPM2B_ECC_PARAMETER z;
+    byte out[32];
+
+    XMEMSET(&z, 0, sizeof(z));
+    XMEMSET(out, 0, sizeof(out));
+
+    /* Response larger than caller capacity must be rejected, not copied */
+    z.size = (UINT16)(sizeof(out) + 16);
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit response is accepted and reports its own size */
+    z.size = (UINT16)sizeof(out);
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, (int)sizeof(out));
+
+    /* Smaller response shrinks outSz to the response size */
+    z.size = 20;
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, 20);
+
+    /* NULL arguments rejected */
+    outSz = (int)sizeof(out);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(NULL, &outSz, &z), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(out, NULL, &z), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(out, &outSz, NULL), BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tECDH shared secret bounds:\tPassed\n");
+}
+
     /* Create an ECC SRK to harvest valid X/Y coordinates from. The SRK follows
      * WOLFTPM2_ECC_DEFAULT_CURVE, so use its actual curve/nameAlg (not a
      * hardcoded P256) and size the buffers for any curve. */
@@ -6180,6 +6223,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
+    test_wolfTPM2_EccZToBuffer();
     test_TPM2_GetHashDigestSize_AllAlgs();
     #ifdef WOLFTPM_SWTPM
     test_TPM2_SwtpmValidateRspSz();

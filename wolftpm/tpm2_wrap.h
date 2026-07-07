@@ -5039,6 +5039,9 @@ WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
 
+WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer(byte* out, int* outSz,
+    const TPM2B_ECC_PARAMETER* z);
+
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE
 typedef int (*wolfTPM2FwDataCb)(

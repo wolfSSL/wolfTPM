@@ -6320,6 +6320,21 @@ int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     return rc;
 }
 
+/* Copy an ECDH shared-secret x-coordinate from a TPM response into the caller
+ * buffer, rejecting a response larger than the caller's capacity (*outSz) */
+int wolfTPM2_EccZToBuffer(byte* out, int* outSz, const TPM2B_ECC_PARAMETER* z)
+{
+    if (out == NULL || outSz == NULL || z == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if ((int)z->size > *outSz) {
+        return BUFFER_E;
+    }
+    *outSz = z->size;
+    XMEMCPY(out, z->buffer, z->size);
+    return TPM_RC_SUCCESS;
+}
+
 /* Generate ephemeral key and compute Z (shared secret) */
 /* One shot API using private key handle to generate key-pair and return
     pub-point and shared secret */
@@ -6360,16 +6375,14 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     pubPoint->size = ecdhOut.pubPoint.size;
     wolfTPM2_CopyEccParam(&pubPoint->point.x, &ecdhOut.pubPoint.point.x);
     wolfTPM2_CopyEccParam(&pubPoint->point.y, &ecdhOut.pubPoint.point.y);
-    *outSz = ecdhOut.zPoint.point.x.size;
-    if (*outSz > (int)sizeof(ecdhOut.zPoint.point.x.buffer)) {
-        *outSz = (int)sizeof(ecdhOut.zPoint.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, ecdhOut.zPoint.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhOut.zPoint.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
-        ecdhOut.zPoint.size,
-        ecdhOut.pubPoint.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
+            ecdhOut.zPoint.size,
+            ecdhOut.pubPoint.size);
+    }
 #endif
 
     TPM2_ForceZero(&ecdhOut, sizeof(ecdhOut));
@@ -6412,14 +6425,12 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return rc;
     }
 
-    *outSz = ecdhZOut.outPoint.point.x.size;
-    if (*outSz > (int)sizeof(ecdhZOut.outPoint.point.x.buffer)) {
-        *outSz = (int)sizeof(ecdhZOut.outPoint.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, ecdhZOut.outPoint.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhZOut.outPoint.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+    }
 #endif
 
     TPM2_ForceZero(&ecdhZOut, sizeof(ecdhZOut));
@@ -6504,14 +6515,12 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    *outSz = outZGen2Ph.outZ2.point.x.size;
-    if (*outSz > (int)sizeof(outZGen2Ph.outZ2.point.x.buffer)) {
-        *outSz = (int)sizeof(outZGen2Ph.outZ2.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, outZGen2Ph.outZ2.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &outZGen2Ph.outZ2.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
+    }
 #endif
 
     TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
