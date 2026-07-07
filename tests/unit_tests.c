@@ -516,6 +516,37 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");
 }
 
+static void test_wolfTPM2_SetLocality(void)
+{
+    int rc = 0;
+    WOLFTPM2_DEV dev;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+
+    /* Argument validation. The Linux-kernel driver and Windows TBS backends
+     * return NOT_COMPILED_IN before validating args, so only assert
+     * BAD_FUNC_ARG on the SWTPM and built-in TIS backends. */
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+    rc = wolfTPM2_SetLocality(NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SetLocality(&dev, -1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SetLocality(&dev, 5);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
+
+#if defined(WOLFTPM_SWTPM)
+    /* SWTPM/mssim record-only path: records the locality for subsequent
+     * commands with no TIS handshake, so it needs no live connection. */
+    rc = wolfTPM2_SetLocality(&dev, 2);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.ctx.locality, 2);
+#endif
+    (void)rc;
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "SetLocality args/SWTPM:");
+}
+
 static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -6307,6 +6338,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_SetLocality();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();

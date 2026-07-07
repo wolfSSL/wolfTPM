@@ -743,6 +743,79 @@ static void test_fwtpm_getcap_pcrs(void)
     fwtpm_pass("GetCapability(PCRS):", 0);
 }
 
+/* Page a capability list one entry at a time and assert it (a) terminates,
+ * (b) is strictly ascending, and (c) covers exactly the full-list count.
+ * idIs16=1 for TPM_CAP_ALGS (U16 alg ids), 0 for TPM_CAP_COMMANDS (U32 cc). */
+static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
+{
+    int rc, rspSize, cmdSz, total, iters;
+    UINT32 property, count, id, prev, fullCount;
+    byte moreData;
+
+    /* Full list in one shot: must fit, so moreData=NO. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1024); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    fullCount = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertIntGT((int)fullCount, 1);
+
+    /* Walk the cursor one entry per page. */
+    property = 0; prev = 0; total = 0;
+    for (iters = 0; iters < 1024; iters++) {
+        cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+        PutU32BE(gCmd + cmdSz, cap); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, property); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+        PutU32BE(gCmd + 2, (UINT32)cmdSz);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        moreData = gRsp[TPM2_HEADER_SIZE];
+        count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+        if (count == 1) {
+            id = idIs16 ? (UINT32)GetU16BE(gRsp + TPM2_HEADER_SIZE + 9)
+                        : GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+            if (total > 0)
+                AssertIntGT((int)id, (int)prev); /* strictly ascending */
+            prev = id;
+            property = id + 1;
+            total++;
+        }
+        else {
+            AssertIntEQ((int)count, 0); /* a 1-entry request yields 0 or 1 */
+        }
+        if (moreData == 0)
+            break;
+        AssertIntEQ((int)count, 1); /* moreData=YES must carry the entry */
+    }
+    AssertIntGT(1024, iters);              /* terminated (no infinite loop) */
+    AssertIntEQ(total, (int)fullCount);    /* every entry seen exactly once */
+}
+
+static void test_fwtpm_getcap_paging(void)
+{
+    FWTPM_CTX ctx;
+    int rc;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    getcap_paging_check(&ctx, TPM_CAP_ALGS, 1);
+    getcap_paging_check(&ctx, TPM_CAP_COMMANDS, 0);
+    getcap_paging_check(&ctx, TPM_CAP_TPM_PROPERTIES, 0);
+    getcap_paging_check(&ctx, TPM_CAP_PCR_PROPERTIES, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability paging convergence:", 0);
+}
+
 /* ================================================================== */
 /* 6. PCR Operations                                                   */
 /* ================================================================== */
@@ -10698,6 +10771,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_commands();
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
+    test_fwtpm_getcap_paging();
 
     /* PCR operations */
     test_fwtpm_pcr_read();

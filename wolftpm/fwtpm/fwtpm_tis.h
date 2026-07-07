@@ -124,7 +124,11 @@ typedef struct FWTPM_TIS_REGS {
     BYTE   reg_data[64];        /* Data for write or read result */
 
     /* TIS register shadow state (server owns, client reads) */
-    UINT32 access;              /* TPM_ACCESS register */
+    UINT32 access;              /* Reserved/unused: the TPM_ACCESS register is
+                                 * now served dynamically per read from
+                                 * ctx->tisLocality (see
+                                 * FWTPM_TIS_HandleRegAccess). Kept for
+                                 * shared-memory ABI layout stability. */
     UINT32 sts;                 /* TPM_STS register (low byte = status,
                                  * upper 16 bits = burst count) */
     UINT32 int_enable;          /* TPM_INT_ENABLE register */
