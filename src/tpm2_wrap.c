@@ -10902,6 +10902,8 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
         }
 
         wc_HashFree(&hash_ctx, hashType);
+        /* scrub the hash state: it retains trailing plaintext of the input */
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
     /* Only copy digest to handle auth when hashing succeeded — otherwise
