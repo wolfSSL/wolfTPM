@@ -4264,6 +4264,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     char nameBuf[48];
 #ifdef WOLF_CRYPTO_CB
     TpmCryptoDevCtx tpmCtx;
+    byte badDigest[TPM_MAX_DIGEST_SIZE];
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
     tpmCtx.dev = dev;
@@ -4338,6 +4339,20 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     rc = wc_ecc_verify_hash(sig, sigSz, digest, digestSz, &verifyRes, &wolfKey);
     AssertIntEQ(rc, 0);
     AssertIntEQ(verifyRes, 1); /* 1 indicates successful verification */
+
+#ifdef WOLF_CRYPTO_CB
+    /* Drive the invalid-signature branch of the crypto callback: a tampered
+     * digest must return verifyRes == 0 with rc == 0 */
+    if (flags & FLAGS_USE_CRYPTO_CB) {
+        XMEMCPY(badDigest, digest, digestSz);
+        badDigest[0] ^= 0xFF;
+        verifyRes = 1;
+        rc = wc_ecc_verify_hash(sig, sigSz, badDigest, digestSz, &verifyRes,
+            &wolfKey);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ(verifyRes, 0);
+    }
+#endif
 
     /* Cleanup first wolfCrypt key */
     wc_ecc_free(&wolfKey);
