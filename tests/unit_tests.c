@@ -1353,6 +1353,12 @@ static void test_TPM2_KDFe(void)
     byte key[TEST_KDFE_KEYSZ];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     byte key2[TEST_KDFE_KEYSZ];
+    /* KAT: SHA256(counter(1) || Z || "IDENTITY\0" || partyU || partyV) */
+    const byte keyExp[TEST_KDFE_KEYSZ] = {
+        0x36, 0xa3, 0xbc, 0x51, 0x5f, 0xe0, 0x12, 0xb8,
+        0x1b, 0xac, 0x81, 0xd6, 0x21, 0x83, 0x74, 0x75,
+        0xb9, 0x17, 0xf8, 0x9b, 0xcd, 0x94, 0xd4, 0xa3,
+        0xa3, 0x7f, 0x31, 0x49, 0xaa, 0xe2, 0x9b, 0xa1};
 #endif
 
     rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
@@ -1362,6 +1368,8 @@ static void test_TPM2_KDFe(void)
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else
     AssertIntEQ((int)sizeof(key), rc);
+    /* Pin the exact output so counter, label and party order are verified */
+    AssertIntEQ(0, XMEMCMP(key, keyExp, sizeof(keyExp)));
     /* Verify deterministic: same inputs produce same output */
     rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
         partyU, sizeof(partyU), partyV, sizeof(partyV),
