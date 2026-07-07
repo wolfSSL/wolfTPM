@@ -2703,35 +2703,26 @@ static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT) && \
     !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_ECC256)
-    int rc, i, found = 0;
-    WC_RNG rng;
-    ecc_key genKey, impKey;
+    int rc;
+    ecc_key impKey;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY tpmKey;
-    byte xRaw[32], yRaw[32];
     byte xImp[32], yImp[32];
-    word32 xSz, ySz, xImpSz, yImpSz;
+    word32 xImpSz, yImpSz;
+    /* Valid P-256 point whose x has a zero MSB, so the spec-valid stripped
+     * TPM form (size 31) is shorter than the 32-byte field */
+    const byte xRaw[32] = {
+        0x00, 0x4d, 0xb3, 0x2d, 0x25, 0x8e, 0x4d, 0xfd,
+        0x3f, 0x47, 0xdc, 0x30, 0x9f, 0x36, 0x7a, 0x84,
+        0x17, 0x7d, 0x47, 0x71, 0x47, 0x76, 0x5d, 0x04,
+        0xd7, 0x11, 0xca, 0x8f, 0xba, 0x92, 0x2f, 0x2c};
+    const byte yRaw[32] = {
+        0xb3, 0x3d, 0x81, 0xc0, 0x73, 0x66, 0xfd, 0x51,
+        0xd5, 0x6f, 0x53, 0xed, 0xac, 0x11, 0x36, 0x40,
+        0xb0, 0xb5, 0x23, 0xee, 0x7e, 0x32, 0x99, 0x35,
+        0x5e, 0x0d, 0x99, 0xfa, 0xb3, 0x75, 0xc7, 0x57};
 
     XMEMSET(&dev, 0, sizeof(dev));
-    AssertIntEQ(0, wc_InitRng(&rng));
-
-    /* Find a P-256 key whose x has a zero MSB so the stripped TPM form is
-     * shorter than the field size */
-    for (i = 0; i < 20000 && !found; i++) {
-        wc_ecc_init(&genKey);
-        rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
-        if (rc == 0) {
-            xSz = sizeof(xRaw);
-            ySz = sizeof(yRaw);
-            rc = wc_ecc_export_public_raw(&genKey, xRaw, &xSz, yRaw, &ySz);
-        }
-        if (rc == 0 && xSz == 32 && xRaw[0] == 0x00) {
-            found = 1;
-        }
-        wc_ecc_free(&genKey);
-    }
-    AssertIntEQ(1, found);
-
     XMEMSET(&tpmKey, 0, sizeof(tpmKey));
     tpmKey.pub.publicArea.type = TPM_ALG_ECC;
     tpmKey.pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
@@ -2753,7 +2744,6 @@ static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
     AssertIntEQ(0, XMEMCMP(yImp, yRaw, 32));
 
     wc_ecc_free(&impKey);
-    wc_FreeRng(&rng);
     printf("Test TPM Wrapper: %-40s Passed\n", "EccKey_TpmToWolf short coord:");
 #endif
 }
