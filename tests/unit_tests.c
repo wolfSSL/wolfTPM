@@ -1883,7 +1883,8 @@ static void test_TPM2_CalcHmac(void)
 
     /* Pin the exact HMAC so the cpHash and sessionAttributes contributions
      * are verified, not just relative nonce ordering */
-    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, hmac1.size));
+    AssertIntEQ(hmac1.size, (int)sizeof(hmacExp));
+    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, sizeof(hmacExp)));
 
     /* Compute HMAC with (nonceB, nonceA) — reversed order */
     rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceB, &nonceA,
