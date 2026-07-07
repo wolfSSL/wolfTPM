@@ -1854,6 +1854,12 @@ static void test_TPM2_CalcHmac(void)
     TPM2B_NONCE nonceA, nonceB;
     TPMA_SESSION attr = TPMA_SESSION_continueSession;
     TPM2B_AUTH hmac1, hmac2;
+    /* KAT: HMAC-SHA256("test", 0xAB*32 || 0x11*32 || 0x22*32 || attr(0x01)) */
+    const byte hmacExp[TPM_SHA256_DIGEST_SIZE] = {
+        0x42, 0x7f, 0xbf, 0xe1, 0x1b, 0xc3, 0x4d, 0xff,
+        0x89, 0x73, 0x43, 0x79, 0x8f, 0xb6, 0xaa, 0x88,
+        0xcd, 0xb3, 0xde, 0xae, 0x88, 0x21, 0xe9, 0xe6,
+        0x40, 0x9a, 0x51, 0x3c, 0x68, 0xd5, 0x90, 0xdf};
 
     /* Known auth key */
     auth.size = 4;
@@ -1875,12 +1881,30 @@ static void test_TPM2_CalcHmac(void)
         attr, &hmac1);
     AssertIntEQ(0, rc);
 
+    /* Pin the exact HMAC so the cpHash and sessionAttributes contributions
+     * are verified, not just relative nonce ordering */
+    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, hmac1.size));
+
     /* Compute HMAC with (nonceB, nonceA) — reversed order */
     rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceB, &nonceA,
         attr, &hmac2);
     AssertIntEQ(0, rc);
 
     /* Reversed nonces MUST produce different HMAC */
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* Changing only the cpHash MUST change the HMAC (binds command params) */
+    XMEMSET(hash.buffer, 0xCD, hash.size);
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* Changing only the sessionAttributes MUST change the HMAC */
+    XMEMSET(hash.buffer, 0xAB, hash.size);
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        (TPMA_SESSION)0, &hmac2);
+    AssertIntEQ(0, rc);
     AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
 
     printf("Test TPM Wrapper: %-40s Passed\n", "CalcHmac:");
