@@ -301,9 +301,8 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         /* Attempt to use pre-provisioned identity key */
         rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
         if (rc == 0) {
-            /* Custom should supply their own custom master password used during
-             * device provisioning. If using a sample TPM supply NULL to use the
-             * default password. */
+            /* NULL uses the sample password on Infineon builds; else supply
+             * your own provisioning password (or this falls back to a key) */
             rc = wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
         if (rc != 0)
