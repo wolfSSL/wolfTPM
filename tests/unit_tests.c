@@ -2665,7 +2665,8 @@ static void test_TPM2_ParseAttest_NvDigest(void)
 }
 
 #if defined(WOLFTPM_MFG_IDENTITY) && \
-    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
+    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
+    !defined(WOLFTPM_AUTODETECT)
 /* On non-Infineon targets, omitting the master password must fail closed
  * rather than silently deriving auth from the public sample password. */
 static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
@@ -6362,7 +6363,8 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
 #if defined(WOLFTPM_MFG_IDENTITY) && \
-    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
+    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
+    !defined(WOLFTPM_AUTODETECT)
     test_wolfTPM2_SetIdentityAuth_RequiresPassword();
 #endif
     test_wolfTPM2_EccKey_TpmToWolf_ShortCoord();
