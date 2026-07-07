@@ -2703,7 +2703,7 @@ static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT) && \
-    !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_ECC256)
+    !defined(NO_ECC256)
     int rc;
     ecc_key impKey;
     WOLFTPM2_DEV dev;
@@ -2754,8 +2754,7 @@ static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
  * side, so a little-endian build would corrupt e.g. 0x010003. */
 static void test_wolfTPM2_RsaKey_TpmToWolf_Exponent(void)
 {
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA) && \
-    !defined(WOLFTPM2_NO_WRAPPER)
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_KEY tpmKey;
