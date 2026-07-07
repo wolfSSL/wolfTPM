@@ -4799,7 +4799,7 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     ecc_key* wolfKey)
 {
-    int rc, curve_id;
+    int rc, curve_id, keySz;
     byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
     byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
     word32  qxSz;
@@ -4813,24 +4813,32 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load curve type */
     curve_id = tpmKey->pub.publicArea.parameters.eccDetail.curveID;
+    keySz = wolfTPM2_GetCurveSize(curve_id); /* field size for right-align */
     rc = TPM2_GetWolfCurve(curve_id);
     if (rc < 0)
         return rc;
     curve_id = rc;
+    if (keySz <= 0 || keySz > (int)sizeof(qx)) {
+        return BUFFER_E;
+    }
 
-    /* load public key */
+    /* load public key; right-align each coordinate into the field-size buffer
+     * so wc_ecc_import_unsigned reads the correct big-endian value even when
+     * the TPM stripped leading zero bytes */
     qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
-    if (qxSz > sizeof(qx) ||
+    if (qxSz > (word32)keySz ||
         qxSz > sizeof(tpmKey->pub.publicArea.unique.ecc.x.buffer)) {
         return BUFFER_E;
     }
-    XMEMCPY(qx, tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
+    XMEMCPY(qx + (keySz - (int)qxSz),
+        tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
     qySz = tpmKey->pub.publicArea.unique.ecc.y.size;
-    if (qySz > sizeof(qy) ||
+    if (qySz > (word32)keySz ||
         qySz > sizeof(tpmKey->pub.publicArea.unique.ecc.y.buffer)) {
         return BUFFER_E;
     }
-    XMEMCPY(qy, tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
+    XMEMCPY(qy + (keySz - (int)qySz),
+        tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
 
     /* load public key portion into wolf ecc_key */
     rc = wc_ecc_import_unsigned(wolfKey, qx, qy, NULL, curve_id);

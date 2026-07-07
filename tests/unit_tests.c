@@ -2695,6 +2695,69 @@ static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
 }
 #endif /* WOLFTPM_MFG_IDENTITY && !SLB9672 && !SLB9673 */
 
+/* wolfTPM2_EccKey_TpmToWolf must right-align coordinates: a spec-valid TPM
+ * coordinate with a stripped leading-zero byte (size < field size) would be
+ * left-aligned and scaled up, corrupting the imported point. */
+static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT) && \
+    !defined(WOLFTPM2_NO_WRAPPER) && !defined(NO_ECC256)
+    int rc, i, found = 0;
+    WC_RNG rng;
+    ecc_key genKey, impKey;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    byte xRaw[32], yRaw[32];
+    byte xImp[32], yImp[32];
+    word32 xSz, ySz, xImpSz, yImpSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    AssertIntEQ(0, wc_InitRng(&rng));
+
+    /* Find a P-256 key whose x has a zero MSB so the stripped TPM form is
+     * shorter than the field size */
+    for (i = 0; i < 20000 && !found; i++) {
+        wc_ecc_init(&genKey);
+        rc = wc_ecc_make_key_ex(&rng, 32, &genKey, ECC_SECP256R1);
+        if (rc == 0) {
+            xSz = sizeof(xRaw);
+            ySz = sizeof(yRaw);
+            rc = wc_ecc_export_public_raw(&genKey, xRaw, &xSz, yRaw, &ySz);
+        }
+        if (rc == 0 && xSz == 32 && xRaw[0] == 0x00) {
+            found = 1;
+        }
+        wc_ecc_free(&genKey);
+    }
+    AssertIntEQ(1, found);
+
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    tpmKey.pub.publicArea.type = TPM_ALG_ECC;
+    tpmKey.pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    tpmKey.pub.publicArea.unique.ecc.x.size = 31; /* leading zero stripped */
+    XMEMCPY(tpmKey.pub.publicArea.unique.ecc.x.buffer, xRaw + 1, 31);
+    tpmKey.pub.publicArea.unique.ecc.y.size = 32;
+    XMEMCPY(tpmKey.pub.publicArea.unique.ecc.y.buffer, yRaw, 32);
+
+    AssertIntEQ(0, wc_ecc_init(&impKey));
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &tpmKey, &impKey);
+    AssertIntEQ(0, rc);
+
+    /* Imported point must equal the original full-width coordinates */
+    xImpSz = sizeof(xImp);
+    yImpSz = sizeof(yImp);
+    AssertIntEQ(0, wc_ecc_export_public_raw(&impKey, xImp, &xImpSz,
+        yImp, &yImpSz));
+    AssertIntEQ(0, XMEMCMP(xImp, xRaw, 32));
+    AssertIntEQ(0, XMEMCMP(yImp, yRaw, 32));
+
+    wc_ecc_free(&impKey);
+    wc_FreeRng(&rng);
+    printf("Test TPM Wrapper: %-40s Passed\n", "EccKey_TpmToWolf short coord:");
+#endif
+}
+
 /* wolfTPM2_RsaKey_TpmToWolf must preserve the exponent for multi-byte
  * non-palindromic values. The exponent bytes are big-endian on the wolfCrypt
  * side, so a little-endian build would corrupt e.g. 0x010003. */
@@ -6297,6 +6360,7 @@ int unit_tests(int argc, char *argv[])
     !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
     test_wolfTPM2_SetIdentityAuth_RequiresPassword();
 #endif
+    test_wolfTPM2_EccKey_TpmToWolf_ShortCoord();
     test_wolfTPM2_RsaKey_TpmToWolf_Exponent();
     test_wolfTPM2_EccZToBuffer();
     test_wolfTPM2_LoadEccPublicKey_Ex();
