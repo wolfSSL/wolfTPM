@@ -2632,36 +2632,36 @@ static void test_TPM2_ParseAttest_NvDigest(void)
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
 }
 
-/* wolfTPM2_LoadEccPublicKey_ex must honor caller-provided scheme, hashAlg
- * and objectAttributes (in particular, allow TPMA_OBJECT_decrypt for ECDH
- * peer keys). The legacy wolfTPM2_LoadEccPublicKey must continue to default
- * to ECDSA + sign attribute. */
-static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
+#if defined(WOLFTPM_MFG_IDENTITY) && \
+    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
+/* On non-Infineon targets, omitting the master password must fail closed
+ * rather than silently deriving auth from the public sample password. */
+static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
 {
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
     int rc;
     WOLFTPM2_DEV dev;
-    WOLFTPM2_KEY srk;
-    WOLFTPM2_KEY peer;
-    TPMT_PUBLIC pub;
-    byte xBuf[MAX_ECC_KEY_BYTES];
-    byte yBuf[MAX_ECC_KEY_BYTES];
-    word32 xSz, ySz;
-    TPM_ECC_CURVE curve;
-    TPM_ALG_ID nameAlg;
+    WOLFTPM2_HANDLE handle;
+    byte pw[16];
 
     XMEMSET(&dev, 0, sizeof(dev));
-    XMEMSET(&srk, 0, sizeof(srk));
-    XMEMSET(&peer, 0, sizeof(peer));
+    XMEMSET(&handle, 0, sizeof(handle));
+    XMEMSET(pw, 0x11, sizeof(pw));
 
-    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
-    if (rc != 0) {
-        printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\tSkipped\n");
-        return;
-    }
-    /* Flush any transient objects left by previous tests so CreatePrimary
-     * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
-    (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* NULL / zero-length master password is rejected */
+    rc = wolfTPM2_SetIdentityAuth(&dev, &handle, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* NULL handle is rejected */
+    rc = wolfTPM2_SetIdentityAuth(&dev, NULL, pw, sizeof(pw));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tSetIdentityAuth requires password:\tPassed\n");
+}
+#endif /* WOLFTPM_MFG_IDENTITY && !SLB9672 && !SLB9673 */
 
 /* The ECDH shared-secret copy must reject a TPM response x-coordinate larger
  * than the caller's output buffer. TPM2_Packet_ParseEccPoint clamps only to
@@ -2705,6 +2705,37 @@ static void test_wolfTPM2_EccZToBuffer(void)
 
     printf("Test TPM Wrapper:\tECDH shared secret bounds:\tPassed\n");
 }
+
+/* wolfTPM2_LoadEccPublicKey_ex must honor caller-provided scheme, hashAlg
+ * and objectAttributes (in particular, allow TPMA_OBJECT_decrypt for ECDH
+ * peer keys). The legacy wolfTPM2_LoadEccPublicKey must continue to default
+ * to ECDSA + sign attribute. */
+static void test_wolfTPM2_LoadEccPublicKey_Ex(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY srk;
+    WOLFTPM2_KEY peer;
+    TPMT_PUBLIC pub;
+    byte xBuf[MAX_ECC_KEY_BYTES];
+    byte yBuf[MAX_ECC_KEY_BYTES];
+    word32 xSz, ySz;
+    TPM_ECC_CURVE curve;
+    TPM_ALG_ID nameAlg;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&srk, 0, sizeof(srk));
+    XMEMSET(&peer, 0, sizeof(peer));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tLoadEccPublicKey_ex:\tSkipped\n");
+        return;
+    }
+    /* Flush any transient objects left by previous tests so CreatePrimary
+     * does not get TPM_RC_OBJECT_MEMORY on a busy simulator. */
+    (void)wolfTPM2_UnloadHandles_AllTransient(&dev);
 
     /* Create an ECC SRK to harvest valid X/Y coordinates from. The SRK follows
      * WOLFTPM2_ECC_DEFAULT_CURVE, so use its actual curve/nameAlg (not a
@@ -6188,6 +6219,11 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
+#if defined(WOLFTPM_MFG_IDENTITY) && \
+    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
+    test_wolfTPM2_SetIdentityAuth_RequiresPassword();
+#endif
+    test_wolfTPM2_EccZToBuffer();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
@@ -6223,7 +6259,6 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
     test_wolfTPM2_UnloadHandle_PersistentGuard();
-    test_wolfTPM2_EccZToBuffer();
     test_TPM2_GetHashDigestSize_AllAlgs();
     #ifdef WOLFTPM_SWTPM
     test_TPM2_SwtpmValidateRspSz();

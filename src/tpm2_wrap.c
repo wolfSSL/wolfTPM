@@ -10829,10 +10829,12 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* pre-provisioned IAK and IDevID key/cert from TPM vendor */
 #ifdef WOLFTPM_MFG_IDENTITY
 
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
 static const uint8_t TPM2_IAK_SAMPLE_MASTER_PASSWORD[] = {
     0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
     0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
 };
+#endif
 
 int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     uint8_t* masterPassword, uint16_t masterPasswordSz)
@@ -10842,6 +10844,18 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     wc_HashAlg hash_ctx;
     enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
     uint8_t digest[TPM_SHA256_DIGEST_SIZE];
+
+    if (handle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#if !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
+    /* Only Infineon sample-provisioned parts may derive auth from the public
+     * sample master password; require an explicit secret on other targets */
+    if (masterPassword == NULL || masterPasswordSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+#endif
 
     /* Get TPM serial number */
     rc = TPM2_GetProductInfo(serialNum, (uint16_t)sizeof(serialNum));
@@ -10862,15 +10876,17 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     if (rc == 0) {
         rc = wc_HashUpdate(&hash_ctx, hashType, serialNum, sizeof(serialNum));
         if (rc == 0) {
-            if (masterPassword == NULL || masterPasswordSz == 0) {
+            if (masterPassword != NULL && masterPasswordSz > 0) {
+                rc = wc_HashUpdate(&hash_ctx, hashType,
+                    masterPassword, masterPasswordSz);
+            }
+        #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+            else {
                 rc = wc_HashUpdate(&hash_ctx, hashType,
                     TPM2_IAK_SAMPLE_MASTER_PASSWORD,
                     sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
             }
-            else {
-                rc = wc_HashUpdate(&hash_ctx, hashType,
-                    masterPassword, masterPasswordSz);
-            }
+        #endif
         }
         if (rc == 0) {
             rc = wc_HashFinal(&hash_ctx, hashType, digest);
