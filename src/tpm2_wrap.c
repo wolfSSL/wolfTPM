@@ -10838,7 +10838,8 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* pre-provisioned IAK and IDevID key/cert from TPM vendor */
 #ifdef WOLFTPM_MFG_IDENTITY
 
-#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+#if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+    defined(WOLFTPM_AUTODETECT)
 static const uint8_t TPM2_IAK_SAMPLE_MASTER_PASSWORD[] = {
     0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
     0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
@@ -10858,9 +10859,10 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
         return BAD_FUNC_ARG;
     }
 
-#if !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673)
-    /* Only Infineon sample-provisioned parts may derive auth from the public
-     * sample master password; require an explicit secret on other targets */
+#if !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
+    !defined(WOLFTPM_AUTODETECT)
+    /* Only Infineon-capable builds may derive auth from the public sample
+     * master password; require an explicit secret on other targets */
     if (masterPassword == NULL || masterPasswordSz == 0) {
         return BAD_FUNC_ARG;
     }
@@ -10889,7 +10891,8 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
                 rc = wc_HashUpdate(&hash_ctx, hashType,
                     masterPassword, masterPasswordSz);
             }
-        #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
+        #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673) || \
+            defined(WOLFTPM_AUTODETECT)
             else {
                 rc = wc_HashUpdate(&hash_ctx, hashType,
                     TPM2_IAK_SAMPLE_MASTER_PASSWORD,

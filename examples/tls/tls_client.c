@@ -304,9 +304,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             /* Custom should supply their own custom master password used during
              * device provisioning. If using a sample TPM supply NULL to use the
              * default password. */
-            wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
+            rc = wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
-        else
+        if (rc != 0)
     #endif
         {
             /* Create/Load ECC key for TLS authentication */
