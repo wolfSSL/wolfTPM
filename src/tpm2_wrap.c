@@ -6329,8 +6329,7 @@ int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     return rc;
 }
 
-/* Copy an ECDH shared-secret x-coordinate from a TPM response into the caller
- * buffer, rejecting a response larger than the caller's capacity (*outSz) */
+/* Copy the ECDH shared secret to the caller buffer, reject if larger */
 int wolfTPM2_EccZToBuffer(byte* out, int* outSz, const TPM2B_ECC_PARAMETER* z)
 {
     if (out == NULL || outSz == NULL || z == NULL) {
