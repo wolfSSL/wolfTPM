@@ -2666,10 +2666,9 @@ static void test_TPM2_ParseAttest_NvDigest(void)
 }
 
 #if defined(WOLFTPM_MFG_IDENTITY) && \
-    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
-    !defined(WOLFTPM_AUTODETECT)
-/* On non-Infineon targets, omitting the master password must fail closed
- * rather than silently deriving auth from the public sample password. */
+    !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
+/* On non-ST33 targets, omitting the master password must fail closed rather
+ * than silently deriving auth from the public sample password. */
 static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
 {
     int rc;
@@ -2695,7 +2694,7 @@ static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
 
     printf("Test TPM Wrapper:\tSetIdentityAuth requires password:\tPassed\n");
 }
-#endif /* WOLFTPM_MFG_IDENTITY && !SLB9672 && !SLB9673 */
+#endif /* WOLFTPM_MFG_IDENTITY && !WOLFTPM_ST33 && !WOLFTPM_AUTODETECT */
 
 /* wolfTPM2_EccKey_TpmToWolf must right-align coordinates: a spec-valid TPM
  * coordinate with a stripped leading-zero byte (size < field size) would be
@@ -6363,8 +6362,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
 #if defined(WOLFTPM_MFG_IDENTITY) && \
-    !defined(WOLFTPM_SLB9672) && !defined(WOLFTPM_SLB9673) && \
-    !defined(WOLFTPM_AUTODETECT)
+    !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
     test_wolfTPM2_SetIdentityAuth_RequiresPassword();
 #endif
     test_wolfTPM2_EccKey_TpmToWolf_ShortCoord();

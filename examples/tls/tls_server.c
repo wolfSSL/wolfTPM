@@ -343,8 +343,8 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         /* Attempt to use pre-provisioned identity key */
         rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
         if (rc == 0) {
-            /* NULL uses the sample password on Infineon builds; else supply
-             * your own provisioning password (or this falls back to a key) */
+            /* NULL uses the sample password on ST33 builds; else supply your
+             * own provisioning password (or this falls back to a key) */
             rc = wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
         if (rc != 0)
