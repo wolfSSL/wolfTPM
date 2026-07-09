@@ -36,6 +36,8 @@ Not all PCRs are equal. The user can perform `extend` operation on all PCRs, but
 * PCR16 is a PCR for debug purposes. This is the PCR used by all tools above by default. It is safe to test and work with PCR16.
 * PCR17-22 are reserved for Dynamic Root of Trust Measurement (DRTM), an advanced topic that is to be covered separately.
 
+Reset locality (TCG PC Client): PCR16/23 reset at localities 0-3, PCR20-22 at locality 2-4, and PCR17-19 at locality 4. Use `-loc=n` to select the locality (see `wolfTPM2_SetLocality`); it applies to the built-in TIS/SPI driver and the fwTPM.
+
 ### Extend
 
 The TPM 2.0 `TPM2_Extend` API uses a SHA1 or SHA256 cryptographic operation to combine the current value of the PCR and with newly provided hash digest.
@@ -50,10 +52,13 @@ The TPM 2.0 `TPM2_Quote` API is a standard operation that encapsulates the PCR d
 
 ```sh
 $ ./examples/pcr/reset -?
-PCR index is out of range (0-23)
+Incorrect arguments
 Expected usage:
-./examples/pcr/reset [pcr]
+./examples/pcr/reset [pcr] [-loc=n]
 * pcr is a PCR index between 0-23 (default 16)
+* -loc=n switch to TPM locality n (0-4) before reset
+    (PCR 17-19 need locality 4; 20-22 need locality 2-4;
+     enforced by the fwTPM and by discrete TPMs like the ST33)
 Demo usage without parameters, resets PCR16.
 ```
 

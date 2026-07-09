@@ -64,6 +64,11 @@
     #include <fcntl.h>
     #include <unistd.h>
     #include <errno.h>
+    #ifdef WOLFTPM_HAL_RESET
+        /* GPIO character-device uAPI for optional nRST control */
+        #include <linux/gpio.h>
+        #include <time.h> /* nanosleep (usleep is undefined for >= 1s) */
+    #endif
 
     #ifdef WOLFTPM_I2C
         /* I2C - (Only tested with SLB9673 and ST33 I2C) */
@@ -415,6 +420,110 @@
         return ret;
     }
 #endif /* WOLFTPM_I2C */
+
+#ifdef WOLFTPM_HAL_RESET
+    /* Pulse the TPM nRST (active low) via the Linux GPIO char device (raw GPIO
+     * v2 uAPI, no libgpiod). Default line: Raspberry Pi ST33 = GPIO24 (pin 18),
+     * Nuvoton = GPIO4; override with WOLFTPM_RESET_GPIOCHIP / WOLFTPM_RESET_LINE. */
+    #ifndef WOLFTPM_RESET_GPIOCHIP
+        #define WOLFTPM_RESET_GPIOCHIP "/dev/gpiochip0"
+    #endif
+    #ifndef WOLFTPM_RESET_LINE
+        #if defined(WOLFTPM_NUVOTON)
+            #define WOLFTPM_RESET_LINE 4
+        #else
+            #define WOLFTPM_RESET_LINE 24
+        #endif
+    #endif
+    #ifndef WOLFTPM_RESET_HOLD_US
+        #define WOLFTPM_RESET_HOLD_US 300000    /* reset asserted 300ms */
+    #endif
+    #ifndef WOLFTPM_RESET_SETTLE_US
+        #define WOLFTPM_RESET_SETTLE_US 1000000 /* TPM boot settle 1s */
+    #endif
+
+    /* usleep() is undefined for values >= 1000000 (POSIX); nanosleep has no
+     * such limit and handles the 1s settle and any larger override. */
+    static void TPM2_Reset_DelayUs(unsigned long us)
+    {
+        struct timespec ts;
+        ts.tv_sec  = (time_t)(us / 1000000UL);
+        ts.tv_nsec = (long)((us % 1000000UL) * 1000UL);
+        (void)nanosleep(&ts, NULL);
+    }
+
+    /* Note: this reset HAL is only compile-checked in CI (no GPIO hardware or
+     * gpio-sim there); the open/GET_LINE/SET_VALUES flow, the hold/settle
+     * timing, and the fd lifecycle are functionally regression-verified on real
+     * hardware - the ST33 on a Raspberry Pi 5, nRST wired to GPIO24 (pin 18). */
+    int TPM2_IoCb_Linux_Reset(TPM2_CTX* ctx, void* userCtx)
+    {
+        int ret = TPM_RC_FAILURE;
+        int chipFd, reqFd;
+        struct gpio_v2_line_request req;
+        struct gpio_v2_line_values vals;
+
+        (void)ctx;
+        (void)userCtx;
+
+        chipFd = open(WOLFTPM_RESET_GPIOCHIP, O_RDONLY);
+        if (chipFd < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM Reset: open %s failed (errno %d)\n",
+                WOLFTPM_RESET_GPIOCHIP, errno);
+        #endif
+            return TPM_RC_FAILURE;
+        }
+
+        /* Acquire the line as an output driven low (assert reset) */
+        XMEMSET(&req, 0, sizeof(req));
+        req.offsets[0] = (unsigned int)WOLFTPM_RESET_LINE;
+        req.num_lines = 1;
+        req.config.flags = GPIO_V2_LINE_FLAG_OUTPUT;
+        req.config.num_attrs = 1;
+        req.config.attrs[0].attr.id = GPIO_V2_LINE_ATTR_ID_OUTPUT_VALUES;
+        req.config.attrs[0].attr.values = 0; /* drive low (assert reset) */
+        req.config.attrs[0].mask = 1;        /* applies to line index 0 */
+        XMEMCPY(req.consumer, "wolfTPM-reset", sizeof("wolfTPM-reset"));
+
+        if (ioctl(chipFd, GPIO_V2_GET_LINE_IOCTL, &req) < 0 || req.fd < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM Reset: GET_LINE ioctl failed (errno %d)\n", errno);
+        #endif
+            close(chipFd);
+            return TPM_RC_FAILURE;
+        }
+        close(chipFd);
+        reqFd = req.fd;
+
+        /* Hold reset asserted, then release (drive high) and let the TPM boot */
+        TPM2_Reset_DelayUs(WOLFTPM_RESET_HOLD_US);
+
+        XMEMSET(&vals, 0, sizeof(vals));
+        vals.mask = 1;
+        vals.bits = 1; /* drive high = release reset */
+        if (ioctl(reqFd, GPIO_V2_LINE_SET_VALUES_IOCTL, &vals) < 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM Reset: SET_VALUES ioctl failed (errno %d)\n", errno);
+        #endif
+        }
+        else {
+            ret = TPM_RC_SUCCESS;
+        #ifdef DEBUG_WOLFTPM
+            printf("TPM Reset: pulsed nRST on %s line %d\n",
+                WOLFTPM_RESET_GPIOCHIP, (int)WOLFTPM_RESET_LINE);
+        #endif
+            /* Only wait for the TPM to settle after a successful release; on a
+             * failed release the delay would just stall the error path. */
+            TPM2_Reset_DelayUs(WOLFTPM_RESET_SETTLE_US);
+        }
+
+        close(reqFd);
+
+        return ret;
+    }
+#endif /* WOLFTPM_HAL_RESET */
+
 #endif /* __linux__ */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */

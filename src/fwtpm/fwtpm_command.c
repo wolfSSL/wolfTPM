@@ -1076,6 +1076,30 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     return rc;
 }
 
+/* Per-PCR reset/extend locality helper (defined with its tables below). */
+static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
+
+/* Mask a TPM command code to its 16-bit value (strip vendor/reserved bits). */
+#define FW_CC_MASK 0x0000FFFFu
+/* PCRs 0-15 are the SRTM set that TPM_PT_PCR_SAVE reports as saved. */
+#define FWTPM_PCR_SAVE_COUNT 16
+/* pcrProps[].kind: how a TPM_CAP_PCR_PROPERTIES row maps to the locality table. */
+#define FW_PCR_KIND_EXTEND      0  /* extend allowed at loc */
+#define FW_PCR_KIND_RESET       1  /* reset allowed at loc */
+#define FW_PCR_KIND_SAVE        2  /* saved across power cycles (PCR 0-15) */
+#define FW_PCR_KIND_DRTM_RESET  3  /* reset allowed at locality 4 */
+
+/* Overwrite a big-endian UINT32 already appended at buf[pos]. Used to
+ * back-patch a TPML count with the number of entries actually emitted, so a
+ * count/payload mismatch is impossible even if two entries collapse to one. */
+static void FwPatchU32BE(byte* buf, int pos, UINT32 v)
+{
+    buf[pos + 0] = (byte)(v >> 24);
+    buf[pos + 1] = (byte)(v >> 16);
+    buf[pos + 2] = (byte)(v >> 8);
+    buf[pos + 3] = (byte)(v);
+}
+
 /* --- TPM2_GetCapability (CC 0x017A) --- */
 static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -1086,6 +1110,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 propertyCount = 0;
     UINT32 i;
     int paramSzPos, paramStart;
+    int moreDataPos;
 
     (void)ctx;
 
@@ -1108,7 +1133,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
 
-    /* moreData (TPMI_YES_NO) */
+    /* moreData (TPMI_YES_NO) - default NO; a capability case that truncates its
+     * list to propertyCount back-patches this byte to YES via moreDataPos. */
+    moreDataPos = rsp->pos;
     TPM2_Packet_AppendU8(rsp, 0); /* NO */
 
     /* capability */
@@ -1165,14 +1192,51 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_ALG_NULL,      0x0000 },
             };
             int numAlgs = (int)(sizeof(algList) / sizeof(algList[0]));
-            if (propertyCount < (UINT32)numAlgs)
-                numAlgs = (int)propertyCount;
+            int avail = 0;
+            int numOut;
+            int k, best;
+            int emitted = 0, countPos;
+            UINT32 lastAlg = 0;
+            int haveLast = 0;
 
-            TPM2_Packet_AppendU32(rsp, (UINT32)numAlgs);
-            for (i = 0; i < (UINT32)numAlgs; i++) {
-                TPM2_Packet_AppendU16(rsp, algList[i].alg);
-                TPM2_Packet_AppendU32(rsp, algList[i].attrs);
+            /* Honor the property cursor: count entries at/after the requested
+             * start algorithm, then cap to propertyCount. moreData=YES only
+             * when entries still remain past this page (spec-correct paging;
+             * emitting from index 0 would loop a paging client forever). */
+            for (k = 0; k < numAlgs; k++) {
+                if ((UINT32)algList[k].alg >= property)
+                    avail++;
             }
+            numOut = avail;
+            if ((UINT32)numOut > propertyCount)
+                numOut = (int)propertyCount;
+            if (avail > numOut)
+                rsp->buf[moreDataPos] = 1; /* YES - more entries remain */
+
+            /* Reserve the count and back-patch it to entries actually emitted. */
+            countPos = rsp->pos;
+            TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
+            /* Emit in ascending algorithm-ID order (the static list is not
+             * sorted) via repeated min-selection; n is small. */
+            for (i = 0; i < (UINT32)numOut; i++) {
+                best = -1;
+                for (k = 0; k < numAlgs; k++) {
+                    if ((UINT32)algList[k].alg < property)
+                        continue;
+                    if (haveLast && (UINT32)algList[k].alg <= lastAlg)
+                        continue;
+                    if (best < 0 || algList[k].alg < algList[best].alg)
+                        best = k;
+                }
+                if (best < 0)
+                    break; /* defensive: no further candidates */
+                TPM2_Packet_AppendU16(rsp, algList[best].alg);
+                TPM2_Packet_AppendU32(rsp, algList[best].attrs);
+                lastAlg = algList[best].alg;
+                haveLast = 1;
+                emitted++;
+            }
+            FwPatchU32BE(rsp->buf, countPos, (UINT32)emitted);
             break;
         }
 
@@ -1180,14 +1244,51 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Iterate the single source-of-truth dispatch table instead of
              * a parallel hand-maintained list. */
             int numCmds = FwGetCmdCount();
-            if (propertyCount < (UINT32)numCmds)
-                numCmds = (int)propertyCount;
+            int avail = 0;
+            int numOut;
+            int k, best;
+            int emitted = 0, countPos;
+            UINT32 cc, bestCc = 0, lastCc = 0;
+            int haveLast = 0;
 
-            TPM2_Packet_AppendU32(rsp, (UINT32)numCmds);
-            for (i = 0; i < (UINT32)numCmds; i++) {
-                TPM2_Packet_AppendU32(rsp,
-                    (UINT32)FwGetCmdCcAt((int)i) & 0x0000FFFF);
+            /* Honor the property cursor and page in ascending command-code
+             * order (the dispatch table is not sorted); see TPM_CAP_ALGS
+             * above for the rationale. */
+            for (k = 0; k < numCmds; k++) {
+                cc = (UINT32)FwGetCmdCcAt(k) & FW_CC_MASK;
+                if (cc >= property)
+                    avail++;
             }
+            numOut = avail;
+            if ((UINT32)numOut > propertyCount)
+                numOut = (int)propertyCount;
+            if (avail > numOut)
+                rsp->buf[moreDataPos] = 1; /* YES - more entries remain */
+
+            /* Reserve the count and back-patch it to entries actually emitted. */
+            countPos = rsp->pos;
+            TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
+            for (i = 0; i < (UINT32)numOut; i++) {
+                best = -1;
+                for (k = 0; k < numCmds; k++) {
+                    cc = (UINT32)FwGetCmdCcAt(k) & FW_CC_MASK;
+                    if (cc < property)
+                        continue;
+                    if (haveLast && cc <= lastCc)
+                        continue;
+                    if (best < 0 || cc < bestCc) {
+                        best = k;
+                        bestCc = cc;
+                    }
+                }
+                if (best < 0)
+                    break; /* defensive: no further candidates */
+                TPM2_Packet_AppendU32(rsp, bestCc);
+                lastCc = bestCc;
+                haveLast = 1;
+                emitted++;
+            }
+            FwPatchU32BE(rsp->buf, countPos, (UINT32)emitted);
             break;
         }
 
@@ -1316,6 +1417,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if ((UINT32)numOut > propertyCount)
                 numOut = (int)propertyCount;
 
+            /* Truncated (start offset or propertyCount cap): flag moreData=YES. */
+            if (startIdx + numOut < totalProps)
+                rsp->buf[moreDataPos] = 1; /* YES */
+
             TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
             for (i = 0; i < (UINT32)numOut; i++) {
                 UINT32 prop = allProps[startIdx + i].prop;
@@ -1355,24 +1460,65 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
 
         case TPM_CAP_PCR_PROPERTIES: {
-            int numBanks = FWTPM_PCR_BANKS;
-            if (propertyCount < (UINT32)numBanks)
-                numBanks = (int)propertyCount;
+            /* Emit a TPML_TAGGED_PCR_PROPERTY from the per-PCR locality table so
+             * this report matches the reset/extend enforcement above (kind =
+             * FW_PCR_KIND_*). */
+            static const struct { UINT32 tag; byte kind; byte loc; } pcrProps[] = {
+                { TPM_PT_PCR_SAVE,       FW_PCR_KIND_SAVE,       0 },
+                { TPM_PT_PCR_EXTEND_L0,  FW_PCR_KIND_EXTEND,     0 },
+                { TPM_PT_PCR_RESET_L0,   FW_PCR_KIND_RESET,      0 },
+                { TPM_PT_PCR_EXTEND_L1,  FW_PCR_KIND_EXTEND,     1 },
+                { TPM_PT_PCR_RESET_L1,   FW_PCR_KIND_RESET,      1 },
+                { TPM_PT_PCR_EXTEND_L2,  FW_PCR_KIND_EXTEND,     2 },
+                { TPM_PT_PCR_RESET_L2,   FW_PCR_KIND_RESET,      2 },
+                { TPM_PT_PCR_EXTEND_L3,  FW_PCR_KIND_EXTEND,     3 },
+                { TPM_PT_PCR_RESET_L3,   FW_PCR_KIND_RESET,      3 },
+                { TPM_PT_PCR_EXTEND_L4,  FW_PCR_KIND_EXTEND,     4 },
+                { TPM_PT_PCR_RESET_L4,   FW_PCR_KIND_RESET,      4 },
+                { TPM_PT_PCR_DRTM_RESET, FW_PCR_KIND_DRTM_RESET, 4 }
+            };
+            int totalProps = (int)(sizeof(pcrProps) / sizeof(pcrProps[0]));
+            int startIdx = 0;
+            int numOut, p, set;
+            UINT32 ii;
+            UINT32 tag;
+            byte kind, loc;
+            byte sel[PCR_SELECT_MAX];
 
-            TPM2_Packet_AppendU32(rsp, (UINT32)numBanks);
-            if (numBanks > 0) {
-                TPM2_Packet_AppendU32(rsp, TPM_ALG_SHA256);
-                TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
+            for (startIdx = 0; startIdx < totalProps; startIdx++) {
+                if (pcrProps[startIdx].tag >= property)
+                    break;
             }
-            if (numBanks > 1) {
-                TPM2_Packet_AppendU32(rsp, TPM_ALG_SHA384);
+            numOut = totalProps - startIdx;
+            if (numOut < 0)
+                numOut = 0;
+            if ((UINT32)numOut > propertyCount)
+                numOut = (int)propertyCount;
+
+            /* Truncated (start offset or propertyCount cap): flag moreData=YES. */
+            if (startIdx + numOut < totalProps)
+                rsp->buf[moreDataPos] = 1; /* YES */
+
+            TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
+            for (ii = 0; ii < (UINT32)numOut; ii++) {
+                tag  = pcrProps[startIdx + ii].tag;
+                kind = pcrProps[startIdx + ii].kind;
+                loc  = pcrProps[startIdx + ii].loc;
+                XMEMSET(sel, 0, sizeof(sel));
+                for (p = 0; p < IMPLEMENTATION_PCR; p++) {
+                    if (kind == FW_PCR_KIND_SAVE)
+                        set = (p < FWTPM_PCR_SAVE_COUNT);
+                    else if (kind == FW_PCR_KIND_DRTM_RESET)
+                        set = FwPcrLocalityAllowed(p, WOLFTPM_LOCALITY_MAX, 1);
+                    else
+                        set = FwPcrLocalityAllowed(p, (int)loc, (int)kind);
+                    if (set)
+                        sel[p / 8] |= (byte)(1u << (p % 8));
+                }
+                TPM2_Packet_AppendU32(rsp, tag);
                 TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
-                TPM2_Packet_AppendU8(rsp, 0xFF);
+                for (p = 0; p < PCR_SELECT_MAX; p++)
+                    TPM2_Packet_AppendU8(rsp, sel[p]);
             }
             break;
         }
@@ -1442,8 +1588,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
             /* Other classes (PCR, permanent): report 0 */
 
-            if ((UINT32)count > propertyCount)
+            if ((UINT32)count > propertyCount) {
                 count = (int)propertyCount;
+                rsp->buf[moreDataPos] = 1; /* YES - more handles available */
+            }
             TPM2_Packet_AppendU32(rsp, (UINT32)count);
             if (count > 0) {
                 int emitted = 0;
@@ -1777,6 +1925,55 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 }
 
 /* --- TPM2_PCR_Extend (CC 0x0182) --- */
+/* Per-PCR reset/extend locality bitmaps (bit L = locality L is allowed), the
+ * single source of truth for enforcement and the TPM_CAP_PCR_PROPERTIES report.
+ * Matches ibmswtpm2 PlatformPCR.c s_initAttributes and the ST33 GetCapability
+ * dump (loc2 reset of PCR 20-22 hardware-confirmed over SPI).
+ *   reset:  0-15 never; 16,23 loc0-3; 17-19 loc4; 20-22 loc2-4.
+ *   extend: 0-16,23 any; 17,18 loc2-4; 19 loc2-3; 20 loc1-3; 21,22 loc2. */
+static const byte fwPcrResetLocality[IMPLEMENTATION_PCR] = {
+    /*  0- 7 */ 0, 0, 0, 0, 0, 0, 0, 0,
+    /*  8-15 */ 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 16 */ 0x0F,   /* loc0-3 */
+    /* 17 */ 0x10,   /* loc4 */
+    /* 18 */ 0x10,   /* loc4 */
+    /* 19 */ 0x10,   /* loc4 */
+    /* 20 */ 0x1C,   /* loc2-4 */
+    /* 21 */ 0x1C,   /* loc2-4 */
+    /* 22 */ 0x1C,   /* loc2-4 */
+    /* 23 */ 0x0F    /* loc0-3 */
+};
+
+static const byte fwPcrExtendLocality[IMPLEMENTATION_PCR] = {
+    /*  0- 7 */ 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, /* any */
+    /*  8-15 */ 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, /* any */
+    /* 16 */ 0x1F,   /* any */
+    /* 17 */ 0x1C,   /* loc2-4 */
+    /* 18 */ 0x1C,   /* loc2-4 */
+    /* 19 */ 0x0C,   /* loc2-3 */
+    /* 20 */ 0x0E,   /* loc1-3 */
+    /* 21 */ 0x04,   /* loc2 */
+    /* 22 */ 0x04,   /* loc2 */
+    /* 23 */ 0x1F    /* any */
+};
+
+/* Return 1 if locality may reset (isReset != 0) or extend (isReset == 0) the
+ * given PCR, else 0; out-of-range PCR or locality is rejected. */
+static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset)
+{
+    byte mask;
+
+    if (pcrIndex < 0 || pcrIndex >= IMPLEMENTATION_PCR) {
+        return 0;
+    }
+    if (locality < 0 || locality > WOLFTPM_LOCALITY_MAX) {
+        return 0;
+    }
+    mask = isReset ? fwPcrResetLocality[pcrIndex]
+                   : fwPcrExtendLocality[pcrIndex];
+    return (mask & (byte)(1u << locality)) ? 1 : 0;
+}
+
 static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -1798,6 +1995,15 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         TPM2_Packet_ParseU32(cmd, &pcrHandle);
         if (pcrHandle > PCR_LAST) {
             rc = TPM_RC_VALUE;
+        }
+    }
+
+    /* Enforce the per-PCR extend locality (e.g. DRTM PCRs 17-22 cannot be
+     * extended from locality 0). Same source-of-truth table as PCR_Reset. */
+    if (rc == 0) {
+        pcrIndex = pcrHandle - PCR_FIRST;
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
+            rc = TPM_RC_LOCALITY;
         }
     }
 
@@ -1891,28 +2097,13 @@ static TPM_RC FwCmd_PCR_Reset(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         }
     }
 
+    /* Enforce reset locality from the source-of-truth table (PCR 0-15 never
+     * user-resettable, reset only via TPM2_Startup(CLEAR); DRTM PCRs restricted).
+     * Without this a caller at locality 0 could wipe DRTM PCRs and defeat
+     * attestation policies sealed to them. */
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        /* PCR 0-15 (SRTM) are not user-resettable per TPM 2.0 Part 2
-         * Table 3-8; they reset only via TPM2_Startup(CLEAR). */
-        if (pcrIndex < 16) {
-            rc = TPM_RC_LOCALITY;
-        }
-    }
-
-    /* Per TCG PC Client TPM Profile Table 5, PCR_Reset locality rules
-     * for indices 16..23 are:
-     *   16, 23 — any locality
-     *   17     — locality 4 only (DRTM MLE)
-     *   18..22 — locality 3 or 4 (DRTM ACM/OS)
-     * Without this check any caller at locality 0 can wipe DRTM PCRs
-     * and defeat attestation policies sealed to them. */
-    if (rc == 0) {
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 1)) {
             rc = TPM_RC_LOCALITY;
         }
     }
@@ -1968,15 +2159,11 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
-    /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
-     * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
+    /* PCR_Event extends the target PCR, so enforce the extend locality from
+     * the source-of-truth table (DRTM PCRs 17-22 are restricted). */
     if (rc == 0) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
             rc = TPM_RC_LOCALITY;
         }
     }
@@ -7885,13 +8072,9 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Extend the result into the PCR */
     if (rc == 0 && pcrHandle <= PCR_LAST) {
         pcrIndex = pcrHandle - PCR_FIRST;
-        /* DRTM PCRs are locality-restricted (Part 1 Sec.11.4.6):
-         * PCR 17 requires locality 4; PCRs 18-22 require locality 3 or 4. */
-        if (pcrIndex == 17 && ctx->activeLocality != 4) {
-            rc = TPM_RC_LOCALITY;
-        }
-        else if (pcrIndex >= 18 && pcrIndex <= 22 &&
-                ctx->activeLocality != 3 && ctx->activeLocality != 4) {
+        /* This extends the target PCR, so enforce the extend locality from the
+         * source-of-truth table (DRTM PCRs 17-22 are restricted). */
+        if (!FwPcrLocalityAllowed(pcrIndex, ctx->activeLocality, 0)) {
             rc = TPM_RC_LOCALITY;
         }
         bank = FwGetPcrBankIndex(seqHashAlg);
@@ -16341,7 +16524,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 }
                 /* Enforce any PolicyLocality constraint bound to the session */
                 if (pSess->hasRequiredLocality &&
-                    (ctx->activeLocality > 4 ||
+                    (ctx->activeLocality > WOLFTPM_LOCALITY_MAX ||
                      !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
                     *rspSize = FwBuildErrorResponse(rspBuf,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);

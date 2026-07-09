@@ -474,6 +474,34 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_ST33"
 fi
 
+# Optional TPM hardware reset (nRST) HAL control via Linux GPIO char device.
+# Accepts an optional GPIO line number (default ST33 GPIO24 / Pi pin 18, Nuvoton GPIO4).
+AC_ARG_ENABLE([hal-reset],
+    [AS_HELP_STRING([--enable-hal-reset@<:@=LINE@:>@],[Enable TPM nRST reset HAL (optional GPIO line; default ST33 GPIO24, Nuvoton GPIO4) (default: disabled)])],
+    [ ENABLED_HAL_RESET=$enableval ],
+    [ ENABLED_HAL_RESET=no ]
+    )
+if test "x$ENABLED_HAL_RESET" != "xno"
+then
+    # The reset HAL implementation (hal/tpm_io.c) only builds for the SPI/I2C
+    # example HAL, not the native kernel (/dev/tpm0) or swtpm transports, so
+    # reject those combinations rather than report "yes" with no callable API.
+    # Note swtpm is the default on Linux x86_64/aarch64, so the hardware reset
+    # HAL requires explicitly selecting a hardware interface (--enable-spi/-i2c).
+    if test "x$ENABLED_DEVTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"
+    then
+        AC_MSG_ERROR([--enable-hal-reset needs the SPI/I2C hardware HAL; it is not available with the swtpm simulator (default on Linux x86_64/aarch64) or --enable-devtpm. Select a hardware interface, e.g. --enable-spi or --enable-i2c.])
+    fi
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_HAL_RESET"
+    case "x$ENABLED_HAL_RESET" in
+        xyes) ;;
+        x|x*[[!0-9]]*)
+            AC_MSG_ERROR([--enable-hal-reset=LINE requires a numeric GPIO line number (e.g. --enable-hal-reset=24).]) ;;
+        *) AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_RESET_LINE=$ENABLED_HAL_RESET" ;;
+    esac
+    ENABLED_HAL_RESET=yes
+fi
+
 # Microchip ATTPM20
 AC_ARG_ENABLE([mchp],,
     [ ENABLED_MCHP=$enableval ],
@@ -1132,6 +1160,7 @@ if test "x$ENABLED_SWTPM" = "xyes"; then
 fi
 echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
+echo "   * HAL Reset (nRST GPIO):     $ENABLED_HAL_RESET"
 
 echo "   * Infineon SLB967X           $ENABLED_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST"

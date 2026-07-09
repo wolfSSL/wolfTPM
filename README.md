@@ -365,6 +365,10 @@ TLS_BENCH_MODE          Enables TLS benchmarking mode.
 NO_TPM_BENCH            Disables the TPM benchmarking example.
 WOLFTPM_MAX_RETRIES     Default number of times a command is transparently resubmitted when the TPM returns TPM_RC_RETRY (momentarily busy, e.g. persisting the daUsed flag on first auth use of an externally provisioned non-noDA AIK/SUDI key). Disabled by default (0); opt in with TPM2_SetCommandRetries() at runtime or -DWOLFTPM_MAX_RETRIES=N at build time. wolfTPM's own key templates set noDA and never trigger it.
 WOLFTPM_NO_RETRY        Compiles out the TPM_RC_RETRY auto-resubmit handling entirely; TPM_RC_RETRY is returned to the caller for manual handling.
+WOLFTPM_LOCALITY_DEFAULT  Default TIS locality requested at startup (default 0). Runtime override via wolfTPM2_SetLocality() on SPI/memory-mapped and swtpm transports. The I2C HAL addresses only locality 0 (the TIS locality lives in address bits 12+, which the 8-bit I2C register address cannot carry), so a non-zero wolfTPM2_SetLocality() on I2C returns NOT_COMPILED_IN rather than silently operating at locality 0.
+WOLFTPM_TIS_RESET_STALE_LOCALITY  At startup, release any other active locality so the default can be granted - recovers a wedge left when a prior session did not return to locality 0. Off by default; single-master buses only, since on a shared bus it could clear a locality another master holds (or use the nRST reset HAL to recover).
+WOLFTPM_LOCALITY_TIMEOUT_TRIES  Poll attempts when requesting a locality at runtime (default 1000). Kept small so a locality that cannot be granted fails fast.
+WOLFTPM_RESET_LINE      nRST GPIO line number for the optional reset HAL; set via --enable-hal-reset=LINE and driven with TPM2_IoCb_Reset() (see hal/README.md).
 ```
 
 Note: For the I2C support on Raspberry Pi you may need to enable I2C. Here are the steps:
@@ -400,6 +404,8 @@ make
 ```
 
 Note: The `--enable-firmware` option enables firmware upgrade support for ST33 TPMs. This adds the `st33_fw_update` example tool for performing firmware updates.
+
+Raspberry Pi wiring: ST33KTPM2X SPI is on `/dev/spidev0.0` with `nRST` (active low) on GPIO24 (pin 18); Nuvoton uses GPIO4. Optionally drive nRST from code with `--enable-hal-reset` and `TPM2_IoCb_Reset()` (see `hal/README.md`).
 
 ### Building Microchip ATTPM20
 

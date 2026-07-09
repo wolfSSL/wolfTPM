@@ -265,7 +265,7 @@ int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
         rc = TPM2_TIS_Read(ctx, TPM_ACCESS(0), &access, sizeof(access));
         /* if chip isn't present MISO will be high and return 0xFF */
         if (rc == TPM_RC_SUCCESS && (access & TPM_ACCESS_VALID) &&
-                (access != 0xFF)) {
+                (access != TPM_TIS_ACCESS_INVALID)) {
             return TPM_RC_SUCCESS;
         }
         XTPM_WAIT();
@@ -286,7 +286,10 @@ int TPM2_TIS_CheckLocality(TPM2_CTX* ctx, int locality, byte* access)
 static int TPM2_TIS_CheckLocalityAccessValid(TPM2_CTX* ctx, int locality,
     byte access)
 {
-    if ((access & (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) ==
+    /* Reject a floating/unimplemented locality (see TPM_TIS_ACCESS_INVALID);
+     * otherwise e.g. an unsupported locality 4 would look active. */
+    if (access != TPM_TIS_ACCESS_INVALID &&
+        (access & (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) ==
                   (TPM_ACCESS_ACTIVE_LOCALITY | TPM_ACCESS_VALID)) {
         ctx->locality = locality;
         return locality;
@@ -294,10 +297,9 @@ static int TPM2_TIS_CheckLocalityAccessValid(TPM2_CTX* ctx, int locality,
     return -1;
 }
 
-int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
+int TPM2_TIS_RequestLocalityEx(TPM2_CTX* ctx, int locality, int timeout)
 {
     int rc;
-    int locality = WOLFTPM_LOCALITY_DEFAULT;
     byte access = 0;
 
     rc = TPM2_TIS_CheckLocality(ctx, locality, &access);
@@ -328,6 +330,43 @@ int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
     }
 
     return rc;
+}
+
+int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
+{
+    int locality = WOLFTPM_LOCALITY_DEFAULT;
+#ifdef WOLFTPM_TIS_RESET_STALE_LOCALITY
+    int l;
+    byte access = 0;
+
+    /* Recover a wedge (see WOLFTPM_TIS_RESET_STALE_LOCALITY in tpm2_tis.h): if
+     * the default locality is not active, release any other active one so it
+     * can be granted instead of spinning to timeout. */
+    if (TPM2_TIS_CheckLocality(ctx, locality, &access) == TPM_RC_SUCCESS &&
+            (access & TPM_ACCESS_ACTIVE_LOCALITY) == 0) {
+        for (l = 0; l <= WOLFTPM_LOCALITY_MAX; l++) {
+            if (l == locality) {
+                continue;
+            }
+            access = 0;
+            if (TPM2_TIS_CheckLocality(ctx, l, &access) == TPM_RC_SUCCESS &&
+                    access != TPM_TIS_ACCESS_INVALID &&
+                    (access & TPM_ACCESS_ACTIVE_LOCALITY)) {
+                (void)TPM2_TIS_ReleaseLocality(ctx, l);
+            }
+        }
+    }
+#endif /* WOLFTPM_TIS_RESET_STALE_LOCALITY */
+
+    return TPM2_TIS_RequestLocalityEx(ctx, locality, timeout);
+}
+
+int TPM2_TIS_ReleaseLocality(TPM2_CTX* ctx, int locality)
+{
+    /* Relinquish the locality by writing the active locality bit. The TPM
+     * clears its active locality so another locality can be requested. */
+    byte access = TPM_ACCESS_ACTIVE_LOCALITY;
+    return TPM2_TIS_Write(ctx, TPM_ACCESS(locality), &access, sizeof(access));
 }
 
 int TPM2_TIS_GetInfo(TPM2_CTX* ctx)

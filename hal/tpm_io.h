@@ -145,6 +145,15 @@ WOLFTPM_LOCAL int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
 #endif
 
+#ifdef WOLFTPM_HAL_RESET
+/* Optional TPM hardware reset (nRST) control. Pulses the reset line to reset
+ * the TPM. Enable with --enable-hal-reset (-DWOLFTPM_HAL_RESET). */
+WOLFTPM_API int TPM2_IoCb_Reset(TPM2_CTX* ctx, void* userCtx);
+#if defined(__linux__)
+WOLFTPM_LOCAL int TPM2_IoCb_Linux_Reset(TPM2_CTX* ctx, void* userCtx);
+#endif
+#endif
+
 #endif /* WOLFTPM_EXAMPLE_HAL */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 

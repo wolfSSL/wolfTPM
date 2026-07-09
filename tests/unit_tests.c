@@ -516,6 +516,37 @@ static void test_TPM2_Policy_NULL_Args(void)
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");
 }
 
+static void test_wolfTPM2_SetLocality(void)
+{
+    int rc = 0;
+    WOLFTPM2_DEV dev;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+
+    /* Argument validation. The Linux-kernel driver and Windows TBS backends
+     * return NOT_COMPILED_IN before validating args, so only assert
+     * BAD_FUNC_ARG on the SWTPM and built-in TIS backends. */
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
+    rc = wolfTPM2_SetLocality(NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SetLocality(&dev, -1);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    rc = wolfTPM2_SetLocality(&dev, 5);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+#endif
+
+#if defined(WOLFTPM_SWTPM)
+    /* SWTPM/mssim record-only path: records the locality for subsequent
+     * commands with no TIS handshake, so it needs no live connection. */
+    rc = wolfTPM2_SetLocality(&dev, 2);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(dev.ctx.locality, 2);
+#endif
+    (void)rc;
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "SetLocality args/SWTPM:");
+}
+
 static void test_wolfTPM2_PolicyAuthValue_AuthOffset(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -4274,7 +4305,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
      * post-hoc skip-check can't catch it. Query capabilities up front. */
     if (!test_tpm_alg_supported(hashAlg)) {
         printf("Hash alg 0x%x not supported by TPM... Skipping\n", hashAlg);
-        return;
+        goto exit;
     }
 
     /* -- Use TPM key to sign and verify with wolfCrypt -- */
@@ -4294,11 +4325,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     }
     if ((rc & TPM_RC_HASH) == TPM_RC_HASH) {
         printf("Hash type not supported... Skipping\n");
-        return;
+        goto exit;
     }
     if ((rc & TPM_RC_CURVE) == TPM_RC_CURVE) {
         printf("Curve not supported... Skipping\n");
-        return;
+        goto exit;
     }
     AssertIntEQ(rc, 0);
 
@@ -4399,11 +4430,15 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     printf("Test TPM Wrapper: %-40s %s\n", nameBuf,
         rc == 0 ? "Passed" : "Failed");
 
+exit:
 #ifdef WOLF_CRYPTO_CB
+    /* Unregister on every path (incl. skips) so a leaked registration does
+     * not make the next SetCryptoDevCb return ALREADY_E on wolfSSL 5.9.2+. */
     if (flags & FLAGS_USE_CRYPTO_CB) {
         wolfTPM2_ClearCryptoDevCb(dev, tpmDevId);
     }
 #endif
+    (void)tpmDevId;
 }
 
 static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
@@ -6307,6 +6342,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_HashFinish_BufferTooSmall();
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
+    test_wolfTPM2_SetLocality();
     test_wolfTPM2_PolicyAuthValue_AuthOffset();
     test_wolfTPM2_SetAuthHandle_PolicyAuthOffset();
     test_wolfTPM2_StartSession_SaltedEncryptAttrs();

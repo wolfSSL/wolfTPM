@@ -211,8 +211,11 @@ examples/firmware/*.MANIFESTHASH
 # Firmware TPM files
 src/fwtpm/fwtpm_server
 fwtpm_nv.bin
+fwtpm_nv.bin.key
 fwtpm_test_nv.bin
 fwtpm_test_nv.bin.key
+# Catch any NV integrity-key sidecar the fwTPM auto-generates
+*.bin.key
 
 # Fuzz artifacts (corpus generated at runtime by gen_corpus.py)
 tests/fuzz/corpus/

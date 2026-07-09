@@ -43,14 +43,19 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/pcr/reset [pcr]\n");
+    printf("./examples/pcr/reset [pcr] [-loc=n]\n");
     printf("* pcr is a PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
+    printf("* -loc=n switch to TPM locality n (0-4) before reset\n");
+    printf("    (PCR 17-19 need locality 4; 20-22 need locality 2-4;\n");
+    printf("     enforced by the fwTPM and by discrete TPMs like the ST33)\n");
     printf("Demo usage without parameters, resets PCR%d.\n", TPM2_TEST_PCR);
 }
 
 int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
 {
     int i, j, pcrIndex = TPM2_TEST_PCR, rc = -1;
+    int locality = -1; /* -1 means leave at default locality */
+    int localitySwitched = 0;
     WOLFTPM2_DEV dev;
 
     union {
@@ -63,21 +68,31 @@ int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
         byte maxOutput[MAX_RESPONSE_SIZE];
     } cmdOut;
 
-    if (argc == 2) {
-        pcrIndex = XATOI(argv[1]);
-        if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
-            printf("PCR index is out of range (0-23)\n");
+    /* Parse arguments: an optional PCR index and an optional -loc=n flag */
+    for (i = 1; i < argc; i++) {
+        if (XSTRNCMP(argv[i], "-loc=", 5) == 0) {
+            /* Require exactly one digit 0-4; XATOI would silently map
+             * non-numeric input (e.g. -loc=abc or -loc=) to locality 0. */
+            if (argv[i][5] < '0' || argv[i][5] > '4' || argv[i][6] != '\0') {
+                printf("Locality is out of range (0-4)\n");
+                usage();
+                goto exit_badargs;
+            }
+            locality = argv[i][5] - '0';
+        }
+        else if (argv[i][0] >= '0' && argv[i][0] <= '9') {
+            pcrIndex = XATOI(argv[i]);
+            if (pcrIndex < 0 || pcrIndex > 23) {
+                printf("PCR index is out of range (0-23)\n");
+                usage();
+                goto exit_badargs;
+            }
+        }
+        else {
+            printf("Incorrect arguments\n");
             usage();
             goto exit_badargs;
         }
-    }
-    else if (argc == 1) {
-        pcrIndex = TPM2_TEST_PCR;
-    }
-    else {
-        printf("Incorrect arguments\n");
-        usage();
-        goto exit_badargs;
     }
 
     printf("Demo how to reset a PCR (clear PCR value)\n");
@@ -87,6 +102,18 @@ int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
+
+    if (locality >= 0) {
+        printf("Switching to locality %d...\n", locality);
+        rc = wolfTPM2_SetLocality(&dev, locality);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("wolfTPM2_SetLocality(%d) failed 0x%x: %s\n", locality, rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+        printf("wolfTPM2_SetLocality: now at locality %d\n", locality);
+        localitySwitched = 1;
+    }
 
     /* Prepare PCR Reset command */
     XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));
@@ -115,6 +142,13 @@ int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
     }
 
 exit:
+
+    /* Return to the default locality so a non-zero one is not left active
+     * (which would block the next TPM startup on TPMs that do not preempt).
+     * Only when a switch actually succeeded - never on a failed Init. */
+    if (localitySwitched) {
+        (void)wolfTPM2_SetLocality(&dev, 0);
+    }
 
     wolfTPM2_Cleanup(&dev);
 
