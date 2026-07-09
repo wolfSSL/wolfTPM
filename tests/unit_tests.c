@@ -1353,6 +1353,12 @@ static void test_TPM2_KDFe(void)
     byte key[TEST_KDFE_KEYSZ];
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     byte key2[TEST_KDFE_KEYSZ];
+    /* KAT: SHA256(counter(1) || Z || "IDENTITY\0" || partyU || partyV) */
+    const byte keyExp[TEST_KDFE_KEYSZ] = {
+        0x36, 0xa3, 0xbc, 0x51, 0x5f, 0xe0, 0x12, 0xb8,
+        0x1b, 0xac, 0x81, 0xd6, 0x21, 0x83, 0x74, 0x75,
+        0xb9, 0x17, 0xf8, 0x9b, 0xcd, 0x94, 0xd4, 0xa3,
+        0xa3, 0x7f, 0x31, 0x49, 0xaa, 0xe2, 0x9b, 0xa1};
 #endif
 
     rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
@@ -1362,6 +1368,8 @@ static void test_TPM2_KDFe(void)
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else
     AssertIntEQ((int)sizeof(key), rc);
+    /* Pin the exact output so counter, label and party order are verified */
+    AssertIntEQ(0, XMEMCMP(key, keyExp, sizeof(keyExp)));
     /* Verify deterministic: same inputs produce same output */
     rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
         partyU, sizeof(partyU), partyV, sizeof(partyV),
@@ -1846,6 +1854,12 @@ static void test_TPM2_CalcHmac(void)
     TPM2B_NONCE nonceA, nonceB;
     TPMA_SESSION attr = TPMA_SESSION_continueSession;
     TPM2B_AUTH hmac1, hmac2;
+    /* KAT: HMAC-SHA256("test", 0xAB*32 || 0x11*32 || 0x22*32 || attr(0x01)) */
+    const byte hmacExp[TPM_SHA256_DIGEST_SIZE] = {
+        0x42, 0x7f, 0xbf, 0xe1, 0x1b, 0xc3, 0x4d, 0xff,
+        0x89, 0x73, 0x43, 0x79, 0x8f, 0xb6, 0xaa, 0x88,
+        0xcd, 0xb3, 0xde, 0xae, 0x88, 0x21, 0xe9, 0xe6,
+        0x40, 0x9a, 0x51, 0x3c, 0x68, 0xd5, 0x90, 0xdf};
 
     /* Known auth key */
     auth.size = 4;
@@ -1867,12 +1881,31 @@ static void test_TPM2_CalcHmac(void)
         attr, &hmac1);
     AssertIntEQ(0, rc);
 
+    /* Pin the exact HMAC so the cpHash and sessionAttributes contributions
+     * are verified, not just relative nonce ordering */
+    AssertIntEQ(hmac1.size, (int)sizeof(hmacExp));
+    AssertIntEQ(0, XMEMCMP(hmac1.buffer, hmacExp, sizeof(hmacExp)));
+
     /* Compute HMAC with (nonceB, nonceA) — reversed order */
     rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceB, &nonceA,
         attr, &hmac2);
     AssertIntEQ(0, rc);
 
     /* Reversed nonces MUST produce different HMAC */
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* Changing only the cpHash MUST change the HMAC (binds command params) */
+    XMEMSET(hash.buffer, 0xCD, hash.size);
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        attr, &hmac2);
+    AssertIntEQ(0, rc);
+    AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
+
+    /* Changing only the sessionAttributes MUST change the HMAC */
+    XMEMSET(hash.buffer, 0xAB, hash.size);
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &auth, &hash, &nonceA, &nonceB,
+        (TPMA_SESSION)0, &hmac2);
+    AssertIntEQ(0, rc);
     AssertIntNE(0, XMEMCMP(hmac1.buffer, hmac2.buffer, hmac1.size));
 
     printf("Test TPM Wrapper: %-40s Passed\n", "CalcHmac:");
@@ -2630,6 +2663,174 @@ static void test_TPM2_ParseAttest_NvDigest(void)
         sizeof(digest)), 0);
 
     printf("Test TPM Wrapper:\tParseAttest NV_DIGEST:\t\tPassed\n");
+}
+
+#if defined(WOLFTPM_MFG_IDENTITY) && \
+    !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
+/* On non-ST33 targets, omitting the master password must fail closed rather
+ * than silently deriving auth from the public sample password. */
+static void test_wolfTPM2_SetIdentityAuth_RequiresPassword(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_HANDLE handle;
+    byte pw[16];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&handle, 0, sizeof(handle));
+    XMEMSET(pw, 0x11, sizeof(pw));
+
+    (void)wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+
+    /* NULL / zero-length master password is rejected */
+    rc = wolfTPM2_SetIdentityAuth(&dev, &handle, NULL, 0);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* NULL handle is rejected */
+    rc = wolfTPM2_SetIdentityAuth(&dev, NULL, pw, sizeof(pw));
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tSetIdentityAuth requires password:\tPassed\n");
+}
+#endif /* WOLFTPM_MFG_IDENTITY && !WOLFTPM_ST33 && !WOLFTPM_AUTODETECT */
+
+/* wolfTPM2_EccKey_TpmToWolf must right-align coordinates: a spec-valid TPM
+ * coordinate with a stripped leading-zero byte (size < field size) would be
+ * left-aligned and scaled up, corrupting the imported point. */
+static void test_wolfTPM2_EccKey_TpmToWolf_ShortCoord(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
+    defined(HAVE_ECC_KEY_IMPORT) && defined(HAVE_ECC_KEY_EXPORT) && \
+    !defined(NO_ECC256)
+    int rc;
+    ecc_key impKey;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    byte xImp[32], yImp[32];
+    word32 xImpSz, yImpSz;
+    /* Valid P-256 point whose x has a zero MSB, so the spec-valid stripped
+     * TPM form (size 31) is shorter than the 32-byte field */
+    const byte xRaw[32] = {
+        0x00, 0x4d, 0xb3, 0x2d, 0x25, 0x8e, 0x4d, 0xfd,
+        0x3f, 0x47, 0xdc, 0x30, 0x9f, 0x36, 0x7a, 0x84,
+        0x17, 0x7d, 0x47, 0x71, 0x47, 0x76, 0x5d, 0x04,
+        0xd7, 0x11, 0xca, 0x8f, 0xba, 0x92, 0x2f, 0x2c};
+    const byte yRaw[32] = {
+        0xb3, 0x3d, 0x81, 0xc0, 0x73, 0x66, 0xfd, 0x51,
+        0xd5, 0x6f, 0x53, 0xed, 0xac, 0x11, 0x36, 0x40,
+        0xb0, 0xb5, 0x23, 0xee, 0x7e, 0x32, 0x99, 0x35,
+        0x5e, 0x0d, 0x99, 0xfa, 0xb3, 0x75, 0xc7, 0x57};
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    tpmKey.pub.publicArea.type = TPM_ALG_ECC;
+    tpmKey.pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    tpmKey.pub.publicArea.unique.ecc.x.size = 31; /* leading zero stripped */
+    XMEMCPY(tpmKey.pub.publicArea.unique.ecc.x.buffer, xRaw + 1, 31);
+    tpmKey.pub.publicArea.unique.ecc.y.size = 32;
+    XMEMCPY(tpmKey.pub.publicArea.unique.ecc.y.buffer, yRaw, 32);
+
+    AssertIntEQ(0, wc_ecc_init(&impKey));
+    rc = wolfTPM2_EccKey_TpmToWolf(&dev, &tpmKey, &impKey);
+    AssertIntEQ(0, rc);
+
+    /* Imported point must equal the original full-width coordinates */
+    xImpSz = sizeof(xImp);
+    yImpSz = sizeof(yImp);
+    AssertIntEQ(0, wc_ecc_export_public_raw(&impKey, xImp, &xImpSz,
+        yImp, &yImpSz));
+    AssertIntEQ(0, XMEMCMP(xImp, xRaw, 32));
+    AssertIntEQ(0, XMEMCMP(yImp, yRaw, 32));
+
+    wc_ecc_free(&impKey);
+    printf("Test TPM Wrapper: %-40s Passed\n", "EccKey_TpmToWolf short coord:");
+#endif
+}
+
+/* wolfTPM2_RsaKey_TpmToWolf must preserve the exponent for multi-byte
+ * non-palindromic values. The exponent bytes are big-endian on the wolfCrypt
+ * side, so a little-endian build would corrupt e.g. 0x010003. */
+static void test_wolfTPM2_RsaKey_TpmToWolf_Exponent(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_RSA)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY tpmKey;
+    RsaKey wolfKey;
+    byte eOut[8];
+    byte nOut[256];
+    word32 eOutSz = (word32)sizeof(eOut);
+    word32 nOutSz = (word32)sizeof(nOut);
+    word32 exponent = 0x010003; /* non-palindromic multi-byte exponent */
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+
+    tpmKey.pub.publicArea.type = TPM_ALG_RSA;
+    tpmKey.pub.publicArea.parameters.rsaDetail.exponent = exponent;
+    tpmKey.pub.publicArea.unique.rsa.size = 128;
+    XMEMSET(tpmKey.pub.publicArea.unique.rsa.buffer, 0xC7, 128);
+
+    rc = wc_InitRsaKey(&wolfKey, NULL);
+    AssertIntEQ(0, rc);
+
+    rc = wolfTPM2_RsaKey_TpmToWolf(&dev, &tpmKey, &wolfKey);
+    AssertIntEQ(0, rc);
+
+    rc = wc_RsaFlattenPublicKey(&wolfKey, eOut, &eOutSz, nOut, &nOutSz);
+    AssertIntEQ(0, rc);
+
+    /* Round-trip: decoded exponent must equal the original TPM exponent */
+    AssertIntEQ((int)exponent, (int)wolfTPM2_RsaKey_Exponent(eOut, eOutSz));
+
+    wc_FreeRsaKey(&wolfKey);
+    printf("Test TPM Wrapper: %-40s Passed\n", "RsaKey_TpmToWolf exponent:");
+#endif
+}
+
+/* The ECDH shared-secret copy must reject a TPM response x-coordinate larger
+ * than the caller's output buffer. TPM2_Packet_ParseEccPoint clamps only to
+ * MAX_ECC_KEY_BYTES, so a MITM/crafted response can report a point.x.size
+ * bigger than a curve-sized caller buffer; copying it would overflow. */
+static void test_wolfTPM2_EccZToBuffer(void)
+{
+    int rc;
+    int outSz;
+    TPM2B_ECC_PARAMETER z;
+    byte out[32];
+
+    XMEMSET(&z, 0, sizeof(z));
+    XMEMSET(out, 0, sizeof(out));
+
+    /* Response larger than caller capacity must be rejected, not copied */
+    z.size = (UINT16)(sizeof(out) + 16);
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit response is accepted and reports its own size */
+    z.size = (UINT16)sizeof(out);
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, (int)sizeof(out));
+
+    /* Smaller response shrinks outSz to the response size */
+    z.size = 20;
+    outSz = (int)sizeof(out);
+    rc = wolfTPM2_EccZToBuffer(out, &outSz, &z);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(outSz, 20);
+
+    /* NULL arguments rejected */
+    outSz = (int)sizeof(out);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(NULL, &outSz, &z), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(out, NULL, &z), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_EccZToBuffer(out, &outSz, NULL), BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper:\tECDH shared secret bounds:\tPassed\n");
 }
 
 /* wolfTPM2_LoadEccPublicKey_ex must honor caller-provided scheme, hashAlg
@@ -4053,6 +4254,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     char nameBuf[48];
 #ifdef WOLF_CRYPTO_CB
     TpmCryptoDevCtx tpmCtx;
+    byte badDigest[TPM_MAX_DIGEST_SIZE];
 
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
     tpmCtx.dev = dev;
@@ -4127,6 +4329,20 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     rc = wc_ecc_verify_hash(sig, sigSz, digest, digestSz, &verifyRes, &wolfKey);
     AssertIntEQ(rc, 0);
     AssertIntEQ(verifyRes, 1); /* 1 indicates successful verification */
+
+#ifdef WOLF_CRYPTO_CB
+    /* Drive the invalid-signature branch of the crypto callback: a tampered
+     * digest must return verifyRes == 0 with rc == 0 */
+    if (flags & FLAGS_USE_CRYPTO_CB) {
+        XMEMCPY(badDigest, digest, digestSz);
+        badDigest[0] ^= 0xFF;
+        verifyRes = 1;
+        rc = wc_ecc_verify_hash(sig, sigSz, badDigest, digestSz, &verifyRes,
+            &wolfKey);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ(verifyRes, 0);
+    }
+#endif
 
     /* Cleanup first wolfCrypt key */
     wc_ecc_free(&wolfKey);
@@ -6145,6 +6361,13 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ResponseProcess_ParamSizeOverflow();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
+#if defined(WOLFTPM_MFG_IDENTITY) && \
+    !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
+    test_wolfTPM2_SetIdentityAuth_RequiresPassword();
+#endif
+    test_wolfTPM2_EccKey_TpmToWolf_ShortCoord();
+    test_wolfTPM2_RsaKey_TpmToWolf_Exponent();
+    test_wolfTPM2_EccZToBuffer();
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();

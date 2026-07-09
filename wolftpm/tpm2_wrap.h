@@ -4977,14 +4977,19 @@ WOLFTPM_API int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev,
     \ingroup wolfTPM2_Wrappers
     \brief Set authentication for pre-provisioned identity keys
     \note Used with IAK and IDevID keys on ST33KTPM devices
+    \note On ST33 (or autodetect) builds a NULL masterPassword derives auth from
+        the public sample password; other targets require an explicit
+        masterPassword and return BAD_FUNC_ARG when it is NULL/empty
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
-    \return BAD_FUNC_ARG: check the provided arguments
+    \return BAD_FUNC_ARG: NULL handle, or NULL/empty masterPassword on a
+        non-ST33 build
 
     \param dev pointer to a TPM2_DEV struct
     \param handle pointer to WOLFTPM2_HANDLE for the identity key
-    \param masterPassword pointer to master password data
+    \param masterPassword pointer to master password data (NULL uses the ST33
+        sample password only on ST33-capable builds)
     \param masterPasswordSz size of master password in bytes
 
     \sa wolfTPM2_CreateAndLoadAIK
@@ -5038,6 +5043,9 @@ WOLFTPM_LOCAL int GetKeyTemplateRSA(TPMT_PUBLIC* publicTemplate,
 WOLFTPM_LOCAL int GetKeyTemplateECC(TPMT_PUBLIC* publicTemplate,
     TPM_ALG_ID nameAlg, TPMA_OBJECT objectAttributes, TPM_ECC_CURVE curve,
     TPM_ALG_ID sigScheme, TPM_ALG_ID sigHash);
+
+WOLFTPM_TEST_API int wolfTPM2_EccZToBuffer(byte* out, int* outSz,
+    const TPM2B_ECC_PARAMETER* z);
 
 
 #ifdef WOLFTPM_FIRMWARE_UPGRADE

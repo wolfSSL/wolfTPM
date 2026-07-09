@@ -4615,11 +4615,12 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     exponent = tpmKey->pub.publicArea.parameters.rsaDetail.exponent;
     if (exponent == 0)
         exponent = RSA_DEFAULT_PUBLIC_EXPONENT;
-    e[3] = (exponent >> 24) & 0xFF;
-    e[2] = (exponent >> 16) & 0xFF;
-    e[1] = (exponent >> 8)  & 0xFF;
-    e[0] =  exponent        & 0xFF;
-    eSz = e[3] ? 4 : e[2] ? 3 : e[1] ? 2 : e[0] ? 1 : 0; /* calc size */
+    /* big-endian, matching wc_RsaPublicKeyDecodeRaw and RsaKey_Exponent */
+    e[0] = (exponent >> 24) & 0xFF;
+    e[1] = (exponent >> 16) & 0xFF;
+    e[2] = (exponent >> 8)  & 0xFF;
+    e[3] =  exponent        & 0xFF;
+    eSz = e[0] ? 4 : e[1] ? 3 : e[2] ? 2 : e[3] ? 1 : 0; /* significant bytes */
 
     /* load public key */
     nSz = tpmKey->pub.publicArea.unique.rsa.size;
@@ -4628,8 +4629,8 @@ int wolfTPM2_RsaKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     }
     XMEMCPY(n, tpmKey->pub.publicArea.unique.rsa.buffer, nSz);
 
-    /* load public key portion into wolf RsaKey */
-    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e, eSz, wolfKey);
+    /* load public key portion into wolf RsaKey (pass trailing significant e) */
+    rc = wc_RsaPublicKeyDecodeRaw(n, nSz, e + (sizeof(e) - eSz), eSz, wolfKey);
 
     return rc;
 }
@@ -4798,7 +4799,7 @@ int wolfTPM2_RsaKey_PubPemToTpm(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     ecc_key* wolfKey)
 {
-    int rc, curve_id;
+    int rc, curve_id, keySz;
     byte    qx[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
     byte    qy[WOLFTPM2_WRAP_ECC_KEY_BITS / 8];
     word32  qxSz;
@@ -4812,24 +4813,32 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 
     /* load curve type */
     curve_id = tpmKey->pub.publicArea.parameters.eccDetail.curveID;
+    keySz = wolfTPM2_GetCurveSize(curve_id); /* field size for right-align */
     rc = TPM2_GetWolfCurve(curve_id);
     if (rc < 0)
         return rc;
     curve_id = rc;
+    if (keySz <= 0 || keySz > (int)sizeof(qx)) {
+        return BUFFER_E;
+    }
 
-    /* load public key */
+    /* load public key; right-align each coordinate into the field-size buffer
+     * so wc_ecc_import_unsigned reads the correct big-endian value even when
+     * the TPM stripped leading zero bytes */
     qxSz = tpmKey->pub.publicArea.unique.ecc.x.size;
-    if (qxSz > sizeof(qx) ||
+    if (qxSz > (word32)keySz ||
         qxSz > sizeof(tpmKey->pub.publicArea.unique.ecc.x.buffer)) {
         return BUFFER_E;
     }
-    XMEMCPY(qx, tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
+    XMEMCPY(qx + (keySz - (int)qxSz),
+        tpmKey->pub.publicArea.unique.ecc.x.buffer, qxSz);
     qySz = tpmKey->pub.publicArea.unique.ecc.y.size;
-    if (qySz > sizeof(qy) ||
+    if (qySz > (word32)keySz ||
         qySz > sizeof(tpmKey->pub.publicArea.unique.ecc.y.buffer)) {
         return BUFFER_E;
     }
-    XMEMCPY(qy, tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
+    XMEMCPY(qy + (keySz - (int)qySz),
+        tpmKey->pub.publicArea.unique.ecc.y.buffer, qySz);
 
     /* load public key portion into wolf ecc_key */
     rc = wc_ecc_import_unsigned(wolfKey, qx, qy, NULL, curve_id);
@@ -6320,6 +6329,20 @@ int wolfTPM2_ECDHGenKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* ecdhKey, int curve_id,
     return rc;
 }
 
+/* Copy the ECDH shared secret to the caller buffer, reject if larger */
+int wolfTPM2_EccZToBuffer(byte* out, int* outSz, const TPM2B_ECC_PARAMETER* z)
+{
+    if (out == NULL || outSz == NULL || z == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (z->size > (UINT16)sizeof(z->buffer) || (int)z->size > *outSz) {
+        return BUFFER_E;
+    }
+    *outSz = (int)z->size;
+    XMEMCPY(out, z->buffer, z->size);
+    return TPM_RC_SUCCESS;
+}
+
 /* Generate ephemeral key and compute Z (shared secret) */
 /* One shot API using private key handle to generate key-pair and return
     pub-point and shared secret */
@@ -6360,16 +6383,14 @@ int wolfTPM2_ECDHGen(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
     pubPoint->size = ecdhOut.pubPoint.size;
     wolfTPM2_CopyEccParam(&pubPoint->point.x, &ecdhOut.pubPoint.point.x);
     wolfTPM2_CopyEccParam(&pubPoint->point.y, &ecdhOut.pubPoint.point.y);
-    *outSz = ecdhOut.zPoint.point.x.size;
-    if (*outSz > (int)sizeof(ecdhOut.zPoint.point.x.buffer)) {
-        *outSz = (int)sizeof(ecdhOut.zPoint.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, ecdhOut.zPoint.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhOut.zPoint.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
-        ecdhOut.zPoint.size,
-        ecdhOut.pubPoint.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_KeyGen: zPt %d, pubPt %d\n",
+            ecdhOut.zPoint.size,
+            ecdhOut.pubPoint.size);
+    }
 #endif
 
     TPM2_ForceZero(&ecdhOut, sizeof(ecdhOut));
@@ -6412,14 +6433,12 @@ int wolfTPM2_ECDHGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* privKey,
         return rc;
     }
 
-    *outSz = ecdhZOut.outPoint.point.x.size;
-    if (*outSz > (int)sizeof(ecdhZOut.outPoint.point.x.buffer)) {
-        *outSz = (int)sizeof(ecdhZOut.outPoint.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, ecdhZOut.outPoint.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &ecdhZOut.outPoint.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ECDH_ZGen: zPt %d\n", ecdhZOut.outPoint.size);
+    }
 #endif
 
     TPM2_ForceZero(&ecdhZOut, sizeof(ecdhZOut));
@@ -6504,14 +6523,12 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
         return rc;
     }
 
-    *outSz = outZGen2Ph.outZ2.point.x.size;
-    if (*outSz > (int)sizeof(outZGen2Ph.outZ2.point.x.buffer)) {
-        *outSz = (int)sizeof(outZGen2Ph.outZ2.point.x.buffer); /* truncate */
-    }
-    XMEMCPY(out, outZGen2Ph.outZ2.point.x.buffer, *outSz);
+    rc = wolfTPM2_EccZToBuffer(out, outSz, &outZGen2Ph.outZ2.point.x);
 
 #ifdef DEBUG_WOLFTPM
-    printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_ZGen_2Phase: zPt %d\n", outZGen2Ph.outZ2.size);
+    }
 #endif
 
     TPM2_ForceZero(&outZGen2Ph, sizeof(outZGen2Ph));
@@ -10820,10 +10837,12 @@ int wolfTPM2_PolicyAuthorizeMake(TPM_ALG_ID pcrAlg,
 /* pre-provisioned IAK and IDevID key/cert from TPM vendor */
 #ifdef WOLFTPM_MFG_IDENTITY
 
+#if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
 static const uint8_t TPM2_IAK_SAMPLE_MASTER_PASSWORD[] = {
     0xFE, 0xEF, 0x8C, 0xDF, 0x1B, 0x77, 0xBD, 0x00,
     0x30, 0x58, 0x5E, 0x47, 0xB8, 0x21, 0x46, 0x0B
 };
+#endif
 
 int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     uint8_t* masterPassword, uint16_t masterPasswordSz)
@@ -10833,6 +10852,18 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     wc_HashAlg hash_ctx;
     enum wc_HashType hashType = WC_HASH_TYPE_SHA256;
     uint8_t digest[TPM_SHA256_DIGEST_SIZE];
+
+    if (handle == NULL) {
+        return BAD_FUNC_ARG;
+    }
+
+#if !defined(WOLFTPM_ST33) && !defined(WOLFTPM_AUTODETECT)
+    /* The sample master password only provisions ST33 sample parts; require an
+     * explicit secret on other targets rather than deriving from a public value */
+    if (masterPassword == NULL || masterPasswordSz == 0) {
+        return BAD_FUNC_ARG;
+    }
+#endif
 
     /* Get TPM serial number */
     rc = TPM2_GetProductInfo(serialNum, (uint16_t)sizeof(serialNum));
@@ -10853,21 +10884,25 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
     if (rc == 0) {
         rc = wc_HashUpdate(&hash_ctx, hashType, serialNum, sizeof(serialNum));
         if (rc == 0) {
-            if (masterPassword == NULL || masterPasswordSz == 0) {
+            if (masterPassword != NULL && masterPasswordSz > 0) {
+                rc = wc_HashUpdate(&hash_ctx, hashType,
+                    masterPassword, masterPasswordSz);
+            }
+        #if defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)
+            else {
                 rc = wc_HashUpdate(&hash_ctx, hashType,
                     TPM2_IAK_SAMPLE_MASTER_PASSWORD,
                     sizeof(TPM2_IAK_SAMPLE_MASTER_PASSWORD));
             }
-            else {
-                rc = wc_HashUpdate(&hash_ctx, hashType,
-                    masterPassword, masterPasswordSz);
-            }
+        #endif
         }
         if (rc == 0) {
             rc = wc_HashFinal(&hash_ctx, hashType, digest);
         }
 
         wc_HashFree(&hash_ctx, hashType);
+        /* scrub the hash state: it retains trailing plaintext of the input */
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
     /* Only copy digest to handle auth when hashing succeeded — otherwise

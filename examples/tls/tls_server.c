@@ -343,12 +343,11 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
         /* Attempt to use pre-provisioned identity key */
         rc = wolfTPM2_ReadPublicKey(&dev, &eccKey, TPM2_IDEVID_KEY_HANDLE);
         if (rc == 0) {
-            /* Custom should supply their own custom master password used during
-             * device provisioning. If using a sample TPM supply NULL to use the
-             * default password. */
-            wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
+            /* NULL uses the sample password on ST33 builds; else supply your
+             * own provisioning password (or this falls back to a key) */
+            rc = wolfTPM2_SetIdentityAuth(&dev, &eccKey.handle, NULL, 0);
         }
-        else
+        if (rc != 0)
     #endif
         {
             /* Create/Load ECC key for TLS authentication */
