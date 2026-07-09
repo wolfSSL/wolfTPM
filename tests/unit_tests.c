@@ -4305,7 +4305,7 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
      * post-hoc skip-check can't catch it. Query capabilities up front. */
     if (!test_tpm_alg_supported(hashAlg)) {
         printf("Hash alg 0x%x not supported by TPM... Skipping\n", hashAlg);
-        return;
+        goto exit;
     }
 
     /* -- Use TPM key to sign and verify with wolfCrypt -- */
@@ -4325,11 +4325,11 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     }
     if ((rc & TPM_RC_HASH) == TPM_RC_HASH) {
         printf("Hash type not supported... Skipping\n");
-        return;
+        goto exit;
     }
     if ((rc & TPM_RC_CURVE) == TPM_RC_CURVE) {
         printf("Curve not supported... Skipping\n");
-        return;
+        goto exit;
     }
     AssertIntEQ(rc, 0);
 
@@ -4430,11 +4430,15 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     printf("Test TPM Wrapper: %-40s %s\n", nameBuf,
         rc == 0 ? "Passed" : "Failed");
 
+exit:
 #ifdef WOLF_CRYPTO_CB
+    /* Unregister on every path (incl. skips) so a leaked registration does
+     * not make the next SetCryptoDevCb return ALREADY_E on wolfSSL 5.9.2+. */
     if (flags & FLAGS_USE_CRYPTO_CB) {
         wolfTPM2_ClearCryptoDevCb(dev, tpmDevId);
     }
 #endif
+    (void)tpmDevId;
 }
 
 static void test_wolfTPM2_EccSignVerify_All(WOLFTPM2_DEV* dev,
