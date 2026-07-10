@@ -8520,7 +8520,8 @@ static void test_fwtpm_pcr_properties_capability(void)
 {
     FWTPM_CTX ctx;
     int pos, rspSize, p, i;
-    UINT32 cap, count;
+    int wireSz, selSz;
+    UINT32 cap, count, tag;
     byte resetL0[8], resetL4[8], extendL0[8], drtm[8];
     int gotResetL0 = 0, gotResetL4 = 0, gotExtendL0 = 0, gotDrtm = 0;
 
@@ -8542,6 +8543,7 @@ static void test_fwtpm_pcr_properties_capability(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertTrue(rspSize > 0 && rspSize <= (int)sizeof(gRsp));
 
     /* header(10) + moreData(1) + capability(4) + count(4) + properties */
     p = TPM2_HEADER_SIZE + 1;
@@ -8549,11 +8551,14 @@ static void test_fwtpm_pcr_properties_capability(void)
     AssertIntEQ(cap, TPM_CAP_PCR_PROPERTIES);
     count = GetU32BE(gRsp + p); p += 4;
     AssertIntGT((int)count, 0);
+    AssertTrue((int)count <= 32); /* bounded by the 32 records requested above */
 
     for (i = 0; i < (int)count; i++) {
-        UINT32 tag = GetU32BE(gRsp + p); p += 4;
-        int wireSz = gRsp[p]; p += 1;
-        int selSz = (wireSz > 8) ? 8 : wireSz;
+        AssertTrue(p + 5 <= rspSize); /* room for tag(4)+size(1) */
+        tag = GetU32BE(gRsp + p); p += 4;
+        wireSz = gRsp[p]; p += 1;
+        selSz = (wireSz > 8) ? 8 : wireSz;
+        AssertTrue(p + selSz <= rspSize);
         if (tag == TPM_PT_PCR_RESET_L0) {
             memcpy(resetL0, gRsp + p, selSz); gotResetL0 = 1;
         }
