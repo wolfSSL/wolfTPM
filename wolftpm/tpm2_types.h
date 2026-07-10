@@ -577,12 +577,13 @@ typedef int64_t  INT64;
  * keep the raw TPM response code; opt in at runtime with TPM2_SetCommandRetries
  * or at build time with -DWOLFTPM_MAX_RETRIES=N. Define WOLFTPM_NO_RETRY to
  * compile the handling out entirely. */
-#ifdef WOLFTPM_NO_RETRY
-    #undef  WOLFTPM_MAX_RETRIES
-    #define WOLFTPM_MAX_RETRIES 0
-#endif
 #ifndef WOLFTPM_MAX_RETRIES
 #define WOLFTPM_MAX_RETRIES 0
+#endif
+/* WOLFTPM_MAX_RETRIES is always defined by here, so the check below stays
+ * -Wundef-clean even when WOLFTPM_NO_RETRY is set without WOLFTPM_MAX_RETRIES. */
+#if defined(WOLFTPM_NO_RETRY) && (WOLFTPM_MAX_RETRIES > 0)
+    #error "WOLFTPM_NO_RETRY conflicts with WOLFTPM_MAX_RETRIES > 0"
 #endif
 
 #ifndef MAX_SYM_BLOCK_SIZE
