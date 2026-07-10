@@ -1,40 +1,35 @@
 # Release Notes
 
-## wolfTPM Release 4.1.0 (TBD)
+## wolfTPM Release 4.1.0 (Jul 10, 2026)
+
+**Summary**
+
+Feature release centered on TPM locality control and expanded post-quantum support. Highlights: runtime locality selection (`wolfTPM2_SetLocality`) with a corrected fwTPM per-PCR locality enforcement table and an optional GPIO nRST reset HAL; TPM 2.0 v1.85 post-quantum (ML-DSA / ML-KEM) support brought into the firmware TPM with fine-grained build macros; fwTPM Dictionary Attack hardening, transparent `TPM_RC_RETRY` handling, and SPDM secured transport for the fwTPM; FIPS 140-3 capability reporting; freestanding (no-libc) build support; SBOM (CycloneDX / SPDX) generation for EU Cyber Resilience Act (CRA) compliance; and extensive security hardening (Fenrir, Coverity, CodeQL).
 
 **Detail**
 
-* Added fine-grained post-quantum build macros so the v1.85 PQC footprint can be
-  trimmed to the operations actually used. New layered gates: `WOLFTPM_PQC`
-  (lean ML-DSA / ML-KEM, the new meaning of `--enable-pqc`) sits under the full
-  `WOLFTPM_V185`; `WOLFTPM_MLDSA` / `WOLFTPM_MLKEM` per algorithm; and
-  `WOLFTPM_MLDSA_SIGN` / `WOLFTPM_MLDSA_VERIFY` / `WOLFTPM_MLKEM_ENCAP` /
-  `WOLFTPM_MLKEM_DECAP` / `WOLFTPM_HASH_MLDSA` per operation, with matching
-  `WOLFTPM_NO_*` opt-outs resolved in `wolftpm/tpm2_pqc.h`.
-* Added `--enable-mldsa[=all|sign-only|verify-only|no]`,
-  `--enable-mlkem[=all|enc|dec|no]`, and `--disable-hash-mldsa` configure flags
-  (mirroring the wolfSSL syntax). `--enable-pqc` now selects the lean PQC subset
-  and excludes the non-PQC v1.85 spec code; `--enable-v185` is unchanged (full).
-* Hardened fwTPM Dictionary Attack (DA) protection to the TCG spec: `noDA` is now
-  honored on objects (`TPMA_OBJECT_noDA`), not just NV indices; `failedTries` is
-  persisted in NV with the non-orderly-shutdown +1 penalty; `recoveryTime`
-  self-heal and a separate `lockoutRecovery` for lockoutAuth are implemented; and
-  `TPM2_GetCapability` reports the DA properties (`TPM_PT_MAX_AUTH_FAIL`,
-  `TPM_PT_LOCKOUT_INTERVAL`/`_RECOVERY`/`_COUNTER`, `TPM_PT_PERMANENT.inLockout`).
-  New `FWTPM_DA_USED_RETRY` build macro emulates a real TPM returning
-  `TPM_RC_RETRY` while it persists `daUsed` on the first DA-protected auth use.
-  Added `wolfTPM2_DictionaryAttackLockReset` / `wolfTPM2_DictionaryAttackParameters`
-  client wrappers, DA/noDA/lockout/self-heal/persistence unit tests, an
-  `examples/management/da_check` end-to-end example, and the
-  `tests/fwtpm_da_retry.sh` CI harness.
-* Added optional transparent `TPM_RC_RETRY` handling so commands can be
-  automatically resubmitted when the TPM reports it is momentarily busy (for
-  example persisting the daUsed flag on first auth use of an externally
-  provisioned non-noDA AIK/SUDI key). Disabled by default to preserve the raw
-  TPM response code; opt in via `TPM2_SetCommandRetries` at runtime or
-  `-DWOLFTPM_MAX_RETRIES=N` at build time. Define `WOLFTPM_NO_RETRY` to compile
-  the handling out entirely. wolfTPM's own key templates set `noDA` and never
-  trigger it.
+* Runtime TPM locality control (PR #546)
+  - New `wolfTPM2_SetLocality(dev, locality)` selects locality 0-4 at runtime, and `examples/pcr/reset` takes a `-loc=n` flag. Works on the built-in TIS/SPI driver (with release-and-retry for non-preempting chips) and the fwTPM over both socket and TIS/SHM; returns `NOT_COMPILED_IN` where locality is not selectable (I2C, Linux kernel driver, Windows TBS)
+  - fwTPM per-PCR locality enforcement replaced with one source-of-truth table (TCG PC Client profile): corrects the reset map, adds the missing PCR-extend check, and reports proper `RESET_L*`/`EXTEND_L*`/`DRTM_RESET` bitmaps. Behavior change: DRTM PCRs 17-22 can no longer be extended from locality 0 (now `TPM_RC_LOCALITY`)
+  - Fixed `TPM_CAP_ALGS`/`TPM_CAP_COMMANDS` paging to honor the property cursor so clients that follow `moreData` make progress
+  - Optional hardware-reset HAL: `--enable-hal-reset[=LINE]` adds `TPM2_IoCb_Reset()`, pulsing the nRST line via the Linux GPIO char device (default ST33 GPIO24, Nuvoton GPIO4)
+* TPM 2.0 v1.85 post-quantum (PQC) support in the fwTPM: ML-DSA sign/verify, ML-KEM encap/decap, and seed handling to TCG Phase B, with PQC CI and fuzz coverage (PR #445)
+  - Fine-grained build macros to trim the footprint: `WOLFTPM_PQC` (the new lean `--enable-pqc`), per-algorithm `WOLFTPM_MLDSA`/`WOLFTPM_MLKEM`, and per-operation gates, plus `--enable-mldsa[=...]` / `--enable-mlkem[=...]` / `--disable-hash-mldsa` (PRs #527, #533)
+  - wolfSSL v5.8.0+ PQC floor and upstream-drift CI; ML-DSA `TPM2_CreateLoaded` primary and PQC parameter encryption in the examples; new `_ex` session/OAEP/PQC-hash wrappers (PRs #501, #509, #531, #539, #520)
+* fwTPM Dictionary Attack (DA) hardening to the TCG spec (PR #541): `noDA` honored on objects, `failedTries` persisted with the non-orderly-shutdown penalty, `recoveryTime`/`lockoutRecovery` self-heal, and DA properties reported via `TPM2_GetCapability`. Adds `wolfTPM2_DictionaryAttackLockReset`/`wolfTPM2_DictionaryAttackParameters`, an `examples/management/da_check` example, and the `tests/fwtpm_da_retry.sh` harness
+* Optional transparent `TPM_RC_RETRY` handling for TPMs that momentarily report busy; opt in via `TPM2_SetCommandRetries` or `-DWOLFTPM_MAX_RETRIES=N`, or compile out with `WOLFTPM_NO_RETRY` (PR #537)
+* SPDM secured transport extended to the fwTPM (PR #510), and FIPS 140-3 capability reporting (PR #502)
+* fwTPM session, policy, and NV fixes: transient state kept across command-port reconnects, `continueSession` set in the password-auth response, PolicyAuthorize zero-ticket handling, and an append-only NV journal for write-once flash ports (PRs #518, #530, #517, #540)
+* New examples and options: crypto-primitive examples (getrandom, hash, AES, ECDH), a `WOLFTPM2_ECC_DEFAULT_CURVE` option (ZD 21780), and native_test ECC P-384 coverage (PRs #532, #519, #492)
+* Nations NS350 example-suite fixes: RSA-4096 buffer sizing and SRK algorithm selection from the stored key type (PR #494)
+* Freestanding build support: `WOLFTPM_NO_STD_HEADERS` keeps the standard C headers out of `tpm2_types.h` for bare-metal integrators, with a `freestanding-build.yml` CI job (PR #549)
+* Software Bill of Materials (SBOM) generation for EU Cyber Resilience Act (CRA) compliance: new `make sbom` / `install-sbom` autotools targets and a CMake `sbom` target emit CycloneDX and SPDX documents for the built library, recording wolfSSL as a dependency (PR #536)
+* Security hardening: automated Fenrir review (bounds/OOB fixes in the TPM2 packet parsers and marshaling, secret zeroization, policy/ticket bypass fixes), Coverity fixes across the fwTPM PCR/seed/hash/seal paths, CodeQL/Semgrep/Copilot review gates, and a heap out-of-bounds read fix in `TPM2_ASN_RsaUnpadPkcsv15` (PRs #496, #503, #511, #512, #518, #523, #535, #545, #547, #548, #543, #542, #544, #538, #513, #514, #524, #528, #507, #516)
+* CI and build improvements: expanded CMake test cases, a GHCR container image, nightly fuzzing, wolfSSL latest-stable auto-resolve, and preflight smoke tests (PRs #495, #534, #522, #525, #508, #526, #521)
+* Bug fixes
+  - Fixed the wolfCrypt crypto callback to propagate `ALREADY_E` for wolfSSL PR 10604 (PR #546)
+  - Ensured the wolfCrypt DRBG is used with crypto callbacks and made `TPM2_StirRandom` a TCG-compliant no-op on HW-RNG-backed TPMs (PRs #498, #493)
+  - Added a note on using the TPM RNG for the StartAuth session nonce (ZD 21476, PR #478)
 
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 
