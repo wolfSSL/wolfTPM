@@ -30,7 +30,9 @@
 
 #include <wolftpm/tpm2_types.h>
 #include <wolftpm/tpm2.h>
+#ifndef WOLFTPM_NO_STD_HEADERS
 #include <stdio.h>
+#endif
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 #include <wolfssl/wolfcrypt/hash.h>
