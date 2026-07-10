@@ -22,7 +22,12 @@
 #ifndef __TPM2_TYPES_H__
 #define __TPM2_TYPES_H__
 
+/* Freestanding targets with no hosted C library define WOLFTPM_NO_STD_HEADERS
+ * and provide the fixed-width integer types (and the mem/str functions used via
+ * the X* wrappers) through user_settings.h instead of the standard headers. */
+#ifndef WOLFTPM_NO_STD_HEADERS
 #include <stdint.h>
+#endif
 
 #ifdef WOLFTPM_USER_SETTINGS
     #include "user_settings.h"
@@ -213,7 +218,7 @@ typedef int64_t  INT64;
         #include <wolfssl/ssl.h> /* for wolfSSL_ERR_reason_error_string */
     #endif
 
-    #ifdef DEBUG_WOLFTPM
+    #if defined(DEBUG_WOLFTPM) && !defined(WOLFTPM_NO_STD_HEADERS)
         #include <stdio.h>
     #endif
 
@@ -249,9 +254,11 @@ typedef int64_t  INT64;
     #endif
 #else
 
+    #ifndef WOLFTPM_NO_STD_HEADERS
     #include <stdio.h>
     #include <stdlib.h>
     #include <string.h>
+    #endif
 
     typedef uint8_t  byte;
     typedef uint16_t word16;
@@ -369,7 +376,9 @@ typedef int64_t  INT64;
 #endif
 
 #ifndef WOLFTPM_CUSTOM_TYPES
+    #ifndef WOLFTPM_NO_STD_HEADERS
     #include <stdlib.h>
+    #endif
 
     #define XSTRTOUL(s,e,b)   strtoul((s),(e),(b))
     #define XATOI(s)          atoi((s))
@@ -1065,7 +1074,9 @@ typedef int64_t  INT64;
 #ifdef INTEL_INTRINSICS
     /* for non visual studio probably need no long version, 32 bit only
      * i.e., _rotl and _rotr */
+    #ifndef WOLFTPM_NO_STD_HEADERS
     #include <stdlib.h>      /* get intrinsic definitions */
+    #endif
     #pragma intrinsic(_lrotl, _lrotr)
     static inline word32 rotlFixed(word32 x, word32 y) {
         return y ? _lrotl(x, y) : x;
