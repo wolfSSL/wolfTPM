@@ -1,0 +1,63 @@
+name: Freestanding Build (WOLFTPM_NO_STD_HEADERS)
+
+# Builds the standalone (WOLFTPM2_NO_WOLFCRYPT) library with no hosted C library
+# (-nostdinc) to prove WOLFTPM_NO_STD_HEADERS keeps the standard headers out.
+# The fixed-width types and mem/str prototypes are supplied via user_settings.h,
+# exactly as a bare-metal integrator would. -nostdinc is applied only to the
+# build (make CFLAGS), not to configure, whose feature probes need libc.
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freestanding:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write freestanding user_settings.h (types + mem/str, no libc)
+        run: |
+          mkdir -p freestanding
+          cat > freestanding/user_settings.h <<'EOF'
+          #ifndef FREESTANDING_USER_SETTINGS_H
+          #define FREESTANDING_USER_SETTINGS_H
+          /* Standalone bare-metal-style config: supply the fixed-width integer
+           * types and mem/str prototypes the library needs, so the standard
+           * headers stay guarded out by WOLFTPM_NO_STD_HEADERS. */
+          #define WOLFTPM2_NO_HEAP
+          typedef __UINT8_TYPE__   uint8_t;  typedef __UINT16_TYPE__ uint16_t;
+          typedef __UINT32_TYPE__  uint32_t; typedef __UINT64_TYPE__ uint64_t;
+          typedef __INT8_TYPE__    int8_t;   typedef __INT16_TYPE__  int16_t;
+          typedef __INT32_TYPE__   int32_t;  typedef __INT64_TYPE__  int64_t;
+          typedef __SIZE_TYPE__    size_t;   typedef __UINTPTR_TYPE__ uintptr_t;
+          void *memcpy(void*, const void*, size_t);
+          void *memset(void*, int, size_t);
+          int memcmp(const void*, const void*, size_t);
+          size_t strlen(const char*);
+          #ifndef NULL
+          #define NULL ((void*)0)
+          #endif
+          #define XTPM_WAIT()
+          #define XSLEEP_MS(ms)
+          #endif
+          EOF
+
+      - name: Configure standalone (no wolfCrypt, SPI HAL, no autodetect/fwtpm/example-HAL)
+        run: |
+          ./autogen.sh
+          ./configure --disable-wolfcrypt --enable-spi \
+            --disable-autodetect --disable-fwtpm --disable-hal
+
+      - name: Build library with no standard library (-nostdinc)
+        run: |
+          make src/libwolftpm.la \
+            CFLAGS="-nostdinc -Ifreestanding -DWOLFTPM_USER_SETTINGS -DWOLFTPM_NO_STD_HEADERS"
