@@ -793,6 +793,15 @@ if(BUILD_WOLFTPM_LIB)
     set(WOLFSSL_DIR "" CACHE PATH
         "Path to wolfssl source tree with scripts/gen-sbom")
 
+    # wolfTPM is GPLv3-or-later (per the per-file source headers: "either
+    # version 3 of the License, or (at your option) any later version") or
+    # commercial.  Pin the header-accurate SPDX id so the SBOM is correct
+    # regardless of the gen-sbom version's licence detection; commercial
+    # licensees can override it (e.g. LicenseRef-wolfSSL-Commercial).  This
+    # mirrors SBOM_LICENSE_OVERRIDE in the autotools build.
+    set(SBOM_LICENSE_OVERRIDE "GPL-3.0-or-later" CACHE STRING
+        "SPDX licence expression recorded in the SBOM")
+
     # Derive the version from wolftpm/version.h, NOT from PROJECT_VERSION.
     # autotools `make sbom` uses PACKAGE_VERSION, which is sourced from
     # version.h. Reading the same header here keeps the cmake and autotools
@@ -863,6 +872,25 @@ if(BUILD_WOLFTPM_LIB)
     set(SBOM_LIB
         "${SBOM_STAGING}/lib/libwolftpm${CMAKE_SHARED_LIBRARY_SUFFIX}")
 
+    # wolfTPM links wolfSSL/wolfCrypt, so record wolfSSL as a dependency in the
+    # SBOM (matches the autotools SBOM_DEP_WOLFSSL=yes).  Recording it needs the
+    # gen-sbom from wolfSSL/wolfssl#10343; older gen-sbom rejects unknown flags,
+    # so probe --help and only pass --dep-wolfssl when supported.  Against an
+    # older gen-sbom the SBOM is still valid but omits the wolfSSL entry.
+    set(_sbom_dep_wolfssl "")
+    execute_process(
+        COMMAND ${PYTHON3_CMD} ${WOLFSSL_DIR}/scripts/gen-sbom --help
+        OUTPUT_VARIABLE _sbom_help
+        ERROR_QUIET)
+    if(_sbom_help MATCHES "--dep-wolfssl")
+        set(_sbom_dep_wolfssl --dep-wolfssl yes)
+    else()
+        message(WARNING
+            "sbom: ${WOLFSSL_DIR}/scripts/gen-sbom has no --dep-wolfssl; "
+            "the SBOM will omit the wolfSSL dependency entry. Use the gen-sbom "
+            "from wolfSSL/wolfssl#10343 (or master once merged) to record it.")
+    endif()
+
     # ${OPTION_FILE} is the generated wolftpm/options.h, the same compile-time
     # option fingerprint autotools `make sbom` feeds to gen-sbom via
     # --options-h. Using it (rather than a raw `cc -dM` dump, which would only
@@ -881,6 +909,8 @@ if(BUILD_WOLFTPM_LIB)
                 --license-file ${CMAKE_SOURCE_DIR}/LICENSE
                 --options-h ${OPTION_FILE}
                 --lib ${SBOM_LIB}
+                --license-override ${SBOM_LICENSE_OVERRIDE}
+                ${_sbom_dep_wolfssl}
                 --cdx-out ${SBOM_CDX}
                 --spdx-out ${SBOM_SPDX}
         # Validate the SPDX JSON and emit the tag-value rendering as a side

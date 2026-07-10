@@ -133,69 +133,25 @@ cppcheck:
 		--error-exitcode=89 --std=c89 \
 		-I wolftpm src/ hal/ examples
 
-# SBOM generation (CRA compliance)
-SBOM_CDX     = wolftpm-$(PACKAGE_VERSION).cdx.json
-SBOM_SPDX    = wolftpm-$(PACKAGE_VERSION).spdx.json
-SBOM_SPDX_TV = wolftpm-$(PACKAGE_VERSION).spdx
-sbomdir      = $(datadir)/doc/$(PACKAGE)
+# SBOM generation (CRA compliance).  The recipe is shared across the wolfSSL
+# stack's autotools products in scripts/sbom.am; wolfTPM just declares what it
+# is (a libwolftpm library that links wolfSSL/wolfCrypt) and includes it.
+# WOLFSSL_DIR must point to a wolfssl source tree containing scripts/gen-sbom.
+SBOM_PKGNAME      = wolftpm
+SBOM_LICENSE_FILE = $(srcdir)/LICENSE
+SBOM_DEP_WOLFSSL  = yes
 
-.PHONY: sbom install-sbom uninstall-sbom
+# wolfTPM records its feature macros in its own generated options header, so
+# point gen-sbom at that header rather than at the compiler-derived defaults.
+SBOM_OPTIONS_H    = $(abs_builddir)/wolftpm/options.h
 
-sbom:
-	@if test -z "$(PYTHON3)"; then \
-	    echo ""; \
-	    echo "ERROR: 'python3' not found in PATH. Cannot generate SBOM."; \
-	    echo ""; \
-	    exit 1; \
-	fi
-	@if test -z "$(PYSPDXTOOLS)"; then \
-	    echo ""; \
-	    echo "ERROR: 'pyspdxtools' not found in PATH. Cannot validate SBOM."; \
-	    echo "       Install: pip install spdx-tools"; \
-	    echo ""; \
-	    exit 1; \
-	fi
-	@if test -z "$(WOLFSSL_DIR)"; then \
-	    echo ""; \
-	    echo "ERROR: WOLFSSL_DIR is not set. Cannot locate gen-sbom."; \
-	    echo "       Set WOLFSSL_DIR to your wolfSSL source tree, e.g.:"; \
-	    echo "         make sbom WOLFSSL_DIR=/path/to/wolfssl"; \
-	    echo ""; \
-	    exit 1; \
-	fi
-	@if test ! -f "$(WOLFSSL_DIR)/scripts/gen-sbom"; then \
-	    echo ""; \
-	    echo "ERROR: $(WOLFSSL_DIR)/scripts/gen-sbom not found."; \
-	    echo "       Check that WOLFSSL_DIR points to a wolfSSL tree with SBOM support."; \
-	    echo ""; \
-	    exit 1; \
-	fi
-	rm -rf $(abs_builddir)/_sbom_staging
-	$(MAKE) install DESTDIR=$(abs_builddir)/_sbom_staging
-	$(PYTHON3) $(WOLFSSL_DIR)/scripts/gen-sbom \
-	    --name wolftpm \
-	    --version $(PACKAGE_VERSION) \
-	    --supplier "wolfSSL Inc." \
-	    --license-file $(srcdir)/LICENSE \
-	    --options-h $(abs_builddir)/wolftpm/options.h \
-	    --lib $(abs_builddir)/_sbom_staging$(libdir)/libwolftpm.so.@WOLFTPM_LIBRARY_VERSION_FIRST@.@WOLFTPM_LIBRARY_VERSION_SECOND@.@WOLFTPM_LIBRARY_VERSION_THIRD@ \
-	    $(if $(SBOM_LICENSE_OVERRIDE),--license-override $(SBOM_LICENSE_OVERRIDE)) \
-	    $(if $(SBOM_LICENSE_TEXT),--license-text $(SBOM_LICENSE_TEXT)) \
-	    --cdx-out $(abs_builddir)/$(SBOM_CDX) \
-	    --spdx-out $(abs_builddir)/$(SBOM_SPDX)
-	rm -rf $(abs_builddir)/_sbom_staging
-	$(PYSPDXTOOLS) --infile $(abs_builddir)/$(SBOM_SPDX) \
-	    --outfile $(abs_builddir)/$(SBOM_SPDX_TV)
+# wolfTPM is GPLv3-or-later (per the per-file source headers: "either version 3
+# of the License, or (at your option) any later version") or commercial.  Pin
+# the header-accurate SPDX id here so the SBOM is correct regardless of the
+# gen-sbom version's licence detection; commercial licensees can override it
+# (e.g. LicenseRef-wolfSSL-Commercial).
+SBOM_LICENSE_OVERRIDE ?= GPL-3.0-or-later
 
-install-sbom: sbom
-	$(MKDIR_P) $(DESTDIR)$(sbomdir)
-	$(INSTALL_DATA) $(SBOM_CDX) $(DESTDIR)$(sbomdir)/
-	$(INSTALL_DATA) $(SBOM_SPDX) $(DESTDIR)$(sbomdir)/
-	$(INSTALL_DATA) $(SBOM_SPDX_TV) $(DESTDIR)$(sbomdir)/
+EXTRA_DIST += scripts/sbom.am
 
-uninstall-sbom:
-	-rm -f $(DESTDIR)$(sbomdir)/$(SBOM_CDX)
-	-rm -f $(DESTDIR)$(sbomdir)/$(SBOM_SPDX)
-	-rm -f $(DESTDIR)$(sbomdir)/$(SBOM_SPDX_TV)
-
-CLEANFILES += $(SBOM_CDX) $(SBOM_SPDX) $(SBOM_SPDX_TV)
+include scripts/sbom.am
