@@ -809,9 +809,9 @@ if(BUILD_WOLFTPM_LIB)
     # this file drifts out of sync with the header.
     file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/wolftpm/version.h"
          _sbom_version_line
-         REGEX "^#define[ \t]+LIBWOLFTPM_VERSION_STRING[ \t]+\"")
+         REGEX "^#define[ 	]+LIBWOLFTPM_VERSION_STRING[ 	]+\"")
     string(REGEX REPLACE
-           "^#define[ \t]+LIBWOLFTPM_VERSION_STRING[ \t]+\"([^\"]+)\".*" "\\1"
+           "^#define[ 	]+LIBWOLFTPM_VERSION_STRING[ 	]+\"([^\"]+)\".*" "\\1"
            SBOM_VERSION "${_sbom_version_line}")
     if(NOT SBOM_VERSION)
         message(FATAL_ERROR
@@ -866,11 +866,17 @@ if(BUILD_WOLFTPM_LIB)
     set(SBOM_SPDX_TV "${CMAKE_BINARY_DIR}/wolftpm-${SBOM_VERSION}.spdx")
     set(SBOM_STAGING "${CMAKE_BINARY_DIR}/_sbom_staging")
 
-    # Staged install path. install(TARGETS wolftpm) above hardcodes
-    # `LIBRARY DESTINATION lib`, so the .so always lands in lib/, never lib64/.
-    # ${CMAKE_SHARED_LIBRARY_SUFFIX} resolves to .so on Linux / .dylib on mac.
-    set(SBOM_LIB
-        "${SBOM_STAGING}/lib/libwolftpm${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    # Staged install path. Derive the installed artifact name from the target
+    # itself so it tracks the real output - a versioned .so/.dylib, a static
+    # .a/.lib, or the Windows DLL - instead of a hardcoded
+    # libwolftpm${CMAKE_SHARED_LIBRARY_SUFFIX} that only matches a Unix shared
+    # build. install(TARGETS) sends the Windows DLL (RUNTIME) to bin/ and
+    # everything else (LIBRARY/ARCHIVE) to lib/.
+    if(WIN32 AND BUILD_SHARED_LIBS)
+        set(SBOM_LIB "${SBOM_STAGING}/bin/$<TARGET_FILE_NAME:wolftpm>")
+    else()
+        set(SBOM_LIB "${SBOM_STAGING}/lib/$<TARGET_FILE_NAME:wolftpm>")
+    endif()
 
     # wolfTPM links wolfSSL/wolfCrypt, so record wolfSSL as a dependency in the
     # SBOM (matches the autotools SBOM_DEP_WOLFSSL=yes).  Recording it needs the
@@ -899,9 +905,9 @@ if(BUILD_WOLFTPM_LIB)
         VERBATIM
         # Stage a clean install so gen-sbom inspects the same artifact layout
         # the user would actually ship.
-        COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBOM_STAGING}
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${SBOM_STAGING}
         COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR}
-                --prefix ${SBOM_STAGING}
+                --prefix ${SBOM_STAGING} --config $<CONFIG>
         COMMAND ${PYTHON3_CMD} ${WOLFSSL_DIR}/scripts/gen-sbom
                 --name wolftpm
                 --version ${SBOM_VERSION}
@@ -918,7 +924,7 @@ if(BUILD_WOLFTPM_LIB)
         # the target.
         COMMAND ${PYSPDXTOOLS_CMD} --infile ${SBOM_SPDX}
                 --outfile ${SBOM_SPDX_TV}
-        COMMAND ${CMAKE_COMMAND} -E rm -rf ${SBOM_STAGING}
+        COMMAND ${CMAKE_COMMAND} -E remove_directory ${SBOM_STAGING}
         COMMENT "Generating SBOM for wolfTPM ${SBOM_VERSION}")
 
     # gen-sbom reads the staged library, so the library must build first.
