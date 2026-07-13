@@ -4374,9 +4374,10 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
     !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    defined(HAVE_ECC_VERIFY) && !defined(WC_NO_RNG)
+    defined(HAVE_ECC_VERIFY) && !defined(WC_NO_RNG) && (MAX_ECC_BYTES > 32)
     int rc;
     int i;
+    int c, rLen, sLen;
     int verifyRes = 0;
     WOLFTPM2_DEV dev;
     TpmCryptoDevCtx tpmCtx;
@@ -4384,20 +4385,7 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
     ecc_key key;
     byte digest[32];
     byte sig[128];
-    word32 sigSz = 0;
-
-    /* DER ECDSA signature with a 40-byte R and 32-byte S: R exceeds the
-     * P-256 key size to drive the keySz - rLen offset underflow path */
-    sig[sigSz++] = 0x30;
-    sig[sigSz++] = 0x4C;
-    sig[sigSz++] = 0x02;
-    sig[sigSz++] = 0x28;
-    for (i = 0; i < 40; i++)
-        sig[sigSz++] = 0x11;
-    sig[sigSz++] = 0x02;
-    sig[sigSz++] = 0x20;
-    for (i = 0; i < 32; i++)
-        sig[sigSz++] = 0x22;
+    word32 sigSz;
 
     XMEMSET(digest, 0x33, sizeof(digest));
     XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
@@ -4411,25 +4399,42 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
     rc = wc_ecc_make_key_ex(wolfTPM2_GetRng(&dev), 32, &key, ECC_SECP256R1);
     AssertIntEQ(rc, 0);
 
-    XMEMSET(&info, 0, sizeof(info));
-    info.algo_type = WC_ALGO_TYPE_PK;
-    info.pk.type = WC_PK_TYPE_ECDSA_VERIFY;
-    info.pk.eccverify.sig = sig;
-    info.pk.eccverify.siglen = sigSz;
-    info.pk.eccverify.hash = digest;
-    info.pk.eccverify.hashlen = (word32)sizeof(digest);
-    info.pk.eccverify.res = &verifyRes;
-    info.pk.eccverify.key = &key;
+    /* c==0 drives the oversized-R guard, c==1 the oversized-S guard; both
+     * exceed the P-256 key size and must fall back before the TPM key load */
+    for (c = 0; c < 2; c++) {
+        rLen = (c == 0) ? 40 : 32;
+        sLen = (c == 0) ? 32 : 40;
 
-    /* oversized R must be caught before loading the key into the TPM */
-    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+        sigSz = 0;
+        sig[sigSz++] = 0x30;
+        sig[sigSz++] = (byte)(2 + rLen + 2 + sLen);
+        sig[sigSz++] = 0x02;
+        sig[sigSz++] = (byte)rLen;
+        for (i = 0; i < rLen; i++)
+            sig[sigSz++] = 0x11;
+        sig[sigSz++] = 0x02;
+        sig[sigSz++] = (byte)sLen;
+        for (i = 0; i < sLen; i++)
+            sig[sigSz++] = 0x22;
+
+        XMEMSET(&info, 0, sizeof(info));
+        info.algo_type = WC_ALGO_TYPE_PK;
+        info.pk.type = WC_PK_TYPE_ECDSA_VERIFY;
+        info.pk.eccverify.sig = sig;
+        info.pk.eccverify.siglen = sigSz;
+        info.pk.eccverify.hash = digest;
+        info.pk.eccverify.hashlen = (word32)sizeof(digest);
+        info.pk.eccverify.res = &verifyRes;
+        info.pk.eccverify.key = &key;
+
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    }
 
     wc_ecc_free(&key);
     wolfTPM2_Cleanup(&dev);
 
-    printf("Test TPM Wrapper: %-40s %s\n", "CryptoDevCb ECC oversized R/S:",
-        rc == CRYPTOCB_UNAVAILABLE ? "Passed" : "Failed");
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb ECC oversized R/S:");
 #endif
 }
 
