@@ -3023,10 +3023,11 @@ static void test_TPM2_ResponseProcess_HmacVerify(void)
     CmdInfo_t info;
     TPM2B_DIGEST rpHash;
     TPM2B_AUTH expHmac;
+    TPM2B_NONCE nonceTPM;
     byte buf[128];
-    int rc;
+    int rc, i;
     TPM_CC cmdCode = 0x17F;
-    UINT16 hmacSz = 32;
+    UINT16 hmacSz = 32, nonceSz = 32;
     UINT32 paramSz = 4;
     UINT32 pos, hmacOff, respSz;
     byte attr = 0x01;
@@ -3052,26 +3053,32 @@ static void test_TPM2_ResponseProcess_HmacVerify(void)
     pos = TPM2_HEADER_SIZE;
     buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = (byte)paramSz;
     buf[pos++] = 0xDE; buf[pos++] = 0xAD; buf[pos++] = 0xBE; buf[pos++] = 0xEF;
-    buf[pos++] = 0; buf[pos++] = 0;                 /* nonce.size = 0 */
+    buf[pos++] = (byte)(nonceSz >> 8); buf[pos++] = (byte)(nonceSz & 0xFF);
+    for (i = 0; i < nonceSz; i++)
+        buf[pos++] = 0x99;                          /* response nonceTPM */
     buf[pos++] = attr;                              /* sessionAttributes */
     buf[pos++] = (byte)(hmacSz >> 8); buf[pos++] = (byte)(hmacSz & 0xFF);
     hmacOff = pos;
     pos += hmacSz;
     respSz = pos;
 
+    /* expected HMAC uses the response nonce as nonceTPM */
+    nonceTPM.size = nonceSz;
+    XMEMSET(nonceTPM.buffer, 0x99, nonceSz);
     rc = TPM2_CalcRpHash(TPM_ALG_SHA256, cmdCode, &buf[TPM2_HEADER_SIZE + 4],
         paramSz, &rpHash);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     XMEMSET(&expHmac, 0, sizeof(expHmac));
     rc = TPM2_CalcHmac(TPM_ALG_SHA256, &session[0].auth, &rpHash,
-        &session[0].nonceTPM, &session[0].nonceCaller, attr, &expHmac);
+        &nonceTPM, &session[0].nonceCaller, attr, &expHmac);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     XMEMCPY(&buf[hmacOff], expHmac.buffer, hmacSz);
 
-    /* untampered response HMAC must verify */
+    /* untampered response HMAC must verify and update nonceTPM */
     packet.buf = buf; packet.pos = 0; packet.size = (int)respSz;
     rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(session[0].nonceTPM.buffer[0], 0x99);
 
     /* flipping one HMAC byte must be detected */
     buf[hmacOff] ^= 0xFF;
