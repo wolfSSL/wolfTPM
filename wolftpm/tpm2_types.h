@@ -218,6 +218,11 @@ typedef int64_t  INT64;
         #include <wolfssl/ssl.h> /* for wolfSSL_ERR_reason_error_string */
     #endif
 
+    /* coexist-enabled wolfSSL only exposes WC_AES_BLOCK_SIZE; alias classic name */
+    #if defined(WC_NO_COMPAT_AES_BLOCK_SIZE) && !defined(AES_BLOCK_SIZE)
+        #define AES_BLOCK_SIZE WC_AES_BLOCK_SIZE
+    #endif
+
     #if defined(DEBUG_WOLFTPM) && !defined(WOLFTPM_NO_STD_HEADERS)
         #include <stdio.h>
     #endif
