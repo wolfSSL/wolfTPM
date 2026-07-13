@@ -57,13 +57,6 @@
 /* --- Param Enc/Dec Functions -- */
 /******************************************************************************/
 
-/* Maximum XOR mask size. RSA-2048 inSensitive parameter blobs on Create can
- * exceed MAX_DIGEST_BUFFER (1024), so leave headroom to ~1250 bytes. Keep
- * stack usage bounded by switching to heap under WOLFTPM_SMALL_STACK. */
-#ifndef TPM2_XOR_MASK_MAX
-#define TPM2_XOR_MASK_MAX 1280
-#endif
-
 /* XOR parameter encryption/decryption (shared by client and fwTPM).
  * XOR is symmetric so encrypt and decrypt are the same operation.
  * nonceA/nonceB order determines direction (caller/TPM or TPM/caller). */
@@ -389,6 +382,7 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
             rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
 
         wc_HashFree(&hash_ctx, hashType);
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -435,6 +429,7 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
             rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
 
         wc_HashFree(&hash_ctx, hashType);
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE

@@ -30,6 +30,12 @@
     extern "C" {
 #endif
 
+/* Maximum XOR mask size. RSA-2048 inSensitive parameter blobs on Create can
+ * exceed MAX_DIGEST_BUFFER (1024), so leave headroom to ~1250 bytes. */
+#ifndef TPM2_XOR_MASK_MAX
+#define TPM2_XOR_MASK_MAX 1280
+#endif
+
 /* XOR parameter encryption/decryption (raw pointer interface).
  * XOR is symmetric so encrypt and decrypt are the same operation. */
 WOLFTPM_TEST_API int TPM2_ParamEnc_XOR(
@@ -54,7 +60,7 @@ WOLFTPM_TEST_API int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     const TPM2B_DIGEST* hash, const TPM2B_NONCE* nonceNew,
     const TPM2B_NONCE* nonceOld, TPMA_SESSION sessionAttributes,
     TPM2B_AUTH* hmac);
-WOLFTPM_LOCAL int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
+WOLFTPM_TEST_API int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
     TPM_CC cmdCode, BYTE* param, UINT32 paramSz, TPM2B_DIGEST* hash);
 WOLFTPM_LOCAL int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
     TPM2B_NAME* name1, TPM2B_NAME* name2, TPM2B_NAME* name3,

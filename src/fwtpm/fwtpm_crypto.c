@@ -2592,6 +2592,7 @@ TPM_RC FwDecryptSeed(FWTPM_CTX* ctx,
                 encSeedBuf, encSeedSz, &sharedK);
         }
         if (rc == 0) {
+            /* K is 32-byte ML-KEM secret per FIPS 203 (Part 1 47.4 errata) */
             int kdfRc = TPM2_KDFa_ex(nameAlg,
                 sharedK.buffer, sharedK.size, kdfLabel,
                 encSeedBuf, (UINT32)encSeedSz,
@@ -2845,6 +2846,7 @@ TPM_RC FwEncryptSeed(FWTPM_CTX* ctx,
             rc = TPM_RC_SIZE;
         }
         if (rc == 0) {
+            /* K is 32-byte ML-KEM secret per FIPS 203 (Part 1 47.4 errata) */
             int kdfRc = TPM2_KDFa_ex(nameAlg,
                 sharedK.buffer, sharedK.size, kdfLabel,
                 ciphertext->buffer, (UINT32)ciphertext->size,
