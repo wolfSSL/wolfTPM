@@ -3014,6 +3014,75 @@ static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
     printf("Test TPM Wrapper:\tResponseProcess paramSize overflow:\tPassed\n");
 }
 
+static void test_TPM2_ResponseProcess_HmacVerify(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[1];
+    TPM2_Packet packet;
+    CmdInfo_t info;
+    TPM2B_DIGEST rpHash;
+    TPM2B_AUTH expHmac;
+    byte buf[128];
+    int rc;
+    TPM_CC cmdCode = 0x17F;
+    UINT16 hmacSz = 32;
+    UINT32 paramSz = 4;
+    UINT32 pos, hmacOff, respSz;
+    byte attr = 0x01;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(session, 0, sizeof(session));
+    XMEMSET(&info, 0, sizeof(info));
+    XMEMSET(buf, 0, sizeof(buf));
+
+    /* HMAC session with a known auth value and nonces */
+    session[0].sessionHandle = HMAC_SESSION_FIRST;
+    session[0].authHash = TPM_ALG_SHA256;
+    session[0].auth.size = 4;
+    XMEMSET(session[0].auth.buffer, 0xA5, 4);
+    session[0].nonceCaller.size = 32;
+    XMEMSET(session[0].nonceCaller.buffer, 0x5C, 32);
+    session[0].nonceTPM.size = 32;
+    XMEMSET(session[0].nonceTPM.buffer, 0xC5, 32);
+    ctx.session = session;
+    info.authCnt = 1;
+
+    /* header + paramSize(U32) + params + auth area (nonce, attr, hmac) */
+    pos = TPM2_HEADER_SIZE;
+    buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = 0; buf[pos++] = (byte)paramSz;
+    buf[pos++] = 0xDE; buf[pos++] = 0xAD; buf[pos++] = 0xBE; buf[pos++] = 0xEF;
+    buf[pos++] = 0; buf[pos++] = 0;                 /* nonce.size = 0 */
+    buf[pos++] = attr;                              /* sessionAttributes */
+    buf[pos++] = (byte)(hmacSz >> 8); buf[pos++] = (byte)(hmacSz & 0xFF);
+    hmacOff = pos;
+    pos += hmacSz;
+    respSz = pos;
+
+    rc = TPM2_CalcRpHash(TPM_ALG_SHA256, cmdCode, &buf[TPM2_HEADER_SIZE + 4],
+        paramSz, &rpHash);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    XMEMSET(&expHmac, 0, sizeof(expHmac));
+    rc = TPM2_CalcHmac(TPM_ALG_SHA256, &session[0].auth, &rpHash,
+        &session[0].nonceTPM, &session[0].nonceCaller, attr, &expHmac);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    XMEMCPY(&buf[hmacOff], expHmac.buffer, hmacSz);
+
+    /* untampered response HMAC must verify */
+    packet.buf = buf; packet.pos = 0; packet.size = (int)respSz;
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* flipping one HMAC byte must be detected */
+    buf[hmacOff] ^= 0xFF;
+    packet.buf = buf; packet.pos = 0; packet.size = (int)respSz;
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, cmdCode, respSz);
+    AssertIntEQ(rc, TPM_RC_HMAC);
+
+    printf("Test TPM Wrapper:\tResponseProcess HMAC verify:\tPassed\n");
+#endif
+}
+
 /* wolfTPM2_NVCreateAuthPolicy must derive nameAlg from authPolicySz so
  * the policy digest hash matches the index's nameAlg. Bug-mode hardcoded
  * SHA-256 nameAlg, which made SHA-384/SHA-512 policies unsatisfiable.
@@ -6452,6 +6521,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Packet_RetryRestore();
 #endif
     test_TPM2_ResponseProcess_ParamSizeOverflow();
+    test_TPM2_ResponseProcess_HmacVerify();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
     test_wolfTPM2_LoadEccPublicKey_Ex();
