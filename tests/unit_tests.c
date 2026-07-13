@@ -4124,13 +4124,21 @@ static void test_TPM2_AppendSensitive_Clamp(void)
 static void test_TPM2_AppendPublic_Clamp(void)
 {
     TPM2_Packet packet;
-    byte buf[1024];
+    byte buf[sizeof(TPM2B_PUBLIC)];
     TPM2B_PUBLIC pub;
-    word16 policyCap, rsaCap, eccCap;
+    word16 policyCap, rsaCap, eccCap, khCap, symCap;
+#ifdef WOLFTPM_MLDSA
+    word16 mldsaCap;
+#endif
+#ifdef WOLFTPM_MLKEM
+    word16 mlkemCap;
+#endif
 
     policyCap = (word16)sizeof(pub.publicArea.authPolicy.buffer);
     rsaCap = (word16)sizeof(pub.publicArea.unique.rsa.buffer);
     eccCap = (word16)sizeof(pub.publicArea.unique.ecc.x.buffer);
+    khCap = (word16)sizeof(pub.publicArea.unique.keyedHash.buffer);
+    symCap = (word16)sizeof(pub.publicArea.unique.sym.buffer);
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
@@ -4156,6 +4164,53 @@ static void test_TPM2_AppendPublic_Clamp(void)
     TPM2_Packet_AppendPublic(&packet, &pub);
     AssertIntEQ(pub.publicArea.unique.ecc.x.size, eccCap);
     AssertIntEQ(pub.publicArea.unique.ecc.y.size, eccCap);
+
+    /* keyedHash unique size must clamp */
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_KEYEDHASH;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.unique.keyedHash.size = khCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.unique.keyedHash.size, khCap);
+
+    /* symcipher unique size must clamp */
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_SYMCIPHER;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.unique.sym.size = symCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.unique.sym.size, symCap);
+
+#ifdef WOLFTPM_MLDSA
+    mldsaCap = (word16)sizeof(pub.publicArea.unique.mldsa.buffer);
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_MLDSA;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.unique.mldsa.size = mldsaCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.unique.mldsa.size, mldsaCap);
+#endif
+#ifdef WOLFTPM_MLKEM
+    mlkemCap = (word16)sizeof(pub.publicArea.unique.mlkem.buffer);
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_MLKEM;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.unique.mlkem.size = mlkemCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.unique.mlkem.size, mlkemCap);
+#endif
 
     printf("Test TPM2:        %-40s Passed\n", "AppendPublic clamp:");
 }
