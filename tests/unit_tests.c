@@ -2008,6 +2008,35 @@ static void test_TPM2_ParamEnc_AESCFB_Vector(void)
 #endif
 }
 
+static void test_TPM2_ParamEnc_AESCFB_KeyBoundary(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
+    int rc;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    byte data[32];
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xDD, sessKey.size);
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x33, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x44, nonceTPM.size);
+    XMEMSET(data, 0, sizeof(data));
+
+    /* keyBits above 256 (symKeySz > 32) must be rejected, not overflow symKey */
+    rc = TPM2_ParamEnc_AESCFB(authHash, 512,
+        sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, sizeof(data), 1);
+    AssertIntEQ(BUFFER_E, rc);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ParamEnc_AESCFB key boundary:");
+#endif
+}
+
 /* Known-answer test cross-checking TPM2_ParamEnc_AESCFB against an
  * independent KDFa + AES-CFB reference built from wolfCrypt primitives.
  * The pure round-trip test above cannot detect mutations that affect
@@ -6291,6 +6320,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParamEnc_XOR_Vector();
     test_TPM2_ParamEnc_XOR_MaskBoundary();
     test_TPM2_ParamEnc_AESCFB_Vector();
+    test_TPM2_ParamEnc_AESCFB_KeyBoundary();
     test_TPM2_ParamEnc_AESCFB_KAT();
     test_TPM2_ParamDec_XOR_Roundtrip();
     test_TPM2_ParamDec_AESCFB_Roundtrip();
