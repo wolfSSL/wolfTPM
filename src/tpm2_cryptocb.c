@@ -352,6 +352,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             byte sigRS[MAX_ECC_BYTES*2];
             byte *r = sigRS, *s = &sigRS[MAX_ECC_BYTES];
             word32 rLen = MAX_ECC_BYTES, sLen = MAX_ECC_BYTES;
+            word32 keySz = 0;
 
             XMEMSET(&eccPub, 0, sizeof(eccPub));
             XMEMSET(sigRS, 0, sizeof(sigRS));
@@ -360,12 +361,19 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             rc = wc_ecc_sig_to_rs(info->pk.eccverify.sig,
                 info->pk.eccverify.siglen, r, &rLen, s, &sLen);
             if (rc == 0) {
+                /* R/S larger than key size underflows the pad offset */
+                keySz = wc_ecc_size(info->pk.eccverify.key);
+                if (keySz == 0 || keySz > MAX_ECC_BYTES ||
+                        rLen > keySz || sLen > keySz) {
+                    rc = exit_rc;
+                }
+            }
+            if (rc == 0) {
                 /* load public key into TPM */
                 rc = wolfTPM2_EccKey_WolfToTpm(tlsCtx->dev,
                     info->pk.eccverify.key, &eccPub);
                 if (rc == 0) {
                     /* combine R and S at key size (zero pad leading) */
-                    word32 keySz = wc_ecc_size(info->pk.eccverify.key);
                     XMEMMOVE(&sigRS[keySz-rLen], r, rLen);
                     XMEMSET(&sigRS[0], 0, keySz-rLen);
                     XMEMMOVE(&sigRS[keySz + (keySz-sLen)], s, sLen);
