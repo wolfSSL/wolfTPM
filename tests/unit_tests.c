@@ -4503,8 +4503,7 @@ static void test_TPM2_ASN_DecodeTag_Errors(void)
     rc = TPM2_ASN_DecodeTag(buf, (int)sizeof(buf), &idx, &tagLen, 0x02);
     AssertIntNE(rc, 0);
 
-    printf("Test TPM Wrapper: %-40s %s\n", "ASN DecodeTag tag mismatch:",
-        rc != 0 ? "Passed" : "Failed");
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeTag tag mismatch:");
 #endif
 }
 
