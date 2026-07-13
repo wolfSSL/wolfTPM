@@ -4441,6 +4441,7 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
     int rc;
     DecodedX509 x509;
     byte garbage[16];
+    byte trunc[4];
 
     XMEMSET(&x509, 0, sizeof(x509));
     XMEMSET(garbage, 0xFF, sizeof(garbage));
@@ -4453,6 +4454,11 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
 
     /* malformed input must not report success */
     rc = TPM2_ASN_DecodeX509Cert(garbage, (int)sizeof(garbage), &x509);
+    AssertIntNE(rc, 0);
+
+    /* outer SEQUENCE whose length runs past the buffer (TPM_RC_INSUFFICIENT) */
+    trunc[0] = 0x30; trunc[1] = 0x20; trunc[2] = 0x00; trunc[3] = 0x00;
+    rc = TPM2_ASN_DecodeX509Cert(trunc, (int)sizeof(trunc), &x509);
     AssertIntNE(rc, 0);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeX509Cert errors:");
