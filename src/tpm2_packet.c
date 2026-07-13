@@ -1157,6 +1157,8 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
     TPM2_Packet_AppendU16(packet, publicArea->type);
     TPM2_Packet_AppendU16(packet, publicArea->nameAlg);
     TPM2_Packet_AppendU32(packet, publicArea->objectAttributes);
+    if (publicArea->authPolicy.size > sizeof(publicArea->authPolicy.buffer))
+        publicArea->authPolicy.size = sizeof(publicArea->authPolicy.buffer);
     TPM2_Packet_AppendU16(packet, publicArea->authPolicy.size);
     TPM2_Packet_AppendBytes(packet, publicArea->authPolicy.buffer,
         publicArea->authPolicy.size);
@@ -1166,16 +1168,28 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
 
     switch (publicArea->type) {
     case TPM_ALG_KEYEDHASH:
+        if (publicArea->unique.keyedHash.size >
+                sizeof(publicArea->unique.keyedHash.buffer))
+            publicArea->unique.keyedHash.size =
+                sizeof(publicArea->unique.keyedHash.buffer);
         TPM2_Packet_AppendU16(packet, publicArea->unique.keyedHash.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.keyedHash.buffer,
             publicArea->unique.keyedHash.size);
         break;
     case TPM_ALG_SYMCIPHER:
+        if (publicArea->unique.sym.size >
+                sizeof(publicArea->unique.sym.buffer))
+            publicArea->unique.sym.size =
+                sizeof(publicArea->unique.sym.buffer);
         TPM2_Packet_AppendU16(packet, publicArea->unique.sym.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.sym.buffer,
             publicArea->unique.sym.size);
         break;
     case TPM_ALG_RSA:
+        if (publicArea->unique.rsa.size >
+                sizeof(publicArea->unique.rsa.buffer))
+            publicArea->unique.rsa.size =
+                sizeof(publicArea->unique.rsa.buffer);
         TPM2_Packet_AppendU16(packet, publicArea->unique.rsa.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.rsa.buffer,
             publicArea->unique.rsa.size);
@@ -1186,6 +1200,10 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
 #ifdef WOLFTPM_MLDSA
     case TPM_ALG_MLDSA:
     case TPM_ALG_HASH_MLDSA:
+        if (publicArea->unique.mldsa.size >
+                sizeof(publicArea->unique.mldsa.buffer))
+            publicArea->unique.mldsa.size =
+                sizeof(publicArea->unique.mldsa.buffer);
         TPM2_Packet_AppendU16(packet, publicArea->unique.mldsa.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.mldsa.buffer,
             publicArea->unique.mldsa.size);
@@ -1193,6 +1211,10 @@ void TPM2_Packet_AppendPublicArea(TPM2_Packet* packet, TPMT_PUBLIC* publicArea)
 #endif /* WOLFTPM_MLDSA */
 #ifdef WOLFTPM_MLKEM
     case TPM_ALG_MLKEM:
+        if (publicArea->unique.mlkem.size >
+                sizeof(publicArea->unique.mlkem.buffer))
+            publicArea->unique.mlkem.size =
+                sizeof(publicArea->unique.mlkem.buffer);
         TPM2_Packet_AppendU16(packet, publicArea->unique.mlkem.size);
         TPM2_Packet_AppendBytes(packet, publicArea->unique.mlkem.buffer,
             publicArea->unique.mlkem.size);

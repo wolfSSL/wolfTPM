@@ -3873,6 +3873,31 @@ static void test_TPM2_AppendSensitive_Clamp(void)
     printf("Test TPM2:        %-40s Passed\n", "AppendSensitive clamp:");
 }
 
+static void test_TPM2_AppendPublic_Clamp(void)
+{
+    TPM2_Packet packet;
+    byte buf[1024];
+    TPM2B_PUBLIC pub;
+    word16 policyCap, rsaCap;
+
+    policyCap = (word16)sizeof(pub.publicArea.authPolicy.buffer);
+    rsaCap = (word16)sizeof(pub.publicArea.unique.rsa.buffer);
+
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_RSA;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.authPolicy.size = policyCap + 100;
+    pub.publicArea.unique.rsa.size = rsaCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.authPolicy.size, policyCap);
+    AssertIntEQ(pub.publicArea.unique.rsa.size, rsaCap);
+
+    printf("Test TPM2:        %-40s Passed\n", "AppendPublic clamp:");
+}
+
 /* Roundtrip a maximum-size inner payload (size == buffer capacity) so the
  * parse-side ParseU16Buf clamp branch is exercised with valid data. */
 static void test_TPM2_Sensitive_MaxRoundtrip(void)
@@ -6266,6 +6291,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_TIS_ValidateRspSz();
     test_TPM2_ParsePublic_EmptyClears();
     test_TPM2_AppendSensitive_Clamp();
+    test_TPM2_AppendPublic_Clamp();
     test_TPM2_Sensitive_MaxRoundtrip();
     test_KeySealTemplate();
     test_SealAndKeyedHash_Boundaries();
