@@ -389,6 +389,7 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
             rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
 
         wc_HashFree(&hash_ctx, hashType);
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -435,6 +436,7 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
             rc = wc_HashFinal(&hash_ctx, hashType, hash->buffer);
 
         wc_HashFree(&hash_ctx, hashType);
+        TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
