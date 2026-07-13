@@ -1923,6 +1923,44 @@ static void test_TPM2_ParamEnc_XOR_Vector(void)
 #endif
 }
 
+#ifndef TPM2_XOR_MASK_MAX
+#define TPM2_XOR_MASK_MAX 1280
+#endif
+static void test_TPM2_ParamEnc_XOR_MaskBoundary(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    TPMI_ALG_HASH authHash = TPM_ALG_SHA256;
+    TPM2B_AUTH sessKey;
+    TPM2B_NONCE nonceCaller, nonceTPM;
+    byte data[TPM2_XOR_MASK_MAX + 1];
+
+    sessKey.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(sessKey.buffer, 0xCC, sessKey.size);
+    nonceCaller.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceCaller.buffer, 0x11, nonceCaller.size);
+    nonceTPM.size = TPM_SHA256_DIGEST_SIZE;
+    XMEMSET(nonceTPM.buffer, 0x22, nonceTPM.size);
+    XMEMSET(data, 0, sizeof(data));
+
+    /* exactly at capacity must succeed */
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, TPM2_XOR_MASK_MAX);
+    AssertIntEQ(TPM_RC_SUCCESS, rc);
+
+    /* one byte past capacity must be rejected */
+    rc = TPM2_ParamEnc_XOR(authHash, sessKey.buffer, sessKey.size,
+        nonceCaller.buffer, nonceCaller.size,
+        nonceTPM.buffer, nonceTPM.size,
+        data, TPM2_XOR_MASK_MAX + 1);
+    AssertIntEQ(BUFFER_E, rc);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ParamEnc_XOR mask boundary:");
+#endif
+}
+
 static void test_TPM2_ParamEnc_AESCFB_Vector(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_AES_CFB)
@@ -6251,6 +6289,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ResponseHmacVerification();
     test_TPM2_CalcHmac();
     test_TPM2_ParamEnc_XOR_Vector();
+    test_TPM2_ParamEnc_XOR_MaskBoundary();
     test_TPM2_ParamEnc_AESCFB_Vector();
     test_TPM2_ParamEnc_AESCFB_KAT();
     test_TPM2_ParamDec_XOR_Roundtrip();
