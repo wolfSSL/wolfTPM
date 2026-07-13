@@ -35,15 +35,6 @@
   `-DWOLFTPM_MAX_RETRIES=N` at build time. Define `WOLFTPM_NO_RETRY` to compile
   the handling out entirely. wolfTPM's own key templates set `noDA` and never
   trigger it.
-* Hardened the wolfCrypt crypto callback and TPM2B marshaling. The ECDSA verify
-  path now rejects signatures whose R/S exceed the key curve size before the
-  pad-offset arithmetic, preventing an out-of-bounds write on a malformed peer
-  signature; the public-area and ECC-point append helpers clamp oversized TPM2B
-  sizes to their buffer capacity, preventing a source over-read; and
-  `TPM2_CalcCpHash`/`TPM2_CalcRpHash` scrub the stack hash context after use.
-  Added unit tests for these paths plus the XOR/AES-CFB parameter-encryption
-  size guards, the response-HMAC session check, and RSA/ECC public-area
-  round-trips.
 
 ## wolfTPM Release 4.0.0 (Apr 22, 2026)
 
