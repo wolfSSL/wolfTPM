@@ -740,8 +740,12 @@ void TPM2_Packet_ParseAsymScheme(TPM2_Packet* packet, TPMT_ASYM_SCHEME* scheme)
 
 void TPM2_Packet_AppendEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 {
+    if (point->x.size > sizeof(point->x.buffer))
+        point->x.size = sizeof(point->x.buffer);
     TPM2_Packet_AppendU16(packet, point->x.size);
     TPM2_Packet_AppendBytes(packet, point->x.buffer, point->x.size);
+    if (point->y.size > sizeof(point->y.buffer))
+        point->y.size = sizeof(point->y.buffer);
     TPM2_Packet_AppendU16(packet, point->y.size);
     TPM2_Packet_AppendBytes(packet, point->y.buffer, point->y.size);
 }

@@ -4126,10 +4126,11 @@ static void test_TPM2_AppendPublic_Clamp(void)
     TPM2_Packet packet;
     byte buf[1024];
     TPM2B_PUBLIC pub;
-    word16 policyCap, rsaCap;
+    word16 policyCap, rsaCap, eccCap;
 
     policyCap = (word16)sizeof(pub.publicArea.authPolicy.buffer);
     rsaCap = (word16)sizeof(pub.publicArea.unique.rsa.buffer);
+    eccCap = (word16)sizeof(pub.publicArea.unique.ecc.x.buffer);
 
     XMEMSET(&pub, 0, sizeof(pub));
     pub.publicArea.type = TPM_ALG_RSA;
@@ -4142,6 +4143,19 @@ static void test_TPM2_AppendPublic_Clamp(void)
     TPM2_Packet_AppendPublic(&packet, &pub);
     AssertIntEQ(pub.publicArea.authPolicy.size, policyCap);
     AssertIntEQ(pub.publicArea.unique.rsa.size, rsaCap);
+
+    /* ECC point x/y sizes must clamp on append too */
+    XMEMSET(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.unique.ecc.x.size = eccCap + 100;
+    pub.publicArea.unique.ecc.y.size = eccCap + 100;
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+    TPM2_Packet_AppendPublic(&packet, &pub);
+    AssertIntEQ(pub.publicArea.unique.ecc.x.size, eccCap);
+    AssertIntEQ(pub.publicArea.unique.ecc.y.size, eccCap);
 
     printf("Test TPM2:        %-40s Passed\n", "AppendPublic clamp:");
 }
