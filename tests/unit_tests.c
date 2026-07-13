@@ -1923,9 +1923,6 @@ static void test_TPM2_ParamEnc_XOR_Vector(void)
 #endif
 }
 
-#ifndef TPM2_XOR_MASK_MAX
-#define TPM2_XOR_MASK_MAX 1280
-#endif
 static void test_TPM2_ParamEnc_XOR_MaskBoundary(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT

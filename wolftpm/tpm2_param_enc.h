@@ -30,6 +30,12 @@
     extern "C" {
 #endif
 
+/* Maximum XOR mask size. RSA-2048 inSensitive parameter blobs on Create can
+ * exceed MAX_DIGEST_BUFFER (1024), so leave headroom to ~1250 bytes. */
+#ifndef TPM2_XOR_MASK_MAX
+#define TPM2_XOR_MASK_MAX 1280
+#endif
+
 /* XOR parameter encryption/decryption (raw pointer interface).
  * XOR is symmetric so encrypt and decrypt are the same operation. */
 WOLFTPM_TEST_API int TPM2_ParamEnc_XOR(
