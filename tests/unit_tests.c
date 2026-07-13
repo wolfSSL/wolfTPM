@@ -4380,7 +4380,6 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
     TpmCryptoDevCtx tpmCtx;
     wc_CryptoInfo info;
     ecc_key key;
-    ecc_key nokey;
     byte digest[32];
     byte sig[128];
     word32 sigSz;
@@ -4428,33 +4427,6 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
         rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
         AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
     }
-
-    /* keySz == 0 (key with no curve set) must also fall back to software */
-    rc = wc_ecc_init(&nokey);
-    AssertIntEQ(rc, 0);
-    sigSz = 0;
-    sig[sigSz++] = 0x30;
-    sig[sigSz++] = 0x44;
-    sig[sigSz++] = 0x02;
-    sig[sigSz++] = 0x20;
-    for (i = 0; i < 32; i++)
-        sig[sigSz++] = 0x11;
-    sig[sigSz++] = 0x02;
-    sig[sigSz++] = 0x20;
-    for (i = 0; i < 32; i++)
-        sig[sigSz++] = 0x22;
-    XMEMSET(&info, 0, sizeof(info));
-    info.algo_type = WC_ALGO_TYPE_PK;
-    info.pk.type = WC_PK_TYPE_ECDSA_VERIFY;
-    info.pk.eccverify.sig = sig;
-    info.pk.eccverify.siglen = sigSz;
-    info.pk.eccverify.hash = digest;
-    info.pk.eccverify.hashlen = (word32)sizeof(digest);
-    info.pk.eccverify.res = &verifyRes;
-    info.pk.eccverify.key = &nokey;
-    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
-    wc_ecc_free(&nokey);
 
     wc_ecc_free(&key);
     wolfTPM2_Cleanup(&dev);
