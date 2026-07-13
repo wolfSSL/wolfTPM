@@ -288,8 +288,7 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
     }
     if (rc == 0) {
         rc = TPM2_ASN_RsaDecodeSignature(&sigDigest, sigSz);
-        /* positive return is the digest size; larger values are TPM_RC errors */
-        if (rc > 0 && rc <= TPM_MAX_DIGEST_SIZE) {
+        if (rc > 0) {
             sigDigestSz = rc;
             rc = 0;
         }
