@@ -4091,6 +4091,31 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 #endif
 }
 
+static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    int rc;
+    DecodedX509 x509;
+    byte garbage[16];
+
+    XMEMSET(&x509, 0, sizeof(x509));
+    XMEMSET(garbage, 0xFF, sizeof(garbage));
+
+    /* NULL arguments must be rejected, not dereferenced */
+    rc = TPM2_ASN_DecodeX509Cert(NULL, 0, &x509);
+    AssertIntNE(rc, 0);
+    rc = TPM2_ASN_DecodeX509Cert(garbage, (int)sizeof(garbage), NULL);
+    AssertIntNE(rc, 0);
+
+    /* malformed input must not report success */
+    rc = TPM2_ASN_DecodeX509Cert(garbage, (int)sizeof(garbage), &x509);
+    AssertIntNE(rc, 0);
+
+    printf("Test TPM Wrapper: %-40s %s\n", "ASN DecodeX509Cert errors:",
+        rc != 0 ? "Passed" : "Failed");
+#endif
+}
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     !defined(WOLFTPM2_NO_ASN)
 #define FLAGS_USE_WOLFCRYPT (1 << 0)
@@ -6226,6 +6251,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
+    test_TPM2_ASN_DecodeX509Cert_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
         !defined(NO_RSA)
     test_wolfTPM_ImportPublicKey();
