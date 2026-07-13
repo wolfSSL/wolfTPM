@@ -4458,8 +4458,31 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
     rc = TPM2_ASN_DecodeX509Cert(garbage, (int)sizeof(garbage), &x509);
     AssertIntNE(rc, 0);
 
-    printf("Test TPM Wrapper: %-40s %s\n", "ASN DecodeX509Cert errors:",
-        rc != 0 ? "Passed" : "Failed");
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeX509Cert errors:");
+#endif
+}
+
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+#include <examples/endorsement/trusted_certs_der.h>
+#endif
+static void test_TPM2_ASN_DecodeX509Cert_Valid(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    int rc;
+    DecodedX509 x509;
+
+    /* a well-formed DER certificate must decode and populate the fields */
+    XMEMSET(&x509, 0, sizeof(x509));
+    rc = TPM2_ASN_DecodeX509Cert((uint8_t*)kSTSAFEIntCa20,
+        (int)sizeof(kSTSAFEIntCa20), &x509);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntGT(x509.certSz, 0);
+    AssertNotNull(x509.publicKey);
+    AssertIntGT(x509.pubKeySz, 0);
+    AssertNotNull(x509.signature);
+    AssertIntGT(x509.sigSz, 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN DecodeX509Cert valid:");
 #endif
 }
 
@@ -6626,6 +6649,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_TPM2_ASN_DecodeX509Cert_Errors();
+    test_TPM2_ASN_DecodeX509Cert_Valid();
     test_TPM2_ASN_DecodeTag_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
         !defined(NO_RSA)
