@@ -122,9 +122,8 @@ int TPM2_ASN_DecodeTag(const uint8_t* input, int inputSz,
 {
     word32 idx = *inOutIdx;
     int rc = TPM2_ASN_GetHeader(input, tag, &idx, tag_len, inputSz);
-    if (rc >= 0) {
+    if (rc == 0) {
         *inOutIdx = idx;
-        rc = 0;
     }
     return rc;
 }

@@ -4116,6 +4116,28 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
 #endif
 }
 
+static void test_TPM2_ASN_DecodeTag_Errors(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    int rc, idx, tagLen;
+    byte buf[4];
+
+    buf[0] = 0x30; buf[1] = 0x02; buf[2] = 0x00; buf[3] = 0x00;
+
+    idx = 0;
+    rc = TPM2_ASN_DecodeTag(buf, (int)sizeof(buf), &idx, &tagLen, 0x30);
+    AssertIntEQ(rc, 0);
+
+    /* wrong expected tag must be reported, not accepted as success */
+    idx = 0;
+    rc = TPM2_ASN_DecodeTag(buf, (int)sizeof(buf), &idx, &tagLen, 0x02);
+    AssertIntNE(rc, 0);
+
+    printf("Test TPM Wrapper: %-40s %s\n", "ASN DecodeTag tag mismatch:",
+        rc != 0 ? "Passed" : "Failed");
+#endif
+}
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
     !defined(WOLFTPM2_NO_ASN)
 #define FLAGS_USE_WOLFCRYPT (1 << 0)
@@ -6252,6 +6274,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_TPM2_ASN_DecodeX509Cert_Errors();
+    test_TPM2_ASN_DecodeTag_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
         !defined(NO_RSA)
     test_wolfTPM_ImportPublicKey();
