@@ -3537,76 +3537,6 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
         "Signature ECSCHNORR/SM2 serialize:");
 }
 
-#ifdef WOLFTPM_PQC
-/* Round-trip the v1.85 PQC arms of TPMT_SIGNATURE through the packet
- * marshaler. Pure ML-DSA (Table 217 mldsa arm) is bare TPM2B + bytes —
- * no hash field. Hash-ML-DSA prefixes a hashAlg before the TPM2B. The
- * tests pin the on-wire byte counts to catch any future drift. */
-static void test_TPM2_Signature_PQC_Serialize(void)
-{
-    TPM2_Packet packet;
-    byte buf[256];
-    TPMT_SIGNATURE sigIn, sigOut;
-    const byte sigBytes[16] = {
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
-    };
-
-    /* Pure ML-DSA: sigAlg(2) + sigSz(2) + sig(16) = 20 bytes. */
-    XMEMSET(&sigIn, 0, sizeof(sigIn));
-    sigIn.sigAlg = TPM_ALG_MLDSA;
-    sigIn.signature.mldsa.size = sizeof(sigBytes);
-    XMEMCPY(sigIn.signature.mldsa.buffer, sigBytes, sizeof(sigBytes));
-
-    XMEMSET(buf, 0, sizeof(buf));
-    XMEMSET(&packet, 0, sizeof(packet));
-    packet.buf = buf;
-    packet.size = sizeof(buf);
-
-    TPM2_Packet_AppendSignature(&packet, &sigIn);
-    AssertIntEQ(packet.pos, 2 + 2 + (int)sizeof(sigBytes));
-
-    packet.pos = 0;
-    XMEMSET(&sigOut, 0, sizeof(sigOut));
-    TPM2_Packet_ParseSignature(&packet, &sigOut);
-    AssertIntEQ(sigOut.sigAlg, TPM_ALG_MLDSA);
-    AssertIntEQ(sigOut.signature.mldsa.size, sizeof(sigBytes));
-    AssertIntEQ(XMEMCMP(sigOut.signature.mldsa.buffer,
-        sigBytes, sizeof(sigBytes)), 0);
-
-    /* Hash-ML-DSA: sigAlg(2) + hash(2) + sigSz(2) + sig(16) = 22 bytes. */
-    XMEMSET(&sigIn, 0, sizeof(sigIn));
-    sigIn.sigAlg = TPM_ALG_HASH_MLDSA;
-    sigIn.signature.hash_mldsa.hash = TPM_ALG_SHA256;
-    sigIn.signature.hash_mldsa.signature.size = sizeof(sigBytes);
-    XMEMCPY(sigIn.signature.hash_mldsa.signature.buffer,
-        sigBytes, sizeof(sigBytes));
-
-    XMEMSET(buf, 0, sizeof(buf));
-    XMEMSET(&packet, 0, sizeof(packet));
-    packet.buf = buf;
-    packet.size = sizeof(buf);
-
-    TPM2_Packet_AppendSignature(&packet, &sigIn);
-    AssertIntEQ(packet.pos, 2 + 2 + 2 + (int)sizeof(sigBytes));
-
-    packet.pos = 0;
-    XMEMSET(&sigOut, 0, sizeof(sigOut));
-    TPM2_Packet_ParseSignature(&packet, &sigOut);
-    AssertIntEQ(sigOut.sigAlg, TPM_ALG_HASH_MLDSA);
-    AssertIntEQ(sigOut.signature.hash_mldsa.hash, TPM_ALG_SHA256);
-    AssertIntEQ(sigOut.signature.hash_mldsa.signature.size, sizeof(sigBytes));
-    AssertIntEQ(XMEMCMP(sigOut.signature.hash_mldsa.signature.buffer,
-        sigBytes, sizeof(sigBytes)), 0);
-
-    printf("Test TPM Wrapper: %-40s Passed\n", "Signature PQC serialize:");
-}
-
-/* Round-trip the v1.85 PQC arms of TPM2B_PUBLIC through the
- * TPM2_AppendPublic / TPM2_ParsePublic public marshalers. ML-DSA +
- * Hash-ML-DSA share the unique.mldsa arm (Part 2 Table 225 note);
- * ML-KEM has its own unique.mlkem arm. Verifies every round-tripped
- * field for the three key types. */
 static void test_TPM2_Public_RsaEcc_Roundtrip(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -3712,6 +3642,76 @@ static void test_TPM2_Public_RsaEcc_Roundtrip(void)
 #endif
 }
 
+#ifdef WOLFTPM_PQC
+/* Round-trip the v1.85 PQC arms of TPMT_SIGNATURE through the packet
+ * marshaler. Pure ML-DSA (Table 217 mldsa arm) is bare TPM2B + bytes —
+ * no hash field. Hash-ML-DSA prefixes a hashAlg before the TPM2B. The
+ * tests pin the on-wire byte counts to catch any future drift. */
+static void test_TPM2_Signature_PQC_Serialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIGNATURE sigIn, sigOut;
+    const byte sigBytes[16] = {
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F
+    };
+
+    /* Pure ML-DSA: sigAlg(2) + sigSz(2) + sig(16) = 20 bytes. */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_MLDSA;
+    sigIn.signature.mldsa.size = sizeof(sigBytes);
+    XMEMCPY(sigIn.signature.mldsa.buffer, sigBytes, sizeof(sigBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 2 + 2 + (int)sizeof(sigBytes));
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_MLDSA);
+    AssertIntEQ(sigOut.signature.mldsa.size, sizeof(sigBytes));
+    AssertIntEQ(XMEMCMP(sigOut.signature.mldsa.buffer,
+        sigBytes, sizeof(sigBytes)), 0);
+
+    /* Hash-ML-DSA: sigAlg(2) + hash(2) + sigSz(2) + sig(16) = 22 bytes. */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_HASH_MLDSA;
+    sigIn.signature.hash_mldsa.hash = TPM_ALG_SHA256;
+    sigIn.signature.hash_mldsa.signature.size = sizeof(sigBytes);
+    XMEMCPY(sigIn.signature.hash_mldsa.signature.buffer,
+        sigBytes, sizeof(sigBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 2 + 2 + 2 + (int)sizeof(sigBytes));
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_HASH_MLDSA);
+    AssertIntEQ(sigOut.signature.hash_mldsa.hash, TPM_ALG_SHA256);
+    AssertIntEQ(sigOut.signature.hash_mldsa.signature.size, sizeof(sigBytes));
+    AssertIntEQ(XMEMCMP(sigOut.signature.hash_mldsa.signature.buffer,
+        sigBytes, sizeof(sigBytes)), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Signature PQC serialize:");
+}
+
+/* Round-trip the v1.85 PQC arms of TPM2B_PUBLIC through the
+ * TPM2_AppendPublic / TPM2_ParsePublic public marshalers. ML-DSA +
+ * Hash-ML-DSA share the unique.mldsa arm (Part 2 Table 225 note);
+ * ML-KEM has its own unique.mlkem arm. Verifies every round-tripped
+ * field for the three key types. */
 static void test_TPM2_Public_PQC_Roundtrip(void)
 {
     int rc, sz;
@@ -6548,9 +6548,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
+    test_TPM2_Public_RsaEcc_Roundtrip();
 #ifdef WOLFTPM_PQC
     test_TPM2_Signature_PQC_Serialize();
-    test_TPM2_Public_RsaEcc_Roundtrip();
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
