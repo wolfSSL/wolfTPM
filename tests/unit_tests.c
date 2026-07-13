@@ -3531,6 +3531,111 @@ static void test_TPM2_Signature_PQC_Serialize(void)
  * Hash-ML-DSA share the unique.mldsa arm (Part 2 Table 225 note);
  * ML-KEM has its own unique.mlkem arm. Verifies every round-tripped
  * field for the three key types. */
+static void test_TPM2_Public_RsaEcc_Roundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc, sz;
+    byte buf[sizeof(TPM2B_PUBLIC)];
+    TPM2B_PUBLIC pubIn, pubOut;
+    const byte uniqueBytes[8] = {
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22
+    };
+
+    /* RSA with AES-128-CFB symmetric wrapper (exercises the AES mode field)
+     * and an RSASSA-SHA256 scheme */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_RSA;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.rsaDetail.symmetric.algorithm = TPM_ALG_AES;
+    pubIn.publicArea.parameters.rsaDetail.symmetric.keyBits.aes = 128;
+    pubIn.publicArea.parameters.rsaDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    pubIn.publicArea.parameters.rsaDetail.scheme.scheme = TPM_ALG_RSASSA;
+    pubIn.publicArea.parameters.rsaDetail.scheme.details.rsassa.hashAlg =
+        TPM_ALG_SHA256;
+    pubIn.publicArea.parameters.rsaDetail.keyBits = 2048;
+    pubIn.publicArea.parameters.rsaDetail.exponent = 0x10001;
+    pubIn.publicArea.unique.rsa.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.rsa.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntGT(sz, 0);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_RSA);
+    AssertIntEQ(pubOut.publicArea.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.rsaDetail.symmetric.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pubOut.publicArea.parameters.rsaDetail.symmetric.keyBits.aes,
+        128);
+    AssertIntEQ(pubOut.publicArea.parameters.rsaDetail.symmetric.mode.aes,
+        TPM_ALG_CFB);
+    AssertIntEQ(pubOut.publicArea.parameters.rsaDetail.scheme.scheme,
+        TPM_ALG_RSASSA);
+    AssertIntEQ(
+        pubOut.publicArea.parameters.rsaDetail.scheme.details.rsassa.hashAlg,
+        TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.rsaDetail.keyBits, 2048);
+    AssertIntEQ((int)pubOut.publicArea.parameters.rsaDetail.exponent, 0x10001);
+    AssertIntEQ(pubOut.publicArea.unique.rsa.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.rsa.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    /* ECC P-256 with ECDSA-SHA256 scheme and NULL symmetric/kdf */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_ECC;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.eccDetail.symmetric.algorithm = TPM_ALG_NULL;
+    pubIn.publicArea.parameters.eccDetail.scheme.scheme = TPM_ALG_ECDSA;
+    pubIn.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg =
+        TPM_ALG_SHA256;
+    pubIn.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pubIn.publicArea.parameters.eccDetail.kdf.scheme = TPM_ALG_NULL;
+    pubIn.publicArea.unique.ecc.x.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.ecc.x.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+    pubIn.publicArea.unique.ecc.y.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.ecc.y.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_ECC);
+    AssertIntEQ(pubOut.publicArea.parameters.eccDetail.symmetric.algorithm,
+        TPM_ALG_NULL);
+    AssertIntEQ(pubOut.publicArea.parameters.eccDetail.scheme.scheme,
+        TPM_ALG_ECDSA);
+    AssertIntEQ(
+        pubOut.publicArea.parameters.eccDetail.scheme.details.ecdsa.hashAlg,
+        TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.eccDetail.curveID,
+        TPM_ECC_NIST_P256);
+    AssertIntEQ(pubOut.publicArea.parameters.eccDetail.kdf.scheme,
+        TPM_ALG_NULL);
+    AssertIntEQ(pubOut.publicArea.unique.ecc.x.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.ecc.x.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+    AssertIntEQ(pubOut.publicArea.unique.ecc.y.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.ecc.y.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Public RSA/ECC roundtrip:");
+#endif
+}
+
 static void test_TPM2_Public_PQC_Roundtrip(void)
 {
     int rc, sz;
@@ -6354,6 +6459,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Signature_EcSchnorrSm2Serialize();
 #ifdef WOLFTPM_PQC
     test_TPM2_Signature_PQC_Serialize();
+    test_TPM2_Public_RsaEcc_Roundtrip();
     test_TPM2_Public_PQC_Roundtrip();
 #endif
     test_TPM2_Sensitive_Roundtrip();
