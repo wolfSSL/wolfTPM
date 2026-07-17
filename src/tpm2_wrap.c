@@ -6695,6 +6695,10 @@ int wolfTPM2_ResetPCR(WOLFTPM2_DEV* dev, int pcrIndex)
 {
     int rc;
     PCR_Reset_In pcrReset;
+
+    if (pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST)
+        return BAD_FUNC_ARG;
+
     XMEMSET(&pcrReset, 0, sizeof(pcrReset));
     pcrReset.pcrHandle = pcrIndex;
     rc = TPM2_PCR_Reset(&pcrReset);
@@ -6816,6 +6820,12 @@ int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg, byte* digest,
         return rc;
     }
 
+    /* A successful read must return at least one digest; otherwise the
+     * digests[0] access below reads uninitialized data. */
+    if (pcrReadOut.pcrValues.count == 0) {
+        return TPM_RC_FAILURE;
+    }
+
     digestLen = (int)pcrReadOut.pcrValues.digests[0].size;
     if (digest) {
         if (pDigestLen == NULL) {
@@ -6852,7 +6862,8 @@ int wolfTPM2_ExtendPCR(WOLFTPM2_DEV* dev, int pcrIndex, int hashAlg,
     int rc;
     PCR_Extend_In pcrExtend;
 
-    if (dev == NULL || digestLen < 0 || digestLen > TPM_MAX_DIGEST_SIZE) {
+    if (dev == NULL || digestLen < 0 || digestLen > TPM_MAX_DIGEST_SIZE ||
+            pcrIndex < (int)PCR_FIRST || pcrIndex > (int)PCR_LAST) {
         return BAD_FUNC_ARG;
     }
 
@@ -7712,7 +7723,9 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     HashSequenceStart_In in;
     HashSequenceStart_Out out;
 
-    if (dev == NULL || hash == NULL || hashAlg == TPM_ALG_NULL ||
+    /* TPM2_GetHashDigestSize() is 0 for any algorithm that is not a hash,
+     * so this rejects them locally instead of relying on TPM_RC_HASH. */
+    if (dev == NULL || hash == NULL || TPM2_GetHashDigestSize(hashAlg) == 0 ||
         (usageAuthSz > 0 && usageAuth == NULL)) {
         return BAD_FUNC_ARG;
     }
