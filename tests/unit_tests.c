@@ -3243,6 +3243,74 @@ static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
     printf("Test TPM Wrapper:\tResponseProcess paramSize overflow:\tPassed\n");
 }
 
+static void test_TPM2_ResponseProcess_DecParamSizeOverflow(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[1];
+    TPM2_Packet packet;
+    CmdInfo_t info;
+    byte buf[128];
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(session, 0, sizeof(session));
+    XMEMSET(&info, 0, sizeof(info));
+    ctx.session = session;
+    packet.buf = buf;
+
+    /* DEC2: first-parameter size larger than the parameter area must be
+     * rejected before any decrypt (paramSz=4, decParamSz=0xFFFF) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x04;
+    buf[TPM2_HEADER_SIZE + 4] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 5] = 0xFF;
+    info.authCnt = 0;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* DEC2: paramSz smaller than the size prefix (underflow guard, paramSz=1) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x01;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* DEC2: exact-fit first-parameter (decParamSz == paramSz - 2) is accepted */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x04;
+    buf[TPM2_HEADER_SIZE + 5] = 0x02;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* DEC4: 32-bit first-parameter size overflow is likewise rejected
+     * (paramSz=8, decParamSz=0xFFFFFFFF) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x08;
+    buf[TPM2_HEADER_SIZE + 4] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 5] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 6] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 7] = 0xFF;
+    info.flags = CMD_FLAG_DEC4;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    printf("Test TPM Wrapper:\tResponseProcess decParamSize overflow:\tPassed\n");
+}
+
 static void test_TPM2_ResponseProcess_HmacVerify(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
@@ -6879,6 +6947,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Packet_RetryRestore();
 #endif
     test_TPM2_ResponseProcess_ParamSizeOverflow();
+    test_TPM2_ResponseProcess_DecParamSizeOverflow();
     test_TPM2_ResponseProcess_HmacVerify();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();

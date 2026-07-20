@@ -314,18 +314,33 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     param = &packet->buf[packet->pos]; /* Mark parameter data */
     authPos = packet->pos + paramSz;
 
-    /* Mark "first" decryption parameter */
+    /* Mark "first" decryption parameter. Reject a parameter area too small to
+     * hold the size prefix before parsing it, so a truncated response returns
+     * TPM_RC_SIZE without reading past the declared parameter area. */
     if (info->flags & CMD_FLAG_DEC2) {
         UINT16 tempSz;
+        if (paramSz < sizeof(UINT16))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU16(packet, &tempSz);
         decParam = param + sizeof(UINT16);
         decParamSz = tempSz;
     }
     else if (info->flags & CMD_FLAG_DEC4) {
         UINT32 tempSz;
+        if (paramSz < sizeof(UINT32))
+            return TPM_RC_SIZE;
         TPM2_Packet_ParseU32(packet, &tempSz);
         decParam = param + sizeof(UINT32);
         decParamSz = tempSz;
+    }
+
+    /* Bound the decrypt region to the parameter area so a malicious or faulty
+     * TPM cannot drive an out-of-bounds parameter decryption write */
+    if (decParam != NULL) {
+        UINT32 decOffset = (UINT32)(decParam - param);
+        if (decParamSz > paramSz - decOffset) {
+            return TPM_RC_SIZE;
+        }
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
