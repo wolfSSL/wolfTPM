@@ -3834,6 +3834,93 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
         "Signature ECSCHNORR/SM2 serialize:");
 }
 
+static void test_TPM2_Signature_RsaHmacSerialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIGNATURE sigIn, sigOut;
+    const byte rsaSig[16] = {
+        0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+        0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF
+    };
+    byte hmacDigest[TPM_MAX_DIGEST_SIZE];
+    int digestSz;
+    int i;
+
+    /* RSASSA: sigAlg(2) + hash(2) + sigSz(2) + sig(16) = 22 bytes */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_RSASSA;
+    sigIn.signature.rsassa.hash = TPM_ALG_SHA256;
+    sigIn.signature.rsassa.sig.size = sizeof(rsaSig);
+    XMEMCPY(sigIn.signature.rsassa.sig.buffer, rsaSig, sizeof(rsaSig));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 22);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_RSASSA);
+    AssertIntEQ(sigOut.signature.rsassa.hash, TPM_ALG_SHA256);
+    AssertIntEQ(sigOut.signature.rsassa.sig.size, sizeof(rsaSig));
+    AssertIntEQ(XMEMCMP(sigOut.signature.rsassa.sig.buffer, rsaSig,
+        sizeof(rsaSig)), 0);
+
+    /* RSAPSS: identical wire format */
+    sigIn.sigAlg = TPM_ALG_RSAPSS;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 22);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_RSAPSS);
+    AssertIntEQ(sigOut.signature.rsapss.sig.size, sizeof(rsaSig));
+    AssertIntEQ(XMEMCMP(sigOut.signature.rsapss.sig.buffer, rsaSig,
+        sizeof(rsaSig)), 0);
+
+    /* HMAC: sigAlg(2) + hashAlg(2) + digest(digestSz), no length prefix -
+     * on-wire length derives solely from TPM2_GetHashDigestSize(hashAlg) */
+    digestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    for (i = 0; i < digestSz; i++) {
+        hmacDigest[i] = (byte)(0x40 + i);
+    }
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_HMAC;
+    sigIn.signature.hmac.hashAlg = TPM_ALG_SHA256;
+    XMEMCPY(sigIn.signature.hmac.digest.H, hmacDigest, digestSz);
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 4 + digestSz);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_HMAC);
+    AssertIntEQ(sigOut.signature.hmac.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(XMEMCMP(sigOut.signature.hmac.digest.H, hmacDigest,
+        digestSz), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Signature RSASSA/RSAPSS/HMAC serialize:");
+}
+
 static void test_TPM2_Public_RsaEcc_Roundtrip(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -3936,6 +4023,83 @@ static void test_TPM2_Public_RsaEcc_Roundtrip(void)
         sizeof(uniqueBytes)), 0);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Public RSA/ECC roundtrip:");
+#endif
+}
+
+static void test_TPM2_Public_KeyedHashSym_Roundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc, sz;
+    byte buf[sizeof(TPM2B_PUBLIC)];
+    TPM2B_PUBLIC pubIn, pubOut;
+    const byte uniqueBytes[8] = {
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22
+    };
+
+    /* KEYEDHASH (the seal/unseal object type) with an HMAC-SHA256 scheme */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_KEYEDHASH;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    pubIn.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
+        TPM_ALG_SHA256;
+    pubIn.publicArea.unique.keyedHash.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.keyedHash.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntGT(sz, 0);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_KEYEDHASH);
+    AssertIntEQ(pubOut.publicArea.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.keyedHashDetail.scheme.scheme,
+        TPM_ALG_HMAC);
+    AssertIntEQ(pubOut.publicArea.parameters.keyedHashDetail.scheme.details.hmac
+        .hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.unique.keyedHash.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.keyedHash.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    /* SYMCIPHER with an AES-128-CFB key definition */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_SYMCIPHER;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes =
+        (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
+    pubIn.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
+    pubIn.publicArea.parameters.symDetail.sym.keyBits.aes = 128;
+    pubIn.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CFB;
+    pubIn.publicArea.unique.sym.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.sym.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_SYMCIPHER);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.keyBits.aes, 128);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.mode.aes,
+        TPM_ALG_CFB);
+    AssertIntEQ(pubOut.publicArea.unique.sym.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.sym.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Public KEYEDHASH/SYMCIPHER roundtrip:");
 #endif
 }
 
@@ -7034,7 +7198,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
+    test_TPM2_Signature_RsaHmacSerialize();
     test_TPM2_Public_RsaEcc_Roundtrip();
+    test_TPM2_Public_KeyedHashSym_Roundtrip();
 #ifdef WOLFTPM_PQC
     test_TPM2_Signature_PQC_Serialize();
     test_TPM2_Public_PQC_Roundtrip();
