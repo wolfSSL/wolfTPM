@@ -1518,6 +1518,24 @@ static void test_TPM2_ConstantCompare(void)
     printf("Test TPM Wrapper: %-40s Passed\n", "ConstantCompare:");
 }
 
+/* WOLFTPM_IS_COMMAND_UNAVAILABLE must match TPM_RC_COMMAND_CODE even with
+ * vendor bits set (NS350 returns 0x000b0143), without aliasing other codes. */
+static void test_WOLFTPM_IS_COMMAND_UNAVAILABLE(void)
+{
+    AssertIntNE(0, WOLFTPM_IS_COMMAND_UNAVAILABLE((int)TPM_RC_COMMAND_CODE));
+    AssertIntNE(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(0x000b0143)); /* vendor bits */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE((int)TPM_RC_COMMAND_SIZE));
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE((int)TPM_RC_SUCCESS));
+    /* Negative wolfCrypt errors must not alias onto the command code. */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(-189)); /* ASN_CRL_CONFIRM_E */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(-1));   /* generic negative */
+    /* Positive layer/vendor bits must not alias either. */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(0x00000343)); /* layer bits */
+    AssertIntEQ(0, WOLFTPM_IS_COMMAND_UNAVAILABLE(0x000b0142)); /* vendor, non-cc */
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "IsCommandUnavailable:");
+}
+
 static void test_TPM2_AesCfbRoundtrip(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_AES) && \
@@ -6840,6 +6858,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_HmacCompute();
     test_TPM2_HashCompute();
     test_TPM2_ConstantCompare();
+    test_WOLFTPM_IS_COMMAND_UNAVAILABLE();
     test_TPM2_AesCfbRoundtrip();
     test_TPM2_KDFa_MultiHash();
     test_TPM2_KDFe_MultiHash();
