@@ -16735,17 +16735,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
             /* PolicyPassword with no sessionKey (unsalted/unbound):
              * HMAC field contains plaintext authValue per spec Section 19.6.13.
-             * Always run TPM2_ConstantCompare so timing doesn't leak auth
-             * length match. */
+             * Use fixed-length FwCtAuthCompare so the compare trip count can't
+             * leak the auth value length (matches the TPM_RS_PW path). */
             if (hSess->sessionType == TPM_SE_POLICY &&
                 hSess->isPasswordPolicy &&
                 hSess->sessionKey.size == 0) {
-                sizeMismatch = ((int)cmdAuths[hj].cmdHmacSize != authValSz);
-                cmpSz = (cmdAuths[hj].cmdHmacSize < (UINT16)authValSz) ?
-                    cmdAuths[hj].cmdHmacSize : (word32)authValSz;
-                hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
-                    authVal, cmpSz);
-                if (sizeMismatch | hmacDiff) {
+                if (FwCtAuthCompare(cmdAuths[hj].cmdHmac,
+                        (int)cmdAuths[hj].cmdHmacSize, authVal, authValSz)) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
