@@ -5937,10 +5937,17 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
     byte seed[1] = {0x42};
     TPMA_OBJECT attrs = (TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_noDA);
+    TPM2B_SENSITIVE sens;
+    byte big[MAX_ECC_KEY_BYTES];
+    word32 capX, capY, capP;
 
     XMEMSET(eccPubX, 0x01, sizeof(eccPubX));
     XMEMSET(eccPubY, 0x02, sizeof(eccPubY));
     XMEMSET(eccPriv, 0x03, sizeof(eccPriv));
+    XMEMSET(big, 0x05, sizeof(big));
+    capX = (word32)sizeof(keyBlob.pub.publicArea.unique.ecc.x.buffer);
+    capY = (word32)sizeof(keyBlob.pub.publicArea.unique.ecc.y.buffer);
+    capP = (word32)sizeof(sens.sensitiveArea.sensitive.ecc.buffer);
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
@@ -5953,11 +5960,77 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
         eccPriv, sizeof(eccPriv), attrs, seed, sizeof(seed));
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+    /* Each component one byte over its TPM2B capacity must return BUFFER_E */
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX + 1, big, capY, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY + 1, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY, big, capP + 1,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit components must clear the bounds check (fail later at the
+     * seed size check, not BUFFER_E) - pins '>' against '>=' and deletion */
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntNE(rc, BUFFER_E);
+
     wolfTPM2_Cleanup(&dev);
 
     printf("Test TPM Wrapper:\tImportEccSeed error paths:\tPassed\n");
 }
 #endif /* HAVE_ECC */
+
+#ifndef NO_RSA
+static void test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY parentKey;
+    WOLFTPM2_KEYBLOB keyBlob;
+    TPM2B_SENSITIVE sens;
+    byte big[MAX_RSA_KEY_BYTES];
+    byte seed[1] = {0x42};
+    word32 capPub, capPriv;
+    TPMA_OBJECT attrs = (TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA);
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&parentKey, 0, sizeof(parentKey));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+    XMEMSET(big, 0x05, sizeof(big));
+    capPub = (word32)sizeof(keyBlob.pub.publicArea.unique.rsa.buffer);
+    capPriv = (word32)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
+
+    /* Public/private modulus one byte over capacity must return BUFFER_E */
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub + 1, 0x10001, big, capPriv,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub, 0x10001, big, capPriv + 1,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit components clear the bounds check (fail later at the seed
+     * size check, not BUFFER_E) - pins '>' against '>=' and deletion */
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub, 0x10001, big, capPriv,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntNE(rc, BUFFER_E);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tImportRsaSeed error paths:\tPassed\n");
+}
+#endif /* !NO_RSA */
 
 static void test_wolfTPM2_NVStoreKey_BoundaryChecks(void)
 {
@@ -6995,6 +7068,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_EncryptDecryptBlock();
     #ifdef HAVE_ECC
     test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
+    #endif
+    #ifndef NO_RSA
+    test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths();
     #endif
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();
