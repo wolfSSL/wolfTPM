@@ -118,6 +118,25 @@ static UINT32 GetU32BE(const byte* buf)
            ((UINT32)buf[2] << 8) | buf[3];
 }
 
+/* Command code (commandIndex + vendor V bit) from a TPMA_CC; used to page
+ * TPM_CAP_COMMANDS by command code rather than the raw attribute word. */
+static UINT32 TpmaCcToCmdCode(UINT32 tpma)
+{
+    return (tpma & 0xFFFFu) | (tpma & (UINT32)CC_VEND);
+}
+
+/* cHandles field (number of command handles) from a TPMA_CC, bits 27:25. */
+static UINT32 TpmaCcHandles(UINT32 tpma)
+{
+    return (tpma >> 25) & 0x7u;
+}
+
+/* rHandle bit (response returns a handle) from a TPMA_CC, bit 28. */
+static UINT32 TpmaCcRHandle(UINT32 tpma)
+{
+    return (tpma >> 28) & 0x1u;
+}
+
 /* Build a TPM command header. Returns TPM2_HEADER_SIZE (10). */
 static int BuildCmdHeader(byte* buf, UINT16 tag, UINT32 totalSize, UINT32 cc)
 {
@@ -671,7 +690,8 @@ static void test_fwtpm_getcap_commands(void)
     moreData = gRsp[TPM2_HEADER_SIZE];
     cap      = GetU32BE(gRsp + TPM2_HEADER_SIZE + 1);
     count    = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
-    firstCc  = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    /* TPM_CAP_COMMANDS returns TPMA_CC values; page by the command code. */
+    firstCc  = TpmaCcToCmdCode(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9));
     AssertIntEQ(moreData, 1);
     AssertIntEQ(cap, TPM_CAP_COMMANDS);
     AssertIntEQ(count, 1);
@@ -687,10 +707,141 @@ static void test_fwtpm_getcap_commands(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1);
-    AssertIntGT(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9), firstCc);
+    AssertIntGT(TpmaCcToCmdCode(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9)), firstCc);
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability(COMMANDS):", 0);
+}
+
+/* TPM_CAP_COMMANDS must report a TPMA_CC with attributes, not a bare index. */
+static void test_fwtpm_getcap_commands_tpma(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 tpma;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* PCR_Extend (0x182) takes one handle: expect commandIndex 0x182,
+     * cHandles == 1, no V bit. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_PCR_Extend);
+    AssertIntEQ(TpmaCcHandles(tpma), 1);
+    AssertIntEQ(TpmaCcRHandle(tpma), 0); /* no response handle */
+    AssertIntEQ(tpma & (UINT32)CC_VEND, 0);
+
+    /* HashSequenceStart returns a sequence handle: expect rHandle == 1. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_HashSequenceStart); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_HashSequenceStart);
+    AssertIntEQ(TpmaCcRHandle(tpma), 1); /* returns a handle */
+
+    /* StartAuthSession returns a session handle: expect rHandle == 1. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_StartAuthSession); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_StartAuthSession);
+    AssertIntEQ(TpmaCcRHandle(tpma), 1); /* returns a handle */
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability(COMMANDS) TPMA_CC:", 0);
+}
+
+/* Command codes with reserved bits set must be rejected with
+ * TPM_RC_COMMAND_CODE, never aliased onto a permitted command. */
+static void test_fwtpm_cc_reserved_bits(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Reserved bit 16 set: must NOT alias TPM_CC_GetCapability. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        (UINT32)TPM_CC_GetCapability | 0x00010000u);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_MANUFACTURER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+
+    /* Reserved bit 30 set on an otherwise-valid index. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        (UINT32)TPM_CC_GetCapability | 0x40000000u);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_MANUFACTURER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+
+    /* Well-formed but unregistered vendor code: clears the reserved-bit gate,
+     * rejected by dispatch as unimplemented. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 10,
+        (UINT32)CC_VEND | 0x0FFFu);
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+
+    /* TCG_Test (CC_VEND) is structurally valid: command-specific result
+     * (dispatched only under WOLFTPM_FWTPM_TCG_TEST), never a reserved-bit
+     * reject. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        (UINT32)TPM_CC_Vendor_TCG_Test);
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2; /* dataSize = 0 */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#ifdef WOLFTPM_FWTPM_TCG_TEST
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+#else
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+#endif
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Command-code reserved-bit enforcement:", 0);
 }
 
 static void test_fwtpm_getcap_properties(void)
@@ -781,6 +932,9 @@ static void getcap_paging_check(FWTPM_CTX* ctx, UINT32 cap, int idIs16)
         if (count == 1) {
             id = idIs16 ? (UINT32)GetU16BE(gRsp + TPM2_HEADER_SIZE + 9)
                         : GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+            /* TPM_CAP_COMMANDS entries are TPMA_CC; page by command code. */
+            if (!idIs16)
+                id = TpmaCcToCmdCode(id);
             if (total > 0)
                 AssertIntGT((int)id, (int)prev); /* strictly ascending */
             prev = id;
@@ -10759,6 +10913,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_bad_tag();
     test_fwtpm_size_mismatch();
     test_fwtpm_unknown_command();
+    test_fwtpm_cc_reserved_bits();
     test_fwtpm_no_startup();
     test_fwtpm_null_args();
 
@@ -10774,6 +10929,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     /* GetCapability */
     test_fwtpm_getcap_algorithms();
     test_fwtpm_getcap_commands();
+    test_fwtpm_getcap_commands_tpma();
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();

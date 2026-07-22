@@ -2151,9 +2151,19 @@ struct wolfTPM_winContext {
 #define TPM_E_COMMAND_BLOCKED (0x80280400)
 #endif
 
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) ((code) == (int)TPM_RC_COMMAND_CODE || (code) == (int)TPM_E_COMMAND_BLOCKED)
+/* Mask off vendor/layer high bits so a vendor-decorated TPM_RC_COMMAND_CODE
+ * (e.g. NS350 returns 0x000b0143 for 0x143) still matches. Gate on >= 0 so a
+ * propagated negative wolfCrypt error (e.g. -189) is never misread as an
+ * unavailable command. TPM_E_COMMAND_BLOCKED is a Windows HRESULT (negative),
+ * matched exactly. */
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+    (((code) >= 0 && \
+      (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE) || \
+     (code) == (int)TPM_E_COMMAND_BLOCKED)
 #else
-#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) (code == (int)TPM_RC_COMMAND_CODE)
+#define WOLFTPM_IS_COMMAND_UNAVAILABLE(code) \
+    ((code) >= 0 && \
+     (((UINT32)(code)) & 0xFFFFu) == (UINT32)TPM_RC_COMMAND_CODE)
 #endif /* WOLFTPM_WINAPI */
 
 /* make sure advanced IO is enabled for I2C */

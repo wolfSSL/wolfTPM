@@ -84,6 +84,7 @@ static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 /* Command table accessors (fwCmdTable is defined near end of file) */
 static int    FwGetCmdCount(void);
 static TPM_CC FwGetCmdCcAt(int idx);
+static UINT32 FwGetCmdAttrsAt(int idx);
 /* --- Response helpers using TPM2_Packet --- */
 
 /* Initialize a response packet on the given buffer */
@@ -1079,8 +1080,6 @@ static TPM_RC FwCmd_StirRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 /* Per-PCR reset/extend locality helper (defined with its tables below). */
 static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
 
-/* Mask a TPM command code to its 16-bit value (strip vendor/reserved bits). */
-#define FW_CC_MASK 0x0000FFFFu
 /* PCRs 0-15 are the SRTM set that TPM_PT_PCR_SAVE reports as saved. */
 #define FWTPM_PCR_SAVE_COUNT 16
 /* pcrProps[].kind: how a TPM_CAP_PCR_PROPERTIES row maps to the locality table. */
@@ -1251,11 +1250,10 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             UINT32 cc, bestCc = 0, lastCc = 0;
             int haveLast = 0;
 
-            /* Honor the property cursor and page in ascending command-code
-             * order (the dispatch table is not sorted); see TPM_CAP_ALGS
-             * above for the rationale. */
+            /* Page in ascending command-code order; sort by full TPM_CC (so
+             * vendor commands sort last) and emit a TPMA_CC (FwGetCmdAttrsAt). */
             for (k = 0; k < numCmds; k++) {
-                cc = (UINT32)FwGetCmdCcAt(k) & FW_CC_MASK;
+                cc = (UINT32)FwGetCmdCcAt(k);
                 if (cc >= property)
                     avail++;
             }
@@ -1271,7 +1269,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             for (i = 0; i < (UINT32)numOut; i++) {
                 best = -1;
                 for (k = 0; k < numCmds; k++) {
-                    cc = (UINT32)FwGetCmdCcAt(k) & FW_CC_MASK;
+                    cc = (UINT32)FwGetCmdCcAt(k);
                     if (cc < property)
                         continue;
                     if (haveLast && cc <= lastCc)
@@ -1283,7 +1281,8 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
                 if (best < 0)
                     break; /* defensive: no further candidates */
-                TPM2_Packet_AppendU32(rsp, bestCc);
+                /* Emit a TPMA_CC, not the bare command code. */
+                TPM2_Packet_AppendU32(rsp, FwGetCmdAttrsAt(best));
                 lastCc = bestCc;
                 haveLast = 1;
                 emitted++;
@@ -13995,8 +13994,9 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 #endif /* HAVE_ECC */
 
+#ifdef WOLFTPM_FWTPM_TCG_TEST
 /* --- TPM2_Vendor_TCG_Test (CC 0x20000000) --- */
-/* Vendor-specific test command. Echoes input data as output. */
+/* Optional vendor test command (echoes input); off by default. */
 static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -14040,6 +14040,7 @@ static TPM_RC FwCmd_Vendor_TCG_Test(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* WOLFTPM_FWTPM_TCG_TEST */
 
 /* ================================================================== */
 /* v1.85 PQC Commands                                                  */
@@ -15910,7 +15911,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_Hash,               FwCmd_Hash,                 0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_HMAC,               FwCmd_HMAC,                 1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_HMAC_Start,         FwCmd_HMAC_Start,           1, 1, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_HashSequenceStart,  FwCmd_HashSequenceStart,    0, 0, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_HashSequenceStart,  FwCmd_HashSequenceStart,    0, 0, 1, FW_CMD_FLAG_ENC },
     { TPM_CC_SequenceUpdate,     FwCmd_SequenceUpdate,       1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC },
@@ -15922,7 +15923,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_ZGen_2Phase,        FwCmd_ZGen_2Phase,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif
     /* --- Sessions --- */
-    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 0, 0 },
+    { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, 0 },
     { TPM_CC_Unseal,             FwCmd_Unseal,               1, 1, 0, FW_CMD_FLAG_DEC },
     /* --- Policy --- */
 #ifndef FWTPM_NO_POLICY
@@ -16003,8 +16004,10 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_DictionaryAttackLockReset, FwCmd_DictionaryAttackLockReset, 1, 1, 0, 0 },
     { TPM_CC_DictionaryAttackParameters, FwCmd_DictionaryAttackParameters, 1, 1, 0, 0 },
 #endif
-    /* --- Vendor --- */
+    /* --- Vendor (optional; off by default, see WOLFTPM_FWTPM_TCG_TEST) --- */
+#ifdef WOLFTPM_FWTPM_TCG_TEST
     { TPM_CC_Vendor_TCG_Test,    FwCmd_Vendor_TCG_Test,      0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif
     /* --- v1.85 PQC handlers --- */
 #ifdef WOLFTPM_MLKEM_ENCAP
     { TPM_CC_Encapsulate,            FwCmd_Encapsulate,            1, 0, 0, FW_CMD_FLAG_DEC },
@@ -16037,6 +16040,25 @@ static TPM_CC FwGetCmdCcAt(int idx)
     if (idx < 0 || idx >= FWTPM_CMD_TABLE_SIZE)
         return 0;
     return fwCmdTable[idx].cc;
+}
+
+/* TPMA_CC for the command at table index idx: commandIndex (15:0), cHandles
+ * (27:25), rHandle (28), and vendor V bit (29). Used for TPM_CAP_COMMANDS. */
+static UINT32 FwGetCmdAttrsAt(int idx)
+{
+    const FWTPM_CMD_ENTRY* e;
+    UINT32 attrs;
+
+    if (idx < 0 || idx >= FWTPM_CMD_TABLE_SIZE)
+        return 0;
+    e = &fwCmdTable[idx];
+    attrs = (UINT32)(e->cc & 0xFFFFu);              /* commandIndex */
+    attrs |= ((UINT32)(e->inHandleCnt) & 0x7u) << 25; /* cHandles */
+    if (e->outHandleCnt > 0)
+        attrs |= ((UINT32)1 << 28);                 /* rHandle */
+    if ((UINT32)e->cc & (UINT32)CC_VEND)
+        attrs |= (UINT32)CC_VEND;                   /* V */
+    return attrs;
 }
 
 static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
@@ -16229,6 +16251,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     if ((int)cmdSizeHdr != cmdSize) {
         *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
+        return TPM_RC_SUCCESS;
+    }
+
+    /* A valid command code has only the 16-bit index plus the vendor V bit
+     * (CC_VEND); reject any other reserved bit so it cannot alias a command. */
+    if ((cmdCode & ~((UINT32)CC_VEND | 0xFFFFu)) != 0) {
+        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+            TPM_RC_COMMAND_CODE);
         return TPM_RC_SUCCESS;
     }
 

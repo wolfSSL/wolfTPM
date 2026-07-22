@@ -140,7 +140,10 @@ control), spec version targeting, and HAL abstraction details.
 Key options: `--enable-fwtpm`, `--enable-fwtpm-only`, `--enable-swtpm`,
 `--enable-fwtpm-small-ctx`, `--enable-fuzz`. Feature disable macros:
 `FWTPM_NO_ATTESTATION`, `FWTPM_NO_NV`, `FWTPM_NO_POLICY`, `FWTPM_NO_CREDENTIAL`,
-`FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`.
+`FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`. Feature enable macros:
+`WOLFTPM_FWTPM_TCG_TEST` (optional `Vendor_TCG_Test` echo command, off by default).
+
+Command codes with reserved bits set (only the 16-bit index plus the `CC_VEND` V bit are valid), or codes not in the dispatch table, are rejected with `TPM_RC_COMMAND_CODE`.
 
 ## SPDM Responder Mode
 
@@ -192,7 +195,9 @@ ContextSave, ContextLoad, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS,
 HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth,
 Load, Sign, VerifySignature, Hash, HMAC, HMAC\_Start, HashSequenceStart,
 SequenceUpdate, SequenceComplete, EventSequenceComplete, StartAuthSession,
-Unseal, LoadExternal, Import, Duplicate, Rewrap, CreateLoaded,
+Unseal, LoadExternal, Import, Duplicate, Rewrap, CreateLoaded
+
+**Optional vendor command (off by default, `WOLFTPM_FWTPM_TCG_TEST`):**
 Vendor\_TCG\_Test
 
 **Conditional on algorithm (`NO_RSA` / `HAVE_ECC` / `NO_AES`):**

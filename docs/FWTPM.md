@@ -131,6 +131,13 @@ make
 | `WOLFTPM_FWTPM_TIS` | `--enable-fwtpm` without `--enable-swtpm` |
 | `WOLFTPM_ADV_IO` | Set with `WOLFTPM_FWTPM_HAL` |
 | `WOLFTPM_FWTPM_NV_APPEND_ONLY` | `--enable-fwtpm-nv-appendonly` (CMake `WOLFTPM_FWTPM_NV_APPEND_ONLY=yes`) |
+| `WOLFTPM_FWTPM_TCG_TEST` | Manually (`CFLAGS=-DWOLFTPM_FWTPM_TCG_TEST`); off by default |
+
+No vendor commands are registered by default. Define `WOLFTPM_FWTPM_TCG_TEST` to compile in the optional `TPM2_Vendor_TCG_Test` (`0x20000000`) echo command.
+
+### Command-Code Enforcement
+
+A valid command code carries only the 16-bit index plus, for vendor commands, the V bit (`CC_VEND`, bit 29); codes with any other reserved bit set, or codes not in the dispatch table, are rejected with `TPM_RC_COMMAND_CODE`. `TPM2_GetCapability(TPM_CAP_COMMANDS)` returns proper `TPMA_CC` values (index + handle attributes + V bit, ordered by command code).
 
 
 ## Usage
