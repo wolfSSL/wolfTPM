@@ -3261,6 +3261,74 @@ static void test_TPM2_ResponseProcess_ParamSizeOverflow(void)
     printf("Test TPM Wrapper:\tResponseProcess paramSize overflow:\tPassed\n");
 }
 
+static void test_TPM2_ResponseProcess_DecParamSizeOverflow(void)
+{
+    TPM2_CTX ctx;
+    TPM2_AUTH_SESSION session[1];
+    TPM2_Packet packet;
+    CmdInfo_t info;
+    byte buf[128];
+    int rc;
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+    XMEMSET(session, 0, sizeof(session));
+    XMEMSET(&info, 0, sizeof(info));
+    ctx.session = session;
+    packet.buf = buf;
+
+    /* DEC2: first-parameter size larger than the parameter area must be
+     * rejected before any decrypt (paramSz=4, decParamSz=0xFFFF) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x04;
+    buf[TPM2_HEADER_SIZE + 4] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 5] = 0xFF;
+    info.authCnt = 0;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* DEC2: paramSz smaller than the size prefix (underflow guard, paramSz=1) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x01;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    /* DEC2: exact-fit first-parameter (decParamSz == paramSz - 2) is accepted */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x04;
+    buf[TPM2_HEADER_SIZE + 5] = 0x02;
+    info.flags = CMD_FLAG_DEC2;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* DEC4: 32-bit first-parameter size overflow is likewise rejected
+     * (paramSz=8, decParamSz=0xFFFFFFFF) */
+    XMEMSET(buf, 0, sizeof(buf));
+    buf[TPM2_HEADER_SIZE + 3] = 0x08;
+    buf[TPM2_HEADER_SIZE + 4] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 5] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 6] = 0xFF;
+    buf[TPM2_HEADER_SIZE + 7] = 0xFF;
+    info.flags = CMD_FLAG_DEC4;
+    packet.pos = 0;
+    packet.size = (int)sizeof(buf);
+    rc = TPM2_ResponseProcess(&ctx, &packet, &info, (TPM_CC)0,
+        (UINT32)sizeof(buf));
+    AssertIntEQ(rc, TPM_RC_SIZE);
+
+    printf("Test TPM Wrapper:\tResponseProcess decParamSize overflow:\tPassed\n");
+}
+
 static void test_TPM2_ResponseProcess_HmacVerify(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_HMAC)
@@ -3784,6 +3852,93 @@ static void test_TPM2_Signature_EcSchnorrSm2Serialize(void)
         "Signature ECSCHNORR/SM2 serialize:");
 }
 
+static void test_TPM2_Signature_RsaHmacSerialize(void)
+{
+    TPM2_Packet packet;
+    byte buf[256];
+    TPMT_SIGNATURE sigIn, sigOut;
+    const byte rsaSig[16] = {
+        0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+        0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF
+    };
+    byte hmacDigest[TPM_MAX_DIGEST_SIZE];
+    int digestSz;
+    int i;
+
+    /* RSASSA: sigAlg(2) + hash(2) + sigSz(2) + sig(16) = 22 bytes */
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_RSASSA;
+    sigIn.signature.rsassa.hash = TPM_ALG_SHA256;
+    sigIn.signature.rsassa.sig.size = sizeof(rsaSig);
+    XMEMCPY(sigIn.signature.rsassa.sig.buffer, rsaSig, sizeof(rsaSig));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 22);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_RSASSA);
+    AssertIntEQ(sigOut.signature.rsassa.hash, TPM_ALG_SHA256);
+    AssertIntEQ(sigOut.signature.rsassa.sig.size, sizeof(rsaSig));
+    AssertIntEQ(XMEMCMP(sigOut.signature.rsassa.sig.buffer, rsaSig,
+        sizeof(rsaSig)), 0);
+
+    /* RSAPSS: identical wire format */
+    sigIn.sigAlg = TPM_ALG_RSAPSS;
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 22);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_RSAPSS);
+    AssertIntEQ(sigOut.signature.rsapss.sig.size, sizeof(rsaSig));
+    AssertIntEQ(XMEMCMP(sigOut.signature.rsapss.sig.buffer, rsaSig,
+        sizeof(rsaSig)), 0);
+
+    /* HMAC: sigAlg(2) + hashAlg(2) + digest(digestSz), no length prefix -
+     * on-wire length derives solely from TPM2_GetHashDigestSize(hashAlg) */
+    digestSz = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    for (i = 0; i < digestSz; i++) {
+        hmacDigest[i] = (byte)(0x40 + i);
+    }
+    XMEMSET(&sigIn, 0, sizeof(sigIn));
+    sigIn.sigAlg = TPM_ALG_HMAC;
+    sigIn.signature.hmac.hashAlg = TPM_ALG_SHA256;
+    XMEMCPY(sigIn.signature.hmac.digest.H, hmacDigest, digestSz);
+
+    XMEMSET(buf, 0, sizeof(buf));
+    XMEMSET(&packet, 0, sizeof(packet));
+    packet.buf = buf;
+    packet.size = sizeof(buf);
+
+    TPM2_Packet_AppendSignature(&packet, &sigIn);
+    AssertIntEQ(packet.pos, 4 + digestSz);
+
+    packet.pos = 0;
+    XMEMSET(&sigOut, 0, sizeof(sigOut));
+    TPM2_Packet_ParseSignature(&packet, &sigOut);
+    AssertIntEQ(sigOut.sigAlg, TPM_ALG_HMAC);
+    AssertIntEQ(sigOut.signature.hmac.hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(XMEMCMP(sigOut.signature.hmac.digest.H, hmacDigest,
+        digestSz), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Signature RSASSA/RSAPSS/HMAC serialize:");
+}
+
 static void test_TPM2_Public_RsaEcc_Roundtrip(void)
 {
 #if !defined(WOLFTPM2_NO_WOLFCRYPT)
@@ -3886,6 +4041,83 @@ static void test_TPM2_Public_RsaEcc_Roundtrip(void)
         sizeof(uniqueBytes)), 0);
 
     printf("Test TPM Wrapper: %-40s Passed\n", "Public RSA/ECC roundtrip:");
+#endif
+}
+
+static void test_TPM2_Public_KeyedHashSym_Roundtrip(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc, sz;
+    byte buf[sizeof(TPM2B_PUBLIC)];
+    TPM2B_PUBLIC pubIn, pubOut;
+    const byte uniqueBytes[8] = {
+        0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22
+    };
+
+    /* KEYEDHASH (the seal/unseal object type) with an HMAC-SHA256 scheme */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_KEYEDHASH;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes = TPMA_OBJECT_sign;
+    pubIn.publicArea.parameters.keyedHashDetail.scheme.scheme = TPM_ALG_HMAC;
+    pubIn.publicArea.parameters.keyedHashDetail.scheme.details.hmac.hashAlg =
+        TPM_ALG_SHA256;
+    pubIn.publicArea.unique.keyedHash.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.keyedHash.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntGT(sz, 0);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_KEYEDHASH);
+    AssertIntEQ(pubOut.publicArea.nameAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.parameters.keyedHashDetail.scheme.scheme,
+        TPM_ALG_HMAC);
+    AssertIntEQ(pubOut.publicArea.parameters.keyedHashDetail.scheme.details.hmac
+        .hashAlg, TPM_ALG_SHA256);
+    AssertIntEQ(pubOut.publicArea.unique.keyedHash.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.keyedHash.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    /* SYMCIPHER with an AES-128-CFB key definition */
+    XMEMSET(&pubIn, 0, sizeof(pubIn));
+    pubIn.publicArea.type = TPM_ALG_SYMCIPHER;
+    pubIn.publicArea.nameAlg = TPM_ALG_SHA256;
+    pubIn.publicArea.objectAttributes =
+        (TPMA_OBJECT_sign | TPMA_OBJECT_decrypt);
+    pubIn.publicArea.parameters.symDetail.sym.algorithm = TPM_ALG_AES;
+    pubIn.publicArea.parameters.symDetail.sym.keyBits.aes = 128;
+    pubIn.publicArea.parameters.symDetail.sym.mode.aes = TPM_ALG_CFB;
+    pubIn.publicArea.unique.sym.size = sizeof(uniqueBytes);
+    XMEMCPY(pubIn.publicArea.unique.sym.buffer, uniqueBytes,
+        sizeof(uniqueBytes));
+
+    XMEMSET(buf, 0, sizeof(buf));
+    sz = 0;
+    rc = TPM2_AppendPublic(buf, (word32)sizeof(buf), &sz, &pubIn);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(&pubOut, 0, sizeof(pubOut));
+    rc = TPM2_ParsePublic(&pubOut, buf, (word32)sz, &sz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(pubOut.publicArea.type, TPM_ALG_SYMCIPHER);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.algorithm,
+        TPM_ALG_AES);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.keyBits.aes, 128);
+    AssertIntEQ(pubOut.publicArea.parameters.symDetail.sym.mode.aes,
+        TPM_ALG_CFB);
+    AssertIntEQ(pubOut.publicArea.unique.sym.size, sizeof(uniqueBytes));
+    AssertIntEQ(XMEMCMP(pubOut.publicArea.unique.sym.buffer, uniqueBytes,
+        sizeof(uniqueBytes)), 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "Public KEYEDHASH/SYMCIPHER roundtrip:");
 #endif
 }
 
@@ -5887,10 +6119,17 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
     byte seed[1] = {0x42};
     TPMA_OBJECT attrs = (TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
         TPMA_OBJECT_noDA);
+    TPM2B_SENSITIVE sens;
+    byte big[MAX_ECC_KEY_BYTES];
+    word32 capX, capY, capP;
 
     XMEMSET(eccPubX, 0x01, sizeof(eccPubX));
     XMEMSET(eccPubY, 0x02, sizeof(eccPubY));
     XMEMSET(eccPriv, 0x03, sizeof(eccPriv));
+    XMEMSET(big, 0x05, sizeof(big));
+    capX = (word32)sizeof(keyBlob.pub.publicArea.unique.ecc.x.buffer);
+    capY = (word32)sizeof(keyBlob.pub.publicArea.unique.ecc.y.buffer);
+    capP = (word32)sizeof(sens.sensitiveArea.sensitive.ecc.buffer);
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
@@ -5903,11 +6142,77 @@ static void test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths(void)
         eccPriv, sizeof(eccPriv), attrs, seed, sizeof(seed));
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
+    /* Each component one byte over its TPM2B capacity must return BUFFER_E */
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX + 1, big, capY, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY + 1, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY, big, capP + 1,
+        attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit components must clear the bounds check (fail later at the
+     * seed size check, not BUFFER_E) - pins '>' against '>=' and deletion */
+    rc = wolfTPM2_ImportEccPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        TPM_ECC_NIST_P256, big, capX, big, capY, big, capP,
+        attrs, seed, sizeof(seed));
+    AssertIntNE(rc, BUFFER_E);
+
     wolfTPM2_Cleanup(&dev);
 
     printf("Test TPM Wrapper:\tImportEccSeed error paths:\tPassed\n");
 }
 #endif /* HAVE_ECC */
+
+#ifndef NO_RSA
+static void test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths(void)
+{
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY parentKey;
+    WOLFTPM2_KEYBLOB keyBlob;
+    TPM2B_SENSITIVE sens;
+    byte big[MAX_RSA_KEY_BYTES];
+    byte seed[1] = {0x42};
+    word32 capPub, capPriv;
+    TPMA_OBJECT attrs = (TPMA_OBJECT_sign | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA);
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    XMEMSET(&parentKey, 0, sizeof(parentKey));
+    XMEMSET(&keyBlob, 0, sizeof(keyBlob));
+    XMEMSET(big, 0x05, sizeof(big));
+    capPub = (word32)sizeof(keyBlob.pub.publicArea.unique.rsa.buffer);
+    capPriv = (word32)sizeof(sens.sensitiveArea.sensitive.rsa.buffer);
+
+    /* Public/private modulus one byte over capacity must return BUFFER_E */
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub + 1, 0x10001, big, capPriv,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub, 0x10001, big, capPriv + 1,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Exact-fit components clear the bounds check (fail later at the seed
+     * size check, not BUFFER_E) - pins '>' against '>=' and deletion */
+    rc = wolfTPM2_ImportRsaPrivateKeySeed(&dev, &parentKey, &keyBlob,
+        big, capPub, 0x10001, big, capPriv,
+        TPM_ALG_NULL, WOLFTPM2_WRAP_DIGEST, attrs, seed, sizeof(seed));
+    AssertIntNE(rc, BUFFER_E);
+
+    wolfTPM2_Cleanup(&dev);
+
+    printf("Test TPM Wrapper:\tImportRsaSeed error paths:\tPassed\n");
+}
+#endif /* !NO_RSA */
 
 static void test_wolfTPM2_NVStoreKey_BoundaryChecks(void)
 {
@@ -6898,6 +7203,7 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_Packet_RetryRestore();
 #endif
     test_TPM2_ResponseProcess_ParamSizeOverflow();
+    test_TPM2_ResponseProcess_DecParamSizeOverflow();
     test_TPM2_ResponseProcess_HmacVerify();
     test_wolfTPM2_NVCreateAuthPolicy_NameAlg();
     test_wolfTPM2_GetKeyTemplate_KeyedHash_Scheme();
@@ -6911,7 +7217,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_LoadEccPublicKey_Ex();
     test_TPM2_KeyedHashScheme_XorSerialize();
     test_TPM2_Signature_EcSchnorrSm2Serialize();
+    test_TPM2_Signature_RsaHmacSerialize();
     test_TPM2_Public_RsaEcc_Roundtrip();
+    test_TPM2_Public_KeyedHashSym_Roundtrip();
 #ifdef WOLFTPM_PQC
     test_TPM2_Signature_PQC_Serialize();
     test_TPM2_Public_PQC_Roundtrip();
@@ -6945,6 +7253,9 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_EncryptDecryptBlock();
     #ifdef HAVE_ECC
     test_wolfTPM2_ImportEccPrivateKeySeed_ErrorPaths();
+    #endif
+    #ifndef NO_RSA
+    test_wolfTPM2_ImportRsaPrivateKeySeed_ErrorPaths();
     #endif
     test_wolfTPM2_NVStoreKey_BoundaryChecks();
     test_wolfTPM2_NVDeleteKey_BoundaryChecks();

@@ -2833,6 +2833,8 @@ int wolfTPM2_CreatePrimaryKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
         XMEMCPY(&key->handle, &pKey.handle, sizeof(WOLFTPM2_HANDLE));
         XMEMCPY(&key->pub, &pKey.pub, sizeof(TPM2B_PUBLIC));
     }
+    /* scrub the duplicated primary-key auth from the local copy */
+    TPM2_ForceZero(&pKey, sizeof(pKey));
     return rc;
 }
 
