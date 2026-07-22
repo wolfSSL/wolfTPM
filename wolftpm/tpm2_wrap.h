@@ -4339,6 +4339,9 @@ typedef struct TpmCryptoDevCtx {
     unsigned short useSymmetricOnTPM:1; /* if set indicates desire to use symmetric algorithms on TPM */
 #endif
     unsigned short useFIPSMode:1; /* if set requires FIPS mode on TPM and no fallback to software algos */
+#ifdef WOLFTPM_MLDSA_SIGN
+    WOLFTPM2_KEY* mldsaKey; /* ML-DSA identity key; private key stays in TPM */
+#endif
 } TpmCryptoDevCtx;
 
 #endif /* WOLFTPM_CRYPTOCB || HAVE_PK_CALLBACKS */

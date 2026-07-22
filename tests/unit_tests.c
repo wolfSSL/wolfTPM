@@ -32,6 +32,9 @@
 #include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_spdm.h>
+#ifdef WOLFTPM_MLDSA_SIGN
+#include <wolfssl/wolfcrypt/wc_mldsa.h>
+#endif
 
 #include <hal/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -4667,6 +4670,160 @@ static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 #endif
 }
 
+static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_MLDSA_SIGN)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_KEY dummyKey;
+    WOLFTPM2_KEY tpmKey;
+    TPMT_PUBLIC pub;
+    TpmCryptoDevCtx tpmCtx;
+    wc_CryptoInfo info;
+    byte msg[32];
+    byte sig[64];
+    byte signContext[4];
+    word32 sigLen = (word32)sizeof(sig);
+    byte* bigSig = NULL;
+    word32 bigSigLen;
+#ifdef WOLFTPM_MLDSA_VERIFY
+    byte otherContext[4];
+    TPM_HANDLE vSeq;
+    TPMT_TK_VERIFIED vtk;
+#endif
+
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    XMEMSET(&dummyKey, 0, sizeof(dummyKey));
+    XMEMSET(&tpmKey, 0, sizeof(tpmKey));
+    XMEMSET(&pub, 0, sizeof(pub));
+    XMEMSET(msg, 0x5A, sizeof(msg));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    tpmCtx.dev = &dev;
+
+    XMEMSET(&info, 0, sizeof(info));
+    info.algo_type = WC_ALGO_TYPE_PK;
+    info.pk.type = WC_PK_TYPE_PQC_SIG_SIGN;
+    info.pk.pqc_sign.type = WC_PQC_SIG_TYPE_MLDSA;
+    info.pk.pqc_sign.in = msg;
+    info.pk.pqc_sign.inlen = (word32)sizeof(msg);
+    info.pk.pqc_sign.out = sig;
+    info.pk.pqc_sign.outlen = &sigLen;
+
+    /* no key: fall back */
+    tpmCtx.mldsaKey = NULL;
+    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+
+    /* wrong PQC type: fall back */
+    info.pk.pqc_sign.type = WC_PQC_SIG_TYPE_MLDSA + 1;
+    tpmCtx.mldsaKey = &dummyKey;
+    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+
+    /* pre-hash: fall back, not pure ML-DSA */
+    info.pk.pqc_sign.type = WC_PQC_SIG_TYPE_MLDSA;
+    info.pk.pqc_sign.preHashType = WC_HASH_TYPE_SHA256;
+    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    info.pk.pqc_sign.preHashType = WC_HASH_TYPE_NONE;
+
+    /* too big for one-shot: fall back */
+    info.pk.pqc_sign.inlen = MAX_DIGEST_BUFFER + 1;
+    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    info.pk.pqc_sign.inlen = (word32)sizeof(msg);
+
+    /* NULL outlen: reject before dereference */
+    info.pk.pqc_sign.outlen = NULL;
+    rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    info.pk.pqc_sign.outlen = &sigLen;
+
+    /* happy path (needs v1.85 ML-DSA) */
+    rc = wolfTPM2_GetKeyTemplate_MLDSA(&pub,
+        TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_noDA, TPM_MLDSA_65, 0);
+    if (rc == 0) {
+        rc = wolfTPM2_CreatePrimaryKey(&dev, &tpmKey, TPM_RH_OWNER, &pub,
+            NULL, 0);
+    }
+    if (rc == TPM_RC_VALUE || rc == TPM_RC_SCHEME ||
+            rc == TPM_RC_COMMAND_CODE || rc == (int)(RC_VER1 + 0x043)) {
+        /* TPM lacks ML-DSA: skip */
+        printf("Test TPM Wrapper: %-40s Skipped (not supported)\n",
+            "CryptoDevCb ML-DSA sign:");
+    }
+    else {
+        AssertIntEQ(rc, 0);
+        bigSig = (byte*)XMALLOC(WC_MLDSA_65_SIG_SIZE, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+        AssertNotNull(bigSig);
+        tpmCtx.mldsaKey = &tpmKey;
+        info.pk.pqc_sign.type = WC_PQC_SIG_TYPE_MLDSA;
+        info.pk.pqc_sign.out = bigSig;
+
+        /* full buffer: signs, sets len */
+        bigSigLen = (word32)WC_MLDSA_65_SIG_SIZE;
+        info.pk.pqc_sign.outlen = &bigSigLen;
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ((int)bigSigLen, WC_MLDSA_65_SIG_SIZE);
+
+        /* context passthrough: sig must verify under the same context */
+        XMEMSET(signContext, 0x42, sizeof(signContext));
+        bigSigLen = (word32)WC_MLDSA_65_SIG_SIZE;
+        info.pk.pqc_sign.outlen = &bigSigLen;
+        info.pk.pqc_sign.context = signContext;
+        info.pk.pqc_sign.contextLen = (byte)sizeof(signContext);
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, 0);
+        AssertIntEQ((int)bigSigLen, WC_MLDSA_65_SIG_SIZE);
+        info.pk.pqc_sign.context = NULL;
+        info.pk.pqc_sign.contextLen = 0;
+
+#ifdef WOLFTPM_MLDSA_VERIFY
+        rc = wolfTPM2_VerifySequenceStart(&dev, &tpmKey, signContext,
+            (int)sizeof(signContext), &vSeq);
+        AssertIntEQ(rc, 0);
+        rc = wolfTPM2_VerifySequenceUpdate(&dev, vSeq, msg, (int)sizeof(msg));
+        AssertIntEQ(rc, 0);
+        XMEMSET(&vtk, 0, sizeof(vtk));
+        rc = wolfTPM2_VerifySequenceComplete(&dev, vSeq, &tpmKey,
+            NULL, 0, bigSig, (int)bigSigLen, &vtk);
+        AssertIntEQ(rc, 0);
+
+        /* a different context must not verify the same signature */
+        XMEMSET(otherContext, 0x24, sizeof(otherContext));
+        rc = wolfTPM2_VerifySequenceStart(&dev, &tpmKey, otherContext,
+            (int)sizeof(otherContext), &vSeq);
+        AssertIntEQ(rc, 0);
+        rc = wolfTPM2_VerifySequenceUpdate(&dev, vSeq, msg, (int)sizeof(msg));
+        AssertIntEQ(rc, 0);
+        XMEMSET(&vtk, 0, sizeof(vtk));
+        rc = wolfTPM2_VerifySequenceComplete(&dev, vSeq, &tpmKey,
+            NULL, 0, bigSig, (int)bigSigLen, &vtk);
+        AssertIntNE(rc, 0);
+#endif /* WOLFTPM_MLDSA_VERIFY */
+
+        /* small buffer: preserves the size-error contract, not WC_HW_E */
+        bigSigLen = 16;
+        info.pk.pqc_sign.outlen = &bigSigLen;
+        rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
+        AssertIntEQ(rc, BUFFER_E);
+
+        XFREE(bigSig, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        wolfTPM2_UnloadHandle(&dev, &tpmKey.handle);
+        printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb ML-DSA sign:");
+    }
+
+    wolfTPM2_Cleanup(&dev);
+#endif
+}
+
 static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
@@ -6909,6 +7066,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
+    test_wolfTPM2_CryptoDevCb_MlDsaSign();
     test_TPM2_ASN_DecodeX509Cert_Errors();
     test_TPM2_ASN_DecodeX509Cert_Valid();
     test_TPM2_ASN_DecodeTag_Errors();

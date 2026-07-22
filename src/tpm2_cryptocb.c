@@ -82,7 +82,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         rc = wolfTPM2_GetRandom(tlsCtx->dev, info->seed.seed, info->seed.sz);
     #endif /* !WC_NO_RNG */
     }
-#if !defined(NO_RSA) || defined(HAVE_ECC)
+#if !defined(NO_RSA) || defined(HAVE_ECC) || defined(WOLFTPM_MLDSA_SIGN)
     else if (info->algo_type == WC_ALGO_TYPE_PK) {
     #ifndef NO_RSA
         /* RSA */
@@ -425,8 +425,51 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         #endif /* !WOLFTPM2_USE_SW_ECDHE */
         }
     #endif /* HAVE_ECC */
+    #ifdef WOLFTPM_MLDSA_SIGN
+        if (info->pk.type == WC_PK_TYPE_PQC_SIG_SIGN) {
+            TPM_HANDLE seqHandle = 0;
+            WOLFTPM2_HANDLE seqHandleObj;
+            int sigSz;
+
+            /* pure ML-DSA one-shot only; pre-hash, oversized, no-key, bad-arg
+             * fall back */
+            if (info->pk.pqc_sign.type != WC_PQC_SIG_TYPE_MLDSA ||
+                    info->pk.pqc_sign.preHashType != WC_HASH_TYPE_NONE ||
+                    info->pk.pqc_sign.out == NULL ||
+                    info->pk.pqc_sign.outlen == NULL ||
+                    (info->pk.pqc_sign.in == NULL &&
+                        info->pk.pqc_sign.inlen > 0) ||
+                    info->pk.pqc_sign.inlen > MAX_DIGEST_BUFFER ||
+                    tlsCtx->mldsaKey == NULL) {
+                return exit_rc;
+            }
+            sigSz = (int)*info->pk.pqc_sign.outlen;
+
+            rc = wolfTPM2_SignSequenceStart(tlsCtx->dev, tlsCtx->mldsaKey,
+                info->pk.pqc_sign.context, (int)info->pk.pqc_sign.contextLen,
+                &seqHandle);
+            if (rc == 0) {
+                rc = wolfTPM2_SignSequenceComplete(tlsCtx->dev, seqHandle,
+                    tlsCtx->mldsaKey, info->pk.pqc_sign.in,
+                    (int)info->pk.pqc_sign.inlen, info->pk.pqc_sign.out, &sigSz);
+                if (rc == 0) {
+                    *info->pk.pqc_sign.outlen = (word32)sigSz;
+                }
+            }
+            if (rc != 0 && seqHandle != 0) {
+                /* free seq on failure */
+                XMEMSET(&seqHandleObj, 0, sizeof(seqHandleObj));
+                seqHandleObj.hndl = seqHandle;
+                wolfTPM2_UnloadHandle(tlsCtx->dev, &seqHandleObj);
+            }
+            if (rc == BUFFER_E) {
+                /* preserve caller size-error; don't mask it as WC_HW_E */
+                return BUFFER_E;
+            }
+        }
+    #endif /* WOLFTPM_MLDSA_SIGN */
     }
-#endif /* !NO_RSA || HAVE_ECC */
+#endif /* !NO_RSA || HAVE_ECC || WOLFTPM_MLDSA_SIGN */
 #ifndef NO_AES
     else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
         if (info->cipher.type != WC_CIPHER_AES_CBC) {

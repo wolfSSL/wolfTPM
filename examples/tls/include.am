@@ -26,12 +26,30 @@ examples_tls_tls_server_SOURCES      = examples/tls/tls_server.c \
 examples_tls_tls_server_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_tls_tls_server_DEPENDENCIES = src/libwolftpm.la
 
+if BUILD_PQC
+noinst_PROGRAMS += examples/tls/tls_client_pq
+noinst_HEADERS  += examples/tls/tls_client_pq.h
+examples_tls_tls_client_pq_SOURCES      = examples/tls/tls_client_pq.c
+examples_tls_tls_client_pq_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_tls_tls_client_pq_DEPENDENCIES = src/libwolftpm.la
+
+noinst_PROGRAMS += examples/tls/tls_server_pq
+noinst_HEADERS  += examples/tls/tls_server_pq.h
+examples_tls_tls_server_pq_SOURCES      = examples/tls/tls_server_pq.c
+examples_tls_tls_server_pq_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_tls_tls_server_pq_DEPENDENCIES = src/libwolftpm.la
+endif
+
 endif
 
 example_tlsdir = $(exampledir)/tls
 dist_example_tls_DATA = \
   examples/tls/tls_client.c \
-  examples/tls/tls_server.c
+  examples/tls/tls_server.c \
+  examples/tls/tls_client_pq.c \
+  examples/tls/tls_server_pq.c
 
 DISTCLEANFILES+= examples/tls/.libs/tls_client
 DISTCLEANFILES+= examples/tls/.libs/tls_server
+DISTCLEANFILES+= examples/tls/.libs/tls_client_pq
+DISTCLEANFILES+= examples/tls/.libs/tls_server_pq
