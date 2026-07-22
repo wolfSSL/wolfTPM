@@ -1,0 +1,24 @@
+The wolfSSL, Inc. software "wolfTPM" ("wolfTPM Software") to which this text is appended
+is made available under the GNU General Public License version 3 ("GPLv3") with
+the following exception:  When this wolfTPM Software is combined with the
+software listed below ("Exception Software"), licensee may elect to license
+this wolfTPM Software under the GNU General Public License version 2 ("GPLv2")
+instead of GPLv3.
+
+The full text of the GNU General Public License version 3 is provided in the
+accompanying COPYING file.
+
+Exception Software:
+
+U-Boot (from Cisco Systems, Inc. only)
+
+
+For our users who cannot use wolfTPM under GPLv3, a commercial license to
+wolfTPM is available.
+
+Please contact wolfSSL Inc. directly at:
+
+Email: licensing@wolfssl.com
+Phone: +1 425 245-8247
+
+More information can be found on the wolfSSL website at www.wolfssl.com.

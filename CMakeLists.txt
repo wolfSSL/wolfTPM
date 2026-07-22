@@ -925,7 +925,7 @@ if(BUILD_WOLFTPM_LIB)
                 --name wolftpm
                 --version ${SBOM_VERSION}
                 --supplier "wolfSSL Inc."
-                --license-file ${CMAKE_SOURCE_DIR}/LICENSE
+                --license-file ${CMAKE_SOURCE_DIR}/COPYING
                 --options-h ${OPTION_FILE}
                 --lib ${SBOM_LIB}
                 --license-override ${SBOM_LICENSE_OVERRIDE}

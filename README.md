@@ -1154,7 +1154,7 @@ Output: `wolftpm-<version>.cdx.json`, `wolftpm-<version>.spdx.json`, `wolftpm-<v
 Optional overrides:
 
 - `SBOM_LICENSE_OVERRIDE` - SPDX expression to use instead of the licence
-  parsed from `LICENSE` (e.g. `LicenseRef-wolfSSL-Commercial` for commercial
+  parsed from `COPYING` (e.g. `LicenseRef-wolfSSL-Commercial` for commercial
   licensees). Defaults to `GPL-3.0-or-later` (the per-file header licence).
 - `SBOM_LICENSE_TEXT` - path to the licence text for any `LicenseRef-*` used in
   `SBOM_LICENSE_OVERRIDE` (required by SPDX 2.3).

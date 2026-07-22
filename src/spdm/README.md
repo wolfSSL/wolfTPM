@@ -510,4 +510,4 @@ standalone library.
 
 ## License
 
-GPLv3 — see LICENSE file. Copyright (C) 2006-2026 wolfSSL Inc.
+GPLv3 — see COPYING file. Copyright (C) 2006-2026 wolfSSL Inc.
