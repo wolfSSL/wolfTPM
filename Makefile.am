@@ -58,6 +58,7 @@ EXTRA_DIST+= .cyignore
 EXTRA_DIST+= README.md
 EXTRA_DIST+= ChangeLog.md
 EXTRA_DIST+= LICENSE
+EXTRA_DIST+= COPYING
 EXTRA_DIST+= autogen.sh
 EXTRA_DIST+= CMakeLists.txt
 
@@ -138,7 +139,7 @@ cppcheck:
 # is (a libwolftpm library that links wolfSSL/wolfCrypt) and includes it.
 # WOLFSSL_DIR must point to a wolfssl source tree containing scripts/gen-sbom.
 SBOM_PKGNAME      = wolftpm
-SBOM_LICENSE_FILE = $(srcdir)/LICENSE
+SBOM_LICENSE_FILE = $(srcdir)/COPYING
 SBOM_DEP_WOLFSSL  = yes
 
 # wolfTPM records its feature macros in its own generated options header, so
