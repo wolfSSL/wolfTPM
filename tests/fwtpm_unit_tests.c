@@ -8558,6 +8558,7 @@ static void test_fwtpm_pcr_properties_capability(void)
         tag = GetU32BE(gRsp + p); p += 4;
         wireSz = gRsp[p]; p += 1;
         selSz = (wireSz > 8) ? 8 : wireSz;
+        AssertTrue(selSz > 0); /* select bytes present; keeps p inside gRsp */
         AssertTrue(p + selSz <= rspSize);
         if (tag == TPM_PT_PCR_RESET_L0) {
             memcpy(resetL0, gRsp + p, selSz); gotResetL0 = 1;
@@ -8571,6 +8572,7 @@ static void test_fwtpm_pcr_properties_capability(void)
         else if (tag == TPM_PT_PCR_DRTM_RESET) {
             memcpy(drtm, gRsp + p, selSz); gotDrtm = 1;
         }
+        AssertTrue(p + wireSz <= rspSize); /* full record present on the wire */
         p += wireSz; /* advance past the select bytes */
     }
 
