@@ -64,11 +64,14 @@ pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
+examples/tls/tls_client_pq
+examples/tls/tls_server_pq
 tests/unit.test
 tests/unit.log
 tests/fwtpm_unit.log
 tests/fwtpm_unit.test
 tests/fwtpm_check.sh.log
+tests/tls_pq_e2e.sh.log
 examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen
@@ -78,6 +81,7 @@ examples/keygen/ecdh
 examples/pqc/mldsa_sign
 examples/pqc/mlkem_encap
 examples/pqc/pqc_mssim_e2e
+examples/pqc/gen_pqc_certs
 examples/nvram/extend
 examples/nvram/store
 examples/nvram/read
@@ -118,6 +122,7 @@ certs/server-*.der
 certs/server-*.pem
 certs/client-*.der
 certs/client-*.pem
+certs/pq-*.der
 certs/serial.old
 certs/0*.pem
 certs/1*.pem

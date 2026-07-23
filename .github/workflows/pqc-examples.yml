@@ -172,3 +172,87 @@ jobs:
             config.log
             run.out
           retention-days: 5
+
+  # Full TPM-backed PQC TLS 1.3 handshake: ML-KEM key exchange + ML-DSA
+  # CertificateVerify signed on the TPM (device key never leaves the chip).
+  pqc-tls-examples:
+    name: PQC TLS 1.3 examples (ML-DSA auth + ML-KEM)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftpm-ci:v1.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      # TODO(revert-when-merged): build wolfSSL from the aidangarske/wolfssl
+      # mldsa-signctx-cryptocb-devkey branch because the wc_MlDsaKey_SignCtx
+      # crypto-callback fix (device-key ML-DSA signing) is not yet upstream.
+      # Once that wolfSSL PR merges, switch this back to a wolfSSL/wolfssl tag
+      # (>= the release carrying the fix) and delete this note.
+      - name: Build wolfSSL (PQC TLS + crypto-cb ML-DSA device-key fix)
+        run: |
+          cd ~
+          git clone --depth 1 \
+            --branch mldsa-signctx-cryptocb-devkey \
+            https://github.com/aidangarske/wolfssl.git
+          cd wolfssl
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            --enable-certgen --enable-dilithium --enable-mlkem \
+            --enable-experimental --enable-tls-mlkem-standalone --enable-harden \
+            CPPFLAGS="-DWOLFSSL_TLSX_PQC_MLKEM_STORE_OBJ -DWC_RSA_NO_PADDING" \
+            --prefix="$HOME/wolfssl-install"
+          make -j"$(nproc)"
+          make install
+
+      - name: wolfSSL version info
+        run: grep LIBWOLFSSL_VERSION_STRING "$HOME/wolfssl-install/include/wolfssl/version.h"
+
+      - name: Build wolfTPM with v1.85 + fwTPM + debug
+        run: |
+          ./autogen.sh
+          CPPFLAGS="-I$HOME/wolfssl-install/include" \
+          LDFLAGS="-L$HOME/wolfssl-install/lib -Wl,-rpath,$HOME/wolfssl-install/lib" \
+            ./configure --enable-v185 --enable-fwtpm --enable-debug=verbose
+          make -j"$(nproc)"
+
+      # A stub means wolfSSL was missing a required feature (cert-gen, ML-DSA
+      # keygen/sign, private-key-id, or TLS 1.3) — fail loudly rather than skip.
+      - name: Verify PQC TLS examples built (not stubs)
+        run: |
+          for b in examples/pqc/gen_pqc_certs \
+                   examples/tls/tls_server_pq examples/tls/tls_client_pq; do
+            if ./$b -h 2>&1 | grep -q "Requires"; then
+              echo "FAIL: $b is a stub — wolfSSL missing a required feature"
+              exit 1
+            fi
+          done
+
+      - name: PQC TLS handshake E2E (ML-KEM x ML-DSA matrix)
+        run: |
+          export LD_LIBRARY_PATH="$HOME/wolfssl-install/lib"
+          rc=0
+          for combo in "ML_KEM_768 65" "ML_KEM_512 44" \
+                       "ML_KEM_1024 87" "SECP256R1MLKEM768 65"; do
+            set -- $combo
+            echo "== group $1 / ML-DSA-$2 =="
+            if ! ./tests/tls_pq_e2e.sh "$1" "$2"; then rc=1; break; fi
+          done
+          exit $rc
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pqc-tls-examples-logs
+          path: |
+            /tmp/tls_pq_e2e_*.log
+            config.log
+            tests/*.log
+          retention-days: 5

@@ -41,3 +41,10 @@ if BUILD_FWTPM
 dist_noinst_SCRIPTS += tests/fwtpm_check.sh \
                        tests/fwtpm_da_retry.sh
 endif
+
+# tls_pq_e2e.sh is intentionally NOT a `make check` test: it needs the wolfSSL
+# crypto-cb ML-DSA device-key fix (not yet upstream) and a cert-gen build, and
+# it manages its own fwTPM server + NV file (which would collide with the
+# parallel fwtpm_check.sh). It is distributed and run standalone by the
+# pqc-examples CI workflow instead.
+EXTRA_DIST += tests/tls_pq_e2e.sh
