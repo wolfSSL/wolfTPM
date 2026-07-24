@@ -10650,6 +10650,29 @@ int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     return TPM2_PolicyCommandCode(&policyCC);
 }
 
+/* Satisfy a policy session with a compound OR of pre-computed policy digests.
+ * The digest list is hash-agnostic (each branch carries its own size), so it
+ * works for SHA2-256 as well as SHA2-512 policy branches. */
+int wolfTPM2_PolicyOR(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    const TPML_DIGEST* pHashList)
+{
+    PolicyOR_In policyOR;
+
+    if (dev == NULL || tpmSession == NULL || pHashList == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (pHashList->count == 0 ||
+            pHashList->count > (word32)(sizeof(pHashList->digests) /
+                sizeof(pHashList->digests[0]))) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&policyOR, 0, sizeof(policyOR));
+    policyOR.policySession = tpmSession->handle.hndl;
+    XMEMCPY(&policyOR.pHashList, pHashList, sizeof(policyOR.pHashList));
+    return TPM2_PolicyOR(&policyOR);
+}
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /* Authorize a policy based on external key for a verified policy digiest signature */
 int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
@@ -11077,51 +11100,69 @@ static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
 }
 
 static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz)
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_SESSION tpmSession;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    int ownSession = 0;
 
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
-    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
+    if (startSession != NULL) {
+        /* Caller has already satisfied the platform policy on this session */
+        sessionHandle = startSession->handle.hndl;
+        rc = TPM_RC_SUCCESS;
+    }
+    else {
+        /* Default: internal policy session asserting the firmware start
+         * command code, matching the policy installed on the platform
+         * hierarchy by tpm2_ifx_firmware_enable_policy */
+        rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
+            TPM_SE_POLICY, TPM_ALG_NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            ownSession = 1;
+            sessionHandle = tpmSession.handle.hndl;
+            rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
+                TPM_CC_FieldUpgradeStartVendor);
+        }
+    }
+
     if (rc == TPM_RC_SUCCESS) {
-        rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
-            TPM_CC_FieldUpgradeStartVendor);
-        if (rc == TPM_RC_SUCCESS) {
-            /* build command for manifest header */
-            uint16_t val16;
-            /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
-            uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
-            cmd[0] = 0x01; /* type */
-            val16 = be16_to_cpu(manifest_hash_sz + 2);
-            XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
-            val16 = be16_to_cpu(hashAlg);
-            XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
-            XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
+        /* build command for manifest header */
+        uint16_t val16;
+        /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
+        uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
+        cmd[0] = 0x01; /* type */
+        val16 = be16_to_cpu(manifest_hash_sz + 2);
+        XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
+        val16 = be16_to_cpu(hashAlg);
+        XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
+        XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
 
-            rc = TPM2_IFX_FieldUpgradeStart(tpmSession.handle.hndl,
-                cmd, 1 + 2 + 2 + manifest_hash_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            /* delay to give the TPM time to switch modes */
-            XSLEEP_MS(300);
-            /* it is not required to release session handle,
-             * since TPM reset into firmware upgrade mode */
+        rc = TPM2_IFX_FieldUpgradeStart(sessionHandle,
+            cmd, 1 + 2 + 2 + manifest_hash_sz);
+    }
 
-        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-            !defined(WOLFTPM_WINAPI)
-            /* Do chip startup and request locality again */
-        #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
-            if (dev->ctx.fd < 0) /* Only needed for SPI path */
-        #endif
-            rc = TPM2_ChipStartup(&dev->ctx, 10);
-        #endif
-        }
-        else {
-            wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
-        }
+    if (rc == TPM_RC_SUCCESS) {
+        /* delay to give the TPM time to switch modes */
+        XSLEEP_MS(300);
+        /* it is not required to release session handle,
+         * since TPM reset into firmware upgrade mode */
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        if (dev->ctx.fd < 0) /* Only needed for SPI path */
+    #endif
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
+    }
+    else if (ownSession) {
+        /* only release a session we started ourselves */
+        wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
@@ -11278,7 +11319,7 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx);
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
 static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
 #endif
 
@@ -11286,6 +11327,17 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    /* Default behavior: library-managed platform authorization */
+    return wolfTPM2_FirmwareUpgradeHash_ex(dev, hashAlg,
+        manifest_hash, manifest_hash_sz, manifest, manifest_sz,
+        cb, cb_ctx, NULL);
+}
+
+int wolfTPM2_FirmwareUpgradeHash_ex(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_CAPS caps;
@@ -11303,7 +11355,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
             manifest, manifest_sz,
-            cb, cb_ctx);
+            cb, cb_ctx, startSession);
     }
 #endif
 
@@ -11319,10 +11371,15 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
             return tpm2_ifx_firmware_final(dev);
         }
         if (caps.opMode == 0x00) {
-            rc = tpm2_ifx_firmware_enable_policy(dev);
+            /* When the caller supplies a session it must already satisfy the
+             * platform authPolicy, so do not overwrite the platform primary
+             * policy - only manage it for the library-default path */
+            if (startSession == NULL) {
+                rc = tpm2_ifx_firmware_enable_policy(dev);
+            }
             if (rc == TPM_RC_SUCCESS) {
                 rc = tpm2_ifx_firmware_start(dev, hashAlg,
-                    manifest_hash, manifest_hash_sz);
+                    manifest_hash, manifest_hash_sz, startSession);
             }
         }
         if (rc == TPM_RC_SUCCESS) {
@@ -11461,17 +11518,23 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
  * 300ms delay: ST reference implementation uses this delay to allow
  * TPM to switch modes after FieldUpgradeStart command */
 static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz, int is_lms)
+    uint8_t* manifest, uint32_t manifest_sz, int is_lms,
+    WOLFTPM2_SESSION* startSession)
 {
     int rc;
+    TPM_HANDLE sessionHandle;
 
     (void)dev;
 
-    /* ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart.
-     * This matches the ST reference implementation behavior.
+    /* By default ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart,
+     * matching the ST reference implementation behavior. When the caller
+     * supplies a session (for example a policy session that satisfies a
+     * custom platform authPolicy), use it instead.
      * For LMS format, the manifest (blob0) already contains the embedded
      * LMS signature. Send the full manifest directly. */
-    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
+    sessionHandle = (startSession != NULL) ?
+        startSession->handle.hndl : (TPM_HANDLE)TPM_RS_PW;
+    rc = TPM2_ST33_FieldUpgradeStart(sessionHandle, manifest, manifest_sz);
 
     if (rc == TPM_RC_SUCCESS) {
         /* 300ms delay: ST reference implementation uses this delay to allow
@@ -11630,7 +11693,7 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx)
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_CAPS caps;
@@ -11704,7 +11767,8 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     }
 
     /* Send manifest - the common function handles both LMS and non-LMS */
-    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms);
+    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms,
+        startSession);
 
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
