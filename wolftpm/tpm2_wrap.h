@@ -4976,6 +4976,28 @@ WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* tpmSession, TPM_CC cc);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Wrapper for satisfying a policy session with a compound OR of digests
+
+    \note The digest list is hash-agnostic (each branch carries its own size),
+          so it supports SHA2-256 and SHA2-512 policy branches. Up to 8 branches.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments (count 0 or > 8)
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
+    \param pHashList list of pre-computed policy branch digests to OR together
+
+    \sa wolfTPM2_PolicyPCR
+    \sa wolfTPM2_PolicyAuthorize
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_PolicyOR(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* tpmSession, const TPML_DIGEST* pHashList);
+
 
 /* Pre-provisioned IAK and IDevID key/cert from TPM vendor */
 /* Tested with ST33KTPM devices */
@@ -5107,6 +5129,45 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Perform TPM firmware upgrade using a caller-supplied authorization session
+    \note Identical to wolfTPM2_FirmwareUpgradeHash except the caller controls how
+          the firmware-start command is authorized against the platform hierarchy.
+    \note When startSession is NULL this behaves exactly like
+          wolfTPM2_FirmwareUpgradeHash (library-managed platform authorization).
+    \note When startSession is non-NULL the caller is responsible for having
+          satisfied the platform authPolicy on that session (for example via
+          wolfTPM2_PolicyPCR / wolfTPM2_PolicyAuthorize / wolfTPM2_PolicyOR using
+          SHA2-256 or SHA2-512). For Infineon the platform primary policy is left
+          untouched (the caller provisions it); for ST33 the session replaces the
+          default TPM_RS_PW password authorization.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param hashAlg hash algorithm to use (TPM_ALG_SHA384 or TPM_ALG_SHA512)
+    \param manifest_hash buffer to store computed manifest hash
+    \param manifest_hash_sz size of manifest hash buffer
+    \param manifest pointer to firmware manifest data
+    \param manifest_sz size of firmware manifest
+    \param cb callback function for firmware data access
+    \param cb_ctx context pointer passed to callback
+    \param startSession optional caller-satisfied session authorizing the
+           firmware-start command (NULL for library-managed authorization)
+
+    \sa wolfTPM2_FirmwareUpgradeHash
+    \sa wolfTPM2_PolicyOR
+    \sa wolfTPM2_StartSession_ex
+*/
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash_ex(WOLFTPM2_DEV* dev,
+    TPM_ALG_ID hashAlg, /* Can use SHA2-384 or SHA2-512 for manifest hash */
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!

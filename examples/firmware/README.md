@@ -199,3 +199,42 @@ Success: Please reset or power cycle TPM
 ```
 
 **Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics.
+
+## Policy-Based Authorization (Advanced)
+
+By default wolfTPM manages the platform-hierarchy authorization for the firmware-update *start* command internally: on Infineon it installs and satisfies a `PolicyCommandCode(TPM_CC_FieldUpgradeStartVendor)` policy on the platform primary policy, and on ST33 it uses password authorization (`TPM_RS_PW`) with an empty platform password. This assumes the platform hierarchy has default/empty authorization.
+
+Deployments that gate firmware upgrade behind their own platform policy (for example a signed-policy check, a PCR state, or a multi-branch `PolicyOR`) can supply an already-satisfied authorization session using `wolfTPM2_FirmwareUpgradeHash_ex()`. When a session is supplied:
+
+- **Infineon**: the library does **not** overwrite your platform primary policy. You provision the platform `authPolicy` yourself (via `TPM2_SetPrimaryPolicy` with `authHandle = TPM_RH_PLATFORM`, using SHA2-256 or SHA2-512) and pass a session that satisfies it.
+- **ST33**: the supplied session replaces the default `TPM_RS_PW` password authorization.
+
+Both SHA2-256 (non-PQC) and SHA2-512 (PQC) policy digests are supported, because the session hash is chosen with `wolfTPM2_StartSession_ex(..., authHash)` and `wolfTPM2_PolicyOR()` carries per-branch digest sizes.
+
+Example: satisfy a multi-branch `PolicyOR` (up to 8 branches, SHA2-512 shown) and start the upgrade under it:
+
+```c
+WOLFTPM2_SESSION session;
+TPML_DIGEST orList;
+uint8_t manifest_hash[TPM_SHA512_DIGEST_SIZE];
+
+/* start a policy session using the desired policy hash (SHA2-512 for PQC) */
+XMEMSET(&session, 0, sizeof(session));
+wolfTPM2_StartSession_ex(&dev, &session, NULL, NULL,
+    TPM_SE_POLICY, TPM_ALG_NULL, TPM_ALG_SHA512);
+
+/* satisfy one branch (PCR, PolicySigned/Authorize, PolicyAuthValue, ...),
+ * then OR against the full branch list that the platform authPolicy encodes */
+/* ... build orList.digests[0..count-1] with your pre-computed branch digests ... */
+orList.count = 2;
+wolfTPM2_PolicyOR(&dev, &session, &orList);
+
+/* hash the manifest with the matching algorithm, then start the upgrade under
+ * the caller-satisfied session (NULL would use the library-default auth) */
+wc_Sha512Hash(manifest, manifest_sz, manifest_hash);
+wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA512,
+    manifest_hash, (uint32_t)sizeof(manifest_hash),
+    manifest, manifest_sz, fwDataCb, fwCbCtx, &session);
+```
+
+Passing `NULL` for the final `startSession` argument makes `wolfTPM2_FirmwareUpgradeHash_ex()` behave exactly like `wolfTPM2_FirmwareUpgradeHash()` (library-managed authorization), so existing code is unaffected.

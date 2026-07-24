@@ -47,6 +47,7 @@ static void usage(void)
     printf("ST33 Firmware Update Usage:\n");
     printf("\t./st33_fw_update (get info)\n");
     printf("\t./st33_fw_update --abandon (cancel)\n");
+    printf("\t./st33_fw_update --policytest (safe policy auth self-test)\n");
     printf("\t./st33_fw_update <firmware.fi>\n");
     printf("\nFirmware format is auto-detected from the TPM firmware version.\n");
     printf("Just provide the correct .fi file for your TPM and it will be handled automatically.\n");
@@ -173,6 +174,116 @@ static void TPM2_ST33_PrintInfo(WOLFTPM2_CAPS* caps)
     }
 }
 
+/* Build a PolicyCommandCode branch digest offline. This matches the running
+ * policy digest of a fresh policy session after wolfTPM2_PolicyCommandCode. */
+static int BuildPolicyCommandCode(TPMI_ALG_HASH hashAlg,
+    byte* digest, word32* digestSz, TPM_CC cc)
+{
+    byte val[4]; /* command code in big-endian, matching the TPM wire format */
+    val[0] = (byte)((cc >> 24) & 0xFF);
+    val[1] = (byte)((cc >> 16) & 0xFF);
+    val[2] = (byte)((cc >> 8) & 0xFF);
+    val[3] = (byte)(cc & 0xFF);
+    return wolfTPM2_PolicyHash(hashAlg, digest, digestSz,
+        TPM_CC_PolicyCommandCode, val, sizeof(val));
+}
+
+/* Non-destructive self-test for the caller-supplied policy authorization
+ * added for firmware upgrade. Exercises wolfTPM2_PolicyOR at the requested
+ * hash algorithm and verifies the TPM's running policy digest matches an
+ * offline computation. This does NOT invoke FieldUpgradeStart and never
+ * changes TPM state persistently, so it is safe to run on a live TPM.
+ * Returns 0 on match. */
+static int firmware_policy_selftest(WOLFTPM2_DEV* dev, TPMI_ALG_HASH hashAlg,
+    const char* name)
+{
+    int rc;
+    WOLFTPM2_SESSION sess;
+    TPML_DIGEST orList;
+    word32 hsz = (word32)TPM2_GetHashDigestSize(hashAlg);
+    byte branchA[TPM_MAX_DIGEST_SIZE];
+    byte branchB[TPM_MAX_DIGEST_SIZE];
+    byte concat[2 * TPM_MAX_DIGEST_SIZE];
+    byte expected[TPM_MAX_DIGEST_SIZE];
+    byte got[TPM_MAX_DIGEST_SIZE];
+    word32 aSz, bSz, expSz, gotSz;
+
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&orList, 0, sizeof(orList));
+
+    if (hsz == 0 || hsz > TPM_MAX_DIGEST_SIZE) {
+        return BAD_FUNC_ARG;
+    }
+
+    /* Offline: two distinct PolicyCommandCode branch digests */
+    XMEMSET(branchA, 0, sizeof(branchA));
+    aSz = hsz;
+    rc = BuildPolicyCommandCode(hashAlg, branchA, &aSz, TPM_CC_NV_Read);
+    if (rc == 0) {
+        XMEMSET(branchB, 0, sizeof(branchB));
+        bSz = hsz;
+        rc = BuildPolicyCommandCode(hashAlg, branchB, &bSz, TPM_CC_Unseal);
+    }
+    /* Offline PolicyOR digest = H(zeros || TPM_CC_PolicyOR || A || B) */
+    if (rc == 0) {
+        XMEMCPY(concat, branchA, aSz);
+        XMEMCPY(&concat[aSz], branchB, bSz);
+        XMEMSET(expected, 0, sizeof(expected));
+        expSz = hsz;
+        rc = wolfTPM2_PolicyHash(hashAlg, expected, &expSz,
+            TPM_CC_PolicyOR, concat, aSz + bSz);
+    }
+
+    /* On-TPM: start a policy session using the requested hash algorithm */
+    if (rc == 0) {
+        rc = wolfTPM2_StartSession_ex(dev, &sess, NULL, NULL,
+            TPM_SE_POLICY, TPM_ALG_NULL, hashAlg);
+        if (rc != 0) {
+            printf("  %s: StartSession failed 0x%x: %s\n",
+                name, rc, TPM2_GetRCString(rc));
+            return rc;
+        }
+    }
+    /* Satisfy branch A, then OR against {A,B} with the new wrapper */
+    if (rc == 0) {
+        rc = wolfTPM2_PolicyCommandCode(dev, &sess, TPM_CC_NV_Read);
+    }
+    if (rc == 0) {
+        orList.count = 2;
+        orList.digests[0].size = (UINT16)aSz;
+        XMEMCPY(orList.digests[0].buffer, branchA, aSz);
+        orList.digests[1].size = (UINT16)bSz;
+        XMEMCPY(orList.digests[1].buffer, branchB, bSz);
+        rc = wolfTPM2_PolicyOR(dev, &sess, &orList);
+    }
+    if (rc == 0) {
+        gotSz = (word32)sizeof(got);
+        rc = wolfTPM2_GetPolicyDigest(dev, sess.handle.hndl, got, &gotSz);
+    }
+
+    if (rc == 0) {
+        if (gotSz == expSz && XMEMCMP(got, expected, expSz) == 0) {
+            printf("  %s PolicyOR: PASS (%u byte digest matches)\n",
+                name, expSz);
+        }
+        else {
+            printf("  %s PolicyOR: FAIL (digest mismatch)\n", name);
+            printf("    expected: ");
+            TPM2_PrintBin(expected, expSz);
+            printf("    got:      ");
+            TPM2_PrintBin(got, gotSz);
+            rc = -1;
+        }
+    }
+    else {
+        printf("  %s PolicyOR: ERROR 0x%x: %s\n",
+            name, rc, TPM2_GetRCString(rc));
+    }
+
+    wolfTPM2_UnloadHandle(dev, &sess.handle);
+    return rc;
+}
+
 /* Forward declaration */
 int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[]);
 
@@ -184,6 +295,7 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     const char* fi_file = NULL;
     fw_info_t fwinfo;
     int abandon = 0;
+    int policytest = 0;
     size_t blob0_size;
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
@@ -198,6 +310,9 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         }
         if (XSTRCMP(argv[1], "--abandon") == 0) {
             abandon = 1;
+        }
+        else if (XSTRCMP(argv[1], "--policytest") == 0) {
+            policytest = 1;
         }
         else {
             fi_file = argv[1];
@@ -243,6 +358,23 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     else if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
+    }
+
+    if (policytest) {
+        /* Non-destructive validation of caller-supplied policy authorization.
+         * Runs SHA2-256 (non-PQC) and SHA2-512 (PQC) PolicyOR digest checks.
+         * Does not touch firmware upgrade state. */
+        int rc256, rc512;
+        printf("Firmware policy authorization self-test (no firmware changes):\n");
+        rc256 = firmware_policy_selftest(&dev, TPM_ALG_SHA256, "SHA2-256");
+        rc512 = firmware_policy_selftest(&dev, TPM_ALG_SHA512, "SHA2-512");
+        if (rc512 != 0) {
+            printf("  Note: a SHA2-512 failure may mean this TPM firmware does"
+                   " not support SHA2-512 policy sessions.\n");
+        }
+        rc = (rc256 == 0) ? rc512 : rc256;
+        wolfTPM2_Cleanup(&dev);
+        return rc;
     }
 
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
