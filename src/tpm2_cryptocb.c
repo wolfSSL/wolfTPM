@@ -999,6 +999,10 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     enum wc_HashType hType;
     wc_HashAlg hashCtx; /* big stack consumer */
 
+    if (pkcsBlockLen > RSA_MAX_SIZE/8) {
+        return RSA_BUFFER_E;
+    }
+
     switch (hash) {
     #ifndef NO_SHA256
         case SHA256h:
