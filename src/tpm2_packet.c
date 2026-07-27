@@ -459,8 +459,9 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
 
+    /* the return type is a wire tag, so a negative error cannot be encoded */
     if (ctx == NULL || info == NULL)
-        return BAD_FUNC_ARG;
+        return st;
     if (ctx->session == NULL)
         return st;
 
