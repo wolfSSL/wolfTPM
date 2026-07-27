@@ -835,6 +835,23 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
 fi
 rm -f zip.quote
 
+# PCR Policy tests
+echo -e "PCR Policy tests"
+./examples/pcr/policy 16 >> $TPMPWD/run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "pcr policy failed! $RESULT" && exit 1
+if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
+    ./examples/pcr/policy 16 -xor >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pcr policy param enc xor failed! $RESULT" && exit 1
+
+    if [ $WOLFCRYPT_DEFAULT -eq 0 ]; then
+        ./examples/pcr/policy 16 -aes >> $TPMPWD/run.out 2>&1
+        RESULT=$?
+        [ $RESULT -ne 0 ] && echo -e "pcr policy param enc aes failed! $RESULT" && exit 1
+    fi
+fi
+
 
 # Benchmark tests
 echo -e "Benchmark tests"

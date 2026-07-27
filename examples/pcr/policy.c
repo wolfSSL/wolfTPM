@@ -145,15 +145,15 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
     }
     printf("wolfTPM2_Init: success\n");
 
-    if (paramEncAlg != TPM_ALG_NULL) {
-        /* Start an authenticated policy session (salted / unbound) */
-        rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
-            TPM_SE_POLICY, paramEncAlg);
-        if (rc != 0) goto exit;
-        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
-            (word32)tpmSession.handle.hndl);
+    /* Start an authenticated policy session (salted / unbound) */
+    rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
+        TPM_SE_POLICY, paramEncAlg);
+    if (rc != 0) goto exit;
+    printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+        (word32)tpmSession.handle.hndl);
 
-        /* set session for authorization of the storage key */
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* set session for parameter encryption */
         rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession,
             (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt | TPMA_SESSION_continueSession));
         if (rc != 0) goto exit;
