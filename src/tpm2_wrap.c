@@ -7789,7 +7789,7 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
             printf("TPM2_SequenceUpdate failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
         #endif
-            return rc;
+            break;
         }
         pos += hashSz;
     }
@@ -7798,6 +7798,9 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     printf("wolfTPM2_HashUpdate: Handle 0x%x, DataSz %d\n",
         (word32)in.sequenceHandle, dataSz);
 #endif
+
+    /* holds a copy of the hashed input */
+    TPM2_ForceZero(&in, sizeof(in));
 
     return rc;
 }
