@@ -235,6 +235,7 @@ static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     XMEMSET(&mldsaKey, 0, sizeof(mldsaKey));
     XMEMSET(&publicTemplate, 0, sizeof(publicTemplate));
     XMEMSET(message, 0x11, sizeof(message));
+    XMEMSET(sig, 0, sizeof(sig));
 
     rc = wolfTPM2_GetKeyTemplate_MLDSA(&publicTemplate,
         TPMA_OBJECT_sign | TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
@@ -276,6 +277,8 @@ static int bench_pqc_mldsa(WOLFTPM2_DEV* dev, double maxDuration,
     } while (bench_stats_check(start, &count, maxDuration));
     rc = bench_asym_done("ML-DSA", 65, "sign", count, start, rc);
     if (rc != 0) goto exit;
+    if (count == 0)
+        goto exit; /* no signature produced; nothing to verify */
 
     bench_stats_start(&count, &start);
     do {
