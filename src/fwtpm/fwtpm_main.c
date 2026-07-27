@@ -81,10 +81,28 @@ static void usage(const char* progname)
 }
 
 #ifdef WOLFTPM_SPDM_RESPONDER
+/* Build a 10-byte TPM response header carrying an error code. */
+static int FwtpmBuildErrorFrame(byte* resp, TPM_RC rc)
+{
+    resp[0] = 0x80; resp[1] = 0x01;             /* tag: TPM_ST_NO_SESSIONS */
+    resp[2] = 0x00; resp[3] = 0x00;             /* responseSize, upper half */
+    resp[4] = 0x00; resp[5] = 0x0A;             /* responseSize = 10 */
+    resp[6] = (byte)((rc >> 24) & 0xFF);        /* responseCode, MSB */
+    resp[7] = (byte)((rc >> 16) & 0xFF);
+    resp[8] = (byte)((rc >> 8) & 0xFF);
+    resp[9] = (byte)(rc & 0xFF);                /* responseCode, LSB */
+    return TPM2_HEADER_SIZE;
+}
+
 static int fwtpmSpdmTpmDispatch(void* userCtx,
     const byte* cmd, word32 cmdSz,
     byte* resp, word32 respBufSz, word32* respSz)
 {
+    /* The dispatcher needs a full-size buffer but the SPDM envelope is
+     * smaller, and ctx->rspBuf is already holding the SPDM frame this call
+     * is nested inside (fwtpm_io.c), so stage here. Static, not stack: the
+     * server serves one command at a time and this is 8KB. */
+    static byte stageBuf[FWTPM_MAX_COMMAND_SIZE];
     FWTPM_CTX* ctx = (FWTPM_CTX*)userCtx;
     int rc;
     int rspSize;
@@ -92,22 +110,31 @@ static int fwtpmSpdmTpmDispatch(void* userCtx,
     if (ctx == NULL || cmd == NULL || resp == NULL || respSz == NULL) {
         return BAD_FUNC_ARG;
     }
-    rspSize = (int)respBufSz;
-    rc = FWTPM_ProcessCommand(ctx, cmd, (int)cmdSz, resp, &rspSize, 0);
+    rspSize = (int)sizeof(stageBuf);
+    rc = FWTPM_ProcessCommand(ctx, cmd, (int)cmdSz, stageBuf, &rspSize, 0);
+    if (rc == TPM_RC_SUCCESS && rspSize >= TPM2_HEADER_SIZE) {
+        if ((word32)rspSize <= respBufSz) {
+            XMEMCPY(resp, stageBuf, (size_t)rspSize);
+        }
+        else if (respBufSz >= TPM2_HEADER_SIZE) {
+            /* Does not fit the envelope; report it as a TPM error rather
+             * than truncating the response. */
+            rspSize = FwtpmBuildErrorFrame(resp, TPM_RC_SIZE);
+        }
+        else {
+            rspSize = 0;
+        }
+    }
     /* A non-zero TPM_RC is a valid TPM response - the requester must see
      * the actual error code. If the dispatcher didn't write one (rspSize
      * left at zero or partial), synthesize a 10-byte TPM_ST_NO_SESSIONS
      * error frame here so the SPDM layer encrypts and sends it back. */
     if ((rc != TPM_RC_SUCCESS || rspSize < TPM2_HEADER_SIZE) &&
         respBufSz >= TPM2_HEADER_SIZE) {
-        resp[0] = 0x80; resp[1] = 0x01;  /* TPM_ST_NO_SESSIONS */
-        resp[2] = 0x00; resp[3] = 0x00; resp[4] = 0x00; resp[5] = 0x0A;
-        resp[6] = (byte)((rc >> 24) & 0xFF);
-        resp[7] = (byte)((rc >> 16) & 0xFF);
-        resp[8] = (byte)((rc >> 8) & 0xFF);
-        resp[9] = (byte)(rc & 0xFF);
-        rspSize = TPM2_HEADER_SIZE;
+        rspSize = FwtpmBuildErrorFrame(resp, (TPM_RC)rc);
     }
+    /* The staging copy holds the same plaintext as the wire response */
+    TPM2_ForceZero(stageBuf, sizeof(stageBuf));
     *respSz = (word32)rspSize;
     return 0;  /* I/O layer succeeded; TPM error code is in the response. */
 }

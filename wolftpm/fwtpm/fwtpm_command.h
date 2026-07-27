@@ -46,7 +46,9 @@
     \param cmdBuf input command buffer (big-endian TPM packet)
     \param cmdSize size of cmdBuf in bytes
     \param rspBuf output response buffer (caller-allocated)
-    \param rspSize in: capacity of rspBuf; out: bytes written
+    \param rspSize out: bytes written. rspBuf must be at least
+        FWTPM_MAX_COMMAND_SIZE bytes; a caller whose transport buffer is
+        smaller must stage the response through one that is not.
     \param locality TPM locality (0-4) reported by the transport
 
     \sa FWTPM_IO_ServerLoop

@@ -6218,6 +6218,87 @@ static void test_fwtpm_mldsa87_maxbuf(void)
     fwtpm_pass("MLDSA-87 max-buffer roundtrip:", 1);
 }
 
+#define FWTPM_TEST_CANARY_SZ     1024
+#define FWTPM_TEST_CANARY_BYTE   0x5A
+
+static byte gCapRsp[FWTPM_MAX_COMMAND_SIZE + FWTPM_TEST_CANARY_SZ];
+
+static void test_fwtpm_response_buffer_capacity(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos, j;
+    UINT32 handle;
+    UINT32 seqHandle;
+    byte msg[16];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    cmdSz = BuildCreatePrimaryCmdParam(gCmd, TPM_ALG_MLDSA, TPM_MLDSA_87);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    handle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceStart); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    seqHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    memset(msg, 0xAB, sizeof(msg));
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, seqHandle); pos += 4;
+    PutU32BE(gCmd + pos, handle); pos += 4;
+    PutU32BE(gCmd + pos, 18); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(msg)); pos += 2;
+    memcpy(gCmd + pos, msg, sizeof(msg)); pos += sizeof(msg);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+
+    /* A full-size buffer is the documented contract: the response fits and
+     * nothing is written past it. */
+    memset(gCapRsp, 0, sizeof(gCapRsp));
+    memset(gCapRsp + FWTPM_MAX_COMMAND_SIZE, FWTPM_TEST_CANARY_BYTE,
+        FWTPM_TEST_CANARY_SZ);
+    rspSize = FWTPM_MAX_COMMAND_SIZE;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gCapRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gCapRsp), TPM_RC_SUCCESS);
+    AssertTrue(rspSize <= FWTPM_MAX_COMMAND_SIZE);
+    for (j = 0; j < FWTPM_TEST_CANARY_SZ; j++) {
+        AssertIntEQ(gCapRsp[FWTPM_MAX_COMMAND_SIZE + j],
+            FWTPM_TEST_CANARY_BYTE);
+    }
+
+    /* An MLDSA-87 signature is the largest response and must still fit. */
+    AssertTrue(rspSize > 4096);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, handle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Response buffer capacity respected:", 1);
+}
+
 /* ---- Hash-ML-DSA sequence round-trip across 44/65/87 -----------------
  * SignSequenceStart -> SequenceUpdate(chunked) -> SignSequenceComplete
  * exercises the hash accumulator path (wc_HashUpdate) through all three
@@ -11046,6 +11127,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_signseq_slot_exhaustion();
     test_fwtpm_signseq_longmsg_boundary();
     test_fwtpm_mldsa87_maxbuf();
+    test_fwtpm_response_buffer_capacity();
     test_fwtpm_mlkem1024_maxbuf();
     test_fwtpm_hash_mldsa_seq_all_params();
 #endif
