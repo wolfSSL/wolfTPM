@@ -335,12 +335,14 @@ int wolfSPDM_TCG_GetPubKey(
     XMEMCPY(pubKey, rsp.payload, rsp.payloadSz);
     *pubKeySz = rsp.payloadSz;
 
-    /* Store for cert_chain_buffer_hash computation */
-    if (rsp.payloadSz <= sizeof(ctx->rspPubKey)) {
-        XMEMCPY(ctx->rspPubKey, rsp.payload, rsp.payloadSz);
-        ctx->rspPubKeyLen = rsp.payloadSz;
-        ctx->flags.hasRspPubKey = 1;
+    /* Store for cert_chain_buffer_hash computation. Skipping it silently
+     * surfaces later as a misleading handshake state error. */
+    if (rsp.payloadSz > sizeof(ctx->rspPubKey)) {
+        return WOLFSPDM_E_BUFFER_SMALL;
     }
+    XMEMCPY(ctx->rspPubKey, rsp.payload, rsp.payloadSz);
+    ctx->rspPubKeyLen = rsp.payloadSz;
+    ctx->flags.hasRspPubKey = 1;
 
     return WOLFSPDM_SUCCESS;
 }
