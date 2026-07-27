@@ -49,6 +49,11 @@ typedef int (*WOLFSPDM_RESP_TPM_CB)(void* userCtx,
 WOLFTPM_API int wolfSPDM_RespInit(WOLFSPDM_RESP_CTX* ctx);
 WOLFTPM_API void wolfSPDM_RespFree(WOLFSPDM_RESP_CTX* ctx);
 
+/* The tunnel buffers stay at WOLFSPDM_MAX_MSG_SIZE: the secured path
+ * (encrypt, transport and requester buffers) is capped there too, so a
+ * larger TPM response could not be delivered even if staged here. */
+#define WOLFSPDM_MAX_TPM_MSG_SIZE WOLFSPDM_MAX_MSG_SIZE
+
 /* RESP_CTX embeds the requester CTX + four MAX_MSG_SIZE working buffers
  * (4 * 4096) + identity/PSK material + tpm callback + flags. Static buffer
  * is sized for that worst case; spdm_responder.c has a compile-time assert
