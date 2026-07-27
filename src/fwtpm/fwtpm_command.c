@@ -1686,6 +1686,181 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* --- TPM2_TestParms (CC 0x018A) --- */
 /* Validates that the given algorithm parameters are supported.
  * No auth, no output params. */
+/* Validate a hash selector carried inside a scheme's details union. */
+static TPM_RC FwTestHashAlg(UINT16 hashAlg)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (TPM2_GetHashDigestSize(hashAlg) <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    return rc;
+}
+
+/* Validate a TPMT_SYM_DEF(_OBJECT). TPM_ALG_NULL means no symmetric alg. */
+static TPM_RC FwTestSymDef(const TPMT_SYM_DEF* sym)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (sym->algorithm == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+#ifndef NO_AES
+    else if (sym->algorithm == TPM_ALG_AES) {
+        UINT16 mode = sym->mode.sym;
+        if (sym->keyBits.aes != 128 && sym->keyBits.aes != 192 &&
+                sym->keyBits.aes != 256) {
+            rc = TPM_RC_KEY_SIZE;
+        }
+        else if (mode != TPM_ALG_CFB && mode != TPM_ALG_CBC &&
+                mode != TPM_ALG_CTR && mode != TPM_ALG_OFB &&
+                mode != TPM_ALG_ECB) {
+            rc = TPM_RC_MODE;
+        }
+    }
+#endif
+    else {
+        rc = TPM_RC_SYMMETRIC;
+    }
+    return rc;
+}
+
+#ifndef NO_RSA
+/* Validate a TPMT_RSA_SCHEME selector and its hash, when it carries one. */
+static TPM_RC FwTestRsaScheme(const TPMT_RSA_SCHEME* scheme)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = scheme->scheme;
+
+    if (alg == TPM_ALG_NULL || alg == TPM_ALG_RSAES) {
+        rc = TPM_RC_SUCCESS;
+    }
+    else if (alg == TPM_ALG_RSASSA || alg == TPM_ALG_RSAPSS ||
+            alg == TPM_ALG_OAEP) {
+        rc = FwTestHashAlg(scheme->details.anySig.hashAlg);
+    }
+    else {
+        rc = TPM_RC_SCHEME;
+    }
+    return rc;
+}
+#endif /* !NO_RSA */
+
+#ifdef HAVE_ECC
+/* Validate a TPMT_ECC_SCHEME selector and its hash. */
+static TPM_RC FwTestEccScheme(const TPMT_ECC_SCHEME* scheme)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = scheme->scheme;
+
+    if (alg == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+    else if (alg == TPM_ALG_ECDSA || alg == TPM_ALG_ECDH ||
+            alg == TPM_ALG_ECDAA || alg == TPM_ALG_ECSCHNORR) {
+        rc = FwTestHashAlg(scheme->details.any.hashAlg);
+    }
+    else {
+        rc = TPM_RC_SCHEME;
+    }
+    return rc;
+}
+
+/* Validate a TPMT_KDF_SCHEME selector and its hash. */
+static TPM_RC FwTestKdfScheme(const TPMT_KDF_SCHEME* kdf)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = kdf->scheme;
+
+    if (alg == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+    /* HKDF is the KDF an ECC DHKEM object carries, per RFC 9180 Sec.4.1 */
+    else if (alg == TPM_ALG_KDF1_SP800_56A || alg == TPM_ALG_KDF2 ||
+            alg == TPM_ALG_KDF1_SP800_108 || alg == TPM_ALG_HKDF) {
+        rc = FwTestHashAlg(kdf->details.any.hashAlg);
+    }
+    else {
+        rc = TPM_RC_KDF;
+    }
+    return rc;
+}
+#endif /* HAVE_ECC */
+
+/* Validate the TPMU_PUBLIC_PARMS body of a TPMT_PUBLIC_PARMS. The type
+ * selector has already been consumed from the command packet. */
+static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMU_PUBLIC_PARMS params;
+
+    XMEMSET(&params, 0, sizeof(params));
+    TPM2_Packet_ParsePublicParms(cmd, algType, &params);
+
+    if (algType == TPM_ALG_SYMCIPHER) {
+        /* A SYMCIPHER key must name a real algorithm, not TPM_ALG_NULL. */
+        if (params.symDetail.sym.algorithm == TPM_ALG_NULL) {
+            rc = TPM_RC_SYMMETRIC;
+        }
+        else {
+            rc = FwTestSymDef((const TPMT_SYM_DEF*)&params.symDetail.sym);
+        }
+    }
+    else if (algType == TPM_ALG_KEYEDHASH) {
+        UINT16 alg = params.keyedHashDetail.scheme.scheme;
+        if (alg == TPM_ALG_NULL) {
+            rc = TPM_RC_SUCCESS;
+        }
+        else if (alg == TPM_ALG_HMAC) {
+            rc = FwTestHashAlg(params.keyedHashDetail.scheme.details.hmac.hashAlg);
+        }
+        else if (alg == TPM_ALG_XOR) {
+            rc = FwTestHashAlg(params.keyedHashDetail.scheme.details.xorr.hashAlg);
+        }
+        else {
+            rc = TPM_RC_SCHEME;
+        }
+    }
+#ifndef NO_RSA
+    else if (algType == TPM_ALG_RSA) {
+        UINT16 keyBits = params.rsaDetail.keyBits;
+        rc = FwTestSymDef(&params.rsaDetail.symmetric);
+        if (rc == 0) {
+            rc = FwTestRsaScheme(&params.rsaDetail.scheme);
+        }
+        /* keyBits 0 selects the 2048-bit default in FwDeriveRsaPrimaryKey. */
+        if (rc == 0 && keyBits != 0 && keyBits != 1024 && keyBits != 2048 &&
+                keyBits != 3072 && keyBits != 4096) {
+            rc = TPM_RC_KEY_SIZE;
+        }
+        /* exponent 0 selects the default; anything else must be odd > 2. */
+        if (rc == 0 && params.rsaDetail.exponent != 0 &&
+                (params.rsaDetail.exponent < 3 ||
+                 (params.rsaDetail.exponent & 1) == 0)) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+#endif
+#ifdef HAVE_ECC
+    else if (algType == TPM_ALG_ECC) {
+        rc = FwTestSymDef(&params.eccDetail.symmetric);
+        if (rc == 0) {
+            rc = FwTestEccScheme(&params.eccDetail.scheme);
+        }
+        if (rc == 0 && FwGetWcCurveId(params.eccDetail.curveID) < 0) {
+            rc = TPM_RC_CURVE;
+        }
+        if (rc == 0) {
+            rc = FwTestKdfScheme(&params.eccDetail.kdf);
+        }
+    }
+#endif
+    else {
+        rc = TPM_RC_TYPE;
+    }
+    return rc;
+}
+
 static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -1716,14 +1891,9 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         #endif
             case TPM_ALG_KEYEDHASH:
             case TPM_ALG_SYMCIPHER:
-            case TPM_ALG_AES:
-            case TPM_ALG_SHA256:
-        #ifdef WOLFSSL_SHA384
-            case TPM_ALG_SHA384:
-        #endif
-            case TPM_ALG_HMAC:
-            case TPM_ALG_NULL:
-                /* Supported - skip remaining type-specific params */
+                /* Part 3 Sec.30.3.1: unmarshal the parameters and return the
+                 * matching error if any of them is not supported. */
+                rc = FwTestPublicParms(cmd, algType);
                 break;
         #ifdef WOLFTPM_MLDSA
             /* Part 2 Sec.12.2.3.6: TestParms for ML-DSA / Hash-ML-DSA / ML-KEM

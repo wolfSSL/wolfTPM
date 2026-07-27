@@ -8518,16 +8518,137 @@ static void test_fwtpm_test_parms(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
-    /* TestParms: RSA-2048 */
+    /* TestParms: RSA-2048. TPMS_RSA_PARMS is symmetric, scheme, keyBits,
+     * exponent - in that order. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
     PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
-    PutU16BE(gCmd + pos, 2048); pos += 2; /* keyBits */
-    PutU32BE(gCmd + pos, 0); pos += 4; /* exponent */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
     PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* scheme */
+    PutU16BE(gCmd + pos, 2048); pos += 2;         /* keyBits */
+    PutU32BE(gCmd + pos, 0); pos += 4;            /* exponent */
     PutU32BE(gCmd + 2, (UINT32)pos);
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* An unsupported RSA key size must be rejected, not accepted. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, 777); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY_SIZE);
+
+    /* A bogus RSA signing scheme must be rejected. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, 0x7F7F); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+
+#ifdef HAVE_ECC
+    /* An unsupported ECC curve must be rejected. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* scheme */
+    PutU16BE(gCmd + pos, 0x7F7F); pos += 2;       /* curveID */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* kdf */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CURVE);
+
+    /* The DHKEM shape used by Encapsulate/Decapsulate must be accepted. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;      /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;      /* scheme */
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2; /* curveID */
+    PutU16BE(gCmd + pos, TPM_ALG_HKDF); pos += 2;      /* kdf scheme */
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;    /* kdf hash */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* A KDF hash the TPM cannot do is still rejected. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_HKDF); pos += 2;
+    PutU16BE(gCmd + pos, 0x7F7F); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HASH);
+#endif
+
+    /* A hash algorithm is not a TPMI_ALG_PUBLIC selector. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+
+    /* Neither is a bare symmetric algorithm or TPM_ALG_NULL. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+
+#ifndef NO_AES
+    /* SYMCIPHER: AES-128-CFB is supported, a bad key size is not. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 128); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 64); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY_SIZE);
+#else
+    /* Without AES the only symmetric algorithm is unsupported. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_SYMCIPHER); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_AES); pos += 2;
+    PutU16BE(gCmd + pos, 128); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SYMMETRIC);
+#endif /* !NO_AES */
 
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("TestParms(RSA-2048):", 0);
