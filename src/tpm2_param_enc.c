@@ -184,15 +184,27 @@ int TPM2_ParamEnc_AESCFB(
 static TPM2B_AUTH* TPM2_ParamEncBindKey(TPM2_AUTH_SESSION* session)
 {
     int digestSz = TPM2_GetHashDigestSize(session->authHash);
-    if (session->bind != NULL && digestSz > 0 &&
-            session->name.size > 0 &&
-            session->name.size == session->bindName.size &&
-            XMEMCMP(session->name.name, session->bindName.name,
-                session->name.size) == 0 &&
-            session->auth.size <= (UINT16)digestSz) {
-        return session->bind;
+    int sizeMismatch;
+    int diff;
+    UINT16 cmpLen;
+
+    if (session->bind == NULL || digestSz <= 0 ||
+            session->name.size == 0 ||
+            session->auth.size > (UINT16)digestSz) {
+        return NULL;
     }
-    return NULL;
+
+    cmpLen = session->name.size;
+    if (cmpLen > (UINT16)sizeof(session->bindName.name)) {
+        cmpLen = (UINT16)sizeof(session->bindName.name);
+    }
+    sizeMismatch = (session->name.size != session->bindName.size);
+    diff = TPM2_ConstantCompare(session->name.name, session->bindName.name,
+        cmpLen);
+    if (sizeMismatch | diff) {
+        return NULL;
+    }
+    return session->bind;
 }
 
 /* Build combined param-enc key from session key + optional bind authValue. */
