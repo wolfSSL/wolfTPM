@@ -4947,6 +4947,79 @@ static void test_TPM2_ASN_DecodeX509Cert_Errors(void)
 #endif
 }
 
+static void test_TPM2_ASN_RsaUnpadPkcsv15(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
+    byte blk[64];
+    byte* p;
+    int sz;
+    int i;
+
+    /* Well formed: 00 01 FF*8 00 then 2 data bytes */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01; blk[10] = 0x00;
+    blk[11] = 0xAA; blk[12] = 0xBB;
+    p = blk; sz = 13;
+    AssertIntEQ(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+    AssertIntEQ(sz, 2);
+    AssertIntEQ(p[0], 0xAA);
+    AssertIntEQ(p[1], 0xBB);
+
+    /* Exactly 8 pad bytes is the minimum accepted */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01; blk[10] = 0x00; blk[11] = 0x5A;
+    p = blk; sz = 12;
+    AssertIntEQ(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+    AssertIntEQ(sz, 1);
+
+    /* Seven pad bytes must be rejected */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01; blk[9] = 0x00; blk[10] = 0x5A;
+    p = blk; sz = 11;
+    AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+
+    /* Wrong leading byte */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x01; blk[1] = 0x01; blk[10] = 0x00;
+    p = blk; sz = 12;
+    AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+
+    /* Block type 2 must be rejected (this routine is type 1 only) */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x02; blk[10] = 0x00;
+    p = blk; sz = 12;
+    AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+
+    /* No separator at all (all 0xFF tail) */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01;
+    p = blk; sz = 16;
+    AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+
+    /* Non-zero, non-FF byte where the separator belongs */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01; blk[10] = 0x7E;
+    p = blk; sz = 16;
+    AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+
+    /* Too short to hold a block */
+    for (i = 0; i < 3; i++) {
+        XMEMSET(blk, 0x00, sizeof(blk));
+        p = blk; sz = i;
+        AssertIntNE(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+    }
+
+    /* Separator as the final byte yields an empty payload */
+    XMEMSET(blk, 0xFF, sizeof(blk));
+    blk[0] = 0x00; blk[1] = 0x01; blk[11] = 0x00;
+    p = blk; sz = 12;
+    AssertIntEQ(TPM2_ASN_RsaUnpadPkcsv15(&p, &sz), 0);
+    AssertIntEQ(sz, 0);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "ASN RsaUnpadPkcsv15:");
+#endif
+}
+
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_ASN)
 #include <examples/endorsement/trusted_certs_der.h>
 #endif
@@ -7237,6 +7310,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_CSR();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_TPM2_ASN_DecodeX509Cert_Errors();
+    test_TPM2_ASN_RsaUnpadPkcsv15();
     test_TPM2_ASN_DecodeX509Cert_Valid();
     test_TPM2_ASN_DecodeTag_Errors();
     #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM2_PEM_DECODE) && \
