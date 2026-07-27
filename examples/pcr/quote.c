@@ -210,6 +210,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
         pubKey = (byte*)XMALLOC(pubKeySz, NULL, DYNAMIC_TYPE_PUBLIC_KEY);
         if (pubKey == NULL) {
             printf("Failed to malloc buffer for public key\n");
+            rc = MEMORY_E;
             goto exit;
         }
 
