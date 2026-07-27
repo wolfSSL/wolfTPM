@@ -1100,6 +1100,7 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
         xorbuf(m, salt + o, (word32)saltLen);
     }
     wc_HashFree(&hashCtx, hType);
+    TPM2_ForceZero(&hashCtx, sizeof(hashCtx));
     TPM2_ForceZero(salt, sizeof(salt));
     return ret;
 }
