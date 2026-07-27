@@ -251,7 +251,8 @@ void wolfSPDM_RespReset(WOLFSPDM_RESP_CTX* ctx)
 #define WOLFSPDM_ALGORITHMS             0x63
 
 static int RespHandleVendorDefined(WOLFSPDM_RESP_CTX* rctx,
-    const byte* in, word32 inSz, byte* out, word32* outSz, int fromSecured);
+    const byte* in, word32 inSz, byte* out, word32* outSz, int fromSecured,
+    char* vdCodeOut);
 static int RespBuildKeyExchangeRsp(WOLFSPDM_RESP_CTX* rctx,
     const byte* in, word32 inSz, byte* out, word32* outSz);
 static int RespHandleFinish(WOLFSPDM_RESP_CTX* rctx,
@@ -503,11 +504,13 @@ static int RespDispatchClear(WOLFSPDM_RESP_CTX* rctx,
     byte code;
     int rc;
     int handlerManagesTranscript = 0;
+    char vdCode[WOLFSPDM_VDCODE_LEN + 1];
 
     if (inSz < 2) {
         return WOLFSPDM_E_FRAMING;
     }
     code = in[1];
+    XMEMSET(vdCode, 0, sizeof(vdCode));
 
     if (code == SPDM_GET_VERSION) {
         wolfSPDM_TranscriptReset(ctx);
@@ -547,13 +550,14 @@ static int RespDispatchClear(WOLFSPDM_RESP_CTX* rctx,
             handlerManagesTranscript = 1;
             break;
         case SPDM_VENDOR_DEFINED_REQUEST:
-            rc = RespHandleVendorDefined(rctx, in, inSz, out, outSz, 0);
+            rc = RespHandleVendorDefined(rctx, in, inSz, out, outSz, 0,
+                vdCode);
             handlerManagesTranscript = 1;
             /* For GET_PUBK specifically, mirror what the requester does:
-             * add Ct = SHA-384(rspPubKey) to the transcript. Detected by
-             * checking the VdCode in the inbound bytes at offset 9. */
-            if (rc == WOLFSPDM_SUCCESS && inSz >= 17 &&
-                XMEMCMP(in + 9, WOLFSPDM_VDCODE_GET_PUBK,
+             * add Ct = SHA-384(rspPubKey) to the transcript. Keyed on the
+             * parsed VdCode, whose wire offset varies with vendorIdLen. */
+            if (rc == WOLFSPDM_SUCCESS &&
+                XMEMCMP(vdCode, WOLFSPDM_VDCODE_GET_PUBK,
                         WOLFSPDM_VDCODE_LEN) == 0) {
                 byte ct[WOLFSPDM_HASH_SIZE];
                 int hrc = wolfSPDM_Sha384Hash(ct,
@@ -845,7 +849,8 @@ static int RespBuildEndSessionAck(WOLFSPDM_CTX* ctx,
 }
 
 static int RespHandleVendorDefined(WOLFSPDM_RESP_CTX* rctx,
-    const byte* in, word32 inSz, byte* out, word32* outSz, int fromSecured)
+    const byte* in, word32 inSz, byte* out, word32* outSz, int fromSecured,
+    char* vdCodeOut)
 {
     WOLFSPDM_CTX* ctx = &rctx->ctx;
     char vdCode[WOLFSPDM_VDCODE_LEN + 1];
@@ -864,6 +869,9 @@ static int RespHandleVendorDefined(WOLFSPDM_RESP_CTX* rctx,
     rc = wolfSPDM_ParseVendorDefined(in, inSz, vdCode, payload, &payloadSz);
     if (rc < 0) {
         return rc;
+    }
+    if (vdCodeOut != NULL) {
+        XMEMCPY(vdCodeOut, vdCode, WOLFSPDM_VDCODE_LEN + 1);
     }
 
     /* TPM2_CMD, GIVE_PUB and SPDMONLY are only ever sent inside a secured
@@ -1066,7 +1074,7 @@ static int RespDispatchSecured(WOLFSPDM_RESP_CTX* rctx,
             break;
         case SPDM_VENDOR_DEFINED_REQUEST:
             rc = RespHandleVendorDefined(rctx, plain, plainSz,
-                respPlain, &respPlainSz, 1);
+                respPlain, &respPlainSz, 1, NULL);
             break;
         default:
             rc = RespBuildErrorClear(ctx,
