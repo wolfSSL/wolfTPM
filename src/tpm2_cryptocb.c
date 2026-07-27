@@ -301,7 +301,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &key->handle);
                 }
             }
-            else if (rc & TPM_RC_CURVE) {
+            else if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
                 /* if the curve is not supported on TPM, then fall-back to software */
                 rc = exit_rc;
                 /* Make sure key indicates nothing loaded */
@@ -393,7 +393,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     }
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
-                else if (rc & TPM_RC_CURVE) {
+                else if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
                     /* if the curve is not supported on TPM, then fall-back to software */
                     rc = exit_rc;
                 }
