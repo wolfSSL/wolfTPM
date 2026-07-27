@@ -749,6 +749,10 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     /* allocate new cache buffer */
     if (hashCtx->cacheBuf == NULL) {
         hashCtx->cacheSz = 0;
+        /* the block round-up below must not wrap to zero */
+        if (inSz > 0xFFFFFFFFU - (WOLFTPM2_HASH_BLOCK_SZ - 1)) {
+            return BUFFER_E;
+        }
         hashCtx->cacheBufSz = (inSz + WOLFTPM2_HASH_BLOCK_SZ - 1)
             & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
         if (hashCtx->cacheBufSz == 0)
@@ -763,8 +767,10 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
         byte* oldIn = hashCtx->cacheBuf;
         word32 oldBufSz = hashCtx->cacheBufSz;
-        /* check for overflow */
-        if (hashCtx->cacheSz + inSz < hashCtx->cacheSz) {
+        /* check for overflow, including the block round-up below */
+        if (hashCtx->cacheSz + inSz < hashCtx->cacheSz ||
+            hashCtx->cacheSz + inSz >
+                0xFFFFFFFFU - (WOLFTPM2_HASH_BLOCK_SZ - 1)) {
             return BUFFER_E;
         }
         hashCtx->cacheBufSz = (hashCtx->cacheSz + inSz +
