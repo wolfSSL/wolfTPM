@@ -3413,6 +3413,10 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     (void)useIv;
     rc = NOT_COMPILED_IN;
 #endif
+    /* a failed wrap leaves the marshalled sensitive area in the clear */
+    if (rc != 0 && priv != NULL) {
+        TPM2_ForceZero(priv, sizeof(*priv));
+    }
     return rc;
 }
 
