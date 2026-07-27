@@ -350,6 +350,8 @@ int wolfTPM2_Free(WOLFTPM2_DEV *dev)
 {
     if (dev != NULL) {
         wolfTPM2_Cleanup(dev);
+        /* Holds session auth values and the command buffer */
+        TPM2_ForceZero(dev, sizeof(WOLFTPM2_DEV));
         XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
