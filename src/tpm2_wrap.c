@@ -7065,14 +7065,18 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz)
 {
+    int rc;
     WOLFTPM2_NV nv;
     WOLFTPM2_HANDLE parent;
 
     XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&parent, 0, sizeof(parent));
     parent.hndl = authHandle;
-    return wolfTPM2_NVCreateAuth(dev, &parent, &nv, nvIndex, nvAttributes,
+    rc = wolfTPM2_NVCreateAuth(dev, &parent, &nv, nvIndex, nvAttributes,
         maxSize, auth, authSz);
+    /* NVOpen copied the index password into the local copy */
+    TPM2_ForceZero(&nv, sizeof(nv));
+    return rc;
 }
 
 static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
