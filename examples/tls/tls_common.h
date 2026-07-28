@@ -430,9 +430,7 @@ static inline int TlsParseKemGroup(const char* v, int* group)
     }
     return BAD_FUNC_ARG;
 }
-#endif /* WOLFTPM_TLS_PQC */
 
-#ifndef NO_FILESYSTEM
 /* Read a DER file into der, updating derSz with the bytes read. */
 static inline int ReadDerFile(const char* file, byte* der, int* derSz)
 {
@@ -459,7 +457,7 @@ static inline int ReadDerFile(const char* file, byte* der, int* derSz)
     *derSz = (int)sz;
     return 0;
 }
-#endif /* !NO_FILESYSTEM */
+#endif /* WOLFTPM_TLS_PQC */
 
 static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 {
