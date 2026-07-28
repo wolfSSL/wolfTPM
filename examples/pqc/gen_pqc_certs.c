@@ -264,6 +264,10 @@ static int TPM2_PQC_GenCerts(void* userCtx, int argc, char *argv[])
         }
     }
 
+#ifdef WOLFSSL_CERT_GEN_CACHE
+    /* wc_SetIssuerBuffer retains a decoded copy until this is called */
+    wc_SetCert_Free(&leafCert);
+#endif
     if (havePubKey) wc_MlDsaKey_Free(&tpmPubKey);
     if (haveCaKey) wc_MlDsaKey_Free(&caKey);
     if (haveRng) wc_FreeRng(&rng);

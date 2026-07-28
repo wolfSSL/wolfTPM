@@ -431,17 +431,22 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
             WOLFTPM2_HANDLE seqHandleObj;
             int sigSz;
 
-            /* pure ML-DSA one-shot only; pre-hash, oversized, no-key, bad-arg
-             * fall back */
+            /* Not an ML-DSA request, or no TPM key configured: software can
+             * legitimately take it. */
             if (info->pk.pqc_sign.type != WC_PQC_SIG_TYPE_MLDSA ||
-                    info->pk.pqc_sign.preHashType != WC_HASH_TYPE_NONE ||
+                    tlsCtx->mldsaKey == NULL) {
+                return exit_rc;
+            }
+            /* The key lives in the TPM, so a software fallback would sign with
+             * absent private material. Fail instead of yielding. Only the pure
+             * one-shot form is supported here. */
+            if (info->pk.pqc_sign.preHashType != WC_HASH_TYPE_NONE ||
                     info->pk.pqc_sign.out == NULL ||
                     info->pk.pqc_sign.outlen == NULL ||
                     (info->pk.pqc_sign.in == NULL &&
                         info->pk.pqc_sign.inlen > 0) ||
-                    info->pk.pqc_sign.inlen > MAX_DIGEST_BUFFER ||
-                    tlsCtx->mldsaKey == NULL) {
-                return exit_rc;
+                    info->pk.pqc_sign.inlen > MAX_DIGEST_BUFFER) {
+                return BAD_FUNC_ARG;
             }
             sigSz = (int)*info->pk.pqc_sign.outlen;
 

@@ -177,6 +177,8 @@ jobs:
   # CertificateVerify signed on the TPM (device key never leaves the chip).
   pqc-tls-examples:
     name: PQC TLS 1.3 examples (ML-DSA auth + ML-KEM)
+    permissions:
+      contents: read
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     container:
@@ -189,6 +191,8 @@ jobs:
     steps:
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # TODO(revert-when-merged): build wolfSSL from the aidangarske/wolfssl
       # mldsa-signctx-cryptocb-devkey branch because the wc_MlDsaKey_SignCtx
@@ -196,12 +200,17 @@ jobs:
       # Once that wolfSSL PR merges, switch this back to a wolfSSL/wolfssl tag
       # (>= the release carrying the fix) and delete this note.
       - name: Build wolfSSL (PQC TLS + crypto-cb ML-DSA device-key fix)
+        env:
+          # aidangarske/wolfssl mldsa-signctx-cryptocb-devkey
+          WOLFSSL_PQC_SHA: 6b0c832284286dbaec8e5ab35581ff470e90826b
         run: |
           cd ~
-          git clone --depth 1 \
-            --branch mldsa-signctx-cryptocb-devkey \
-            https://github.com/aidangarske/wolfssl.git
+          # pinned to an immutable commit: a mutable branch tip would let a
+          # force-push run unreviewed code inside this job
+          git clone --no-checkout https://github.com/aidangarske/wolfssl.git
           cd wolfssl
+          git fetch --depth 1 origin "$WOLFSSL_PQC_SHA"
+          git checkout "$WOLFSSL_PQC_SHA"
           ./autogen.sh
           ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
             --enable-certgen --enable-dilithium --enable-mlkem \
@@ -227,7 +236,7 @@ jobs:
       - name: Verify PQC TLS examples built (not stubs)
         run: |
           for b in examples/pqc/gen_pqc_certs \
-                   examples/tls/tls_server_pq examples/tls/tls_client_pq; do
+                   examples/tls/tls_server examples/tls/tls_client; do
             if ./$b -h 2>&1 | grep -q "Requires"; then
               echo "FAIL: $b is a stub — wolfSSL missing a required feature"
               exit 1
@@ -236,15 +245,21 @@ jobs:
 
       - name: PQC TLS handshake E2E (ML-KEM x ML-DSA matrix)
         run: |
+          set +e
           export LD_LIBRARY_PATH="$HOME/wolfssl-install/lib"
-          rc=0
-          for combo in "ML_KEM_768 65" "ML_KEM_512 44" \
-                       "ML_KEM_1024 87" "SECP256R1MLKEM768 65"; do
-            set -- $combo
-            echo "== group $1 / ML-DSA-$2 =="
-            if ! ./tests/tls_pq_e2e.sh "$1" "$2"; then rc=1; break; fi
-          done
+          # run_examples.sh pairs the classical TLS tests with the wolfSSL
+          # example client/server, so point it at the clone built above
+          export WOLFSSL_PATH="$HOME/wolfssl"
+          ./src/fwtpm/fwtpm_server >/tmp/fwtpm_tls.log 2>&1 &
+          echo $! > /tmp/fwtpm_tls.pid
+          sleep 2
+          ENABLE_PQC_TLS=1 ./examples/run_examples.sh
+          rc=$?
           exit $rc
+
+      - name: Stop fwtpm_server (PQC TLS)
+        if: always()
+        run: kill "$(cat /tmp/fwtpm_tls.pid)" 2>/dev/null || true
 
       - name: Upload failure logs
         if: failure()
@@ -252,7 +267,9 @@ jobs:
         with:
           name: pqc-tls-examples-logs
           path: |
-            /tmp/tls_pq_e2e_*.log
+            /tmp/fwtpm_tls.log
+            run.out
+            pqtls.out
             config.log
             tests/*.log
           retention-days: 5

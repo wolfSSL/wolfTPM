@@ -64,14 +64,11 @@ pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
-examples/tls/tls_client_pq
-examples/tls/tls_server_pq
 tests/unit.test
 tests/unit.log
 tests/fwtpm_unit.log
 tests/fwtpm_unit.test
 tests/fwtpm_check.sh.log
-tests/tls_pq_e2e.sh.log
 examples/keygen/create_primary
 examples/keygen/keyload
 examples/keygen/keygen

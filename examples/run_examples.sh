@@ -678,6 +678,49 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
     popd >> $TPMPWD/run.out 2>&1
 }
 
+
+run_tpm_tls_pq() { # Usage: run_tpm_tls_pq [ML-KEM group] [ML-DSA set]
+    echo -e "TLS test (TPM PQC) group $1 ML-DSA-$2"
+    generate_port
+
+    # the TPM ML-DSA identity and its CA are regenerated per parameter set
+    echo -e "./examples/pqc/gen_pqc_certs -mldsa=$2"
+    ./examples/pqc/gen_pqc_certs -mldsa=$2 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "gen_pqc_certs mldsa=$2 failed! $RESULT" && exit 1
+
+    echo -e "./examples/tls/tls_server -p=$port -mldsa=$2"
+    ./examples/tls/tls_server -p=$port -mldsa=$2 > $TPMPWD/pqtls.out 2>&1 &
+    SERVER_PID=$!
+    if ! wait_for_port "$port" 500; then
+        echo -e "TPM PQC TLS server failed to start on port $port"
+        kill $SERVER_PID 2>/dev/null
+        exit 1
+    fi
+
+    echo -e "./examples/tls/tls_client -p=$port -mldsa -group=$1"
+    ./examples/tls/tls_client -p=$port -mldsa -group=$1 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    if [ $RESULT -ne 0 ]; then
+        kill $SERVER_PID 2>/dev/null
+        wait $SERVER_PID 2>/dev/null
+        cat $TPMPWD/pqtls.out >> $TPMPWD/run.out
+        rm -f $TPMPWD/pqtls.out
+        echo -e "tpm pqc tls $1 mldsa=$2 failed! $RESULT" && exit 1
+    fi
+    wait $SERVER_PID 2>/dev/null
+    SRV_RESULT=$?
+    cat $TPMPWD/pqtls.out >> $TPMPWD/run.out
+    [ $SRV_RESULT -ne 0 ] && rm -f $TPMPWD/pqtls.out && \
+        echo -e "tpm pqc tls server $1 mldsa=$2 failed! $SRV_RESULT" && exit 1
+
+    # this run's server must have signed on the TPM, not in software
+    grep -q "signed on TPM" $TPMPWD/pqtls.out
+    RESULT=$?
+    rm -f $TPMPWD/pqtls.out
+    [ $RESULT -ne 0 ] && echo -e "tpm pqc tls $1 mldsa=$2 did not sign on TPM!" && exit 1
+}
+
 if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYSTEM -eq 0 ]; then
     if [ $WOLFCRYPT_RSA -eq 1 ]; then
         # TLS client/server RSA TLS v1.2 and v1.3 Crypto callbacks
@@ -736,6 +779,24 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
             run_tpm_tls_server "ecc" "-pk" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
             run_tpm_tls_server "ecc" "-pk -aes" "4" "./certs/client-ecc384-key.pem -c ./certs/client-ecc384-cert.pem"
         fi
+    fi
+fi
+
+# TLS 1.3 with ML-KEM key exchange and a TPM held ML-DSA identity. Both ends
+# are wolfTPM examples, so no wolfSSL example pairing is needed here.
+# Requires a wolfSSL that routes wc_MlDsaKey_SignCtx to the crypto callback for
+# device keys; set ENABLE_PQC_TLS=1 once linked against one.
+if [ -z "$ENABLE_PQC_TLS" ]; then
+    ENABLE_PQC_TLS=0
+fi
+if [ $ENABLE_V185 -eq 1 ] && [ $NO_FILESYSTEM -eq 0 ] && \
+   [ $ENABLE_PQC_TLS -eq 1 ]; then
+    run_tpm_tls_pq "ML_KEM_768" "65"
+    run_tpm_tls_pq "ML_KEM_512" "44"
+    run_tpm_tls_pq "ML_KEM_1024" "87"
+    # hybrid groups need the classical curve half
+    if [ $WOLFCRYPT_ECC -eq 1 ]; then
+        run_tpm_tls_pq "SECP256R1MLKEM768" "65"
     fi
 fi
 

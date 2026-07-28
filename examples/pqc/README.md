@@ -14,10 +14,15 @@ the full fwTPM PQC reference.
 
 ```
 ./configure --enable-wolftpm --enable-mldsa --enable-mlkem \
+            --enable-tls-mlkem-standalone --enable-experimental \
             --enable-harden --enable-keygen --enable-certgen
 make
 sudo make install
 ```
+
+`--enable-tls-mlkem-standalone` is required for the standalone `ML_KEM_*` TLS
+groups; without it wolfSSL only offers the hybrid groups and
+`wolfSSL_UseKeyShare` rejects the client default.
 
 `--enable-certgen` is needed by the TLS `gen_pqc_certs` tool below;
 `--enable-wolftpm` provides the crypto callback and private-key-id support the
@@ -193,14 +198,16 @@ Demo scope: the identity key is an unauthenticated deterministic TPM primary
 hierarchy. A production deployment should protect the identity key with a
 non-empty auth value or policy so it cannot be recreated from the public cert.
 The client validates the server chain against the demo CA but does not bind the
-certificate to the host name; a production client should also issue the leaf with
-a matching subjectAltName and call `wolfSSL_check_domain_name` before connecting.
+certificate to the host name, so the demo connects to the default localhost and
+does not pass `-h=`. Supplying `-h=` turns on strict verification including
+`wolfSSL_check_domain_name`, which this leaf cannot satisfy; a production
+deployment should issue the leaf with a matching subjectAltName.
 
 Three programs:
 - `examples/pqc/gen_pqc_certs` — makes a software ML-DSA CA and a device leaf
   cert whose subject key is the TPM ML-DSA key.
-- `examples/tls/tls_server_pq` — recreates that TPM key and serves TLS 1.3.
-- `examples/tls/tls_client_pq` — connects, ML-KEM key exchange, verifies the CA.
+- `examples/tls/tls_server -mldsa` — recreates that TPM key and serves TLS 1.3.
+- `examples/tls/tls_client -mldsa` — connects, ML-KEM key exchange, verifies the CA.
 
 ```
 ./src/fwtpm/fwtpm_server --clear &
@@ -209,16 +216,16 @@ Three programs:
 ./examples/pqc/gen_pqc_certs -mldsa=65
 
 # 2. server (same -mldsa as gen_pqc_certs)
-./examples/tls/tls_server_pq -p=11111 -mldsa=65 &
+./examples/tls/tls_server -p=11111 -mldsa=65 &
 
 # 3. client (choose the ML-KEM group)
-./examples/tls/tls_client_pq -h=localhost -p=11111 -group=ML_KEM_768
+./examples/tls/tls_client -p=11111 -mldsa -group=ML_KEM_768
 ```
 
 Options:
 - `gen_pqc_certs -mldsa=44/65/87` — ML-DSA parameter set.
-- `tls_server_pq -p=<port> -mldsa=44/65/87`.
-- `tls_client_pq -h=<host> -p=<port> -group=<name>` where `<name>` is
+- `tls_server -p=<port> -mldsa=44/65/87`.
+- `tls_client -h=<host> -p=<port> -group=<name>` where `<name>` is
   `ML_KEM_512/768/1024` or a hybrid `SECP256R1MLKEM768` / `X25519MLKEM768`
   (hybrids need the matching classical curve enabled in wolfSSL).
 
@@ -226,6 +233,5 @@ The one-shot end-to-end test drives all three and asserts the ML-KEM group,
 TPM-signed ML-DSA authentication, CA verification, and app data:
 
 ```
-./tests/tls_pq_e2e.sh                    # ML_KEM_768 + ML-DSA-65
-./tests/tls_pq_e2e.sh SECP256R1MLKEM768 87
+ENABLE_PQC_TLS=1 ./examples/run_examples.sh   # includes the PQC TLS matrix
 ```

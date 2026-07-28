@@ -89,10 +89,17 @@
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/tls/tls_client [-ecc/rsa] [-aes/xor]\n");
+    printf("./examples/tls/tls_client [-ecc/rsa/mldsa] [-aes/xor]\n");
     printf("* -ecc: Use ECC key/cert\n");
     printf("* -rsa: Use RSA key/cert\n");
+#ifdef WOLFTPM_TLS_PQC
+    printf("* -mldsa: Validate a server TPM ML-DSA cert against the PQC CA\n");
+    printf("          from gen_pqc_certs (TLS 1.3 only)\n");
+    printf("* -group=NAME: ML_KEM_512/768/1024, SECP256R1MLKEM768 or\n");
+    printf("          X25519MLKEM768 (default ML_KEM_768, implies -mldsa)\n");
+#endif
     printf("* -aes/xor: Use Parameter Encryption\n");
+    printf("* -h=host: Server hostname (default %s)\n", TLS_HOST);
     printf("* -p=port: Supply a custom port number (default %d)\n", TLS_PORT);
 #if defined(WOLFTPM_CRYPTOCB) && defined(HAVE_PK_CALLBACKS)
     printf("* -pk: Use PK callbacks, not crypto callbacks\n");
@@ -133,8 +140,16 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     int total_size;
     int i;
 #endif
+    const char* host = TLS_HOST;
+    int hostGiven = 0;
     int useECC = 0;
     int usePK = 0;
+#ifdef WOLFTPM_TLS_PQC
+    int useMLDSA = 0;
+    int kemGroup = WOLFSSL_ML_KEM_768;
+    byte* pqCa = NULL;
+    int pqCaSz = TLS_PQ_CERT_BUF_SZ;
+#endif
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
     TPMT_PUBLIC publicTemplate;
@@ -172,7 +187,21 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         }
     }
     while (argc > 1) {
+#ifdef WOLFTPM_TLS_PQC
+        if (XSTRCMP(argv[argc-1], "-mldsa") == 0) {
+            useMLDSA = 1;
+        }
+        else if (XSTRNCMP(argv[argc-1], "-group=", 7) == 0) {
+            useMLDSA = 1;
+            if (TlsParseKemGroup(argv[argc-1] + 7, &kemGroup) != 0) {
+                usage();
+                return BAD_FUNC_ARG;
+            }
+        }
+        else if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+#else
         if (XSTRCMP(argv[argc-1], "-ecc") == 0) {
+#endif
             useECC = 1;
         }
         else if (XSTRCMP(argv[argc-1], "-rsa") == 0) {
@@ -189,6 +218,10 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
             usePK = 1;
         }
     #endif
+        else if (XSTRNCMP(argv[argc-1], "-h=", XSTRLEN("-h=")) == 0) {
+            host = argv[argc-1] + XSTRLEN("-h=");
+            hostGiven = 1;
+        }
         else if (XSTRNCMP(argv[argc-1], "-p=", XSTRLEN("-p=")) == 0) {
             const char* portStr = argv[argc-1] + XSTRLEN("-p=");
             port = (word32)XATOI(portStr);
@@ -198,6 +231,19 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         }
         argc--;
     }
+
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA && usePK) {
+        printf("-mldsa requires crypto callbacks; -pk has no ML-DSA route\n");
+        return BAD_FUNC_ARG;
+    }
+    if (useMLDSA && paramEncAlg != TPM_ALG_NULL) {
+        /* the ML-DSA path uses no auth session, so -aes/-xor would be a
+         * silently ignored claim rather than real parameter encryption */
+        printf("-mldsa does not use a parameter encryption session\n");
+        return BAD_FUNC_ARG;
+    }
+#endif
 
     printf("TPM2 TLS Client Example\n");
     printf("\tUse %s keys\n", useECC ? "ECC" : "RSA");
@@ -212,7 +258,11 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
 #ifdef NO_RSA
-    if (!useECC) {
+    if (!useECC
+    #ifdef WOLFTPM_TLS_PQC
+        && !useMLDSA
+    #endif
+        ) {
         printf("RSA not compiled in!\n");
         return 0; /* don't report error */
     }
@@ -232,6 +282,10 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
 #endif
 #ifdef HAVE_ECC
     tpmCtx.eccKey = &eccKey;
+    #ifndef WOLFTPM2_USE_SW_ECDHE
+    /* Ephemeral key, also used for the ECDHE half of a hybrid PQC group */
+    tpmCtx.ecdhKey = &ecdhKey;
+    #endif
 #endif
     tpmCtx.storageKey = &storageKey;
 #ifdef WOLFTPM_USE_SYMMETRIC
@@ -242,6 +296,14 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     if (!usePK) {
         rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx, &tpmDevId);
         if (rc != 0) goto exit;
+    }
+#endif
+
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA) {
+        /* The client only validates the server ML-DSA chain here, so no TPM
+         * key of its own is needed. */
+        goto tls_setup;
     }
 #endif
 
@@ -326,16 +388,23 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
     }
 
-    #ifndef WOLFTPM2_USE_SW_ECDHE
-    /* Ephemeral Key */
-    tpmCtx.ecdhKey = &ecdhKey;
-    #endif
 #endif /* HAVE_ECC */
 
 
     /* Setup the WOLFSSL context (factory)
      * Use highest version, allow downgrade */
-    if ((ctx = wolfSSL_CTX_new(wolfSSLv23_client_method())) == NULL) {
+#ifdef WOLFTPM_TLS_PQC
+tls_setup:
+#endif
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA) {
+        /* ML-DSA certificates are TLS 1.3 only */
+        ctx = wolfSSL_CTX_new(wolfTLSv1_3_client_method());
+    }
+    else
+#endif
+    ctx = wolfSSL_CTX_new(wolfSSLv23_client_method());
+    if (ctx == NULL) {
         rc = MEMORY_E; goto exit;
     }
 
@@ -353,9 +422,35 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
 
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA) {
+        /* Require the server chain to validate against the PQC CA */
+        wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, NULL);
+
+        pqCa = (byte*)XMALLOC(TLS_PQ_CERT_BUF_SZ, NULL,
+            DYNAMIC_TYPE_TMP_BUFFER);
+        if (pqCa == NULL) {
+            rc = MEMORY_E; goto exit;
+        }
+        rc = ReadDerFile(TLS_PQ_CA_CERT, pqCa, &pqCaSz);
+        if (rc != 0) {
+            printf("Run examples/pqc/gen_pqc_certs first\n");
+            goto exit;
+        }
+        if (wolfSSL_CTX_load_verify_buffer(ctx, pqCa, pqCaSz,
+                WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
+            printf("load_verify_buffer failed\n");
+            rc = -1; goto exit;
+        }
+    }
+    else {
+#endif
     /* Server certificate validation */
     /* Note: Can use "WOLFSSL_VERIFY_NONE" to skip peer cert validation */
-    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
+    /* myVerify overrides chain failures for local testing; do not apply that
+     * override to a peer the user pointed us at explicitly. */
+    wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER,
+        hostGiven ? NULL : myVerify);
 #ifdef NO_FILESYSTEM
     /* Load CA Certificates from Buffer */
     if (!useECC) {
@@ -516,6 +611,9 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 #endif /* !NO_TLS_MUTUAL_AUTH */
 
+#ifdef WOLFTPM_TLS_PQC
+    }
+#endif
 #ifdef TLS_CIPHER_SUITE
     /* Optionally choose the cipher suite */
     rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
@@ -537,8 +635,31 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     }
 #endif
 
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA) {
+        if (wolfSSL_UseKeyShare(ssl, (word16)kemGroup) != WOLFSSL_SUCCESS) {
+            printf("UseKeyShare failed\n");
+            rc = -1; goto exit;
+        }
+        /* advertise only the chosen group; no silent downgrade */
+        if (wolfSSL_set_groups(ssl, &kemGroup, 1) != WOLFSSL_SUCCESS) {
+            printf("set_groups failed\n");
+            rc = -1; goto exit;
+        }
+    }
+#endif
+
+    /* An explicitly supplied host must match the certificate, or chaining to
+     * a trusted CA alone would accept any peer that CA ever issued. */
+    if (hostGiven) {
+        if (wolfSSL_check_domain_name(ssl, host) != WOLFSSL_SUCCESS) {
+            printf("check_domain_name failed for %s\n", host);
+            rc = -1; goto exit;
+        }
+    }
+
     /* Setup socket and connection */
-    rc = SetupSocketAndConnect(&sockIoCtx, TLS_HOST, port);
+    rc = SetupSocketAndConnect(&sockIoCtx, host, port);
     if (rc != 0) goto exit;
 
     /* Setup read/write callback contexts */
@@ -558,6 +679,13 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
     if (rc != WOLFSSL_SUCCESS) {
         goto exit;
     }
+#ifdef WOLFTPM_TLS_PQC
+    if (useMLDSA) {
+        printf("Handshake: %s, group %s\n",
+            wolfSSL_get_cipher(ssl), wolfSSL_get_curve_name(ssl));
+        printf("Server ML-DSA identity verified against the CA\n");
+    }
+#endif
 #ifdef TLS_BENCH_MODE
     benchStart = gettime_secs(0) - benchStart;
     printf("Connect: %9.3f sec (%9.3f CPS)\n", benchStart, 1/benchStart);
@@ -658,6 +786,9 @@ exit:
 
     CloseAndCleanupSocket(&sockIoCtx);
 
+#ifdef WOLFTPM_TLS_PQC
+    XFREE(pqCa, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+#endif
     wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
 #ifndef NO_RSA
     wolfTPM2_UnloadHandle(&dev, &rsaKey.handle);

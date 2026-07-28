@@ -4723,23 +4723,27 @@ static void test_wolfTPM2_CryptoDevCb_MlDsaSign(void)
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
     AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
 
-    /* pre-hash: fall back, not pure ML-DSA */
+    /* With a TPM key set the private material is on-chip, so an unsupported
+     * request must fail rather than yield to a software signer that has no
+     * private key to use. */
+
+    /* pre-hash: not pure ML-DSA */
     info.pk.pqc_sign.type = WC_PQC_SIG_TYPE_MLDSA;
     info.pk.pqc_sign.preHashType = WC_HASH_TYPE_SHA256;
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
     info.pk.pqc_sign.preHashType = WC_HASH_TYPE_NONE;
 
-    /* too big for one-shot: fall back */
+    /* too big for one-shot */
     info.pk.pqc_sign.inlen = MAX_DIGEST_BUFFER + 1;
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
     info.pk.pqc_sign.inlen = (word32)sizeof(msg);
 
     /* NULL outlen: reject before dereference */
     info.pk.pqc_sign.outlen = NULL;
     rc = wolfTPM2_CryptoDevCb(INVALID_DEVID, &info, &tpmCtx);
-    AssertIntEQ(rc, CRYPTOCB_UNAVAILABLE);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
     info.pk.pqc_sign.outlen = &sigLen;
 
     /* happy path (needs v1.85 ML-DSA) */

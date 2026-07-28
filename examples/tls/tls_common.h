@@ -381,6 +381,86 @@ static inline void CloseAndCleanupSocket(SockIoCbCtx* sockIoCtx)
 /* --- BEGIN Supporting TLS functions --- */
 /******************************************************************************/
 
+/* The PQC TLS mode needs more than TPM ML-DSA support: TLS 1.3 for the
+ * certificate type, a filesystem for the DER identity, the crypto callback
+ * that routes signing to the TPM, and private-key-id to reference it. */
+#if defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFSSL_TLS13) && \
+    defined(WOLFTPM_CRYPTOCB) && defined(WOLF_PRIVATE_KEY_ID) && \
+    !defined(NO_FILESYSTEM) && \
+    defined(WOLFSSL_HAVE_MLDSA) && !defined(WOLFSSL_MLDSA_NO_SIGN) && \
+    !defined(WOLFSSL_MLDSA_NO_VERIFY) && \
+    defined(WOLFSSL_HAVE_MLKEM) && !defined(WOLFSSL_MLKEM_NO_MAKE_KEY) && \
+    !defined(WOLFSSL_MLKEM_NO_ENCAPSULATE) && \
+    !defined(WOLFSSL_MLKEM_NO_DECAPSULATE)
+    #define WOLFTPM_TLS_PQC
+#endif
+
+#ifdef WOLFTPM_TLS_PQC
+/* PQC identity produced by examples/pqc/gen_pqc_certs */
+#define TLS_PQ_CA_CERT      "./certs/pq-ca-cert.der"
+#define TLS_PQ_SERVER_CERT  "./certs/pq-server-cert.der"
+#define TLS_PQ_CERT_BUF_SZ  10000
+
+static inline int TlsParseMldsaSet(const char* v,
+    TPMI_MLDSA_PARAMETER_SET* ps)
+{
+    if (XSTRCMP(v, "44") == 0) { *ps = TPM_MLDSA_44; return 0; }
+    if (XSTRCMP(v, "65") == 0) { *ps = TPM_MLDSA_65; return 0; }
+    if (XSTRCMP(v, "87") == 0) { *ps = TPM_MLDSA_87; return 0; }
+    return BAD_FUNC_ARG;
+}
+
+/* ML-KEM (and hybrid) key share groups for the TLS 1.3 PQC examples */
+static inline int TlsParseKemGroup(const char* v, int* group)
+{
+    if (XSTRCMP(v, "ML_KEM_512") == 0) {
+        *group = WOLFSSL_ML_KEM_512; return 0;
+    }
+    if (XSTRCMP(v, "ML_KEM_768") == 0) {
+        *group = WOLFSSL_ML_KEM_768; return 0;
+    }
+    if (XSTRCMP(v, "ML_KEM_1024") == 0) {
+        *group = WOLFSSL_ML_KEM_1024; return 0;
+    }
+    if (XSTRCMP(v, "SECP256R1MLKEM768") == 0) {
+        *group = WOLFSSL_SECP256R1MLKEM768; return 0;
+    }
+    if (XSTRCMP(v, "X25519MLKEM768") == 0) {
+        *group = WOLFSSL_X25519MLKEM768; return 0;
+    }
+    return BAD_FUNC_ARG;
+}
+#endif /* WOLFTPM_TLS_PQC */
+
+#ifndef NO_FILESYSTEM
+/* Read a DER file into der, updating derSz with the bytes read. */
+static inline int ReadDerFile(const char* file, byte* der, int* derSz)
+{
+    XFILE f;
+    long sz;
+
+    f = XFOPEN(file, "rb");
+    if (f == XBADFILE) {
+        printf("Cannot open %s\n", file);
+        return -1;
+    }
+    XFSEEK(f, 0, XSEEK_END);
+    sz = XFTELL(f);
+    XREWIND(f);
+    if (sz <= 0 || sz > *derSz) {
+        XFCLOSE(f);
+        return -1;
+    }
+    if (XFREAD(der, 1, (size_t)sz, f) != (size_t)sz) {
+        XFCLOSE(f);
+        return -1;
+    }
+    XFCLOSE(f);
+    *derSz = (int)sz;
+    return 0;
+}
+#endif /* !NO_FILESYSTEM */
+
 static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
 {
     /* Verify Callback Arguments:
