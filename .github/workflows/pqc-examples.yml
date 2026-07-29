@@ -194,31 +194,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # TODO(revert-when-merged): build wolfSSL from the aidangarske/wolfssl
-      # mldsa-signctx-cryptocb-devkey branch because the wc_MlDsaKey_SignCtx
-      # crypto-callback fix (device-key ML-DSA signing) is not yet upstream.
-      # Once that wolfSSL PR merges, switch this back to a wolfSSL/wolfssl tag
-      # (>= the release carrying the fix) and delete this note.
-      - name: Build wolfSSL (PQC TLS + crypto-cb ML-DSA device-key fix)
-        env:
-          # aidangarske/wolfssl mldsa-signctx-cryptocb-devkey
-          WOLFSSL_PQC_SHA: 6b0c832284286dbaec8e5ab35581ff470e90826b
-        run: |
-          cd ~
-          # pinned to an immutable commit: a mutable branch tip would let a
-          # force-push run unreviewed code inside this job
-          git clone --no-checkout https://github.com/aidangarske/wolfssl.git
-          cd wolfssl
-          git fetch --depth 1 origin "$WOLFSSL_PQC_SHA"
-          git checkout "$WOLFSSL_PQC_SHA"
-          ./autogen.sh
-          ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-            --enable-certgen --enable-dilithium --enable-mlkem \
-            --enable-experimental --enable-tls-mlkem-standalone --enable-harden \
-            CPPFLAGS="-DWOLFSSL_TLSX_PQC_MLKEM_STORE_OBJ -DWC_RSA_NO_PADDING" \
-            --prefix="$HOME/wolfssl-install"
-          make -j"$(nproc)"
-          make install
+      - name: Setup wolfSSL with PQC TLS
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: >-
+            --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            --enable-certgen --enable-dilithium --enable-mlkem
+            --enable-experimental --enable-tls-mlkem-standalone --enable-harden
+          cflags: -DWOLFSSL_TLSX_PQC_MLKEM_STORE_OBJ -DWC_RSA_NO_PADDING
+          prefix: $HOME/wolfssl-install
 
       - name: wolfSSL version info
         run: grep LIBWOLFSSL_VERSION_STRING "$HOME/wolfssl-install/include/wolfssl/version.h"
@@ -249,7 +233,7 @@ jobs:
           export LD_LIBRARY_PATH="$HOME/wolfssl-install/lib"
           # run_examples.sh pairs the classical TLS tests with the wolfSSL
           # example client/server, so point it at the clone built above
-          export WOLFSSL_PATH="$HOME/wolfssl"
+          export WOLFSSL_PATH="$GITHUB_WORKSPACE/wolfssl"
           ./src/fwtpm/fwtpm_server >/tmp/fwtpm_tls.log 2>&1 &
           echo $! > /tmp/fwtpm_tls.pid
           sleep 2

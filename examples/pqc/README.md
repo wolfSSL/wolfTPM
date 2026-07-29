@@ -189,9 +189,10 @@ TPM. The server signs the CertificateVerify on-chip via the wolfTPM crypto
 callback; the client performs an ML-KEM key exchange and validates the server
 against a software CA.
 
-Requires wolfSSL with a fix that routes `wc_MlDsaKey_SignCtx` to the crypto
-callback for device keys (private key in the TPM). No shipping TPM implements
-TCG v1.85 PQC yet, so this runs against the in-tree fwTPM.
+Requires a wolfSSL that routes `wc_MlDsaKey_SignCtx` to the crypto callback for
+device keys (private key in the TPM). That landed upstream, so master or any
+later release works. No shipping TPM implements TCG v1.85 PQC yet, so this runs
+against the in-tree fwTPM.
 
 Demo scope: the identity key is an unauthenticated deterministic TPM primary
 (empty auth), reproducible by both `gen_pqc_certs` and the server from the owner
