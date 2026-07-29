@@ -134,6 +134,7 @@ void TPM2_Packet_InitBuf(TPM2_Packet* packet, byte* buf, int size)
         packet->buf  = buf;
         packet->pos = TPM2_HEADER_SIZE; /* skip header (fill during finalize) */
         packet->size = size;
+        packet->overflow = 0;
     }
 }
 
@@ -149,6 +150,9 @@ void TPM2_Packet_AppendU8(TPM2_Packet* packet, UINT8 data)
     if (packet && (packet->pos + (int)sizeof(UINT8) <= packet->size)) {
         packet->buf[packet->pos] = data;
         packet->pos += sizeof(UINT8);
+    }
+    else if (packet != NULL) {
+        packet->overflow = 1;
     }
 }
 void TPM2_Packet_ParseU8(TPM2_Packet* packet, UINT8* data)
@@ -170,6 +174,9 @@ void TPM2_Packet_AppendU16(TPM2_Packet* packet, UINT16 data)
         XMEMCPY(&packet->buf[packet->pos], &data, sizeof(UINT16));
         packet->pos += sizeof(UINT16);
     }
+    else if (packet != NULL) {
+        packet->overflow = 1;
+    }
 }
 void TPM2_Packet_ParseU16(TPM2_Packet* packet, UINT16* data)
 {
@@ -189,6 +196,9 @@ void TPM2_Packet_AppendU32(TPM2_Packet* packet, UINT32 data)
         data = cpu_to_be32(data);
         XMEMCPY(&packet->buf[packet->pos], &data, sizeof(UINT32));
         packet->pos += sizeof(UINT32);
+    }
+    else if (packet != NULL) {
+        packet->overflow = 1;
     }
 }
 void TPM2_Packet_ParseU32(TPM2_Packet* packet, UINT32* data)
@@ -212,6 +222,9 @@ void TPM2_Packet_AppendU64(TPM2_Packet* packet, UINT64 data)
         XMEMCPY(&packet->buf[packet->pos], &data, sizeof(UINT64));
         packet->pos += sizeof(UINT64);
     }
+    else if (packet != NULL) {
+        packet->overflow = 1;
+    }
 }
 void TPM2_Packet_ParseU64(TPM2_Packet* packet, UINT64* data)
 {
@@ -234,6 +247,9 @@ void TPM2_Packet_AppendS32(TPM2_Packet* packet, INT32 data)
         XMEMCPY(&packet->buf[packet->pos], &data, sizeof(INT32));
         packet->pos += sizeof(INT32);
     }
+    else if (packet != NULL) {
+        packet->overflow = 1;
+    }
 }
 
 void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size)
@@ -242,6 +258,9 @@ void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size)
         if (buf)
             XMEMCPY(&packet->buf[packet->pos], buf, size);
         packet->pos += size;
+    }
+    else if (packet != NULL) {
+        packet->overflow = 1;
     }
 }
 void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
@@ -440,8 +459,9 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
 
+    /* the return type is a wire tag, so a negative error cannot be encoded */
     if (ctx == NULL || info == NULL)
-        return BAD_FUNC_ARG;
+        return st;
     if (ctx->session == NULL)
         return st;
 

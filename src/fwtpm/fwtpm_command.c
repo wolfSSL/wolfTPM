@@ -93,6 +93,7 @@ static void FwRspInit(TPM2_Packet* pkt, byte* buf, int bufSize)
     pkt->buf = buf;
     pkt->pos = TPM2_HEADER_SIZE; /* skip header, filled by Finalize */
     pkt->size = bufSize;
+    pkt->overflow = 0;
     /* Zero header area so stale data doesn't confuse session detection */
     XMEMSET(buf, 0, TPM2_HEADER_SIZE);
 }
@@ -110,10 +111,10 @@ static int FwRspFinalize(TPM2_Packet* pkt, UINT16 tag, TPM_RC rc)
 }
 
 /* Build a minimal error-only response */
-static int FwBuildErrorResponse(byte* rsp, UINT16 tag, TPM_RC rc)
+static int FwBuildErrorResponse(byte* rsp, int rspBufSz, UINT16 tag, TPM_RC rc)
 {
     TPM2_Packet pkt;
-    FwRspInit(&pkt, rsp, FWTPM_MAX_COMMAND_SIZE);
+    FwRspInit(&pkt, rsp, rspBufSz);
     return FwRspFinalize(&pkt, tag, rc);
 }
 
@@ -1016,10 +1017,17 @@ static TPM_RC FwCmd_GetRandom(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         /* TPM2B_DIGEST: size + data */
         TPM2_Packet_AppendU16(rsp, bytesRequested);
 
-        rc = wc_RNG_GenerateBlock(&ctx->rng,
-            rsp->buf + rsp->pos, bytesRequested);
-        if (rc != 0) {
-            rc = TPM_RC_FAILURE;
+        /* This writes past the packet API, so bound it explicitly. */
+        if (rsp->pos + (int)bytesRequested > rsp->size) {
+            rsp->overflow = 1;
+            bytesRequested = 0;
+        }
+        else {
+            rc = wc_RNG_GenerateBlock(&ctx->rng,
+                rsp->buf + rsp->pos, bytesRequested);
+            if (rc != 0) {
+                rc = TPM_RC_FAILURE;
+            }
         }
     }
 
@@ -1091,12 +1099,28 @@ static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset);
 /* Overwrite a big-endian UINT32 already appended at buf[pos]. Used to
  * back-patch a TPML count with the number of entries actually emitted, so a
  * count/payload mismatch is impossible even if two entries collapse to one. */
-static void FwPatchU32BE(byte* buf, int pos, UINT32 v)
+/* Back-patch a reserved field, but only where it actually fits. The
+ * reservation is dropped silently when the buffer is already full. */
+static void FwPatchU32BE(TPM2_Packet* rsp, int pos, UINT32 v)
 {
-    buf[pos + 0] = (byte)(v >> 24);
-    buf[pos + 1] = (byte)(v >> 16);
-    buf[pos + 2] = (byte)(v >> 8);
-    buf[pos + 3] = (byte)(v);
+    if (pos < 0 || pos + 4 > rsp->size) {
+        rsp->overflow = 1;
+        return;
+    }
+    rsp->buf[pos + 0] = (byte)(v >> 24);
+    rsp->buf[pos + 1] = (byte)(v >> 16);
+    rsp->buf[pos + 2] = (byte)(v >> 8);
+    rsp->buf[pos + 3] = (byte)(v);
+}
+
+/* Back-patch the one-byte moreData flag with the same guard. */
+static void FwPatchMoreData(TPM2_Packet* rsp, int pos, byte v)
+{
+    if (pos < 0 || pos + 1 > rsp->size) {
+        rsp->overflow = 1;
+        return;
+    }
+    rsp->buf[pos] = v;
 }
 
 /* --- TPM2_GetCapability (CC 0x017A) --- */
@@ -1210,7 +1234,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if ((UINT32)numOut > propertyCount)
                 numOut = (int)propertyCount;
             if (avail > numOut)
-                rsp->buf[moreDataPos] = 1; /* YES - more entries remain */
+                FwPatchMoreData(rsp, moreDataPos, 1); /* more entries remain */
 
             /* Reserve the count and back-patch it to entries actually emitted. */
             countPos = rsp->pos;
@@ -1235,7 +1259,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 haveLast = 1;
                 emitted++;
             }
-            FwPatchU32BE(rsp->buf, countPos, (UINT32)emitted);
+            FwPatchU32BE(rsp, countPos, (UINT32)emitted);
             break;
         }
 
@@ -1261,7 +1285,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if ((UINT32)numOut > propertyCount)
                 numOut = (int)propertyCount;
             if (avail > numOut)
-                rsp->buf[moreDataPos] = 1; /* YES - more entries remain */
+                FwPatchMoreData(rsp, moreDataPos, 1); /* more entries remain */
 
             /* Reserve the count and back-patch it to entries actually emitted. */
             countPos = rsp->pos;
@@ -1287,7 +1311,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 haveLast = 1;
                 emitted++;
             }
-            FwPatchU32BE(rsp->buf, countPos, (UINT32)emitted);
+            FwPatchU32BE(rsp, countPos, (UINT32)emitted);
             break;
         }
 
@@ -1418,7 +1442,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
             /* Truncated (start offset or propertyCount cap): flag moreData=YES. */
             if (startIdx + numOut < totalProps)
-                rsp->buf[moreDataPos] = 1; /* YES */
+                FwPatchMoreData(rsp, moreDataPos, 1); /* YES */
 
             TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
             for (i = 0; i < (UINT32)numOut; i++) {
@@ -1496,7 +1520,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
             /* Truncated (start offset or propertyCount cap): flag moreData=YES. */
             if (startIdx + numOut < totalProps)
-                rsp->buf[moreDataPos] = 1; /* YES */
+                FwPatchMoreData(rsp, moreDataPos, 1); /* YES */
 
             TPM2_Packet_AppendU32(rsp, (UINT32)numOut);
             for (ii = 0; ii < (UINT32)numOut; ii++) {
@@ -1589,7 +1613,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
             if ((UINT32)count > propertyCount) {
                 count = (int)propertyCount;
-                rsp->buf[moreDataPos] = 1; /* YES - more handles available */
+                FwPatchMoreData(rsp, moreDataPos, 1); /* more handles available */
             }
             TPM2_Packet_AppendU32(rsp, (UINT32)count);
             if (count > 0) {
@@ -1662,6 +1686,181 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* --- TPM2_TestParms (CC 0x018A) --- */
 /* Validates that the given algorithm parameters are supported.
  * No auth, no output params. */
+/* Validate a hash selector carried inside a scheme's details union. */
+static TPM_RC FwTestHashAlg(UINT16 hashAlg)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (TPM2_GetHashDigestSize(hashAlg) <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    return rc;
+}
+
+/* Validate a TPMT_SYM_DEF(_OBJECT). TPM_ALG_NULL means no symmetric alg. */
+static TPM_RC FwTestSymDef(const TPMT_SYM_DEF* sym)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    if (sym->algorithm == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+#ifndef NO_AES
+    else if (sym->algorithm == TPM_ALG_AES) {
+        UINT16 mode = sym->mode.sym;
+        if (sym->keyBits.aes != 128 && sym->keyBits.aes != 192 &&
+                sym->keyBits.aes != 256) {
+            rc = TPM_RC_KEY_SIZE;
+        }
+        else if (mode != TPM_ALG_CFB && mode != TPM_ALG_CBC &&
+                mode != TPM_ALG_CTR && mode != TPM_ALG_OFB &&
+                mode != TPM_ALG_ECB) {
+            rc = TPM_RC_MODE;
+        }
+    }
+#endif
+    else {
+        rc = TPM_RC_SYMMETRIC;
+    }
+    return rc;
+}
+
+#ifndef NO_RSA
+/* Validate a TPMT_RSA_SCHEME selector and its hash, when it carries one. */
+static TPM_RC FwTestRsaScheme(const TPMT_RSA_SCHEME* scheme)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = scheme->scheme;
+
+    if (alg == TPM_ALG_NULL || alg == TPM_ALG_RSAES) {
+        rc = TPM_RC_SUCCESS;
+    }
+    else if (alg == TPM_ALG_RSASSA || alg == TPM_ALG_RSAPSS ||
+            alg == TPM_ALG_OAEP) {
+        rc = FwTestHashAlg(scheme->details.anySig.hashAlg);
+    }
+    else {
+        rc = TPM_RC_SCHEME;
+    }
+    return rc;
+}
+#endif /* !NO_RSA */
+
+#ifdef HAVE_ECC
+/* Validate a TPMT_ECC_SCHEME selector and its hash. */
+static TPM_RC FwTestEccScheme(const TPMT_ECC_SCHEME* scheme)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = scheme->scheme;
+
+    if (alg == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+    else if (alg == TPM_ALG_ECDSA || alg == TPM_ALG_ECDH ||
+            alg == TPM_ALG_ECDAA || alg == TPM_ALG_ECSCHNORR) {
+        rc = FwTestHashAlg(scheme->details.any.hashAlg);
+    }
+    else {
+        rc = TPM_RC_SCHEME;
+    }
+    return rc;
+}
+
+/* Validate a TPMT_KDF_SCHEME selector and its hash. */
+static TPM_RC FwTestKdfScheme(const TPMT_KDF_SCHEME* kdf)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 alg = kdf->scheme;
+
+    if (alg == TPM_ALG_NULL) {
+        rc = TPM_RC_SUCCESS;
+    }
+    /* HKDF is the KDF an ECC DHKEM object carries, per RFC 9180 Sec.4.1 */
+    else if (alg == TPM_ALG_KDF1_SP800_56A || alg == TPM_ALG_KDF2 ||
+            alg == TPM_ALG_KDF1_SP800_108 || alg == TPM_ALG_HKDF) {
+        rc = FwTestHashAlg(kdf->details.any.hashAlg);
+    }
+    else {
+        rc = TPM_RC_KDF;
+    }
+    return rc;
+}
+#endif /* HAVE_ECC */
+
+/* Validate the TPMU_PUBLIC_PARMS body of a TPMT_PUBLIC_PARMS. The type
+ * selector has already been consumed from the command packet. */
+static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMU_PUBLIC_PARMS params;
+
+    XMEMSET(&params, 0, sizeof(params));
+    TPM2_Packet_ParsePublicParms(cmd, algType, &params);
+
+    if (algType == TPM_ALG_SYMCIPHER) {
+        /* A SYMCIPHER key must name a real algorithm, not TPM_ALG_NULL. */
+        if (params.symDetail.sym.algorithm == TPM_ALG_NULL) {
+            rc = TPM_RC_SYMMETRIC;
+        }
+        else {
+            rc = FwTestSymDef((const TPMT_SYM_DEF*)&params.symDetail.sym);
+        }
+    }
+    else if (algType == TPM_ALG_KEYEDHASH) {
+        UINT16 alg = params.keyedHashDetail.scheme.scheme;
+        if (alg == TPM_ALG_NULL) {
+            rc = TPM_RC_SUCCESS;
+        }
+        else if (alg == TPM_ALG_HMAC) {
+            rc = FwTestHashAlg(params.keyedHashDetail.scheme.details.hmac.hashAlg);
+        }
+        else if (alg == TPM_ALG_XOR) {
+            rc = FwTestHashAlg(params.keyedHashDetail.scheme.details.xorr.hashAlg);
+        }
+        else {
+            rc = TPM_RC_SCHEME;
+        }
+    }
+#ifndef NO_RSA
+    else if (algType == TPM_ALG_RSA) {
+        UINT16 keyBits = params.rsaDetail.keyBits;
+        rc = FwTestSymDef(&params.rsaDetail.symmetric);
+        if (rc == 0) {
+            rc = FwTestRsaScheme(&params.rsaDetail.scheme);
+        }
+        /* keyBits 0 selects the 2048-bit default in FwDeriveRsaPrimaryKey. */
+        if (rc == 0 && keyBits != 0 && keyBits != 1024 && keyBits != 2048 &&
+                keyBits != 3072 && keyBits != 4096) {
+            rc = TPM_RC_KEY_SIZE;
+        }
+        /* exponent 0 selects the default; anything else must be odd > 2. */
+        if (rc == 0 && params.rsaDetail.exponent != 0 &&
+                (params.rsaDetail.exponent < 3 ||
+                 (params.rsaDetail.exponent & 1) == 0)) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+#endif
+#ifdef HAVE_ECC
+    else if (algType == TPM_ALG_ECC) {
+        rc = FwTestSymDef(&params.eccDetail.symmetric);
+        if (rc == 0) {
+            rc = FwTestEccScheme(&params.eccDetail.scheme);
+        }
+        if (rc == 0 && FwGetWcCurveId(params.eccDetail.curveID) < 0) {
+            rc = TPM_RC_CURVE;
+        }
+        if (rc == 0) {
+            rc = FwTestKdfScheme(&params.eccDetail.kdf);
+        }
+    }
+#endif
+    else {
+        rc = TPM_RC_TYPE;
+    }
+    return rc;
+}
+
 static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
 {
@@ -1692,14 +1891,9 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         #endif
             case TPM_ALG_KEYEDHASH:
             case TPM_ALG_SYMCIPHER:
-            case TPM_ALG_AES:
-            case TPM_ALG_SHA256:
-        #ifdef WOLFSSL_SHA384
-            case TPM_ALG_SHA384:
-        #endif
-            case TPM_ALG_HMAC:
-            case TPM_ALG_NULL:
-                /* Supported - skip remaining type-specific params */
+                /* Part 3 Sec.30.3.1: unmarshal the parameters and return the
+                 * matching error if any of them is not supported. */
+                rc = FwTestPublicParms(cmd, algType);
                 break;
         #ifdef WOLFTPM_MLDSA
             /* Part 2 Sec.12.2.3.6: TestParms for ML-DSA / Hash-ML-DSA / ML-KEM
@@ -1791,13 +1985,8 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             }
         #endif /* WOLFTPM_MLKEM */
             default:
-                /* Unrecognized algorithm type. TPM_RC_PARMS only exists
-                 * under WOLFTPM_V185; fall back to TPM_RC_TYPE otherwise. */
-            #ifdef WOLFTPM_V185
-                rc = TPM_RC_PARMS;
-            #else
+                /* Part 2 Table 224: bad TPMI_ALG_PUBLIC is TPM_RC_TYPE */
                 rc = TPM_RC_TYPE;
-            #endif
                 break;
         }
     }
@@ -16221,13 +16410,23 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 #endif
     int pj, hj;                     /* Loop indices for auth validation */
     int authFail;                   /* Password comparison result */
+    int rspCap;                     /* Caller's response buffer capacity */
+    int rspTruncated = 0;           /* Response did not fit the buffer */
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
     }
 
+    /* rspSize is in/out: capacity in, bytes written out. Callers that leave
+     * it unset get the historic FWTPM_MAX_COMMAND_SIZE assumption. */
+    /* Handlers commit state before marshalling and some write outside the
+     * packet API, so they are only ever run with a full-size buffer. A
+     * caller with a smaller transport buffer must stage through one.
+     * rspSize is output-only, so its incoming value is never read. */
+    rspCap = FWTPM_MAX_COMMAND_SIZE;
+
     if (cmdSize < TPM2_HEADER_SIZE) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
         return TPM_RC_SUCCESS;
     }
@@ -16243,13 +16442,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     TPM2_Packet_ParseU32(&cmdPkt, &cmdCode);
 
     if (cmdTag != TPM_ST_NO_SESSIONS && cmdTag != TPM_ST_SESSIONS) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_BAD_TAG);
         return TPM_RC_SUCCESS;
     }
 
     if ((int)cmdSizeHdr != cmdSize) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
         return TPM_RC_SUCCESS;
     }
@@ -16257,14 +16456,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* A valid command code has only the 16-bit index plus the vendor V bit
      * (CC_VEND); reject any other reserved bit so it cannot alias a command. */
     if ((cmdCode & ~((UINT32)CC_VEND | 0xFFFFu)) != 0) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_CODE);
         return TPM_RC_SUCCESS;
     }
 
     if (!ctx->wasStarted && cmdCode != TPM_CC_Startup &&
         cmdCode != TPM_CC_GetCapability) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_INITIALIZE);
         return TPM_RC_SUCCESS;
     }
@@ -16278,14 +16477,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
     entry = FwFindCmdEntry(cmdCode);
     if (entry == NULL) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_CODE);
         return TPM_RC_SUCCESS;
     }
 
     /* Validate minimum command size: header + 4 bytes per input handle */
     if (cmdSize < TPM2_HEADER_SIZE + (entry->inHandleCnt * 4)) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_COMMAND_SIZE);
         return TPM_RC_SUCCESS;
     }
@@ -16295,7 +16494,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * and bypasses every downstream auth/HMAC/policy enforcement loop, so
      * reject up front for any handler that declares authHandleCnt > 0. */
     if (cmdTag != TPM_ST_SESSIONS && entry->authHandleCnt > 0) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_AUTH_MISSING);
         return TPM_RC_SUCCESS;
     }
@@ -16339,7 +16538,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 int authEnd;
                 /* Reject if authAreaSz exceeds remaining command bytes */
                 if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
                     return TPM_RC_SUCCESS;
                 }
@@ -16476,7 +16675,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
     /* Check if auth area parsing encountered an error */
     if (rc != TPM_RC_SUCCESS) {
-        *rspSize = FwBuildErrorResponse(rspBuf,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, rc);
         return TPM_RC_SUCCESS;
     }
@@ -16548,7 +16747,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     printf("fwTPM: Policy digest mismatch for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
                 #endif
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
                     return TPM_RC_SUCCESS;
                 }
@@ -16556,7 +16755,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 if (pSess->hasRequiredLocality &&
                     (ctx->activeLocality > WOLFTPM_LOCALITY_MAX ||
                      !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;
                 }
@@ -16571,7 +16770,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         (int)pSess->cpHashA.size != ccpHashSz ||
                         TPM2_ConstantCompare(pSess->cpHashA.buffer,
                             ccpHash, (word32)ccpHashSz) != 0) {
-                        *rspSize = FwBuildErrorResponse(rspBuf,
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
                         return TPM_RC_SUCCESS;
                     }
@@ -16589,7 +16788,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     "handle 0x%x without authPolicy (CC=0x%x)\n",
                     entityH, cmdCode);
             #endif
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
                 return TPM_RC_SUCCESS;
             }
@@ -16610,7 +16809,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * etc.) — but not Clear via platformAuth, which is the recovery path. */
     if (ctx->lockoutAuthFailed && entry->authHandleCnt > 0 &&
             cmdHandleCnt > 0 && cmdHandles[0] == TPM_RH_LOCKOUT) {
-        *rspSize = FwBuildErrorResponse(rspBuf,
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
         return TPM_RC_SUCCESS;
     }
@@ -16633,7 +16832,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             cmdCode != TPM_CC_StartAuthSession &&
             cmdCode != TPM_CC_FlushContext &&
             !(cmdHandleCnt > 0 && FwHandleIsNoDA(ctx, cmdHandles[0]))) {
-            *rspSize = FwBuildErrorResponse(rspBuf,
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
             return TPM_RC_SUCCESS;
         }
@@ -16665,7 +16864,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             ctx->orderly = 0;
             (void)FWTPM_NV_SaveFlags(ctx);
         #ifdef FWTPM_DA_USED_RETRY
-            *rspSize = FwBuildErrorResponse(rspBuf,
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_RETRY);
             return TPM_RC_SUCCESS;
         #endif
@@ -16693,7 +16892,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 printf("fwTPM: Password/HMAC auth rejected for handle "
                     "0x%x — policy required (userWithAuth clear)\n", entityH);
             #endif
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_AUTH_UNAVAILABLE);
                 return TPM_RC_SUCCESS;
             }
@@ -16722,12 +16921,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
             #ifndef FWTPM_NO_DA
                 if (FwDaRegisterFailure(ctx, entityH)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
                     return TPM_RC_SUCCESS;
                 }
             #endif
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
                 return TPM_RC_SUCCESS;
             }
@@ -16754,7 +16953,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             if (FwComputeCpHash(hSess->authHash, cmdCode,
                     cmdBuf, cmdSize, cmdHandles, cmdHandleCnt,
                     ctx, cpStart, cpHash, &cpHashSz) != 0) {
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
                 return TPM_RC_SUCCESS;
             }
@@ -16776,7 +16975,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
                 #endif
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
                     return TPM_RC_SUCCESS;
                 }
@@ -16811,12 +17010,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
             #ifndef FWTPM_NO_DA
                 if (FwDaRegisterFailure(ctx, entityH)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf,
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
                     return TPM_RC_SUCCESS;
                 }
             #endif
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
                 return TPM_RC_SUCCESS;
             }
@@ -16840,7 +17039,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: ParamDecrypt failed %d\n", (int)rc);
             #endif
-                *rspSize = FwBuildErrorResponse(rspBuf,
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_FAILURE);
                 return TPM_RC_SUCCESS;
             }
@@ -16849,11 +17048,22 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 #endif /* !FWTPM_NO_PARAM_ENC */
 
     /* Set up response packet */
-    FwRspInit(&rspPkt, rspBuf, FWTPM_MAX_COMMAND_SIZE);
+    FwRspInit(&rspPkt, rspBuf, rspCap);
 
     rc = entry->handler(ctx, &cmdPkt, cmdSize, &rspPkt, cmdTag);
-    if (rc != TPM_RC_SUCCESS) {
-        *rspSize = FwBuildErrorResponse(rspBuf, TPM_ST_NO_SESSIONS, rc);
+    /* The packet layer drops appends that would overrun the buffer, so
+     * report the truncation instead of returning a malformed packet. The
+     * session flush and deferred clear below must still run. */
+    if (rc == TPM_RC_SUCCESS && rspPkt.overflow) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+            TPM_RC_SIZE);
+        rspTruncated = 1;
+    }
+    if (rspTruncated) {
+        /* response already built above */
+    }
+    else if (rc != TPM_RC_SUCCESS) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS, rc);
     }
     else if (cmdTag != TPM_ST_SESSIONS) {
         /* Non-session: handler already finalized the response */
@@ -16880,6 +17090,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         int rpHashSz = 0;
         const byte* rpBytes = NULL;
         int rpBytesSz = 0;
+        /* previous nonceTPM per session, restored if the response overflows
+         * (66 bytes each, 3 sessions max) */
+        TPM2B_NONCE savedNonce[FWTPM_MAX_CMD_AUTHS];
 
         /* Read parameterSize from response buffer */
         if (rspHandleEnd + 4 <= rspPkt.pos) {
@@ -16894,12 +17107,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         rspParamEnd = rspParamStart + (int)rspParamSzVal;
 #endif
 
-        /* Generate fresh nonceTPM BEFORE response encryption (encryption
-         * uses the new nonceTPM, matching what client receives in auth) */
+        /* New nonceTPM before response encryption, saving the old one */
         for (j = 0; j < cmdAuthCnt; j++) {
             if (cmdAuths[j].sess != NULL) {
                 FWTPM_Session* sess = cmdAuths[j].sess;
                 int digestSz = TPM2_GetHashDigestSize(sess->authHash);
+                XMEMCPY(&savedNonce[j], &sess->nonceTPM,
+                    sizeof(savedNonce[j]));
                 if (digestSz > 0) {
                     rngRc = wc_RNG_GenerateBlock(&ctx->rng,
                         sess->nonceTPM.buffer, digestSz);
@@ -17017,9 +17231,24 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             }
         }
 
-        /* Finalize response header */
-        FwRspFinalize(&rspPkt, TPM_ST_SESSIONS, TPM_RC_SUCCESS);
-        *rspSize = rspPkt.pos;
+        /* Auth area is appended after the handler ran, so it can overrun a
+         * buffer the parameters alone fit in. Restore the nonces: the client
+         * never received the new ones. */
+        if (rspPkt.overflow) {
+            for (j = 0; j < cmdAuthCnt; j++) {
+                if (cmdAuths[j].sess != NULL) {
+                    XMEMCPY(&cmdAuths[j].sess->nonceTPM, &savedNonce[j],
+                        sizeof(savedNonce[j]));
+                }
+            }
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_SIZE);
+        }
+        else {
+            /* Finalize response header */
+            FwRspFinalize(&rspPkt, TPM_ST_SESSIONS, TPM_RC_SUCCESS);
+            *rspSize = rspPkt.pos;
+        }
     }
 
     /* Per TPM 2.0 spec Part 1 Section 19.6.4: flush sessions where the caller

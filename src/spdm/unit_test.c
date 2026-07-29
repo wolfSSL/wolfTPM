@@ -2230,6 +2230,153 @@ static int test_responder_no_plaintext_bypass(void)
     TEST_PASS();
 }
 
+#ifdef WOLFTPM_SPDM_TCG
+/* A TCG *clear* frame (tag 0x8101) carrying VENDOR_DEFINED TPM2_CMD passes
+ * the tag check, so it must be refused by the vendor handler instead. */
+static int test_responder_no_clear_tpm2_cmd(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    byte tpmCmd[12];
+    byte spdmMsg[64];
+    byte frame[128];
+    byte outBuf[256];
+    word32 outSz = sizeof(outBuf);
+    int spdmMsgSz;
+    int rc;
+    int v;
+
+    printf("test_responder_no_clear_tpm2_cmd...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 1, 0));
+    g_tpmCbInvocations = 0;
+    ASSERT_SUCCESS(wolfSPDM_RespSetTpmCallback(rctx, responder_tpm_stub, NULL));
+
+    /* TPM2_Startup(SU_CLEAR) */
+    XMEMSET(tpmCmd, 0, sizeof(tpmCmd));
+    tpmCmd[0] = 0x80; tpmCmd[1] = 0x01;
+    tpmCmd[5] = 0x0C;
+    tpmCmd[8] = 0x01; tpmCmd[9] = 0x44;
+
+    /* Every vendor code gated to secured frames must be refused here. */
+    for (v = 0; v < 3; v++) {
+        const char* vd = (v == 0) ? WOLFSPDM_VDCODE_TPM2_CMD :
+                         (v == 1) ? WOLFSPDM_VDCODE_GIVE_PUB :
+                                    WOLFSPDM_VDCODE_SPDMONLY;
+        spdmMsgSz = wolfSPDM_BuildVendorDefined(SPDM_VERSION_13,
+            vd, tpmCmd, (word32)sizeof(tpmCmd), spdmMsg, sizeof(spdmMsg));
+        TEST_ASSERT(spdmMsgSz > 0, "BuildVendorDefined failed");
+
+        XMEMSET(frame, 0, sizeof(frame));
+        frame[0] = 0x81; frame[1] = 0x01;   /* WOLFSPDM_TCG_TAG_CLEAR */
+        frame[2] = 0; frame[3] = 0;
+        frame[4] = (byte)(((word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE) >> 8);
+        frame[5] = (byte)((word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE);
+        XMEMCPY(frame + WOLFSPDM_TCG_HEADER_SIZE, spdmMsg,
+            (size_t)spdmMsgSz);
+
+        outSz = sizeof(outBuf);
+        rc = wolfSPDM_RespHandleMessage(rctx, frame,
+            (word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE, outBuf, &outSz);
+        TEST_ASSERT(rc != WOLFSPDM_SUCCESS,
+            "Clear-frame secured-only vendor code must not succeed");
+        ASSERT_EQ(g_tpmCbInvocations, 0,
+            "TPM callback must NOT run for a clear frame");
+        /* SPDMONLY must not have been able to change the lock state. */
+        ASSERT_EQ(wolfSPDM_RespIsLocked(rctx), 0,
+            "clear frame must not alter SPDM-only lock");
+    }
+    wolfSPDM_RespFree(rctx);
+    TEST_PASS();
+}
+
+#ifdef WOLFSPDM_NATIONS
+/* Send one vendor-defined command in a TCG clear frame. */
+static int resp_send_clear_vd(WOLFSPDM_RESP_CTX* rctx, const char* vdCode,
+    const byte* payload, word32 payloadSz, byte* out, word32* outSz)
+{
+    byte spdmMsg[256];
+    byte frame[320];
+    int spdmMsgSz;
+
+    spdmMsgSz = wolfSPDM_BuildVendorDefined(SPDM_VERSION_13, vdCode,
+        payload, payloadSz, spdmMsg, sizeof(spdmMsg));
+    if (spdmMsgSz <= 0) {
+        return spdmMsgSz;
+    }
+    XMEMSET(frame, 0, sizeof(frame));
+    frame[0] = 0x81; frame[1] = 0x01;
+    frame[4] = (byte)(((word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE) >> 8);
+    frame[5] = (byte)((word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE);
+    XMEMCPY(frame + WOLFSPDM_TCG_HEADER_SIZE, spdmMsg, (size_t)spdmMsgSz);
+    return wolfSPDM_RespHandleMessage(rctx, frame,
+        (word32)spdmMsgSz + WOLFSPDM_TCG_HEADER_SIZE, out, outSz);
+}
+
+/* A provisioned PSK may only be replaced after an authenticated PSK_CLR_. */
+static int test_responder_psk_replace_guard(void)
+{
+    byte rctxBuf[WOLFSPDM_RESP_CTX_STATIC_SIZE];
+    WOLFSPDM_RESP_CTX* rctx = (WOLFSPDM_RESP_CTX*)rctxBuf;
+    byte setPayload[WOLFSPDM_PSK_MAX_SIZE + WOLFSPDM_HASH_SIZE];
+    byte clearAuth[32];
+    byte outBuf[256];
+    word32 outSz;
+    int rc;
+
+    printf("test_responder_psk_replace_guard...\n");
+    ASSERT_SUCCESS(wolfSPDM_RespInit(rctx));
+    ASSERT_SUCCESS(wolfSPDM_RespSetMode(rctx, 1, 1));
+
+    XMEMSET(clearAuth, 0xC1, sizeof(clearAuth));
+    XMEMSET(setPayload, 0xA5, WOLFSPDM_PSK_MAX_SIZE);
+    ASSERT_SUCCESS(wolfSPDM_Sha384Hash(setPayload + WOLFSPDM_PSK_MAX_SIZE,
+        clearAuth, sizeof(clearAuth), NULL, 0, NULL, 0));
+
+    /* First provisioning succeeds. */
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_SET,
+        setPayload, (word32)sizeof(setPayload), outBuf, &outSz);
+    ASSERT_SUCCESS(rc);
+
+    /* A second PSK_SET_ must be refused while one is provisioned. */
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_SET,
+        setPayload, (word32)sizeof(setPayload), outBuf, &outSz);
+    TEST_ASSERT(rc != WOLFSPDM_SUCCESS,
+        "replacing a provisioned PSK must be refused");
+
+    /* A clear with the wrong ClearAuth leaves it provisioned. */
+    XMEMSET(clearAuth, 0x00, sizeof(clearAuth));
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_CLEAR,
+        clearAuth, (word32)sizeof(clearAuth), outBuf, &outSz);
+    TEST_ASSERT(rc != WOLFSPDM_SUCCESS, "wrong ClearAuth must fail");
+
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_SET,
+        setPayload, (word32)sizeof(setPayload), outBuf, &outSz);
+    TEST_ASSERT(rc != WOLFSPDM_SUCCESS,
+        "PSK must remain provisioned after a failed clear");
+
+    /* The correct ClearAuth releases it and re-provisioning works. */
+    XMEMSET(clearAuth, 0xC1, sizeof(clearAuth));
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_CLEAR,
+        clearAuth, (word32)sizeof(clearAuth), outBuf, &outSz);
+    ASSERT_SUCCESS(rc);
+
+    outSz = sizeof(outBuf);
+    rc = resp_send_clear_vd(rctx, WOLFSPDM_NATIONS_VDCODE_PSK_SET,
+        setPayload, (word32)sizeof(setPayload), outBuf, &outSz);
+    ASSERT_SUCCESS(rc);
+
+    wolfSPDM_RespFree(rctx);
+    TEST_PASS();
+}
+#endif /* WOLFSPDM_NATIONS */
+#endif /* WOLFTPM_SPDM_TCG */
+
 #if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
 
 /* In-process I/O glue: route the requester's outbound TCG frame to the
@@ -2443,6 +2590,12 @@ int main(void)
     test_responder_init_free();
     test_responder_setmode_rejects_both_off();
     test_responder_no_plaintext_bypass();
+#ifdef WOLFTPM_SPDM_TCG
+    test_responder_no_clear_tpm2_cmd();
+#ifdef WOLFSPDM_NATIONS
+    test_responder_psk_replace_guard();
+#endif
+#endif
 #if defined(WOLFTPM_SPDM_PSK) && defined(WOLFTPM_SPDM_TCG)
     test_responder_psk_roundtrip();
 #endif

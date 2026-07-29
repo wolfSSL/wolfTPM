@@ -208,6 +208,12 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
     }
 #endif
 
+#if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO) && !defined(WOLFTPM_FWTPM_HAL)
+    /* the FIFO register transfers plaintext command/response payload */
+    TPM2_ForceZero(txBuf, sizeof(txBuf));
+    TPM2_ForceZero(rxBuf, sizeof(rxBuf));
+#endif
+
     (void)ctx;
 
     return ret;

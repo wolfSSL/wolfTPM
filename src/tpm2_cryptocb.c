@@ -301,7 +301,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &key->handle);
                 }
             }
-            else if (rc & TPM_RC_CURVE) {
+            else if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
                 /* if the curve is not supported on TPM, then fall-back to software */
                 rc = exit_rc;
                 /* Make sure key indicates nothing loaded */
@@ -393,7 +393,7 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                     }
                     wolfTPM2_UnloadHandle(tlsCtx->dev, &eccPub.handle);
                 }
-                else if (rc & TPM_RC_CURVE) {
+                else if ((rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
                     /* if the curve is not supported on TPM, then fall-back to software */
                     rc = exit_rc;
                 }
@@ -749,6 +749,10 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     /* allocate new cache buffer */
     if (hashCtx->cacheBuf == NULL) {
         hashCtx->cacheSz = 0;
+        /* the block round-up below must not wrap to zero */
+        if (inSz > 0xFFFFFFFFU - (WOLFTPM2_HASH_BLOCK_SZ - 1)) {
+            return BUFFER_E;
+        }
         hashCtx->cacheBufSz = (inSz + WOLFTPM2_HASH_BLOCK_SZ - 1)
             & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
         if (hashCtx->cacheBufSz == 0)
@@ -763,8 +767,10 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
         byte* oldIn = hashCtx->cacheBuf;
         word32 oldBufSz = hashCtx->cacheBufSz;
-        /* check for overflow */
-        if (hashCtx->cacheSz + inSz < hashCtx->cacheSz) {
+        /* check for overflow, including the block round-up below */
+        if (hashCtx->cacheSz + inSz < hashCtx->cacheSz ||
+            hashCtx->cacheSz + inSz >
+                0xFFFFFFFFU - (WOLFTPM2_HASH_BLOCK_SZ - 1)) {
             return BUFFER_E;
         }
         hashCtx->cacheBufSz = (hashCtx->cacheSz + inSz +
@@ -993,6 +999,10 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
     enum wc_HashType hType;
     wc_HashAlg hashCtx; /* big stack consumer */
 
+    if (pkcsBlockLen > RSA_MAX_SIZE/8) {
+        return RSA_BUFFER_E;
+    }
+
     switch (hash) {
     #ifndef NO_SHA256
         case SHA256h:
@@ -1090,6 +1100,7 @@ static int RsaPadPss(const byte* input, word32 inputLen, byte* pkcsBlock,
         xorbuf(m, salt + o, (word32)saltLen);
     }
     wc_HashFree(&hashCtx, hType);
+    TPM2_ForceZero(&hashCtx, sizeof(hashCtx));
     TPM2_ForceZero(salt, sizeof(salt));
     return ret;
 }

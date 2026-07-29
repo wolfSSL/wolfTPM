@@ -170,11 +170,8 @@ static int wolfTPM2_SPDM_SwtpmIoCb(
         return rc;
     }
 
-    /* Lower-bound the read so we don't index uninitialized bytes if the
-     * peer mis-frames a too-short response. Header is 6 bytes minimum. */
-    if (packet.pos < TPM2_HEADER_SIZE) {
-        return -1;
-    }
+    /* TPM2_SWTPM_SendCommand validated the received length against
+     * TPM2_HEADER_SIZE, so the size field below is present. */
 
     /* TCG SPDM Binding header and TPM2 header both carry total size at
      * bytes [2..5] big-endian. */

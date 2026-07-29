@@ -353,6 +353,7 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
          * SPDM. Allowlist that one command; reject the rest. */
         cc = (cmdSize >= 10) ? FwLoadU32BE(ctx->cmdBuf + 6) : 0;
         if (cc == TPM_CC_GetCapability) {
+            rspSize = (int)sizeof(ctx->rspBuf);
             procRc = FWTPM_ProcessCommand(ctx, ctx->cmdBuf, (int)cmdSize,
                 ctx->rspBuf, &rspSize, locality);
             if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
@@ -369,6 +370,7 @@ static int DispatchAndRespond(FWTPM_CTX* ctx, UINT32 cmdSize, int locality,
 #endif
 
     if (!dispatched) {
+        rspSize = (int)sizeof(ctx->rspBuf);
         procRc = FWTPM_ProcessCommand(ctx, ctx->cmdBuf, (int)cmdSize,
             ctx->rspBuf, &rspSize, locality);
         if (procRc != TPM_RC_SUCCESS || rspSize == 0) {

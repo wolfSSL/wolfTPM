@@ -350,6 +350,8 @@ int wolfTPM2_Free(WOLFTPM2_DEV *dev)
 {
     if (dev != NULL) {
         wolfTPM2_Cleanup(dev);
+        /* Holds session auth values and the command buffer */
+        TPM2_ForceZero(dev, sizeof(WOLFTPM2_DEV));
         XFREE(dev, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -3411,6 +3413,10 @@ static int SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
     (void)useIv;
     rc = NOT_COMPILED_IN;
 #endif
+    /* a failed wrap leaves the marshalled sensitive area in the clear */
+    if (rc != 0 && priv != NULL) {
+        TPM2_ForceZero(priv, sizeof(*priv));
+    }
     return rc;
 }
 
@@ -7063,14 +7069,18 @@ int wolfTPM2_NVCreate(WOLFTPM2_DEV* dev, TPM_HANDLE authHandle,
     word32 nvIndex, word32 nvAttributes, word32 maxSize,
     const byte* auth, int authSz)
 {
+    int rc;
     WOLFTPM2_NV nv;
     WOLFTPM2_HANDLE parent;
 
     XMEMSET(&nv, 0, sizeof(nv));
     XMEMSET(&parent, 0, sizeof(parent));
     parent.hndl = authHandle;
-    return wolfTPM2_NVCreateAuth(dev, &parent, &nv, nvIndex, nvAttributes,
+    rc = wolfTPM2_NVCreateAuth(dev, &parent, &nv, nvIndex, nvAttributes,
         maxSize, auth, authSz);
+    /* NVOpen copied the index password into the local copy */
+    TPM2_ForceZero(&nv, sizeof(nv));
+    return rc;
 }
 
 static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
@@ -7783,7 +7793,7 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
             printf("TPM2_SequenceUpdate failed 0x%x: %s\n", rc,
                 TPM2_GetRCString(rc));
         #endif
-            return rc;
+            break;
         }
         pos += hashSz;
     }
@@ -7792,6 +7802,9 @@ int wolfTPM2_HashUpdate(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     printf("wolfTPM2_HashUpdate: Handle 0x%x, DataSz %d\n",
         (word32)in.sequenceHandle, dataSz);
 #endif
+
+    /* holds a copy of the hashed input */
+    TPM2_ForceZero(&in, sizeof(in));
 
     return rc;
 }

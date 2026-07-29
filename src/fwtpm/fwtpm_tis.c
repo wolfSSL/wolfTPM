@@ -164,6 +164,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
 
                         /* Gated to the owner above, so loc == ctx->tisLocality:
                          * execute under the addressed (owning) locality. */
+                        rspSize = (int)sizeof(regs->rsp_buf);
                         procRc = FWTPM_ProcessCommand(ctx,
                             localCmd, (int)localCmdLen,
                             regs->rsp_buf, &rspSize, loc);

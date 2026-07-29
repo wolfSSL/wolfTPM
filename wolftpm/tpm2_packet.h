@@ -98,6 +98,7 @@ typedef struct TPM2_Packet {
     byte* buf;
     int pos;
     int size;
+    unsigned int overflow:1;
 } TPM2_Packet;
 
 

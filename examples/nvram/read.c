@@ -187,7 +187,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
 
     printf("NV Read: Attributes 0x%08x\n", nv.attributes);
 
-    if (((nv.attributes & TPMA_NV_TPM_NT) >> 4) & TPM_NT_EXTEND) {
+    if (((nv.attributes & TPMA_NV_TPM_NT) >> 4) == TPM_NT_EXTEND) {
         byte digest[TPM_SHA256_DIGEST_SIZE];
         word32 digestLen = (word32)sizeof(digest);
         printf("NV Read Extend\n");

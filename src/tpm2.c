@@ -923,6 +923,10 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
             TPM2_SetActiveCtx(NULL);
         }
 
+        /* Last command/response still holds plaintext (unsealed data,
+         * auth values, decrypted parameters) */
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
+
         TPM2_ReleaseLock(ctx);
     }
 
