@@ -78,6 +78,7 @@ examples/keygen/ecdh
 examples/pqc/mldsa_sign
 examples/pqc/mlkem_encap
 examples/pqc/pqc_mssim_e2e
+examples/pqc/gen_pqc_certs
 examples/nvram/extend
 examples/nvram/store
 examples/nvram/read
@@ -118,6 +119,7 @@ certs/server-*.der
 certs/server-*.pem
 certs/client-*.der
 certs/client-*.pem
+certs/pq-*.der
 certs/serial.old
 certs/0*.pem
 certs/1*.pem
