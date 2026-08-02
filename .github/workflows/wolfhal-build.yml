@@ -1,0 +1,147 @@
+name: wolfHAL Build Tests
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+    types: [opened, synchronize, reopened, ready_for_review]
+  repository_dispatch:
+    types: [nightly-trigger]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cross compile hal/tpm_io_wolfhal.c for a bare metal target against the real
+  # wolfHAL headers. A host build cannot cover this: __linux__ wins the platform
+  # selection chain in hal/tpm_io.c, so the wolfHAL branch is never reached.
+  cross-compile:
+    name: Cross compile (arm-none-eabi)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        uses: ./.github/actions/apt-retry
+        with:
+          packages: gcc-arm-none-eabi
+
+      - name: Checkout wolfHAL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfHAL
+          ref: main
+          path: wolfHAL
+
+      # wolfTPM does not ship board definitions, so stand in for the board.h an
+      # application would provide. Doubles as a check that the documented
+      # contract in hal/README.md is complete and sufficient.
+      #
+      # user_settings.h is needed because this is a bare metal build that never
+      # runs ./configure, so the generated wolftpm/options.h does not exist.
+      # WOLFTPM_USER_SETTINGS selects this header instead, which is the same
+      # path a real wolfHAL application takes.
+      - name: Generate test board.h and user_settings.h
+        run: |
+          mkdir -p test-board
+          cat > test-board/user_settings.h <<'EOF'
+          #ifndef TEST_USER_SETTINGS_H
+          #define TEST_USER_SETTINGS_H
+          /* Build options come from the compiler command line below. */
+          #endif
+          EOF
+          cat > test-board/board.h <<'EOF'
+          #ifndef TEST_BOARD_H
+          #define TEST_BOARD_H
+          #include <wolfHAL/wolfHAL.h>
+          extern whal_Spi g_spi;
+          extern whal_Gpio g_gpio;
+          extern whal_I2c g_i2c;
+          extern whal_Spi_ComCfg g_spiComCfg;
+          extern whal_I2c_ComCfg g_i2cComCfg;
+          #define BOARD_SPI_DEV      (&g_spi)
+          #define BOARD_SPI_COM_CFG  (&g_spiComCfg)
+          #define BOARD_GPIO_DEV     (&g_gpio)
+          #define BOARD_CS_PIN       15
+          #define BOARD_I2C_DEV      (&g_i2c)
+          #define BOARD_I2C_COM_CFG  (&g_i2cComCfg)
+          #endif
+          EOF
+
+      - name: Build
+        run: |
+          set -e
+          INC="-Itest-board -IwolfHAL -I. -Ihal"
+          BASE="-mcpu=cortex-m4 -mthumb -Wall -Wextra -Werror
+                -Wmissing-prototypes -Wconversion -Wno-unused-parameter
+                -DWOLFTPM_WOLFHAL -DWOLFTPM_EXAMPLE_HAL -DWOLFTPM_USER_SETTINGS
+                -DWOLFTPM2_NO_WOLFCRYPT -DNO_FILESYSTEM"
+          build() {
+            name="$1"; shift
+            echo "::group::$name"
+            arm-none-eabi-gcc -c -o /dev/null $BASE $INC "$@" hal/tpm_io.c
+            echo "::endgroup::"
+          }
+          build "SPI, wait state"      -DWOLFTPM_CHECK_WAIT_STATE
+          build "SPI, no wait state"
+          build "SPI, verbose"         -DWOLFTPM_CHECK_WAIT_STATE -DWOLFTPM_DEBUG_VERBOSE -DWOLFTPM_DEBUG_TIMEOUT
+          build "I2C"                  -DWOLFTPM_I2C -DWOLFTPM_ADV_IO
+          build "I2C, verbose"         -DWOLFTPM_I2C -DWOLFTPM_ADV_IO -DWOLFTPM_DEBUG_VERBOSE
+
+      # The board.h contract is enforced by #error guards. Verify a missing
+      # entry is reported by name rather than as a confusing undeclared symbol.
+      - name: Check board.h guards report missing macros
+        run: |
+          set -e
+          mkdir -p bad-board
+          sed '/BOARD_CS_PIN/d' test-board/board.h > bad-board/board.h
+          cp test-board/user_settings.h bad-board/
+          if arm-none-eabi-gcc -fsyntax-only -mcpu=cortex-m4 -mthumb \
+               -Ibad-board -IwolfHAL -I. -Ihal \
+               -DWOLFTPM_WOLFHAL -DWOLFTPM_EXAMPLE_HAL -DWOLFTPM_USER_SETTINGS \
+               -DWOLFTPM2_NO_WOLFCRYPT -DNO_FILESYSTEM -DWOLFTPM_INCLUDE_IO_FILE \
+               hal/tpm_io_wolfhal.c 2> guard.log; then
+            echo "FAIL: expected a compile error for the missing macro"
+            exit 1
+          fi
+          grep -q "board.h must define BOARD_CS_PIN" guard.log || {
+            echo "FAIL: guard did not name BOARD_CS_PIN"; cat guard.log; exit 1; }
+          echo "PASS: guard named the missing macro"
+
+  # Verify --enable-wolfhal wires up, and that enabling it does not disturb an
+  # ordinary host build. On Linux the wolfHAL branch is not selected, so
+  # tpm_io_wolfhal.c must compile to an empty translation unit with no wolfHAL
+  # headers present. This covers the hal/include.am and configure.ac wiring.
+  autotools:
+    name: Autotools (--enable-wolfhal)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+
+      - name: Build with --enable-wolfhal (SPI)
+        run: |
+          set -e
+          ./autogen.sh
+          ./configure --enable-wolfhal | tee conf.log
+          grep -q "wolfHAL IO: *yes" conf.log || {
+            echo "FAIL: config summary did not report wolfHAL as enabled"; exit 1; }
+          make -j$(nproc)
+
+      - name: Build with --enable-wolfhal --enable-i2c
+        run: |
+          set -e
+          make distclean || true
+          ./autogen.sh
+          ./configure --enable-wolfhal --enable-i2c
+          make -j$(nproc)

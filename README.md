@@ -11,7 +11,7 @@ Portable TPM 2.0 project designed for embedded use.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime - a simple `./configure && make` works with either interface.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
-* Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
+* Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX, Infineon TriCore, wolfHAL and Barebox.
 * The design allows for easy portability to different platforms:
     * Native C code designed for embedded use.
     * Single IO callback for hardware SPI interface.
@@ -223,6 +223,7 @@ There are HAL examples in `hal` directory for:
 * Infineon TriCore
 * Linux
 * STM32 CubeMX
+* wolfHAL
 * Xilinx
 
 We also support an advanced IO option (`--enable-advio`/`WOLFTPM_ADV_IO`), which adds the register and read/write flag as parameter to the IO callback. This is required for I2C support.
@@ -329,6 +330,9 @@ make install
                         this flag adds no compile-time macro but disables the auto-enabled swTPM/fwTPM defaults. (default: not set)
 --enable-i2c            Enable I2C TPM Support (default: disabled, requires advio) - WOLFTPM_I2C
 --enable-mmio           Enable built-in MMIO callbacks (default: disabled) - WOLFTPM_MMIO
+--enable-wolfhal        Enable wolfHAL IO callbacks (default: disabled) - WOLFTPM_WOLFHAL
+                        Requires the wolfHAL headers and an application provided board.h.
+                        See hal/README.md for the required BOARD_* definitions.
 --enable-checkwaitstate Enable TIS / SPI Check Wait State support (default: depends on chip) - WOLFTPM_CHECK_WAIT_STATE
 --enable-smallstack     Enable options to reduce stack usage
 --enable-tislock        Enable Linux Named Semaphore for locking access to SPI device for concurrent access between processes - WOLFTPM_TIS_LOCK
