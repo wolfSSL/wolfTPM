@@ -281,6 +281,7 @@ static void test_wolfTPM2_ReadPublicKey(void)
 static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 {
     int rc;
+    int rcEx;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
@@ -322,9 +323,29 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
+    /* _ex variants with caller session - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHash_ex(NULL, TPM_ALG_SHA384, NULL, 0, NULL,
+        0, NULL, NULL, NULL);
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_FirmwareUpgradeRecover_ex(NULL, NULL, 0, NULL, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* startSession == NULL delegates to the legacy call (same rc). Use a NULL
+     * dev so this never reaches the TPM (a live dev under autodetect could
+     * otherwise push an Infineon part into firmware-upgrade mode). */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA384,
+        NULL, 0, NULL, 0, NULL, NULL);
+    rcEx = wolfTPM2_FirmwareUpgradeHash_ex(NULL, TPM_ALG_SHA384,
+        NULL, 0, NULL, 0, NULL, NULL, NULL);
+    AssertIntEQ(rc, rcEx);
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgrade_ex - NULL dev */
+    rc = wolfTPM2_FirmwareUpgrade_ex(NULL, NULL, 0, NULL, NULL, NULL);
     AssertIntNE(rc, 0);
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
@@ -374,6 +395,146 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 }
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+/* Argument-validation coverage for wolfTPM2_PolicyOR (host-side, no TPM). */
+static void test_wolfTPM2_PolicyOR(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION sess;
+    TPML_DIGEST list;
+    word32 cap = (word32)(sizeof(list.digests) / sizeof(list.digests[0]));
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&list, 0, sizeof(list));
+    list.count = 1;
+    list.digests[0].size = TPM_SHA256_DIGEST_SIZE;
+
+    /* NULL pointer arguments */
+    AssertIntEQ(wolfTPM2_PolicyOR(NULL, &sess, &list), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, NULL, &list), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, NULL), BAD_FUNC_ARG);
+
+    /* count of 0 is invalid */
+    list.count = 0;
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    /* count beyond the TPML_DIGEST capacity is invalid */
+    list.count = cap + 1;
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    /* a branch digest size larger than the buffer is invalid (CWE-125) */
+    list.count = 1;
+    list.digests[0].size = (UINT16)(sizeof(list.digests[0].buffer) + 1);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    printf("Test PolicyOR:    %-40s Passed\n", "Arg Validation:");
+}
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+/* Known-answer + arg-validation for wolfTPM2_PolicyCommandCodeMake (no TPM).
+ * Requires wolfCrypt for the policy hash. Vectors are the offline digest
+ * H(zeros(hashSz) || TPM_CC_PolicyCommandCode || TPM_CC_NV_Read). */
+static void test_wolfTPM2_PolicyCommandCodeMake(void)
+{
+    int rc;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    word32 digestSz = 0;
+    /* SHA2-256 (also in examples/nvram/extend.c) */
+    static const byte expected256[] = {
+        0x47,0xce,0x30,0x32,0xd8,0xba,0xd1,0xf3,
+        0x08,0x9c,0xb0,0xc0,0x90,0x88,0xde,0x43,
+        0x50,0x14,0x91,0xd4,0x60,0x40,0x2b,0x90,
+        0xcd,0x1b,0x7f,0xc0,0xb6,0x8c,0xa9,0x2f
+    };
+#ifdef WOLFSSL_SHA384
+    static const byte expected384[] = {
+        0xfb,0xdd,0x14,0x92,0x1c,0x8b,0xd9,0x5c,
+        0x9f,0x35,0x96,0x79,0xd2,0xbf,0x75,0x78,
+        0xb1,0x47,0xe8,0x29,0x83,0x21,0xf8,0xe9,
+        0xea,0xc4,0x4c,0x11,0x77,0x2f,0xfa,0x6e,
+        0xe5,0x91,0x78,0x43,0x47,0x83,0x9b,0xef,
+        0xf1,0x22,0xf2,0x14,0x4d,0xd0,0xb0,0xf0
+    };
+#endif
+#ifdef WOLFSSL_SHA512
+    static const byte expected512[] = {
+        0x31,0x38,0x6a,0xba,0x16,0xd8,0xf0,0x64,
+        0xbd,0x51,0x4d,0x1d,0xd9,0x48,0x1c,0x65,
+        0x6d,0x0e,0x32,0xe2,0xad,0x84,0x8e,0x1b,
+        0xe9,0xb9,0xab,0x1d,0xd6,0x6f,0xfa,0xd2,
+        0xc5,0xc0,0x2d,0x22,0x1c,0x61,0xd2,0x01,
+        0x99,0x4e,0xd8,0x30,0x6b,0x77,0x0e,0x56,
+        0xbb,0x13,0x05,0x32,0xdf,0x62,0xea,0x8d,
+        0x06,0xc6,0xdf,0x53,0x5f,0x19,0xb8,0x21
+    };
+#endif
+
+    /* NULL argument rejection */
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, NULL, &digestSz,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest, NULL,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+    /* Unsupported hash algorithm rejection */
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_NULL, digest, &digestSz,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+
+    /* SHA2-256 known-answer */
+    digestSz = 0;
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected256));
+    AssertIntEQ(XMEMCMP(digest, expected256, sizeof(expected256)), 0);
+#ifdef WOLFSSL_SHA384
+    digestSz = 0;
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA384, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected384));
+    AssertIntEQ(XMEMCMP(digest, expected384, sizeof(expected384)), 0);
+#endif
+#ifdef WOLFSSL_SHA512
+    digestSz = 0;
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA512, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected512));
+    AssertIntEQ(XMEMCMP(digest, expected512, sizeof(expected512)), 0);
+#endif
+
+    printf("Test PolicyCCMake:%-40s Passed\n", "Known Vectors:");
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+/* Arg-validation for wolfTPM2_SetPrimaryPolicy (no TPM). */
+static void test_wolfTPM2_SetPrimaryPolicy(void)
+{
+    WOLFTPM2_DEV dev;
+    byte pol[TPM_MAX_DIGEST_SIZE + 4];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(pol, 0, sizeof(pol));
+
+    /* NULL dev */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(NULL, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, pol, TPM_SHA256_DIGEST_SIZE), BAD_FUNC_ARG);
+    /* policy digest larger than the buffer */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, pol, (word32)sizeof(pol)), BAD_FUNC_ARG);
+    /* NULL policy with a non-zero size must not silently clear the policy */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, NULL, TPM_SHA256_DIGEST_SIZE), BAD_FUNC_ARG);
+
+    printf("Test SetPrimPol:  %-40s Passed\n", "Arg Validation:");
+}
+
+/* NULL-dev handling for wolfTPM2_IsAlgSupported (no TPM). */
+static void test_wolfTPM2_IsAlgSupported(void)
+{
+    AssertIntEQ(wolfTPM2_IsAlgSupported(NULL, TPM_ALG_SHA256), BAD_FUNC_ARG);
+    printf("Test IsAlgSupp:   %-40s Passed\n", "NULL dev:");
+}
 
 static void test_wolfTPM2_GetRandom(void)
 {
@@ -7515,6 +7676,12 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ST33_FirmwareUpgrade();
     #endif
     #endif
+    test_wolfTPM2_PolicyOR();
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    test_wolfTPM2_PolicyCommandCodeMake();
+    #endif
+    test_wolfTPM2_SetPrimaryPolicy();
+    test_wolfTPM2_IsAlgSupported();
     #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
