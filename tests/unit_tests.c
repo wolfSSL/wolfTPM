@@ -4949,6 +4949,79 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
+/* Exercise hash cache growth with small updates and verify the digest. */
+static void test_wolfTPM2_CryptoDevCb_HashCacheStream(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_USE_SYMMETRIC) && \
+    defined(WOLFSSL_HASH_FLAGS) && !defined(NO_SHA256)
+    int rc;
+    WOLFTPM2_DEV dev;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    wc_Sha256 sha;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digestSw[TPM_SHA256_DIGEST_SIZE];
+    byte data[4096];
+    word32 i, pos, chunk;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    for (i = 0; i < (word32)sizeof(data); i++) {
+        data[i] = (byte)(i * 7 + 1);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache:");
+        return;
+    }
+
+    tpmCtx.dev = &dev;
+    tpmCtx.useSymmetricOnTPM = 1;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+
+    /* Force repeated growth, then a greater-than-2x allocation. */
+    rc = wc_InitSha256_ex(&sha, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256SetFlags(&sha, WC_HASH_FLAG_WILLCOPY);
+    AssertIntEQ(rc, 0);
+    pos = 0;
+    chunk = 1;
+    while (pos < (word32)sizeof(data) - 2048) {
+        if (chunk > (word32)sizeof(data) - 2048 - pos)
+            chunk = (word32)sizeof(data) - 2048 - pos;
+        rc = wc_Sha256Update(&sha, &data[pos], chunk);
+        AssertIntEQ(rc, 0);
+        pos += chunk;
+        chunk = (chunk % 96) + 1;
+    }
+    rc = wc_Sha256Update(&sha, &data[pos], 2048);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Final(&sha, digest);
+    AssertIntEQ(rc, 0);
+    wc_Sha256Free(&sha);
+
+    rc = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Update(&sha, data, (word32)sizeof(data));
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Final(&sha, digestSw);
+    AssertIntEQ(rc, 0);
+    wc_Sha256Free(&sha);
+
+    AssertIntEQ(XMEMCMP(digest, digestSw, sizeof(digest)), 0);
+
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb hash cache:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache:");
+#endif
+}
+
 static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
@@ -7567,6 +7640,7 @@ int unit_tests(int argc, char *argv[])
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
+    test_wolfTPM2_CryptoDevCb_HashCacheStream();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_wolfTPM2_CryptoDevCb_MlDsaSign();
     test_TPM2_ASN_DecodeX509Cert_Errors();
