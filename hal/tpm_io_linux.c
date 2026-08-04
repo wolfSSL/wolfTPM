@@ -76,6 +76,7 @@
         #define TPM2_I2C_DEV  "/dev/i2c-1"
         #define TPM2_I2C_HZ   400000 /* 400kHz */
         static int i2cOpenFailed = 0;
+        static int i2cDevFd = -1;
     #else
         /* SPI */
         #ifndef TPM2_SPI_DEV_CS
@@ -194,14 +195,19 @@
         word16 size, void* userCtx)
     {
         int ret = TPM_RC_FAILURE;
-        int i2cDev = open(TPM2_I2C_DEV, O_RDWR);
-        if (i2cDev >= 0) {
+        if (i2cDevFd < 0) {
+            i2cDevFd = open(TPM2_I2C_DEV, O_RDWR | O_CLOEXEC);
+        }
+        if (i2cDevFd >= 0) {
             if (isRead)
-                ret = i2c_read(i2cDev, addr, buf, size);
+                ret = i2c_read(i2cDevFd, addr, buf, size);
             else
-                ret = i2c_write(i2cDev, addr, buf, size);
+                ret = i2c_write(i2cDevFd, addr, buf, size);
 
-            close(i2cDev);
+            if (ret != TPM_RC_SUCCESS) {
+                close(i2cDevFd);
+                i2cDevFd = -1;
+            }
         }
         else if (!i2cOpenFailed) {
             i2cOpenFailed = 1;
