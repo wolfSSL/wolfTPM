@@ -7103,13 +7103,16 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (towrite > MAX_NV_BUFFER_SIZE)
             towrite = MAX_NV_BUFFER_SIZE;
 
-        /* Make sure the name is computed for the handle.
-         * Name changes on each iteration for policy session.
-         * If this is the first write to NV then the NV_WRITTEN bit will get
-         * set and name needs re-computed */
-        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
-        if (rc != 0)
-            break;
+        /* Refresh for policy sessions and until NV_WRITTEN is cached. */
+        if (!nv->handle.nameLoaded ||
+            nv->handle.hndl != (TPM_HANDLE)nvIndex ||
+            (nv->attributes & TPMA_NV_WRITTEN) == 0 ||
+            (tpmSession != NULL &&
+                TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
+            rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+            if (rc != 0)
+                break;
+        }
         /* For policy session recompute PCR for each iteration */
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {

@@ -1038,6 +1038,103 @@ static void test_wolfTPM2_BoundOwnEntity_ParamEnc(void)
 #endif
 }
 
+/* Multi-chunk NV write plus rewrite under an HMAC parameter encryption
+ * session; a stale cached NV index name would fail the session HMAC. */
+static void test_wolfTPM2_NVWriteChunked(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    const byte nvAuth[] = "chunkedwriteauth";
+    word32 nvAttributes;
+    /* 3 chunks; under the 1664 byte SLB9670 NV index max */
+    byte buf[MAX_NV_BUFFER_SIZE*2 + 64];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+    word32 i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    for (i = 0; i < (word32)sizeof(buf); i++) {
+        buf[i] = (byte)(i & 0xFF);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+            (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    }
+    if (rc != 0) {
+        /* NV limits vary by device. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
+        return;
+    }
+
+    /* The parameter session HMAC binds the NV index name. */
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
+    /* First write sets TPMA_NV_WRITTEN. */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    /* Rewrite uses the stable name. */
+    for (i = 0; i < (word32)sizeof(buf); i++) {
+        buf[i] = (byte)(~i & 0xFF);
+    }
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV write chunked:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
+#endif
+}
+
 static void test_wolfTPM2_PolicyHash(void)
 {
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -7389,6 +7486,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
+    test_wolfTPM2_NVWriteChunked();
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
