@@ -836,6 +836,11 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
 
+#if defined(WOLFTPM_SWTPM)
+    /* set before any early return so cleanup cannot act on fd 0 */
+    ctx->tcpCtx.fd = -1;
+#endif
+
 #ifndef WOLFTPM_NO_RETRY
     ctx->retries = WOLFTPM_MAX_RETRIES;
 #endif
@@ -844,10 +849,6 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_WolfCrypt_Init();
     if (rc != 0)
         return rc;
-#endif
-
-#if defined(WOLFTPM_SWTPM)
-    ctx->tcpCtx.fd = -1;
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
@@ -958,9 +959,8 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         close(ctx->fd);
 #endif
 
-#ifdef WOLFTPM_SWTPM_UART
-    /* Close the persistent UART connection */
-    TPM2_SwtpmCloseUART(ctx);
+#ifdef WOLFTPM_SWTPM
+    TPM2_SwtpmClose(ctx);
 #endif
 
     return TPM_RC_SUCCESS;

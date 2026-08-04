@@ -144,6 +144,7 @@ static void test_wolfTPM2_Init(void)
     defined(WOLFTPM_WINAPI)
     /* Custom IO Callbacks are not needed for Linux TIS driver */
     AssertIntEQ(rc, 0);
+    wolfTPM2_Cleanup(&dev);
 #else
     /* IO Callbacks are required for SPIdev/I2C and must be valid */
     AssertIntNE(rc, 0);

@@ -51,7 +51,7 @@ Build Options:
 * `TPM2_SWTPM_HOST`: The serial device path (default is `/dev/ttyACM0` on Linux, `/dev/cu.usbmodem` on macOS). Can be overridden at runtime via the `TPM2_SWTPM_HOST` environment variable.
 * `TPM2_SWTPM_PORT`: The baud rate (default is 115200)
 
-The UART transport uses the same mssim protocol as the socket transport. The serial port is configured as 8N1 raw mode with no flow control. Unlike the socket transport, the serial port file descriptor is kept open across commands (no reconnect per command).
+The UART transport uses the same mssim protocol as the socket transport. The serial port is configured as 8N1 raw mode with no flow control. Like the socket transport, the serial port file descriptor is kept open across commands (no reconnect per command). Both transports close the connection during `wolfTPM2_Cleanup`. On the socket transport any transmit/receive failure also closes the connection so the next command reconnects; the UART transport closes only when the per-command `TPM_SESSION_END` write fails.
 
 #### Security note: environment variable override
 

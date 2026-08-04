@@ -29,6 +29,9 @@
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
 #endif
+#ifdef WOLFTPM_SWTPM
+#include <wolftpm/tpm2_swtpm.h>
+#endif
 
 /* Convert big-endian byte array to native word32 */
 word32 wolfTPM2_RsaKey_Exponent(const byte* e, word32 eSz)
@@ -176,6 +179,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
             printf("TPM2_Startup failed %d: %s\n", rc,
                    wolfTPM2_GetRCString(rc));
         #endif
+        #ifdef WOLFTPM_SWTPM
+            TPM2_SwtpmClose(ctx);
+        #endif
             return rc;
         }
     }
@@ -214,6 +220,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
             printf("TPM2_SelfTest failed 0x%x: %s\n", rc,
                    TPM2_GetRCString(rc));
         #endif
+        #ifdef WOLFTPM_SWTPM
+            TPM2_SwtpmClose(ctx);
+        #endif
             return rc;
         }
     }
@@ -243,6 +252,11 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     /* Perform startup and test device */
     rc = wolfTPM2_Init_ex(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef WOLFTPM_SWTPM
+        TPM2_SwtpmClose(&ctx);
+    #endif
+        /* Restore the active context before ctx leaves scope. */
+        TPM2_SetActiveCtx(current_ctx);
         return rc;
     }
 
