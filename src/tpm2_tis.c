@@ -96,6 +96,7 @@ enum tpm_tis_status {
         #include <fcntl.h>
         #include <sys/stat.h>
         #include <errno.h>
+        #include <time.h>
 
         #define SEM_NAME "/wolftpm"
         #define SEM_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
