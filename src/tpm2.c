@@ -378,11 +378,15 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 int sizeMismatch;
                 int diff;
 
+                XMEMSET(&hash, 0, sizeof(hash));
+                XMEMSET(&hmac, 0, sizeof(hmac));
+
                 if (expectedHmacSz == 0 || authRsp.hmac.size != expectedHmacSz) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Response HMAC size mismatch! expected=%u got=%u\n",
                         expectedHmacSz, authRsp.hmac.size);
                 #endif
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return TPM_RC_HMAC;
                 }
 
@@ -393,6 +397,8 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 #ifdef DEBUG_WOLFTPM
                     printf("Error calculating rpHash!\n");
                 #endif
+                    TPM2_ForceZero(&hash, sizeof(hash));
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return rc;
                 }
 
@@ -404,6 +410,9 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 #ifdef DEBUG_WOLFTPM
                     printf("Error calculating response HMAC!\n");
                 #endif
+                    TPM2_ForceZero(&hmac, sizeof(hmac));
+                    TPM2_ForceZero(&hash, sizeof(hash));
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return rc;
                 }
 
@@ -418,8 +427,14 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
                 #ifdef DEBUG_WOLFTPM
                     printf("Response HMAC verification failed!\n");
                 #endif
+                    TPM2_ForceZero(&hmac, sizeof(hmac));
+                    TPM2_ForceZero(&hash, sizeof(hash));
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return TPM_RC_HMAC;
                 }
+
+                TPM2_ForceZero(&hmac, sizeof(hmac));
+                TPM2_ForceZero(&hash, sizeof(hash));
             }
 
             /* Save off last known HMAC */
@@ -441,10 +456,13 @@ int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             #ifdef DEBUG_WOLFTPM
                     printf("Response parameter decryption failed\n");
             #endif
+                    TPM2_ForceZero(&authRsp, sizeof(authRsp));
                     return rc;
                 }
             }
         }
+
+        TPM2_ForceZero(&authRsp, sizeof(authRsp));
     }
 
     return rc;
