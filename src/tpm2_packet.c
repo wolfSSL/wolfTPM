@@ -571,6 +571,7 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
     int i;
     UINT32 wireCount;
     UINT32 loopCount;
+    UINT32 parsedCount;
     UINT16 hash;
     UINT8 wireSizeofSelect;
     TPM2_Packet_ParseU32(packet, &wireCount);
@@ -594,7 +595,12 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
     else {
         loopCount = 0;
     }
+    /* remaining/3 assumes a zero-length select, so it over-estimates how
+     * many entries the wire actually carries; count what is really parsed */
+    parsedCount = 0;
     for (i = 0; i < (int)loopCount; i++) {
+        if (packet == NULL || packet->pos + 3 > packet->size)
+            break;
         TPM2_Packet_ParseU16(packet, &hash);
         TPM2_Packet_ParseU8(packet, &wireSizeofSelect);
         if (i < (int)pcr->count) {
@@ -615,7 +621,10 @@ void TPM2_Packet_ParsePCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
             /* Skip entire entry for overflow iterations */
             TPM2_Packet_ParseBytes(packet, NULL, wireSizeofSelect);
         }
+        parsedCount++;
     }
+    if (pcr->count > parsedCount)
+        pcr->count = parsedCount;
     /* Skip remaining wire entries beyond the capped loop so packet->pos
      * stays synchronized with the wire format for subsequent parsing.
      * Break when the packet is exhausted to avoid spinning on an
