@@ -53,7 +53,8 @@ int wolfSPDM_TranscriptAdd(WOLFSPDM_CTX* ctx, const byte* data, word32 len)
         return WOLFSPDM_E_INVALID_ARG;
     }
 
-    if (ctx->transcriptLen + len > WOLFSPDM_MAX_TRANSCRIPT) {
+    if (ctx->transcriptLen > WOLFSPDM_MAX_TRANSCRIPT ||
+        len > WOLFSPDM_MAX_TRANSCRIPT - ctx->transcriptLen) {
         return WOLFSPDM_E_BUFFER_SMALL;
     }
 
