@@ -279,7 +279,7 @@
 
 /* TPM Chip Select Pin (default PC5) */
 #ifndef TPM_SPI_PIN
-#define SYS_PORT_PIN_PC5
+#define TPM_SPI_PIN SYS_PORT_PIN_PC5
 #endif
 
 int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
