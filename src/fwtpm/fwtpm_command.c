@@ -10892,27 +10892,20 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         int pass = 0;
         int cmpResult = 0;
         int signedCmpResult = 0;
+        volatile byte bitDiff = 0;
         int i;
 
-        for (i = 0; i < (int)operandBSz; i++) {
-            if (data[i] < operandB[i]) {
-                cmpResult = -1;
-                break;
-            }
-            else if (data[i] > operandB[i]) {
-                cmpResult = 1;
-                break;
-            }
-        }
+        cmpResult = FwCtRelCompare(data, operandB, (int)operandBSz);
 
-        /* For signed comparisons, check sign bits (big-endian MSB) */
+        /* Signed comparison flips the result when the sign bits differ.
+         * Selected with masks so the compared MSB is not branched on. */
         signedCmpResult = cmpResult;
         if (operandBSz > 0) {
-            int nvSign = (data[0] & 0x80) ? 1 : 0;
-            int opSign = (operandB[0] & 0x80) ? 1 : 0;
-            if (nvSign != opSign) {
-                signedCmpResult = nvSign ? -1 : 1;
-            }
+            int diffSign = (int)(((UINT32)(data[0] ^ operandB[0])) >> 7) & 1;
+            int nvNeg = (int)(((UINT32)data[0]) >> 7) & 1;
+            int signRes = 1 - (2 * nvNeg);
+            signedCmpResult = (signRes & -diffSign) |
+                              (cmpResult & ~(-diffSign));
         }
 
         switch (operation) {
@@ -10927,20 +10920,16 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             case TPM_EO_SIGNED_LE:   pass = (signedCmpResult <= 0); break;
             case TPM_EO_UNSIGNED_LE: pass = (cmpResult <= 0); break;
             case TPM_EO_BITSET:
-                pass = 1;
                 for (i = 0; i < (int)operandBSz; i++) {
-                    if ((data[i] & operandB[i]) != operandB[i]) {
-                        pass = 0; break;
-                    }
+                    bitDiff |= (byte)((data[i] & operandB[i]) ^ operandB[i]);
                 }
+                pass = ((int)bitDiff == 0);
                 break;
             case TPM_EO_BITCLEAR:
-                pass = 1;
                 for (i = 0; i < (int)operandBSz; i++) {
-                    if ((data[i] & operandB[i]) != 0) {
-                        pass = 0; break;
-                    }
+                    bitDiff |= (byte)(data[i] & operandB[i]);
                 }
+                pass = ((int)bitDiff == 0);
                 break;
             default:
                 rc = TPM_RC_VALUE;
