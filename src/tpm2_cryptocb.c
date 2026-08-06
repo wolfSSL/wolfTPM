@@ -620,6 +620,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
                 hashCtx->handle = 0; /* clear hash handle */
                 if ((hashFlags & WC_HASH_FLAG_ISCOPY) == 0) {
                     if (hashCtx->cacheBuf) {
+                        TPM2_ForceZero(hashCtx->cacheBuf,
+                            hashCtx->cacheBufSz);
                         XFREE(hashCtx->cacheBuf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
                         hashCtx->cacheBuf = NULL;
                     }
@@ -832,6 +834,7 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
             return MEMORY_E;
         }
         XMEMCPY(hashCtx->cacheBuf, oldIn, hashCtx->cacheSz);
+        TPM2_ForceZero(oldIn, oldBufSz);
         XFREE(oldIn, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
 
