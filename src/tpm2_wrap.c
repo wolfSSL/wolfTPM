@@ -11109,6 +11109,14 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     int rc;
     WOLFTPM2_SESSION tpmSession;
 
+    if (dev == NULL || manifest_hash == NULL || manifest_hash_sz == 0 ||
+            manifest_hash_sz > TPM_SHA512_DIGEST_SIZE) {
+        return BAD_FUNC_ARG;
+    }
+    if (manifest_hash_sz != (uint32_t)TPM2_GetHashDigestSize(hashAlg)) {
+        return BAD_FUNC_ARG;
+    }
+
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
     rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
