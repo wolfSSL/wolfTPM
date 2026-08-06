@@ -9849,6 +9849,7 @@ static int CSR_Parse_DN(CertName* name, const char* subject)
 
     for (i = 0; i < (int)(sizeof(tags) / sizeof(DNTags)); i++) {
         const char *begin, *end;
+        char* dst;
         word32 len = 0;
         /* find start tag */
         begin = XSTRSTR(subject, tags[i].tag);
@@ -9865,7 +9866,13 @@ static int CSR_Parse_DN(CertName* name, const char* subject)
             if (len > CTC_NAME_SIZE-1) {
                 len = CTC_NAME_SIZE-1; /* leave room for null term */
             }
-            XMEMCPY((byte*)name + tags[i].certNameOff, begin, len);
+            /* Clear only the component being written: SetSubject may be
+             * called more than once to build a DN, so components absent from
+             * this subject must survive */
+            dst = (char*)name + tags[i].certNameOff;
+            XMEMSET(dst, 0, CTC_NAME_SIZE);
+            XMEMCPY(dst, begin, len);
+            dst[len] = '\0';
         }
     }
     return rc;
