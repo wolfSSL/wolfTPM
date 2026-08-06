@@ -5547,6 +5547,8 @@ int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
 
     rc = TPM2_SequenceUpdate(&seqUpdateIn);
 
+    TPM2_ForceZero(&seqUpdateIn, sizeof(seqUpdateIn));
+
     return rc;
 }
 
@@ -5652,6 +5654,8 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         }
     }
 
+    TPM2_ForceZero(&signSeqCompleteIn, sizeof(signSeqCompleteIn));
+
     return rc;
 }
 #endif /* WOLFTPM_MLDSA_SIGN */
@@ -5719,6 +5723,8 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
 
     rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    TPM2_ForceZero(&seqUpdateIn, sizeof(seqUpdateIn));
 
     return rc;
 }
