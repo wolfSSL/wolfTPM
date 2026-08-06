@@ -152,8 +152,8 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
             const char* secretStr = argv[argc-1] + XSTRLEN("-secrethex=");
             word32 secretStrSz = (word32)XSTRLEN(secretStr);
             int secretHexSz;
-            if (secretStrSz > (word32)(sizeof(secret)*2-1))
-                secretStrSz = (word32)(sizeof(secret)*2-1);
+            if (secretStrSz > (word32)((sizeof(secret)-1)*2))
+                secretStrSz = (word32)((sizeof(secret)-1)*2);
             secretHexSz = hexToByte(secretStr, secret, secretStrSz);
             if (secretHexSz < 0) {
                 printf("Invalid secret hex string\n");
