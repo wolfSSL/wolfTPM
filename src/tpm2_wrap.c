@@ -1010,6 +1010,37 @@ int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* cap)
     return wolfTPM2_GetCapabilities_NoDev(cap);
 }
 
+/* Return 1 if the TPM implements the given algorithm, 0 otherwise.
+ * Queries TPM_CAP_ALGS: the TPM returns algorithms with ID >= property, so a
+ * match at index 0 for a single-property query means it is implemented. */
+int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg)
+{
+    int rc;
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_ALG_PROPERTY* algs;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_ALGS;
+    in.property = alg;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc; /* propagate the query failure, distinct from "unsupported" */
+    }
+    /* The TPM returns algorithms with ID >= property; a match at index 0
+     * means the requested algorithm is implemented. */
+    algs = &out.capabilityData.data.algorithms;
+    if (algs->count >= 1 && algs->algProperties[0].alg == alg) {
+        return 1;
+    }
+    return 0;
+}
+
 int wolfTPM2_GetHandles(TPM_HANDLE handle, TPML_HANDLE* handles)
 {
     int rc;
@@ -10676,6 +10707,69 @@ int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
     return TPM2_PolicyCommandCode(&policyCC);
 }
 
+/* Satisfy a policy session with a compound OR of pre-computed policy digests.
+ * The digest list is hash-agnostic (each branch carries its own size), so it
+ * works for SHA2-256 as well as SHA2-512 policy branches. */
+int wolfTPM2_PolicyOR(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
+    const TPML_DIGEST* pHashList)
+{
+    PolicyOR_In policyOR;
+    word32 i;
+
+    if (dev == NULL || tpmSession == NULL || pHashList == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (pHashList->count == 0 ||
+            pHashList->count > (word32)(sizeof(pHashList->digests) /
+                sizeof(pHashList->digests[0]))) {
+        return BAD_FUNC_ARG;
+    }
+    /* Validate each branch digest size against its buffer so TPM2_PolicyOR
+     * cannot marshal past the fixed digest buffer (out-of-bounds read). */
+    for (i = 0; i < pHashList->count; i++) {
+        if (pHashList->digests[i].size >
+                (UINT16)sizeof(pHashList->digests[i].buffer)) {
+            return BAD_FUNC_ARG;
+        }
+    }
+
+    XMEMSET(&policyOR, 0, sizeof(policyOR));
+    policyOR.policySession = tpmSession->handle.hndl;
+    XMEMCPY(&policyOR.pHashList, pHashList, sizeof(policyOR.pHashList));
+    return TPM2_PolicyOR(&policyOR);
+}
+
+/* Set (or clear) the authPolicy for a hierarchy (owner/endorsement/platform/
+ * lockout). Pass authPolicy=NULL/authPolicySz=0 with hashAlg=TPM_ALG_NULL to
+ * clear an existing policy. */
+int wolfTPM2_SetPrimaryPolicy(WOLFTPM2_DEV* dev,
+    TPMI_RH_HIERARCHY_AUTH authHandle, TPM_ALG_ID hashAlg,
+    const byte* authPolicy, word32 authPolicySz)
+{
+    SetPrimaryPolicy_In in;
+
+    if (dev == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    if (authPolicySz > (word32)sizeof(in.authPolicy.buffer)) {
+        return BAD_FUNC_ARG;
+    }
+    /* Reject NULL policy with a non-zero size: setting size 0 here would clear
+     * the policy, silently downgrading "set" to "remove all policy" */
+    if (authPolicy == NULL && authPolicySz > 0) {
+        return BAD_FUNC_ARG;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    in.authHandle = authHandle;
+    in.hashAlg = hashAlg;
+    if (authPolicy != NULL && authPolicySz > 0) {
+        in.authPolicy.size = (UINT16)authPolicySz;
+        XMEMCPY(in.authPolicy.buffer, authPolicy, authPolicySz);
+    }
+    return TPM2_SetPrimaryPolicy(&in);
+}
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /* Authorize a policy based on external key for a verified policy digiest signature */
 int wolfTPM2_PolicyAuthorize(WOLFTPM2_DEV* dev, TPM_HANDLE sessionHandle,
@@ -10840,6 +10934,33 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
     #endif
 #endif
     return rc;
+}
+
+/* Assemble a PolicyCommandCode digest for a fresh policy session */
+/* policyDigest = hash(zeroDigest || TPM_CC_PolicyCommandCode || cc) */
+int wolfTPM2_PolicyCommandCodeMake(TPM_ALG_ID hashAlg,
+    byte* digest, word32* digestSz, TPM_CC cc)
+{
+    int hashSz;
+    byte val[4]; /* command code big-endian, matching the TPM wire format */
+
+    if (digest == NULL || digestSz == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    hashSz = TPM2_GetHashDigestSize(hashAlg);
+    if (hashSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    /* fresh policy session starts from a zero digest of the hash size */
+    XMEMSET(digest, 0, hashSz);
+    *digestSz = (word32)hashSz;
+
+    val[0] = (byte)((cc >> 24) & 0xFF);
+    val[1] = (byte)((cc >> 16) & 0xFF);
+    val[2] = (byte)((cc >> 8) & 0xFF);
+    val[3] = (byte)(cc & 0xFF);
+    return wolfTPM2_PolicyHash(hashAlg, digest, digestSz,
+        TPM_CC_PolicyCommandCode, val, sizeof(val));
 }
 
 /* Assemble a PCR policy */
@@ -11068,11 +11189,12 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
 {
     int rc;
-    SetPrimaryPolicy_In policy;
+    byte policyDigest[TPM_MAX_DIGEST_SIZE];
+    word32 policySz = (word32)sizeof(policyDigest);
     WOLFTPM2_SESSION tpmSession;
 
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
-    XMEMSET(&policy, 0, sizeof(policy));
+    XMEMSET(policyDigest, 0, sizeof(policyDigest));
 
     rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
         TPM_SE_POLICY, TPM_ALG_NULL);
@@ -11080,17 +11202,15 @@ static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
         rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
             TPM_CC_FieldUpgradeStartVendor);
         if (rc == TPM_RC_SUCCESS) {
-            word32 policySz = (word32)sizeof(policy.authPolicy.buffer);
+            policySz = (word32)sizeof(policyDigest);
             rc = wolfTPM2_GetPolicyDigest(dev, tpmSession.handle.hndl,
-                policy.authPolicy.buffer, &policySz);
-            policy.authPolicy.size = policySz;
+                policyDigest, &policySz);
         }
         wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
     }
     if (rc == TPM_RC_SUCCESS) {
-        policy.authHandle = TPM_RH_PLATFORM;
-        policy.hashAlg = TPM_ALG_SHA256;
-        rc = TPM2_SetPrimaryPolicy(&policy);
+        rc = wolfTPM2_SetPrimaryPolicy(dev, TPM_RH_PLATFORM, TPM_ALG_SHA256,
+            policyDigest, policySz);
     }
 
 #ifdef DEBUG_WOLFTPM
@@ -11103,51 +11223,75 @@ static int tpm2_ifx_firmware_enable_policy(WOLFTPM2_DEV* dev)
 }
 
 static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
-    uint8_t* manifest_hash, uint32_t manifest_hash_sz)
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_SESSION tpmSession;
+    TPM_HANDLE sessionHandle = TPM_RH_NULL;
+    int ownSession = 0;
 
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 
-    rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
-        TPM_SE_POLICY, TPM_ALG_NULL);
+    if (startSession != NULL) {
+        /* Caller has already satisfied the platform policy on this session */
+        sessionHandle = startSession->handle.hndl;
+        rc = TPM_RC_SUCCESS;
+    }
+    else {
+        /* Default: internal policy session asserting the firmware start
+         * command code, matching the policy installed on the platform
+         * hierarchy by tpm2_ifx_firmware_enable_policy */
+        rc = wolfTPM2_StartSession(dev, &tpmSession, NULL, NULL,
+            TPM_SE_POLICY, TPM_ALG_NULL);
+        if (rc == TPM_RC_SUCCESS) {
+            ownSession = 1;
+            sessionHandle = tpmSession.handle.hndl;
+            rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
+                TPM_CC_FieldUpgradeStartVendor);
+        }
+    }
+
     if (rc == TPM_RC_SUCCESS) {
-        rc = wolfTPM2_PolicyCommandCode(dev, &tpmSession,
-            TPM_CC_FieldUpgradeStartVendor);
-        if (rc == TPM_RC_SUCCESS) {
-            /* build command for manifest header */
-            uint16_t val16;
-            /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
-            uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
-            cmd[0] = 0x01; /* type */
-            val16 = be16_to_cpu(manifest_hash_sz + 2);
-            XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
-            val16 = be16_to_cpu(hashAlg);
-            XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
-            XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
+        /* build command for manifest header */
+        uint16_t val16;
+        /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
+        uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
+        cmd[0] = 0x01; /* type */
+        val16 = be16_to_cpu(manifest_hash_sz + 2);
+        XMEMCPY(&cmd[1], &val16, sizeof(val16)); /* data size */
+        val16 = be16_to_cpu(hashAlg);
+        XMEMCPY(&cmd[3], &val16, sizeof(val16)); /* hash algorithm */
+        XMEMCPY(&cmd[5], manifest_hash, manifest_hash_sz);
 
-            rc = TPM2_IFX_FieldUpgradeStart(tpmSession.handle.hndl,
-                cmd, 1 + 2 + 2 + manifest_hash_sz);
-        }
-        if (rc == TPM_RC_SUCCESS) {
-            /* delay to give the TPM time to switch modes */
-            XSLEEP_MS(300);
-            /* it is not required to release session handle,
-             * since TPM reset into firmware upgrade mode */
+        rc = TPM2_IFX_FieldUpgradeStart(sessionHandle,
+            cmd, 1 + 2 + 2 + manifest_hash_sz);
+    }
 
-        #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-            !defined(WOLFTPM_WINAPI)
-            /* Do chip startup and request locality again */
-        #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
-            if (dev->ctx.fd < 0) /* Only needed for SPI path */
-        #endif
-            rc = TPM2_ChipStartup(&dev->ctx, 10);
-        #endif
+    if (rc == TPM_RC_SUCCESS) {
+        /* The TPM consumed the session entering firmware upgrade mode; mark a
+         * caller-supplied session as released so the caller does not flush it */
+        if (startSession != NULL) {
+            startSession->handle.hndl = TPM_RH_NULL;
         }
-        else {
-            wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
-        }
+
+        /* delay to give the TPM time to switch modes */
+        XSLEEP_MS(300);
+        /* it is not required to release session handle,
+         * since TPM reset into firmware upgrade mode */
+
+    #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+        !defined(WOLFTPM_WINAPI)
+        /* Do chip startup and request locality again */
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        if (dev->ctx.fd < 0) /* Only needed for SPI path */
+    #endif
+        rc = TPM2_ChipStartup(&dev->ctx, 10);
+    #endif
+    }
+    else if (ownSession) {
+        /* only release a session we started ourselves */
+        wolfTPM2_UnloadHandle(dev, &tpmSession.handle);
     }
 #ifdef DEBUG_WOLFTPM
     if (rc != TPM_RC_SUCCESS) {
@@ -11304,7 +11448,7 @@ static int tpm2_ifx_firmware_final(WOLFTPM2_DEV* dev)
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx);
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
 static int tpm2_st33_firmware_cancel(WOLFTPM2_DEV* dev);
 #endif
 
@@ -11312,6 +11456,17 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    /* Default behavior: library-managed platform authorization */
+    return wolfTPM2_FirmwareUpgradeHash_ex(dev, hashAlg,
+        manifest_hash, manifest_hash_sz, manifest, manifest_sz,
+        cb, cb_ctx, NULL);
+}
+
+int wolfTPM2_FirmwareUpgradeHash_ex(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_CAPS caps;
@@ -11329,7 +11484,7 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         return tpm2_st33_firmware_upgrade_hash(dev, hashAlg,
             manifest_hash, manifest_hash_sz,
             manifest, manifest_sz,
-            cb, cb_ctx);
+            cb, cb_ctx, startSession);
     }
 #endif
 
@@ -11345,10 +11500,18 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
             return tpm2_ifx_firmware_final(dev);
         }
         if (caps.opMode == 0x00) {
-            rc = tpm2_ifx_firmware_enable_policy(dev);
+            /* Ensure rc is assigned in this scope regardless of the branch
+             * below (the caller-session path does not call enable_policy). */
+            rc = TPM_RC_SUCCESS;
+            /* When the caller supplies a session it must already satisfy the
+             * platform authPolicy, so do not overwrite the platform primary
+             * policy - only manage it for the library-default path */
+            if (startSession == NULL) {
+                rc = tpm2_ifx_firmware_enable_policy(dev);
+            }
             if (rc == TPM_RC_SUCCESS) {
                 rc = tpm2_ifx_firmware_start(dev, hashAlg,
-                    manifest_hash, manifest_hash_sz);
+                    manifest_hash, manifest_hash_sz, startSession);
             }
         }
         if (rc == TPM_RC_SUCCESS) {
@@ -11378,9 +11541,9 @@ int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
-int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
+int wolfTPM2_FirmwareUpgrade_ex(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx)
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
 #ifdef WOLFSSL_SHA384
     int rc;
@@ -11389,31 +11552,49 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     /* hash the manifest */
     rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
     if (rc == 0) {
-        rc = wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
+        rc = wolfTPM2_FirmwareUpgradeHash_ex(dev, TPM_ALG_SHA384,
             manifest_hash, (uint32_t)sizeof(manifest_hash),
-            manifest, manifest_sz, cb, cb_ctx);
+            manifest, manifest_sz, cb, cb_ctx, startSession);
     }
     return rc;
 #else
     (void)dev; (void)manifest; (void)manifest_sz;
-    (void)cb; (void)cb_ctx;
+    (void)cb; (void)cb_ctx; (void)startSession;
     return NOT_COMPILED_IN;
 #endif
 }
-#endif
 
-int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
+int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    /* Default behavior: library-managed platform authorization */
+    return wolfTPM2_FirmwareUpgrade_ex(dev, manifest, manifest_sz,
+        cb, cb_ctx, NULL);
+}
+#endif
+
+int wolfTPM2_FirmwareUpgradeRecover_ex(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
     uint8_t manifest_hash[TPM_SHA384_DIGEST_SIZE];
 
     /* recovery mode manifest hash is all 0x3C */
     XMEMSET(manifest_hash, 0x3C, sizeof(manifest_hash));
 
-    return wolfTPM2_FirmwareUpgradeHash(dev, TPM_ALG_SHA384,
+    return wolfTPM2_FirmwareUpgradeHash_ex(dev, TPM_ALG_SHA384,
             manifest_hash, (uint32_t)sizeof(manifest_hash),
-            manifest, manifest_sz, cb, cb_ctx);
+            manifest, manifest_sz, cb, cb_ctx, startSession);
+}
+
+int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx)
+{
+    /* Default behavior: library-managed platform authorization */
+    return wolfTPM2_FirmwareUpgradeRecover_ex(dev, manifest, manifest_sz,
+        cb, cb_ctx, NULL);
 }
 
 /* terminate a firmware update */
@@ -11487,19 +11668,31 @@ int wolfTPM2_FirmwareUpgradeCancel(WOLFTPM2_DEV* dev)
  * 300ms delay: ST reference implementation uses this delay to allow
  * TPM to switch modes after FieldUpgradeStart command */
 static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
-    uint8_t* manifest, uint32_t manifest_sz, int is_lms)
+    uint8_t* manifest, uint32_t manifest_sz, int is_lms,
+    WOLFTPM2_SESSION* startSession)
 {
     int rc;
+    TPM_HANDLE sessionHandle;
 
     (void)dev;
 
-    /* ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart.
-     * This matches the ST reference implementation behavior.
+    /* By default ST33 uses password auth (TPM_RS_PW) for FieldUpgradeStart,
+     * matching the ST reference implementation behavior. When the caller
+     * supplies a session (for example a policy session that satisfies a
+     * custom platform authPolicy), use it instead.
      * For LMS format, the manifest (blob0) already contains the embedded
      * LMS signature. Send the full manifest directly. */
-    rc = TPM2_ST33_FieldUpgradeStart(TPM_RS_PW, manifest, manifest_sz);
+    sessionHandle = (startSession != NULL) ?
+        startSession->handle.hndl : (TPM_HANDLE)TPM_RS_PW;
+    rc = TPM2_ST33_FieldUpgradeStart(sessionHandle, manifest, manifest_sz);
 
     if (rc == TPM_RC_SUCCESS) {
+        /* The TPM consumed the session entering firmware upgrade mode; mark a
+         * caller-supplied session as released so the caller does not flush it */
+        if (startSession != NULL) {
+            startSession->handle.hndl = TPM_RH_NULL;
+        }
+
         /* 300ms delay: ST reference implementation uses this delay to allow
          * TPM to switch modes after FieldUpgradeStart command */
         XSLEEP_MS(300);
@@ -11656,7 +11849,7 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
 static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
     uint8_t* manifest_hash, uint32_t manifest_hash_sz,
     uint8_t* manifest, uint32_t manifest_sz,
-    wolfTPM2FwDataCb cb, void* cb_ctx)
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession)
 {
     int rc;
     WOLFTPM2_CAPS caps;
@@ -11730,7 +11923,8 @@ static int tpm2_st33_firmware_upgrade_hash(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg
     }
 
     /* Send manifest - the common function handles both LMS and non-LMS */
-    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms);
+    rc = tpm2_st33_firmware_start_common(dev, manifest, manifest_sz, is_lms,
+        startSession);
 
     if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_st33_firmware_data(dev, cb, cb_ctx);
