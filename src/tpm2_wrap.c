@@ -10773,6 +10773,7 @@ int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
         rc = wc_HashFinal(&hash_ctx, hashType, pcrDigest);
     }
     wc_HashFree(&hash_ctx, hashType);
+    TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
@@ -10839,6 +10840,7 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
         rc = wc_HashFinal(&hash_ctx, hashType, digest);
     }
     wc_HashFree(&hash_ctx, hashType);
+    TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
