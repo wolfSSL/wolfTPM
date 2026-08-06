@@ -314,6 +314,11 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 /* Snapshot read state to locals for TOCTOU safety */
                 UINT32 rpos = regs->fifo_read_pos;
                 UINT32 rlen = regs->rsp_len;
+                /* Client-writable shared memory: clamp to FIFO capacity the
+                 * same way the command side clamps localCmdLen */
+                if (rlen > (UINT32)sizeof(regs->rsp_buf)) {
+                    rlen = (UINT32)sizeof(regs->rsp_buf);
+                }
                 /* Zero full reg_data first: client may copy more bytes than
                  * we write here (it uses its originally-requested size, not
                  * our clamped len), so any stale shared-memory bytes would
