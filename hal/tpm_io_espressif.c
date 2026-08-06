@@ -367,6 +367,8 @@ static esp_err_t esp_tpm_register_write(uint32_t reg,
         }
     }
 
+    TPM2_ForceZero(buf, sizeof(buf));
+
     return result;
 }
 

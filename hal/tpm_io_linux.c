@@ -185,6 +185,8 @@
                 break;
         } while (--timeout > 0);
 
+        TPM2_ForceZero(buf, sizeof(buf));
+
         return (rc == -1) ? TPM_RC_FAILURE : TPM_RC_SUCCESS;
     }
 

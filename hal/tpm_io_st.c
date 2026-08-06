@@ -127,6 +127,7 @@
         else {
             printf("I2C Write failure %d\n", status);
         }
+        TPM2_ForceZero(buf, sizeof(buf));
         return ret;
     }
 

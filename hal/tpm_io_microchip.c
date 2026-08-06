@@ -220,6 +220,7 @@
 
             if (!queued) {
                 printf("error: i2c_write: I2C_BB_Write failed: %d\n", status);
+                TPM2_ForceZero(buf, sizeof(buf));
                 return -1;
             }
 
@@ -242,6 +243,7 @@
         else {
             printf("I2C Write failure %d\n", status);
         }
+        TPM2_ForceZero(buf, sizeof(buf));
         return ret;
     }
 
