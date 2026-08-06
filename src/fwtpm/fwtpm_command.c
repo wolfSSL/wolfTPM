@@ -541,6 +541,32 @@ static int FwCtAuthCompare(const byte* password, int pwSz,
     return ((int)diff != 0) ? 1 : 0;
 }
 
+#ifndef FWTPM_NO_POLICY
+/* Constant-time lexicographic comparison of two equal-length big-endian
+ * byte strings, for the TPM_EO_* relational policy assertions.
+ * Runs a fixed number of iterations with mask accumulation so the timing
+ * does not reveal the index of the first differing byte.
+ * Returns -1 if a < b, 1 if a > b, 0 if equal. */
+static int FwCtRelCompare(const byte* a, const byte* b, int len)
+{
+    volatile byte gt = 0;
+    volatile byte eq = 1;
+    int ci;
+
+    /* Borrow-bit form, not a sign-of-difference shift: the latter is
+     * canonicalized back into icmp/select, which becomes a real branch on
+     * cores without conditional execution (ARMv6-M, ARMv8-M Baseline).
+     * Most significant byte first, so the first difference decides. */
+    for (ci = 0; ci < len; ci++) {
+        gt = (byte)(gt | ((((UINT32)((int)b[ci] - (int)a[ci])) >> 8) & eq));
+        eq = (byte)(eq &
+            (((((UINT32)((int)b[ci] ^ (int)a[ci]))) - 1u) >> 8));
+    }
+
+    return ((int)gt + (int)gt + (int)eq) - 1;
+}
+#endif /* !FWTPM_NO_POLICY */
+
 /* Compute cpHash = H(commandCode || name1 || ... || cpBuffer)
  * Per TPM 2.0 Part 1 Section 18.7 */
 static int FwComputeCpHash(TPMI_ALG_HASH hashAlg, TPM_CC cmdCode,
@@ -10267,28 +10293,20 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* Compare operandB with NV data at offset */
         byte* nvData = nv->data + offset;
         int pass = 0;
+        volatile byte bitDiff = 0;
 
-        /* Byte-by-byte comparison for relational operators */
-        cmpResult = 0;
-        for (i = 0; i < (int)operandBSz; i++) {
-            if (nvData[i] < operandB[i]) {
-                cmpResult = -1;
-                break;
-            }
-            else if (nvData[i] > operandB[i]) {
-                cmpResult = 1;
-                break;
-            }
-        }
+        /* Constant-time comparison for relational operators */
+        cmpResult = FwCtRelCompare(nvData, operandB, (int)operandBSz);
 
-        /* For signed comparisons, check sign bits (big-endian MSB) */
+        /* Signed comparison flips the result when the sign bits differ.
+         * Selected with masks so the secret MSB is not branched on. */
         signedCmpResult = cmpResult;
         if (operandBSz > 0) {
-            int nvSign = (nvData[0] & 0x80) ? 1 : 0;
-            int opSign = (operandB[0] & 0x80) ? 1 : 0;
-            if (nvSign != opSign) {
-                signedCmpResult = nvSign ? -1 : 1;
-            }
+            int diffSign = (int)(((UINT32)(nvData[0] ^ operandB[0])) >> 7) & 1;
+            int nvNeg = (int)(((UINT32)nvData[0]) >> 7) & 1;
+            int signRes = 1 - (2 * nvNeg); /* nv negative => -1, else 1 */
+            signedCmpResult = (signRes & -diffSign) |
+                              (cmpResult & ~(-diffSign));
         }
 
         switch (operation) {
@@ -10323,22 +10341,16 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 pass = (cmpResult <= 0);
                 break;
             case TPM_EO_BITSET:
-                pass = 1;
                 for (i = 0; i < (int)operandBSz; i++) {
-                    if ((nvData[i] & operandB[i]) != operandB[i]) {
-                        pass = 0;
-                        break;
-                    }
+                    bitDiff |= (byte)((nvData[i] & operandB[i]) ^ operandB[i]);
                 }
+                pass = ((int)bitDiff == 0);
                 break;
             case TPM_EO_BITCLEAR:
-                pass = 1;
                 for (i = 0; i < (int)operandBSz; i++) {
-                    if ((nvData[i] & operandB[i]) != 0) {
-                        pass = 0;
-                        break;
-                    }
+                    bitDiff |= (byte)(nvData[i] & operandB[i]);
                 }
+                pass = ((int)bitDiff == 0);
                 break;
             default:
                 rc = TPM_RC_VALUE;
