@@ -299,7 +299,11 @@ int wolfSPDM_DecryptInternal(WOLFSPDM_CTX* ctx,
 
     /* ----- Parse decrypted payload ----- */
 
-    if (rc == 0) {
+    if (rc == 0 && cipherLen < 2) {
+        /* authenticated record too short to hold the application length */
+        ret = WOLFSPDM_E_BUFFER_SMALL;
+    }
+    else if (rc == 0) {
         appDataLen = SPDM_Get16LE(decrypted);
 #ifdef WOLFTPM_SPDM_TCG
         if (ctx->mode == WOLFSPDM_MODE_NUVOTON ||
