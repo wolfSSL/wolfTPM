@@ -10867,7 +10867,8 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     TPM2_Packet_AppendPCR(&packet, &pcr);
 
     /* Copy the pcrDigest to the end of buffer */
-    if (pcrDigestSz + packet.pos > sizeof(buf)) {
+    if (packet.pos < 0 || (word32)packet.pos > (word32)sizeof(buf) ||
+        pcrDigestSz > (word32)sizeof(buf) - (word32)packet.pos) {
         return BUFFER_E;
     }
     XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
