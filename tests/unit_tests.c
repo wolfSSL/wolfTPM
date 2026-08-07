@@ -144,6 +144,7 @@ static void test_wolfTPM2_Init(void)
     defined(WOLFTPM_WINAPI)
     /* Custom IO Callbacks are not needed for Linux TIS driver */
     AssertIntEQ(rc, 0);
+    wolfTPM2_Cleanup(&dev);
 #else
     /* IO Callbacks are required for SPIdev/I2C and must be valid */
     AssertIntNE(rc, 0);
@@ -1035,6 +1036,103 @@ static void test_wolfTPM2_BoundOwnEntity_ParamEnc(void)
     printf("Test TPM Wrapper:\tBound own-entity param-enc:\tPassed\n");
 #else
     printf("Test TPM Wrapper:\tBound own-entity param-enc:\tSkipped\n");
+#endif
+}
+
+/* Multi-chunk NV write plus rewrite under an HMAC parameter encryption
+ * session; a stale cached NV index name would fail the session HMAC. */
+static void test_wolfTPM2_NVWriteChunked(void)
+{
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_WINAPI)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION session;
+    WOLFTPM2_NV nv;
+    WOLFTPM2_HANDLE parent;
+    const word32 nvIndex = TPM2_DEMO_NV_TEST_CHUNKED_INDEX;
+    const byte nvAuth[] = "chunkedwriteauth";
+    word32 nvAttributes;
+    /* 3 chunks; under the 1664 byte SLB9670 NV index max */
+    byte buf[MAX_NV_BUFFER_SIZE*2 + 64];
+    byte readBuf[sizeof(buf)];
+    word32 readSz;
+    word32 i;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&session, 0, sizeof(session));
+    XMEMSET(&nv, 0, sizeof(nv));
+    XMEMSET(&parent, 0, sizeof(parent));
+    for (i = 0; i < (word32)sizeof(buf); i++) {
+        buf[i] = (byte)(i & 0xFF);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
+        return;
+    }
+
+    parent.hndl = TPM_RH_OWNER;
+    rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+        (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    if (rc == TPM_RC_NV_DEFINED) {
+        wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+        XMEMSET(&nv, 0, sizeof(nv));
+        rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
+            (word32)sizeof(buf), nvAuth, (int)sizeof(nvAuth)-1);
+    }
+    if (rc != 0) {
+        /* NV limits vary by device. */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
+        return;
+    }
+
+    /* The parameter session HMAC binds the NV index name. */
+    rc = wolfTPM2_StartSession(&dev, &session, NULL, NULL, TPM_SE_HMAC,
+        TPM_ALG_CFB);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    rc = wolfTPM2_SetAuthSession(&dev, 1, &session,
+        (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+         TPMA_SESSION_continueSession));
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+
+    /* First write sets TPMA_NV_WRITTEN. */
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    /* Rewrite uses the stable name. */
+    for (i = 0; i < (word32)sizeof(buf); i++) {
+        buf[i] = (byte)(~i & 0xFF);
+    }
+    rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, buf, (word32)sizeof(buf), 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    XMEMSET(readBuf, 0, sizeof(readBuf));
+    readSz = (word32)sizeof(readBuf);
+    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, readBuf, &readSz, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ((int)readSz, (int)sizeof(buf));
+    AssertIntEQ(XMEMCMP(readBuf, buf, sizeof(buf)), 0);
+
+    wolfTPM2_SetAuthSession(&dev, 1, NULL, 0);
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+    wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
+    wolfTPM2_NVDeleteAuth(&dev, &parent, nvIndex);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper:\tNV write chunked:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tNV write chunked:\tSkipped\n");
 #endif
 }
 
@@ -4852,6 +4950,79 @@ static void test_wolfTPM2_CSR(void)
 #endif
 }
 
+/* Exercise hash cache growth with small updates and verify the digest. */
+static void test_wolfTPM2_CryptoDevCb_HashCacheStream(void)
+{
+#if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFTPM_USE_SYMMETRIC) && \
+    defined(WOLFSSL_HASH_FLAGS) && !defined(NO_SHA256)
+    int rc;
+    WOLFTPM2_DEV dev;
+    TpmCryptoDevCtx tpmCtx;
+    int tpmDevId = INVALID_DEVID;
+    wc_Sha256 sha;
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    byte digestSw[TPM_SHA256_DIGEST_SIZE];
+    byte data[4096];
+    word32 i, pos, chunk;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&tpmCtx, 0, sizeof(tpmCtx));
+    for (i = 0; i < (word32)sizeof(data); i++) {
+        data[i] = (byte)(i * 7 + 1);
+    }
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    if (rc != 0) {
+        printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache:");
+        return;
+    }
+
+    tpmCtx.dev = &dev;
+    tpmCtx.useSymmetricOnTPM = 1;
+    rc = wolfTPM2_SetCryptoDevCb(&dev, wolfTPM2_CryptoDevCb, &tpmCtx,
+        &tpmDevId);
+    AssertIntEQ(rc, 0);
+
+    /* Force repeated growth, then a greater-than-2x allocation. */
+    rc = wc_InitSha256_ex(&sha, NULL, tpmDevId);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256SetFlags(&sha, WC_HASH_FLAG_WILLCOPY);
+    AssertIntEQ(rc, 0);
+    pos = 0;
+    chunk = 1;
+    while (pos < (word32)sizeof(data) - 2048) {
+        if (chunk > (word32)sizeof(data) - 2048 - pos)
+            chunk = (word32)sizeof(data) - 2048 - pos;
+        rc = wc_Sha256Update(&sha, &data[pos], chunk);
+        AssertIntEQ(rc, 0);
+        pos += chunk;
+        chunk = (chunk % 96) + 1;
+    }
+    rc = wc_Sha256Update(&sha, &data[pos], 2048);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Final(&sha, digest);
+    AssertIntEQ(rc, 0);
+    wc_Sha256Free(&sha);
+
+    rc = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Update(&sha, data, (word32)sizeof(data));
+    AssertIntEQ(rc, 0);
+    rc = wc_Sha256Final(&sha, digestSw);
+    AssertIntEQ(rc, 0);
+    wc_Sha256Free(&sha);
+
+    AssertIntEQ(XMEMCMP(digest, digestSw, sizeof(digest)), 0);
+
+    wolfTPM2_ClearCryptoDevCb(&dev, tpmDevId);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test TPM Wrapper: %-40s Passed\n", "CryptoDevCb hash cache:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped\n", "CryptoDevCb hash cache:");
+#endif
+}
+
 static void test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS(void)
 {
 #if !defined(WOLFTPM2_NO_WRAPPER) && defined(WOLFTPM_CRYPTOCB) && \
@@ -7389,6 +7560,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_BoundSession_EmptyAuth_ParamEnc();
     test_wolfTPM2_CreateLoaded_ParamEnc();
     test_wolfTPM2_BoundOwnEntity_ParamEnc();
+    test_wolfTPM2_NVWriteChunked();
     test_wolfTPM2_PolicyHash();
     test_wolfTPM2_SensitiveToPrivate();
     test_TPM2_KDFa();
@@ -7469,6 +7641,7 @@ int unit_tests(int argc, char *argv[])
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();
+    test_wolfTPM2_CryptoDevCb_HashCacheStream();
     test_wolfTPM2_CryptoDevCb_EccVerifyOversizedRS();
     test_wolfTPM2_CryptoDevCb_MlDsaSign();
     test_TPM2_ASN_DecodeX509Cert_Errors();

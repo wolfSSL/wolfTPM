@@ -50,10 +50,8 @@ WOLFTPM_LOCAL int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 /* Validate a swtpm-reported response size against the receive buffer size */
 WOLFTPM_API int TPM2_SwtpmValidateRspSz(int packetSize, uint32_t rspSz);
 
-#ifdef WOLFTPM_SWTPM_UART
-/* Close the persistent UART FD during final TPM context cleanup */
-WOLFTPM_LOCAL void TPM2_SwtpmCloseUART(TPM2_CTX* ctx);
-#endif
+/* Close the persistent UART or socket FD during final TPM context cleanup */
+WOLFTPM_LOCAL void TPM2_SwtpmClose(TPM2_CTX* ctx);
 
 #ifdef __cplusplus
     }  /* extern "C" */
