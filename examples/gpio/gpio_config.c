@@ -404,13 +404,13 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     /* Initial NV attributes */
     parent.hndl = TPM_RH_PLATFORM;
     rc = wolfTPM2_GetNvAttributesTemplate(parent.hndl, &nvAttributes);
-    /* Add NV attributes required by Nuvoton specification */
-    nvAttributes |= (TPMA_NV_PLATFORMCREATE | TPMA_NV_POLICY_DELETE);
-    nvAttributes |= (TPMA_NV_TPM_NT & (TPM_NT_ORDINARY << 4));
     if (rc != TPM_RC_SUCCESS) {
         printf("Setting NV attributes failed\n");
         goto exit;
     }
+    /* Add NV attributes required by Nuvoton specification */
+    nvAttributes |= (TPMA_NV_PLATFORMCREATE | TPMA_NV_POLICY_DELETE);
+    nvAttributes |= (TPMA_NV_TPM_NT & (TPM_NT_ORDINARY << 4));
 #ifdef DEBUG_WOLFTPM
     printf("nvAttributes = 0x%8.8X\n", nvAttributes);
 #endif

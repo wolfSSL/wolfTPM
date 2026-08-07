@@ -130,6 +130,7 @@
         else {
             printf("CyHAL I2C Write failure %d\n", (int)result);
         }
+        TPM2_ForceZero(buf, sizeof(buf));
         return ret;
     }
 

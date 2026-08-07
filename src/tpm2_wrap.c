@@ -5547,6 +5547,8 @@ int wolfTPM2_SignSequenceUpdate(WOLFTPM2_DEV* dev,
 
     rc = TPM2_SequenceUpdate(&seqUpdateIn);
 
+    TPM2_ForceZero(&seqUpdateIn, sizeof(seqUpdateIn));
+
     return rc;
 }
 
@@ -5652,6 +5654,8 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
         }
     }
 
+    TPM2_ForceZero(&signSeqCompleteIn, sizeof(signSeqCompleteIn));
+
     return rc;
 }
 #endif /* WOLFTPM_MLDSA_SIGN */
@@ -5719,6 +5723,8 @@ int wolfTPM2_VerifySequenceUpdate(WOLFTPM2_DEV* dev,
     XMEMCPY(seqUpdateIn.buffer.buffer, data, dataSz);
 
     rc = TPM2_SequenceUpdate(&seqUpdateIn);
+
+    TPM2_ForceZero(&seqUpdateIn, sizeof(seqUpdateIn));
 
     return rc;
 }
@@ -9843,6 +9849,7 @@ static int CSR_Parse_DN(CertName* name, const char* subject)
 
     for (i = 0; i < (int)(sizeof(tags) / sizeof(DNTags)); i++) {
         const char *begin, *end;
+        char* dst;
         word32 len = 0;
         /* find start tag */
         begin = XSTRSTR(subject, tags[i].tag);
@@ -9859,7 +9866,13 @@ static int CSR_Parse_DN(CertName* name, const char* subject)
             if (len > CTC_NAME_SIZE-1) {
                 len = CTC_NAME_SIZE-1; /* leave room for null term */
             }
-            XMEMCPY((byte*)name + tags[i].certNameOff, begin, len);
+            /* Clear only the component being written: SetSubject may be
+             * called more than once to build a DN, so components absent from
+             * this subject must survive */
+            dst = (char*)name + tags[i].certNameOff;
+            XMEMSET(dst, 0, CTC_NAME_SIZE);
+            XMEMCPY(dst, begin, len);
+            dst[len] = '\0';
         }
     }
     return rc;
@@ -10760,6 +10773,7 @@ int wolfTPM2_PCRGetDigest(WOLFTPM2_DEV* dev, TPM_ALG_ID pcrAlg,
         rc = wc_HashFinal(&hash_ctx, hashType, pcrDigest);
     }
     wc_HashFree(&hash_ctx, hashType);
+    TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
@@ -10826,6 +10840,7 @@ int wolfTPM2_PolicyHash(TPM_ALG_ID hashAlg,
         rc = wc_HashFinal(&hash_ctx, hashType, digest);
     }
     wc_HashFree(&hash_ctx, hashType);
+    TPM2_ForceZero(&hash_ctx, sizeof(hash_ctx));
 
 #ifdef DEBUG_WOLFTPM
     if (rc != 0) {
@@ -10867,7 +10882,8 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     TPM2_Packet_AppendPCR(&packet, &pcr);
 
     /* Copy the pcrDigest to the end of buffer */
-    if (pcrDigestSz + packet.pos > sizeof(buf)) {
+    if (packet.pos < 0 || (word32)packet.pos > (word32)sizeof(buf) ||
+        pcrDigestSz > (word32)sizeof(buf) - (word32)packet.pos) {
         return BUFFER_E;
     }
     XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
@@ -11107,6 +11123,14 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 {
     int rc;
     WOLFTPM2_SESSION tpmSession;
+
+    if (dev == NULL || manifest_hash == NULL || manifest_hash_sz == 0 ||
+            manifest_hash_sz > TPM_SHA512_DIGEST_SIZE) {
+        return BAD_FUNC_ARG;
+    }
+    if (manifest_hash_sz != (uint32_t)TPM2_GetHashDigestSize(hashAlg)) {
+        return BAD_FUNC_ARG;
+    }
 
     XMEMSET(&tpmSession, 0, sizeof(tpmSession));
 

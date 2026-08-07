@@ -292,15 +292,17 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
         else if (XSTRNCMP(argv[argc-1], "-pcrdigest=", XSTRLEN("-pcrdigest=")) == 0) {
             const char* hashHexStr = argv[argc-1] + XSTRLEN("-pcrdigest=");
             int hashHexStrLen = (int)XSTRLEN(hashHexStr);
-            if (hashHexStrLen > (int)sizeof(pcrDigest)*2+1)
-                pcrDigestSz = -1;
+            int hexRet;
+            if (hashHexStrLen > (int)sizeof(pcrDigest)*2)
+                hexRet = -1;
             else
-                pcrDigestSz = hexToByte(hashHexStr, pcrDigest, hashHexStrLen);
-            if (pcrDigestSz <= 0) {
+                hexRet = hexToByte(hashHexStr, pcrDigest, hashHexStrLen);
+            if (hexRet <= 0) {
                 fprintf(stderr, "Invalid PCR hash length\n");
                 usage();
                 return -1;
             }
+            pcrDigestSz = (word32)hexRet;
         }
         else if (XSTRNCMP(argv[argc-1], "-password=",
                 XSTRLEN("-password=")) == 0) {

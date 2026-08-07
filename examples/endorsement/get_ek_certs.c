@@ -505,10 +505,10 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         #ifndef WOLFCRYPT_ONLY
             if (rc == 0) {
                 /* Validate EK certificate against trusted certificates */
-                rc = wolfSSL_CertManagerVerifyBuffer(cm, certBuf, certSz,
+                int vfyRc = wolfSSL_CertManagerVerifyBuffer(cm, certBuf, certSz,
                     WOLFSSL_FILETYPE_ASN1);
                 printf("EK Certificate is %s\n",
-                    (rc == WOLFSSL_SUCCESS) ? "VALID" : "INVALID");
+                    (vfyRc == WOLFSSL_SUCCESS) ? "VALID" : "INVALID");
             }
         #endif
 
