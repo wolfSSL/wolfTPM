@@ -95,6 +95,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_MicrochipHarmony_I2C(TPM2_CTX* ctx, int isRead, word
 #elif defined(WOLFSSL_ZEPHYR)
 WOLFTPM_LOCAL int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     byte* buf, word16 size, void* userCtx);
+#elif defined(WOLFTPM_WOLFHAL)
+WOLFTPM_LOCAL int TPM2_IoCb_Wolfhal_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+    byte* buf, word16 size, void* userCtx);
 #endif /* __linux__ */
 
 #else /* SPI */
@@ -129,6 +132,9 @@ WOLFTPM_LOCAL int TPM2_IoCb_Infineon_TriCore_SPI(TPM2_CTX* ctx, const byte* txBu
 #elif defined(WOLFTPM_MICROCHIP_HARMONY)
 WOLFTPM_LOCAL int TPM2_IoCb_Microchip_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     word16 xferSz, void* userCtx);
+#elif defined(WOLFTPM_WOLFHAL)
+WOLFTPM_LOCAL int TPM2_IoCb_Wolfhal_SPI(TPM2_CTX* ctx, const byte* txBuf,
+    byte* rxBuf, word16 xferSz, void* userCtx);
 #endif
 
 #endif /* WOLFTPM_I2C */

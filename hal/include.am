@@ -15,6 +15,7 @@ src_libwolftpm_la_SOURCES += \
                     hal/tpm_io_st.c \
                     hal/tpm_io_qnx.c \
                     hal/tpm_io_uboot.c \
+                    hal/tpm_io_wolfhal.c \
                     hal/tpm_io_xilinx.c
 endif
 endif

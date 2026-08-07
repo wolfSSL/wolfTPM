@@ -645,6 +645,20 @@ then
 fi
 
 
+# wolfHAL hardware abstraction layer
+# Selects hal/tpm_io_wolfhal.c for SPI/I2C. Requires wolfHAL headers and a
+# board.h supplying the BOARD_* peripheral definitions.
+AC_ARG_ENABLE([wolfhal],
+    [AS_HELP_STRING([--enable-wolfhal],[Enable wolfHAL IO callbacks (default: disabled)])],
+    [ ENABLED_WOLFHAL=$enableval ],
+    [ ENABLED_WOLFHAL=no ]
+    )
+if test "x$ENABLED_WOLFHAL" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_WOLFHAL"
+fi
+
+
 # TIS / SPI Check Wait State support
 # Required for all but Infineon only
 if test "x$ENABLED_CHECKWAITSTATE" = "xyes" || test "x$ENABLED_AUTODETECT" = "xyes" || test "x$ENABLED_INFINEON" = "xno"
@@ -1171,6 +1185,7 @@ fi
 echo "   * WINAPI:                    $ENABLED_WINAPI"
 echo "   * TIS/SPI Check Wait State:  $ENABLED_CHECKWAITSTATE"
 echo "   * HAL Reset (nRST GPIO):     $ENABLED_HAL_RESET"
+echo "   * wolfHAL IO:                $ENABLED_WOLFHAL"
 
 echo "   * Infineon SLB967X           $ENABLED_INFINEON"
 echo "   * STM ST33:                  $ENABLED_ST"

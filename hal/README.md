@@ -26,7 +26,75 @@ If using a HAL IO callback it is registered on library initialization using:
 | Microchip | `tpm_io_microchip.c` | `WOLFTPM_MICROCHIP_HARMONY` |
 | QNX | `tpm_io_qnx.c` | `__QNX__` |
 | ST Cube HAL | `tpm_io_st.c` | `WOLFSSL_STM32_CUBEMX` |
+| wolfHAL | `tpm_io_wolfhal.c` | `WOLFTPM_WOLFHAL` |
 | Xilinx | `tpm_io_xilinx.c` | `__XILINX__` |
+
+## wolfHAL
+
+Enabled with `WOLFTPM_WOLFHAL` or `--enable-wolfhal`. Requires the wolfHAL
+headers on the include path.
+
+This HAL is placed last in the platform selection chain, so it is only used
+when no other platform macro is defined. Building for an STM32 target with the
+CubeMX headers present, for example, selects `tpm_io_st.c` instead.
+
+### Board definitions
+
+wolfTPM does not ship board definitions. `tpm_io_wolfhal.c` includes
+`"board.h"`, which the application provides on its include path. A wolfHAL
+project already has one, so in most cases only the TPM specific entries below
+need adding to it.
+
+For SPI:
+
+| Macro | Type | Description |
+| ----- | ---- | ----------- |
+| `BOARD_SPI_DEV` | `whal_Spi*` | SPI instance the TPM is connected to |
+| `BOARD_SPI_COM_CFG` | `whal_Spi_ComCfg*` | SPI session parameters |
+| `BOARD_GPIO_DEV` | `whal_Gpio*` | GPIO instance driving chip select |
+| `BOARD_CS_PIN` | pin number | Chip select pin, driven active low |
+
+For I2C (also requires `WOLFTPM_ADV_IO`, which `--enable-i2c` sets):
+
+| Macro | Type | Description |
+| ----- | ---- | ----------- |
+| `BOARD_I2C_DEV` | `whal_I2c*` | I2C instance the TPM is connected to |
+| `BOARD_I2C_COM_CFG` | `whal_I2c_ComCfg*` | I2C session parameters, including the TPM target address |
+
+The TPM target address goes in the `addr` field of `BOARD_I2C_COM_CFG`. Most
+TPM 2.0 I2C parts use `0x2e`. The `TPM2_I2C_ADDR` macro that the other I2C HALs
+use has no effect here, so defining it is a compile time error.
+
+A TPM 2.0 I2C part takes roughly 80us to wake and NAKs until it is ready, so
+each transfer is retried up to `TPM_I2C_TRIES` times (default 10). Define
+`TPM_I2C_TRIES` to override.
+
+A missing entry is reported at compile time, naming the macro required. Only
+the macros needed by the selected bus are checked.
+
+Example additions to an existing wolfHAL `board.h`:
+
+```c
+/* TPM on SPI1, chip select on PA15 */
+extern whal_Spi_ComCfg g_tpmSpiComCfg;
+#define BOARD_SPI_COM_CFG  (&g_tpmSpiComCfg)
+#define BOARD_CS_PIN       15
+```
+
+For I2C, where the session config carries the TPM address:
+
+```c
+/* board.c */
+whal_I2c_ComCfg g_tpmI2cComCfg = {
+    .freq   = 400000, /* Hz */
+    .addr   = 0x2e,   /* TPM target address */
+    .addrSz = 7,      /* bits */
+};
+
+/* board.h */
+extern whal_I2c_ComCfg g_tpmI2cComCfg;
+#define BOARD_I2C_COM_CFG  (&g_tpmI2cComCfg)
+```
 
 ## HAL IO Callback Function
 

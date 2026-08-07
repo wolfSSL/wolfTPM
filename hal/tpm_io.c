@@ -77,6 +77,8 @@
 #include "hal/tpm_io_espressif.c"
 #elif defined(WOLFSSL_ZEPHYR)
 #include "hal/tpm_io_zephyr.c"
+#elif defined(WOLFTPM_WOLFHAL)
+#include "hal/tpm_io_wolfhal.c"
 #endif
 
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO) && !defined(WOLFTPM_FWTPM_HAL)
@@ -107,6 +109,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_Microchip_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(WOLFSSL_ESPIDF)
     ret = TPM2_IoCb_Espressif_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(WOLFTPM_WOLFHAL)
+    ret = TPM2_IoCb_Wolfhal_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
 
     /* TODO: Add your platform here for HW SPI interface */
@@ -167,6 +171,8 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
         ret = TPM2_IoCb_MicrochipHarmony_I2C(ctx, isRead, addr, buf, size, userCtx);
     #elif defined(WOLFSSL_ZEPHYR)
         ret = TPM2_IoCb_Zephyr_I2C(ctx, isRead, addr, buf, size, userCtx);
+    #elif defined(WOLFTPM_WOLFHAL)
+        ret = TPM2_IoCb_Wolfhal_I2C(ctx, isRead, addr, buf, size, userCtx);
     #else
         /* TODO: Add your platform here for HW I2C interface */
         printf("Add your platform here for HW I2C interface\n");
