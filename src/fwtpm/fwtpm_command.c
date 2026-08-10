@@ -3531,6 +3531,7 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 saveHandle = 0;
     UINT32 hierarchy = 0;
+    UINT32 savedMarker = 0;
     UINT32 tmp32;
     UINT16 blobSz;
     UINT32 seqHi, seqLo;
@@ -3594,9 +3595,13 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         seqHi = (UINT32)(ctx->contextSeqCounter >> 32);
         seqLo = (UINT32)(ctx->contextSeqCounter & 0xFFFFFFFFu);
+        /* Sessions keep their handle for dispatch; objects emit a fixed saved
+         * marker so the live handle is not disclosed and cannot be forged. The
+         * trusted handle lives only inside the integrity-protected blob. */
+        savedMarker = isSession ? saveHandle : (UINT32)TRANSIENT_FIRST;
         TPM2_Packet_AppendU32(rsp, seqHi);
         TPM2_Packet_AppendU32(rsp, seqLo);
-        TPM2_Packet_AppendU32(rsp, saveHandle);
+        TPM2_Packet_AppendU32(rsp, savedMarker);
         TPM2_Packet_AppendU32(rsp, hierarchy);
 
         if (isSession && sess != NULL) {
@@ -3606,6 +3611,7 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 WC_SHA256_DIGEST_SIZE];
             int wrappedSz = 0;
             rc = FwWrapContextBlob(ctx, ctx->contextSeqCounter,
+                FWTPM_CTX_TYPE_SESSION,
                 (const byte*)sess, (int)sizeof(FWTPM_Session),
                 wrappedBuf, (int)sizeof(wrappedBuf), &wrappedSz);
             if (rc == 0) {
@@ -3625,19 +3631,29 @@ static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
         else {
-            /* Object: opaque handle reference (object stays in slot).
-             * Format: magic(4) | version(4) | handle(4) | pad(4) */
-            byte objBlob[16];
-            blobSz = sizeof(objBlob);
-            tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_MAGIC);
-            XMEMCPY(objBlob + 0, &tmp32, 4);
-            tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_VER);
-            XMEMCPY(objBlob + 4, &tmp32, 4);
-            tmp32 = TPM2_Packet_SwapU32(saveHandle);
-            XMEMCPY(objBlob + 8, &tmp32, 4);
-            XMEMSET(objBlob + 12, 0, 4);
-            TPM2_Packet_AppendU16(rsp, blobSz);
-            TPM2_Packet_AppendBytes(rsp, objBlob, blobSz);
+            /* Object: HMAC + AES-CFB protected handle reference (object stays
+             * in slot). Format: magic(4) | version(4) | wrappedBlob. The real
+             * live handle is carried only inside the authenticated payload. */
+            byte objPlain[sizeof(UINT32)];
+            byte wrappedBuf[AES_BLOCK_SIZE + sizeof(UINT32) +
+                WC_SHA256_DIGEST_SIZE];
+            int wrappedSz = 0;
+            XMEMCPY(objPlain, &saveHandle, sizeof(UINT32));
+            rc = FwWrapContextBlob(ctx, ctx->contextSeqCounter,
+                FWTPM_CTX_TYPE_OBJECT,
+                objPlain, (int)sizeof(objPlain),
+                wrappedBuf, (int)sizeof(wrappedBuf), &wrappedSz);
+            if (rc == 0) {
+                blobSz = 4 + 4 + (UINT16)wrappedSz;
+                TPM2_Packet_AppendU16(rsp, blobSz);
+                tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_MAGIC);
+                TPM2_Packet_AppendBytes(rsp, (byte*)&tmp32, 4);
+                tmp32 = TPM2_Packet_SwapU32(FWTPM_CTX_VER);
+                TPM2_Packet_AppendBytes(rsp, (byte*)&tmp32, 4);
+                TPM2_Packet_AppendBytes(rsp, wrappedBuf, wrappedSz);
+            }
+            TPM2_ForceZero(objPlain, sizeof(objPlain));
+            TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
         }
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
@@ -3672,6 +3688,17 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseU32(cmd, &savedHandle);
         TPM2_Packet_ParseU32(cmd, &hierarchy);
         TPM2_Packet_ParseU16(cmd, &blobSz);
+        /* Bound into the blob MAC by both save paths, so it must be recovered
+         * before unwrapping either an object or a session context. */
+        loadSeq = ((UINT64)seqHi << 32) | (UINT64)seqLo;
+    }
+
+    /* Reject a blobSz that claims more bytes than the command carries, so a
+     * short command cannot leave the wrapped-blob buffer partly uninitialized
+     * (ParseBytes truncates silently). Guards both the object and session
+     * branches, which each consume blobSz. */
+    if (rc == 0 && cmd->pos + (int)blobSz > cmdSize) {
+        rc = TPM_RC_COMMAND_SIZE;
     }
 
     /* Replay protection applies to session contexts only: a saved session
@@ -3681,7 +3708,6 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 &&
             ((savedHandle & 0xFF000000) == HMAC_SESSION_FIRST ||
              (savedHandle & 0xFF000000) == POLICY_SESSION_FIRST)) {
-        loadSeq = ((UINT64)seqHi << 32) | (UINT64)seqLo;
         for (liveScan = 0; liveScan < ctx->contextLiveCount; liveScan++) {
             if (ctx->contextLive[liveScan] == loadSeq) {
                 liveIdx = liveScan;
@@ -3732,7 +3758,8 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 byte wrappedBuf[AES_BLOCK_SIZE + sizeof(FWTPM_Session) +
                     WC_SHA256_DIGEST_SIZE];
                 TPM2_Packet_ParseBytes(cmd, wrappedBuf, (int)dataLen);
-                rc = FwUnwrapContextBlob(ctx, loadSeq, wrappedBuf, (int)dataLen,
+                rc = FwUnwrapContextBlob(ctx, loadSeq, FWTPM_CTX_TYPE_SESSION,
+                    wrappedBuf, (int)dataLen,
                     (byte*)&restored, (int)sizeof(restored), &restoredSz);
                 TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
                 if (rc != 0) {
@@ -3774,15 +3801,42 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_ForceZero(&restored, sizeof(restored));
         }
         else if ((savedHandle & 0xFF000000) == TRANSIENT_FIRST) {
-            /* Object context: verify object still in slot (opaque handle) */
+            /* Object context: verify integrity + decrypt, then resolve the
+             * handle from the authenticated payload only (never the wire). */
+            int expectedWrapSz = AES_BLOCK_SIZE + (int)sizeof(UINT32) +
+                WC_SHA256_DIGEST_SIZE;
+            byte objPlain[sizeof(UINT32)];
+            int objPlainSz = 0;
             UINT32 origHandle = 0;
-            if (dataLen >= 4) {
-                TPM2_Packet_ParseU32(cmd, &origHandle);
+
+            /* Return the same error as an HMAC failure so the expected
+             * wrapped blob length is not disclosed to the caller */
+            if ((int)dataLen != expectedWrapSz) {
+                rc = TPM_RC_INTEGRITY;
             }
-            if (FwFindObject(ctx, origHandle) == NULL) {
-                rc = TPM_RC_HANDLE;
+            if (rc == 0) {
+                byte wrappedBuf[AES_BLOCK_SIZE + sizeof(UINT32) +
+                    WC_SHA256_DIGEST_SIZE];
+                TPM2_Packet_ParseBytes(cmd, wrappedBuf, (int)dataLen);
+                rc = FwUnwrapContextBlob(ctx, loadSeq, FWTPM_CTX_TYPE_OBJECT,
+                    wrappedBuf, (int)dataLen, objPlain, (int)sizeof(objPlain),
+                    &objPlainSz);
+                TPM2_ForceZero(wrappedBuf, sizeof(wrappedBuf));
+                if (rc != 0 && rc != TPM_RC_INTEGRITY) {
+                    rc = TPM_RC_INTEGRITY;
+                }
+            }
+            if (rc == 0 && objPlainSz != (int)sizeof(objPlain)) {
+                rc = TPM_RC_INTEGRITY;
+            }
+            if (rc == 0) {
+                XMEMCPY(&origHandle, objPlain, sizeof(UINT32));
+                if (FwFindObject(ctx, origHandle) == NULL) {
+                    rc = TPM_RC_HANDLE;
+                }
             }
             savedHandle = origHandle;
+            TPM2_ForceZero(objPlain, sizeof(objPlain));
         }
         else {
             rc = TPM_RC_HANDLE;
