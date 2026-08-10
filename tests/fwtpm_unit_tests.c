@@ -10357,6 +10357,165 @@ static void test_fwtpm_context_load_replay_rejected(void)
     printf("Test fwTPM:\tContextLoad object reload + session replay:\tPassed\n");
 }
 
+/* A hand-forged object context blob (unauthenticated plaintext format) must be
+ * rejected on load with TPM_RC_INTEGRITY. */
+static void test_fwtpm_contextload_forged_object_blob_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, pos;
+    UINT32 keyH;
+    UINT16 blobSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* Forge a ContextLoad for the live handle using the old plaintext blob
+     * format: TPMS_CONTEXT = seq(8) | savedHandle(4) | hierarchy(4) |
+     * blobSz(2) | magic(4) | version(4) | handle(4) | pad(4). */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    PutU32BE(gCmd + pos, 0); pos += 4;          /* seqHi */
+    PutU32BE(gCmd + pos, 1); pos += 4;          /* seqLo */
+    PutU32BE(gCmd + pos, keyH); pos += 4;       /* savedHandle (transient) */
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* hierarchy */
+    blobSz = 16;
+    PutU16BE(gCmd + pos, blobSz); pos += 2;
+    PutU32BE(gCmd + pos, 0x4657544Du); pos += 4; /* FWTPM_CTX_MAGIC */
+    PutU32BE(gCmd + pos, 1u); pos += 4;          /* FWTPM_CTX_VER */
+    PutU32BE(gCmd + pos, keyH); pos += 4;        /* attacker-chosen handle */
+    PutU32BE(gCmd + pos, 0); pos += 4;           /* pad */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_INTEGRITY);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tContextLoad forged object blob rejected:\tPassed\n");
+}
+
+/* A ContextLoad whose blobSz claims more bytes than the command carries must
+ * be rejected before any blob is parsed, so a short command cannot leave the
+ * wrapped-blob buffer partly uninitialized. */
+static void test_fwtpm_contextload_short_blob_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, pos;
+    UINT32 keyH;
+    UINT16 blobSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    /* blobSz claims the full object wrap length but only magic+version are
+     * actually present in the command. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    PutU32BE(gCmd + pos, 0); pos += 4;            /* seqHi */
+    PutU32BE(gCmd + pos, 1); pos += 4;            /* seqLo */
+    PutU32BE(gCmd + pos, keyH); pos += 4;         /* savedHandle (transient) */
+    PutU32BE(gCmd + pos, TPM_RH_OWNER); pos += 4; /* hierarchy */
+    blobSz = 8 + AES_BLOCK_SIZE + (UINT16)sizeof(UINT32) + WC_SHA256_DIGEST_SIZE;
+    PutU16BE(gCmd + pos, blobSz); pos += 2;
+    PutU32BE(gCmd + pos, 0x4657544Du); pos += 4;  /* FWTPM_CTX_MAGIC */
+    PutU32BE(gCmd + pos, 1u); pos += 4;           /* FWTPM_CTX_VER */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tContextLoad short blob rejected:\tPassed\n");
+}
+
+/* A context saved by the TPM must load back successfully and yield a usable
+ * handle. Guards that the object blob wrapping is self-consistent. */
+static void test_fwtpm_context_object_roundtrip(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize = 0, ctxSz, pos;
+    UINT32 keyH, loadedH;
+    byte savedObj[MAX_CONTEXT_SIZE];
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+#ifdef HAVE_ECC
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_ECC);
+#else
+    keyH = CreatePrimaryHelper(&ctx, TPM_ALG_RSA);
+#endif
+    AssertIntNE(keyH, 0);
+
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, keyH);
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    ctxSz = rspSize - TPM2_HEADER_SIZE;
+    AssertIntGT(ctxSz, 0);
+    memcpy(savedObj, gRsp + TPM2_HEADER_SIZE, ctxSz);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ContextLoad);
+    memcpy(gCmd + pos, savedObj, ctxSz); pos += ctxSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    loadedH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntEQ(loadedH, keyH);
+
+    /* Object is still usable: a ContextSave of the returned handle succeeds. */
+    BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_ContextSave);
+    PutU32BE(gCmd + 10, loadedH);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, keyH);
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tContextLoad object roundtrip:\tPassed\n");
+}
+
+/* The context type is bound into the blob MAC, so a blob wrapped for one
+ * domain must not verify when unwrapped as the other. */
+static void test_fwtpm_context_blob_domain_separation(void)
+{
+    FWTPM_CTX ctx;
+    byte payload[8];
+    byte wrapped[AES_BLOCK_SIZE + sizeof(payload) + WC_SHA256_DIGEST_SIZE];
+    byte out[sizeof(payload)];
+    int wrappedSz = 0, outSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    memset(payload, 0xA5, sizeof(payload));
+
+    AssertIntEQ(FwWrapContextBlob(&ctx, 1, FWTPM_CTX_TYPE_SESSION,
+        payload, (int)sizeof(payload), wrapped, (int)sizeof(wrapped),
+        &wrappedSz), 0);
+
+    /* Same type unwraps cleanly. */
+    AssertIntEQ(FwUnwrapContextBlob(&ctx, 1, FWTPM_CTX_TYPE_SESSION,
+        wrapped, wrappedSz, out, (int)sizeof(out), &outSz), 0);
+
+    /* Wrong type is rejected as an integrity failure. */
+    AssertIntEQ(FwUnwrapContextBlob(&ctx, 1, FWTPM_CTX_TYPE_OBJECT,
+        wrapped, wrappedSz, out, (int)sizeof(out), &outSz), TPM_RC_INTEGRITY);
+
+    FWTPM_Cleanup(&ctx);
+    printf("Test fwTPM:\tContext blob domain separation:\tPassed\n");
+}
+
 /* When the command client changes, transient objects must be flushed so a
  * replacement client cannot enumerate and use the previous client's handles. */
 static void test_fwtpm_reset_command_client_flushes_transient(void)
@@ -11369,6 +11528,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_evict_control_persistent_object_rejected();
     test_fwtpm_context_save();
     test_fwtpm_context_load_replay_rejected();
+    test_fwtpm_contextload_forged_object_blob_rejected();
+    test_fwtpm_contextload_short_blob_rejected();
+    test_fwtpm_context_object_roundtrip();
+    test_fwtpm_context_blob_domain_separation();
     test_fwtpm_reset_command_client_flushes_transient();
 
     /* Crypto */
