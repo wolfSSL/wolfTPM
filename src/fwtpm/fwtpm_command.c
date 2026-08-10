@@ -16669,6 +16669,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 cpStart = authEnd; /* cpBuffer starts after auth area */
             }
         }
+        else if (entry->authHandleCnt > 0) {
+            /* SESSIONS command missing its authorizationSize field. */
+            rc = TPM_RC_COMMAND_SIZE;
+        }
 
         /* Restore position for handler (before decryption, after HMAC check) */
         cmdPkt.pos = savedPos;
@@ -16679,6 +16683,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
             TPM_ST_NO_SESSIONS, rc);
         return TPM_RC_SUCCESS;
+    }
+
+    /* A SESSIONS command must supply an auth entry for each @auth handle
+     * (TPM 2.0 Part 1 Sec.19). */
+    if (entry->authHandleCnt > 0 && cmdAuthCnt < (int)entry->authHandleCnt) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+            TPM_ST_NO_SESSIONS, TPM_RC_AUTH_MISSING);
+        return TPM_RC_SUCCESS;
+    }
+
+    /* A trial session builds a policy digest but authorizes nothing
+     * (TPM 2.0 Part 1 Sec.19.3), so it cannot fill a required auth slot. */
+    for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
+        if (cmdAuths[pj].sess != NULL &&
+            cmdAuths[pj].sess->sessionType == TPM_SE_TRIAL) {
+            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+            return TPM_RC_SUCCESS;
+        }
     }
 
     /* Policy digest validation: for policy sessions authorizing access to

@@ -9099,6 +9099,114 @@ static void test_fwtpm_clear_no_sessions_returns_auth_missing(void)
     fwtpm_pass("Clear NO_SESSIONS (AUTH_MISSING):", 0);
 }
 
+/* A TPM_ST_SESSIONS command that supplies no auth entry for an @auth handle
+ * must be rejected with TPM_RC_AUTH_MISSING (TPM 2.0 Part 1 Sec.19). */
+static void test_fwtpm_sessions_empty_autharea_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Clear); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    PutU32BE(gCmd + pos, 0); pos += 4; /* authAreaSz = 0, no auth entries */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear SESSIONS empty auth area (AUTH_MISSING):", 0);
+}
+
+/* A trial session authorizes nothing, so naming one in a required auth slot
+ * must be rejected with TPM_RC_AUTH_TYPE. */
+static void test_fwtpm_sessions_trial_in_auth_slot_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, pos;
+    UINT32 trialH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    trialH = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(trialH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Clear); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;      /* authAreaSz */
+    PutU32BE(gCmd + pos, trialH); pos += 4; /* sessionHandle */
+    PutU16BE(gCmd + pos, 0); pos += 2;      /* nonceSize */
+    gCmd[pos++] = 0;                        /* attributes */
+    PutU16BE(gCmd + pos, 0); pos += 2;      /* hmacSize */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Clear SESSIONS trial session (AUTH_TYPE):", 0);
+}
+
+/* A command with two @auth handles that supplies only one auth entry must be
+ * rejected with TPM_RC_AUTH_MISSING. */
+static void test_fwtpm_sessions_short_authcount_rejected(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_EventSequenceComplete); pos += 4;
+    PutU32BE(gCmd + pos, 0x80000000); pos += 4;      /* handle 1 */
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;  /* handle 2 */
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);           /* single auth entry */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_MISSING);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SESSIONS two-auth one-entry (AUTH_MISSING):", 0);
+}
+
+/* A SESSIONS command that ends before its authorizationSize field is malformed
+ * and must be reported as TPM_RC_COMMAND_SIZE, not an auth error. */
+static void test_fwtpm_sessions_missing_authsize_command_size(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Clear); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4; /* no authorizationSize */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SESSIONS missing authSize (COMMAND_SIZE):", 0);
+}
+
 static void test_fwtpm_change_eps(void)
 {
     FWTPM_CTX ctx;
@@ -11361,6 +11469,10 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_change_eps();
     test_fwtpm_change_pps();
     test_fwtpm_clear_no_sessions_returns_auth_missing();
+    test_fwtpm_sessions_empty_autharea_rejected();
+    test_fwtpm_sessions_trial_in_auth_slot_rejected();
+    test_fwtpm_sessions_short_authcount_rejected();
+    test_fwtpm_sessions_missing_authsize_command_size();
     test_fwtpm_clear();
 
     printf("\nAll fwTPM unit tests passed!\n");
