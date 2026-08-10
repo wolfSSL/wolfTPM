@@ -4750,6 +4750,15 @@ TPM_RC TPM2_PolicyAuthorize(PolicyAuthorize_In* in)
 
         TPM2_Packet_AppendU16(&packet, in->checkTicket.tag);
         TPM2_Packet_AppendU32(&packet, in->checkTicket.hierarchy);
+#ifdef WOLFTPM_MLDSA_VERIFY
+        /* A non-NULL DIGEST_VERIFIED ticket carries the 2-byte metadata alg
+         * on the wire; VERIFIED, MESSAGE_VERIFIED and NULL tickets omit it.
+         * Mirrors the response parse condition. */
+        if (in->checkTicket.tag == TPM_ST_DIGEST_VERIFIED &&
+            in->checkTicket.hierarchy != TPM_RH_NULL) {
+            TPM2_Packet_AppendU16(&packet, in->checkTicket.metaAlg);
+        }
+#endif
         TPM2_Packet_AppendU16(&packet, in->checkTicket.digest.size);
         TPM2_Packet_AppendBytes(&packet,
                     in->checkTicket.digest.buffer,

@@ -2604,6 +2604,122 @@ static void test_TPM2_ParseSignature_NullAlg(void)
     printf("Test TPM Wrapper:\tParseSignature NULL alg:\tPassed\n");
 }
 
+#ifdef WOLFTPM_MLDSA_VERIFY
+/* TPM2_PolicyAuthorize must emit the 2-byte checkTicket metaAlg on the wire
+ * for a non-NULL DIGEST_VERIFIED ticket and omit it for VERIFIED / NULL
+ * tickets, mirroring the response parse side. Drives the real marshaling and
+ * inspects the finalized command left in ctx->cmdBuf (the send fails with no
+ * server, so the command buffer survives). */
+static void test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg(void)
+{
+#if defined(WOLFTPM_SWTPM) && !defined(NO_GETENV)
+    TPM2_CTX ctx;
+    PolicyAuthorize_In in;
+    const byte* cmd;
+    word32 digestLen, cmdLenDigest, cmdLenVerified, cmdLenNull;
+    char savedPort[32];
+    const char* envPort;
+    int hadPort;
+    int rc;
+    int i;
+
+    /* Force the SWTPM connect to fail so the finalized command is left intact
+     * in ctx->cmdBuf instead of being overwritten by a live server response. */
+    envPort = getenv("TPM2_SWTPM_PORT");
+    hadPort = (envPort != NULL);
+    if (hadPort) {
+        XSTRNCPY(savedPort, envPort, sizeof(savedPort) - 1);
+        savedPort[sizeof(savedPort) - 1] = '\0';
+    }
+    AssertIntEQ(setenv("TPM2_SWTPM_PORT", "1", 1), 0);
+
+    XMEMSET(&ctx, 0, sizeof(ctx));
+
+    /* Register the active ctx and skip chip startup (timeoutTries = 0). */
+    AssertIntEQ(TPM2_Init_ex(&ctx, NULL, NULL, 0), TPM_RC_SUCCESS);
+
+    digestLen = TPM_SHA256_DIGEST_SIZE;
+
+    /* DIGEST_VERIFIED with a non-NULL hierarchy carries metaAlg. */
+    XMEMSET(&in, 0, sizeof(in));
+    in.checkTicket.tag = TPM_ST_DIGEST_VERIFIED;
+    in.checkTicket.hierarchy = TPM_RH_OWNER;
+    in.checkTicket.metaAlg = TPM_ALG_SHA256;
+    in.checkTicket.digest.size = (UINT16)digestLen;
+    for (i = 0; i < (int)digestLen; i++)
+        in.checkTicket.digest.buffer[i] = (byte)(0xA0 + i);
+
+    /* The send must fail (no server) so the marshaled command survives. */
+    rc = TPM2_PolicyAuthorize(&in);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    cmd = ctx.cmdBuf;
+    /* Confirm cmdBuf still holds our command (no live server clobbered it). */
+    AssertIntEQ(cmd[6], 0x00);
+    AssertIntEQ(cmd[7], 0x00);
+    AssertIntEQ(cmd[8], 0x01);
+    AssertIntEQ(cmd[9], 0x6A); /* TPM_CC_PolicyAuthorize */
+
+    cmdLenDigest = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
+                   ((word32)cmd[4] << 8) | (word32)cmd[5];
+
+    /* Under NO_ABORT a bypassed assert above must not let a short length
+     * underflow the trailing-offset math into an OOB index. */
+    AssertIntGT(cmdLenDigest, digestLen + 6);
+
+    /* Trailing layout: hierarchy(4) | metaAlg(2) | digest.size(2) | digest. */
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 2], (byte)(digestLen >> 8));
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 1], (byte)(digestLen & 0xFF));
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 4],
+        (byte)((TPM_ALG_SHA256 >> 8) & 0xFF));
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 3],
+        (byte)(TPM_ALG_SHA256 & 0xFF));
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 6], 0x00);
+    AssertIntEQ(cmd[cmdLenDigest - digestLen - 5], 0x01); /* hierarchy low */
+
+    /* VERIFIED omits metaAlg: command is 2 bytes shorter and the hierarchy
+     * low half sits directly before digest.size. */
+    in.checkTicket.tag = TPM_ST_VERIFIED;
+    rc = TPM2_PolicyAuthorize(&in);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    cmd = ctx.cmdBuf;
+    cmdLenVerified = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
+                     ((word32)cmd[4] << 8) | (word32)cmd[5];
+
+    AssertIntGT(cmdLenVerified, digestLen + 6);
+    AssertIntEQ((int)(cmdLenDigest - cmdLenVerified), 2);
+    AssertIntEQ(cmd[cmdLenVerified - digestLen - 4], 0x00);
+    AssertIntEQ(cmd[cmdLenVerified - digestLen - 3], 0x01); /* hierarchy low */
+
+    /* DIGEST_VERIFIED with a NULL hierarchy also omits metaAlg, so the command
+     * length matches the VERIFIED case (2 bytes shorter than non-NULL). */
+    in.checkTicket.tag = TPM_ST_DIGEST_VERIFIED;
+    in.checkTicket.hierarchy = TPM_RH_NULL;
+    rc = TPM2_PolicyAuthorize(&in);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    cmd = ctx.cmdBuf;
+    cmdLenNull = ((word32)cmd[2] << 24) | ((word32)cmd[3] << 16) |
+                 ((word32)cmd[4] << 8) | (word32)cmd[5];
+    AssertIntEQ((int)cmdLenNull, (int)cmdLenVerified);
+
+    TPM2_Cleanup(&ctx);
+
+    if (hadPort)
+        setenv("TPM2_SWTPM_PORT", savedPort, 1);
+    else
+        unsetenv("TPM2_SWTPM_PORT");
+
+    printf("Test TPM Wrapper: %-40s Passed\n",
+        "PolicyAuthorize DIGEST_VERIFIED metaAlg:");
+#else
+    printf("Test TPM Wrapper: %-40s Skipped (requires SWTPM)\n",
+        "PolicyAuthorize DIGEST_VERIFIED metaAlg:");
+#endif /* WOLFTPM_SWTPM && !NO_GETENV */
+}
+#endif /* WOLFTPM_MLDSA_VERIFY */
+
 /* TPM2_Packet_ParsePoint must resync to outerStart + point->size so a
  * malformed wire blob with inner x.size / y.size disagreement can't
  * desynchronize subsequent fields. */
@@ -7425,6 +7541,9 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_ParsePublic_OuterResync();
     test_TPM2_ParsePoint_OuterResync();
     test_TPM2_ParseSignature_NullAlg();
+#ifdef WOLFTPM_MLDSA_VERIFY
+    test_TPM2_PolicyAuthorize_DigestVerifiedMetaAlg();
+#endif
     test_TPM2_BrainpoolCurveMapping();
     test_TPM2_EccDefaultCurveTemplate();
     test_wolfTPM2_RsaEncryptDecrypt_OversizedBufferE();
