@@ -56,7 +56,9 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #endif
 #if !defined(NO_GETENV) || defined(WOLFTPM_SWTPM_UART)
 #include <stdlib.h> /* getenv / atoi */
@@ -117,7 +119,13 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
     ptr = (const char*)buffer;
     remaining = bufSz;
     while (remaining > 0) {
+    #if !defined(WOLFTPM_SWTPM_UART) && !defined(WOLFTPM_ZEPHYR) && \
+        defined(MSG_NOSIGNAL)
+        /* a dead peer must return an error, not raise SIGPIPE */
+        wrc = send(ctx->tcpCtx.fd, ptr, remaining, MSG_NOSIGNAL);
+    #else
         wrc = write(ctx->tcpCtx.fd, ptr, remaining);
+    #endif
         if (wrc < 0) {
             /* Retry on EINTR (signal). EAGAIN/EWOULDBLOCK shouldn't normally
              * happen on the default blocking fd, but treat them as transient. */
@@ -402,6 +410,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     #endif
 #else /* !WOLFTPM_ZEPHYR */
     int s;
+    int sockOpt = 1;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
 
@@ -434,6 +443,18 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     freeaddrinfo(result);
 
     if (rp != NULL) {
+        (void)sockOpt;
+    #ifdef FD_CLOEXEC
+        (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+    #endif
+    #ifdef SO_NOSIGPIPE
+        (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &sockOpt,
+            sizeof(sockOpt));
+    #endif
+    #ifdef TCP_NODELAY
+        (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &sockOpt,
+            sizeof(sockOpt));
+    #endif
         ctx->tcpCtx.fd = fd;
         rc = TPM_RC_SUCCESS;
     }
@@ -466,11 +487,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     #endif
 
 #ifdef WOLFTPM_SWTPM_UART
-    /* UART: on success, keep the port open for the next command.
-     * The SESSION_END tells the server the command sequence is done.
-     * Final cleanup of the UART FD is handled in TPM2_SwtpmCloseUART.
-     * On SESSION_END write failure, close and reset the fd so the next
-     * command reconnects instead of reusing a broken connection. */
+    /* Keep the port open unless SESSION_END fails. */
     if (rc != TPM_RC_SUCCESS) {
         close(ctx->tcpCtx.fd);
         ctx->tcpCtx.fd = -1;
@@ -609,24 +626,32 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 #endif
 
+#ifdef WOLFTPM_SWTPM_UART
     if (ctx->tcpCtx.fd >= 0) {
         TPM_RC rc_disconnect = SwTpmDisconnect(ctx);
         if (rc == TPM_RC_SUCCESS) {
             rc = rc_disconnect;
         }
     }
+#else
+    /* Reconnect after a transport failure. */
+    if (rc != TPM_RC_SUCCESS && ctx->tcpCtx.fd >= 0) {
+        (void)SwTpmDisconnect(ctx);
+    }
+#endif
 
     return rc;
 }
 
-#ifdef WOLFTPM_SWTPM_UART
-/* Close the persistent UART FD during final TPM context cleanup */
-void TPM2_SwtpmCloseUART(TPM2_CTX* ctx)
+void TPM2_SwtpmClose(TPM2_CTX* ctx)
 {
     if (ctx != NULL && ctx->tcpCtx.fd >= 0) {
+    #ifdef WOLFTPM_SWTPM_UART
         close(ctx->tcpCtx.fd);
         ctx->tcpCtx.fd = -1;
+    #else
+        (void)SwTpmDisconnect(ctx);
+    #endif
     }
 }
-#endif
 #endif /* WOLFTPM_SWTPM */

@@ -29,6 +29,9 @@
 #ifdef WOLFTPM_SPDM
 #include <wolftpm/tpm2_spdm.h>
 #endif
+#ifdef WOLFTPM_SWTPM
+#include <wolftpm/tpm2_swtpm.h>
+#endif
 
 /* Convert big-endian byte array to native word32 */
 word32 wolfTPM2_RsaKey_Exponent(const byte* e, word32 eSz)
@@ -176,6 +179,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
             printf("TPM2_Startup failed %d: %s\n", rc,
                    wolfTPM2_GetRCString(rc));
         #endif
+        #ifdef WOLFTPM_SWTPM
+            TPM2_SwtpmClose(ctx);
+        #endif
             return rc;
         }
     }
@@ -214,6 +220,9 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
             printf("TPM2_SelfTest failed 0x%x: %s\n", rc,
                    TPM2_GetRCString(rc));
         #endif
+        #ifdef WOLFTPM_SWTPM
+            TPM2_SwtpmClose(ctx);
+        #endif
             return rc;
         }
     }
@@ -243,6 +252,11 @@ int wolfTPM2_Test(TPM2HalIoCb ioCb, void* userCtx, WOLFTPM2_CAPS* caps)
     /* Perform startup and test device */
     rc = wolfTPM2_Init_ex(&ctx, ioCb, userCtx, TPM_STARTUP_TEST_TRIES);
     if (rc != TPM_RC_SUCCESS) {
+    #ifdef WOLFTPM_SWTPM
+        TPM2_SwtpmClose(&ctx);
+    #endif
+        /* Restore the active context before ctx leaves scope. */
+        TPM2_SetActiveCtx(current_ctx);
         return rc;
     }
 
@@ -7120,13 +7134,16 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
         if (towrite > MAX_NV_BUFFER_SIZE)
             towrite = MAX_NV_BUFFER_SIZE;
 
-        /* Make sure the name is computed for the handle.
-         * Name changes on each iteration for policy session.
-         * If this is the first write to NV then the NV_WRITTEN bit will get
-         * set and name needs re-computed */
-        rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
-        if (rc != 0)
-            break;
+        /* Refresh for policy sessions and until NV_WRITTEN is cached. */
+        if (!nv->handle.nameLoaded ||
+            nv->handle.hndl != (TPM_HANDLE)nvIndex ||
+            (nv->attributes & TPMA_NV_WRITTEN) == 0 ||
+            (tpmSession != NULL &&
+                TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl))) {
+            rc = wolfTPM2_NVOpen(dev, nv, nvIndex, NULL, 0);
+            if (rc != 0)
+                break;
+        }
         /* For policy session recompute PCR for each iteration */
         if (tpmSession != NULL
                            && TPM2_IS_POLICY_SESSION(tpmSession->handle.hndl)) {

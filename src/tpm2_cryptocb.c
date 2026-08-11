@@ -817,13 +817,19 @@ static int wolfTPM2_HashUpdateCache(WOLFTPM2_HASHCTX* hashCtx,
     else if ((hashCtx->cacheSz + inSz) > hashCtx->cacheBufSz) {
         byte* oldIn = hashCtx->cacheBuf;
         word32 oldBufSz = hashCtx->cacheBufSz;
+        word32 newSz;
         /* check for overflow, including the block round-up below */
         if (hashCtx->cacheSz + inSz < hashCtx->cacheSz ||
             hashCtx->cacheSz + inSz >
                 0xFFFFFFFFU - (WOLFTPM2_HASH_BLOCK_SZ - 1)) {
             return BUFFER_E;
         }
-        hashCtx->cacheBufSz = (hashCtx->cacheSz + inSz +
+        newSz = hashCtx->cacheSz + inSz;
+        /* Block alignment keeps the round-up safe after doubling. */
+        if (oldBufSz <= 0xFFFFFFFFU / 2 && (oldBufSz * 2) > newSz) {
+            newSz = oldBufSz * 2;
+        }
+        hashCtx->cacheBufSz = (newSz +
             WOLFTPM2_HASH_BLOCK_SZ - 1) & ~(WOLFTPM2_HASH_BLOCK_SZ - 1);
         hashCtx->cacheBuf = (byte*)XMALLOC(hashCtx->cacheBufSz,
             NULL, DYNAMIC_TYPE_TMP_BUFFER);

@@ -76,6 +76,7 @@
         #define TPM2_I2C_DEV  "/dev/i2c-1"
         #define TPM2_I2C_HZ   400000 /* 400kHz */
         static int i2cOpenFailed = 0;
+        static int i2cDevFd = -1;
     #else
         /* SPI */
         #ifndef TPM2_SPI_DEV_CS
@@ -112,6 +113,7 @@
             #define TPM2_SPI_DEV TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS
             static int spiOpenFailed = 0;
         #endif
+        static int spiDevFd = -1;
     #endif
 #endif
 
@@ -195,14 +197,19 @@
         word16 size, void* userCtx)
     {
         int ret = TPM_RC_FAILURE;
-        int i2cDev = open(TPM2_I2C_DEV, O_RDWR);
-        if (i2cDev >= 0) {
+        if (i2cDevFd < 0) {
+            i2cDevFd = open(TPM2_I2C_DEV, O_RDWR | O_CLOEXEC);
+        }
+        if (i2cDevFd >= 0) {
             if (isRead)
-                ret = i2c_read(i2cDev, addr, buf, size);
+                ret = i2c_read(i2cDevFd, addr, buf, size);
             else
-                ret = i2c_write(i2cDev, addr, buf, size);
+                ret = i2c_write(i2cDevFd, addr, buf, size);
 
-            close(i2cDev);
+            if (ret != TPM_RC_SUCCESS) {
+                close(i2cDevFd);
+                i2cDevFd = -1;
+            }
         }
         else if (!i2cOpenFailed) {
             i2cOpenFailed = 1;
@@ -264,7 +271,6 @@
         word16 xferSz, void* userCtx)
     {
         int ret;
-        int spiDev;
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         int timeout;
     #endif
@@ -274,7 +280,6 @@
 
         /* Note: PI has issue with 5-10Mhz on packets sized over 130 bytes */
         unsigned int maxSpeed = TPM2_SPI_HZ;
-        int mode = 0; /* Mode 0 (CPOL=0, CPHA=0) */
         int bits_per_word = 8; /* 8-bits */
 
     #ifdef WOLFTPM_AUTODETECT
@@ -290,16 +295,20 @@
     #ifdef WOLFTPM_CHECK_WAIT_STATE
         timeout = TPM_SPI_WAIT_RETRY;
     #endif
-        spiDev = open(TPM2_SPI_DEV, O_RDWR);
-        if (spiDev >= 0) {
+        if (spiDevFd < 0) {
+            spiDevFd = open(TPM2_SPI_DEV, O_RDWR | O_CLOEXEC);
+            if (spiDevFd >= 0) {
+                int mode = 0; /* Mode 0 (CPOL=0, CPHA=0) */
+                ioctl(spiDevFd, SPI_IOC_WR_MODE, &mode);
+            }
+        }
+        if (spiDevFd >= 0) {
             struct spi_ioc_transfer spi;
             size_t size;
 
-            ioctl(spiDev, SPI_IOC_WR_MODE, &mode);
-            ioctl(spiDev, SPI_IOC_WR_MAX_SPEED_HZ, &maxSpeed);
-            ioctl(spiDev, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word);
-
             XMEMSET(&spi, 0, sizeof(spi));
+            spi.speed_hz = maxSpeed;
+            spi.bits_per_word = bits_per_word;
 
     #ifdef WOLFTPM_CHECK_WAIT_STATE
             /* Keep CS asserted for header and flow control transfers */
@@ -309,7 +318,7 @@
             spi.tx_buf   = (unsigned long)txBuf;
             spi.rx_buf   = (unsigned long)rxBuf;
             spi.len      = TPM_TIS_HEADER_SZ;
-            size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+            size = ioctl(spiDevFd, SPI_IOC_MESSAGE(1), &spi);
             if (size != TPM_TIS_HEADER_SZ) {
                 ret =  TPM_RC_FAILURE;
             }
@@ -322,7 +331,7 @@
                 spi.len = 1;
                 do {
                     /* Check for SPI ready */
-                    size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+                    size = ioctl(spiDevFd, SPI_IOC_MESSAGE(1), &spi);
                 } while (
                     (size == 1) &&
                     ((rxBuf[TPM_TIS_HEADER_SZ-1] & TPM_TIS_READY_MASK) == 0) &&
@@ -342,7 +351,7 @@
                 spi.tx_buf   = (unsigned long)&txBuf[TPM_TIS_HEADER_SZ];
                 spi.rx_buf   = (unsigned long)&rxBuf[TPM_TIS_HEADER_SZ];
                 spi.len      = xferSz - TPM_TIS_HEADER_SZ;
-                size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+                size = ioctl(spiDevFd, SPI_IOC_MESSAGE(1), &spi);
                 if (size != (size_t)xferSz - TPM_TIS_HEADER_SZ)
                     ret = TPM_RC_FAILURE;
             }
@@ -351,7 +360,7 @@
             if (spi.cs_change == 1) {
                 spi.cs_change = 0;
                 spi.len = 1;
-                size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+                size = ioctl(spiDevFd, SPI_IOC_MESSAGE(1), &spi);
                 (void)size;  /* Ignore result */
             }
     #else
@@ -359,12 +368,15 @@
             spi.tx_buf   = (unsigned long)txBuf;
             spi.rx_buf   = (unsigned long)rxBuf;
             spi.len      = xferSz;
-            size = ioctl(spiDev, SPI_IOC_MESSAGE(1), &spi);
+            size = ioctl(spiDevFd, SPI_IOC_MESSAGE(1), &spi);
             if (size != (size_t)xferSz)
                 ret = TPM_RC_FAILURE;
     #endif /* WOLFTPM_CHECK_WAIT_STATE */
 
-            close(spiDev);
+            if (ret != TPM_RC_SUCCESS) {
+                close(spiDevFd);
+                spiDevFd = -1;
+            }
         }
         else {
             /* Failed to open device */
@@ -398,6 +410,10 @@
                 foundSpiDev = 1;
             }
             else {
+                if (spiDevFd >= 0) {
+                    close(spiDevFd);
+                    spiDevFd = -1;
+                }
                 devLen = (int)XSTRLEN(TPM2_SPI_DEV);
                 /* tries spidev0.[0-4] */
                 if (TPM2_SPI_DEV[devLen-1] < MAX_SPI_DEV_CS) {
