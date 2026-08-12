@@ -9890,7 +9890,7 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         "(tag=0x%x, hier=0x%x, ticketSz=%d, expectedSz=%d)\n",
                         ticketTag, ticketHier, ticketDigestSz, expectedSz);
                 #endif
-                    rc = TPM_RC_POLICY_FAIL;
+                    rc = TPM_RC_VALUE;
                 }
             }
             TPM2_ForceZero(aHash, sizeof(aHash));
