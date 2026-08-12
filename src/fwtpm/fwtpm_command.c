@@ -5429,6 +5429,13 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif /* !NO_RSA */
 
+    /* A supplied private area whose sensitiveType matched no branch above (for
+     * example PQC types not yet supported by LoadExternal) must be rejected,
+     * not silently discarded, mirroring FwImportReconstructKey. */
+    if (rc == 0 && inPrivSize > 0 && privKeyDerSz == 0) {
+        rc = TPM_RC_TYPE;
+    }
+
     /* Allocate transient object */
     if (rc == 0) {
         obj = FwAllocObject(ctx, &objHandle);
