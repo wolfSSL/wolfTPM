@@ -440,7 +440,10 @@ static void test_TPM2_PCRSel(void)
 {
     int rc = 0;
     TPML_PCR_SELECTION pcr;
-    byte   pcrArray[PCR_SELECT_MAX];
+    /* This array holds PCR indexes, not a select bitmap, so it is sized by the
+     * number of indexes the test uses. PCR_SELECT_MAX is a byte count and is
+     * only 1 in a reduced-PCR build (IMPLEMENTATION_PCR <= 8). */
+    byte   pcrArray[3];
     word32 pcrArraySz;
 
     XMEMSET(&pcr, 0, sizeof(pcr));

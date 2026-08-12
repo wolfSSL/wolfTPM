@@ -32,6 +32,7 @@
 #endif
 
 #include <wolftpm/fwtpm/fwtpm.h>
+#include <wolftpm/fwtpm/fwtpm_command.h>
 #include <wolftpm/fwtpm/fwtpm_nv.h>
 #include <string.h>
 
@@ -90,6 +91,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
         }
     }
 
+#ifndef FWTPM_NO_CONTEXT
     /* Generate per-boot context protection key (volatile only) for
      * ContextSave/ContextLoad HMAC + AES-CFB session blob protection. */
     if (rc == 0) {
@@ -99,6 +101,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
             ctx->ctxProtectKeyValid = 1;
         }
     }
+#endif
 
     /* Initialize NV storage - loads existing state or creates fresh seeds */
 #ifndef FWTPM_NO_NV
@@ -147,6 +150,11 @@ int FWTPM_Cleanup(FWTPM_CTX* ctx)
 #else
     rc = TPM_RC_SUCCESS;
 #endif
+
+    /* Release transient objects, sessions, and hash/sign sequence slots first.
+     * ForceZero alone would drop the live wc_HashAlg / Hmac contexts they own,
+     * leaking their heap allocations under WOLFTPM_SMALL_STACK. */
+    FWTPM_ResetCommandClient(ctx);
 
     wc_FreeRng(&ctx->rng);
     wolfCrypt_Cleanup();

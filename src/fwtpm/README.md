@@ -96,8 +96,25 @@ All tests below run in GitHub Actions CI. Run manually before PR submission.
 |------|---------------|-------|-------|
 | fwtpm-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | Primary test |
 | fwtpm-tis | `--enable-fwtpm --enable-debug` | | TIS/SHM transport |
-| fwtpm-asan | `--enable-fwtpm --enable-swtpm --enable-debug` | `-fsanitize=address` | Memory errors |
-| fwtpm-ubsan | `--enable-fwtpm --enable-swtpm --enable-debug` | `-fsanitize=undefined` | UB detection |
+| fwtpm-v185 | `--enable-fwtpm --enable-v185` | | PQC: wrapper + handler unit tests |
+| fwtpm-macos-socket | `--enable-fwtpm --enable-swtpm --enable-debug` | | macOS runner |
+
+ASan / UBSan / LeakSan coverage lives in `sanitizer.yml`, not this workflow.
+
+### Runtime Tests, gated builds (`fwtpm-gated-runtime` job)
+
+These configurations remove commands, so `make check` (which drives the
+examples and tpm2-tools) does not apply. The job builds and runs only
+`tests/fwtpm_unit.test`, whose `test_fwtpm_command_gates` /
+`test_fwtpm_total_commands` / `test_fwtpm_pcr_bounds` cases assert that a gated
+command is rejected with `TPM_RC_COMMAND_CODE`, is absent from
+`TPM_CAP_COMMANDS`, and is not counted in `TPM_PT_TOTAL_COMMANDS`.
+
+| Name | wolfTPM Config | wolfSSL Config | Extra CFLAGS |
+|------|---------------|---------------|-------------|
+| all-gates-ecc-only | `--enable-fwtpm --enable-swtpm` | `--disable-rsa` | the eleven command-group `-DFWTPM_NO_*` gates together (NV retained) |
+| all-gates-mldsa | `--enable-fwtpm --enable-swtpm --enable-v185 --enable-mldsa` | `--enable-dilithium --enable-mlkem` | the same eleven gates; proves SequenceUpdate survives for ML-DSA while SequenceComplete does not |
+| reduced-pcr | `--enable-fwtpm --enable-swtpm` | | `-DIMPLEMENTATION_PCR=8 -DPLATFORM_PCR=8` |
 
 ### Build-Only Tests
 
@@ -105,6 +122,9 @@ All tests below run in GitHub Actions CI. Run manually before PR submission.
 |------|---------------|---------------|-------------|
 | fwtpm-no-rsa | `--enable-fwtpm --enable-swtpm` | `--disable-rsa` | |
 | fwtpm-no-ecc | `--enable-fwtpm --enable-swtpm` | `--disable-ecc` | |
+| fwtpm-no-sha384 | `--enable-fwtpm --enable-swtpm` | `--disable-sha384` | |
+| fwtpm-no-sha1 | `--enable-fwtpm --enable-swtpm` | `--disable-sha` | `-DNO_SHA` |
+| fwtpm-v185-build-only | `--enable-fwtpm --enable-v185` | | `-DDEBUG_WOLFTPM` |
 | fwtpm-only | `--enable-fwtpm-only --enable-swtpm` | | No client library |
 | fwtpm-minimal | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_ATTESTATION -DFWTPM_NO_NV -DFWTPM_NO_POLICY -DFWTPM_NO_CREDENTIAL -DFWTPM_NO_DA -DFWTPM_NO_PARAM_ENC` |
 | fwtpm-no-policy | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_POLICY` |
@@ -113,6 +133,13 @@ All tests below run in GitHub Actions CI. Run manually before PR submission.
 | fwtpm-no-credential | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_CREDENTIAL` |
 | fwtpm-no-da | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_DA` |
 | fwtpm-no-param-enc | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_PARAM_ENC` |
+| fwtpm-no-key-migration | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_KEY_MIGRATION` |
+| fwtpm-no-ecdh | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_ECDH` |
+| fwtpm-no-hash-cmds | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_HASH_CMDS` |
+| fwtpm-no-context | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_CONTEXT` |
+| fwtpm-no-sym-encrypt | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_SYM_ENCRYPT` |
+| fwtpm-no-clock | `--enable-fwtpm --enable-swtpm` | | `-DFWTPM_NO_CLOCK` |
+| fwtpm-reduced-pcr | `--enable-fwtpm --enable-swtpm` | | `-DIMPLEMENTATION_PCR=8 -DPLATFORM_PCR=8` |
 | fwtpm-no-rsa-no-policy | `--enable-fwtpm --enable-swtpm` | `--disable-rsa` | `-DFWTPM_NO_POLICY` |
 | fwtpm-no-ecc-no-nv | `--enable-fwtpm --enable-swtpm` | `--disable-ecc` | `-DFWTPM_NO_NV` |
 | fwtpm-small-stack | `--enable-fwtpm --enable-swtpm` | | `-DWOLFTPM_SMALL_STACK` |
@@ -140,7 +167,9 @@ control), spec version targeting, and HAL abstraction details.
 Key options: `--enable-fwtpm`, `--enable-fwtpm-only`, `--enable-swtpm`,
 `--enable-fwtpm-small-ctx`, `--enable-fuzz`. Feature disable macros:
 `FWTPM_NO_ATTESTATION`, `FWTPM_NO_NV`, `FWTPM_NO_POLICY`, `FWTPM_NO_CREDENTIAL`,
-`FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`. Feature enable macros:
+`FWTPM_NO_DA`, `FWTPM_NO_PARAM_ENC`, `FWTPM_NO_KEY_MIGRATION`, `FWTPM_NO_ECDH`,
+`FWTPM_NO_HASH_CMDS`, `FWTPM_NO_CONTEXT`, `FWTPM_NO_SYM_ENCRYPT`,
+`FWTPM_NO_CLOCK`. Feature enable macros:
 `WOLFTPM_FWTPM_TCG_TEST` (optional `Vendor_TCG_Test` echo command, off by default).
 
 Command codes with reserved bits set (only the 16-bit index plus the `CC_VEND` V bit are valid), or codes not in the dispatch table, are rejected with `TPM_RC_COMMAND_CODE`.
@@ -186,16 +215,20 @@ CI exercises 7 build-only configure permutations + the two e2e modes on
 
 The fwTPM implements 105 of 113 commands from the v1.38 baseline (93% coverage).
 
-**Always enabled (47 commands):**
+**Core set -- never gated (36 commands):**
 Startup, Shutdown, SelfTest, IncrementalSelfTest, GetTestResult, GetRandom,
 StirRandom, GetCapability, TestParms, PCR\_Read, PCR\_Extend, PCR\_Reset,
 PCR\_Event, PCR\_Allocate, PCR\_SetAuthPolicy, PCR\_SetAuthValue,
-ReadClock, ClockSet, ClockRateAdjust, CreatePrimary, FlushContext,
-ContextSave, ContextLoad, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS, HierarchyControl,
-HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth,
-Load, Sign, VerifySignature, Hash, HMAC, HMAC\_Start, HashSequenceStart,
-SequenceUpdate, SequenceComplete, EventSequenceComplete, StartAuthSession,
-Unseal, LoadExternal, Import, Duplicate, Rewrap, CreateLoaded
+CreatePrimary, FlushContext, ReadPublic, Clear, ClearControl, ChangeEPS,
+ChangePPS, HierarchyControl, HierarchyChangeAuth, SetPrimaryPolicy,
+EvictControl, Create, ObjectChangeAuth, Load, Sign, VerifySignature,
+StartAuthSession, Unseal, LoadExternal, CreateLoaded
+
+These are present in every build. A default build (no `FWTPM_NO_*` macro set)
+additionally enables every group listed under **Conditional on feature macros**
+below; setting a gate macro removes that group's commands from the dispatch
+table, from `TPM2_GetCapability(TPM_CAP_COMMANDS)`, and from the
+`TPM_PT_TOTAL_COMMANDS` count.
 
 **Optional vendor command (off by default, `WOLFTPM_FWTPM_TCG_TEST`):**
 Vendor\_TCG\_Test
@@ -221,6 +254,33 @@ EncryptDecrypt, EncryptDecrypt2
 - `FWTPM_NO_PARAM_ENC`: Disables parameter encryption/decryption for command and
   response parameters. Sessions still work for HMAC auth, but encrypted transport
   is disabled. Reduces code size by removing AES-CFB and XOR param encryption.
+- `FWTPM_NO_KEY_MIGRATION`: Import, Duplicate, Rewrap (3 commands). Shared key
+  helpers (used by Create/Load) are retained.
+- `FWTPM_NO_ECDH`: ECDH\_KeyGen, ECDH\_ZGen, EC\_Ephemeral, ZGen\_2Phase,
+  ECC\_Parameters (5 commands). ECDSA sign/verify are retained. Also drops the
+  `ecEphemeral*` commit state from `FWTPM_CTX`.
+- `FWTPM_NO_HASH_CMDS`: Hash, HMAC, HMAC\_Start, HashSequenceStart,
+  SequenceUpdate, SequenceComplete, EventSequenceComplete (7 commands). When
+  `WOLFTPM_MLDSA` is built, only SequenceUpdate is retained -- the MLDSA
+  verify sequences stream their message through it. SequenceComplete is not
+  shared: MLDSA sequences finalize through SignSequenceComplete /
+  VerifySequenceComplete, so advertising it in a gated build would expose a
+  command that can never succeed. Also drops the per-instance hash-sequence
+  slots (`hashSeq[FWTPM_MAX_HASH_SEQ]`) from `FWTPM_CTX`.
+- `FWTPM_NO_CONTEXT`: ContextSave, ContextLoad (2 commands). FlushContext is
+  retained. Also drops the per-boot context protection key and the saved-context
+  replay list from `FWTPM_CTX`.
+- `FWTPM_NO_SYM_ENCRYPT`: EncryptDecrypt, EncryptDecrypt2 (2 commands). Nests
+  inside `NO_AES`; AES itself is retained for session parameter encryption,
+  AES-GCM, and (unless `FWTPM_NO_CONTEXT` is also set) context protection.
+- `FWTPM_NO_CLOCK`: ReadClock, ClockSet, ClockRateAdjust (3 commands). GetTime is
+  under `FWTPM_NO_ATTESTATION`, not this flag.
+These gates are independent and there is intentionally no umbrella macro: pick
+exactly the groups your fTPM does not need. Applying all of them plus the earlier
+`FWTPM_NO_POLICY/ATTESTATION/CREDENTIAL/DA/PARAM_ENC` (keeping NV, or adding
+`FWTPM_NO_NV` to drop it) leaves a core fTPM (Startup/GetCapability/GetRandom/
+PCR/Create/Load/Sign/VerifySignature/NV/sessions) - see the MicroBlaze V example
+in wolftpm-examples for a worked selection.
 
 ### Missing Commands -- TODO
 

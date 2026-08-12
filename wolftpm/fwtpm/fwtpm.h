@@ -110,6 +110,40 @@
 #define FWTPM_MAX_RANDOM_BYTES 48
 #endif
 
+/* Command feature-group toggles - opt-in macros that compile out fwTPM command
+ * groups a minimal build does not need. All default OFF (the full command set is
+ * built). Removing a group drops its handlers AND its TPM2_GetCapability
+ * advertisement (the command list is derived from the dispatch table).
+ *   FWTPM_NO_POLICY        - policy session commands (TPM2_Policy*)
+ *   FWTPM_NO_ATTESTATION   - Quote/Certify/CertifyCreation/GetTime/NV_Certify
+ *   FWTPM_NO_CREDENTIAL    - MakeCredential/ActivateCredential
+ *   FWTPM_NO_DA            - dictionary-attack lockout protection (see below)
+ *   FWTPM_NO_PARAM_ENC     - command/response parameter encryption
+ *   FWTPM_NO_NV            - all NV_* commands
+ *   FWTPM_NO_KEY_MIGRATION - Import/Duplicate/Rewrap
+ *   FWTPM_NO_ECDH          - ECDH_KeyGen/ECDH_ZGen/EC_Ephemeral/ZGen_2Phase/
+ *                            ECC_Parameters (ECDSA sign/verify are retained)
+ *   FWTPM_NO_HASH_CMDS     - Hash, HMAC, and the hash/HMAC sequence commands
+ *   FWTPM_NO_CONTEXT       - ContextSave/ContextLoad (FlushContext retained)
+ *   FWTPM_NO_SYM_ENCRYPT   - EncryptDecrypt/EncryptDecrypt2
+ *   FWTPM_NO_CLOCK         - ReadClock/ClockSet/ClockRateAdjust
+ *
+ * These flags are independent; select exactly the command groups your fTPM does
+ * not need. There is intentionally no single "minimal" umbrella macro - dropping
+ * a command group removes real TPM functionality, so each choice must be made
+ * deliberately. For a worked example that picks a set for a constrained target,
+ * see the MicroBlaze V build in the wolftpm-examples repository.
+ *
+ * Gates that own per-instance state also drop it from FWTPM_CTX below, so the
+ * RAM saving is real and not just code size:
+ *   FWTPM_NO_HASH_CMDS - hashSeq[FWTPM_MAX_HASH_SEQ]. The FWTPM_MAX_HASH_SEQ
+ *                        macro itself stays defined: MLDSA sequence handles are
+ *                        numbered above the hash-sequence range, so removing it
+ *                        would renumber them between gated and ungated builds.
+ *   FWTPM_NO_CONTEXT   - ctxProtectKey/ctxProtectKeyValid, contextSeqCounter,
+ *                        contextLive[]/contextLiveCount
+ *   FWTPM_NO_ECDH      - ecEphemeralCounter/Key/KeySz/Curve */
+
 /* Dictionary Attack (DA) feature toggles:
  *   FWTPM_NO_DA          - compile out all DA lockout protection.
  *   FWTPM_DA_USED_RETRY  - emulate real-TPM behavior where the first use of a
@@ -486,7 +520,10 @@ typedef struct FWTPM_HashSeq {
 #endif
 } FWTPM_HashSeq;
 
-#ifdef WOLFTPM_V185
+/* Guarded on WOLFTPM_MLDSA, not WOLFTPM_V185: a lean WOLFTPM_PQC build defines
+ * WOLFTPM_MLDSA on its own, and every consumer of these slots tests
+ * WOLFTPM_MLDSA. */
+#ifdef WOLFTPM_MLDSA
 /* ML-DSA sign/verify sequence slot (v1.85 Part 3 Sec.17.5, Sec.17.6). Pure ML-DSA
  * is one-shot — the message arrives via the `buffer` parameter of
  * TPM2_SignSequenceComplete and TPM2_SequenceUpdate is rejected with
@@ -531,7 +568,7 @@ typedef struct FWTPM_SignSeq {
 #ifndef FWTPM_MAX_SIGN_SEQ
 #define FWTPM_MAX_SIGN_SEQ 4
 #endif
-#endif /* WOLFTPM_V185 */
+#endif /* WOLFTPM_MLDSA */
 
 /* Auth session slot */
 typedef struct FWTPM_Session {
@@ -708,8 +745,10 @@ typedef struct FWTPM_CTX {
     FWTPM_NvIndex nvIndices[FWTPM_MAX_NV_INDICES];
 
     /* Hash sequence slots */
+#ifndef FWTPM_NO_HASH_CMDS
     FWTPM_HashSeq hashSeq[FWTPM_MAX_HASH_SEQ];
-#ifdef WOLFTPM_V185
+#endif
+#ifdef WOLFTPM_MLDSA
     FWTPM_SignSeq signSeq[FWTPM_MAX_SIGN_SEQ];
 #endif
 
@@ -738,11 +777,13 @@ typedef struct FWTPM_CTX {
     TPM2B_DIGEST lockoutPolicy;
     TPMI_ALG_HASH lockoutPolicyAlg;
 
+#ifndef FWTPM_NO_CONTEXT
     /* Per-boot context protection key (volatile only, never persisted).
      * Used by ContextSave/ContextLoad for HMAC + AES-CFB protection of
      * session context blobs per TPM 2.0 Part 1 Sec.30. */
     byte ctxProtectKey[AES_256_KEY_SIZE];
     int  ctxProtectKeyValid;
+#endif
 
     /* TIS transport state (when not using sockets) */
 #ifdef WOLFTPM_FWTPM_TIS
@@ -769,18 +810,21 @@ typedef struct FWTPM_CTX {
     word32 nvGranuleFill;   /* bytes buffered (0..writeAlign) */
 #endif
 
+#ifndef FWTPM_NO_CONTEXT
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;
     /* Live (saved-but-not-yet-loaded) context sequences. A context loads at
      * most once and saved contexts may load in any order. */
     UINT64 contextLive[FWTPM_MAX_OBJECTS + FWTPM_MAX_SESSIONS];
     int contextLiveCount;
+#endif
 
     /* Set once TPM2_SelfTest has completed successfully */
     int selfTestRun;
 
-#ifdef HAVE_ECC
-    /* EC_Ephemeral commit counter and key storage (volatile) */
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+    /* EC_Ephemeral commit counter and key storage (volatile). Only the ECDH
+     * command group (EC_Ephemeral / ZGen_2Phase) uses this state. */
     UINT16 ecEphemeralCounter;
     byte ecEphemeralKey[FWTPM_MAX_PRIVKEY_DER];
     int ecEphemeralKeySz;

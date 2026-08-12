@@ -743,6 +743,7 @@ static void test_fwtpm_getcap_commands_tpma(void)
     AssertIntEQ(TpmaCcRHandle(tpma), 0); /* no response handle */
     AssertIntEQ(tpma & (UINT32)CC_VEND, 0);
 
+#ifndef FWTPM_NO_HASH_CMDS
     /* HashSequenceStart returns a sequence handle: expect rHandle == 1. */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
@@ -758,6 +759,7 @@ static void test_fwtpm_getcap_commands_tpma(void)
     tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
     AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_HashSequenceStart);
     AssertIntEQ(TpmaCcRHandle(tpma), 1); /* returns a handle */
+#endif /* !FWTPM_NO_HASH_CMDS */
 
     /* StartAuthSession returns a session handle: expect rHandle == 1. */
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
@@ -971,25 +973,286 @@ static void test_fwtpm_getcap_paging(void)
 }
 
 /* ================================================================== */
+/* Command-group gates (FWTPM_NO_* macros)                             */
+/* ================================================================== */
+
+/* Whether this build advertises each gated command group. Kept as 0/1 macros
+ * so one table drives both the default build and every gated CI leg. */
+#ifdef FWTPM_NO_KEY_MIGRATION
+    #define FW_GATED_KEY_MIGRATION 0
+#else
+    #define FW_GATED_KEY_MIGRATION 1
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
+    #define FW_GATED_ECDH 1
+#else
+    #define FW_GATED_ECDH 0
+#endif
+#ifdef FWTPM_NO_HASH_CMDS
+    #define FW_GATED_HASH_CMDS 0
+#else
+    #define FW_GATED_HASH_CMDS 1
+#endif
+#ifdef FWTPM_NO_CONTEXT
+    #define FW_GATED_CONTEXT 0
+#else
+    #define FW_GATED_CONTEXT 1
+#endif
+#if !defined(NO_AES) && !defined(FWTPM_NO_SYM_ENCRYPT)
+    #define FW_GATED_SYM_ENCRYPT 1
+#else
+    #define FW_GATED_SYM_ENCRYPT 0
+#endif
+#ifdef FWTPM_NO_CLOCK
+    #define FW_GATED_CLOCK 0
+#else
+    #define FW_GATED_CLOCK 1
+#endif
+#ifdef FWTPM_NO_POLICY
+    #define FW_GATED_POLICY 0
+#else
+    #define FW_GATED_POLICY 1
+#endif
+#ifdef FWTPM_NO_NV
+    #define FW_GATED_NV 0
+#else
+    #define FW_GATED_NV 1
+#endif
+#ifdef FWTPM_NO_ATTESTATION
+    #define FW_GATED_ATTESTATION 0
+#else
+    #define FW_GATED_ATTESTATION 1
+#endif
+#ifdef FWTPM_NO_CREDENTIAL
+    #define FW_GATED_CREDENTIAL 0
+#else
+    #define FW_GATED_CREDENTIAL 1
+#endif
+#ifdef FWTPM_NO_DA
+    #define FW_GATED_DA 0
+#else
+    #define FW_GATED_DA 1
+#endif
+
+/* SequenceUpdate is the one sequence command shared with the ML-DSA verify
+ * sequences, so it survives FWTPM_NO_HASH_CMDS when ML-DSA is built.
+ * SequenceComplete is NOT shared - ML-DSA finalizes through
+ * SignSequenceComplete / VerifySequenceComplete - so it must disappear with
+ * the rest of the hash commands. */
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
+    #define FW_GATED_SEQ_UPDATE 1
+#else
+    #define FW_GATED_SEQ_UPDATE 0
+#endif
+
+typedef struct FwGateCase {
+    UINT32      cc;
+    int         present;    /* 1 = must be advertised and dispatchable */
+    const char* name;
+} FwGateCase;
+
+static const FwGateCase fwGateCases[] = {
+    { TPM_CC_Import,             FW_GATED_KEY_MIGRATION, "Import" },
+    { TPM_CC_Duplicate,          FW_GATED_KEY_MIGRATION, "Duplicate" },
+    { TPM_CC_Rewrap,             FW_GATED_KEY_MIGRATION, "Rewrap" },
+    { TPM_CC_ECC_Parameters,     FW_GATED_ECDH,          "ECC_Parameters" },
+    { TPM_CC_EC_Ephemeral,       FW_GATED_ECDH,          "EC_Ephemeral" },
+    { TPM_CC_Hash,               FW_GATED_HASH_CMDS,     "Hash" },
+    { TPM_CC_HashSequenceStart,  FW_GATED_HASH_CMDS,     "HashSequenceStart" },
+    { TPM_CC_SequenceComplete,   FW_GATED_HASH_CMDS,     "SequenceComplete" },
+    { TPM_CC_EventSequenceComplete, FW_GATED_HASH_CMDS,
+      "EventSequenceComplete" },
+    { TPM_CC_SequenceUpdate,     FW_GATED_SEQ_UPDATE,    "SequenceUpdate" },
+    { TPM_CC_ContextSave,        FW_GATED_CONTEXT,       "ContextSave" },
+    { TPM_CC_ContextLoad,        FW_GATED_CONTEXT,       "ContextLoad" },
+    { TPM_CC_EncryptDecrypt,     FW_GATED_SYM_ENCRYPT,   "EncryptDecrypt" },
+    { TPM_CC_EncryptDecrypt2,    FW_GATED_SYM_ENCRYPT,   "EncryptDecrypt2" },
+    { TPM_CC_ReadClock,          FW_GATED_CLOCK,         "ReadClock" },
+    { TPM_CC_ClockSet,           FW_GATED_CLOCK,         "ClockSet" },
+    { TPM_CC_ClockRateAdjust,    FW_GATED_CLOCK,         "ClockRateAdjust" },
+    { TPM_CC_PolicyPCR,          FW_GATED_POLICY,        "PolicyPCR" },
+    { TPM_CC_NV_ReadPublic,      FW_GATED_NV,            "NV_ReadPublic" },
+    { TPM_CC_Quote,              FW_GATED_ATTESTATION,   "Quote" },
+    { TPM_CC_MakeCredential,     FW_GATED_CREDENTIAL,    "MakeCredential" },
+    { TPM_CC_DictionaryAttackLockReset, FW_GATED_DA,
+      "DictionaryAttackLockReset" },
+    /* Never gated - guards against a table/#ifdef slip removing a core
+     * command that every build must keep. */
+    { TPM_CC_GetRandom,          1,                      "GetRandom" },
+    { TPM_CC_PCR_Read,           1,                      "PCR_Read" },
+    { TPM_CC_FlushContext,       1,                      "FlushContext" },
+};
+
+/* Enumerate TPM_CAP_COMMANDS in full and return the number of entries, writing
+ * each advertised command code into ccOut (up to ccMax). Asserts the list was
+ * not truncated so callers can treat the result as the complete set. */
+static UINT32 GetAdvertisedCommands(FWTPM_CTX* ctx, UINT32* ccOut, UINT32 ccMax)
+{
+    int rc, rspSize, cmdSz;
+    UINT32 count, i;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 512); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* moreData must be NO: the whole list has to fit for the count to be
+     * comparable against TPM_PT_TOTAL_COMMANDS. */
+    AssertIntEQ(gRsp[TPM2_HEADER_SIZE], 0);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1), (int)TPM_CAP_COMMANDS);
+
+    count = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertTrue(count <= ccMax);
+    for (i = 0; i < count; i++) {
+        ccOut[i] = TpmaCcToCmdCode(
+            GetU32BE(gRsp + TPM2_HEADER_SIZE + 9 + (int)(i * 4)));
+    }
+    return count;
+}
+
+static int CommandAdvertised(const UINT32* ccList, UINT32 count, UINT32 cc)
+{
+    UINT32 i;
+    for (i = 0; i < count; i++) {
+        if (ccList[i] == cc) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Every FWTPM_NO_* command group must disappear from both the dispatcher and
+ * the TPM_CAP_COMMANDS advertisement together. A command that is advertised
+ * but always fails (or dispatchable but unadvertised) is a gating bug. */
+static void test_fwtpm_command_gates(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 advertised[512];
+    UINT32 count;
+    int rc, rspSize, cmdSz;
+    unsigned int i;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    count = GetAdvertisedCommands(&ctx, advertised,
+        (UINT32)(sizeof(advertised) / sizeof(advertised[0])));
+    AssertIntGT(count, 0);
+
+    for (i = 0; i < sizeof(fwGateCases) / sizeof(fwGateCases[0]); i++) {
+        const FwGateCase* g = &fwGateCases[i];
+
+        /* (a) Capability advertisement matches the build. */
+        Assert(CommandAdvertised(advertised, count, g->cc) == g->present,
+            ("%s advertised == %d", g->name, g->present),
+            ("%s advertised == %d", g->name,
+                CommandAdvertised(advertised, count, g->cc)));
+
+        /* (b) Dispatch agrees: a gated command is rejected with
+         * TPM_RC_COMMAND_CODE; a live one fails for some other reason
+         * (missing handles/params), never as an unknown command. */
+        cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, g->cc);
+        PutU32BE(gCmd + 2, (UINT32)cmdSz);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        if (g->present) {
+            AssertIntNE(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+        }
+        else {
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_CODE);
+        }
+    }
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Command-group gates (dispatch + CAP_COMMANDS):", 0);
+}
+
+/* TPM_PT_TOTAL_COMMANDS is derived from the same dispatch table as
+ * TPM_CAP_COMMANDS, so gating a group must move both together. */
+static void test_fwtpm_total_commands(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 advertised[512];
+    UINT32 count, props, i, total = 0;
+    int rc, rspSize, cmdSz, found = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    count = GetAdvertisedCommands(&ctx, advertised,
+        (UINT32)(sizeof(advertised) / sizeof(advertised[0])));
+
+    /* GetCapability(TPM_CAP_TPM_PROPERTIES, first=TPM_PT_TOTAL_COMMANDS) */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_TOTAL_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 1),
+        (int)TPM_CAP_TPM_PROPERTIES);
+
+    /* TPMS_TAGGED_PROPERTY list: count, then (property, value) pairs. */
+    props = GetU32BE(gRsp + TPM2_HEADER_SIZE + 5);
+    AssertIntGT(props, 0);
+    for (i = 0; i < props; i++) {
+        int off = TPM2_HEADER_SIZE + 9 + (int)(i * 8);
+        if (GetU32BE(gRsp + off) == (UINT32)TPM_PT_TOTAL_COMMANDS) {
+            total = GetU32BE(gRsp + off + 4);
+            found = 1;
+            break;
+        }
+    }
+    AssertIntEQ(found, 1);
+    AssertIntEQ(total, count);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("TPM_PT_TOTAL_COMMANDS matches CAP_COMMANDS:", 0);
+}
+
+/* ================================================================== */
 /* 6. PCR Operations                                                   */
 /* ================================================================== */
 
-/* Build PCR_Read command for SHA-256 bank */
+/* A PCR that is both readable and extendable from locality 0 in any build:
+ * PCR 16 (the debug PCR) when all 24 standard PCRs are implemented, otherwise
+ * the highest implemented PCR (0-15 also accept any locality for extend). */
+#if IMPLEMENTATION_PCR >= 24
+    #define FW_TEST_PCR 16
+#else
+    #define FW_TEST_PCR (IMPLEMENTATION_PCR - 1)
+#endif
+
+/* Build PCR_Read command for SHA-256 bank. The selection bitmap is sized from
+ * PCR_SELECT_MAX rather than a fixed 3 so the command stays well-formed in a
+ * build that implements fewer than 24 PCRs. */
 static int BuildPcrReadCmd(byte* buf, UINT32 pcrIndex)
 {
-    int pos;
+    int pos, i;
     pos = BuildCmdHeader(buf, TPM_ST_NO_SESSIONS, 0, TPM_CC_PCR_Read);
     /* TPML_PCR_SELECTION: count=1 */
     PutU32BE(buf + pos, 1); pos += 4;
-    /* TPMS_PCR_SELECTION: hash=SHA256, sizeofSelect=3, pcrSelect[3] */
+    /* TPMS_PCR_SELECTION: hash=SHA256, sizeofSelect, pcrSelect[] */
     PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2;
-    buf[pos++] = 3; /* sizeofSelect */
+    buf[pos++] = (byte)PCR_SELECT_MAX; /* sizeofSelect */
     /* Set bit for pcrIndex in the bitmap */
-    buf[pos] = 0; buf[pos+1] = 0; buf[pos+2] = 0;
-    if (pcrIndex < 24) {
+    for (i = 0; i < PCR_SELECT_MAX; i++) {
+        buf[pos + i] = 0;
+    }
+    if (pcrIndex < (UINT32)IMPLEMENTATION_PCR) {
         buf[pos + (pcrIndex / 8)] = (byte)(1 << (pcrIndex % 8));
     }
-    pos += 3;
+    pos += PCR_SELECT_MAX;
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
@@ -1027,7 +1290,7 @@ static void test_fwtpm_pcr_extend_and_read(void)
     AssertIntEQ(rc, 0);
 
     /* Read PCR 16 (resettable) before extend */
-    cmdSz = BuildPcrReadCmd(gCmd, 16);
+    cmdSz = BuildPcrReadCmd(gCmd, FW_TEST_PCR);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
@@ -1050,8 +1313,8 @@ static void test_fwtpm_pcr_extend_and_read(void)
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4; /* size placeholder */
     PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
-    /* pcrHandle = PCR 16 */
-    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    /* pcrHandle */
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
     /* Auth area: size(4) + sessionHandle(4) + nonce(2) + attrs(1) + hmac(2) */
     PutU32BE(gCmd + cmdSz, 9); cmdSz += 4; /* authAreaSize */
     PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4; /* password session */
@@ -1072,7 +1335,7 @@ static void test_fwtpm_pcr_extend_and_read(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     /* Read PCR 16 again - should be different from before */
-    cmdSz = BuildPcrReadCmd(gCmd, 16);
+    cmdSz = BuildPcrReadCmd(gCmd, FW_TEST_PCR);
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
@@ -1114,7 +1377,7 @@ static void test_fwtpm_pw_session_continue_set(void)
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
@@ -1141,6 +1404,7 @@ static void test_fwtpm_pw_session_continue_set(void)
 }
 
 /* PCR_Event into DRTM PCR 17 must require locality 4 (Part 1 Sec.11.4.6). */
+#if IMPLEMENTATION_PCR >= 24
 static void test_fwtpm_pcr_event_drtm_locality_enforced(void)
 {
     FWTPM_CTX ctx;
@@ -1177,6 +1441,7 @@ static void test_fwtpm_pcr_event_drtm_locality_enforced(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tPCR_Event DRTM locality enforced:\tPassed\n");
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
 /* Per TPM 2.0 Part 3 Sec.22.3, PCR_Extend takes Auth Role USER on the
  * PCR handle. When PCR_SetAuthValue has installed a non-empty
@@ -1199,7 +1464,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
@@ -1219,7 +1484,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
@@ -1240,7 +1505,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
     PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_CC_PCR_SetAuthValue); cmdSz += 4;
-    PutU32BE(gCmd + cmdSz, 16); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, 9 + pcrAuthSz); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
     PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
@@ -1262,6 +1527,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
 /* 7. ReadClock                                                        */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_CLOCK
 static void test_fwtpm_readclock(void)
 {
     FWTPM_CTX ctx;
@@ -1284,6 +1550,7 @@ static void test_fwtpm_readclock(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ReadClock:", 0);
 }
+#endif /* !FWTPM_NO_CLOCK */
 
 /* ================================================================== */
 /* 8. CreatePrimary (RSA and ECC)                                      */
@@ -4332,6 +4599,7 @@ static void test_fwtpm_sign_x509sign_returns_attributes(void)
 /* End-to-end positive: TPM2_Hash produces a real HASHCHECK ticket that
  * SignDigest must accept on a restricted key. Confirms ticket-validation
  * actually verifies the HMAC (not just rejects everything). */
+#ifndef FWTPM_NO_HASH_CMDS
 static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
 {
     FWTPM_CTX ctx;
@@ -4406,6 +4674,7 @@ static void test_fwtpm_signdigest_restricted_valid_ticket_succeeds(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignDigest restricted+valid ticket (success):", 1);
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 /* F-4: VerifyDigestSignature rejects sigHashAlg != key's hashAlg with
  * TPM_RC_SCHEME per Part 3 Sec.20.4.1. Key is Hash-ML-DSA-65/SHA-256; wire
@@ -5986,6 +6255,7 @@ test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value(void)
  * the slot allocated lets a buggy or hostile client exhaust
  * FWTPM_MAX_SIGN_SEQ slots by repeatedly issuing Start + wrong-key
  * Complete, denying service to legitimate Sign sequences (CWE-772). */
+#ifdef WOLFTPM_MLDSA
 static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
 {
     FWTPM_CTX ctx;
@@ -6071,6 +6341,7 @@ static void test_fwtpm_signseqcomplete_wrong_key_frees_slot(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeqComplete wrong key frees slot:", 1);
 }
+#endif /* WOLFTPM_MLDSA */
 
 #ifdef WOLFTPM_V185
 /* Extended CreatePrimary builder that overrides the default MLDSA/MLKEM
@@ -6447,6 +6718,7 @@ static void test_fwtpm_mlkem1024_maxbuf(void)
  * FWTPM_CTX holds FWTPM_MAX_SIGN_SEQ (4) slots for sign+verify sequences.
  * Starting more than that must return TPM_RC_OBJECT_MEMORY from
  * FwAllocSignSeq per Part 3 Sec.17.5. */
+#ifdef WOLFTPM_MLDSA
 static void test_fwtpm_signseq_slot_exhaustion(void)
 {
     FWTPM_CTX ctx;
@@ -6491,6 +6763,7 @@ static void test_fwtpm_signseq_slot_exhaustion(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SignSeq slot exhaustion:", 1);
 }
+#endif /* WOLFTPM_MLDSA */
 
 /* ---- Long-message accumulation boundary for Pure-MLDSA verify seq ----
  * msgBuf is FWTPM_MAX_DATA_BUF (1024) bytes. Accumulating across
@@ -6899,6 +7172,7 @@ static void test_fwtpm_testparms_mldsa_supported_returns_success(void)
 /* 9. Hash Sequence                                                    */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_HASH_CMDS
 static void test_fwtpm_hash(void)
 {
     FWTPM_CTX ctx;
@@ -6942,6 +7216,7 @@ static void test_fwtpm_hash(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Hash(SHA256, \"abc\"):", 0);
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 /* ================================================================== */
 /* 10. NULL pointer checks                                             */
@@ -8103,6 +8378,7 @@ static void test_fwtpm_sign_ecdaa_scheme(void)
 /* ECDH key-agreement commands must reject a key without TPMA_OBJECT_decrypt
  * per Part 3 Sec.14.3.3/14.7/21.3. A sign-only AIK would otherwise act as a
  * CDH oracle over its private scalar. */
+#ifndef FWTPM_NO_ECDH
 static void test_fwtpm_ecdh_keygen_signkey_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -8124,7 +8400,9 @@ static void test_fwtpm_ecdh_keygen_signkey_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tECDH_KeyGen(sign key) rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_ECDH */
 
+#ifndef FWTPM_NO_ECDH
 static void test_fwtpm_ecdh_zgen_signkey_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -8154,7 +8432,9 @@ static void test_fwtpm_ecdh_zgen_signkey_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tECDH_ZGen(sign key) rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_ECDH */
 
+#ifndef FWTPM_NO_ECDH
 static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
 {
     FWTPM_CTX ctx;
@@ -8187,6 +8467,7 @@ static void test_fwtpm_zgen_2phase_signkey_returns_attributes(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tZGen_2Phase(sign key) rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_ECDH */
 
 /* Quote requires a restricted signing key per Part 3 Sec.18.4. Build the
  * command once and run it against keys that violate each requirement. */
@@ -8518,6 +8799,7 @@ static void test_fwtpm_test_parms(void)
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
+#ifndef NO_RSA
     /* TestParms: RSA-2048. TPMS_RSA_PARMS is symmetric, scheme, keyBits,
      * exponent - in that order. */
     pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
@@ -8552,6 +8834,21 @@ static void test_fwtpm_test_parms(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+#else
+    /* An ECC-only build drops TPM_ALG_RSA from the TPMI_ALG_PUBLIC selectors
+     * TestParms accepts, so it must report the type as unsupported rather than
+     * silently validating parameters it cannot honor. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_TestParms);
+    PutU16BE(gCmd + pos, TPM_ALG_RSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* symmetric */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* scheme */
+    PutU16BE(gCmd + pos, 2048); pos += 2;         /* keyBits */
+    PutU32BE(gCmd + pos, 0); pos += 4;            /* exponent */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_TYPE);
+#endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
     /* An unsupported ECC curve must be rejected. */
@@ -8651,7 +8948,11 @@ static void test_fwtpm_test_parms(void)
 #endif /* !NO_AES */
 
     FWTPM_Cleanup(&ctx);
+#ifndef NO_RSA
     fwtpm_pass("TestParms(RSA-2048):", 0);
+#else
+    fwtpm_pass("TestParms(ECC-only):", 0);
+#endif
 }
 
 static void test_fwtpm_incremental_selftest(void)
@@ -8775,6 +9076,51 @@ static TPM_RC SendPcrExtendLoc(FWTPM_CTX* ctx, int pcrIndex, int locality)
     return GetRspRC(gRsp);
 }
 
+/* The PCR locality tables are sized to the 24 standard PCRs while the
+ * implemented PCR count is IMPLEMENTATION_PCR, so a build with fewer PCRs has
+ * two distinct boundaries. Exercise the highest implemented PCR (must work)
+ * and the first unavailable one (must be rejected, never silently aliased). */
+static void test_fwtpm_pcr_bounds(void)
+{
+    FWTPM_CTX ctx;
+    int rspSize, cmdSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* TPM_PT_PCR_COUNT must report the implemented count. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_PCR_COUNT); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 9), TPM_PT_PCR_COUNT);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 13), IMPLEMENTATION_PCR);
+
+    /* Highest implemented PCR: readable, and extendable from locality 0
+     * (PCR 0-16 and 23 accept any locality; a reduced-PCR build tops out
+     * inside that range). */
+    cmdSz = BuildPcrReadCmd(gCmd, (UINT32)(IMPLEMENTATION_PCR - 1));
+    rspSize = 0;
+    AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(SendPcrExtendLoc(&ctx, IMPLEMENTATION_PCR - 1, 0),
+        TPM_RC_SUCCESS);
+
+    /* First unavailable PCR: rejected, not wrapped onto a valid index. */
+    AssertIntEQ(SendPcrExtendLoc(&ctx, IMPLEMENTATION_PCR, 0), TPM_RC_VALUE);
+    AssertIntEQ(SendPcrResetLoc(&ctx, IMPLEMENTATION_PCR, 0), TPM_RC_VALUE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PCR bounds (highest implemented / first absent):", 0);
+}
+
+#if IMPLEMENTATION_PCR >= 24
 static void test_fwtpm_pcr_reset(void)
 {
     FWTPM_CTX ctx;
@@ -8788,6 +9134,7 @@ static void test_fwtpm_pcr_reset(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PCR_Reset(16):", 0);
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
 /* Per the TCG PC Client TPM Profile per-PCR reset locality map:
  *   PCR 16, 23 reset from localities 0-3 (not 4);
@@ -8795,6 +9142,7 @@ static void test_fwtpm_pcr_reset(void)
  *   PCR 20-22 reset from localities 2-4;
  *   PCR 0-15 are never user-resettable.
  * Verify both the reject (wrong locality) and allow (correct locality) paths. */
+#if IMPLEMENTATION_PCR >= 24
 static void test_fwtpm_pcr_reset_locality_enforced(void)
 {
     FWTPM_CTX ctx;
@@ -8827,9 +9175,11 @@ static void test_fwtpm_pcr_reset_locality_enforced(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PCR_Reset locality map enforced:", 0);
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
 /* Per-PCR extend locality map: 0-16,23 any; 17,18 loc2-4; 19 loc2-3;
  * 20 loc1-3; 21,22 loc2. Verify reject and allow paths. */
+#if IMPLEMENTATION_PCR >= 24
 static void test_fwtpm_pcr_extend_locality_enforced(void)
 {
     FWTPM_CTX ctx;
@@ -8861,7 +9211,9 @@ static void test_fwtpm_pcr_extend_locality_enforced(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PCR_Extend locality map enforced:", 0);
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
+#if IMPLEMENTATION_PCR >= 24
 /* TPM_CAP_PCR_PROPERTIES must report a well-formed TPML_TAGGED_PCR_PROPERTY
  * whose RESET_Lx / EXTEND_Lx / DRTM_RESET bitmaps match the enforcement table. */
 static int PcrSelHas(const byte* sel, int selSz, int pcr)
@@ -8959,7 +9311,9 @@ static void test_fwtpm_pcr_properties_capability(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PCR_PROPERTIES capability map:", 0);
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
+#if IMPLEMENTATION_PCR >= 24
 static void test_fwtpm_pcr_event(void)
 {
     FWTPM_CTX ctx;
@@ -8984,6 +9338,7 @@ static void test_fwtpm_pcr_event(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("PCR_Event(16):", 0);
 }
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
 static void test_fwtpm_hierarchy_change_auth(void)
 {
@@ -9159,6 +9514,7 @@ static void test_fwtpm_sessions_trial_in_auth_slot_rejected(void)
 
 /* A command with two @auth handles that supplies only one auth entry must be
  * rejected with TPM_RC_AUTH_MISSING. */
+#ifndef FWTPM_NO_HASH_CMDS
 static void test_fwtpm_sessions_short_authcount_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -9182,6 +9538,7 @@ static void test_fwtpm_sessions_short_authcount_rejected(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("SESSIONS two-auth one-entry (AUTH_MISSING):", 0);
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 /* A SESSIONS command that ends before its authorizationSize field is malformed
  * and must be reported as TPM_RC_COMMAND_SIZE, not an auth error. */
@@ -10148,6 +10505,7 @@ static void test_fwtpm_loadexternal_symcipher_bad_keysize_rejected(void)
 /* Rewrap must re-encrypt under a storage parent. A TPM_RH_NULL newParent
  * would serialize the unwrapped TPMT_SENSITIVE in the clear, so it must be
  * rejected per Part 3 Sec.23.4.2. */
+#ifndef FWTPM_NO_KEY_MIGRATION
 static void test_fwtpm_rewrap_null_newparent_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -10176,11 +10534,13 @@ static void test_fwtpm_rewrap_null_newparent_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tRewrap(NULL newParent) rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_KEY_MIGRATION */
 
 /* ================================================================== */
 /* Group D: Hash/HMAC Sequences                                        */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_HASH_CMDS
 static void test_fwtpm_hash_sequence(void)
 {
     FWTPM_CTX ctx;
@@ -10231,8 +10591,9 @@ static void test_fwtpm_hash_sequence(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("HashSequence (Start/Upd/Comp):", 0);
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
-#ifdef HAVE_ECC
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
 static void test_fwtpm_ecc_parameters(void)
 {
     FWTPM_CTX ctx;
@@ -10254,6 +10615,7 @@ static void test_fwtpm_ecc_parameters(void)
 }
 #endif
 
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_context_save(void)
 {
     FWTPM_CTX ctx;
@@ -10281,9 +10643,11 @@ static void test_fwtpm_context_save(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ContextSave:", 0);
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* A saved context must load at most once; replaying the same blob is
  * rejected to prevent resurrecting a satisfied policy session. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_context_load_replay_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -10356,9 +10720,11 @@ static void test_fwtpm_context_load_replay_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContextLoad object reload + session replay:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* A hand-forged object context blob (unauthenticated plaintext format) must be
  * rejected on load with TPM_RC_INTEGRITY. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_contextload_forged_object_blob_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -10398,10 +10764,12 @@ static void test_fwtpm_contextload_forged_object_blob_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContextLoad forged object blob rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* A ContextLoad whose blobSz claims more bytes than the command carries must
  * be rejected before any blob is parsed, so a short command cannot leave the
  * wrapped-blob buffer partly uninitialized. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_contextload_short_blob_rejected(void)
 {
     FWTPM_CTX ctx;
@@ -10438,9 +10806,11 @@ static void test_fwtpm_contextload_short_blob_rejected(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContextLoad short blob rejected:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* A context saved by the TPM must load back successfully and yield a usable
  * handle. Guards that the object blob wrapping is self-consistent. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_context_object_roundtrip(void)
 {
     FWTPM_CTX ctx;
@@ -10485,9 +10855,11 @@ static void test_fwtpm_context_object_roundtrip(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContextLoad object roundtrip:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* The context type is bound into the blob MAC, so a blob wrapped for one
  * domain must not verify when unwrapped as the other. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_context_blob_domain_separation(void)
 {
     FWTPM_CTX ctx;
@@ -10515,9 +10887,11 @@ static void test_fwtpm_context_blob_domain_separation(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tContext blob domain separation:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* When the command client changes, transient objects must be flushed so a
  * replacement client cannot enumerate and use the previous client's handles. */
+#ifndef FWTPM_NO_CONTEXT
 static void test_fwtpm_reset_command_client_flushes_transient(void)
 {
     FWTPM_CTX ctx;
@@ -10551,6 +10925,7 @@ static void test_fwtpm_reset_command_client_flushes_transient(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tResetCommandClient flushes transient:\tPassed\n");
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 static void test_fwtpm_evict_control(void)
 {
@@ -10746,6 +11121,7 @@ static void test_fwtpm_evict_control_persistent_object_rejected(void)
     fwtpm_pass("EvictControl persistent object reject (HANDLE):", 0);
 }
 
+#ifndef FWTPM_NO_CLOCK
 static void test_fwtpm_clock_set(void)
 {
     FWTPM_CTX ctx;
@@ -10784,6 +11160,7 @@ static void test_fwtpm_clock_set(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("ClockSet/ClockRateAdjust:", 0);
 }
+#endif /* !FWTPM_NO_CLOCK */
 
 /* ================================================================== */
 /* HAL registration tests                                              */
@@ -11404,22 +11781,33 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();
+    test_fwtpm_total_commands();
+
+    /* Command-group gates (FWTPM_NO_* macros) */
+    test_fwtpm_command_gates();
 
     /* PCR operations */
     test_fwtpm_pcr_read();
+    test_fwtpm_pcr_bounds();
     test_fwtpm_pcr_extend_and_read();
     test_fwtpm_pw_session_continue_set();
+#if IMPLEMENTATION_PCR >= 24
     test_fwtpm_pcr_event_drtm_locality_enforced();
+#endif /* IMPLEMENTATION_PCR >= 24 */
     test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth();
+#if IMPLEMENTATION_PCR >= 24
     test_fwtpm_pcr_reset();
     test_fwtpm_pcr_reset_locality_enforced();
     test_fwtpm_pcr_extend_locality_enforced();
     test_fwtpm_pcr_properties_capability();
     test_fwtpm_pcr_event();
+#endif /* IMPLEMENTATION_PCR >= 24 */
 
     /* Clock */
+#ifndef FWTPM_NO_CLOCK
     test_fwtpm_readclock();
     test_fwtpm_clock_set();
+#endif /* !FWTPM_NO_CLOCK */
 
     /* HAL registration (clock + NV). The NV HAL test uses a mock
      * backend and must not leave the default file in a half-written
@@ -11484,7 +11872,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sequenceupdate_neg();
     test_fwtpm_signdigest_restricted_null_ticket_returns_ticket();
     test_fwtpm_signdigest_x509sign_returns_attributes();
+#ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_signdigest_restricted_valid_ticket_succeeds();
+#endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_verifydigest_sig_hashalg_mismatch_returns_scheme();
     test_fwtpm_create_primary_mldsa_extmu_returns_ext_mu();
     test_fwtpm_testparms_mldsa_extmu_returns_ext_mu();
@@ -11510,9 +11900,13 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();
+#ifdef WOLFTPM_MLDSA
     test_fwtpm_signseqcomplete_wrong_key_frees_slot();
+#endif /* WOLFTPM_MLDSA */
     test_fwtpm_pqc_nv_persistence();
+#ifdef WOLFTPM_MLDSA
     test_fwtpm_signseq_slot_exhaustion();
+#endif /* WOLFTPM_MLDSA */
     test_fwtpm_signseq_longmsg_boundary();
     test_fwtpm_mldsa87_maxbuf();
     test_fwtpm_response_buffer_capacity();
@@ -11521,11 +11915,14 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
     test_fwtpm_read_public();
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
+#ifndef FWTPM_NO_KEY_MIGRATION
     test_fwtpm_rewrap_null_newparent_rejected();
+#endif /* !FWTPM_NO_KEY_MIGRATION */
     test_fwtpm_evict_control();
     test_fwtpm_evict_control_cross_hierarchy_rejected();
     test_fwtpm_evict_control_bad_persistent_handle_rejected();
     test_fwtpm_evict_control_persistent_object_rejected();
+#ifndef FWTPM_NO_CONTEXT
     test_fwtpm_context_save();
     test_fwtpm_context_load_replay_rejected();
     test_fwtpm_contextload_forged_object_blob_rejected();
@@ -11533,11 +11930,14 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_context_object_roundtrip();
     test_fwtpm_context_blob_domain_separation();
     test_fwtpm_reset_command_client_flushes_transient();
+#endif /* !FWTPM_NO_CONTEXT */
 
     /* Crypto */
+#ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_hash();
     test_fwtpm_hash_sequence();
-#ifdef HAVE_ECC
+#endif /* !FWTPM_NO_HASH_CMDS */
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_parameters();
 #endif
 
@@ -11610,9 +12010,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_quote_ecdaa_scheme();
     test_fwtpm_sign_ecdaa_scheme();
     test_fwtpm_certify_creation_ecdaa_scheme();
+#ifndef FWTPM_NO_ECDH
     test_fwtpm_ecdh_keygen_signkey_returns_attributes();
     test_fwtpm_ecdh_zgen_signkey_returns_attributes();
     test_fwtpm_zgen_2phase_signkey_returns_attributes();
+#endif /* !FWTPM_NO_ECDH */
     test_fwtpm_quote_decrypt_key_returns_key();
     test_fwtpm_quote_unrestricted_sign_returns_attributes();
     test_fwtpm_sign_scheme_downgrade_rejected();
@@ -11634,7 +12036,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_clear_no_sessions_returns_auth_missing();
     test_fwtpm_sessions_empty_autharea_rejected();
     test_fwtpm_sessions_trial_in_auth_slot_rejected();
+#ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_sessions_short_authcount_rejected();
+#endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_sessions_missing_authsize_command_size();
     test_fwtpm_clear();
 

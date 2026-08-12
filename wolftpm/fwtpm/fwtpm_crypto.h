@@ -255,6 +255,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 
 /* --- Context blob wrap/unwrap (ContextSave/Load) --- */
 
+#ifndef FWTPM_NO_CONTEXT
 /* Domain-separation tag bound into the blob MAC so an object blob cannot be
  * verified through the session path or vice versa. */
 #define FWTPM_CTX_TYPE_SESSION 0x01
@@ -266,6 +267,7 @@ int FwWrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
 int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     const byte* in, int inSz,
     byte* out, int outBufSz, int* outSz);
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* --- Seed encrypt/decrypt --- */
 
