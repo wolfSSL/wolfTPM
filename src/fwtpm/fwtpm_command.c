@@ -16811,6 +16811,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             else if (entityH == TPM_RH_LOCKOUT) {
                 authPolicy = &ctx->lockoutPolicy;
             }
+            /* PCR handles: check PCR_SetAuthPolicy-assigned policy */
+            else if (entityH <= PCR_LAST) {
+                authPolicy = &ctx->pcrPolicy[entityH - PCR_FIRST];
+            }
 
             /* If entity has a non-empty authPolicy, it must match */
             if (authPolicy != NULL && authPolicy->size > 0) {
@@ -16865,6 +16869,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 printf("fwTPM: Policy session empty-HMAC rejected for "
                     "handle 0x%x without authPolicy (CC=0x%x)\n",
                     entityH, cmdCode);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                return TPM_RC_SUCCESS;
+            }
+            else if (authPolicy == NULL) {
+                /* A policy session cannot authorize a handle whose authPolicy
+                 * cannot be resolved (for example hash/sign sequence handles);
+                 * fail closed per TPM 2.0 Part 1 Sec. 19.7. */
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy session rejected for handle 0x%x with "
+                    "unresolved authPolicy (CC=0x%x)\n", entityH, cmdCode);
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);

@@ -572,6 +572,53 @@ TPM_RC FwGenerateEccKey(WC_RNG* rng,
 /* ================================================================== */
 
 #ifdef HAVE_ECC
+/* Constant-time compare of two big-endian byte arrays of equal length.
+ * Returns 1 when a < b, otherwise 0. */
+static int FwCtLessBE(const byte* a, const byte* b, int len)
+{
+    int i;
+    unsigned int borrow = 0;
+    for (i = len - 1; i >= 0; i--) {
+        unsigned int diff = (unsigned int)a[i] - (unsigned int)b[i] - borrow;
+        borrow = (diff >> 8) & 1u;
+    }
+    return (int)borrow;
+}
+
+/* Load the curve order into a big-endian, keySz-padded buffer and report its
+ * bit length, used to bound and mask the derived scalar. */
+static TPM_RC FwEccGetCurveOrder(int wcCurve, byte* orderBuf, int keySz,
+    int* orderBits)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int idx;
+    const ecc_set_type* dp;
+    mp_int order;
+
+    idx = wc_ecc_get_curve_idx(wcCurve);
+    if (idx < 0) {
+        return TPM_RC_CURVE;
+    }
+    dp = wc_ecc_get_curve_params(idx);
+    if (dp == NULL) {
+        return TPM_RC_CURVE;
+    }
+    if (mp_init(&order) != MP_OKAY) {
+        return TPM_RC_FAILURE;
+    }
+    if (mp_read_radix(&order, dp->order, MP_RADIX_HEX) != MP_OKAY) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        *orderBits = mp_count_bits(&order);
+        if (mp_to_unsigned_bin_len(&order, orderBuf, keySz) != MP_OKAY) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    mp_clear(&order);
+    return rc;
+}
+
 /* Derive ECC primary key from hierarchy seed per TPM 2.0 Part 1 Section 26.3.
  *   d = KDFa(nameAlg, seed, "ECC", hashUnique, counter, keySz*8)
  *   Q = d * G
@@ -596,12 +643,20 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
     int i;
     int allZero;
     volatile byte orAccum;
+    byte orderBuf[MAX_ECC_BYTES];
+    int orderBits = 0;
 
     FWTPM_ALLOC_VAR(eccKey, ecc_key);
 
     if (wcCurve < 0 || keySz == 0 || keySz > (int)sizeof(dBuf)) {
         FWTPM_FREE_VAR(eccKey);
         return TPM_RC_CURVE;
+    }
+
+    rc = FwEccGetCurveOrder(wcCurve, orderBuf, keySz, &orderBits);
+    if (rc != 0) {
+        FWTPM_FREE_VAR(eccKey);
+        return rc;
     }
 
     /* Derive private scalar d via KDFa, retry if out of range */
@@ -615,14 +670,18 @@ TPM_RC FwDeriveEccPrimaryKey(TPMI_ALG_HASH nameAlg,
             rc = TPM_RC_FAILURE;
             break;
         }
-        /* Constant-time check d != 0 (all zeros) */
+        /* Mask unused high bits so the candidate matches the order bit length */
+        if ((orderBits & 7) != 0) {
+            dBuf[0] &= (byte)((1u << (orderBits & 7)) - 1u);
+        }
+        /* Constant-time check 0 < d < order */
         orAccum = 0;
         for (i = 0; i < keySz; i++) {
             orAccum |= dBuf[i];
         }
         allZero = (orAccum == 0);
-        if (!allZero) {
-            valid = 1; /* Accept — range check done by import */
+        if (!allZero && FwCtLessBE(dBuf, orderBuf, keySz)) {
+            valid = 1;
         }
         counter++;
     }
