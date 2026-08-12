@@ -690,6 +690,14 @@ static inline int TPM2_WolfCrypt_Init(void)
 {
     int rc = 0;
 
+#if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+    defined(WOLFSSL_MUTEX_INITIALIZER)
+    /* gHwLock is statically initialized, so it can guard the reference count
+     * before wolfCrypt is initialized */
+    if (wc_LockMutex(&gHwLock) != 0)
+        return TPM_RC_FAILURE;
+#endif
+
     /* track reference count for wolfCrypt initialization */
     if (gWolfCryptRefCount == 0) {
     #ifdef DEBUG_WOLFSSL
@@ -710,7 +718,39 @@ static inline int TPM2_WolfCrypt_Init(void)
     }
     gWolfCryptRefCount++;
 
+#if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+    defined(WOLFSSL_MUTEX_INITIALIZER)
+    wc_UnLockMutex(&gHwLock);
+#endif
+
     return rc;
+}
+
+static inline void TPM2_WolfCrypt_Cleanup(void)
+{
+#if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+    defined(WOLFSSL_MUTEX_INITIALIZER)
+    int locked = (wc_LockMutex(&gHwLock) == 0);
+#endif
+
+    /* track wolf initialize reference count in wolfTPM. wolfCrypt does not
+     * properly track reference count in v4.1 or older releases */
+    gWolfCryptRefCount--;
+    if (gWolfCryptRefCount < 0)
+        gWolfCryptRefCount = 0;
+    if (gWolfCryptRefCount == 0) {
+    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+        !defined(WOLFSSL_MUTEX_INITIALIZER)
+        wc_FreeMutex(&gHwLock);
+    #endif
+        wolfCrypt_Cleanup();
+    }
+
+#if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+    defined(WOLFSSL_MUTEX_INITIALIZER)
+    if (locked)
+        wc_UnLockMutex(&gHwLock);
+#endif
 }
 #endif
 
@@ -957,18 +997,7 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
     #endif
 
-    /* track wolf initialize reference count in wolfTPM. wolfCrypt does not
-     * properly track reference count in v4.1 or older releases */
-    gWolfCryptRefCount--;
-    if (gWolfCryptRefCount < 0)
-        gWolfCryptRefCount = 0;
-    if (gWolfCryptRefCount == 0) {
-    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
-        !defined(WOLFSSL_MUTEX_INITIALIZER)
-        wc_FreeMutex(&gHwLock);
-    #endif
-        wolfCrypt_Cleanup();
-    }
+    TPM2_WolfCrypt_Cleanup();
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if (defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)) \
