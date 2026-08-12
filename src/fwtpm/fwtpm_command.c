@@ -13129,12 +13129,12 @@ static TPM_RC FwCmd_CertifyCreation(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 FwComputeObjectName(objToSign);
             }
 
-            /* ticketData = creationHash || objectName */
-            XMEMCPY(ticketData, creationHash.buffer, creationHash.size);
-            ticketDataSz = creationHash.size;
-            XMEMCPY(ticketData + ticketDataSz, objToSign->name.name,
-                objToSign->name.size);
-            ticketDataSz += objToSign->name.size;
+            /* ticketData = objectName || creationHash per Part 2 Sec.10.6.3 */
+            XMEMCPY(ticketData, objToSign->name.name, objToSign->name.size);
+            ticketDataSz = objToSign->name.size;
+            XMEMCPY(ticketData + ticketDataSz, creationHash.buffer,
+                creationHash.size);
+            ticketDataSz += creationHash.size;
 
             int hmacRc;
             UINT16 sizeMismatch;
