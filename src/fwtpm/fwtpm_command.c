@@ -9726,6 +9726,7 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte ccBuf[4];
     UINT32 cc = TPM_CC_PolicyAuthorize;
     TPMI_ALG_HASH keyNameAlg = TPM_ALG_SHA256; /* from keySignName */
+    int keyNameDigestSz = 0;
     (void)cmdSize;
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
@@ -9760,11 +9761,25 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_ParseBytes(cmd, keySignName, keySignNameSz);
 
         /* Extract nameAlg from keySignName (first 2 bytes, big-endian).
-         * This determines the hash algorithm for aHash and ticket HMAC. */
+         * This determines the hash algorithm for aHash and ticket HMAC. A
+         * valid Name is a supported hash selector followed by exactly that
+         * algorithm's digest. */
         if (keySignNameSz >= 2) {
             keyNameAlg = (TPMI_ALG_HASH)(
                 ((UINT16)keySignName[0] << 8) | keySignName[1]);
+            keyNameDigestSz = TPM2_GetHashDigestSize(keyNameAlg);
+            if (keyNameDigestSz <= 0) {
+                rc = TPM_RC_HASH;
+            }
+            else if (keySignNameSz != (UINT16)(2 + keyNameDigestSz)) {
+                rc = TPM_RC_SIZE;
+            }
         }
+        else {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
 
         /* checkTicket: TPMT_TK_VERIFIED: tag(2) + hierarchy(4) + digest(TPM2B)
          * Per TPM 2.0 Part 3 Section 23.16: verify ticket was produced by
