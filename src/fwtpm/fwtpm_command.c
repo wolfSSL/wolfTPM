@@ -9933,7 +9933,7 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 printf("fwTPM: PolicyAuthorize: "
                     "approvedPolicy != policyDigest\n");
             #endif
-                rc = TPM_RC_POLICY_FAIL;
+                rc = TPM_RC_VALUE;
             }
         }
     }
