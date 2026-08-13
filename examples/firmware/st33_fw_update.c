@@ -28,11 +28,23 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+/* wolfTPM2_FirmwareUpgrade_ex hashes the manifest with SHA-384, so it is only
+ * built with wolfCrypt. This tool has no other way to drive an upgrade. */
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
 
+#include <examples/firmware/firmware_policy.h>
 #include <examples/tpm_test_keys.h>
 #include <hal/tpm_io.h>
+
+/* WOLFTPM_HAVE_FW_POLICY comes from firmware_policy.h, which owns the
+ * condition so the two firmware examples cannot drift. */
+
+/* Caller-supplied policy authorization modes */
+#define ST33_POLICY_NONE     0 /* default password (TPM_RS_PW) auth */
+#define ST33_POLICY_CMDCODE  1 /* --policy:   single PolicyCommandCode */
+#define ST33_POLICY_OR       2 /* --policyor: multi-branch PolicyOR */
 
 /******************************************************************************/
 /* --- BEGIN ST33 TPM2.0 Firmware Update tool  -- */
@@ -47,7 +59,13 @@ static void usage(void)
     printf("ST33 Firmware Update Usage:\n");
     printf("\t./st33_fw_update (get info)\n");
     printf("\t./st33_fw_update --abandon (cancel)\n");
-    printf("\t./st33_fw_update <firmware.fi>\n");
+    printf("\t./st33_fw_update --policytest (safe policy auth self-test)\n");
+    printf("\t./st33_fw_update [policy opts] <firmware.fi>\n");
+    printf("\t./st33_fw_update <firmware.fi> (default password auth)\n");
+    printf("Policy options (caller-supplied authorization):\n");
+    printf("\t--policy    provision+satisfy a PolicyCommandCode\n");
+    printf("\t--policyor  provision+satisfy a PolicyOR (multi-branch)\n");
+    printf("\t--sha256|--sha384|--sha512  policy hash (default SHA-256)\n");
     printf("\nFirmware format is auto-detected from the TPM firmware version.\n");
     printf("Just provide the correct .fi file for your TPM and it will be handled automatically.\n");
 }
@@ -185,22 +203,65 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
     fw_info_t fwinfo;
     int abandon = 0;
     size_t blob0_size;
+    int i;
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    int policytest = 0;
+    int policyMode = ST33_POLICY_NONE;
+    TPMI_ALG_HASH policyHash = TPM_ALG_SHA256;
+    WOLFTPM2_SESSION policySession;
+    FirmwarePolicyCtx policyCtx;
+    int clearRc;
+#endif
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
     XMEMSET(&caps, 0, sizeof(caps));
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    XMEMSET(&policySession, 0, sizeof(policySession));
+    XMEMSET(&policyCtx, 0, sizeof(policyCtx));
+#endif
 
-    if (argc >= 2) {
-        if (XSTRCMP(argv[1], "-?") == 0 ||
-            XSTRCMP(argv[1], "-h") == 0 ||
-            XSTRCMP(argv[1], "--help") == 0) {
+    for (i = 1; i < argc; i++) {
+        if (XSTRCMP(argv[i], "-?") == 0 ||
+            XSTRCMP(argv[i], "-h") == 0 ||
+            XSTRCMP(argv[i], "--help") == 0) {
             usage();
             return 0;
         }
-        if (XSTRCMP(argv[1], "--abandon") == 0) {
+        else if (XSTRCMP(argv[i], "--abandon") == 0) {
             abandon = 1;
         }
+#ifdef WOLFTPM_HAVE_FW_POLICY
+        else if (XSTRCMP(argv[i], "--policytest") == 0) {
+            policytest = 1;
+        }
+        else if (XSTRCMP(argv[i], "--policy") == 0) {
+            policyMode = ST33_POLICY_CMDCODE;
+        }
+        else if (XSTRCMP(argv[i], "--policyor") == 0) {
+            policyMode = ST33_POLICY_OR;
+        }
+        else if (XSTRCMP(argv[i], "--sha256") == 0) {
+            policyHash = TPM_ALG_SHA256;
+        }
+        else if (XSTRCMP(argv[i], "--sha384") == 0) {
+            policyHash = TPM_ALG_SHA384;
+        }
+        else if (XSTRCMP(argv[i], "--sha512") == 0) {
+            policyHash = TPM_ALG_SHA512;
+        }
+#endif /* WOLFTPM_HAVE_FW_POLICY */
+        else if (argv[i][0] == '-') {
+            printf("Unrecognized option: %s\n", argv[i]);
+            usage();
+            return BAD_FUNC_ARG;
+        }
+        else if (fi_file == NULL) {
+            fi_file = argv[i];
+        }
         else {
-            fi_file = argv[1];
+            printf("Unexpected extra argument: %s\n", argv[i]);
+            usage();
+            return BAD_FUNC_ARG;
         }
     }
 
@@ -231,6 +292,23 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
             return rc;
         }
         if (fi_file != NULL) {
+        #ifdef WOLFTPM_HAVE_FW_POLICY
+            /* FieldUpgradeStart already ran, so there is no command left for a
+             * caller-supplied session to authorize. Continuing here would
+             * silently downgrade to the default authorization - exactly what
+             * these flags exist to make explicit - so refuse instead. */
+            if (policyMode != ST33_POLICY_NONE || policytest) {
+                printf("Cannot apply policy authorization: the TPM is already "
+                       "in\n");
+                printf("  firmware upgrade mode, so FieldUpgradeStart has "
+                       "already run.\n");
+                printf("  Re-run without --policy/--policyor/--policytest to "
+                       "continue,\n");
+                printf("  or --abandon and power cycle to start over.\n");
+                rc = BAD_FUNC_ARG;
+                goto exit;
+            }
+        #endif
             /* Continue firmware update - TPM already in upgrade mode */
             printf("Continuing firmware update...\n");
             fwinfo.in_upgrade_mode = 1;
@@ -244,6 +322,18 @@ int TPM2_ST33_Firmware_Update(void* userCtx, int argc, char *argv[])
         printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
+
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    if (policytest) {
+        /* Non-destructive validation of caller-supplied policy authorization.
+         * Runs SHA2-256/384/512 PolicyOR digest checks (a hash the TPM does
+         * not support is reported and skipped). Does not touch firmware
+         * upgrade state. */
+        rc = firmware_policy_selftest_all(&dev);
+        wolfTPM2_Cleanup(&dev);
+        return rc;
+    }
+#endif
 
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     if (rc != TPM_RC_SUCCESS) {
@@ -351,10 +441,27 @@ load_firmware:
         rc = TPM2_ST33_SendFirmwareData(&fwinfo);
     }
     else {
-        /* Normal mode - use unified API which auto-detects format from manifest size */
-        rc = wolfTPM2_FirmwareUpgrade(&dev,
-            fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
-            TPM2_ST33_FwData_Cb, &fwinfo);
+        WOLFTPM2_SESSION* startSess = NULL;
+    #ifdef WOLFTPM_HAVE_FW_POLICY
+        /* When a policy mode is requested, provision the platform authPolicy
+         * and build a session that satisfies it, then drive the upgrade under
+         * that caller-supplied session instead of the default password auth. */
+        if (policyMode != ST33_POLICY_NONE) {
+            rc = firmware_policy_session_setup(&dev, &policyCtx, policyHash,
+                (policyMode == ST33_POLICY_OR),
+                TPM_CC_FieldUpgradeStartVendor_ST33, &policySession);
+            if (rc == 0) {
+                printf("Using caller-supplied policy session\n");
+                startSess = &policySession;
+            }
+        }
+    #endif
+        /* Normal mode - unified API auto-detects format from manifest size */
+        if (rc == 0) {
+            rc = wolfTPM2_FirmwareUpgrade_ex(&dev,
+                fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
+                TPM2_ST33_FwData_Cb, &fwinfo, startSess);
+        }
     }
     if (rc == 0) {
         printf("\nFirmware update completed successfully.\n");
@@ -377,6 +484,33 @@ exit:
             rc, TPM2_GetRCString(rc));
     }
 
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    /* On a successful start the TPM consumes the session and the library sets
+     * handle.hndl to TPM_RH_NULL (0x40000007), which is non-zero - so this
+     * guard does not distinguish consumed from live. It does not need to:
+     * wolfTPM2_UnloadHandle is a no-op on TPM_RH_NULL, so the call only ever
+     * flushes a session that is still loaded. */
+    if (policySession.handle.hndl != 0) {
+        wolfTPM2_UnloadHandle(&dev, &policySession.handle);
+    }
+    /* Clear the platform policy if the upgrade did not complete. Gated on
+     * policyCtx.provisioned inside the helper, so an early failure cannot wipe
+     * a policy this example never installed.
+     *
+     * Skip the attempt once the start has succeeded: the TPM consumed the
+     * session (handle set to TPM_RH_NULL) and reset into firmware-upgrade
+     * mode, where it will not service TPM2_SetPrimaryPolicy - and the
+     * mandatory TPM reset clears the policy anyway. */
+    if (rc != 0 && policySession.handle.hndl != TPM_RH_NULL) {
+        clearRc = firmware_policy_clear(&dev, &policyCtx);
+        /* Report a failed rollback, but never overwrite the upgrade error that
+         * explains why this run failed - that rc is the process exit status
+         * and the only machine-readable diagnostic a script sees. */
+        if (clearRc != 0 && rc == 0) {
+            rc = clearRc;
+        }
+    }
+#endif
     /* Only free the main fi_buf - manifest_buf and firmware_buf point into it */
     XFREE(fwinfo.fi_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     wolfTPM2_Cleanup(&dev);
@@ -387,7 +521,8 @@ exit:
 /******************************************************************************/
 /* --- END ST33 TPM2.0 Firmware Update tool  -- */
 /******************************************************************************/
-#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_ST33 || WOLFTPM_AUTODETECT) &&
+        * !WOLFTPM2_NO_WOLFCRYPT */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
@@ -395,13 +530,16 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT))
+    (defined(WOLFTPM_ST33) || defined(WOLFTPM_AUTODETECT)) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_ST33_Firmware_Update(NULL, argc, argv);
 #else
     printf("Support for ST33 firmware upgrade not compiled in!\n"
         "See --enable-firmware or WOLFTPM_FIRMWARE_UPGRADE\n");
     printf("This tool is for the STMicroelectronics ST33KTPM TPMs only\n"
         "\t--enable-st33 (WOLFTPM_ST33)\n");
+    printf("Firmware upgrade also requires wolfCrypt "
+        "(not WOLFTPM2_NO_WOLFCRYPT)\n");
     (void)argc;
     (void)argv;
 #endif

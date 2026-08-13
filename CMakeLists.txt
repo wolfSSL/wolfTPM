@@ -480,8 +480,13 @@ if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
 endif()
 
 function(add_tpm_example name src)
+    # Optional additional sources may be passed after 'src' (ARGN)
+    set(_example_srcs examples/${src})
+    foreach(_extra ${ARGN})
+        list(APPEND _example_srcs examples/${_extra})
+    endforeach()
     add_executable(${name}
-        examples/${src}
+        ${_example_srcs}
         )
     target_link_libraries(${name} PRIVATE wolftpm tpm_test_lib wolftpm_wolfssl_dep)
     if(WIN32)
@@ -705,7 +710,15 @@ if (WOLFTPM_EXAMPLES AND BUILD_WOLFTPM_LIB)
     add_tpm_example(secure_rot boot/secure_rot.c)
     add_tpm_example(csr csr/csr.c)
     add_tpm_example(get_ek_certs endorsement/get_ek_certs.c)
-    add_tpm_example(ifx_fw_update firmware/ifx_fw_update.c)
+    # firmware_policy.c is entirely inside a WOLFTPM_FIRMWARE_UPGRADE guard, so
+    # compiling it with firmware upgrade disabled yields an empty translation
+    # unit (which ISO C forbids and -Wpedantic rejects).
+    if(WOLFTPM_FIRMWARE)
+        add_tpm_example(ifx_fw_update firmware/ifx_fw_update.c
+                        firmware/firmware_policy.c)
+    else()
+        add_tpm_example(ifx_fw_update firmware/ifx_fw_update.c)
+    endif()
     add_tpm_example(gpio_config gpio/gpio_config.c)
     add_tpm_example(gpio_read gpio/gpio_read.c)
     add_tpm_example(gpio_set gpio/gpio_set.c)

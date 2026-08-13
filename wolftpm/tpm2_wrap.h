@@ -401,6 +401,36 @@ WOLFTPM_API int wolfTPM2_GetCapabilities(WOLFTPM2_DEV* dev, WOLFTPM2_CAPS* caps)
 
 /*!
     \ingroup wolfTPM2_Wrappers
+
+    \brief Report whether the TPM implements a given algorithm
+
+    \note Queries TPM_CAP_ALGS. Useful to skip a hash the TPM does not support
+          (for example SHA2-512 on parts limited to SHA2-256/384) before starting
+          a session with it.
+
+    \note The result is returned through isSupported, not the return value, so a
+          capability-query failure cannot be mistaken for "supported". On any
+          error *isSupported is set to 0, so the call fails closed.
+
+    \note This reports what the TPM implements, not what the local wolfCrypt
+          build supports. A caller that also hashes locally (for example to
+          precompute a policy digest) must check its own build as well.
+
+    \return TPM_RC_SUCCESS: query completed; *isSupported is 1 or 0
+    \return BAD_FUNC_ARG: dev or isSupported is NULL
+    \return a TPM_RC (or other non-zero error) if the capability query fails
+
+    \param dev pointer to a TPM2_DEV struct
+    \param alg the algorithm identifier to test (for example TPM_ALG_SHA512)
+    \param isSupported output, set to 1 if implemented by the TPM, else 0
+
+    \sa wolfTPM2_GetCapabilities
+*/
+WOLFTPM_API int wolfTPM2_IsAlgSupported(WOLFTPM2_DEV* dev, TPM_ALG_ID alg,
+    int* isSupported);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
     \brief Gets a list of handles
 
     \return 0 or greater: successful, count of handles
@@ -4878,6 +4908,36 @@ WOLFTPM_API int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg,
 /*!
     \ingroup wolfTPM2_Wrappers
 
+    \brief Compute the policy digest for PolicyCommandCode on a fresh session
+
+    \note policyDigest = hash(zeroDigest || TPM_CC_PolicyCommandCode || cc).
+          Mirrors the running digest of a new policy session after
+          wolfTPM2_PolicyCommandCode.
+
+    \note digestSz is in/out. On input it is the capacity of the digest buffer
+          in bytes, which must be at least the hash size or BUFFER_E is returned
+          without writing to digest. On output it is the hash size written.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: NULL digest/digestSz or unsupported hashAlg
+    \return BUFFER_E: *digestSz (the buffer capacity) is smaller than the
+            hash size for hashAlg
+
+    \param hashAlg hash algorithm for the policy digest
+    \param digest output policy digest buffer
+    \param digestSz in/out: input buffer capacity, output digest size
+    \param cc the command code to bind (for example TPM_CC_NV_Read)
+
+    \sa wolfTPM2_PolicyCommandCode
+    \sa wolfTPM2_PolicyHash
+    \sa wolfTPM2_PolicyPCRMake
+*/
+WOLFTPM_API int wolfTPM2_PolicyCommandCodeMake(TPM_ALG_ID hashAlg,
+    byte* digest, word32* digestSz, TPM_CC cc);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
     \brief Utility for creating a policy hash.
     Generic helper that takes command code and input array.
     policyDigestnew = hash(policyDigestOld || [cc] || [Input])
@@ -4978,6 +5038,63 @@ WOLFTPM_API int wolfTPM2_PolicyAuthValue(WOLFTPM2_DEV* dev,
 */
 WOLFTPM_API int wolfTPM2_PolicyCommandCode(WOLFTPM2_DEV* dev,
     WOLFTPM2_SESSION* tpmSession, TPM_CC cc);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Wrapper for satisfying a policy session with a compound OR of digests
+
+    \note The digest list is hash-agnostic (each branch carries its own size),
+          so it supports SHA2-256 through SHA2-512 policy branches. The number of
+          branches (pHashList->count) must be between 2 and the TPML_DIGEST
+          capacity (the digests[] array length), and each branch's size must not
+          exceed the digest buffer length; branches beyond count are ignored.
+
+    \note A minimum of two branches is required by TPM 2.0 Part 3 Sec.23.6. A
+          one-branch list is rejected here with BAD_FUNC_ARG rather than sent to
+          the TPM, which would answer TPM_RC_VALUE.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: bad pointer, count out of range (< 2 or > capacity),
+            or a branch size that exceeds the digest buffer
+
+    \param dev pointer to a TPM2_DEV struct
+    \param tpmSession pointer to a WOLFTPM2_SESSION struct used with wolfTPM2_StartSession and wolfTPM2_SetAuthSession
+    \param pHashList list of pre-computed policy branch digests to OR together
+
+    \sa wolfTPM2_PolicyPCR
+    \sa wolfTPM2_PolicyAuthorize
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_PolicyOR(WOLFTPM2_DEV* dev,
+    WOLFTPM2_SESSION* tpmSession, const TPML_DIGEST* pHashList);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+
+    \brief Set (or clear) the authPolicy of a hierarchy
+
+    \note Wraps TPM2_SetPrimaryPolicy for owner/endorsement/platform/lockout.
+          Pass authPolicy=NULL, authPolicySz=0 and hashAlg=TPM_ALG_NULL to clear
+          an existing policy. The command itself is authorized by the hierarchy's
+          current auth (set it on the device's active session beforehand).
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: NULL dev, authPolicySz exceeds the digest buffer, or
+            authPolicy is NULL with a non-zero authPolicySz
+
+    \param dev pointer to a TPM2_DEV struct
+    \param authHandle the hierarchy (for example TPM_RH_PLATFORM)
+    \param hashAlg the policy digest hash algorithm (TPM_ALG_NULL to clear)
+    \param authPolicy the policy digest to set (NULL to clear)
+    \param authPolicySz size of the policy digest (0 to clear)
+
+    \sa wolfTPM2_PolicyOR
+    \sa wolfTPM2_GetPolicyDigest
+*/
+WOLFTPM_API int wolfTPM2_SetPrimaryPolicy(WOLFTPM2_DEV* dev,
+    TPMI_RH_HIERARCHY_AUTH authHandle, TPM_ALG_ID hashAlg,
+    const byte* authPolicy, word32 authPolicySz);
 
 
 /* Pre-provisioned IAK and IDevID key/cert from TPM vendor */
@@ -5111,6 +5228,59 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
 
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Perform TPM firmware upgrade using a caller-supplied authorization session
+    \note Identical to wolfTPM2_FirmwareUpgradeHash except the caller controls how
+          the firmware-start command is authorized against the platform hierarchy.
+    \note When startSession is NULL this behaves exactly like
+          wolfTPM2_FirmwareUpgradeHash (library-managed platform authorization).
+    \note When startSession is non-NULL the caller is responsible for having
+          satisfied the platform authPolicy on that session (for example via
+          wolfTPM2_PolicyPCR / wolfTPM2_PolicyAuthorize / wolfTPM2_PolicyOR using
+          SHA2-256 or SHA2-512). For Infineon the platform primary policy is left
+          untouched (the caller provisions it); for ST33 the session replaces the
+          default TPM_RS_PW password authorization.
+
+    \note The vendor firmware-start command carries a session handle with an
+          empty nonceCaller, zero session attributes and an empty HMAC, so
+          startSession must be an unsalted, unbound TPM_SE_POLICY session with
+          no auth value and no parameter encryption. Sessions satisfied with
+          wolfTPM2_PolicyAuthValue or wolfTPM2_PolicyPassword are NOT supported,
+          because the required session HMAC is not serialized. Any such session
+          is rejected with BAD_FUNC_ARG before the command is sent.
+
+    \note On a successful firmware start the TPM consumes the session, and this
+          function sets startSession->handle.hndl to TPM_RH_NULL to record that.
+          The caller must not flush it; wolfTPM2_UnloadHandle is a no-op on
+          TPM_RH_NULL, so an unconditional cleanup call remains safe.
+
+    \return TPM_RC_SUCCESS: successful
+    \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return BAD_FUNC_ARG: check the provided arguments, or startSession is not
+            an unsalted/unbound policy session with no auth value
+
+    \param dev pointer to a TPM2_DEV struct
+    \param hashAlg hash algorithm to use (TPM_ALG_SHA384 or TPM_ALG_SHA512)
+    \param manifest_hash buffer to store computed manifest hash
+    \param manifest_hash_sz size of manifest hash buffer
+    \param manifest pointer to firmware manifest data
+    \param manifest_sz size of firmware manifest
+    \param cb callback function for firmware data access
+    \param cb_ctx context pointer passed to callback
+    \param startSession optional caller-satisfied session authorizing the
+           firmware-start command (NULL for library-managed authorization)
+
+    \sa wolfTPM2_FirmwareUpgradeHash
+    \sa wolfTPM2_PolicyOR
+    \sa wolfTPM2_StartSession_ex
+*/
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash_ex(WOLFTPM2_DEV* dev,
+    TPM_ALG_ID hashAlg, /* Can use SHA2-384 or SHA2-512 for manifest hash */
+    uint8_t* manifest_hash, uint32_t manifest_hash_sz,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
+
 #ifndef WOLFTPM2_NO_WOLFCRYPT
 /*!
     \ingroup wolfTPM2_Wrappers
@@ -5138,6 +5308,32 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Perform TPM firmware upgrade using a caller-supplied authorization session
+    \note Same as wolfTPM2_FirmwareUpgrade but the caller controls how the
+          firmware-start command is authorized (see wolfTPM2_FirmwareUpgradeHash_ex).
+          startSession NULL preserves the default library-managed behavior.
+
+    \return TPM_RC_SUCCESS: successful
+    \return NOT_COMPILED_IN: wolfSSL not built with WOLFSSL_SHA384
+
+    \param dev pointer to a TPM2_DEV struct
+    \param manifest pointer to firmware manifest data
+    \param manifest_sz size of firmware manifest
+    \param cb callback function for firmware data access
+    \param cb_ctx context pointer passed to callback
+    \param startSession optional caller-satisfied session (NULL for default).
+           See wolfTPM2_FirmwareUpgradeHash_ex for the supported session
+           contract: unsalted, unbound policy session with no auth value.
+
+    \sa wolfTPM2_FirmwareUpgrade
+    \sa wolfTPM2_FirmwareUpgradeHash_ex
+*/
+WOLFTPM_API int wolfTPM2_FirmwareUpgrade_ex(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 /*!
@@ -5161,6 +5357,32 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
+
+/*!
+    \ingroup wolfTPM2_Wrappers
+    \brief Recover from a failed firmware upgrade using a caller-supplied session
+    \note Same as wolfTPM2_FirmwareUpgradeRecover but with caller-controlled
+          authorization (see wolfTPM2_FirmwareUpgradeHash_ex). startSession NULL
+          preserves the default library-managed behavior.
+
+    \return TPM_RC_SUCCESS: successful
+    \return BAD_FUNC_ARG: check the provided arguments
+
+    \param dev pointer to a TPM2_DEV struct
+    \param manifest pointer to firmware manifest data
+    \param manifest_sz size of firmware manifest
+    \param cb callback function for firmware data access
+    \param cb_ctx context pointer passed to callback
+    \param startSession optional caller-satisfied session (NULL for default).
+           See wolfTPM2_FirmwareUpgradeHash_ex for the supported session
+           contract: unsalted, unbound policy session with no auth value.
+
+    \sa wolfTPM2_FirmwareUpgradeRecover
+    \sa wolfTPM2_FirmwareUpgradeHash_ex
+*/
+WOLFTPM_API int wolfTPM2_FirmwareUpgradeRecover_ex(WOLFTPM2_DEV* dev,
+    uint8_t* manifest, uint32_t manifest_sz,
+    wolfTPM2FwDataCb cb, void* cb_ctx, WOLFTPM2_SESSION* startSession);
 
 /*!
     \ingroup wolfTPM2_Wrappers

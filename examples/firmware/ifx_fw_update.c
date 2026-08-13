@@ -28,12 +28,29 @@
 
 #include <wolftpm/tpm2_wrap.h>
 
+/* wolfTPM2_FirmwareUpgrade_ex hashes the manifest with SHA-384, so it is only
+ * built with wolfCrypt. This tool has no other way to drive an upgrade. */
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673))
+    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
 
 #include <examples/firmware/ifx_fw_update.h>
+#include <examples/firmware/firmware_policy.h>
 #include <examples/tpm_test_keys.h>
 #include <hal/tpm_io.h>
+
+/* WOLFTPM_HAVE_FW_POLICY comes from firmware_policy.h, which owns the
+ * condition so the two firmware examples cannot drift. */
+
+/* Caller-supplied policy authorization modes */
+#define IFX_POLICY_NONE     0 /* library-managed authorization */
+#define IFX_POLICY_CMDCODE  1 /* --policy:   single PolicyCommandCode */
+#define IFX_POLICY_OR       2 /* --policyor: multi-branch PolicyOR */
+
+/* Infineon operational modes (subset used here) */
+#define IFX_OPMODE_NORMAL   0x00 /* normal; FieldUpgradeStart reached */
+#define IFX_OPMODE_RECOVERY 0x02 /* recovery; start is skipped */
+#define IFX_OPMODE_FINALIZE 0x03 /* update done, finalize only */
 
 /******************************************************************************/
 /* --- BEGIN TPM2.0 Firmware Update tool  -- */
@@ -44,7 +61,14 @@ static void usage(void)
     printf("Infineon Firmware Update Usage:\n");
     printf("\t./ifx_fw_update (get info)\n");
     printf("\t./ifx_fw_update --abandon (cancel)\n");
-    printf("\t./ifx_fw_update <manifest_file> <firmware_file>\n");
+    printf("\t./ifx_fw_update --policytest (safe policy auth self-test)\n");
+    printf("\t./ifx_fw_update [policy opts] <manifest_file> <firmware_file>\n");
+    printf("\t./ifx_fw_update <manifest_file> <firmware_file> "
+           "(default auth)\n");
+    printf("Policy options (caller-supplied authorization):\n");
+    printf("\t--policy    provision+satisfy a PolicyCommandCode\n");
+    printf("\t--policyor  provision+satisfy a PolicyOR (multi-branch)\n");
+    printf("\t--sha256|--sha384|--sha512  policy hash (default SHA-256)\n");
 }
 
 typedef struct {
@@ -115,24 +139,67 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     const char* firmware_file = NULL;
     fw_info_t fwinfo;
     int abandon = 0, recovery = 0;
+    int i;
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    int policytest = 0;
+    int policyMode = IFX_POLICY_NONE;
+    TPMI_ALG_HASH policyHash = TPM_ALG_SHA256;
+    WOLFTPM2_SESSION policySession;
+    FirmwarePolicyCtx policyCtx;
+    int clearRc;
+#endif
 
     XMEMSET(&fwinfo, 0, sizeof(fwinfo));
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    XMEMSET(&policySession, 0, sizeof(policySession));
+    XMEMSET(&policyCtx, 0, sizeof(policyCtx));
+#endif
 
-    if (argc >= 2) {
-        if (XSTRCMP(argv[1], "-?") == 0 ||
-            XSTRCMP(argv[1], "-h") == 0 ||
-            XSTRCMP(argv[1], "--help") == 0) {
+    for (i = 1; i < argc; i++) {
+        if (XSTRCMP(argv[i], "-?") == 0 ||
+            XSTRCMP(argv[i], "-h") == 0 ||
+            XSTRCMP(argv[i], "--help") == 0) {
             usage();
             return 0;
         }
-        if (XSTRCMP(argv[1], "--abandon") == 0) {
+        else if (XSTRCMP(argv[i], "--abandon") == 0) {
             abandon = 1;
         }
+#ifdef WOLFTPM_HAVE_FW_POLICY
+        else if (XSTRCMP(argv[i], "--policytest") == 0) {
+            policytest = 1;
+        }
+        else if (XSTRCMP(argv[i], "--policy") == 0) {
+            policyMode = IFX_POLICY_CMDCODE;
+        }
+        else if (XSTRCMP(argv[i], "--policyor") == 0) {
+            policyMode = IFX_POLICY_OR;
+        }
+        else if (XSTRCMP(argv[i], "--sha256") == 0) {
+            policyHash = TPM_ALG_SHA256;
+        }
+        else if (XSTRCMP(argv[i], "--sha384") == 0) {
+            policyHash = TPM_ALG_SHA384;
+        }
+        else if (XSTRCMP(argv[i], "--sha512") == 0) {
+            policyHash = TPM_ALG_SHA512;
+        }
+#endif /* WOLFTPM_HAVE_FW_POLICY */
+        else if (argv[i][0] == '-') {
+            printf("Unrecognized option: %s\n", argv[i]);
+            usage();
+            return BAD_FUNC_ARG;
+        }
+        else if (manifest_file == NULL) {
+            manifest_file = argv[i];
+        }
+        else if (firmware_file == NULL) {
+            firmware_file = argv[i];
+        }
         else {
-            manifest_file = argv[1];
-            if (argc >= 3) {
-                firmware_file = argv[2];
-            }
+            printf("Unexpected extra argument: %s\n", argv[i]);
+            usage();
+            return BAD_FUNC_ARG;
         }
     }
 
@@ -148,6 +215,16 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
         goto exit;
     }
 
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    if (policytest) {
+        /* Non-destructive validation of caller-supplied policy authorization.
+         * Does not touch firmware upgrade state. */
+        rc = firmware_policy_selftest_all(&dev);
+        wolfTPM2_Cleanup(&dev);
+        return rc;
+    }
+#endif
+
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     if (rc != TPM_RC_SUCCESS) {
         goto exit;
@@ -156,7 +233,7 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     if (caps.keyGroupId == 0) {
         printf("Error getting key group id from TPM!\n");
     }
-    if (caps.opMode == 0x02 || (caps.opMode & 0x80)) {
+    if (caps.opMode == IFX_OPMODE_RECOVERY || (caps.opMode & 0x80)) {
         /* if opmode == 2 or 0x8x then we need to use recovery mode */
         recovery = 1;
     }
@@ -187,18 +264,53 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
         rc = loadFile(firmware_file,
             &fwinfo.firmware_buf, &fwinfo.firmware_bufSz);
     }
-    if (rc == 0) {
-        if (recovery) {
-            printf("Firmware Update (recovery mode):\n");
-            rc = wolfTPM2_FirmwareUpgradeRecover(&dev,
-                fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
-                TPM2_IFX_FwData_Cb, &fwinfo);
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    /* When a policy mode is requested, provision the platform authPolicy and
+     * build a session that satisfies it, then drive the upgrade under that
+     * caller-supplied session instead of the library-managed authorization.
+     *
+     * Only the normal operational mode actually sends FieldUpgradeStart, which
+     * is the one command the session authorizes. In recovery and finalize
+     * modes the library skips the start entirely, so provisioning a policy
+     * there would install a platform authPolicy that is never exercised - and
+     * on a successful run nothing would clear it. Refuse instead of silently
+     * changing hierarchy state the user did not ask to change. */
+    if (rc == 0 && policyMode != IFX_POLICY_NONE) {
+        if (caps.opMode != IFX_OPMODE_NORMAL) {
+            printf("Policy authorization requires the normal operational "
+                   "mode.\n");
+            printf("  Current opMode 0x%x does not send FieldUpgradeStart, "
+                   "so a\n", caps.opMode);
+            printf("  caller-supplied session would never be used.\n");
+            rc = BAD_FUNC_ARG;
         }
         else {
-            printf("Firmware Update (normal mode):\n");
-            rc = wolfTPM2_FirmwareUpgrade(&dev,
+            rc = firmware_policy_session_setup(&dev, &policyCtx, policyHash,
+                (policyMode == IFX_POLICY_OR), TPM_CC_FieldUpgradeStartVendor,
+                &policySession);
+        }
+    }
+#endif
+    if (rc == 0) {
+        WOLFTPM2_SESSION* startSess = NULL;
+    #ifdef WOLFTPM_HAVE_FW_POLICY
+        if (policyMode != IFX_POLICY_NONE) {
+            startSess = &policySession;
+        }
+    #endif
+        if (recovery) {
+            printf("Firmware Update (recovery mode%s):\n",
+                startSess ? ", caller policy" : "");
+            rc = wolfTPM2_FirmwareUpgradeRecover_ex(&dev,
                 fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
-                TPM2_IFX_FwData_Cb, &fwinfo);
+                TPM2_IFX_FwData_Cb, &fwinfo, startSess);
+        }
+        else {
+            printf("Firmware Update (normal mode%s):\n",
+                startSess ? ", caller policy" : "");
+            rc = wolfTPM2_FirmwareUpgrade_ex(&dev,
+                fwinfo.manifest_buf, (uint32_t)fwinfo.manifest_bufSz,
+                TPM2_IFX_FwData_Cb, &fwinfo, startSess);
         }
     }
     if (rc == 0) {
@@ -212,6 +324,33 @@ exit:
             rc, TPM2_GetRCString(rc));
     }
 
+#ifdef WOLFTPM_HAVE_FW_POLICY
+    /* On a successful start the TPM consumes the session and the library sets
+     * handle.hndl to TPM_RH_NULL (0x40000007), which is non-zero - so this
+     * guard does not distinguish consumed from live. It does not need to:
+     * wolfTPM2_UnloadHandle is a no-op on TPM_RH_NULL, so the call only ever
+     * flushes a session that is still loaded. */
+    if (policySession.handle.hndl != 0) {
+        wolfTPM2_UnloadHandle(&dev, &policySession.handle);
+    }
+    /* Clear the platform policy if the upgrade did not complete. Gated on
+     * policyCtx.provisioned inside the helper, so an early failure cannot wipe
+     * a policy this example never installed.
+     *
+     * Skip the attempt once the start has succeeded: the TPM consumed the
+     * session (handle set to TPM_RH_NULL) and reset into firmware-upgrade
+     * mode, where it will not service TPM2_SetPrimaryPolicy - and the
+     * mandatory TPM reset clears the policy anyway. */
+    if (rc != 0 && policySession.handle.hndl != TPM_RH_NULL) {
+        clearRc = firmware_policy_clear(&dev, &policyCtx);
+        /* Report a failed rollback, but never overwrite the upgrade error that
+         * explains why this run failed - that rc is the process exit status
+         * and the only machine-readable diagnostic a script sees. */
+        if (clearRc != 0 && rc == 0) {
+            rc = clearRc;
+        }
+    }
+#endif
     XFREE(fwinfo.firmware_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     XFREE(fwinfo.manifest_buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     wolfTPM2_Cleanup(&dev);
@@ -222,7 +361,8 @@ exit:
 /******************************************************************************/
 /* --- END TPM2.0 Firmware Update tool  -- */
 /******************************************************************************/
-#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_SLB9672 || WOLFTPM_SLB9673) */
+#endif /* WOLFTPM_FIRMWARE_UPGRADE && (WOLFTPM_SLB9672 || WOLFTPM_SLB9673) &&
+        * !WOLFTPM2_NO_WOLFCRYPT */
 
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
@@ -230,7 +370,8 @@ int main(int argc, char *argv[])
     int rc = -1;
 
 #if defined(WOLFTPM_FIRMWARE_UPGRADE) && \
-    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673))
+    (defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)) && \
+    !defined(WOLFTPM2_NO_WOLFCRYPT)
     rc = TPM2_IFX_Firmware_Update(NULL, argc, argv);
 #else
     printf("Support for firmware upgrade not compiled in!\n"
@@ -238,6 +379,8 @@ int main(int argc, char *argv[])
     printf("This tool is for the Infineon SLB9672 or SLB9673 TPMs only\n"
         "\t--enable-infineon=slb9672 (WOLFTPM_SLB9672)\n"
         "\t--enable-infineon=slb9673 --enable-i2c (WOLFTPM_SLB9673)\n");
+    printf("Firmware upgrade also requires wolfCrypt "
+        "(not WOLFTPM2_NO_WOLFCRYPT)\n");
     (void)argc;
     (void)argv;
 #endif
