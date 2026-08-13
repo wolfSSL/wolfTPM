@@ -1349,8 +1349,15 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_FAMILY_INDICATOR,  0x322E3000 },
                 { TPM_PT_LEVEL,             0 },
                 { TPM_PT_REVISION,          FWTPM_REVISION },
+#ifdef WOLFTPM_V185
+                /* v1.85 Part 2 renames PT_FIXED+3 to TPM_PT_ERRATA (base value
+                 * 0) and no longer reports a build date at PT_FIXED+3/+4. */
+                { TPM_PT_DAY_OF_YEAR,       0 },
+                { TPM_PT_YEAR,              0 },
+#else
                 { TPM_PT_DAY_OF_YEAR,       FWTPM_BUILD_DAY_OF_YEAR },
                 { TPM_PT_YEAR,              FWTPM_BUILD_YEAR },
+#endif
                 { TPM_PT_MANUFACTURER,
                   ((UINT32)'W' << 24) | ((UINT32)'O' << 16) |
                   ((UINT32)'L' << 8)  | (UINT32)'F' },
