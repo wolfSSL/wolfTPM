@@ -54,7 +54,13 @@ The TPM has a vendor capability for getting the key group id. This is populated 
 Infineon Firmware Update Usage:
         ./ifx_fw_update (get info)
         ./ifx_fw_update --abandon (cancel)
-        ./ifx_fw_update <manifest_file> <firmware_file>
+        ./ifx_fw_update --policytest (safe policy auth self-test)
+        ./ifx_fw_update [policy opts] <manifest_file> <firmware_file>
+        ./ifx_fw_update <manifest_file> <firmware_file> (default auth)
+Policy options (caller-supplied authorization):
+        --policy    provision+satisfy a PolicyCommandCode
+        --policyor  provision+satisfy a PolicyOR (multi-branch)
+        --sha256|--sha384|--sha512  policy hash (default SHA-256)
 
 # Run without arguments to display the current firmware information including key group id and operational mode
 ./ifx_fw_update
@@ -131,7 +137,13 @@ The `st33_fw_update` tool automatically detects the firmware format.
 ST33 Firmware Update Usage:
 	./st33_fw_update (get info)
 	./st33_fw_update --abandon (cancel)
-	./st33_fw_update <firmware.fi>
+	./st33_fw_update --policytest (safe policy auth self-test)
+	./st33_fw_update [policy opts] <firmware.fi>
+	./st33_fw_update <firmware.fi> (default password auth)
+Policy options (caller-supplied authorization):
+	--policy    provision+satisfy a PolicyCommandCode
+	--policyor  provision+satisfy a PolicyOR (multi-branch)
+	--sha256|--sha384|--sha512  policy hash (default SHA-256)
 
 Firmware format is auto-detected from TPM firmware version:
       - Firmware < 512: Non-LMS format (177 byte manifest)
@@ -199,3 +211,81 @@ Success: Please reset or power cycle TPM
 ```
 
 **Note**: Firmware files cannot be made public and must be obtained separately from STMicroelectronics.
+
+## Policy-Based Authorization (Advanced)
+
+By default wolfTPM manages the platform-hierarchy authorization for the firmware-update *start* command internally: on Infineon it installs and satisfies a `PolicyCommandCode(TPM_CC_FieldUpgradeStartVendor)` policy on the platform primary policy, and on ST33 it uses password authorization (`TPM_RS_PW`) with an empty platform password. This assumes the platform hierarchy has default/empty authorization.
+
+Deployments that gate firmware upgrade behind their own platform policy (for example a signed-policy check, a PCR state, or a multi-branch `PolicyOR`) can supply an already-satisfied authorization session using `wolfTPM2_FirmwareUpgradeHash_ex()`. When a session is supplied:
+
+- **Infineon**: the library does **not** overwrite your platform primary policy. You provision the platform `authPolicy` yourself (via `TPM2_SetPrimaryPolicy` with `authHandle = TPM_RH_PLATFORM`, using SHA2-256 or SHA2-512) and pass a session that satisfies it. Note this applies to the *library*: the `--policy`/`--policyor` example modes are themselves such a caller, and their helper (`examples/firmware/firmware_policy.c`) does overwrite the platform `authPolicy` with a digest it generates. Do not run those modes on a system whose platform hierarchy already carries a policy you need.
+- **ST33**: the supplied session replaces the default `TPM_RS_PW` password authorization.
+
+**Supported session contract**: the vendor `FieldUpgradeStart` command is sent with an authorization area carrying only the session handle - empty `nonceCaller`, zero session attributes and an empty HMAC. The supplied session must therefore be an unsalted, unbound `TPM_SE_POLICY` session with no auth value and no parameter encryption. Policies satisfied with `wolfTPM2_PolicyAuthValue()` or `wolfTPM2_PolicyPassword()` are **not** supported, because the session HMAC they require is not serialized on this path; such a session is rejected with `BAD_FUNC_ARG` before anything is sent to the TPM. `PolicyPCR`, `PolicySigned`, `PolicySecret`, `PolicyAuthorize`, `PolicyCommandCode` and `PolicyOR` branches are all fine.
+
+Both SHA2-256 (non-PQC) and SHA2-512 (PQC) policy digests are supported, because the session hash is chosen with `wolfTPM2_StartSession_ex(..., authHash)` and `wolfTPM2_PolicyOR()` carries per-branch digest sizes.
+
+Example: satisfy a multi-branch `PolicyOR` (up to 8 branches, SHA2-512 shown) and start the upgrade under it:
+
+```c
+WOLFTPM2_SESSION session;
+TPML_DIGEST orList;
+uint8_t manifest_hash[TPM_SHA512_DIGEST_SIZE];
+int rc;
+
+/* zero both structs - orList must not carry uninitialized branch sizes */
+XMEMSET(&session, 0, sizeof(session));
+XMEMSET(&orList, 0, sizeof(orList));
+
+/* start a policy session using the desired policy hash (SHA2-512 for PQC) */
+rc = wolfTPM2_StartSession_ex(&dev, &session, NULL, NULL,
+    TPM_SE_POLICY, TPM_ALG_NULL, TPM_ALG_SHA512);
+if (rc != TPM_RC_SUCCESS) goto cleanup;
+
+/* Satisfy one branch (PCR, PolicySigned, PolicyAuthorize, PolicyCommandCode,
+ * ...), then OR against the full branch list the platform authPolicy encodes.
+ * Set count and each digests[i].size/buffer for every branch you populate.
+ * PolicyOR requires at least 2 branches. */
+orList.count = 2;
+/* orList.digests[0].size = ...; XMEMCPY(orList.digests[0].buffer, ...); */
+/* orList.digests[1].size = ...; XMEMCPY(orList.digests[1].buffer, ...); */
+rc = wolfTPM2_PolicyOR(&dev, &session, &orList);
+if (rc != TPM_RC_SUCCESS) goto cleanup;
+
+/* hash the manifest with the matching algorithm, then start the upgrade under
+ * the caller-satisfied session (NULL would use the library-default auth) */
+rc = wc_Sha512Hash(manifest, manifest_sz, manifest_hash);
+if (rc != 0) goto cleanup;
+rc = wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA512,
+    manifest_hash, (uint32_t)sizeof(manifest_hash),
+    manifest, manifest_sz, fwDataCb, fwCbCtx, &session);
+
+cleanup:
+/* On a successful FieldUpgradeStart the TPM consumes the session and the
+ * library sets session.handle.hndl to TPM_RH_NULL (0x40000007) - it is NOT
+ * zeroed, so do not test for == 0 to detect consumption. Calling
+ * wolfTPM2_UnloadHandle is always safe: it is a no-op on TPM_RH_NULL, so this
+ * only releases a session that is still loaded. */
+if (session.handle.hndl != 0)
+    wolfTPM2_UnloadHandle(&dev, &session.handle);
+```
+
+Passing `NULL` for the final `startSession` argument makes `wolfTPM2_FirmwareUpgradeHash_ex()` behave exactly like `wolfTPM2_FirmwareUpgradeHash()` (library-managed authorization), so existing code is unaffected.
+
+### Destructive: provisioning replaces any existing platform policy
+
+`--policy`/`--policyor` call `TPM2_SetPrimaryPolicy` on the platform hierarchy with a digest the example generates. TPM 2.0 provides **no way to read a hierarchy's `authPolicy` back** - there is no read command, and `TPMA_PERMANENT` reports only `authValue` state - so the example cannot detect an existing policy, cannot preserve it, and cannot restore it. Cleanup **removes** the policy rather than restoring whatever was there before.
+
+If your platform hierarchy is gated by a policy you need to keep, do not run these modes. The example prints this warning at provisioning time. `--policytest` is unaffected: it is non-destructive and never calls `TPM2_SetPrimaryPolicy`.
+
+The modes also require the normal operational mode. In recovery and finalize modes the library skips `FieldUpgradeStart` entirely, so a caller-supplied session would never be used; the example refuses rather than installing a policy nothing will exercise. On ST33, if the TPM is already in firmware-upgrade mode the policy flags are likewise rejected, since the start command has already run.
+
+### Rollback of the example-provisioned policy
+
+The example `--policy`/`--policyor` modes provision the platform hierarchy `authPolicy` via `TPM2_SetPrimaryPolicy` before the upgrade. On failure the example clears it again so a later default-auth run is not locked out; on success the required TPM reset clears it.
+
+- Rollback normally uses platform **password** authorization. Per TPM 2.0 Part 1 Sec.19.7 a hierarchy is authorized by *either* its `authValue` *or* its `authPolicy`, so installing an `authPolicy` does not disable the password path. With the default empty `platformAuth` the clear always succeeds.
+- `--policyor` additionally provisions a `PolicyCommandCode(TPM_CC_SetPrimaryPolicy)` branch alongside the firmware-start branch, so the policy can authorize its own removal. If the password path fails (a deployment that set a non-default `platformAuth`), the example retries the clear under that branch.
+- `--policy` provisions a single `PolicyCommandCode(FieldUpgradeStart)` branch and therefore has no policy-based rollback path. It relies entirely on `platformAuth` still being usable.
+- Rollback is attempted only when the example actually installed the policy, so an early failure (a missing firmware file, for example) never clears a policy the deployment provisioned itself.
+- A failed rollback is reported explicitly and becomes the exit status. If a run is interrupted before cleanup, or the clear fails, the platform hierarchy still requires the policy until the TPM is reset/power-cycled.

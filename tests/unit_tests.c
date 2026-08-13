@@ -282,6 +282,7 @@ static void test_wolfTPM2_ReadPublicKey(void)
 static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 {
     int rc;
+    int rcEx;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
@@ -323,9 +324,29 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
+    /* _ex variants with caller session - NULL dev */
+    rc = wolfTPM2_FirmwareUpgradeHash_ex(NULL, TPM_ALG_SHA384, NULL, 0, NULL,
+        0, NULL, NULL, NULL);
+    AssertIntNE(rc, 0);
+    rc = wolfTPM2_FirmwareUpgradeRecover_ex(NULL, NULL, 0, NULL, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* startSession == NULL delegates to the legacy call (same rc). Use a NULL
+     * dev so this never reaches the TPM (a live dev under autodetect could
+     * otherwise push an Infineon part into firmware-upgrade mode). */
+    rc = wolfTPM2_FirmwareUpgradeHash(NULL, TPM_ALG_SHA384,
+        NULL, 0, NULL, 0, NULL, NULL);
+    rcEx = wolfTPM2_FirmwareUpgradeHash_ex(NULL, TPM_ALG_SHA384,
+        NULL, 0, NULL, 0, NULL, NULL, NULL);
+    AssertIntEQ(rc, rcEx);
+
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
+    AssertIntNE(rc, 0);
+
+    /* wolfTPM2_FirmwareUpgrade_ex - NULL dev */
+    rc = wolfTPM2_FirmwareUpgrade_ex(NULL, NULL, 0, NULL, NULL, NULL);
     AssertIntNE(rc, 0);
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
@@ -375,6 +396,632 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
 }
 #endif /* WOLFTPM_ST33 || WOLFTPM_AUTODETECT */
 #endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+#ifdef WOLFTPM_FIRMWARE_UPGRADE
+/* The vendor FieldUpgradeStart commands serialize an authorization area that
+ * carries only the session handle - empty nonceCaller, zero attributes, empty
+ * HMAC. A caller session that would need a computed session HMAC or parameter
+ * encryption must therefore be rejected by wolfTPM2_FirmwareUpgradeHash_ex
+ * before any command is sent, rather than failing on the wire.
+ *
+ * These cases run against the simulator only (and only when it reports an
+ * unknown manufacturer) so a real TPM is never pushed toward firmware-upgrade
+ * mode by the accepted-session case. */
+static void test_wolfTPM2_FirmwareUpgrade_ex_session(void)
+{
+#if defined(WOLFTPM_SWTPM)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    WOLFTPM2_SESSION sess;
+    TPM2B_AUTH bindAuth;
+    uint8_t hash[TPM_SHA384_DIGEST_SIZE];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&caps, 0, sizeof(caps));
+    XMEMSET(&bindAuth, 0, sizeof(bindAuth));
+    XMEMSET(hash, 0, sizeof(hash));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+    if (caps.mfg != TPM_MFG_UNKNOWN) {
+        /* not the simulator - do not exercise firmware upgrade paths */
+        wolfTPM2_Cleanup(&dev);
+        printf("Test FW Upgr _ex: %-40s Skipped (real TPM)\n",
+            "Session Validation:");
+        return;
+    }
+
+    /* A clean, unsalted, unbound policy session passes validation and reaches
+     * the manufacturer dispatch, which rejects the simulator with
+     * TPM_RC_COMMAND_CODE. This proves the checks below are real rejections
+     * and not just the generic argument handling. */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    rc = wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess);
+    AssertIntEQ(rc, TPM_RC_COMMAND_CODE);
+
+    /* An HMAC (non-policy) session handle always needs a session HMAC */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = HMAC_SESSION_FIRST;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* wolfTPM2_PolicyAuthValue marks the session; the auth value it needs is
+     * not serialized by the vendor command */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.handle.policyAuth = 1;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* wolfTPM2_PolicyPassword likewise */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.handle.policyPass = 1;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* an attached auth value implies a non-empty session HMAC */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.handle.auth.size = 4;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* a bound session implies a non-empty session HMAC */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.bind = &bindAuth;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* a salted session implies a non-empty session HMAC */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.salt.size = 16;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* parameter encryption is not applied on this raw path */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.sessionAttributes = TPMA_SESSION_encrypt;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeHash_ex(&dev, TPM_ALG_SHA384,
+        hash, (uint32_t)sizeof(hash), NULL, 0, NULL, NULL, &sess),
+        BAD_FUNC_ARG);
+
+    /* the same validation guards the recover entry point */
+    XMEMSET(&sess, 0, sizeof(sess));
+    sess.handle.hndl = POLICY_SESSION_FIRST;
+    sess.handle.policyAuth = 1;
+    AssertIntEQ(wolfTPM2_FirmwareUpgradeRecover_ex(&dev, NULL, 0, NULL, NULL,
+        &sess), BAD_FUNC_ARG);
+
+    wolfTPM2_Cleanup(&dev);
+    printf("Test FW Upgr _ex: %-40s Passed\n", "Session Validation:");
+#else
+    printf("Test FW Upgr _ex: %-40s Skipped (requires SWTPM)\n",
+        "Session Validation:");
+#endif /* WOLFTPM_SWTPM */
+}
+#endif /* WOLFTPM_FIRMWARE_UPGRADE */
+
+/* Regression test for hierarchy authorization after SetPrimaryPolicy.
+ *
+ * Per TPM 2.0 Part 1 Sec.19.7 a hierarchy is authorized by EITHER its
+ * authValue OR its authPolicy. Installing an authPolicy therefore does not
+ * lock out the password path, which is what lets the firmware examples roll
+ * back a policy they provisioned (see examples/firmware/firmware_policy.c).
+ * This pins that behavior: a password session can still clear the policy, and
+ * a policy session with a non-matching digest is still rejected (so the
+ * password success above is not simply an unchecked auth path).
+ *
+ * Simulator only - never provision a platform policy on a real TPM. */
+static void test_wolfTPM2_SetPrimaryPolicy_rollback(void)
+{
+#if defined(WOLFTPM_SWTPM) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    int startRc = 0, authRc = 0, clearRc = 0;
+    int mismatchRc = TPM_RC_SUCCESS; /* must end up != SUCCESS */
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    WOLFTPM2_SESSION sess;
+    byte policy[TPM_MAX_DIGEST_SIZE];
+    word32 policySz = (word32)sizeof(policy);
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&caps, 0, sizeof(caps));
+    XMEMSET(&sess, 0, sizeof(sess));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+    if (caps.mfg != TPM_MFG_UNKNOWN) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test SetPrimPol:  %-40s Skipped (real TPM)\n", "Rollback:");
+        return;
+    }
+    /* defensive: clear any policy a previously aborted run left behind */
+    (void)wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM, TPM_ALG_NULL,
+        NULL, 0);
+
+    /* Provision a platform authPolicy, mirroring what the firmware examples do
+     * before an upgrade. Use the same digest shape: PolicyCommandCode. */
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, policy, &policySz,
+        TPM_CC_SetPrimaryPolicy);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM, TPM_ALG_SHA256,
+        policy, policySz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* From here the platform hierarchy is gated by that policy. Assert*() is
+     * abort(), so record results into locals and do not assert until the
+     * policy has been cleared again - otherwise a failure here would leave a
+     * persistent swtpm state dir with a policy-gated platform hierarchy,
+     * wedging every later run. */
+
+    /* A policy session whose running digest does not match the installed
+     * authPolicy must be rejected - proves the policy is actually enforced. */
+    startRc = wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    if (startRc == 0) {
+        authRc = wolfTPM2_SetAuthSession(&dev, 0, &sess, 0);
+        if (authRc == 0) {
+            /* expected to FAIL: digest does not match */
+            mismatchRc = wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+                TPM_ALG_NULL, NULL, 0);
+        }
+        /* restore default password authorization and release the session */
+        wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+        wolfTPM2_UnloadHandle(&dev, &sess.handle);
+    }
+
+    /* The password path still authorizes the hierarchy, so the example's
+     * rollback works without a session that satisfies the installed policy.
+     * This also restores the simulator to a clean state. */
+    clearRc = wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM, TPM_ALG_NULL,
+        NULL, 0);
+
+    wolfTPM2_Cleanup(&dev);
+
+    /* safe to abort now - the platform hierarchy carries no policy */
+    AssertIntEQ(startRc, 0);
+    AssertIntEQ(authRc, 0);
+    AssertIntNE(mismatchRc, TPM_RC_SUCCESS);
+    AssertIntEQ(clearRc, TPM_RC_SUCCESS);
+    printf("Test SetPrimPol:  %-40s Passed\n", "Rollback:");
+#else
+    printf("Test SetPrimPol:  %-40s Skipped (requires SWTPM)\n", "Rollback:");
+#endif /* WOLFTPM_SWTPM && !WOLFTPM2_NO_WOLFCRYPT */
+}
+
+/* Cover the mechanism behind firmware_policy_clear_by_policy(): when
+ * platformAuth is NOT the default empty password, the password rollback path
+ * fails and the example falls back to authorizing TPM2_SetPrimaryPolicy under
+ * the provisioned PolicyOR's PolicyCommandCode(TPM_CC_SetPrimaryPolicy)
+ * branch. The example helper itself lives in examples/ and is not linked into
+ * the unit suite, so this exercises the same library call sequence directly.
+ *
+ * Simulator only - this sets and clears platformAuth. */
+static void test_wolfTPM2_PolicyClear_underPolicy(void)
+{
+#if defined(WOLFTPM_SWTPM) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    int pwClearRc = 0, polClearRc = 0, finalRc = 0;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_CAPS caps;
+    WOLFTPM2_SESSION sess;
+    TPML_DIGEST orList;
+    TPM2B_AUTH platAuth;
+    HierarchyChangeAuth_In changeIn;
+    byte branchFu[TPM_MAX_DIGEST_SIZE];
+    byte branchSpp[TPM_MAX_DIGEST_SIZE];
+    byte concat[2 * TPM_MAX_DIGEST_SIZE];
+    byte policy[TPM_MAX_DIGEST_SIZE];
+    word32 aSz, bSz, polSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&caps, 0, sizeof(caps));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&orList, 0, sizeof(orList));
+    XMEMSET(&platAuth, 0, sizeof(platAuth));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+    rc = wolfTPM2_GetCapabilities(&dev, &caps);
+    AssertIntEQ(rc, 0);
+    if (caps.mfg != TPM_MFG_UNKNOWN) {
+        wolfTPM2_Cleanup(&dev);
+        printf("Test PolicyClear: %-40s Skipped (real TPM)\n", "Under Policy:");
+        return;
+    }
+    (void)wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM, TPM_ALG_NULL,
+        NULL, 0);
+
+    /* Build the two branches the example provisions: the firmware-start
+     * branch (stood in for by NV_Read here, since the vendor CC is not
+     * meaningful to the simulator) and the SetPrimaryPolicy rollback branch. */
+    aSz = (word32)sizeof(branchFu);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, branchFu, &aSz,
+        TPM_CC_NV_Read), 0);
+    bSz = (word32)sizeof(branchSpp);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, branchSpp, &bSz,
+        TPM_CC_SetPrimaryPolicy), 0);
+    XMEMCPY(concat, branchFu, aSz);
+    XMEMCPY(&concat[aSz], branchSpp, bSz);
+    XMEMSET(policy, 0, sizeof(policy));
+    polSz = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_PolicyHash(TPM_ALG_SHA256, policy, &polSz,
+        TPM_CC_PolicyOR, concat, aSz + bSz), 0);
+
+    /* provision the platform authPolicy while platformAuth is still empty */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, policy, polSz), TPM_RC_SUCCESS);
+
+    /* Now make the password path unusable, the situation the fallback exists
+     * for. Use TPM2_HierarchyChangeAuth directly with a KNOWN value rather
+     * than wolfTPM2_ChangeHierarchyAuth, which sets a random auth that could
+     * never be restored - that would permanently wedge the simulator's
+     * platform hierarchy for every later test. Everything from here records
+     * into locals so an abort cannot leave the hierarchy modified. */
+    XMEMSET(&changeIn, 0, sizeof(changeIn));
+    changeIn.authHandle = TPM_RH_PLATFORM;
+    changeIn.newAuth.size = 4;
+    XMEMCPY(changeIn.newAuth.buffer, "hier", 4);
+    rc = TPM2_HierarchyChangeAuth(&changeIn);
+    /* Deliberately leave dev->session[0] holding the EMPTY password: that is
+     * what makes the example's first rollback attempt fail below, which is the
+     * condition the policy fallback exists to handle. platAuth is kept so the
+     * restore at the end can authorize itself. */
+    platAuth.size = 4;
+    XMEMCPY(platAuth.buffer, "hier", 4);
+
+    if (rc == 0) {
+        /* the example's first attempt - password auth - must now fail */
+        pwClearRc = wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+            TPM_ALG_NULL, NULL, 0);
+
+        /* fallback: satisfy the SetPrimaryPolicy branch, then clear */
+        if (wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+                TPM_ALG_NULL) == 0) {
+            if (wolfTPM2_PolicyCommandCode(&dev, &sess,
+                    TPM_CC_SetPrimaryPolicy) == 0) {
+                orList.count = 2;
+                orList.digests[0].size = (UINT16)aSz;
+                XMEMCPY(orList.digests[0].buffer, branchFu, aSz);
+                orList.digests[1].size = (UINT16)bSz;
+                XMEMCPY(orList.digests[1].buffer, branchSpp, bSz);
+                if (wolfTPM2_PolicyOR(&dev, &sess, &orList) == 0 &&
+                        wolfTPM2_SetAuthSession(&dev, 0, &sess, 0) == 0) {
+                    polClearRc = wolfTPM2_SetPrimaryPolicy(&dev,
+                        TPM_RH_PLATFORM, TPM_ALG_NULL, NULL, 0);
+                }
+            }
+            wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+            wolfTPM2_UnloadHandle(&dev, &sess.handle);
+        }
+    }
+
+    /* restore the default empty platformAuth so later tests are unaffected.
+     * The current (known) auth authorizes this change. */
+    wolfTPM2_SetAuthPassword(&dev, 0, &platAuth);
+    XMEMSET(&changeIn, 0, sizeof(changeIn));
+    changeIn.authHandle = TPM_RH_PLATFORM;
+    changeIn.newAuth.size = 0;
+    finalRc = TPM2_HierarchyChangeAuth(&changeIn);
+    wolfTPM2_SetAuthPassword(&dev, 0, NULL);
+    (void)wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM, TPM_ALG_NULL,
+        NULL, 0);
+    wolfTPM2_Cleanup(&dev);
+
+    /* safe to abort now - hierarchy state has been restored */
+    AssertIntEQ(rc, 0);
+    AssertIntNE(pwClearRc, TPM_RC_SUCCESS);   /* password path must fail */
+    AssertIntEQ(polClearRc, TPM_RC_SUCCESS);  /* policy fallback must work */
+    AssertIntEQ(finalRc, 0);
+    printf("Test PolicyClear: %-40s Passed\n", "Under Policy:");
+#else
+    printf("Test PolicyClear: %-40s Skipped (requires SWTPM)\n",
+        "Under Policy:");
+#endif /* WOLFTPM_SWTPM && !WOLFTPM2_NO_WOLFCRYPT */
+}
+
+/* Argument-validation coverage for wolfTPM2_PolicyOR (host-side, no TPM). */
+static void test_wolfTPM2_PolicyOR(void)
+{
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION sess;
+    TPML_DIGEST list;
+    word32 cap = (word32)(sizeof(list.digests) / sizeof(list.digests[0]));
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&list, 0, sizeof(list));
+    list.count = 2;
+    list.digests[0].size = TPM_SHA256_DIGEST_SIZE;
+    list.digests[1].size = TPM_SHA256_DIGEST_SIZE;
+
+    /* NULL pointer arguments */
+    AssertIntEQ(wolfTPM2_PolicyOR(NULL, &sess, &list), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, NULL, &list), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, NULL), BAD_FUNC_ARG);
+
+    /* count of 0 is invalid */
+    list.count = 0;
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    /* TPM2_PolicyOR requires at least two digests (TPM 2.0 Part 3 Sec.23.6),
+     * so a one-branch list must be rejected here rather than sent to the TPM,
+     * which would answer TPM_RC_VALUE. */
+    list.count = 1;
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    /* count beyond the TPML_DIGEST capacity is invalid */
+    list.count = cap + 1;
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    /* a branch digest size larger than the buffer is invalid (CWE-125). Use a
+     * valid count so this fails for the size reason, not the count reason. */
+    list.count = 2;
+    list.digests[0].size = (UINT16)(sizeof(list.digests[0].buffer) + 1);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), BAD_FUNC_ARG);
+
+    printf("Test PolicyOR:    %-40s Passed\n", "Arg Validation:");
+}
+
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+/* Known-answer + arg-validation for wolfTPM2_PolicyCommandCodeMake (no TPM).
+ * Requires wolfCrypt for the policy hash. Vectors are the offline digest
+ * H(zeros(hashSz) || TPM_CC_PolicyCommandCode || TPM_CC_NV_Read). */
+static void test_wolfTPM2_PolicyCommandCodeMake(void)
+{
+    int rc;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    byte guard[TPM_MAX_DIGEST_SIZE]; /* canary to detect any write */
+    word32 digestSz = 0;
+    /* SHA2-256 (also in examples/nvram/extend.c) */
+    static const byte expected256[] = {
+        0x47,0xce,0x30,0x32,0xd8,0xba,0xd1,0xf3,
+        0x08,0x9c,0xb0,0xc0,0x90,0x88,0xde,0x43,
+        0x50,0x14,0x91,0xd4,0x60,0x40,0x2b,0x90,
+        0xcd,0x1b,0x7f,0xc0,0xb6,0x8c,0xa9,0x2f
+    };
+#ifdef WOLFSSL_SHA384
+    static const byte expected384[] = {
+        0xfb,0xdd,0x14,0x92,0x1c,0x8b,0xd9,0x5c,
+        0x9f,0x35,0x96,0x79,0xd2,0xbf,0x75,0x78,
+        0xb1,0x47,0xe8,0x29,0x83,0x21,0xf8,0xe9,
+        0xea,0xc4,0x4c,0x11,0x77,0x2f,0xfa,0x6e,
+        0xe5,0x91,0x78,0x43,0x47,0x83,0x9b,0xef,
+        0xf1,0x22,0xf2,0x14,0x4d,0xd0,0xb0,0xf0
+    };
+#endif
+#ifdef WOLFSSL_SHA512
+    static const byte expected512[] = {
+        0x31,0x38,0x6a,0xba,0x16,0xd8,0xf0,0x64,
+        0xbd,0x51,0x4d,0x1d,0xd9,0x48,0x1c,0x65,
+        0x6d,0x0e,0x32,0xe2,0xad,0x84,0x8e,0x1b,
+        0xe9,0xb9,0xab,0x1d,0xd6,0x6f,0xfa,0xd2,
+        0xc5,0xc0,0x2d,0x22,0x1c,0x61,0xd2,0x01,
+        0x99,0x4e,0xd8,0x30,0x6b,0x77,0x0e,0x56,
+        0xbb,0x13,0x05,0x32,0xdf,0x62,0xea,0x8d,
+        0x06,0xc6,0xdf,0x53,0x5f,0x19,0xb8,0x21
+    };
+#endif
+
+    /* NULL argument rejection */
+    digestSz = (word32)sizeof(digest);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, NULL, &digestSz,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest, NULL,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+    /* Unsupported hash algorithm rejection */
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_NULL, digest, &digestSz,
+        TPM_CC_NV_Read), BAD_FUNC_ARG);
+
+    /* digestSz is in/out: on input it is the buffer capacity. A capacity
+     * smaller than the hash size must return BUFFER_E and must not write to
+     * digest (which the function would otherwise zero and hash into) nor
+     * clobber the caller's capacity value. */
+    XMEMSET(guard, 0xA5, sizeof(guard));
+    XMEMCPY(digest, guard, sizeof(guard));
+    digestSz = TPM_SHA256_DIGEST_SIZE - 1;
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest,
+        &digestSz, TPM_CC_NV_Read), BUFFER_E);
+    AssertIntEQ(XMEMCMP(digest, guard, sizeof(guard)), 0);
+    AssertIntEQ((int)digestSz, TPM_SHA256_DIGEST_SIZE - 1);
+
+    /* one-byte capacity must not be overrun either */
+    digestSz = 1;
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest,
+        &digestSz, TPM_CC_NV_Read), BUFFER_E);
+    AssertIntEQ(XMEMCMP(digest, guard, sizeof(guard)), 0);
+#ifdef WOLFSSL_SHA512
+    /* a SHA2-512 digest does not fit a SHA2-256 sized buffer */
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA512, digest,
+        &digestSz, TPM_CC_NV_Read), BUFFER_E);
+    AssertIntEQ(XMEMCMP(digest, guard, sizeof(guard)), 0);
+#endif
+    /* exactly the hash size is sufficient */
+    digestSz = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest,
+        &digestSz, TPM_CC_NV_Read), 0);
+    AssertIntEQ((int)digestSz, TPM_SHA256_DIGEST_SIZE);
+
+    /* SHA2-256 known-answer */
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected256));
+    AssertIntEQ(XMEMCMP(digest, expected256, sizeof(expected256)), 0);
+#ifdef WOLFSSL_SHA384
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA384, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected384));
+    AssertIntEQ(XMEMCMP(digest, expected384, sizeof(expected384)), 0);
+#endif
+#ifdef WOLFSSL_SHA512
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA512, digest, &digestSz,
+        TPM_CC_NV_Read);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ((int)digestSz, (int)sizeof(expected512));
+    AssertIntEQ(XMEMCMP(digest, expected512, sizeof(expected512)), 0);
+#endif
+
+    printf("Test PolicyCCMake:%-40s Passed\n", "Known Vectors:");
+}
+#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+
+/* Arg-validation for wolfTPM2_SetPrimaryPolicy (no TPM). */
+static void test_wolfTPM2_SetPrimaryPolicy(void)
+{
+    WOLFTPM2_DEV dev;
+    byte pol[TPM_MAX_DIGEST_SIZE + 4];
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(pol, 0, sizeof(pol));
+
+    /* NULL dev */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(NULL, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, pol, TPM_SHA256_DIGEST_SIZE), BAD_FUNC_ARG);
+    /* policy digest larger than the buffer */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, pol, (word32)sizeof(pol)), BAD_FUNC_ARG);
+    /* NULL policy with a non-zero size must not silently clear the policy */
+    AssertIntEQ(wolfTPM2_SetPrimaryPolicy(&dev, TPM_RH_PLATFORM,
+        TPM_ALG_SHA256, NULL, TPM_SHA256_DIGEST_SIZE), BAD_FUNC_ARG);
+
+    printf("Test SetPrimPol:  %-40s Passed\n", "Arg Validation:");
+}
+
+/* Argument handling and, against the simulator, the success paths of
+ * wolfTPM2_IsAlgSupported. */
+static void test_wolfTPM2_IsAlgSupported(void)
+{
+    int isSupported = 1; /* seeded true to prove the error paths clear it */
+#if defined(WOLFTPM_SWTPM)
+    int rc;
+    WOLFTPM2_DEV dev;
+#endif
+
+    /* NULL dev must fail and must not leave the out-param saying "supported" */
+    AssertIntEQ(wolfTPM2_IsAlgSupported(NULL, TPM_ALG_SHA256, &isSupported),
+        BAD_FUNC_ARG);
+    AssertIntEQ(isSupported, 0);
+    /* NULL out-param */
+    AssertIntEQ(wolfTPM2_IsAlgSupported(NULL, TPM_ALG_SHA256, NULL),
+        BAD_FUNC_ARG);
+
+#if defined(WOLFTPM_SWTPM)
+    XMEMSET(&dev, 0, sizeof(dev));
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* SHA2-256 is mandatory for a TPM 2.0 part, so it must report supported
+     * with a success rc */
+    isSupported = 0;
+    AssertIntEQ(wolfTPM2_IsAlgSupported(&dev, TPM_ALG_SHA256, &isSupported),
+        TPM_RC_SUCCESS);
+    AssertIntEQ(isSupported, 1);
+
+    /* an algorithm identifier no TPM implements must report unsupported, still
+     * with a success rc (the query itself worked) */
+    isSupported = 1;
+    AssertIntEQ(wolfTPM2_IsAlgSupported(&dev, (TPM_ALG_ID)0x7FFF,
+        &isSupported), TPM_RC_SUCCESS);
+    AssertIntEQ(isSupported, 0);
+
+    wolfTPM2_Cleanup(&dev);
+    printf("Test IsAlgSupp:   %-40s Passed\n", "Args + Query:");
+#else
+    printf("Test IsAlgSupp:   %-40s Passed\n", "Arg Validation:");
+#endif /* WOLFTPM_SWTPM */
+}
+
+/* Success path for wolfTPM2_PolicyOR: satisfy one branch of a real two-branch
+ * OR on a live policy session and confirm the TPM's running policy digest
+ * matches the offline computation. Simulator only. */
+static void test_wolfTPM2_PolicyOR_success(void)
+{
+#if defined(WOLFTPM_SWTPM) && !defined(WOLFTPM2_NO_WOLFCRYPT)
+    int rc;
+    WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION sess;
+    TPML_DIGEST list;
+    byte branchA[TPM_MAX_DIGEST_SIZE];
+    byte branchB[TPM_MAX_DIGEST_SIZE];
+    byte concat[2 * TPM_MAX_DIGEST_SIZE];
+    byte expected[TPM_MAX_DIGEST_SIZE];
+    byte got[TPM_MAX_DIGEST_SIZE];
+    word32 aSz, bSz, expSz, gotSz;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+    XMEMSET(&sess, 0, sizeof(sess));
+    XMEMSET(&list, 0, sizeof(list));
+
+    rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
+    AssertIntEQ(rc, 0);
+
+    /* two distinct PolicyCommandCode branches */
+    aSz = (word32)sizeof(branchA);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, branchA, &aSz,
+        TPM_CC_NV_Read), 0);
+    bSz = (word32)sizeof(branchB);
+    AssertIntEQ(wolfTPM2_PolicyCommandCodeMake(TPM_ALG_SHA256, branchB, &bSz,
+        TPM_CC_Unseal), 0);
+
+    /* offline expected digest = H(zeros || TPM_CC_PolicyOR || A || B) */
+    XMEMCPY(concat, branchA, aSz);
+    XMEMCPY(&concat[aSz], branchB, bSz);
+    XMEMSET(expected, 0, sizeof(expected));
+    expSz = TPM_SHA256_DIGEST_SIZE;
+    AssertIntEQ(wolfTPM2_PolicyHash(TPM_ALG_SHA256, expected, &expSz,
+        TPM_CC_PolicyOR, concat, aSz + bSz), 0);
+
+    /* satisfy branch A on a live session, then OR against {A,B} */
+    rc = wolfTPM2_StartSession(&dev, &sess, NULL, NULL, TPM_SE_POLICY,
+        TPM_ALG_NULL);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(wolfTPM2_PolicyCommandCode(&dev, &sess, TPM_CC_NV_Read), 0);
+
+    list.count = 2;
+    list.digests[0].size = (UINT16)aSz;
+    XMEMCPY(list.digests[0].buffer, branchA, aSz);
+    list.digests[1].size = (UINT16)bSz;
+    XMEMCPY(list.digests[1].buffer, branchB, bSz);
+    AssertIntEQ(wolfTPM2_PolicyOR(&dev, &sess, &list), 0);
+
+    /* the TPM's running digest must match the offline value */
+    gotSz = (word32)sizeof(got);
+    AssertIntEQ(wolfTPM2_GetPolicyDigest(&dev, sess.handle.hndl, got, &gotSz),
+        0);
+    AssertIntEQ((int)gotSz, (int)expSz);
+    AssertIntEQ(XMEMCMP(got, expected, expSz), 0);
+
+    wolfTPM2_UnloadHandle(&dev, &sess.handle);
+    wolfTPM2_Cleanup(&dev);
+    printf("Test PolicyOR:    %-40s Passed\n", "Two-Branch Success:");
+#else
+    printf("Test PolicyOR:    %-40s Skipped (requires SWTPM)\n",
+        "Two-Branch Success:");
+#endif /* WOLFTPM_SWTPM && !WOLFTPM2_NO_WOLFCRYPT */
+}
 
 static void test_wolfTPM2_GetRandom(void)
 {
@@ -7807,6 +8454,18 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_ST33_FirmwareUpgrade();
     #endif
     #endif
+    test_wolfTPM2_PolicyOR();
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    test_wolfTPM2_PolicyCommandCodeMake();
+    #endif
+    test_wolfTPM2_SetPrimaryPolicy();
+    test_wolfTPM2_SetPrimaryPolicy_rollback();
+    test_wolfTPM2_PolicyClear_underPolicy();
+    #ifdef WOLFTPM_FIRMWARE_UPGRADE
+    test_wolfTPM2_FirmwareUpgrade_ex_session();
+    #endif
+    test_wolfTPM2_IsAlgSupported();
+    test_wolfTPM2_PolicyOR_success();
     #if defined(WOLFTPM_MLDSA) && defined(WOLFTPM_MLKEM)
     /* Run non-TPM-dependent tests first */
     test_wolfTPM2_PQC_KeyTemplates();
