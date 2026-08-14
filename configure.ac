@@ -253,7 +253,7 @@ fi
 WOLFTPM_HW_SELECTED=no
 for _wt_v in "$enable_infineon" "$enable_st" "$enable_st33" \
              "$enable_microchip" "$enable_mchp" \
-             "$enable_nuvoton" "$enable_nations" \
+             "$enable_nuvoton" "$enable_nations" "$enable_sealsq" \
              "$enable_spi" "$enable_i2c" "$enable_mmio" \
              "$enable_devtpm" "$enable_autodetect" \
              "$enable_winapi" "$enable_wintbs"; do
@@ -540,6 +540,17 @@ then
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_NATIONS"
 fi
 
+# SealSQ QVault TPM (post-quantum ML-DSA/ML-KEM)
+AC_ARG_ENABLE([sealsq],
+    [AS_HELP_STRING([--enable-sealsq],[Enable SealSQ QVault TPM Support (default: disabled)])],
+    [ ENABLED_SEALSQ=$enableval ],
+    [ ENABLED_SEALSQ=no ]
+    )
+if test "x$ENABLED_SEALSQ" = "xyes"
+then
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SEALSQ"
+fi
+
 # Infineon SLB9670/SLB9672/SLB9673
 AC_ARG_ENABLE([infineon],
     [AS_HELP_STRING([--enable-infineon],[Enable Infineon SLB9670/SLB9672 TPM Support (default: disabled)])],
@@ -621,7 +632,7 @@ then
     # If a module hasn't been selected then enable auto-detection
     if test "x$ENABLED_INFINEON" = "xno" && test "x$ENABLED_MCHP" = "xno" && test "x$ENABLED_MICROCHIP" = "xno" && \
        test "x$ENABLED_ST" = "xno" && test "x$ENABLED_ST33" = "xno" && test "x$ENABLED_NUVOTON" = "xno" && \
-       test "x$ENABLED_NATIONS" = "xno"
+       test "x$ENABLED_NATIONS" = "xno" && test "x$ENABLED_SEALSQ" = "xno"
     then
         ENABLED_AUTODETECT=yes
     fi
@@ -1192,6 +1203,7 @@ echo "   * STM ST33:                  $ENABLED_ST"
 echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 echo "   * Nations Tech NS350:        $ENABLED_NATIONS"
+echo "   * SealSQ QVault TPM:         $ENABLED_SEALSQ"
 
 echo "   * fwTPM Server:              $ENABLED_FWTPM"
 echo "   * fwTPM Only (no client):    $ENABLED_FWTPM_ONLY"

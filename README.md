@@ -7,7 +7,7 @@ Portable TPM 2.0 project designed for embedded use.
 
 * This implementation provides all TPM 2.0 API's in compliance with the specification.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
-* Any TPM 2.0 compliant module is supported. Tested modules include Infineon SLB9670, SLB9672, SLB9673, STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI, ST33TPHF2XI2C, Microchip ATTPM20, Nations Technologies/NSING Z32H330, NS350, and Nuvoton NPCT650, NPCT750.
+* Any TPM 2.0 compliant module is supported. Tested modules include Infineon SLB9670, SLB9672, SLB9673, STMicroelectronics ST33KTPM2XSPI, ST33KTPM2I, ST33TPHF2XSPI, ST33TPHF2XI2C, Microchip ATTPM20, Nations Technologies/NSING Z32H330, NS350, Nuvoton NPCT650, NPCT750, and SealSQ QVault TPM (first TPM with post-quantum ML-DSA/ML-KEM in silicon).
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
 * On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime - a simple `./configure && make` works with either interface.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
@@ -78,9 +78,12 @@ Supported algorithms:
 | Hash-ML-DSA (pre-hash signing) | FIPS 204 | ML-DSA-44 / 65 / 87 with caller hash |
 | ML-KEM (key encapsulation) | FIPS 203 | ML-KEM-512 / 768 / 1024 |
 
-The examples run against the in-tree fwTPM server. No shipping hardware
-TPM firmware implements v1.85 PQC yet; upgrade paths for discrete chips
-are forward-compatible — the same wrapper API targets both.
+wolfTPM **officially supports the SealSQ QVault TPM**, the first shipping TPM 2.0
+with these v1.85 PQC algorithms in silicon. Build for it with `--enable-sealsq
+--enable-pqc`. The same examples and wrapper API also run against the in-tree
+fwTPM server for CI or when no hardware is present. See the
+[TPM2 Benchmarks](#tpm2-benchmarks) section for measured ML-DSA / ML-KEM
+performance on the QVault TPM.
 
 ### Building
 
@@ -144,9 +147,10 @@ make check
 ```
 
 See [examples/pqc/README.md](examples/pqc/README.md) for per-example
-details (`pqc_mssim_e2e`, `mlkem_encap`) and PQC options on the
-general-purpose `keygen`/`keyload` tools (`-mldsa`, `-hash_mldsa`,
-`-mlkem`).
+details — the `pqc_ctrl` control center (every PQC operation plus board
+control in one CLI, with `pqc_ctrl.sh` running the full command set),
+`pqc_mssim_e2e`, `mlkem_encap`, and PQC options on the general-purpose
+`keygen`/`keyload` tools (`-mldsa`, `-hash_mldsa`, `-mlkem`).
 
 For the fwTPM server's PQC internals — the eight v1.85 commands,
 primary-key derivation, buffer constants, and spec-interpretation
@@ -238,6 +242,7 @@ Tested with:
 * Microchip ATTPM20 module
 * Nuvoton NPCT65X or NPCT75x TPM2.0 modules
 * Nations Technologies Z32H330 or NS350 TPM 2.0 modules
+* SealSQ QVault TPM 2.0 module (SPI, post-quantum ML-DSA / ML-KEM)
 
 #### Device Identification
 
@@ -282,6 +287,10 @@ Mfg NTC (0), Vendor rlsNPCT , Fw 1.3 (65536), FIPS 140-2 0, CC-EAL4 0
 Nuvoton NPCT750 TPM2.0
 TPM2: Caps 0x30000697, Did 0x00fc, Vid 0x1050, Rid 0x 1
 Mfg NTC (0), Vendor NPCT75x"!!4rls, Fw 7.2 (131072), FIPS 140-2 1, CC-EAL4 0
+
+SealSQ QVault TPM 2.0
+TPM2: Caps 0x30000797, Did 0x0083, Vid 0x2406, Rid 0x 3
+Mfg SEAL (6), Vendor QVault TPM, Fw 2.1 (0x3010303), FIPS 140-3, CC-EAL4 0
 
 ## Building
 
@@ -346,6 +355,7 @@ make install
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 --enable-nations        Enable Nations Technology NS350 Support (default: disabled) - WOLFTPM_NATIONS
+--enable-sealsq         Enable SealSQ QVault post-quantum TPM Support (default: disabled) - WOLFTPM_SEALSQ
 
 --enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
                         Note: With autodetect (default) this is no longer required on Linux;
@@ -592,6 +602,32 @@ ECC      256 key gen        5 ops took 1.157 sec, avg 231.350 ms,   4.322 ops/se
 ECDSA    256 sign          15 ops took 1.033 sec, avg 68.865 ms,   14.521 ops/sec
 ECDSA    256 verify         9 ops took 1.022 sec, avg 113.539 ms,   8.808 ops/sec
 ECDHE    256 agree          5 ops took 1.161 sec, avg 232.144 ms,   4.308 ops/sec
+```
+
+Run on the SealSQ QVault post-quantum TPM (ML-DSA / ML-KEM) on a Raspberry Pi 5
+over SPI. These are the first post-quantum TPM benchmarks measured on
+shipping-class silicon:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+RNG                 10 KB took 1.061 seconds,    9.428 KB/s
+AES-256-CBC-enc     57 KB took 1.000 seconds,   56.994 KB/s
+SHA256              43 KB took 1.012 seconds,   42.470 KB/s
+SHA384              43 KB took 1.024 seconds,   41.984 KB/s
+RSA     2048 key gen        3 ops took 20.536 sec, avg 6845.188 ms,  0.146 ops/sec
+RSA     2048 Public        71 ops took 1.015 sec, avg 14.289 ms,   69.985 ops/sec
+RSA     2048 Private        7 ops took 1.154 sec, avg 164.827 ms,   6.067 ops/sec
+ECC      256 key gen        4 ops took 1.170 sec, avg 292.538 ms,   3.418 ops/sec
+ECDSA    256 sign          14 ops took 1.019 sec, avg 72.781 ms,   13.740 ops/sec
+ECDSA    256 verify        17 ops took 1.031 sec, avg 60.661 ms,   16.485 ops/sec
+ECDHE    256 agree          5 ops took 1.030 sec, avg 206.022 ms,   4.854 ops/sec
+ML-DSA    65 key gen        8 ops took 16.357 sec, avg 2044.679 ms,  0.489 ops/sec
+ML-DSA    65 sign           2 ops took 1.162 sec, avg 581.025 ms,   1.721 ops/sec
+ML-DSA    65 verify         7 ops took 1.142 sec, avg 163.118 ms,   6.131 ops/sec
+ML-KEM   768 key gen       19 ops took 15.216 sec, avg 800.819 ms,   1.249 ops/sec
+ML-KEM   768 encap          5 ops took 1.059 sec, avg 211.777 ms,   4.722 ops/sec
+ML-KEM   768 decap          3 ops took 1.276 sec, avg 425.471 ms,   2.350 ops/sec
 ```
 
 Run on Infineon OPTIGA SLB9672 at 43MHz:

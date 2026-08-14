@@ -3,10 +3,12 @@
 Examples exercising the ML-DSA / ML-KEM post-quantum additions from TCG
 TPM 2.0 Library Specification v1.85, wrapped by `wolfTPM2_*` API calls.
 
-The examples run against the in-tree fwTPM server. No shipping hardware
-TPM firmware implements v1.85 PQC yet. See
-[docs/FWTPM.md](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support) for
-the full fwTPM PQC reference.
+These examples run on the SealSQ QVault TPM — the first shipping TPM 2.0 with
+v1.85 post-quantum (ML-DSA / ML-KEM) algorithms in silicon — over SPI, and on
+the in-tree fwTPM server for CI or when no hardware is present. Build for the
+SealSQ part with `--enable-sealsq --enable-pqc`; see
+[docs/FWTPM.md](../../docs/FWTPM.md#tpm-20-v185-post-quantum-support) for the
+fwTPM PQC reference.
 
 ## Building
 
@@ -66,6 +68,68 @@ All examples expect a running `fwtpm_server` on `127.0.0.1:2321`:
 ```
 ./src/fwtpm/fwtpm_server --clear &
 ```
+
+### `pqc_ctrl` — PQC control center
+
+One CLI to drive and validate a PQC TPM (SealSQ QVault TPM, or the fwTPM),
+modeled on `examples/spdm/spdm_ctrl`: each command runs an operation and
+controls the board. Every key operation flushes the transient object table
+first, so a TPM with a small object memory (e.g. SealSQ QVault TPM) does not
+hit `TPM_RC_OBJECT_MEMORY` when commands are chained.
+
+```
+./examples/pqc/pqc_ctrl                 # --all (default)
+./examples/pqc/pqc_ctrl --caps --algs   # identify + list supported algorithms
+./examples/pqc/pqc_ctrl --mldsa=87      # ML-DSA-87 sign/verify
+./examples/pqc/pqc_ctrl --mlkem=1024    # ML-KEM-1024 encap/decap
+./examples/pqc/pqc_ctrl --selftest --getrandom=32 --pcrread=0
+```
+
+| Command | Description |
+|---|---|
+| `--caps` | Manufacturer, vendor string, firmware, FIPS mode |
+| `--algs` | List the algorithms the TPM reports as supported |
+| `--selftest` | `TPM2_SelfTest` |
+| `--getrandom[=N]` | N random bytes (default 16) |
+| `--pcrread[=idx]` | Read a PCR (SHA-256 bank, falling back to SHA-384) |
+| `--pcrextend=idx` | Extend a PCR with a test digest (explicit index required) |
+| `--flush` | Flush transient objects (board reset between ops) |
+| `--clear` | `TPM2_Clear` — wipes the owner hierarchy |
+| `--mldsa[=44/65/87]` | Pure ML-DSA sign/verify (default 65) |
+| `--hash-mldsa[=44/65/87]` | Hash-ML-DSA (SHA-256 pre-hash) sign/verify |
+| `--mlkem[=512/768/1024]` | ML-KEM encapsulate/decapsulate |
+| `--all` | caps + algs + selftest + getrandom + pcrread + every PQC set |
+
+Commands run left-to-right, so they can be chained. Requires `--enable-v185`
+(or `--enable-pqc`). Point it at the SealSQ part with `--enable-sealsq`, or at
+the fwTPM with `--enable-fwtpm --enable-swtpm`.
+
+Run the whole command set as a pass/fail suite (mirrors
+`examples/spdm/spdm_test.sh`). The destructive `--clear` is opt-in via
+`PQC_CTRL_CLEAR=1` so the suite never wipes a TPM unexpectedly:
+
+```
+./examples/pqc/pqc_ctrl.sh
+PQC_CTRL_CLEAR=1 ./examples/pqc/pqc_ctrl.sh   # also exercise TPM2_Clear
+```
+
+### Benchmarks on SealSQ QVault TPM silicon
+
+Measured with `examples/bench/bench` on a Raspberry Pi 5 driving the QVault TPM
+over SPI (the first post-quantum TPM benchmarks on shipping-class silicon):
+
+| Operation | Avg latency | Throughput |
+|---|---|---|
+| ML-DSA-65 key gen | 2044.7 ms | 0.49 ops/s |
+| ML-DSA-65 sign | 581.0 ms | 1.72 ops/s |
+| ML-DSA-65 verify | 163.1 ms | 6.13 ops/s |
+| ML-KEM-768 key gen | 800.8 ms | 1.25 ops/s |
+| ML-KEM-768 encapsulate | 211.8 ms | 4.72 ops/s |
+| ML-KEM-768 decapsulate | 425.5 ms | 2.35 ops/s |
+
+Verification is fast (comparable to ECDSA); key generation is a one-off
+provisioning cost. See the top-level `README.md` TPM2 Benchmarks section for the
+full classical + PQC run.
 
 ### `pqc_mssim_e2e`
 

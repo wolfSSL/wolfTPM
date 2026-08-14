@@ -861,6 +861,10 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                     caps->mfg = TPM_MFG_NATIONTECH;
                     caps->req_wait_state = 1;
                 }
+                else if (XMEMCMP(&caps->mfgStr, "SEAL", 4) == 0) {
+                    caps->mfg = TPM_MFG_SEALSQ;
+                    caps->req_wait_state = 1;
+                }
                 break;
             case TPM_PT_VENDOR_STRING_1:
             case TPM_PT_VENDOR_STRING_2:

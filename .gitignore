@@ -79,6 +79,9 @@ examples/pqc/mldsa_sign
 examples/pqc/mlkem_encap
 examples/pqc/pqc_mssim_e2e
 examples/pqc/gen_pqc_certs
+examples/pqc/pqc_ctrl
+examples/pqc/mldsa_verify_neg
+examples/pqc/mlkem_decap_neg
 examples/nvram/extend
 examples/nvram/store
 examples/nvram/read
