@@ -387,15 +387,21 @@ int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     TPM2_Packet_AppendU16(rsp, (UINT16)chSz);
     if (chSz > 0) {
         TPM2_Packet_AppendBytes(rsp, creationHash, chSz);
-        XMEMCPY(ticketData, creationHash, chSz);
-        ticketDataSz = chSz;
     }
+    /* ticketData = objectName || creationHash per TPM 2.0 Part 2 Sec.10.6.3 */
     if (objNameSz > 0) {
-        if (ticketDataSz + objNameSz > (int)sizeof(ticketData)) {
+        if (objNameSz > (int)sizeof(ticketData)) {
             return TPM_RC_SIZE;
         }
-        XMEMCPY(ticketData + ticketDataSz, objName, objNameSz);
-        ticketDataSz += objNameSz;
+        XMEMCPY(ticketData, objName, objNameSz);
+        ticketDataSz = objNameSz;
+    }
+    if (chSz > 0) {
+        if (ticketDataSz + chSz > (int)sizeof(ticketData)) {
+            return TPM_RC_SIZE;
+        }
+        XMEMCPY(ticketData + ticketDataSz, creationHash, chSz);
+        ticketDataSz += chSz;
     }
     return FwAppendTicket(ctx, rsp, TPM_ST_CREATION, hierarchy,
         nameAlg, ticketData, ticketDataSz, NULL, 0);
