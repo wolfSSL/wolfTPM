@@ -295,7 +295,11 @@
 
 /* fwTPM firmware revision (TPM_PT_REVISION hundredths) */
 #ifndef FWTPM_REVISION
+#ifdef WOLFTPM_V185
+#define FWTPM_REVISION 185
+#else
 #define FWTPM_REVISION 159
+#endif
 #endif
 
 /* Compile-time build date parsed from __DATE__ ("Mmm DD YYYY") */

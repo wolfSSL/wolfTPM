@@ -1349,8 +1349,15 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_FAMILY_INDICATOR,  0x322E3000 },
                 { TPM_PT_LEVEL,             0 },
                 { TPM_PT_REVISION,          FWTPM_REVISION },
+#ifdef WOLFTPM_V185
+                /* v1.85 Part 2 renames PT_FIXED+3 to TPM_PT_ERRATA (base value
+                 * 0) and no longer reports a build date at PT_FIXED+3/+4. */
+                { TPM_PT_DAY_OF_YEAR,       0 },
+                { TPM_PT_YEAR,              0 },
+#else
                 { TPM_PT_DAY_OF_YEAR,       FWTPM_BUILD_DAY_OF_YEAR },
                 { TPM_PT_YEAR,              FWTPM_BUILD_YEAR },
+#endif
                 { TPM_PT_MANUFACTURER,
                   ((UINT32)'W' << 24) | ((UINT32)'O' << 16) |
                   ((UINT32)'L' << 8)  | (UINT32)'F' },
@@ -11509,6 +11516,11 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Skip auth area */
     if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
+    if (rc == 0 && authHandle != TPM_RH_OWNER &&
+        authHandle != TPM_RH_PLATFORM) {
+        rc = TPM_RC_HIERARCHY;
+    }
+
     /* 1st param: TPM2B_AUTH (NV auth value) */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &auth.size);
@@ -11569,6 +11581,24 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* TPMA_NV_PLATFORMCREATE must be set under platform auth and clear under
+     * any other hierarchy (TPM 2.0 Part 3, NV_DefineSpace). */
+    if (rc == 0 && authHandle == TPM_RH_PLATFORM &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_PLATFORMCREATE) == 0) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+    if (rc == 0 && authHandle != TPM_RH_PLATFORM &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_PLATFORMCREATE)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+
+    /* Only platform auth may set TPMA_NV_POLICY_DELETE; such an index can be
+     * removed only through UndefineSpaceSpecial. */
+    if (rc == 0 && authHandle != TPM_RH_PLATFORM &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_POLICY_DELETE)) {
+        rc = TPM_RC_ATTRIBUTES;
+    }
+
     /* Check for duplicate */
     if (rc == 0 && FwFindNvIndex(ctx, publicInfo.nvPublic.nvIndex) != NULL) {
         rc = TPM_RC_NV_DEFINED;
@@ -11616,7 +11646,6 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         FWTPM_NV_SaveNvIndex(ctx,
             (int)(slot - ctx->nvIndices));
-        (void)authHandle;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -11639,14 +11668,25 @@ static TPM_RC FwCmd_NV_UndefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_Packet_ParseU32(cmd, &nvHandle);
     if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
 
+    if (rc == 0 && authHandle != TPM_RH_OWNER &&
+        authHandle != TPM_RH_PLATFORM) {
+        rc = TPM_RC_HIERARCHY;
+    }
+
     nv = FwFindNvIndex(ctx, nvHandle);
-    if (nv == NULL) {
+    if (rc == 0 && nv == NULL) {
         rc = FW_NV_HANDLE_ERR_2;
     }
 
     /* Cannot delete POLICY_DELETE without special command */
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_POLICY_DELETE)) {
         rc = TPM_RC_ATTRIBUTES;
+    }
+
+    /* A platform-created index can only be removed by the platform hierarchy */
+    if (rc == 0 && authHandle == TPM_RH_OWNER &&
+        (nv->nvPublic.attributes & TPMA_NV_PLATFORMCREATE)) {
+        rc = TPM_RC_NV_AUTHORIZATION;
     }
 
     if (rc == 0) {
