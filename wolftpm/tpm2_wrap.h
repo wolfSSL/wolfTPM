@@ -149,6 +149,7 @@ typedef enum WOLFTPM2_MFG {
     TPM_MFG_MCHP,
     TPM_MFG_NUVOTON,
     TPM_MFG_NATIONTECH,
+    TPM_MFG_SEALSQ,
 } WOLFTPM2_MFG;
 
 typedef struct WOLFTPM2_CAPS {

@@ -474,6 +474,17 @@ typedef int64_t  INT64;
         /* Max: 43MHz */
         #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_NUVOTON
     #endif
+#elif defined(WOLFTPM_SEALSQ)
+    /* SealSQ QVault TPM */
+    /* Requires wait state support */
+    #ifndef WOLFTPM_CHECK_WAIT_STATE
+        #define WOLFTPM_CHECK_WAIT_STATE
+    #endif
+    #define TPM2_SPI_MAX_HZ_SEALSQ 33000000
+    #ifndef TPM2_SPI_MAX_HZ
+        /* Max: 33MHz */
+        #define TPM2_SPI_MAX_HZ TPM2_SPI_MAX_HZ_SEALSQ
+    #endif
 #else
     /* Infineon OPTIGA SLB9670/SLB9672/SLB9673 */
     #ifdef WOLFTPM_SLB9670

@@ -28,6 +28,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: sealsq-qvault-vendor
+            wolftpm_config: --enable-pqc --enable-sealsq --disable-fwtpm --disable-examples
           - name: cli-mldsa_all-mlkem_all
             wolftpm_config: --enable-pqc --enable-mldsa=all --enable-mlkem=all --disable-fwtpm --disable-examples
           - name: cli-mldsa_all-mlkem_enc

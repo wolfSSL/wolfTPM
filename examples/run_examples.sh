@@ -376,6 +376,13 @@ if [ $ENABLE_V185 -eq 1 ]; then
         [ $RESULT -ne 0 ] && echo -e "mlkem_encap mlkem=$PS failed! $RESULT" && exit 1
     done
 
+    echo -e "PQC control tool (pqc_ctrl board commands)"
+    # Board-control commands only; the ML-DSA/ML-KEM matrix is already covered
+    # by the standalone example loops above, so do not re-run it here.
+    ./examples/pqc/pqc_ctrl --caps --algs --selftest --getrandom=16 >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "pqc_ctrl board commands failed! $RESULT" && exit 1
+
     echo -e "PQC primary key (create_primary -mldsa)"
     for PS in 44 65 87; do
         ./examples/keygen/create_primary -mldsa=$PS -oh >> $TPMPWD/run.out 2>&1

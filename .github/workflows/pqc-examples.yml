@@ -95,6 +95,13 @@ jobs:
       - name: ML-KEM encap + decap example (standalone)
         run: ./examples/pqc/mlkem_encap
 
+      - name: PQC control tool (pqc_ctrl.sh suite + argument validation)
+        # pqc_ctrl.sh runs the full command set and the argument-validation
+        # negatives, exiting non-zero on any failure. PQC_CTRL_CLEAR is left off
+        # so the shared Tier-2 fwtpm_server is not wiped mid-sequence; the
+        # destructive --clear / --pcrextend paths are exercised on hardware.
+        run: ./examples/pqc/pqc_ctrl.sh
+
       - name: Stop Tier 2 fwtpm_server (free port 2321 for E2E)
         run: |
           if [ -f /tmp/fwtpm_server.pid ]; then
