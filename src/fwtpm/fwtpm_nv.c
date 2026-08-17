@@ -109,6 +109,32 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
     int ret;
     long fileSize;
 
+    /* The journal holds plaintext hierarchy seeds, auth values and private
+     * keys, so it must never be created (or left) group/other readable. */
+#if !defined(_WIN32)
+    int fd;
+    int oflags = O_RDWR | O_CREAT;
+    #ifdef O_CLOEXEC
+    oflags |= O_CLOEXEC;
+    #endif
+    #ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+    #endif
+    fd = open(path, oflags, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        return TPM_RC_FAILURE;
+    }
+    /* Tighten an existing journal a prior umask left too permissive. */
+    if (fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    f = fdopen(fd, "r+b");
+    if (f == NULL) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+#else
     /* Open for read+write if exists, otherwise create */
     f = fopen(path, "r+b");
     if (f == NULL) {
@@ -117,6 +143,7 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
             return TPM_RC_FAILURE;
         }
     }
+#endif
 
     /* If writing past current end, extend with zeros */
     fseek(f, 0, SEEK_END);
@@ -161,16 +188,45 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
 static int FwNvFileErase(void* ctx, word32 offset, word32 size)
 {
     const char* path = (const char*)ctx;
+#if !defined(_WIN32)
+    int fd;
+    int oflags = O_WRONLY | O_CREAT;
+#else
     FILE* f;
+#endif
     (void)offset;
     (void)size;
 
-    /* For file-based backend, truncate the file */
+    /* For file-based backend, truncate the file (owner-only, see write).
+     * Truncate only after the permission check so a failed hardening does
+     * not destroy an existing journal. */
+#if !defined(_WIN32)
+    #ifdef O_CLOEXEC
+    oflags |= O_CLOEXEC;
+    #endif
+    #ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+    #endif
+    fd = open(path, oflags, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        return TPM_RC_FAILURE;
+    }
+    if (fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    if (ftruncate(fd, 0) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    close(fd);
+#else
     f = fopen(path, "wb");
     if (f == NULL) {
         return TPM_RC_FAILURE;
     }
     fclose(f);
+#endif
     return TPM_RC_SUCCESS;
 }
 
