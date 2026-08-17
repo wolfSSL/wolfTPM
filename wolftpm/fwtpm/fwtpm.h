@@ -594,6 +594,10 @@ typedef struct FWTPM_Session {
     int isPPRequired;               /* PolicyPhysicalPresence flag */
     int requiredLocality;           /* PolicyLocality bitmap */
     int hasRequiredLocality;        /* 1 once PolicyLocality has been called */
+    UINT32 commandCode;             /* PolicyCommandCode/DuplicationSelect: locked once set */
+    TPM2B_DIGEST templateHash;      /* PolicyTemplate: locked once set */
+    int checkNvWritten;             /* 1 once PolicyNvWritten has been called */
+    int nvWrittenState;             /* PolicyNvWritten writtenSet */
 } FWTPM_Session;
 
 /* NV index slot (user NV RAM) */

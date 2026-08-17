@@ -9101,6 +9101,12 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sess->isPPRequired = 0;
         sess->cpHashA.size = 0;
         sess->nameHash.size = 0;
+        sess->requiredLocality = 0;
+        sess->hasRequiredLocality = 0;
+        sess->commandCode = 0;
+        sess->templateHash.size = 0;
+        sess->checkNvWritten = 0;
+        sess->nvWrittenState = 0;
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -9501,6 +9507,11 @@ static TPM_RC FwCmd_PolicyCommandCode(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_AUTH_TYPE;
         }
     }
+    /* A session may only be bound to one command code */
+    if (rc == 0 && sess->commandCode != 0 &&
+        sess->commandCode != commandCode) {
+        rc = TPM_RC_VALUE;
+    }
 
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
@@ -9515,6 +9526,7 @@ static TPM_RC FwCmd_PolicyCommandCode(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->commandCode = commandCode;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10655,6 +10667,11 @@ static TPM_RC FwCmd_PolicyNvWritten(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_VALUE;
         }
     }
+    /* A session may only assert one written state */
+    if (rc == 0 && sess->checkNvWritten &&
+        (sess->nvWrittenState != 0) != (writtenSet != 0)) {
+        rc = TPM_RC_VALUE;
+    }
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyNvWritten(session=0x%x, writtenSet=%d)\n",
@@ -10666,6 +10683,8 @@ static TPM_RC FwCmd_PolicyNvWritten(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->checkNvWritten = 1;
+        sess->nvWrittenState = writtenSet;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10693,15 +10712,28 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
         TPM2_Packet_ParseU16(cmd, &templateHashSz);
-        if (templateHashSz > sizeof(templateHash)) {
+        if (expectedSz <= 0 || templateHashSz != (UINT16)expectedSz) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        if (templateHashSz > 0) {
-            TPM2_Packet_ParseBytes(cmd, templateHash, templateHashSz);
+        TPM2_Packet_ParseBytes(cmd, templateHash, templateHashSz);
+        /* cpHash, nameHash and templateHash share one session slot
+         * (Part 3 Sec.23.19), so only a repeat of the same template is
+         * accepted */
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0) {
+            rc = TPM_RC_CPHASH;
         }
+        else if (sess->templateHash.size > 0 &&
+            (sess->templateHash.size != templateHashSz ||
+             TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
+                templateHashSz) != 0)) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+    if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyTemplate(session=0x%x, hashSz=%d)\n",
             sess->handle, templateHashSz);
@@ -10712,6 +10744,8 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->templateHash.size = templateHashSz;
+        XMEMCPY(sess->templateHash.buffer, templateHash, templateHashSz);
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10752,9 +10786,13 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashSz);
 
+        /* cpHash, nameHash and templateHash share one session slot */
+        if (sess->nameHash.size > 0 || sess->templateHash.size > 0) {
+            rc = TPM_RC_CPHASH;
+        }
         /* If cpHashA already set, must be identical — always run
          * TPM2_ConstantCompare so timing doesn't leak size match */
-        if (sess->cpHashA.size > 0) {
+        else if (sess->cpHashA.size > 0) {
             sizeMismatch = (sess->cpHashA.size != cpHashSz);
             cmpSz = (sess->cpHashA.size < cpHashSz) ?
                 sess->cpHashA.size : cpHashSz;
@@ -10819,9 +10857,13 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, nameHashBuf, nameHashSz);
 
+        /* cpHash, nameHash and templateHash share one session slot */
+        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0) {
+            rc = TPM_RC_CPHASH;
+        }
         /* If nameHash already set, must be identical — always run
          * TPM2_ConstantCompare so timing doesn't leak size match */
-        if (sess->nameHash.size > 0) {
+        else if (sess->nameHash.size > 0) {
             sizeMismatch = (sess->nameHash.size != nameHashSz);
             cmpSz = (sess->nameHash.size < nameHashSz) ?
                 sess->nameHash.size : nameHashSz;
@@ -10907,13 +10949,25 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_VALUE;
         }
     }
+    /* Binds both a command code and a name hash, so neither may already
+     * be set on the session (Part 3 Sec.23.14) */
+    if (rc == 0 && sess->commandCode != 0) {
+        rc = TPM_RC_COMMAND_CODE;
+    }
+    if (rc == 0 && (sess->nameHash.size != 0 || sess->cpHashA.size != 0 ||
+            sess->templateHash.size != 0)) {
+        rc = TPM_RC_CPHASH;
+    }
 
     if (rc == 0) {
         FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
         enum wc_HashType wcHash = FwGetWcHashType(sess->authHash);
         int digestSz = TPM2_GetHashDigestSize(sess->authHash);
+        byte nameHash[TPM_MAX_DIGEST_SIZE];
+        byte newDigest[TPM_MAX_DIGEST_SIZE];
         byte ccBuf[4];
         UINT32 cc = TPM_CC_PolicyDuplicationSelect;
+        int hrc = 0;
 
         FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
@@ -10922,30 +10976,67 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sess->handle, includeObject);
     #endif
 
-        if (digestSz <= 0) {
+        if (rc == 0 && digestSz <= 0) {
             rc = TPM_RC_HASH;
         }
+        /* nameHash = H(objectName || newParentName), checked against the
+         * Duplicate command's handles at authorization time */
         if (rc == 0) {
-            if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            hrc = wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID);
+            if (hrc == 0) {
+                if (objectNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, objectName,
+                        objectNameSz);
+                }
+                if (hrc == 0 && newParentNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash,
+                        newParentName, newParentNameSz);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashFinal(hashCtx, wcHash, nameHash);
+                }
+                wc_HashFree(hashCtx, wcHash);
+            }
+            if (hrc != 0) {
                 rc = TPM_RC_FAILURE;
             }
         }
         if (rc == 0) {
-            wc_HashUpdate(hashCtx, wcHash,
-                sess->policyDigest.buffer, sess->policyDigest.size);
-            FwStoreU32BE(ccBuf, cc);
-            wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
-            if (includeObject && objectNameSz > 0) {
-                wc_HashUpdate(hashCtx, wcHash, objectName, objectNameSz);
+            hrc = wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID);
+            if (hrc == 0) {
+                hrc = wc_HashUpdate(hashCtx, wcHash,
+                    sess->policyDigest.buffer, sess->policyDigest.size);
+                FwStoreU32BE(ccBuf, cc);
+                if (hrc == 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
+                }
+                if (hrc == 0 && includeObject && objectNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, objectName,
+                        objectNameSz);
+                }
+                if (hrc == 0 && newParentNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash,
+                        newParentName, newParentNameSz);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, &includeObject, 1);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashFinal(hashCtx, wcHash, newDigest);
+                }
+                wc_HashFree(hashCtx, wcHash);
             }
-            if (newParentNameSz > 0) {
-                wc_HashUpdate(hashCtx, wcHash,
-                    newParentName, newParentNameSz);
+            if (hrc != 0) {
+                rc = TPM_RC_FAILURE;
             }
-            wc_HashUpdate(hashCtx, wcHash, &includeObject, 1);
-            wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer);
+        }
+        /* Commit only once both digests are complete */
+        if (rc == 0) {
+            XMEMCPY(sess->nameHash.buffer, nameHash, digestSz);
+            sess->nameHash.size = (UINT16)digestSz;
+            XMEMCPY(sess->policyDigest.buffer, newDigest, digestSz);
             sess->policyDigest.size = (UINT16)digestSz;
-            wc_HashFree(hashCtx, wcHash);
+            sess->commandCode = TPM_CC_Duplicate;
         }
 
         FWTPM_FREE_VAR(hashCtx);
@@ -16588,6 +16679,128 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 }
 #endif /* !FWTPM_NO_DA */
 
+/* nameHash = H(name1 || ... || nameN) over the command's handles
+ * (TPM 2.0 Part 1 Sec.19.7.11) */
+static int FwComputeNameHash(FWTPM_CTX* ctx, TPMI_ALG_HASH hashAlg,
+    const TPM_HANDLE* handles, int handleCnt, byte* hashOut, int* hashOutSz)
+{
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int dSize = TPM2_GetHashDigestSize(hashAlg);
+    int rc = TPM_RC_SUCCESS;
+    int inited = 0;
+    int i;
+
+    if (dSize <= 0)
+        return TPM_RC_FAILURE;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    if (rc == 0) {
+        rc = wc_HashInit(hashCtx, wcHash);
+        inited = (rc == 0);
+    }
+    for (i = 0; i < handleCnt && rc == 0; i++) {
+        byte hName[2 + TPM_MAX_DIGEST_SIZE];
+        int hNameSz = FwGetEntityName(ctx, handles[i],
+            hName, (int)sizeof(hName));
+        if (hNameSz > 0)
+            rc = wc_HashUpdate(hashCtx, wcHash, hName, hNameSz);
+    }
+    if (rc == 0)
+        rc = wc_HashFinal(hashCtx, wcHash, hashOut);
+    if (rc == 0)
+        *hashOutSz = dSize;
+
+    if (inited)
+        wc_HashFree(hashCtx, wcHash);
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+
+/* templateHash = H(inPublic contents) for Create/CreatePrimary/CreateLoaded,
+ * whose parameters are inSensitive (TPM2B) then inPublic (TPM2B) */
+static int FwComputeTemplateHash(TPMI_ALG_HASH hashAlg,
+    const byte* cmdBuf, int cmdSize, int cpStart,
+    byte* hashOut, int* hashOutSz)
+{
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int dSize = TPM2_GetHashDigestSize(hashAlg);
+    int pos = cpStart;
+    int tmplSz;
+    int rc;
+
+    if (dSize <= 0 || pos <= 0 || pos + 2 > cmdSize)
+        return TPM_RC_FAILURE;
+    pos += 2 + (int)((cmdBuf[pos] << 8) | cmdBuf[pos + 1]);
+    if (pos + 2 > cmdSize)
+        return TPM_RC_FAILURE;
+    tmplSz = (int)((cmdBuf[pos] << 8) | cmdBuf[pos + 1]);
+    pos += 2;
+    if (tmplSz <= 0 || pos + tmplSz > cmdSize)
+        return TPM_RC_FAILURE;
+
+    rc = wc_Hash(wcHash, cmdBuf + pos, (word32)tmplSz, hashOut,
+        (word32)dSize);
+    if (rc == 0)
+        *hashOutSz = dSize;
+    return rc;
+}
+
+/* Enforce the deferred assertions a policy session carries: command code,
+ * name hash, creation template and NV written state (Part 1 Sec.19.7). */
+static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_CC cmdCode,
+    const byte* cmdBuf, int cmdSize, int cpStart,
+    const TPM_HANDLE* handles, int handleCnt, TPM_HANDLE entityH)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    int digestSz = 0;
+
+    if (sess->commandCode != 0 && sess->commandCode != cmdCode) {
+        rc = TPM_RC_POLICY_CC;
+    }
+    if (rc == 0 && sess->nameHash.size > 0) {
+        if (FwComputeNameHash(ctx, sess->authHash, handles, handleCnt,
+                digest, &digestSz) != 0 ||
+            (int)sess->nameHash.size != digestSz ||
+            TPM2_ConstantCompare(sess->nameHash.buffer, digest,
+                (word32)digestSz) != 0) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    }
+    /* PolicyTemplate binds only the creation template (Part 3 Sec.23.19);
+     * it does not restrict the command, that is PolicyCommandCode's role. */
+    if (rc == 0 && sess->templateHash.size > 0 &&
+        (cmdCode == TPM_CC_Create || cmdCode == TPM_CC_CreatePrimary ||
+         cmdCode == TPM_CC_CreateLoaded)) {
+        if (FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
+                digest, &digestSz) != 0 ||
+            (int)sess->templateHash.size != digestSz ||
+            TPM2_ConstantCompare(sess->templateHash.buffer, digest,
+                (word32)digestSz) != 0) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    }
+    if (rc == 0 && sess->checkNvWritten) {
+    #ifndef FWTPM_NO_NV
+        FWTPM_NvIndex* nv = NULL;
+        if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
+            nv = FwFindNvIndex(ctx, entityH);
+        }
+        if (nv == NULL ||
+            (nv->written != 0) != (sess->nvWrittenState != 0)) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    #else
+        (void)entityH;
+        rc = TPM_RC_POLICY_FAIL;
+    #endif
+    }
+    return rc;
+}
+
 /* ================================================================== */
 /* Public API: FWTPM_ProcessCommand                                    */
 /* ================================================================== */
@@ -17029,6 +17242,20 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                return TPM_RC_SUCCESS;
+            }
+
+            /* Deferred assertions bind the session to a command, handles,
+             * template or NV state and must hold for this command. */
+            rc = FwCheckPolicyAssertions(ctx, pSess, cmdCode, cmdBuf,
+                cmdSize, cpStart, cmdHandles, cmdHandleCnt, entityH);
+            if (rc != TPM_RC_SUCCESS) {
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy assertion failed for handle 0x%x "
+                    "(CC=0x%x, rc=0x%x)\n", entityH, cmdCode, rc);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, rc);
                 return TPM_RC_SUCCESS;
             }
         }
