@@ -315,15 +315,29 @@ static int RespDecrypt(WOLFSPDM_CTX* ctx,
     return rc;
 }
 
+/* The responder FINISH path has no 1.4 OpaqueData handling, so it tops out
+ * at 1.3 even when the requester build allows 1.4. */
+#if WOLFSPDM_MAX_SPDM_VERSION > SPDM_VERSION_13
+#define WOLFSPDM_RESP_MAX_VERSION       SPDM_VERSION_13
+#else
+#define WOLFSPDM_RESP_MAX_VERSION       WOLFSPDM_MAX_SPDM_VERSION
+#endif
+#if WOLFSPDM_MIN_SPDM_VERSION > WOLFSPDM_RESP_MAX_VERSION
+#error "SPDM responder version range is empty"
+#endif
+#define WOLFSPDM_RESP_VERSION_COUNT \
+    (WOLFSPDM_RESP_MAX_VERSION - WOLFSPDM_MIN_SPDM_VERSION + 1)
+
 static int RespBuildVersion(WOLFSPDM_CTX* ctx,
     const byte* req, word32 reqSz,
     byte* out, word32* outSz)
 {
     word32 off;
+    byte ver;
 
     (void)req;
     (void)reqSz;
-    if (*outSz < 12) {
+    if (*outSz < 6 + 2 * WOLFSPDM_RESP_VERSION_COUNT) {
         return WOLFSPDM_E_BUFFER_SMALL;
     }
     off = 0;
@@ -332,14 +346,40 @@ static int RespBuildVersion(WOLFSPDM_CTX* ctx,
     out[off++] = 0x00;
     out[off++] = 0x00;
     /* VersionNumberEntryCount (LE) at offset 4. */
-    out[off++] = 0x03;
+    out[off++] = WOLFSPDM_RESP_VERSION_COUNT;
     out[off++] = 0x00;
     /* Entries: 2 bytes each, byte+1 holds the version (Major<<4 | Minor). */
-    out[off++] = 0x00; out[off++] = 0x10;
-    out[off++] = 0x00; out[off++] = 0x12;
-    out[off++] = 0x00; out[off++] = 0x13;
+    for (ver = WOLFSPDM_MIN_SPDM_VERSION; ver <= WOLFSPDM_RESP_MAX_VERSION;
+         ver++) {
+        out[off++] = 0x00;
+        out[off++] = ver;
+    }
     *outSz = off;
-    ctx->spdmVersion = SPDM_VERSION_13;
+    /* The requester picks from the advertised set; its next request
+     * carries the selection (see RespSelectVersion). */
+    ctx->spdmVersion = 0;
+    ctx->state = WOLFSPDM_STATE_VERSION;
+    return WOLFSPDM_SUCCESS;
+}
+
+/* Adopt the version the requester selects on its first request after
+ * VERSION and pin it for the rest of the connection. Before any VERSION
+ * exchange only pre-negotiation vendor commands (GET_STS_, PSK_SET_) may
+ * pass, and they select nothing. */
+static int RespSelectVersion(WOLFSPDM_CTX* ctx, byte reqVer, int isVendor)
+{
+    if (ctx->spdmVersion != 0) {
+        return (reqVer == ctx->spdmVersion) ? WOLFSPDM_SUCCESS :
+            WOLFSPDM_E_VERSION_MISMATCH;
+    }
+    if (ctx->state != WOLFSPDM_STATE_VERSION) {
+        return isVendor ? WOLFSPDM_SUCCESS : WOLFSPDM_E_BAD_STATE;
+    }
+    if (reqVer < WOLFSPDM_MIN_SPDM_VERSION ||
+        reqVer > WOLFSPDM_RESP_MAX_VERSION) {
+        return WOLFSPDM_E_VERSION_MISMATCH;
+    }
+    ctx->spdmVersion = reqVer;
     return WOLFSPDM_SUCCESS;
 }
 
@@ -515,6 +555,18 @@ static int RespDispatchClear(WOLFSPDM_RESP_CTX* rctx,
     if (code == SPDM_GET_VERSION) {
         wolfSPDM_TranscriptReset(ctx);
         wolfSPDM_RespReset(rctx);
+    }
+    else {
+        rc = RespSelectVersion(ctx, in[0],
+            code == SPDM_VENDOR_DEFINED_REQUEST);
+        if (rc == WOLFSPDM_E_BAD_STATE) {
+            return RespBuildErrorClear(ctx,
+                SPDM_ERROR_UNEXPECTED_REQUEST, 0, out, outSz);
+        }
+        if (rc != WOLFSPDM_SUCCESS) {
+            return RespBuildErrorClear(ctx,
+                SPDM_ERROR_MAJOR_VERSION_MISMATCH, 0, out, outSz);
+        }
     }
 
     /* VENDOR_DEFINED bytes don't go into the SPDM transcript - the
