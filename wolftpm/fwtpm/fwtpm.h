@@ -710,6 +710,12 @@ typedef struct FWTPM_CTX {
     int pendingClear;           /* Deferred clear (after response auth) */
     int disableClear;           /* ClearControl: 1 = Clear is disabled */
     int globalNvWriteLock;      /* NV_GlobalWriteLock (reset on Startup CLEAR) */
+    /* HierarchyControl enable state (0 = enabled). Re-enabled on Startup
+     * CLEAR per TPM 2.0 Part 1 (TPMS_STARTUP_CLEAR). */
+    int shDisabled;             /* !shEnable:   owner hierarchy */
+    int ehDisabled;             /* !ehEnable:   endorsement hierarchy */
+    int phDisabled;             /* !phEnable:   platform hierarchy */
+    int phNvDisabled;           /* !phEnableNV: platform NV indices */
 #ifndef FWTPM_NO_DA
     /* Dictionary Attack protection state */
     UINT32 daFailedTries;       /* Failed auth count, persisted in NV */

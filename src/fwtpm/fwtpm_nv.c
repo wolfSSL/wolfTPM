@@ -576,6 +576,12 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvMarshalName(buf, pos, maxSz, &obj->name);
     }
+    /* Hierarchy trails the historic layout so a pre-existing journal (which
+     * lacks it) still unmarshals; access control needs it to enforce a
+     * disabled hierarchy against reloaded persistent objects. */
+    if (rc == 0) {
+        rc = FwNvMarshalU32(buf, pos, maxSz, obj->hierarchy);
+    }
     return rc;
 }
 
@@ -616,6 +622,17 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     if (rc == 0) {
         rc = FwNvUnmarshalName(buf, pos, maxSz, &obj->name);
+    }
+    /* Optional trailing hierarchy. A pre-existing journal lacks it: a
+     * platform-range record is unambiguously platform, but an owner-range
+     * record's owner-vs-endorsement provenance is unknown, so it is left 0
+     * and the access-control gate enforces both storage and endorsement
+     * disables conservatively for it. */
+    if (rc == 0 && *pos + 4 <= maxSz) {
+        rc = FwNvUnmarshalU32(buf, pos, maxSz, &obj->hierarchy);
+    }
+    else if (rc == 0 && obj->handle >= PLATFORM_PERSISTENT) {
+        obj->hierarchy = TPM_RH_PLATFORM;
     }
     if (rc == 0) {
         obj->used = 1;
@@ -1223,6 +1240,12 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
             ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
             ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
+            /* Inverted bits: a pre-existing journal (clear) leaves every
+             * hierarchy enabled. */
+            ctx->shDisabled = (flags8 & 0x10) ? 1 : 0;
+            ctx->ehDisabled = (flags8 & 0x20) ? 1 : 0;
+            ctx->phDisabled = (flags8 & 0x40) ? 1 : 0;
+            ctx->phNvDisabled = (flags8 & 0x80) ? 1 : 0;
         #ifndef FWTPM_NO_DA
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daMaxTries);
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daRecoveryTime);
@@ -1995,6 +2018,12 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             | (ctx->orderly ? 0x04 : 0x00)
             | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
         #endif
+            /* Hierarchy-disabled bits are inverted so a pre-existing journal
+             * (bits clear) loads as all hierarchies enabled. */
+            | (ctx->shDisabled ? 0x10 : 0x00)
+            | (ctx->ehDisabled ? 0x20 : 0x00)
+            | (ctx->phDisabled ? 0x40 : 0x00)
+            | (ctx->phNvDisabled ? 0x80 : 0x00)
             ));
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daMaxTries);
@@ -2308,6 +2337,10 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
             | (ctx->orderly ? 0x04 : 0x00)
             | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
 #endif
+            | (ctx->shDisabled ? 0x10 : 0x00)
+            | (ctx->ehDisabled ? 0x20 : 0x00)
+            | (ctx->phDisabled ? 0x40 : 0x00)
+            | (ctx->phNvDisabled ? 0x80 : 0x00)
             ));
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daMaxTries);

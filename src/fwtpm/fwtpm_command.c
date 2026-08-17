@@ -813,6 +813,11 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
             ctx->globalNvWriteLock = 0;
+            /* shEnable/ehEnable/phEnableNV re-enable on TPM Reset only;
+             * phEnable re-enables on every startup (handled below). */
+            ctx->shDisabled = 0;
+            ctx->ehDisabled = 0;
+            ctx->phNvDisabled = 0;
 #ifndef FWTPM_NO_CONTEXT
             /* Saved contexts are invalidated by TPM Reset */
             ctx->contextLiveCount = 0;
@@ -839,6 +844,10 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->restartCount++;
             rc = FWTPM_NV_SaveFlags(ctx);
         }
+
+        /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
+         * TPMS_STARTUP_CLEAR), regardless of CLEAR vs STATE. */
+        ctx->phDisabled = 0;
 
         /* Only report success and mark the TPM started if the state writes
          * above succeeded; otherwise the non-zero rc yields an error response. */
@@ -1463,6 +1472,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                   0 },
             #endif
                 { TPM_PT_PERMANENT,         0 }, /* patched at emission */
+                { TPM_PT_STARTUP_CLEAR,     0 }, /* patched at emission */
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
                 { TPM_PT_HR_TRANSIENT_AVAIL, 0 },
@@ -1514,6 +1524,21 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                             ctx->daFailedTries >= ctx->daMaxTries)
                         val |= TPMA_PERMANENT_inLockout;
                 #endif
+                }
+                else if (prop == TPM_PT_STARTUP_CLEAR) {
+                    /* TPMA_STARTUP_CLEAR enable bits are the inverse of the
+                     * disabled flags. The orderly bit is left clear: it
+                     * requires shutdown/startup provenance the DA orderly
+                     * flag does not track. */
+                    val = 0;
+                    if (!ctx->phDisabled)
+                        val |= TPMA_STARTUP_CLEAR_phEnable;
+                    if (!ctx->shDisabled)
+                        val |= TPMA_STARTUP_CLEAR_shEnable;
+                    if (!ctx->ehDisabled)
+                        val |= TPMA_STARTUP_CLEAR_ehEnable;
+                    if (!ctx->phNvDisabled)
+                        val |= TPMA_STARTUP_CLEAR_phEnableNV;
                 }
             #ifndef FWTPM_NO_DA
                 else if (prop == TPM_PT_LOCKOUT_COUNTER)
@@ -4029,6 +4054,10 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
             /* Reset disableClear per spec */
             ctx->disableClear = 0;
+            /* Clear re-enables the storage and endorsement hierarchies
+             * (Part 3 Sec.24.6); platform state is untouched. */
+            ctx->shDisabled = 0;
+            ctx->ehDisabled = 0;
 
         #ifndef FWTPM_NO_DA
             /* Clear resets lockoutAuth and DA state to defaults
@@ -4113,6 +4142,10 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         sizeof(ctx->primaryCache[i]));
                 }
             }
+
+            /* A new endorsement seed re-enables the hierarchy (Part 3
+             * Sec.24.5). */
+            ctx->ehDisabled = 0;
 
             /* Defer object flush until after response auth */
             ctx->pendingClear = 1;
@@ -4247,9 +4280,8 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         authHandle, enable, state);
 #endif
 
-    /* Only platform hierarchy can control other hierarchies */
-    if (authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+    if (state > 1) {
+        rc = TPM_RC_VALUE;
     }
 
     /* Validate enable handle */
@@ -4260,15 +4292,168 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_VALUE;
     }
 
-    if (rc == 0) {
-        /* fwTPM does not actually disable hierarchies; just accept */
-        (void)state;
-        (void)ctx;
+    /* phEnable is restored only by Startup, never cleared-then-set here; the
+     * authorization gate already blocks a disabled platform from reaching
+     * this handler, so a set request can only be an idempotent no-op. */
 
+    /* Authorization (TPM 2.0 Part 3 Sec.24.3): platformAuth may set or clear
+     * any hierarchy; ownerAuth/endorsementAuth may only CLEAR their own
+     * hierarchy. Platform enables can only be changed by the platform. */
+    if (rc == 0) {
+        if (authHandle == TPM_RH_PLATFORM) {
+            /* allowed for all combinations */
+        }
+        else if (authHandle == TPM_RH_OWNER && enable == TPM_RH_OWNER &&
+                 state == 0) {
+            /* owner may disable itself */
+        }
+        else if (authHandle == TPM_RH_ENDORSEMENT &&
+                 enable == TPM_RH_ENDORSEMENT && state == 0) {
+            /* endorsement may disable itself */
+        }
+        else {
+            rc = TPM_RC_AUTH_TYPE;
+        }
+    }
+
+    if (rc == 0) {
+        int disable = (state == 0);
+        UINT32 flushHierarchy = 0;
+        int oldSh = ctx->shDisabled, oldEh = ctx->ehDisabled;
+        int oldPh = ctx->phDisabled, oldPhNv = ctx->phNvDisabled;
+    #ifndef FWTPM_NO_DA
+        int oldOrderly = ctx->orderly;
+    #endif
+
+        switch (enable) {
+            case TPM_RH_OWNER:
+                ctx->shDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_OWNER;
+                break;
+            case TPM_RH_ENDORSEMENT:
+                ctx->ehDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_ENDORSEMENT;
+                break;
+            case TPM_RH_PLATFORM:
+                ctx->phDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_PLATFORM;
+                break;
+            case TPM_RH_PLATFORM_NV:
+                ctx->phNvDisabled = disable;
+                break;
+            default:
+                break;
+        }
+
+        /* Commit the new state to NV first. An NV failure must not alter TPM
+         * state (Part 3), so restore the flags and skip the irreversible
+         * object flush when the write fails. */
+    #ifndef FWTPM_NO_DA
+        ctx->orderly = 0;
+    #endif
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc != 0) {
+            ctx->shDisabled = oldSh;
+            ctx->ehDisabled = oldEh;
+            ctx->phDisabled = oldPh;
+            ctx->phNvDisabled = oldPhNv;
+        #ifndef FWTPM_NO_DA
+            ctx->orderly = oldOrderly;
+        #endif
+        }
+
+        /* Disabling a hierarchy flushes its transient objects (Part 1
+         * Sec.14.2); persistent objects and NV stay but become unusable.
+         * A legacy-provenance transient (hierarchy 0, a child of a
+         * pre-upgrade persistent object) is flushed under owner or
+         * endorsement disable so it cannot outlive its hierarchy. */
+        if (rc == 0 && flushHierarchy != 0) {
+            int i;
+            int flushUnknown = (flushHierarchy == TPM_RH_OWNER ||
+                                flushHierarchy == TPM_RH_ENDORSEMENT);
+            for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+                if (ctx->objects[i].used &&
+                    (ctx->objects[i].hierarchy == flushHierarchy ||
+                     (flushUnknown && ctx->objects[i].hierarchy == 0))) {
+                    FwFreeObject(&ctx->objects[i]);
+                }
+            }
+        }
+    }
+
+    if (rc == 0) {
         FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
+}
+
+/* Returns 1 if the entity named by handle belongs to a currently-disabled
+ * hierarchy and must not be used (TPM 2.0 Part 1 Sec.14.2). */
+static int FwHandleHierarchyDisabled(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    UINT32 hType = handle & 0xFF000000;
+
+    if (handle == TPM_RH_OWNER) {
+        return ctx->shDisabled;
+    }
+    if (handle == TPM_RH_ENDORSEMENT) {
+        return ctx->ehDisabled;
+    }
+    if (handle == TPM_RH_PLATFORM) {
+        return ctx->phDisabled;
+    }
+    if (handle == TPM_RH_PLATFORM_NV) {
+        return ctx->phNvDisabled;
+    }
+#ifndef FWTPM_NO_NV
+    if (hType == (NV_INDEX_FIRST & 0xFF000000)) {
+        FWTPM_NvIndex* nv = FwFindNvIndex(ctx, handle);
+        if (nv != NULL) {
+            if (nv->nvPublic.attributes & TPMA_NV_PLATFORMCREATE) {
+                return ctx->phNvDisabled;
+            }
+            return ctx->shDisabled;
+        }
+        return 0;
+    }
+#endif
+    if (hType == (TRANSIENT_FIRST & 0xFF000000)) {
+        FWTPM_Object* obj = FwFindObject(ctx, handle);
+        if (obj != NULL) {
+            if (obj->hierarchy == TPM_RH_OWNER) return ctx->shDisabled;
+            if (obj->hierarchy == TPM_RH_ENDORSEMENT) return ctx->ehDisabled;
+            if (obj->hierarchy == TPM_RH_PLATFORM) return ctx->phDisabled;
+            /* hierarchy 0 is a legacy-provenance child (a genuine null-
+             * hierarchy object stores TPM_RH_NULL): gate it conservatively
+             * under both storage and endorsement disables. */
+            if (obj->hierarchy == 0) {
+                return (ctx->shDisabled || ctx->ehDisabled);
+            }
+        }
+    }
+    else if (hType == (PERSISTENT_FIRST & 0xFF000000)) {
+        FWTPM_Object* obj = FwFindObject(ctx, handle);
+        if (obj != NULL) {
+            /* The persistent handle sub-range fixes the owner-vs-platform
+             * availability regardless of the stored hierarchy. */
+            if (handle >= PLATFORM_PERSISTENT) {
+                if (ctx->phDisabled) return 1;
+            }
+            else {
+                if (ctx->shDisabled) return 1;
+                /* An endorsement object may live in the owner range, and a
+                 * legacy record's hierarchy is unknown (0): honor ehEnable
+                 * for both so neither can escape a disabled hierarchy. */
+                if ((obj->hierarchy == TPM_RH_ENDORSEMENT ||
+                     obj->hierarchy == 0) && ctx->ehDisabled) {
+                    return 1;
+                }
+            }
+            if (obj->hierarchy == TPM_RH_PLATFORM) return ctx->phDisabled;
+        }
+    }
+    return 0;
 }
 
 /* --- TPM2_HierarchyChangeAuth (CC 0x0129) --- */
@@ -5329,10 +5514,15 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &hierarchy);
+        /* The hierarchy is a parameter, not a handle, so the dispatcher's
+         * gate does not see it: reject a disabled target here. */
+        if (FwHandleHierarchyDisabled(ctx, hierarchy)) {
+            rc = TPM_RC_HIERARCHY;
+        }
         /* Private key material may only be loaded under TPM_RH_NULL
          * (Part 3 Sec.18.4); otherwise the object would claim a real
          * hierarchy and yield a spoofed TPM_ST_VERIFIED ticket. */
-        if (inPrivSize > 0 && hierarchy != TPM_RH_NULL) {
+        else if (inPrivSize > 0 && hierarchy != TPM_RH_NULL) {
             rc = TPM_RC_HIERARCHY;
         }
     }
@@ -11701,6 +11891,15 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_SIZE;
         }
     }
+
+    /* A platform NV index cannot be created while phEnableNV is clear, even
+     * though the new index handle is not yet in the handle area for the
+     * generic disabled-hierarchy gate (TPM 2.0 Part 3 Sec.31.3). */
+    if (rc == 0 &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_PLATFORMCREATE) &&
+        ctx->phNvDisabled) {
+        rc = TPM_RC_HIERARCHY;
+    }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, publicInfo.nvPublic.authPolicy.buffer,
             publicInfo.nvPublic.authPolicy.size);
@@ -16914,6 +17113,27 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_AUTH_MISSING);
         return TPM_RC_SUCCESS;
+    }
+
+    /* A disabled hierarchy makes its objects, NV indices and hierarchy handle
+     * unusable (TPM 2.0 Part 1 Sec.14.2). Reject any command whose input
+     * handles reference a disabled hierarchy. FlushContext is exempt so stale
+     * handles can still be cleaned up. A permanent hierarchy handle returns
+     * TPM_RC_HIERARCHY; an object or NV handle returns TPM_RC_HANDLE so a
+     * disabled index's existence is not disclosed (Part 2). */
+    if (cmdCode != TPM_CC_FlushContext) {
+        int hi;
+        for (hi = 0; hi < (int)entry->inHandleCnt && hi < 4; hi++) {
+            TPM_HANDLE h = FwLoadU32BE(cmdBuf + TPM2_HEADER_SIZE + hi * 4);
+            if (FwHandleHierarchyDisabled(ctx, h)) {
+                TPM_RC hrc = (h == TPM_RH_OWNER || h == TPM_RH_ENDORSEMENT ||
+                    h == TPM_RH_PLATFORM || h == TPM_RH_PLATFORM_NV) ?
+                    TPM_RC_HIERARCHY : TPM_RC_HANDLE;
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, hrc);
+                return TPM_RC_SUCCESS;
+            }
+        }
     }
 
     /* Track all auth sessions from command for response auth generation */
