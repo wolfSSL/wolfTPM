@@ -215,29 +215,57 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
 int TPM2_LINUX_TryOpen(TPM2_CTX* ctx)
 {
-    /* Try resource manager first (kernel 4.12+), then raw device */
-    ctx->fd = open("/dev/tpmrm0", O_RDWR | O_NONBLOCK);
+    int errPrimary = 0;
+#ifdef TPM2_LINUX_DEV_FALLBACK
+    int errFallback = 0;
+#endif
+
+    /* Idempotent: callers may probe more than once (TPM2_Init_ex, then the
+     * wrapper). Returning early keeps a second call from leaking the fd. */
     if (ctx->fd >= 0) {
-    #ifdef DEBUG_WOLFTPM
-        printf("Opened /dev/tpmrm0\n");
-    #endif
         return TPM_RC_SUCCESS;
     }
 
-    ctx->fd = open("/dev/tpm0", O_RDWR | O_NONBLOCK);
+    /* Honor the same overrides as TPM2_LINUX_SendCommand: TPM2_LINUX_DEV pins
+     * a node, and WOLFTPM_USE_TPMRM leaves TPM2_LINUX_DEV_FALLBACK undefined
+     * so the raw device is never tried. */
+    ctx->fd = open(TPM2_LINUX_DEV, O_RDWR | O_NONBLOCK);
     if (ctx->fd >= 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("Opened /dev/tpm0\n");
+        printf("Opened %s\n", TPM2_LINUX_DEV);
     #endif
         return TPM_RC_SUCCESS;
     }
+    errPrimary = errno;
 
-    /* Distinguish "not available" from "permission denied" */
-    if (errno == EACCES) {
-        printf("Permission denied on /dev/tpm0\n"
-            "Use sudo or add tss group to user.\n");
+#ifdef TPM2_LINUX_DEV_FALLBACK
+    ctx->fd = open(TPM2_LINUX_DEV_FALLBACK, O_RDWR | O_NONBLOCK);
+    if (ctx->fd >= 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Opened %s\n", TPM2_LINUX_DEV_FALLBACK);
+    #endif
+        return TPM_RC_SUCCESS;
+    }
+    errFallback = errno;
+#endif
+
+    /* Distinguish "not available" from "permission denied", per node. Testing
+     * a single errno would hide EACCES on one node behind ENOENT on the other
+     * (a container that maps only /dev/tpmrm0 does exactly that), turning a
+     * permissions problem into a misleading "device absent". The nodes can
+     * differ in owner/group, so name the one that was actually refused. */
+    if (errPrimary == EACCES) {
+        printf("Permission denied on %s\n"
+            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV);
         return TPM_RC_FAILURE;
     }
+#ifdef TPM2_LINUX_DEV_FALLBACK
+    if (errFallback == EACCES) {
+        printf("Permission denied on %s\n"
+            "Use sudo or add tss group to user.\n", TPM2_LINUX_DEV_FALLBACK);
+        return TPM_RC_FAILURE;
+    }
+#endif
 
     /* ENOENT or other: device not present, caller should try SPI */
     return TPM_RC_INITIALIZE; /* sentinel: "not found, try next" */
