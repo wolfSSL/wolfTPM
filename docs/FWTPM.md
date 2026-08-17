@@ -664,22 +664,43 @@ to reduce code size on constrained targets.
 | `FWTPM_NO_POLICY` | not defined | `PolicyGetDigest`, `PolicyRestart`, `PolicyPCR`, `PolicyPassword`, `PolicyAuthValue`, `PolicyCommandCode`, `PolicyOR`, `PolicySecret`, `PolicyAuthorize`, `PolicyNV` |
 | `FWTPM_NO_CREDENTIAL` | not defined | `MakeCredential`, `ActivateCredential` |
 | `FWTPM_NO_DA` | not defined | `DictionaryAttackParameters`, `DictionaryAttackLockReset`, and all lockout accounting |
+| `FWTPM_NO_PARAM_ENC` | not defined | command/response parameter (XOR/AES-CFB) encryption support in sessions |
+| `FWTPM_NO_KEY_MIGRATION` | not defined | `Import`, `Duplicate`, `Rewrap` |
+| `FWTPM_NO_ECDH` | not defined | `ECDH_KeyGen`, `ECDH_ZGen`, `EC_Ephemeral`, `ZGen_2Phase`, `ECC_Parameters` (ECDSA sign/verify retained), plus the `ecEphemeral*` commit state in `FWTPM_CTX` |
+| `FWTPM_NO_HASH_CMDS` | not defined | `Hash`, `HMAC`, `HMAC_Start`, `HashSequenceStart`, `SequenceUpdate`, `SequenceComplete`, `EventSequenceComplete`, and the `FWTPM_CTX` hash-sequence slots |
+| `FWTPM_NO_CONTEXT` | not defined | `ContextSave`, `ContextLoad` (`FlushContext` retained), plus the per-boot context protection key and saved-context replay list in `FWTPM_CTX` |
+| `FWTPM_NO_SYM_ENCRYPT` | not defined | `EncryptDecrypt`, `EncryptDecrypt2` |
+| `FWTPM_NO_CLOCK` | not defined | `ReadClock`, `ClockSet`, `ClockRateAdjust` |
+
+Removing a command group also removes it from the `TPM2_GetCapability(TPM_CAP_COMMANDS)` advertisement and the `TPM_PT_TOTAL_COMMANDS` count, since both are derived from the dispatch table. Note: when `WOLFTPM_MLDSA` is built, `SequenceUpdate` alone is retained under `FWTPM_NO_HASH_CMDS`, because ML-DSA verify sequences stream their message through it. `SequenceComplete` is not shared -- ML-DSA sequences finalize through `TPM2_SignSequenceComplete` / `TPM2_VerifySequenceComplete` -- so it is gated out with the rest of the hash commands rather than advertised as a command that can never succeed.
 
 The `FWTPM_DA_USED_RETRY` macro (off by default) does not remove commands; it
 makes the server return `TPM_RC_RETRY` on the first DA-protected auth use after
 startup, emulating a real TPM persisting `daUsed`. See
 [Dictionary Attack (DA) Protection](#dictionary-attack-da-protection).
 
-**Minimal build example** (measured boot only):
+**Minimal build example.** There is no umbrella macro - select the command
+groups to drop explicitly, so each is a deliberate choice. For example, to build
+a small ECC-only signing + NV fTPM (this set drops attestation; keep
+`Sign`/`VerifySignature`, PCR, and NV):
 
 ```sh
 ./configure --enable-fwtpm --enable-swtpm \
-    CFLAGS="-DNO_RSA -DFWTPM_NO_NV -DFWTPM_NO_ATTESTATION \
-            -DFWTPM_NO_POLICY -DFWTPM_NO_CREDENTIAL"
+    CFLAGS="-DNO_RSA \
+        -DFWTPM_NO_POLICY -DFWTPM_NO_ATTESTATION -DFWTPM_NO_CREDENTIAL \
+        -DFWTPM_NO_DA -DFWTPM_NO_PARAM_ENC -DFWTPM_NO_KEY_MIGRATION \
+        -DFWTPM_NO_ECDH -DFWTPM_NO_HASH_CMDS -DFWTPM_NO_CONTEXT \
+        -DFWTPM_NO_SYM_ENCRYPT -DFWTPM_NO_CLOCK"
 ```
 
-This retains only: `Startup`, `Shutdown`, `SelfTest`, `GetRandom`, `GetCapability`,
-`PCR_Read`, `PCR_Extend`, `PCR_Reset`, `Hash`, ECC keygen/sign, and session support.
+That set retains a core fTPM: `Startup`, `Shutdown`, `SelfTest`, `GetRandom`,
+`GetCapability`, the `PCR_*` commands, `Create`/`CreatePrimary`/`Load`/
+`ReadPublic`/`FlushContext`, `Sign`/`VerifySignature`, the `NV_*` commands, and
+session support (`StartAuthSession`/`Unseal`). Add `-DFWTPM_NO_NV` to also drop
+NV, or drop any `-DFWTPM_NO_*` above to keep that group. This ECC-only build is
+small enough to run as a soft-core fTPM on a constrained FPGA (see the MicroBlaze
+V example in the `wolftpm-examples` repo, which fits an ECC-only fTPM into
+~192 KB of on-chip memory).
 
 **Dependencies:**
 - `FWTPM_NO_NV` also removes `NV_Certify` (even if `FWTPM_NO_ATTESTATION` is not set)

@@ -58,7 +58,7 @@ Features:
 * TIS register-level transport over shared memory or SPI/I2C for bare-metal integration
 * HAL abstractions for IO transport and NV storage portability
 * File-based or custom NV storage via HAL callbacks
-* Compile-time algorithm and feature selection (e.g., `NO_RSA`, `FWTPM_NO_NV`)
+* Compile-time algorithm and per-command-group feature selection (e.g., `NO_RSA`, `FWTPM_NO_NV`, and independent per-command-group gates you pick and choose to shrink the fTPM footprint)
 * `WOLFTPM_SMALL_STACK` support for constrained environments
 
 See [docs/FWTPM.md](docs/FWTPM.md) for build instructions, configuration, and API reference.

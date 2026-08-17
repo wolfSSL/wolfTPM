@@ -149,6 +149,64 @@ jobs:
             build_only: true
             extra_cflags: -DFWTPM_NO_PARAM_ENC
 
+          # Build-only: finer per-command-group FWTPM_NO_* macros
+          - name: fwtpm-no-key-migration
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_KEY_MIGRATION
+
+          - name: fwtpm-no-ecdh
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_ECDH
+
+          - name: fwtpm-no-hash-cmds
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_HASH_CMDS
+
+          - name: fwtpm-no-context
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_CONTEXT
+
+          - name: fwtpm-no-sym-encrypt
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_SYM_ENCRYPT
+
+          - name: fwtpm-no-clock
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_CLOCK
+
+          # Build-only: fewer PCRs than the 24 standard ones. The locality
+          # tables are sized to a fixed 24 while IMPLEMENTATION_PCR sets the
+          # implemented count, so this leg proves the two boundaries compile
+          # apart. PLATFORM_PCR must drop with it or PCR_SELECT_MIN exceeds
+          # PCR_SELECT_MAX. Runtime coverage is in fwtpm-gated-runtime.
+          - name: fwtpm-reduced-pcr
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DIMPLEMENTATION_PCR=8 -DPLATFORM_PCR=8
+
+          # Note: the all-gates combinations are built AND run by the
+          # fwtpm-gated-runtime job below, so they are not duplicated here.
+
           # Build-only: cross-algorithm + feature macro combinations
           - name: fwtpm-no-rsa-no-policy
             os: ubuntu-latest
@@ -299,6 +357,89 @@ jobs:
             test-suite.log
             tests/*.log
           retention-days: 5
+
+  # ----------------------------------------------------------------
+  # Command-group gates: runtime behavior, not just compilation.
+  #
+  # `make check` cannot be used here - it also runs fwtpm_check.sh, which
+  # drives the examples and tpm2-tools against a server that no longer
+  # implements the gated commands. This job builds each gated configuration
+  # and runs only tests/fwtpm_unit.test, whose test_fwtpm_command_gates /
+  # test_fwtpm_total_commands cases assert that a gated command is rejected
+  # with TPM_RC_COMMAND_CODE, is absent from TPM_CAP_COMMANDS, and is not
+  # counted in TPM_PT_TOTAL_COMMANDS.
+  # ----------------------------------------------------------------
+  fwtpm-gated-runtime:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Every command-group gate together on an ECC-only build - the
+          # minimal configuration documented in docs/FWTPM.md.
+          - name: all-gates-ecc-only
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-rsa
+            extra_cflags: >-
+              -DFWTPM_NO_POLICY
+              -DFWTPM_NO_ATTESTATION
+              -DFWTPM_NO_CREDENTIAL
+              -DFWTPM_NO_DA
+              -DFWTPM_NO_PARAM_ENC
+              -DFWTPM_NO_KEY_MIGRATION
+              -DFWTPM_NO_ECDH
+              -DFWTPM_NO_HASH_CMDS
+              -DFWTPM_NO_CONTEXT
+              -DFWTPM_NO_SYM_ENCRYPT
+              -DFWTPM_NO_CLOCK
+
+          # Same gates with ML-DSA: SequenceUpdate must survive (the ML-DSA
+          # verify sequences stream through it) while SequenceComplete must
+          # not, and the ML-DSA sign/verify sequence tests must still pass.
+          - name: all-gates-mldsa
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-v185 --enable-mldsa
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --enable-experimental --enable-dilithium --enable-mlkem
+            extra_cflags: >-
+              -DFWTPM_NO_POLICY
+              -DFWTPM_NO_ATTESTATION
+              -DFWTPM_NO_CREDENTIAL
+              -DFWTPM_NO_DA
+              -DFWTPM_NO_PARAM_ENC
+              -DFWTPM_NO_KEY_MIGRATION
+              -DFWTPM_NO_ECDH
+              -DFWTPM_NO_HASH_CMDS
+              -DFWTPM_NO_CONTEXT
+              -DFWTPM_NO_SYM_ENCRYPT
+              -DFWTPM_NO_CLOCK
+
+          # Fewer PCRs than the 24 standard ones: exercises the highest
+          # implemented PCR and the first unavailable one
+          # (test_fwtpm_pcr_bounds).
+          - name: reduced-pcr
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            extra_cflags: -DIMPLEMENTATION_PCR=8 -DPLATFORM_PCR=8
+
+    steps:
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Setup wolfSSL
+        uses: ./.github/actions/setup-wolfssl
+        with:
+          configure-flags: ${{ matrix.wolfssl_config }}
+          cflags: -DWC_RSA_NO_PADDING ${{ matrix.extra_cflags }}
+
+      - name: Build wolfTPM (${{ matrix.name }})
+        run: |
+          ./autogen.sh
+          ./configure ${{ matrix.wolftpm_config }} \
+            CFLAGS="${{ matrix.extra_cflags }}"
+          make -j"$(nproc)" tests/fwtpm_unit.test
+
+      - name: Run fwTPM handler tests
+        run: ./tests/fwtpm_unit.test
 
   # ----------------------------------------------------------------
   # Dictionary Attack TPM_RC_RETRY (daUsed) end-to-end.

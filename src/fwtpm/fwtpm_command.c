@@ -79,7 +79,9 @@ static UINT64 FwDaNowMs(FWTPM_CTX* ctx);
 #ifdef WOLFTPM_MLDSA
 static FWTPM_SignSeq* FwFindSignSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #endif
+#ifndef FWTPM_NO_HASH_CMDS
 static FWTPM_HashSeq* FwFindHashSeq(FWTPM_CTX* ctx, TPM_HANDLE handle);
+#endif
 
 /* Command table accessors (fwCmdTable is defined near end of file) */
 static int    FwGetCmdCount(void);
@@ -478,23 +480,31 @@ static void FwLookupEntityAuth(FWTPM_CTX* ctx, TPM_HANDLE handle,
             *authValSz = objEnt->authValue.size;
         }
         else {
+#ifndef FWTPM_NO_HASH_CMDS
             FWTPM_HashSeq* seqEnt = FwFindHashSeq(ctx, handle);
+#endif
+#ifdef WOLFTPM_MLDSA
+            FWTPM_SignSeq* signEnt = NULL;
+#endif
+#ifndef FWTPM_NO_HASH_CMDS
             if (seqEnt != NULL) {
                 *authVal = seqEnt->authValue.buffer;
                 *authValSz = seqEnt->authValue.size;
             }
+#endif
 #ifdef WOLFTPM_MLDSA
-            else {
-                /* v1.85 sign/verify sequences also carry their own
-                 * authValue. Without this lookup the password/HMAC
-                 * verifier resolves these handles to authSz=0, which
-                 * effectively bypasses the per-sequence auth set at
-                 * SignSequenceStart / VerifySequenceStart. */
-                FWTPM_SignSeq* signEnt = FwFindSignSeq(ctx, handle);
-                if (signEnt != NULL) {
-                    *authVal = signEnt->authValue.buffer;
-                    *authValSz = signEnt->authValue.size;
-                }
+            /* v1.85 sign/verify sequences also carry their own authValue.
+             * Without this lookup the password/HMAC verifier resolves these
+             * handles to authSz=0, which effectively bypasses the
+             * per-sequence auth set at SignSequenceStart /
+             * VerifySequenceStart. */
+        #ifndef FWTPM_NO_HASH_CMDS
+            if (seqEnt == NULL)
+        #endif
+                signEnt = FwFindSignSeq(ctx, handle);
+            if (signEnt != NULL) {
+                *authVal = signEnt->authValue.buffer;
+                *authValSz = signEnt->authValue.size;
             }
 #endif
         }
@@ -710,7 +720,9 @@ static int FwComputeSessionHmac(FWTPM_Session* sess,
 /* Forward declarations for helpers used by Startup */
 static void FwFlushAllObjects(FWTPM_CTX* ctx);
 static void FwFlushAllSessions(FWTPM_CTX* ctx);
+#ifndef FWTPM_NO_HASH_CMDS
 static void FwFreeHashSeq(FWTPM_HashSeq* seq);
+#endif
 #ifdef WOLFTPM_MLDSA
 static void FwFreeSignSeq(FWTPM_SignSeq* seq);
 #endif
@@ -777,11 +789,13 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
              * primary cache, and reset PCRs */
             FwFlushAllObjects(ctx);
             FwFlushAllSessions(ctx);
+        #ifndef FWTPM_NO_HASH_CMDS
             for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
                 if (ctx->hashSeq[i].used) {
                     FwFreeHashSeq(&ctx->hashSeq[i]);
                 }
             }
+        #endif
         #ifdef WOLFTPM_MLDSA
             for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
                 if (ctx->signSeq[i].used) {
@@ -799,9 +813,11 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
             ctx->globalNvWriteLock = 0;
+#ifndef FWTPM_NO_CONTEXT
             /* Saved contexts are invalidated by TPM Reset */
             ctx->contextLiveCount = 0;
-#ifdef HAVE_ECC
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
             ctx->ecEphemeralCounter = 0;
             ctx->ecEphemeralKeySz = 0;
 #endif
@@ -2152,7 +2168,13 @@ static TPM_RC FwCmd_PCR_Read(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
  * dump (loc2 reset of PCR 20-22 hardware-confirmed over SPI).
  *   reset:  0-15 never; 16,23 loc0-3; 17-19 loc4; 20-22 loc2-4.
  *   extend: 0-16,23 any; 17,18 loc2-4; 19 loc2-3; 20 loc1-3; 21,22 loc2. */
-static const byte fwPcrResetLocality[IMPLEMENTATION_PCR] = {
+/* The TCG PCR locality attributes are defined for the 24 standard PCRs. Size the
+ * tables to that fixed count (not IMPLEMENTATION_PCR) so a build implementing
+ * fewer PCRs (IMPLEMENTATION_PCR < 24, e.g. a minimal soft-core fTPM) neither
+ * drops initializers nor warns; FwPcrLocalityAllowed() only indexes valid PCRs. */
+#define FW_PCR_LOCALITY_TABLE   24
+
+static const byte fwPcrResetLocality[FW_PCR_LOCALITY_TABLE] = {
     /*  0- 7 */ 0, 0, 0, 0, 0, 0, 0, 0,
     /*  8-15 */ 0, 0, 0, 0, 0, 0, 0, 0,
     /* 16 */ 0x0F,   /* loc0-3 */
@@ -2165,7 +2187,7 @@ static const byte fwPcrResetLocality[IMPLEMENTATION_PCR] = {
     /* 23 */ 0x0F    /* loc0-3 */
 };
 
-static const byte fwPcrExtendLocality[IMPLEMENTATION_PCR] = {
+static const byte fwPcrExtendLocality[FW_PCR_LOCALITY_TABLE] = {
     /*  0- 7 */ 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, /* any */
     /*  8-15 */ 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, 0x1F, /* any */
     /* 16 */ 0x1F,   /* any */
@@ -2184,7 +2206,8 @@ static int FwPcrLocalityAllowed(int pcrIndex, int locality, int isReset)
 {
     byte mask;
 
-    if (pcrIndex < 0 || pcrIndex >= IMPLEMENTATION_PCR) {
+    if (pcrIndex < 0 || pcrIndex >= IMPLEMENTATION_PCR ||
+            pcrIndex >= FW_PCR_LOCALITY_TABLE) {
         return 0;
     }
     if (locality < 0 || locality > WOLFTPM_LOCALITY_MAX) {
@@ -2712,6 +2735,7 @@ static TPM_RC FwCmd_PCR_SetAuthValue(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+#ifndef FWTPM_NO_CLOCK
 /* --- TPM2_ReadClock (CC 0x0181) --- */
 static TPM_RC FwCmd_ReadClock(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     TPM2_Packet* rsp, UINT16 cmdTag)
@@ -2831,6 +2855,7 @@ static TPM_RC FwCmd_ClockRateAdjust(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* !FWTPM_NO_CLOCK */
 
 /* --- Object management helpers --- */
 
@@ -2952,19 +2977,25 @@ static void FwFlushAllSessions(FWTPM_CTX* ctx)
 
 void FWTPM_ResetCommandClient(FWTPM_CTX* ctx)
 {
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
     int i;
+#endif
     if (ctx == NULL) {
         return;
     }
     FwFlushAllObjects(ctx);
     FwFlushAllSessions(ctx);
+#ifndef FWTPM_NO_CONTEXT
     /* Saved-context replay set belongs to the prior client */
     ctx->contextLiveCount = 0;
+#endif
+#ifndef FWTPM_NO_HASH_CMDS
     for (i = 0; i < FWTPM_MAX_HASH_SEQ; i++) {
         if (ctx->hashSeq[i].used) {
             FwFreeHashSeq(&ctx->hashSeq[i]);
         }
     }
+#endif
 #ifdef WOLFTPM_MLDSA
     for (i = 0; i < FWTPM_MAX_SIGN_SEQ; i++) {
         if (ctx->signSeq[i].used) {
@@ -3530,6 +3561,7 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
  * stored externally (e.g. a .ctx file) and later reloaded with ContextLoad.
  * We use an opaque blob that stores the handle number; the object remains
  * in its slot so ContextLoad can find it for the lifetime of the server. */
+#ifndef FWTPM_NO_CONTEXT
 #define FWTPM_CTX_MAGIC  0x4657544Du  /* 'FWTM' */
 #define FWTPM_CTX_VER    1u
 static TPM_RC FwCmd_ContextSave(FWTPM_CTX* ctx, TPM2_Packet* cmd,
@@ -3868,6 +3900,7 @@ static TPM_RC FwCmd_ContextLoad(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* --- TPM2_ReadPublic (CC 0x0173) --- */
 static TPM_RC FwCmd_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
@@ -5496,6 +5529,7 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 
+#ifndef FWTPM_NO_KEY_MIGRATION
 /* --- TPM2_Import (CC 0x156) ---
  * Import an externally created key (outer-wrapped) under a parent key.
  * Response: [paramSz] | outPrivate */
@@ -6612,6 +6646,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(encSeedBuf);
     return rc;
 }
+#endif /* !FWTPM_NO_KEY_MIGRATION */
 
 /* --- TPM2_CreateLoaded (CC 0x0191) ---
  * Like Create but also loads the key into a transient slot.
@@ -7550,6 +7585,7 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* Hash, HMAC, HashSequence, ECDH                                     */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_HASH_CMDS
 /* --- TPM2_Hash (CC 0x017D) --- */
 static TPM_RC FwCmd_Hash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -7978,7 +8014,14 @@ static TPM_RC FwCmd_HashSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
+/* SequenceUpdate is shared with the MLDSA sign/verify sequences - keep it
+ * whenever MLDSA is built, even if the hash commands are gated.
+ * SequenceComplete is NOT shared: MLDSA sequences finalize through
+ * SignSequenceComplete / VerifySequenceComplete, so it stays under
+ * FWTPM_NO_HASH_CMDS alone. */
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
 /* --- TPM2_SequenceUpdate (CC 0x015C) --- */
 static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -7987,7 +8030,9 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT32 seqHandle;
     UINT16 dataSize = 0;
     FWTPM_DECLARE_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
+#ifndef FWTPM_NO_HASH_CMDS
     FWTPM_HashSeq* seq;
+#endif
 #ifdef WOLFTPM_MLDSA
     FWTPM_SignSeq* signSeq = NULL;
 #endif
@@ -8001,20 +8046,26 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &seqHandle);
 
+#ifndef FWTPM_NO_HASH_CMDS
         seq = FwFindHashSeq(ctx, seqHandle);
+#endif
 #ifdef WOLFTPM_MLDSA
-        if (seq == NULL) {
-            /* Not a hash sequence — check sign/verify sequence slots. */
+        /* Not a hash sequence - check sign/verify sequence slots. Per Part 3
+         * Sec.20.6.1, TPM_RC_ONE_SHOT_SIGNATURE is a Sign SequenceComplete-time
+         * RC ("sequenceHandle references a non-empty sequence"), not an
+         * Update-time RC. We accept the Update bytes here (accumulator below
+         * holds them) and let SignSequenceComplete fail with the spec-mandated
+         * RC if the key is one-shot and any bytes accumulated. */
+    #ifndef FWTPM_NO_HASH_CMDS
+        if (seq == NULL)
+    #endif
             signSeq = FwFindSignSeq(ctx, seqHandle);
-            if (signSeq == NULL) {
-                rc = TPM_RC_HANDLE;
-            }
-            /* Per Part 3 Sec.20.6.1, TPM_RC_ONE_SHOT_SIGNATURE is a Sign
-             * SequenceComplete-time RC ("sequenceHandle references a
-             * non-empty sequence"), not an Update-time RC. We accept the
-             * Update bytes here (accumulator below holds them) and let
-             * SignSequenceComplete fail with the spec-mandated RC if the
-             * key is one-shot and any bytes accumulated. */
+        if (signSeq == NULL
+    #ifndef FWTPM_NO_HASH_CMDS
+                && seq == NULL
+    #endif
+                ) {
+            rc = TPM_RC_HANDLE;
         }
 #else
         if (seq == NULL) {
@@ -8097,8 +8148,11 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 signSeq->msgBufSz += dataSize;
             }
         }
+    #ifndef FWTPM_NO_HASH_CMDS
         else
+    #endif
 #endif
+#ifndef FWTPM_NO_HASH_CMDS
         if (seq->isHmac) {
             rc = wc_HmacUpdate(&seq->ctx.hmac, dataBuf, dataSize);
             if (rc != 0) {
@@ -8112,6 +8166,7 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 rc = TPM_RC_FAILURE;
             }
         }
+#endif
     }
 
     if (rc == 0) {
@@ -8122,7 +8177,9 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
+#endif /* !FWTPM_NO_HASH_CMDS || WOLFTPM_MLDSA */
 
+#ifndef FWTPM_NO_HASH_CMDS
 /* --- TPM2_SequenceComplete (CC 0x013E) --- */
 static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -8138,9 +8195,6 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
     int paramSzPos, paramStart;
     int trc;
-#ifdef WOLFTPM_MLDSA
-    FWTPM_SignSeq* misRoutedSign = NULL;
-#endif
 
     FWTPM_ALLOC_BUF(dataBuf, FWTPM_MAX_DATA_BUF);
 
@@ -8153,12 +8207,11 @@ static TPM_RC FwCmd_SequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         seq = FwFindHashSeq(ctx, seqHandle);
         if (seq == NULL) {
+            /* A sign/verify sequence handle mis-routed here is rejected but
+             * NOT freed: this path runs before the auth area is parsed, so
+             * freeing would let an unauthenticated caller destroy any sequence
+             * by guessing its handle. FlushContext releases those slots. */
             rc = TPM_RC_HANDLE;
-#ifdef WOLFTPM_MLDSA
-            /* Free a sign/verify slot mis-routed here so it doesn't leak. */
-            misRoutedSign = FwFindSignSeq(ctx, seqHandle);
-            if (misRoutedSign != NULL) FwFreeSignSeq(misRoutedSign);
-#endif
         }
         else {
             hashAlg = seq->hashAlg;
@@ -8398,8 +8451,10 @@ static TPM_RC FwCmd_EventSequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(dataBuf);
     return rc;
 }
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 #ifdef HAVE_ECC
+#ifndef FWTPM_NO_ECDH
 /* --- TPM2_ECDH_KeyGen (CC 0x0163) --- */
 static TPM_RC FwCmd_ECDH_KeyGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -8694,6 +8749,7 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_VAR(inPoint);
     return rc;
 }
+#endif /* !FWTPM_NO_ECDH */
 #endif /* HAVE_ECC */
 
 /* --- TPM2_StartAuthSession (CC 0x0176) --- */
@@ -12439,6 +12495,7 @@ static TPM_RC FwCmd_DictionaryAttackParameters(FWTPM_CTX* ctx,
 #endif /* !FWTPM_NO_DA */
 
 #ifndef NO_AES
+#ifndef FWTPM_NO_SYM_ENCRYPT
 /* --- TPM2_EncryptDecrypt (CC 0x0164) and EncryptDecrypt2 (CC 0x0187) ---
  * Symmetric encrypt/decrypt using a loaded SYMCIPHER key.
  * EncryptDecrypt:  keyHandle, decrypt, mode, ivIn, inData
@@ -12731,6 +12788,7 @@ static TPM_RC FwCmd_EncryptDecrypt2(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 {
     return FwEncryptDecryptCore(ctx, cmd, cmdSize, rsp, cmdTag, 1);
 }
+#endif /* !FWTPM_NO_SYM_ENCRYPT */
 #endif /* !NO_AES */
 
 /* ================================================================== */
@@ -13865,6 +13923,7 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 /* ECC Parameters                                                      */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_ECDH
 /* Convert hex string to binary. Returns byte count, or -1 on error. */
 static int FwHexToBin(const char* hex, byte* out, int outSz)
 {
@@ -14298,6 +14357,7 @@ static TPM_RC FwCmd_ZGen_2Phase(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_VAR(peerPub);
     return rc;
 }
+#endif /* !FWTPM_NO_ECDH */
 #endif /* HAVE_ECC */
 
 #ifdef WOLFTPM_FWTPM_TCG_TEST
@@ -16187,14 +16247,18 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PCR_Allocate,       FwCmd_PCR_Allocate,         1, 1, 0, 0 },
     { TPM_CC_PCR_SetAuthPolicy,  FwCmd_PCR_SetAuthPolicy,    1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_PCR_SetAuthValue,   FwCmd_PCR_SetAuthValue,     1, 1, 0, FW_CMD_FLAG_ENC },
+#ifndef FWTPM_NO_CLOCK
     { TPM_CC_ReadClock,          FwCmd_ReadClock,            0, 0, 0, 0 },
     { TPM_CC_ClockSet,           FwCmd_ClockSet,             1, 1, 0, 0 },
     { TPM_CC_ClockRateAdjust,    FwCmd_ClockRateAdjust,      1, 1, 0, 0 },
+#endif /* !FWTPM_NO_CLOCK */
     /* --- Key management (always enabled, algorithm checks inside) --- */
     { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_FlushContext,       FwCmd_FlushContext,         1, 0, 0, 0 },
+#ifndef FWTPM_NO_CONTEXT
     { TPM_CC_ContextSave,        FwCmd_ContextSave,          1, 0, 0, 0 },
     { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, 0 },
+#endif /* !FWTPM_NO_CONTEXT */
     { TPM_CC_ReadPublic,         FwCmd_ReadPublic,           1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, 0 },
     { TPM_CC_ClearControl,       FwCmd_ClearControl,         1, 1, 0, 0 },
@@ -16214,19 +16278,32 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_RSA_Decrypt,        FwCmd_RSA_Decrypt,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #endif
     /* --- Hash/HMAC --- */
+#ifndef FWTPM_NO_HASH_CMDS
     { TPM_CC_Hash,               FwCmd_Hash,                 0, 0, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_HMAC,               FwCmd_HMAC,                 1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_HMAC_Start,         FwCmd_HMAC_Start,           1, 1, 1, FW_CMD_FLAG_ENC },
     { TPM_CC_HashSequenceStart,  FwCmd_HashSequenceStart,    0, 0, 1, FW_CMD_FLAG_ENC },
+#endif /* !FWTPM_NO_HASH_CMDS */
+    /* SequenceUpdate is shared with the MLDSA sign/verify sequences - keep it
+     * whenever MLDSA is built, even if the hash commands are gated. */
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA)
     { TPM_CC_SequenceUpdate,     FwCmd_SequenceUpdate,       1, 1, 0, FW_CMD_FLAG_ENC },
+#endif
+    /* SequenceComplete only finalizes hash/HMAC sequences; MLDSA sequences use
+     * SignSequenceComplete / VerifySequenceComplete, so it is never advertised
+     * once the hash commands (and their sequence producers) are gated out. */
+#ifndef FWTPM_NO_HASH_CMDS
     { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC },
+#endif /* !FWTPM_NO_HASH_CMDS */
     /* --- ECC --- */
 #ifdef HAVE_ECC
+#ifndef FWTPM_NO_ECDH
     { TPM_CC_ECDH_KeyGen,        FwCmd_ECDH_KeyGen,          1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ECDH_ZGen,          FwCmd_ECDH_ZGen,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_EC_Ephemeral,       FwCmd_EC_Ephemeral,         0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ZGen_2Phase,        FwCmd_ZGen_2Phase,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif /* !FWTPM_NO_ECDH */
 #endif
     /* --- Sessions --- */
     { TPM_CC_StartAuthSession,   FwCmd_StartAuthSession,     2, 0, 1, 0 },
@@ -16261,14 +16338,18 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif /* !FWTPM_NO_POLICY */
     /* --- Key import/export --- */
     { TPM_CC_LoadExternal,       FwCmd_LoadExternal,         0, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#ifndef FWTPM_NO_KEY_MIGRATION
     { TPM_CC_Import,             FwCmd_Import,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
+#endif /* !FWTPM_NO_KEY_MIGRATION */
     { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     /* --- Symmetric --- */
 #ifndef NO_AES
+#ifndef FWTPM_NO_SYM_ENCRYPT
     { TPM_CC_EncryptDecrypt,     FwCmd_EncryptDecrypt,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_EncryptDecrypt2,    FwCmd_EncryptDecrypt2,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif /* !FWTPM_NO_SYM_ENCRYPT */
 #endif
     /* --- NV RAM --- */
 #ifndef FWTPM_NO_NV
@@ -16288,7 +16369,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif /* !FWTPM_NO_NV */
     /* --- ECC Parameters --- */
 #ifdef HAVE_ECC
+#ifndef FWTPM_NO_ECDH
     { TPM_CC_ECC_Parameters,     FwCmd_ECC_Parameters,       0, 0, 0, 0 },
+#endif /* !FWTPM_NO_ECDH */
 #endif
     /* --- Attestation --- */
 #ifndef FWTPM_NO_ATTESTATION

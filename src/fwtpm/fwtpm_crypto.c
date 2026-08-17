@@ -2302,6 +2302,7 @@ int FwUnwrapPrivate(FWTPM_Object* parent,
 /* Context blob wrap/unwrap (ContextSave/ContextLoad)                  */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_CONTEXT
 /* Fold a 64-bit value into an HMAC as big-endian, used to bind the context
  * sequence counter into the blob MAC for replay protection. */
 static int FwHmacUpdateU64(Hmac* hmac, UINT64 v)
@@ -2478,6 +2479,7 @@ int FwUnwrapContextBlob(FWTPM_CTX* ctx, UINT64 seq, byte ctxType,
     FWTPM_FREE_VAR(hmac);
     return rc;
 }
+#endif /* !FWTPM_NO_CONTEXT */
 
 /* ================================================================== */
 /* Seed encrypt/decrypt                                                */
