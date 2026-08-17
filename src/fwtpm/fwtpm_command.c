@@ -16309,6 +16309,7 @@ typedef struct {
     UINT8 outHandleCnt;     /* Number of output handles in response */
     UINT8 encDecFlags;      /* Bit 0: first cmd param is TPM2B (can decrypt) */
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
+                            /* Bit 2: first auth handle has DUP role */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -16318,6 +16319,9 @@ typedef struct {
 #define FW_CMD_FLAG_ENC  0      /* Param encryption disabled */
 #define FW_CMD_FLAG_DEC  0      /* Param encryption disabled */
 #endif
+/* DUP role (TPM 2.0 Part 3): the first auth handle may only be authorized by
+ * a policy session, never a password or HMAC session. */
+#define FW_CMD_FLAG_AUTH_DUP  0x04
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -16431,7 +16435,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_LoadExternal,       FwCmd_LoadExternal,         0, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_KEY_MIGRATION
     { TPM_CC_Import,             FwCmd_Import,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
     { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -17337,6 +17341,23 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         }
     }
 #endif
+
+    /* DUP-role enforcement: per TPM 2.0 Part 3, the first handle of
+     * TPM2_Duplicate has role DUP and may only be authorized by a policy
+     * session. Reject password/HMAC auth so key material cannot be exported
+     * with ordinary user authorization. */
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_DUP) && cmdAuthCnt > 0 &&
+            (cmdAuths[0].handle == TPM_RS_PW ||
+             (cmdAuths[0].sess != NULL &&
+              cmdAuths[0].sess->sessionType != TPM_SE_POLICY))) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: DUP role requires a policy session (CC=0x%x)\n",
+            cmdCode);
+    #endif
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+            TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+        return TPM_RC_SUCCESS;
+    }
 
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a
