@@ -59,6 +59,12 @@
 #include <wolfssl/wolfcrypt/aes.h>
 #endif
 #include <wolfssl/wolfcrypt/hmac.h>
+#ifdef WOLFTPM_MLDSA
+#include <wolfssl/wolfcrypt/wc_mldsa.h>
+#endif
+#ifdef WOLFTPM_MLKEM
+#include <wolfssl/wolfcrypt/wc_mlkem.h>
+#endif
 
 /* --- Forward declarations for command-local helpers --- */
 #ifndef FWTPM_NO_ATTESTATION
@@ -1906,6 +1912,123 @@ static TPM_RC FwTestPublicParms(TPM2_Packet* cmd, UINT16 algType)
 #endif
     else {
         rc = TPM_RC_TYPE;
+    }
+    return rc;
+}
+
+#ifdef WOLFTPM_MLDSA
+/* Raw ML-DSA public-key size for a parameter set, or -1 if unsupported. */
+static int FwMldsaPubKeySize(TPMI_MLDSA_PARAMETER_SET ps)
+{
+    switch (ps) {
+    #if !defined(WOLFSSL_NO_ML_DSA_44)
+        case TPM_MLDSA_44: return WC_MLDSA_44_PUB_KEY_SIZE;
+    #endif
+    #if !defined(WOLFSSL_NO_ML_DSA_65)
+        case TPM_MLDSA_65: return WC_MLDSA_65_PUB_KEY_SIZE;
+    #endif
+    #if !defined(WOLFSSL_NO_ML_DSA_87)
+        case TPM_MLDSA_87: return WC_MLDSA_87_PUB_KEY_SIZE;
+    #endif
+        default: return -1;
+    }
+}
+#endif /* WOLFTPM_MLDSA */
+
+#ifdef WOLFTPM_MLKEM
+/* Raw ML-KEM public-key size for a parameter set, or -1 if unsupported. */
+static int FwMlkemPubKeySize(TPMI_MLKEM_PARAMETER_SET ps)
+{
+    switch (ps) {
+    #if defined(WOLFSSL_WC_ML_KEM_512)
+        case TPM_MLKEM_512:  return WC_ML_KEM_512_PUBLIC_KEY_SIZE;
+    #endif
+    #if defined(WOLFSSL_WC_ML_KEM_768)
+        case TPM_MLKEM_768:  return WC_ML_KEM_768_PUBLIC_KEY_SIZE;
+    #endif
+    #if defined(WOLFSSL_WC_ML_KEM_1024)
+        case TPM_MLKEM_1024: return WC_ML_KEM_1024_PUBLIC_KEY_SIZE;
+    #endif
+        default: return -1;
+    }
+}
+#endif /* WOLFTPM_MLKEM */
+
+/* Validate an ML-DSA / Hash-ML-DSA / ML-KEM public template. Rejects
+ * unsupported parameter sets (TPM_RC_PARMS), an out-of-range allowExternalMu
+ * (TPM_RC_VALUE), external-mu requests fwTPM cannot honor (TPM_RC_EXT_MU), an
+ * invalid Hash-ML-DSA hash (TPM_RC_HASH), and invalid ML-KEM symmetric
+ * parameters (TPM_RC_SYMMETRIC). When checkPubSize is set, the caller-supplied
+ * unique public key must match the parameter set (TPM_RC_KEY_SIZE). Non-ML
+ * types pass through. TCG v1.85 Part 2 Tables 204/207/208/229-231. */
+static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    (void)pub;
+    (void)checkPubSize;
+
+    switch (pub->type) {
+#ifdef WOLFTPM_MLDSA
+        case TPM_ALG_MLDSA: {
+            int sz = FwMldsaPubKeySize(
+                pub->parameters.mldsaDetail.parameterSet);
+            UINT8 extMu = pub->parameters.mldsaDetail.allowExternalMu;
+            if (sz < 0) {
+                rc = TPM_RC_PARMS;
+            }
+            else if (extMu != NO && extMu != YES) {
+                rc = TPM_RC_VALUE;
+            }
+            else if (extMu == YES) {
+                rc = TPM_RC_EXT_MU;
+            }
+            else if (checkPubSize &&
+                    pub->unique.mldsa.size != (UINT16)sz) {
+                rc = TPM_RC_KEY_SIZE;
+            }
+            break;
+        }
+        case TPM_ALG_HASH_MLDSA: {
+            int sz = FwMldsaPubKeySize(
+                pub->parameters.hash_mldsaDetail.parameterSet);
+            if (sz < 0) {
+                rc = TPM_RC_PARMS;
+            }
+            else if (TPM2_GetHashDigestSize(
+                    pub->parameters.hash_mldsaDetail.hashAlg) <= 0) {
+                rc = TPM_RC_HASH;
+            }
+            else if (checkPubSize &&
+                    pub->unique.mldsa.size != (UINT16)sz) {
+                rc = TPM_RC_KEY_SIZE;
+            }
+            break;
+        }
+#endif /* WOLFTPM_MLDSA */
+#ifdef WOLFTPM_MLKEM
+        case TPM_ALG_MLKEM: {
+            int sz = FwMlkemPubKeySize(
+                pub->parameters.mlkemDetail.parameterSet);
+            if (sz < 0) {
+                rc = TPM_RC_PARMS;
+            }
+            /* symmetric is TPMT_SYM_DEF_OBJECT+: TPM_ALG_NULL (unrestricted)
+             * or a supported cipher (restricted decryption key). Propagate
+             * the field-specific error (key size / mode / algorithm). */
+            else if (pub->parameters.mlkemDetail.symmetric.algorithm
+                        != TPM_ALG_NULL) {
+                rc = FwTestSymDef((const TPMT_SYM_DEF*)
+                        &pub->parameters.mlkemDetail.symmetric);
+            }
+            if (rc == TPM_RC_SUCCESS && checkPubSize &&
+                    pub->unique.mlkem.size != (UINT16)sz) {
+                rc = TPM_RC_KEY_SIZE;
+            }
+            break;
+        }
+#endif /* WOLFTPM_MLKEM */
+        default:
+            break;
     }
     return rc;
 }
@@ -5337,6 +5460,12 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Validate ML public parameters and the supplied public key size before
+     * the object is created (Part 3 Sec.18.4). */
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic.publicArea, 1);
+    }
+
 #ifdef DEBUG_WOLFTPM
     if (rc == 0) {
         printf("fwTPM: LoadExternal(type=%d, privSz=%u)\n",
@@ -6729,6 +6858,13 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             parentHandle, inPublic->publicArea.type);
     }
 #endif
+
+    /* Validate ML template parameters before key generation (Part 2
+     * Tables 204/207/208/229-231). The unique public key is produced by
+     * key generation, so no size check applies here. */
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+    }
 
     /* Generate key -- same logic as Create */
     if (rc == 0) {
