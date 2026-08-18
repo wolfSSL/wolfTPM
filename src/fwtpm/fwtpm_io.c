@@ -261,8 +261,21 @@ static int HandlePlatformCommand(FWTPM_CTX* ctx, int clientFd)
         #endif
             break;
 
+        /* Physical presence is a platform-channel signal, kept separate from
+         * the command channel so a remote command client cannot assert it. */
         case FWTPM_TCP_SIGNAL_PHYS_PRES_ON:
+            ctx->physicalPresence = 1;
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: Platform PHYS_PRES ON\n");
+        #endif
+            break;
         case FWTPM_TCP_SIGNAL_PHYS_PRES_OFF:
+            ctx->physicalPresence = 0;
+        #ifdef DEBUG_WOLFTPM
+            printf("fwTPM: Platform PHYS_PRES OFF\n");
+        #endif
+            break;
+
         case FWTPM_TCP_SIGNAL_CANCEL_ON:
         case FWTPM_TCP_SIGNAL_CANCEL_OFF:
         case FWTPM_TCP_SIGNAL_HASH_START:

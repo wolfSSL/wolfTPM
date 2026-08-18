@@ -16911,6 +16911,18 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 }
 #endif /* !FWTPM_NO_DA */
 
+/* Physical presence is asserted when a PP HAL is registered and reports it, or
+ * otherwise via the platform-channel latch. It is never settable from the
+ * command channel, so PP-requiring authorization fails closed by default
+ * (TPM 2.0 Part 1 Sec.23.2). */
+static int FwPhysicalPresenceAsserted(FWTPM_CTX* ctx)
+{
+    if (ctx->ppHal.get_pp != NULL) {
+        return ctx->ppHal.get_pp(ctx->ppHal.ctx) != 0;
+    }
+    return ctx->physicalPresence != 0;
+}
+
 /* nameHash = H(name1 || ... || nameN) over the command's handles
  * (TPM 2.0 Part 1 Sec.19.7.11) */
 static int FwComputeNameHash(FWTPM_CTX* ctx, TPMI_ALG_HASH hashAlg,
@@ -17450,6 +17462,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                      !((1u << ctx->activeLocality) & pSess->requiredLocality))) {
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
+                    return TPM_RC_SUCCESS;
+                }
+                /* Enforce PolicyPhysicalPresence: the platform PP signal must
+                 * be asserted now (Part 1 Sec.23.2). */
+                if (pSess->isPPRequired &&
+                        !FwPhysicalPresenceAsserted(ctx)) {
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                        TPM_ST_NO_SESSIONS, TPM_RC_PP);
                     return TPM_RC_SUCCESS;
                 }
                 /* Enforce any PolicyCpHash command binding: the command's

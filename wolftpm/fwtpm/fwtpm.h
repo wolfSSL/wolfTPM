@@ -681,6 +681,16 @@ struct FWTPM_CLOCK_HAL_S {
     void* ctx;
 };
 
+/* Physical-presence HAL. get_pp returns non-zero when the platform's physical
+ * presence signal is currently asserted. It is wired by the integrator to a
+ * hardware line or latched platform state, never to the command channel, so a
+ * remote caller cannot assert it. When get_pp is NULL, physical presence is
+ * treated as absent and any PP-requiring authorization fails closed. */
+struct FWTPM_PP_HAL_S {
+    int (*get_pp)(void* ctx);
+    void* ctx;
+};
+
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
 /* Max append-only program granule; sizes the pending-granule buffer. */
 #ifndef FWTPM_NV_MAX_WRITE_ALIGN
@@ -730,6 +740,8 @@ typedef struct FWTPM_CTX {
                                  * only when clockless or lockoutRecovery==0) */
 #endif
     int activeLocality;         /* locality of the command being processed */
+    int physicalPresence;       /* Platform-channel PP latch (volatile). Only
+                                 * consulted when no PP HAL is registered. */
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
     UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
@@ -810,6 +822,9 @@ typedef struct FWTPM_CTX {
 
     /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
     struct FWTPM_CLOCK_HAL_S clockHal;
+
+    /* Physical-presence HAL (optional). When unset, PP is never asserted. */
+    struct FWTPM_PP_HAL_S ppHal;
 
     /* NV journal write position (next append offset) */
     word32 nvWritePos;
@@ -951,6 +966,25 @@ WOLFTPM_API int FWTPM_Clock_SetHAL(FWTPM_CTX* ctx,
     \sa FWTPM_Clock_SetHAL
 */
 WOLFTPM_API UINT64 FWTPM_Clock_GetMs(FWTPM_CTX* ctx);
+
+/*!
+    \ingroup wolfTPM_fwTPM
+    \brief Register the physical-presence HAL. get_pp must return non-zero only
+    while the platform's physical presence signal is asserted, driven by
+    hardware or latched platform state and never by the command channel. With
+    no HAL registered, physical presence is treated as absent and every
+    PP-requiring authorization fails closed.
+
+    \return 0 on success
+    \return BAD_FUNC_ARG if ctx is NULL
+
+    \param ctx pointer to an initialized FWTPM_CTX
+    \param get_pp callback returning non-zero when PP is asserted; may be NULL
+        to clear a previously registered HAL
+    \param halCtx opaque context passed back to get_pp
+*/
+WOLFTPM_API int FWTPM_PP_SetHAL(FWTPM_CTX* ctx,
+    int (*get_pp)(void* halCtx), void* halCtx);
 
 #ifdef __cplusplus
     }  /* extern "C" */

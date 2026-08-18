@@ -42,6 +42,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     int rngInit = 0;
     FWTPM_NV_HAL savedNvHal;
     struct FWTPM_CLOCK_HAL_S savedClockHal;
+    struct FWTPM_PP_HAL_S savedPpHal;
 #ifdef WOLFTPM_FWTPM_TIS
     FWTPM_TIS_HAL savedTisHal;
 #endif
@@ -53,6 +54,7 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     /* Save any pre-configured HALs before zeroing context */
     XMEMCPY(&savedNvHal, &ctx->nvHal, sizeof(savedNvHal));
     XMEMCPY(&savedClockHal, &ctx->clockHal, sizeof(savedClockHal));
+    XMEMCPY(&savedPpHal, &ctx->ppHal, sizeof(savedPpHal));
 #ifdef WOLFTPM_FWTPM_TIS
     XMEMCPY(&savedTisHal, &ctx->tisHal, sizeof(savedTisHal));
 #endif
@@ -65,6 +67,9 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     }
     if (savedClockHal.get_ms != NULL) {
         XMEMCPY(&ctx->clockHal, &savedClockHal, sizeof(savedClockHal));
+    }
+    if (savedPpHal.get_pp != NULL) {
+        XMEMCPY(&ctx->ppHal, &savedPpHal, sizeof(savedPpHal));
     }
 #ifdef WOLFTPM_FWTPM_TIS
     if (savedTisHal.init != NULL) {
@@ -191,6 +196,17 @@ UINT64 FWTPM_Clock_GetMs(FWTPM_CTX* ctx)
         now = ctx->clockHal.get_ms(ctx->clockHal.ctx);
     }
     return now + ctx->clockOffset;
+}
+
+int FWTPM_PP_SetHAL(FWTPM_CTX* ctx,
+    int (*get_pp)(void* halCtx), void* halCtx)
+{
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    ctx->ppHal.get_pp = get_pp;
+    ctx->ppHal.ctx = halCtx;
+    return 0;
 }
 
 #endif /* WOLFTPM_FWTPM */
