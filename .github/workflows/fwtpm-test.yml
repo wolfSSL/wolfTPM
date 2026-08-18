@@ -192,6 +192,13 @@ jobs:
             build_only: true
             extra_cflags: -DFWTPM_NO_CLOCK
 
+          - name: fwtpm-no-pp
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: true
+            extra_cflags: -DFWTPM_NO_PP
+
           # Build-only: fewer PCRs than the 24 standard ones. The locality
           # tables are sized to a fixed 24 while IMPLEMENTATION_PCR sets the
           # implemented count, so this leg proves the two boundaries compile
@@ -393,6 +400,7 @@ jobs:
               -DFWTPM_NO_CONTEXT
               -DFWTPM_NO_SYM_ENCRYPT
               -DFWTPM_NO_CLOCK
+              -DFWTPM_NO_PP
 
           # Same gates with ML-DSA: SequenceUpdate must survive (the ML-DSA
           # verify sequences stream through it) while SequenceComplete must
@@ -412,6 +420,7 @@ jobs:
               -DFWTPM_NO_CONTEXT
               -DFWTPM_NO_SYM_ENCRYPT
               -DFWTPM_NO_CLOCK
+              -DFWTPM_NO_PP
 
           # Fewer PCRs than the 24 standard ones: exercises the highest
           # implemented PCR and the first unavailable one

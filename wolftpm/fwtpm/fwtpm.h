@@ -127,6 +127,9 @@
  *   FWTPM_NO_CONTEXT       - ContextSave/ContextLoad (FlushContext retained)
  *   FWTPM_NO_SYM_ENCRYPT   - EncryptDecrypt/EncryptDecrypt2
  *   FWTPM_NO_CLOCK         - ReadClock/ClockSet/ClockRateAdjust
+ *   FWTPM_NO_PP            - PolicyPhysicalPresence and physical-presence
+ *                           enforcement (drops the PP HAL, latch, and
+ *                           FWTPM_PP_SetHAL)
  *
  * These flags are independent; select exactly the command groups your fTPM does
  * not need. There is intentionally no single "minimal" umbrella macro - dropping
@@ -681,6 +684,7 @@ struct FWTPM_CLOCK_HAL_S {
     void* ctx;
 };
 
+#ifndef FWTPM_NO_PP
 /* Physical-presence HAL. get_pp returns non-zero when the platform's physical
  * presence signal is currently asserted. It is wired by the integrator to a
  * hardware line or latched platform state, never to the command channel, so a
@@ -690,6 +694,7 @@ struct FWTPM_PP_HAL_S {
     int (*get_pp)(void* ctx);
     void* ctx;
 };
+#endif /* !FWTPM_NO_PP */
 
 #ifdef WOLFTPM_FWTPM_NV_APPEND_ONLY
 /* Max append-only program granule; sizes the pending-granule buffer. */
@@ -740,8 +745,10 @@ typedef struct FWTPM_CTX {
                                  * only when clockless or lockoutRecovery==0) */
 #endif
     int activeLocality;         /* locality of the command being processed */
+#ifndef FWTPM_NO_PP
     int physicalPresence;       /* Platform-channel PP latch (volatile). Only
                                  * consulted when no PP HAL is registered. */
+#endif
     UINT64 clockOffset;         /* Clock offset set by ClockSet */
     UINT32 resetCount;          /* TPM Reset count, persisted across boots */
     UINT32 restartCount;        /* TPM Restart/Resume count, volatile */
@@ -823,8 +830,10 @@ typedef struct FWTPM_CTX {
     /* Clock HAL callbacks (optional - if not set, clockOffset used directly) */
     struct FWTPM_CLOCK_HAL_S clockHal;
 
+#ifndef FWTPM_NO_PP
     /* Physical-presence HAL (optional). When unset, PP is never asserted. */
     struct FWTPM_PP_HAL_S ppHal;
+#endif
 
     /* NV journal write position (next append offset) */
     word32 nvWritePos;
@@ -983,8 +992,10 @@ WOLFTPM_API UINT64 FWTPM_Clock_GetMs(FWTPM_CTX* ctx);
         to clear a previously registered HAL
     \param halCtx opaque context passed back to get_pp
 */
+#ifndef FWTPM_NO_PP
 WOLFTPM_API int FWTPM_PP_SetHAL(FWTPM_CTX* ctx,
     int (*get_pp)(void* halCtx), void* halCtx);
+#endif
 
 #ifdef __cplusplus
     }  /* extern "C" */

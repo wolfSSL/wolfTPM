@@ -10826,6 +10826,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 #endif /* !FWTPM_NO_NV (PolicyNV) */
 
+#ifndef FWTPM_NO_PP
 /* --- TPM2_PolicyPhysicalPresence (CC 0x0187) --- */
 /* policyDigest = H(policyDigest || TPM_CC_PolicyPhysicalPresence) */
 static TPM_RC FwCmd_PolicyPhysicalPresence(FWTPM_CTX* ctx, TPM2_Packet* cmd,
@@ -10860,6 +10861,7 @@ static TPM_RC FwCmd_PolicyPhysicalPresence(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* !FWTPM_NO_PP */
 
 /* --- TPM2_PolicyNvWritten (CC 0x018F) --- */
 /* policyDigest = H(policyDigest || TPM_CC_PolicyNvWritten || writtenSet) */
@@ -16647,7 +16649,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_NV
     { TPM_CC_PolicyNV,           FwCmd_PolicyNV,             3, 1, 0, 0 },
 #endif
+#ifndef FWTPM_NO_PP
     { TPM_CC_PolicyPhysicalPresence, FwCmd_PolicyPhysicalPresence, 1, 0, 0, 0 },
+#endif
     { TPM_CC_PolicyCpHash,       FwCmd_PolicyCpHash,         1, 0, 0, 0 },
     { TPM_CC_PolicyNameHash,     FwCmd_PolicyNameHash,       1, 0, 0, 0 },
     { TPM_CC_PolicyDuplicationSelect, FwCmd_PolicyDuplicationSelect, 1, 0, 0, 0 },
@@ -16911,6 +16915,7 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 }
 #endif /* !FWTPM_NO_DA */
 
+#ifndef FWTPM_NO_PP
 /* Physical presence is asserted when a PP HAL is registered and reports it, or
  * otherwise via the platform-channel latch. It is never settable from the
  * command channel, so PP-requiring authorization fails closed by default
@@ -16922,6 +16927,7 @@ static int FwPhysicalPresenceAsserted(FWTPM_CTX* ctx)
     }
     return ctx->physicalPresence != 0;
 }
+#endif /* !FWTPM_NO_PP */
 
 /* nameHash = H(name1 || ... || nameN) over the command's handles
  * (TPM 2.0 Part 1 Sec.19.7.11) */
@@ -17464,6 +17470,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;
                 }
+#ifndef FWTPM_NO_PP
                 /* Enforce PolicyPhysicalPresence: the platform PP signal must
                  * be asserted now (Part 1 Sec.23.2). */
                 if (pSess->isPPRequired &&
@@ -17472,6 +17479,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         TPM_ST_NO_SESSIONS, TPM_RC_PP);
                     return TPM_RC_SUCCESS;
                 }
+#endif /* !FWTPM_NO_PP */
                 /* Enforce any PolicyCpHash command binding: the command's
                  * cpHash must equal the value the policy committed to. */
                 if (pSess->cpHashA.size > 0) {
