@@ -4041,6 +4041,35 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
 
+            /* Delete every storage/endorsement persistent object; platform
+             * persistent objects survive (Part 3 Sec.24.6). The compacting
+             * FWTPM_NV_Save in the pendingClear path drops the freed slots. */
+            for (ci = 0; ci < FWTPM_MAX_PERSISTENT; ci++) {
+                if (ctx->persistent[ci].used) {
+                    UINT32 h = ctx->persistent[ci].handle;
+                    int isPlatform =
+                        (ctx->persistent[ci].hierarchy == TPM_RH_PLATFORM) ||
+                        (h >= PLATFORM_PERSISTENT);
+                    if (!isPlatform) {
+                        TPM2_ForceZero(&ctx->persistent[ci],
+                            sizeof(ctx->persistent[ci]));
+                    }
+                }
+            }
+
+        #ifndef FWTPM_NO_NV
+            /* Delete every owner-created NV index (TPMA_NV_PLATFORMCREATE
+             * clear); platform NV indices survive. */
+            for (ci = 0; ci < FWTPM_MAX_NV_INDICES; ci++) {
+                if (ctx->nvIndices[ci].inUse &&
+                    !(ctx->nvIndices[ci].nvPublic.attributes &
+                        TPMA_NV_PLATFORMCREATE)) {
+                    TPM2_ForceZero(&ctx->nvIndices[ci],
+                        sizeof(ctx->nvIndices[ci]));
+                }
+            }
+        #endif
+
             /* Reset PCRs */
             XMEMSET(ctx->pcrDigest, 0, sizeof(ctx->pcrDigest));
             ctx->pcrUpdateCounter = 0;
