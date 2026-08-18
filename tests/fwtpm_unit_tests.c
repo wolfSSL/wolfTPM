@@ -8172,6 +8172,114 @@ static void test_fwtpm_nv_define_write_read(void)
     fwtpm_pass("NV Define/Write/Read/Undef:", 0);
 }
 
+#ifdef WOLFTPM_V185
+/* TPM2_CreateLoaded must validate ML templates (parameter set, allowExternalMu,
+ * Hash-ML-DSA hashAlg, ML-KEM symmetric) before key generation
+ * (TCG v1.85 Part 2 Tables 204/207/208/229-231). */
+static TPM_RC tmp_cl_ml(FWTPM_CTX* ctx, UINT32 parent, UINT16 algType,
+    UINT16 ps, byte mu, UINT16 hashAlg, UINT16 symAlg, UINT16 symBits)
+{
+    int pos = 0, rspSize = 0, sensStart, sensLen, pubStart, pubLen;
+    UINT32 h;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_CreateLoaded); pos += 4;
+    PutU32BE(gCmd + pos, parent); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* inSensitive */
+    sensStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    sensLen = pos - sensStart - 2;
+    PutU16BE(gCmd + sensStart, (UINT16)sensLen);
+    /* inPublic template */
+    pubStart = pos;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, algType); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    if (algType == TPM_ALG_MLKEM) {
+        PutU32BE(gCmd + pos, 0x00020072); pos += 4; /* decrypt */
+    }
+    else {
+        PutU32BE(gCmd + pos, 0x00040072); pos += 4; /* sign */
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* authPolicy */
+    PutU16BE(gCmd + pos, ps); pos += 2; /* parameterSet (before sym? no) */
+    if (algType == TPM_ALG_MLKEM) {
+        /* TPMS_MLKEM_PARMS: symmetric FIRST, then parameterSet. Rebuild. */
+        pos -= 2; /* undo ps */
+        PutU16BE(gCmd + pos, symAlg); pos += 2;
+        if (symAlg != TPM_ALG_NULL) {
+            PutU16BE(gCmd + pos, symBits); pos += 2;
+            PutU16BE(gCmd + pos, TPM_ALG_CFB); pos += 2;
+        }
+        PutU16BE(gCmd + pos, ps); pos += 2;
+    }
+    else if (algType == TPM_ALG_HASH_MLDSA) {
+        PutU16BE(gCmd + pos, hashAlg); pos += 2;
+    }
+    else {
+        gCmd[pos++] = mu;
+    }
+    PutU16BE(gCmd + pos, 0); pos += 2; /* unique size 0 */
+    pubLen = pos - pubStart - 2;
+    PutU16BE(gCmd + pubStart, (UINT16)pubLen);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    if (GetRspRC(gRsp) == TPM_RC_SUCCESS) {
+        h = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+        FlushHandle(ctx, h);
+    }
+    return GetRspRC(gRsp);
+}
+
+static void test_fwtpm_createloaded_ml_validation(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 srk;
+    TPM_RC rc;
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    srk = make_srk_parent(&ctx);
+    AssertIntNE(srk, 0);
+
+    /* Baseline: valid MLDSA-65 template creates. */
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLDSA, TPM_MLDSA_65, NO, 0,
+        TPM_ALG_NULL, 0);
+    printf("  valid MLDSA-65 CL rc=0x%x\n", rc);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Unsupported parameter set. */
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLDSA, 0x0099, NO, 0, TPM_ALG_NULL, 0);
+    printf("  MLDSA bad ps CL rc=0x%x\n", rc);
+    AssertIntEQ(rc, TPM_RC_PARMS);
+
+    /* allowExternalMu out of range (TPMI_YES_NO). */
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLDSA, TPM_MLDSA_65, 0x02, 0,
+        TPM_ALG_NULL, 0);
+    printf("  MLDSA bad ext-mu CL rc=0x%x\n", rc);
+    AssertIntEQ(rc, TPM_RC_VALUE);
+
+    /* Hash-ML-DSA with an invalid pre-hash algorithm. */
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_HASH_MLDSA, TPM_MLDSA_65, 0,
+        TPM_ALG_NULL, TPM_ALG_NULL, 0);
+    printf("  HASH_MLDSA bad hash CL rc=0x%x\n", rc);
+    AssertIntEQ(rc, TPM_RC_HASH);
+
+    /* ML-KEM invalid symmetric (AES bogus keyBits). */
+    rc = tmp_cl_ml(&ctx, srk, TPM_ALG_MLKEM, TPM_MLKEM_512, 0, 0,
+        TPM_ALG_AES, 7);
+    printf("  MLKEM bad symmetric CL rc=0x%x\n", rc);
+    AssertIntNE(rc, TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, srk);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("CreateLoaded ML validation:", 1);
+}
+#endif /* WOLFTPM_V185 */
+
 static void test_fwtpm_nv_read_public(void)
 {
     FWTPM_CTX ctx;
@@ -11992,6 +12100,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_mlkem_wolfssl_keygen_kat();
     test_fwtpm_mldsa_loadexternal_verify();
     test_fwtpm_loadexternal_ml_validation();
+    test_fwtpm_createloaded_ml_validation();
     test_fwtpm_mldsa_primary_determinism();
     test_fwtpm_mlkem_primary_determinism();
     test_fwtpm_getcap_pqc();

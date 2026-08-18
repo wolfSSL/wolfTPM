@@ -6859,6 +6859,13 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 #endif
 
+    /* Validate ML template parameters before key generation (Part 2
+     * Tables 204/207/208/229-231). The unique public key is produced by
+     * key generation, so no size check applies here. */
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
+    }
+
     /* Generate key -- same logic as Create */
     if (rc == 0) {
         switch (inPublic->publicArea.type) {
