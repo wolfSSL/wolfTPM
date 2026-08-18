@@ -939,9 +939,30 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
 
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+    /* Probe here, not only in wolfTPM2_Init_ex, so the native API autodetects
+     * /dev/tpmX too. TryOpen leaves fd < 0 whether the node was absent or
+     * merely unopenable (EACCES), and neither is fatal on its own: with an IO
+     * callback the SPI path is still viable, which is what this build mode
+     * exists for. Reject only when no transport can serve AND the caller asked
+     * to bring one up - otherwise TPM2_TIS_SendCommand would call a NULL
+     * ctx->ioCb on the first command. TPM2_Init_minimal passes timeoutTries 0
+     * and performs no IO, so it keeps succeeding either way. */
+    /* Only fd matters here; the return code adds nothing this branch needs. */
+    (void)TPM2_LINUX_TryOpen(ctx);
+    if (ctx->fd < 0 && ctx->ioCb == NULL && timeoutTries > 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2: Kernel driver not available and no IO callback for SPI\n");
+    #endif
+        return TPM_RC_FAILURE;
+    }
+    rc = TPM_RC_SUCCESS;
+#endif
+
     if (timeoutTries > 0
     #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
-        && ctx->ioCb != NULL /* autodetect: skip if no IO callback */
+        /* skip TIS startup if the kernel driver answered, or SPI has no IO cb */
+        && ctx->fd < 0 && ctx->ioCb != NULL
     #endif
     ) {
         /* Perform chip startup and assign locality */
@@ -1002,8 +1023,10 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 
 #if (defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)) \
     && !defined(__UBOOT__)
-    if (ctx->fd >= 0)
+    if (ctx->fd >= 0) {
         close(ctx->fd);
+        ctx->fd = -1; /* keep repeat cleanup idempotent */
+    }
 #endif
 
 #ifdef WOLFTPM_SWTPM

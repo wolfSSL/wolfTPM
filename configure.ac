@@ -309,6 +309,15 @@ then
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
 
+    # WOLFTPM_SWTPM suppresses the /dev/tpmX autodetect (see
+    # WOLFTPM_LINUX_DEV_AUTODETECT in wolftpm/tpm2_types.h), so when it is
+    # reached by default rather than by request, a host with a real kernel
+    # TPM would silently build against the simulator. Say so.
+    if test "x$WOLFTPM_DEFAULT_SWTPM" = "xyes" && test "x$enable_swtpm" = "x"; then
+        AC_MSG_NOTICE([no hardware TPM interface selected: defaulting to the software TPM (swTPM) so 'make check' works without hardware.])
+        AC_MSG_NOTICE([this build will NOT use /dev/tpmrm0 or /dev/tpm0. For a real TPM use --enable-autodetect, --enable-devtpm, or --enable-<vendor>.])
+    fi
+
     if test "x$ENABLED_SWTPM" = "xuart"
     then
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UART"

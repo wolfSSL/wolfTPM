@@ -427,7 +427,13 @@ static void test_wolfTPM2_FirmwareUpgrade_ex_session(void)
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
     if (caps.mfg != TPM_MFG_UNKNOWN) {
-        /* not the simulator - do not exercise firmware upgrade paths */
+        /* not the simulator - do not exercise firmware upgrade paths.
+         * NOTE this gate means "wolfTPM recognizes the manufacturer", which
+         * is only a proxy for "real hardware". TPM_MFG_MSFT covers both the
+         * ms-tpm-20-ref simulator and firmware TPMs built from it (e.g. the
+         * Jetson OP-TEE fTPM), so against that simulator these tests skip
+         * rather than run. Skipping is the safe direction; distinguishing
+         * the two needs a real simulator check. */
         wolfTPM2_Cleanup(&dev);
         printf("Test FW Upgr _ex: %-40s Skipped (real TPM)\n",
             "Session Validation:");
@@ -548,6 +554,7 @@ static void test_wolfTPM2_SetPrimaryPolicy_rollback(void)
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
     if (caps.mfg != TPM_MFG_UNKNOWN) {
+        /* see the TPM_MFG_MSFT note on the first such gate above */
         wolfTPM2_Cleanup(&dev);
         printf("Test SetPrimPol:  %-40s Skipped (real TPM)\n", "Rollback:");
         return;
@@ -642,6 +649,7 @@ static void test_wolfTPM2_PolicyClear_underPolicy(void)
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     AssertIntEQ(rc, 0);
     if (caps.mfg != TPM_MFG_UNKNOWN) {
+        /* see the TPM_MFG_MSFT note on the first such gate above */
         wolfTPM2_Cleanup(&dev);
         printf("Test PolicyClear: %-40s Skipped (real TPM)\n", "Under Policy:");
         return;
@@ -6594,10 +6602,63 @@ static void* test_wolfTPM2_thread_local_storage_work_thread(void* args)
     /* let the other thread run */
     pthread_mutex_unlock(&mutex);
 
+    /* On autodetect builds TPM2_Init acquires a /dev/tpmX descriptor, so this
+     * must be released or every thread leaks one. */
+    TPM2_Cleanup(&tpm2Ctx);
+
     (void)args;
     return NULL;
 }
 #endif /* HAVE_THREAD_LS && HAVE_PTHREAD */
+
+/* On transports where the OS owns TPM startup state, Reset/Shutdown decline the
+ * command with NOT_COMPILED_IN, but a request for neither is still a success. */
+static void test_wolfTPM2_Reset_contract(void)
+{
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_WINAPI)
+    WOLFTPM2_DEV dev;
+    int rc;
+
+    XMEMSET(&dev, 0, sizeof(dev));
+
+    /* nothing requested - nothing declined */
+    rc = wolfTPM2_Reset(&dev, 0, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* a shutdown was requested and is being refused */
+    rc = wolfTPM2_Reset(&dev, 1, 0);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+
+    rc = wolfTPM2_Shutdown(&dev, 0);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+
+    AssertIntEQ(wolfTPM2_Reset(NULL, 0, 0), BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Reset contract:");
+#elif defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+    WOLFTPM2_DEV dev;
+    int rc;
+
+    /* A non-negative fd is all this branch inspects: it clears both requests
+     * before the shutdown/startup blocks, so no command is sent and the fd is
+     * never touched. That makes the contract testable with no TPM present. */
+    XMEMSET(&dev, 0, sizeof(dev));
+    dev.ctx.fd = 1;
+
+    rc = wolfTPM2_Reset(&dev, 0, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_Reset(&dev, 1, 0);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+
+    rc = wolfTPM2_Shutdown(&dev, 0);
+    AssertIntEQ(rc, NOT_COMPILED_IN);
+
+    AssertIntEQ(wolfTPM2_Reset(NULL, 0, 0), BAD_FUNC_ARG);
+
+    printf("Test TPM Wrapper: %-40s Passed\n", "Reset contract:");
+#endif
+}
 
 static void test_wolfTPM2_thread_local_storage(void)
 {
@@ -8478,6 +8539,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_VerifySequence_NoLeak();
     #endif
     test_wolfTPM2_Cleanup();
+    test_wolfTPM2_Reset_contract();
     test_wolfTPM2_thread_local_storage();
 #ifdef WOLFTPM_SPDM
     test_wolfTPM2_SPDM_ValidateRspSz();

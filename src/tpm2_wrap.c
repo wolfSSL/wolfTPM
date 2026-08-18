@@ -91,22 +91,21 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return rc;
     }
 
-    /* Phase 2: Try /dev/tpmrm0 then /dev/tpm0 */
-    rc = TPM2_LINUX_TryOpen(ctx);
-    if (rc == TPM_RC_SUCCESS) {
+    /* Phase 2: TPM2_Init_ex already probed /dev/tpmrm0 then /dev/tpm0, so read
+     * what it found rather than opening the nodes a second time. It cannot
+     * reject the no-transport case for us - phase 1 passes timeoutTries 0 -
+     * so phase 3 below still has to. */
+    if (ctx->fd >= 0) {
         /* Using kernel driver - startup/locality handled by kernel */
     #ifdef DEBUG_WOLFTPM
         printf("TPM2: Using Linux kernel driver\n");
     #endif
         return TPM_RC_SUCCESS;
     }
-    else if (rc == TPM_RC_FAILURE) {
-        /* Permission denied or hard error - don't try SPI */
-        return rc;
-    }
-    /* rc == TPM_RC_INITIALIZE means "not found", fall through to SPI */
 
-    /* Phase 3: SPI fallback - requires IO callback */
+    /* Phase 3: no kernel device, fall back to SPI - which needs the callback.
+     * Phase 1 passes timeoutTries 0, so TPM2_Init_ex deliberately does not
+     * reject this case there; it has to be caught here before TIS is used. */
     if (ioCb == NULL) {
     #ifdef DEBUG_WOLFTPM
         printf("TPM2: Kernel driver not available and no IO callback for SPI\n");
@@ -864,6 +863,14 @@ static int wolfTPM2_ParseCapabilities(WOLFTPM2_CAPS* caps,
                 else if (XMEMCMP(&caps->mfgStr, "SEAL", 4) == 0) {
                     caps->mfg = TPM_MFG_SEALSQ;
                     caps->req_wait_state = 1;
+                }
+                else if (XMEMCMP(&caps->mfgStr, "MSFT", 4) == 0) {
+                    /* Microsoft TPM 2.0 reference implementation, used by
+                     * firmware TPMs rather than discrete parts (e.g. the
+                     * OP-TEE fTPM on NVIDIA Jetson, vendor "SSE fTPM"). The
+                     * vendor string, not this, identifies the platform.
+                     * No wait state: kernel driver, not a TIS bus. */
+                    caps->mfg = TPM_MFG_MSFT;
                 }
                 break;
             case TPM_PT_VENDOR_STRING_1:
@@ -8474,12 +8481,42 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
 {
     int rc = TPM_RC_SUCCESS;
+#if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_WINAPI)
     Shutdown_In shutdownIn;
     Startup_In startupIn;
+#endif
 
     if (dev == NULL) {
         return BAD_FUNC_ARG;
     }
+
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_WINAPI)
+    /* The kernel driver and Windows TBS own TPM startup state, as they own the
+     * locality (see wolfTPM2_SetLocality, which returns NOT_COMPILED_IN here
+     * for the same reason). On the shared /dev/tpmrm0 a TPM_SU_CLEAR from one
+     * caller would hit every other process using the TPM, and the kernel does
+     * not block it - on Linux 5.15 it passes through and succeeds. */
+    if (doShutdown == 0 && doStartup == 0) {
+        /* nothing was asked for, so nothing was declined */
+        rc = TPM_RC_SUCCESS;
+    }
+    else {
+        rc = NOT_COMPILED_IN;
+    }
+#else
+
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+    /* Autodetect resolved to the kernel driver, which owns startup as above.
+     * Clear both requests so the common tail still runs, and only report a
+     * decline if something was actually requested. */
+    if (dev->ctx.fd >= 0) {
+        if (doShutdown == 1 || doStartup == 1) {
+            rc = NOT_COMPILED_IN;
+        }
+        doShutdown = 0;
+        doStartup = 0;
+    }
+#endif
 
     /* shutdown */
     if (doShutdown == 1) {
@@ -8506,6 +8543,7 @@ int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
         #endif
         }
     }
+#endif /* !WOLFTPM_LINUX_DEV && !WOLFTPM_WINAPI */
 
 #ifdef DEBUG_WOLFTPM
     printf("wolfTPM2_Reset complete\n");

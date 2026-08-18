@@ -4,6 +4,8 @@
 
 dist_doc_DATA+= docs/README.md
 dist_doc_DATA+= docs/SWTPM.md
+dist_doc_DATA+= docs/DEVTPM.md
+dist_doc_DATA+= docs/FWTPM.md
 dist_doc_DATA+= docs/WindowTBS.md
 dist_doc_DATA+= docs/Doxyfile
 

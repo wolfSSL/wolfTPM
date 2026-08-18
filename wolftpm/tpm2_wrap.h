@@ -150,6 +150,7 @@ typedef enum WOLFTPM2_MFG {
     TPM_MFG_NUVOTON,
     TPM_MFG_NATIONTECH,
     TPM_MFG_SEALSQ,
+    TPM_MFG_MSFT, /* Microsoft reference firmware TPM (e.g. OP-TEE fTPM TA) */
 } WOLFTPM2_MFG;
 
 typedef struct WOLFTPM2_CAPS {
@@ -3613,9 +3614,14 @@ WOLFTPM_API int wolfTPM2_SetCommand(WOLFTPM2_DEV* dev, TPM_CC commandCode,
     \note - Both flags set to 1: Performs a full TPM restart (shutdown then startup)
     \note - Only doStartup=1: Just starts up the TPM
     \note - Only doShutdown=1: Just shuts down the TPM
+    \note On the Linux kernel driver (/dev/tpmX) and Windows TBS the OS owns
+        TPM startup state, so no TPM command is sent and NOT_COMPILED_IN is
+        returned. A call requesting neither a shutdown nor a startup still
+        returns TPM_RC_SUCCESS, since nothing was declined. See docs/DEVTPM.md.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return NOT_COMPILED_IN: transport where the OS owns TPM startup state
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
@@ -3631,9 +3637,14 @@ WOLFTPM_API int wolfTPM2_Reset(WOLFTPM2_DEV* dev, int doShutdown, int doStartup)
     \ingroup wolfTPM2_Wrappers
     \brief Helper function to shutdown or reset the TPM
     \note If doStartup is set, then TPM2_Startup is performed right after TPM2_Shutdown
+    \note On the Linux kernel driver (/dev/tpmX) and Windows TBS the OS owns
+        TPM startup state, so no TPM command is sent and NOT_COMPILED_IN is
+        returned. A call requesting neither a shutdown nor a startup still
+        returns TPM_RC_SUCCESS, since nothing was declined. See docs/DEVTPM.md.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
+    \return NOT_COMPILED_IN: transport where the OS owns TPM startup state
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct

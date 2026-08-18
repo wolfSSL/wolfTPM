@@ -243,6 +243,7 @@ Tested with:
 * Nuvoton NPCT65X or NPCT75x TPM2.0 modules
 * Nations Technologies Z32H330 or NS350 TPM 2.0 modules
 * SealSQ QVault TPM 2.0 module (SPI, post-quantum ML-DSA / ML-KEM)
+* NVIDIA Jetson Orin (Tegra234) firmware TPM - a TPM 2.0 running as an OP-TEE trusted application, reached through the Linux kernel driver rather than a bus. See [docs/DEVTPM.md](docs/DEVTPM.md#nvidia-jetson-orin-tegra234-firmware-tpm).
 
 #### Device Identification
 
@@ -291,6 +292,11 @@ Mfg NTC (0), Vendor NPCT75x"!!4rls, Fw 7.2 (131072), FIPS 140-2 1, CC-EAL4 0
 SealSQ QVault TPM 2.0
 TPM2: Caps 0x30000797, Did 0x0083, Vid 0x2406, Rid 0x 3
 Mfg SEAL (6), Vendor QVault TPM, Fw 2.1 (0x3010303), FIPS 140-3, CC-EAL4 0
+
+NVIDIA Jetson Orin (Tegra234) OP-TEE firmware TPM, via /dev/tpmrm0
+Mfg MSFT (7), Vendor SSE fTPM, Fw 8216.1808 (0x105300), FIPS 140-2, CC-EAL4 0
+
+There is no `Caps/Did/Vid/Rid` line above because those values come from TIS bus registers, which a firmware TPM does not have. The entry was captured with `--enable-autodetect`, where `wolfTPM2_Init_ex` returns as soon as the kernel device opens, so the debug line is never reached; an `--enable-devtpm` build still prints it, reading all zeros. `Fw 8216.1808` is `TPM_PT_FIRMWARE_VERSION_1` = `0x20180710`, which this implementation uses to carry a build date (2018-07-10) rather than a version number. Spec revision is 1.62, and all four PCR banks (SHA-1, SHA-256, SHA-384, SHA-512) are allocated with PCRs 0-23.
 
 ## Building
 
@@ -463,23 +469,25 @@ idf.py build
 
 ### Building for "/dev/tpmX"
 
-**Auto-detection (recommended):** On Linux, a default `./configure && make` will automatically try `/dev/tpmrm0` then `/dev/tpm0` at runtime. If the kernel driver is available it will be used; otherwise wolfTPM falls back to direct SPI access. No special configure options are needed.
+**Auto-detection (recommended):** `--enable-autodetect` tries `/dev/tpmrm0` then `/dev/tpm0` at runtime. If the kernel driver is available it will be used; otherwise wolfTPM falls back to direct SPI access.
 
 ```bash
 ./autogen.sh
-./configure
+./configure --enable-autodetect
 make
 ```
 
-Previously, using the kernel TPM driver required the `--enable-devtpm` flag. This is no longer necessary with autodetect (enabled by default). You can still use `--enable-devtpm` to force kernel-driver-only mode, which disables SPI fallback.
+**Important:** on Linux `x86_64` and `aarch64`, a bare `./configure` does *not* reach `/dev/tpmX`. On those hosts the software TPMs (swTPM and fwTPM) are auto-enabled so that `make check` works without hardware, and defining `WOLFTPM_SWTPM` suppresses the kernel-device autodetect path. The resulting build talks to a simulator on TCP port 2321, not to your TPM. Selecting any hardware path explicitly - `--enable-autodetect`, `--enable-devtpm`, or any `--enable-<vendor>` - turns the software defaults back off. This matters on single-board machines with a firmware TPM, such as the NVIDIA Jetson Orin, where the kernel device is the only transport.
 
-To specify a different `/dev/tpmX` device use `CFLAGS="-DTPM2_LINUX_DEV=/dev/tpm1"`
+Use `--enable-devtpm` to force kernel-driver-only mode, which disables the SPI fallback:
 
 ```bash
 ./autogen.sh
 ./configure --enable-devtpm
 make
 ```
+
+To specify a different `/dev/tpmX` device use `CFLAGS='-DTPM2_LINUX_DEV="/dev/tpm1"'` - the inner quotes are required, since the macro is used directly as a C string literal. To pin the resource manager and never fall back to the raw device, build with `-DWOLFTPM_USE_TPMRM`.
 
 The `TPM2_Init` or `wolfTPM2_Init` calls should use NULL for the HAL IO callback argument. The default HAL IO `TPM2_IoCb` maps to a macro specifying NULL (`#define TPM2_IoCb NULL`) in tpm_io.h for the devtpm option.
 
@@ -504,6 +512,8 @@ KERNEL=="tpm[0-9]*", TAG+="systemd", MODE="0660", GROUP="wolftpm"
 ```
 
 4) Reboot or reload rules: `sudo udevadm control -R`
+
+For the resource manager (`/dev/tpmrm0`) versus the raw device, which operations the kernel refuses, and firmware-TPM platforms such as the NVIDIA Jetson Orin, see [docs/DEVTPM.md](docs/DEVTPM.md).
 
 
 ### Building for SWTPM
@@ -912,6 +922,53 @@ ECDSA    256 sign          18 ops took 1.015 sec, avg 56.399 ms, 17.731 ops/sec
 ECDSA    256 verify        26 ops took 1.018 sec, avg 39.164 ms, 25.533 ops/sec
 ECDHE    256 agree         35 ops took 1.029 sec, avg 29.402 ms, 34.011 ops/sec
 ```
+
+Run on the NVIDIA Jetson Orin (Tegra234) OP-TEE firmware TPM, via `/dev/tpmrm0`.
+Jetson Linux R36.4.4, kernel 5.15.148-tegra, `MAXN_SUPER` power mode with all six
+Cortex-A78AE cores at 1728 MHz:
+
+```
+./examples/bench/bench
+TPM2 Benchmark using Wrapper API's
+	Use Parameter Encryption: NULL
+Loading SRK: Storage 0x81000200 (282 bytes)
+RNG                563 KB took 1.001 seconds,  562.277 KB/s
+AES-128-CBC-enc      3 MB took 1.000 seconds,    2.798 MB/s
+AES-128-CBC-dec      3 MB took 1.000 seconds,    2.780 MB/s
+AES-256-CBC-enc      3 MB took 1.000 seconds,    2.898 MB/s
+AES-256-CBC-dec      3 MB took 1.000 seconds,    2.888 MB/s
+AES-128-CTR-enc      3 MB took 1.000 seconds,    2.910 MB/s
+AES-128-CTR-dec      3 MB took 1.000 seconds,    2.762 MB/s
+AES-256-CTR-enc      3 MB took 1.000 seconds,    2.764 MB/s
+AES-256-CTR-dec      3 MB took 1.000 seconds,    2.730 MB/s
+AES-128-CFB-enc      3 MB took 1.000 seconds,    2.752 MB/s
+AES-128-CFB-dec      3 MB took 1.000 seconds,    2.688 MB/s
+AES-256-CFB-enc      3 MB took 1.000 seconds,    2.881 MB/s
+AES-256-CFB-dec      3 MB took 1.000 seconds,    2.830 MB/s
+SHA1                 2 MB took 1.000 seconds,    1.521 MB/s
+SHA256               2 MB took 1.000 seconds,    1.572 MB/s
+SHA384               2 MB took 1.000 seconds,    1.554 MB/s
+SHA512               2 MB took 1.000 seconds,    1.569 MB/s
+RSA     2048 key gen       21 ops took 15.465 sec, avg 736.433 ms, 1.358 ops/sec
+RSA     2048 Public      1145 ops took 1.001 sec, avg 0.874 ms, 1144.407 ops/sec
+RSA     2048 Private       85 ops took 1.012 sec, avg 11.900 ms, 84.033 ops/sec
+RSA     2048 Pub  OAEP   1086 ops took 1.000 sec, avg 0.921 ms, 1085.719 ops/sec
+RSA     2048 Priv OAEP     84 ops took 1.002 sec, avg 11.934 ms, 83.793 ops/sec
+ECC      256 key gen        9 ops took 1.081 sec, avg 120.163 ms, 8.322 ops/sec
+ECDSA    256 sign          23 ops took 1.038 sec, avg 45.139 ms, 22.154 ops/sec
+ECDSA    256 verify        32 ops took 1.016 sec, avg 31.737 ms, 31.509 ops/sec
+ECDHE    256 agree         12 ops took 1.076 sec, avg 89.632 ms, 11.157 ops/sec
+```
+
+Unlike the discrete parts above, every operation the benchmark exercises is
+supported, and the throughput figures are one to two orders of magnitude higher.
+That is a property of where the TPM runs rather than of the TPM itself: the
+firmware TPM executes on an application core with no serial bus in the path,
+whereas a discrete part is a small microcontroller reached over SPI or I2C. The
+comparison is useful for capacity planning, not as a security ranking - the
+discrete parts are separate silicon with their own tamper boundary, while the
+firmware TPM shares the SoC with the software it attests. See
+[docs/DEVTPM.md](docs/DEVTPM.md#nvidia-jetson-orin-tegra234-firmware-tpm).
 
 ### TPM2 Native Tests
 
