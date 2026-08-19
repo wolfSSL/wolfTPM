@@ -1166,6 +1166,7 @@ static void test_TPM2_Policy_NULL_Args(void)
     int rc;
     #ifndef WOLFTPM2_NO_WOLFCRYPT
     byte pcrArray[1] = {TPM2_DEMO_PCR_INDEX};
+    byte pcrDigest[sizeof(TPML_PCR_SELECTION) + WC_MAX_DIGEST_SIZE + 1] = {0};
     byte digest[TPM_SHA256_DIGEST_SIZE];
     word32 digestSz = (word32)sizeof(digest);
     #endif
@@ -1185,6 +1186,26 @@ static void test_TPM2_Policy_NULL_Args(void)
     rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
         (word32)sizeof(pcrArray), NULL, 1, digest, &digestSz);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    /* An empty PCR digest is valid. */
+    XMEMSET(digest, 0, sizeof(digest));
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 0, digest, &digestSz);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    /* Reject a caller-declared output capacity below the hash size. */
+    digestSz = (word32)sizeof(digest) - 1;
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 0, digest, &digestSz);
+    AssertIntEQ(rc, BUFFER_E);
+
+    /* Reject a PCR digest that cannot fit in the assembly buffer. */
+    digestSz = (word32)sizeof(digest);
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), pcrDigest, (word32)sizeof(pcrDigest), digest,
+        &digestSz);
+    AssertIntEQ(rc, BUFFER_E);
     #endif
 
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");

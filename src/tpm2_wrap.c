@@ -11069,6 +11069,7 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     const byte* pcrDigest, word32 pcrDigestSz, byte* digest, word32* digestSz)
 {
     int rc;
+    int hashSz;
     TPM2_Packet packet;
     byte buf[sizeof(TPML_PCR_SELECTION)+WC_MAX_DIGEST_SIZE];
     TPML_PCR_SELECTION pcr;
@@ -11076,6 +11077,13 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     if (digest == NULL || digestSz == NULL || pcrArray == NULL ||
         pcrArraySz == 0 || (pcrDigest == NULL && pcrDigestSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    hashSz = TPM2_GetHashDigestSize(pcrAlg);
+    if (hashSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (*digestSz < (word32)hashSz) {
+        return BUFFER_E;
     }
 
     /* Build PCRS (PCR Count and PCR Selection) */
