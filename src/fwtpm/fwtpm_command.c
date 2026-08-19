@@ -3642,9 +3642,16 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 flushHandle = 0;
 
-    (void)cmdTag;
-
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    /* flushHandle lives in the parameter area, not the handle area (Part 3),
+     * so for a sessions tag skip the authorization area before reading it. */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmd->pos + 4 > cmdSize) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -16720,7 +16727,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif /* !FWTPM_NO_CLOCK */
     /* --- Key management (always enabled, algorithm checks inside) --- */
     { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_FlushContext,       FwCmd_FlushContext,         1, 0, 0, 0 },
+    /* flushHandle is a parameter, not a handle-area handle (Part 3): zero
+     * command handles so the dispatcher locates the auth area correctly. */
+    { TPM_CC_FlushContext,       FwCmd_FlushContext,         0, 0, 0, 0 },
 #ifndef FWTPM_NO_CONTEXT
     { TPM_CC_ContextSave,        FwCmd_ContextSave,          1, 0, 0, 0 },
     { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, 0 },

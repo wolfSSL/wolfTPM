@@ -890,6 +890,39 @@ static void test_fwtpm_getcap_commands_flushed(void)
 }
 #endif /* !FWTPM_NO_HASH_CMDS */
 
+/* TPM2_FlushContext carries flushHandle in the parameter area, not the handle
+ * area (TPM 2.0 Part 3), so TPMA_CC.cHandles must be zero even though the
+ * command consumes a 4-byte handle-sized parameter. */
+static void test_fwtpm_getcap_flushcontext_chandles(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 tpma;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_FlushContext); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_FlushContext);
+    AssertIntEQ(TpmaCcHandles(tpma), 0);
+    AssertIntEQ(TpmaCcRHandle(tpma), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability(COMMANDS) FlushContext cHandles:", 0);
+}
+
 /* Command codes with reserved bits set must be rejected with
  * TPM_RC_COMMAND_CODE, never aliased onto a permitted command. */
 static void test_fwtpm_cc_reserved_bits(void)
@@ -7700,6 +7733,44 @@ static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
 /* Group E: Sessions                                                   */
 /* ================================================================== */
 
+/* TPM2_FlushContext with a sessions tag carries flushHandle in the parameter
+ * area after the authorization area, so the handler must skip that area to
+ * find it (Part 3). */
+static void test_fwtpm_flushcontext_sessions_tag(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 sessH;
+    int pos, rspSize, rc;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_FlushContext); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + pos, sessH); pos += 4;   /* flushHandle in parameter area */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* The session is gone: flushing it again fails with TPM_RC_HANDLE. */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("FlushContext(SESSIONS) parameter handle:", 0);
+}
+
 static void test_fwtpm_start_hmac_session(void)
 {
     FWTPM_CTX ctx;
@@ -12133,6 +12204,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #ifndef FWTPM_NO_HASH_CMDS
     test_fwtpm_getcap_commands_flushed();
 #endif
+    test_fwtpm_getcap_flushcontext_chandles();
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();
@@ -12299,6 +12371,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 
     /* Sessions */
+    test_fwtpm_flushcontext_sessions_tag();
     test_fwtpm_start_hmac_session();
     test_fwtpm_start_policy_session();
     test_fwtpm_start_trial_session();
