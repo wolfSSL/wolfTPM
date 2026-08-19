@@ -3669,9 +3669,11 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (sess == NULL) {
                 rc = TPM_RC_HANDLE;
             }
-            else {
+            else if (cmdTag != TPM_ST_SESSIONS) {
                 FwFreeSession(sess);
             }
+            /* For a sessions-tagged command, the dispatcher keeps the target
+             * alive until it has generated the response authorization area. */
         }
         else if ((flushHandle & 0xFF000000) ==
                  (PERSISTENT_FIRST & 0xFF000000)) {
@@ -3704,8 +3706,10 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Match the response tag to the command tag so a sessions-tagged request
+     * gets its response auth area from the dispatcher (Part 1 Sec.18). */
     if (rc == 0) {
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -17228,6 +17232,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int authFail;                   /* Password comparison result */
     int rspCap;                     /* Caller's response buffer capacity */
     int rspTruncated = 0;           /* Response did not fit the buffer */
+    FWTPM_Session* pendingFlushSess = NULL;
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
@@ -17371,15 +17376,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         if (cmdPkt.pos + 4 <= cmdSize) {
             TPM2_Packet_ParseU32(&cmdPkt, &authAreaSz);
 
+            /* cpBuffer starts after authorizationSize and the auth area,
+             * including when that area is empty. */
+            if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
+                return TPM_RC_SUCCESS;
+            }
+            cpStart = cmdPkt.pos + (int)authAreaSz;
+
             if (authAreaSz > 0) {
                 int authEnd;
-                /* Reject if authAreaSz exceeds remaining command bytes */
-                if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                        TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
-                    return TPM_RC_SUCCESS;
-                }
-                authEnd = cmdPkt.pos + (int)authAreaSz;
+                authEnd = cpStart;
 
                 while (cmdPkt.pos + 7 <= authEnd && cmdPkt.pos < cmdSize &&
                        cmdAuthCnt < FWTPM_MAX_CMD_AUTHS) {
@@ -17501,8 +17509,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
                     cmdAuthCnt++;
                 }
-
-                cpStart = authEnd; /* cpBuffer starts after auth area */
             }
         }
         else if (entry->authHandleCnt > 0) {
@@ -17968,6 +17974,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     FwRspInit(&rspPkt, rspBuf, rspCap);
 
     rc = entry->handler(ctx, &cmdPkt, cmdSize, &rspPkt, cmdTag);
+    /* A sessions-tagged FlushContext leaves its target session alive so the
+     * dispatcher can use it to generate the response authorization area. */
+    if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_FlushContext &&
+        cmdTag == TPM_ST_SESSIONS && cpStart > 0 &&
+        cpStart + 4 <= cmdSize) {
+        pendingFlushSess = FwFindSession(ctx,
+            FwLoadU32BE(cmdBuf + cpStart));
+    }
     /* The packet layer drops appends that would overrun the buffer, so
      * report the truncation instead of returning a malformed packet. The
      * session flush and deferred clear below must still run. */
@@ -18174,9 +18188,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     for (pj = 0; pj < cmdAuthCnt; pj++) {
         if (cmdAuths[pj].sess != NULL &&
             !(cmdAuths[pj].attributes & TPMA_SESSION_continueSession)) {
+            if (cmdAuths[pj].sess == pendingFlushSess) {
+                pendingFlushSess = NULL;
+            }
             FwFreeSession(cmdAuths[pj].sess);
         }
     }
+
+    /* FlushContext succeeds before response authorization is generated, but
+     * its session target must not be released until that work is complete. */
+    FwFreeSession(pendingFlushSess);
 
     /* Deferred clear: flush transient objects after response auth is built. */
     if (ctx->pendingClear) {

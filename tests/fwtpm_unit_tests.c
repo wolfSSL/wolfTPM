@@ -137,13 +137,14 @@ static UINT32 TpmaCcRHandle(UINT32 tpma)
     return (tpma >> 28) & 0x1u;
 }
 
-#ifndef FWTPM_NO_HASH_CMDS
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA_SIGN) || \
+    defined(WOLFTPM_MLDSA_VERIFY)
 /* flushed bit (handle's object/sequence is flushed on success), bit 24. */
 static UINT32 TpmaCcFlushed(UINT32 tpma)
 {
     return (tpma >> 24) & 0x1u;
 }
-#endif /* !FWTPM_NO_HASH_CMDS */
+#endif /* hash or ML-DSA sequence commands */
 
 /* Build a TPM command header. Returns TPM2_HEADER_SIZE (10). */
 static int BuildCmdHeader(byte* buf, UINT16 tag, UINT32 totalSize, UINT32 cc)
@@ -790,11 +791,10 @@ static void test_fwtpm_getcap_commands_tpma(void)
 }
 
 
-/* TPM_CAP_COMMANDS must set TPMA_CC.flushed for every {F} command (the
- * handle's object/sequence is flushed on success): SequenceComplete and
- * EventSequenceComplete per TPM 2.0 Part 3. Both live under the hash-command
- * group, so this check follows that gate. */
-#ifndef FWTPM_NO_HASH_CMDS
+/* TPM_CAP_COMMANDS must set TPMA_CC.flushed for every {F} command whose
+ * object or sequence is flushed on success. */
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA_SIGN) || \
+    defined(WOLFTPM_MLDSA_VERIFY)
 static void test_fwtpm_getcap_commands_flushed(void)
 {
     FWTPM_CTX ctx;
@@ -805,6 +805,7 @@ static void test_fwtpm_getcap_commands_flushed(void)
     rc = fwtpm_test_startup(&ctx);
     AssertIntEQ(rc, 0);
 
+#ifndef FWTPM_NO_HASH_CMDS
     cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
     PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
     PutU32BE(gCmd + cmdSz, TPM_CC_SequenceComplete); cmdSz += 4;
@@ -851,6 +852,7 @@ static void test_fwtpm_getcap_commands_flushed(void)
     tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
     AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_SequenceUpdate);
     AssertIntEQ(TpmaCcFlushed(tpma), 0);
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 #ifdef WOLFTPM_MLDSA_SIGN
     /* SignSequenceComplete flushes its sign sequence on success. */
@@ -888,7 +890,7 @@ static void test_fwtpm_getcap_commands_flushed(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability(COMMANDS) flushed bit:", 0);
 }
-#endif /* !FWTPM_NO_HASH_CMDS */
+#endif /* hash or ML-DSA sequence commands */
 
 /* TPM2_FlushContext carries flushHandle in the parameter area, not the handle
  * area (TPM 2.0 Part 3), so TPMA_CC.cHandles must be zero even though the
@@ -5382,7 +5384,8 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
 
 /* Requires SHA-384 as a working object name algorithm distinct from the
  * (SHA-256) context integrity hash. */
-#ifdef WOLFSSL_SHA384
+#if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
 /* Build an ECC P-256 ECDSA-SHA256 signing primary in TPM_RH_OWNER with a
  * caller-chosen nameAlg, to exercise verified-ticket HMAC algorithm selection
  * independently of the signing scheme. */
@@ -5525,6 +5528,8 @@ static void test_fwtpm_verifydigest_ticket_uses_context_hash(void)
     metaAlg = GetU16BE(gRsp + pos); pos += 2;
     hmacSz = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(valTag, TPM_ST_DIGEST_VERIFIED);
+    /* Metadata is the signing scheme hash (SHA-256 here), not the HMAC alg. */
+    AssertIntEQ(metaAlg, TPM_ALG_SHA256);
     AssertIntEQ((int)hmacSz,
         TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG));
     AssertIntNE((int)hmacSz, TPM2_GetHashDigestSize(diffAlg));
@@ -5566,7 +5571,7 @@ static void test_fwtpm_verifydigest_ticket_uses_context_hash(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifyDigestSig ticket uses context hash:", 1);
 }
-#endif /* WOLFSSL_SHA384 */
+#endif /* ECC and digest-signature command support */
 
 /* Build a Hash-MLDSA-65/SHA-256 CreatePrimary in a caller-chosen
  * hierarchy. Used to exercise the per-object hierarchy capture path
@@ -7929,6 +7934,10 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     FWTPM_CTX ctx;
     UINT32 sessH;
     int pos, rspSize, rc;
+#ifndef FWTPM_NO_POLICY
+    int authStart, rspPos;
+    UINT16 nonceSz, hmacSz;
+#endif
 
     memset(&ctx, 0, sizeof(ctx));
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
@@ -7947,6 +7956,8 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* The response tag must match the command tag. */
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
 
     /* The session is gone: flushing it again fails with TPM_RC_HANDLE. */
     PutU32BE(gCmd + 2, (UINT32)pos);
@@ -7955,11 +7966,113 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     AssertIntEQ(rc, TPM_RC_SUCCESS);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
 
+    /* Auth area present but no flushHandle bytes after it: COMMAND_SIZE. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_FlushContext); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+
+    /* authSize larger than the remaining bytes is rejected up front. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_FlushContext); pos += 4;
+    PutU32BE(gCmd + pos, 0xFFFF); pos += 4;   /* authSize claims far too much */
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTHSIZE);
+
+    /* A zero-length authorization area still has a parameter area. The
+     * deferred flush must use its offset and release the target session. */
+    sessH = StartSessionHelper(&ctx, TPM_SE_HMAC);
+    AssertIntNE(sessH, 0);
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_FlushContext); pos += 4;
+    PutU32BE(gCmd + pos, 0); pos += 4;       /* empty auth area */
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_FlushContext);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+
+#ifndef FWTPM_NO_POLICY
+    /* The flushed session may also be the response authorization session.
+     * It must remain live until the response auth area has been generated. */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_FlushContext); pos += 4;
+    authStart = pos;
+    PutU32BE(gCmd + pos, 0); pos += 4;       /* authSize placeholder */
+    PutU32BE(gCmd + pos, sessH); pos += 4;   /* response auth session */
+    PutU16BE(gCmd + pos, 0); pos += 2;       /* nonceCaller size */
+    gCmd[pos++] = TPMA_SESSION_continueSession;
+    PutU16BE(gCmd + pos, 0); pos += 2;       /* HMAC size */
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU32BE(gCmd + pos, sessH); pos += 4;   /* flush the same session */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU16BE(gRsp), TPM_ST_SESSIONS);
+
+    rspPos = TPM2_HEADER_SIZE;
+    AssertTrue(rspPos + 4 <= rspSize);
+    AssertIntEQ(GetU32BE(gRsp + rspPos), 0);  /* parameterSize */
+    rspPos += 4;
+    AssertTrue(rspPos + 2 <= rspSize);
+    nonceSz = GetU16BE(gRsp + rspPos); rspPos += 2;
+    AssertIntEQ((int)nonceSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
+    AssertTrue(rspPos + nonceSz + 3 <= rspSize);
+    rspPos += nonceSz;
+    AssertIntEQ(gRsp[rspPos++], TPMA_SESSION_continueSession);
+    hmacSz = GetU16BE(gRsp + rspPos); rspPos += 2;
+    AssertIntEQ((int)hmacSz, TPM2_GetHashDigestSize(TPM_ALG_SHA256));
+    AssertIntEQ(rspPos + hmacSz, rspSize);
+
+    /* FlushContext overrides continueSession: the target is now gone. */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_FlushContext);
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_HANDLE);
+#endif /* !FWTPM_NO_POLICY */
+
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("FlushContext(SESSIONS) parameter handle:", 0);
 }
 
-#if defined(WOLFTPM_V185) && defined(WOLFSSL_SHA384)
+#if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    !defined(FWTPM_NO_POLICY)
 /* ECC P-256 signing primary with nameAlg = SHA-384 and scheme ECDSA-SHA384,
  * so its object name and the PolicyAuthorize aHash both use SHA-384, distinct
  * from the SHA-256 context integrity hash. */
@@ -8053,16 +8166,16 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     AssertIntEQ(wc_HashFinal(&h, WC_HASH_TYPE_SHA384, aHash), 0);
     wc_HashFree(&h, WC_HASH_TYPE_SHA384);
 
-    /* SignDigest(aHash) to obtain a real ECDSA-SHA384 signature. */
+    /* TPM2_Sign(aHash) to obtain a real ECDSA-SHA384 signature. */
     pos = 0;
     PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
     PutU32BE(gCmd + pos, 0); pos += 4;
-    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_Sign); pos += 4;
     PutU32BE(gCmd + pos, keyHandle); pos += 4;
     pos = AppendPwAuth(gCmd, pos, NULL, 0);
-    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
     PutU16BE(gCmd + pos, 48); pos += 2;
     memcpy(gCmd + pos, aHash, 48); pos += 48;
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* use key scheme */
     PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
     PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
     PutU16BE(gCmd + pos, 0); pos += 2;
@@ -8104,7 +8217,11 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     ticketHier = GetU32BE(gRsp + pos); pos += 4;
     hmacSz = GetU16BE(gRsp + pos); pos += 2;
     AssertIntEQ(ticketTag, TPM_ST_VERIFIED);
-    AssertIntGT(hmacSz, 0);
+    /* Context-hash sized (SHA-256 => 32), not the key nameAlg (SHA-384 => 48);
+     * this fails before the fix, when the producer HMACs with nameAlg. */
+    AssertIntEQ((int)hmacSz,
+        TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG));
+    AssertIntNE((int)hmacSz, TPM2_GetHashDigestSize(TPM_ALG_SHA384));
     AssertIntEQ((int)hmacSz <= (int)sizeof(ticketHmac), 1);
     memcpy(ticketHmac, gRsp + pos, hmacSz);
 
@@ -8139,7 +8256,7 @@ static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("VerifySignature to PolicyAuthorize roundtrip:", 1);
 }
-#endif /* WOLFTPM_V185 && WOLFSSL_SHA384 */
+#endif /* ECC, SHA-384 and policy support */
 
 static void test_fwtpm_start_hmac_session(void)
 {
@@ -12571,7 +12688,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_algorithms();
     test_fwtpm_getcap_commands();
     test_fwtpm_getcap_commands_tpma();
-#ifndef FWTPM_NO_HASH_CMDS
+#if !defined(FWTPM_NO_HASH_CMDS) || defined(WOLFTPM_MLDSA_SIGN) || \
+    defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_getcap_commands_flushed();
 #endif
     test_fwtpm_getcap_flushcontext_chandles();
@@ -12687,7 +12805,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sign_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
     test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
-#ifdef WOLFSSL_SHA384
+#if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    defined(WOLFTPM_MLDSA_SIGN) && defined(WOLFTPM_MLDSA_VERIFY)
     test_fwtpm_verifydigest_ticket_uses_context_hash();
 #endif
     test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
@@ -12745,7 +12864,8 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Sessions */
     test_fwtpm_flushcontext_sessions_tag();
-#if defined(WOLFTPM_V185) && defined(WOLFSSL_SHA384)
+#if defined(HAVE_ECC) && defined(WOLFSSL_SHA384) && \
+    !defined(FWTPM_NO_POLICY)
     test_fwtpm_verifysignature_policyauthorize_roundtrip();
 #endif
     test_fwtpm_start_hmac_session();
