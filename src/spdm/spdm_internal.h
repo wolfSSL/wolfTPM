@@ -61,6 +61,23 @@ extern "C" {
 #define WOLFSPDM_STATE_CONNECTED    5   /* Session established */
 #define WOLFSPDM_STATE_ERROR        6   /* Error state */
 
+/* ----- Supported SPDM Version Range ----- */
+
+/* Maximum SPDM version we support. Supports SPDM 1.2 through 1.4.
+ * Override with -DWOLFSPDM_MAX_SPDM_VERSION at compile time to cap
+ * at a lower version. */
+#ifndef WOLFSPDM_MAX_SPDM_VERSION
+#define WOLFSPDM_MAX_SPDM_VERSION  SPDM_VERSION_14
+#endif
+
+/* Minimum SPDM version we require. Our key derivation uses BinConcat
+ * format ("spdm1.2 " prefix) which is a 1.2+ feature. SPDM 1.1 uses
+ * a different HKDF label format and would require separate key
+ * derivation code. Override at compile time if 1.1 support is added. */
+#ifndef WOLFSPDM_MIN_SPDM_VERSION
+#define WOLFSPDM_MIN_SPDM_VERSION  SPDM_VERSION_12
+#endif
+
 /* ----- Internal Context Structure ----- */
 
 struct WOLFSPDM_CTX {

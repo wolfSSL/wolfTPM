@@ -819,6 +819,11 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
             ctx->globalNvWriteLock = 0;
+            /* shEnable/ehEnable/phEnableNV re-enable on TPM Reset only;
+             * phEnable re-enables on every startup (handled below). */
+            ctx->shDisabled = 0;
+            ctx->ehDisabled = 0;
+            ctx->phNvDisabled = 0;
 #ifndef FWTPM_NO_CONTEXT
             /* Saved contexts are invalidated by TPM Reset */
             ctx->contextLiveCount = 0;
@@ -845,6 +850,10 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->restartCount++;
             rc = FWTPM_NV_SaveFlags(ctx);
         }
+
+        /* phEnable is SET on every _TPM_Init/Startup (TPM 2.0 Part 2
+         * TPMS_STARTUP_CLEAR), regardless of CLEAR vs STATE. */
+        ctx->phDisabled = 0;
 
         /* Only report success and mark the TPM started if the state writes
          * above succeeded; otherwise the non-zero rc yields an error response. */
@@ -1469,6 +1478,7 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                   0 },
             #endif
                 { TPM_PT_PERMANENT,         0 }, /* patched at emission */
+                { TPM_PT_STARTUP_CLEAR,     0 }, /* patched at emission */
                 { TPM_PT_HR_LOADED,         0 },
                 { TPM_PT_HR_LOADED_AVAIL,   FWTPM_MAX_OBJECTS },
                 { TPM_PT_HR_TRANSIENT_AVAIL, 0 },
@@ -1520,6 +1530,21 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                             ctx->daFailedTries >= ctx->daMaxTries)
                         val |= TPMA_PERMANENT_inLockout;
                 #endif
+                }
+                else if (prop == TPM_PT_STARTUP_CLEAR) {
+                    /* TPMA_STARTUP_CLEAR enable bits are the inverse of the
+                     * disabled flags. The orderly bit is left clear: it
+                     * requires shutdown/startup provenance the DA orderly
+                     * flag does not track. */
+                    val = 0;
+                    if (!ctx->phDisabled)
+                        val |= TPMA_STARTUP_CLEAR_phEnable;
+                    if (!ctx->shDisabled)
+                        val |= TPMA_STARTUP_CLEAR_shEnable;
+                    if (!ctx->ehDisabled)
+                        val |= TPMA_STARTUP_CLEAR_ehEnable;
+                    if (!ctx->phNvDisabled)
+                        val |= TPMA_STARTUP_CLEAR_phEnableNV;
                 }
             #ifndef FWTPM_NO_DA
                 else if (prop == TPM_PT_LOCKOUT_COUNTER)
@@ -4139,6 +4164,35 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 }
             }
 
+            /* Delete every storage/endorsement persistent object; platform
+             * persistent objects survive (Part 3 Sec.24.6). The compacting
+             * FWTPM_NV_Save in the pendingClear path drops the freed slots. */
+            for (ci = 0; ci < FWTPM_MAX_PERSISTENT; ci++) {
+                if (ctx->persistent[ci].used) {
+                    UINT32 h = ctx->persistent[ci].handle;
+                    int isPlatform =
+                        (ctx->persistent[ci].hierarchy == TPM_RH_PLATFORM) ||
+                        (h >= PLATFORM_PERSISTENT);
+                    if (!isPlatform) {
+                        TPM2_ForceZero(&ctx->persistent[ci],
+                            sizeof(ctx->persistent[ci]));
+                    }
+                }
+            }
+
+        #ifndef FWTPM_NO_NV
+            /* Delete every owner-created NV index (TPMA_NV_PLATFORMCREATE
+             * clear); platform NV indices survive. */
+            for (ci = 0; ci < FWTPM_MAX_NV_INDICES; ci++) {
+                if (ctx->nvIndices[ci].inUse &&
+                    !(ctx->nvIndices[ci].nvPublic.attributes &
+                        TPMA_NV_PLATFORMCREATE)) {
+                    TPM2_ForceZero(&ctx->nvIndices[ci],
+                        sizeof(ctx->nvIndices[ci]));
+                }
+            }
+        #endif
+
             /* Reset PCRs */
             XMEMSET(ctx->pcrDigest, 0, sizeof(ctx->pcrDigest));
             ctx->pcrUpdateCounter = 0;
@@ -4152,6 +4206,10 @@ static TPM_RC FwCmd_Clear(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
 
             /* Reset disableClear per spec */
             ctx->disableClear = 0;
+            /* Clear re-enables the storage and endorsement hierarchies
+             * (Part 3 Sec.24.6); platform state is untouched. */
+            ctx->shDisabled = 0;
+            ctx->ehDisabled = 0;
 
         #ifndef FWTPM_NO_DA
             /* Clear resets lockoutAuth and DA state to defaults
@@ -4236,6 +4294,10 @@ static TPM_RC FwCmd_ChangeEPS(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         sizeof(ctx->primaryCache[i]));
                 }
             }
+
+            /* A new endorsement seed re-enables the hierarchy (Part 3
+             * Sec.24.5). */
+            ctx->ehDisabled = 0;
 
             /* Defer object flush until after response auth */
             ctx->pendingClear = 1;
@@ -4370,9 +4432,8 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         authHandle, enable, state);
 #endif
 
-    /* Only platform hierarchy can control other hierarchies */
-    if (authHandle != TPM_RH_PLATFORM) {
-        rc = TPM_RC_AUTH_TYPE;
+    if (state > 1) {
+        rc = TPM_RC_VALUE;
     }
 
     /* Validate enable handle */
@@ -4383,15 +4444,168 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_VALUE;
     }
 
-    if (rc == 0) {
-        /* fwTPM does not actually disable hierarchies; just accept */
-        (void)state;
-        (void)ctx;
+    /* phEnable is restored only by Startup, never cleared-then-set here; the
+     * authorization gate already blocks a disabled platform from reaching
+     * this handler, so a set request can only be an idempotent no-op. */
 
+    /* Authorization (TPM 2.0 Part 3 Sec.24.3): platformAuth may set or clear
+     * any hierarchy; ownerAuth/endorsementAuth may only CLEAR their own
+     * hierarchy. Platform enables can only be changed by the platform. */
+    if (rc == 0) {
+        if (authHandle == TPM_RH_PLATFORM) {
+            /* allowed for all combinations */
+        }
+        else if (authHandle == TPM_RH_OWNER && enable == TPM_RH_OWNER &&
+                 state == 0) {
+            /* owner may disable itself */
+        }
+        else if (authHandle == TPM_RH_ENDORSEMENT &&
+                 enable == TPM_RH_ENDORSEMENT && state == 0) {
+            /* endorsement may disable itself */
+        }
+        else {
+            rc = TPM_RC_AUTH_TYPE;
+        }
+    }
+
+    if (rc == 0) {
+        int disable = (state == 0);
+        UINT32 flushHierarchy = 0;
+        int oldSh = ctx->shDisabled, oldEh = ctx->ehDisabled;
+        int oldPh = ctx->phDisabled, oldPhNv = ctx->phNvDisabled;
+    #ifndef FWTPM_NO_DA
+        int oldOrderly = ctx->orderly;
+    #endif
+
+        switch (enable) {
+            case TPM_RH_OWNER:
+                ctx->shDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_OWNER;
+                break;
+            case TPM_RH_ENDORSEMENT:
+                ctx->ehDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_ENDORSEMENT;
+                break;
+            case TPM_RH_PLATFORM:
+                ctx->phDisabled = disable;
+                if (disable) flushHierarchy = TPM_RH_PLATFORM;
+                break;
+            case TPM_RH_PLATFORM_NV:
+                ctx->phNvDisabled = disable;
+                break;
+            default:
+                break;
+        }
+
+        /* Commit the new state to NV first. An NV failure must not alter TPM
+         * state (Part 3), so restore the flags and skip the irreversible
+         * object flush when the write fails. */
+    #ifndef FWTPM_NO_DA
+        ctx->orderly = 0;
+    #endif
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc != 0) {
+            ctx->shDisabled = oldSh;
+            ctx->ehDisabled = oldEh;
+            ctx->phDisabled = oldPh;
+            ctx->phNvDisabled = oldPhNv;
+        #ifndef FWTPM_NO_DA
+            ctx->orderly = oldOrderly;
+        #endif
+        }
+
+        /* Disabling a hierarchy flushes its transient objects (Part 1
+         * Sec.14.2); persistent objects and NV stay but become unusable.
+         * A legacy-provenance transient (hierarchy 0, a child of a
+         * pre-upgrade persistent object) is flushed under owner or
+         * endorsement disable so it cannot outlive its hierarchy. */
+        if (rc == 0 && flushHierarchy != 0) {
+            int i;
+            int flushUnknown = (flushHierarchy == TPM_RH_OWNER ||
+                                flushHierarchy == TPM_RH_ENDORSEMENT);
+            for (i = 0; i < FWTPM_MAX_OBJECTS; i++) {
+                if (ctx->objects[i].used &&
+                    (ctx->objects[i].hierarchy == flushHierarchy ||
+                     (flushUnknown && ctx->objects[i].hierarchy == 0))) {
+                    FwFreeObject(&ctx->objects[i]);
+                }
+            }
+        }
+    }
+
+    if (rc == 0) {
         FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
+}
+
+/* Returns 1 if the entity named by handle belongs to a currently-disabled
+ * hierarchy and must not be used (TPM 2.0 Part 1 Sec.14.2). */
+static int FwHandleHierarchyDisabled(FWTPM_CTX* ctx, TPM_HANDLE handle)
+{
+    UINT32 hType = handle & 0xFF000000;
+
+    if (handle == TPM_RH_OWNER) {
+        return ctx->shDisabled;
+    }
+    if (handle == TPM_RH_ENDORSEMENT) {
+        return ctx->ehDisabled;
+    }
+    if (handle == TPM_RH_PLATFORM) {
+        return ctx->phDisabled;
+    }
+    if (handle == TPM_RH_PLATFORM_NV) {
+        return ctx->phNvDisabled;
+    }
+#ifndef FWTPM_NO_NV
+    if (hType == (NV_INDEX_FIRST & 0xFF000000)) {
+        FWTPM_NvIndex* nv = FwFindNvIndex(ctx, handle);
+        if (nv != NULL) {
+            if (nv->nvPublic.attributes & TPMA_NV_PLATFORMCREATE) {
+                return ctx->phNvDisabled;
+            }
+            return ctx->shDisabled;
+        }
+        return 0;
+    }
+#endif
+    if (hType == (TRANSIENT_FIRST & 0xFF000000)) {
+        FWTPM_Object* obj = FwFindObject(ctx, handle);
+        if (obj != NULL) {
+            if (obj->hierarchy == TPM_RH_OWNER) return ctx->shDisabled;
+            if (obj->hierarchy == TPM_RH_ENDORSEMENT) return ctx->ehDisabled;
+            if (obj->hierarchy == TPM_RH_PLATFORM) return ctx->phDisabled;
+            /* hierarchy 0 is a legacy-provenance child (a genuine null-
+             * hierarchy object stores TPM_RH_NULL): gate it conservatively
+             * under both storage and endorsement disables. */
+            if (obj->hierarchy == 0) {
+                return (ctx->shDisabled || ctx->ehDisabled);
+            }
+        }
+    }
+    else if (hType == (PERSISTENT_FIRST & 0xFF000000)) {
+        FWTPM_Object* obj = FwFindObject(ctx, handle);
+        if (obj != NULL) {
+            /* The persistent handle sub-range fixes the owner-vs-platform
+             * availability regardless of the stored hierarchy. */
+            if (handle >= PLATFORM_PERSISTENT) {
+                if (ctx->phDisabled) return 1;
+            }
+            else {
+                if (ctx->shDisabled) return 1;
+                /* An endorsement object may live in the owner range, and a
+                 * legacy record's hierarchy is unknown (0): honor ehEnable
+                 * for both so neither can escape a disabled hierarchy. */
+                if ((obj->hierarchy == TPM_RH_ENDORSEMENT ||
+                     obj->hierarchy == 0) && ctx->ehDisabled) {
+                    return 1;
+                }
+            }
+            if (obj->hierarchy == TPM_RH_PLATFORM) return ctx->phDisabled;
+        }
+    }
+    return 0;
 }
 
 /* --- TPM2_HierarchyChangeAuth (CC 0x0129) --- */
@@ -5452,10 +5666,15 @@ static TPM_RC FwCmd_LoadExternal(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &hierarchy);
+        /* The hierarchy is a parameter, not a handle, so the dispatcher's
+         * gate does not see it: reject a disabled target here. */
+        if (FwHandleHierarchyDisabled(ctx, hierarchy)) {
+            rc = TPM_RC_HIERARCHY;
+        }
         /* Private key material may only be loaded under TPM_RH_NULL
          * (Part 3 Sec.18.4); otherwise the object would claim a real
          * hierarchy and yield a spoofed TPM_ST_VERIFIED ticket. */
-        if (inPrivSize > 0 && hierarchy != TPM_RH_NULL) {
+        else if (inPrivSize > 0 && hierarchy != TPM_RH_NULL) {
             rc = TPM_RC_HIERARCHY;
         }
     }
@@ -9237,6 +9456,12 @@ static TPM_RC FwCmd_PolicyRestart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         sess->isPPRequired = 0;
         sess->cpHashA.size = 0;
         sess->nameHash.size = 0;
+        sess->requiredLocality = 0;
+        sess->hasRequiredLocality = 0;
+        sess->commandCode = 0;
+        sess->templateHash.size = 0;
+        sess->checkNvWritten = 0;
+        sess->nvWrittenState = 0;
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -9637,6 +9862,11 @@ static TPM_RC FwCmd_PolicyCommandCode(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_AUTH_TYPE;
         }
     }
+    /* A session may only be bound to one command code */
+    if (rc == 0 && sess->commandCode != 0 &&
+        sess->commandCode != commandCode) {
+        rc = TPM_RC_VALUE;
+    }
 
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
@@ -9651,6 +9881,7 @@ static TPM_RC FwCmd_PolicyCommandCode(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->commandCode = commandCode;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10731,6 +10962,7 @@ static TPM_RC FwCmd_PolicyNV(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 #endif /* !FWTPM_NO_NV (PolicyNV) */
 
+#ifndef FWTPM_NO_PP
 /* --- TPM2_PolicyPhysicalPresence (CC 0x0187) --- */
 /* policyDigest = H(policyDigest || TPM_CC_PolicyPhysicalPresence) */
 static TPM_RC FwCmd_PolicyPhysicalPresence(FWTPM_CTX* ctx, TPM2_Packet* cmd,
@@ -10765,6 +10997,7 @@ static TPM_RC FwCmd_PolicyPhysicalPresence(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     return rc;
 }
+#endif /* !FWTPM_NO_PP */
 
 /* --- TPM2_PolicyNvWritten (CC 0x018F) --- */
 /* policyDigest = H(policyDigest || TPM_CC_PolicyNvWritten || writtenSet) */
@@ -10791,6 +11024,11 @@ static TPM_RC FwCmd_PolicyNvWritten(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_VALUE;
         }
     }
+    /* A session may only assert one written state */
+    if (rc == 0 && sess->checkNvWritten &&
+        (sess->nvWrittenState != 0) != (writtenSet != 0)) {
+        rc = TPM_RC_VALUE;
+    }
     if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyNvWritten(session=0x%x, writtenSet=%d)\n",
@@ -10802,6 +11040,8 @@ static TPM_RC FwCmd_PolicyNvWritten(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->checkNvWritten = 1;
+        sess->nvWrittenState = writtenSet;
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10829,15 +11069,28 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
         TPM2_Packet_ParseU16(cmd, &templateHashSz);
-        if (templateHashSz > sizeof(templateHash)) {
+        if (expectedSz <= 0 || templateHashSz != (UINT16)expectedSz) {
             rc = TPM_RC_SIZE;
         }
     }
     if (rc == 0) {
-        if (templateHashSz > 0) {
-            TPM2_Packet_ParseBytes(cmd, templateHash, templateHashSz);
+        TPM2_Packet_ParseBytes(cmd, templateHash, templateHashSz);
+        /* cpHash, nameHash and templateHash share one session slot
+         * (Part 3 Sec.23.19), so only a repeat of the same template is
+         * accepted */
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0) {
+            rc = TPM_RC_CPHASH;
         }
+        else if (sess->templateHash.size > 0 &&
+            (sess->templateHash.size != templateHashSz ||
+             TPM2_ConstantCompare(sess->templateHash.buffer, templateHash,
+                templateHashSz) != 0)) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+    if (rc == 0) {
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: PolicyTemplate(session=0x%x, hashSz=%d)\n",
             sess->handle, templateHashSz);
@@ -10848,6 +11101,8 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
+        sess->templateHash.size = templateHashSz;
+        XMEMCPY(sess->templateHash.buffer, templateHash, templateHashSz);
         FwRspNoParams(rsp, cmdTag);
     }
 
@@ -10888,9 +11143,13 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, cpHashBuf, cpHashSz);
 
+        /* cpHash, nameHash and templateHash share one session slot */
+        if (sess->nameHash.size > 0 || sess->templateHash.size > 0) {
+            rc = TPM_RC_CPHASH;
+        }
         /* If cpHashA already set, must be identical — always run
          * TPM2_ConstantCompare so timing doesn't leak size match */
-        if (sess->cpHashA.size > 0) {
+        else if (sess->cpHashA.size > 0) {
             sizeMismatch = (sess->cpHashA.size != cpHashSz);
             cmpSz = (sess->cpHashA.size < cpHashSz) ?
                 sess->cpHashA.size : cpHashSz;
@@ -10955,9 +11214,13 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, nameHashBuf, nameHashSz);
 
+        /* cpHash, nameHash and templateHash share one session slot */
+        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0) {
+            rc = TPM_RC_CPHASH;
+        }
         /* If nameHash already set, must be identical — always run
          * TPM2_ConstantCompare so timing doesn't leak size match */
-        if (sess->nameHash.size > 0) {
+        else if (sess->nameHash.size > 0) {
             sizeMismatch = (sess->nameHash.size != nameHashSz);
             cmpSz = (sess->nameHash.size < nameHashSz) ?
                 sess->nameHash.size : nameHashSz;
@@ -11043,13 +11306,25 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_VALUE;
         }
     }
+    /* Binds both a command code and a name hash, so neither may already
+     * be set on the session (Part 3 Sec.23.14) */
+    if (rc == 0 && sess->commandCode != 0) {
+        rc = TPM_RC_COMMAND_CODE;
+    }
+    if (rc == 0 && (sess->nameHash.size != 0 || sess->cpHashA.size != 0 ||
+            sess->templateHash.size != 0)) {
+        rc = TPM_RC_CPHASH;
+    }
 
     if (rc == 0) {
         FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
         enum wc_HashType wcHash = FwGetWcHashType(sess->authHash);
         int digestSz = TPM2_GetHashDigestSize(sess->authHash);
+        byte nameHash[TPM_MAX_DIGEST_SIZE];
+        byte newDigest[TPM_MAX_DIGEST_SIZE];
         byte ccBuf[4];
         UINT32 cc = TPM_CC_PolicyDuplicationSelect;
+        int hrc = 0;
 
         FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
 
@@ -11058,30 +11333,67 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             sess->handle, includeObject);
     #endif
 
-        if (digestSz <= 0) {
+        if (rc == 0 && digestSz <= 0) {
             rc = TPM_RC_HASH;
         }
+        /* nameHash = H(objectName || newParentName), checked against the
+         * Duplicate command's handles at authorization time */
         if (rc == 0) {
-            if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            hrc = wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID);
+            if (hrc == 0) {
+                if (objectNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, objectName,
+                        objectNameSz);
+                }
+                if (hrc == 0 && newParentNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash,
+                        newParentName, newParentNameSz);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashFinal(hashCtx, wcHash, nameHash);
+                }
+                wc_HashFree(hashCtx, wcHash);
+            }
+            if (hrc != 0) {
                 rc = TPM_RC_FAILURE;
             }
         }
         if (rc == 0) {
-            wc_HashUpdate(hashCtx, wcHash,
-                sess->policyDigest.buffer, sess->policyDigest.size);
-            FwStoreU32BE(ccBuf, cc);
-            wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
-            if (includeObject && objectNameSz > 0) {
-                wc_HashUpdate(hashCtx, wcHash, objectName, objectNameSz);
+            hrc = wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID);
+            if (hrc == 0) {
+                hrc = wc_HashUpdate(hashCtx, wcHash,
+                    sess->policyDigest.buffer, sess->policyDigest.size);
+                FwStoreU32BE(ccBuf, cc);
+                if (hrc == 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
+                }
+                if (hrc == 0 && includeObject && objectNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, objectName,
+                        objectNameSz);
+                }
+                if (hrc == 0 && newParentNameSz > 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash,
+                        newParentName, newParentNameSz);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashUpdate(hashCtx, wcHash, &includeObject, 1);
+                }
+                if (hrc == 0) {
+                    hrc = wc_HashFinal(hashCtx, wcHash, newDigest);
+                }
+                wc_HashFree(hashCtx, wcHash);
             }
-            if (newParentNameSz > 0) {
-                wc_HashUpdate(hashCtx, wcHash,
-                    newParentName, newParentNameSz);
+            if (hrc != 0) {
+                rc = TPM_RC_FAILURE;
             }
-            wc_HashUpdate(hashCtx, wcHash, &includeObject, 1);
-            wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer);
+        }
+        /* Commit only once both digests are complete */
+        if (rc == 0) {
+            XMEMCPY(sess->nameHash.buffer, nameHash, digestSz);
+            sess->nameHash.size = (UINT16)digestSz;
+            XMEMCPY(sess->policyDigest.buffer, newDigest, digestSz);
             sess->policyDigest.size = (UINT16)digestSz;
-            wc_HashFree(hashCtx, wcHash);
+            sess->commandCode = TPM_CC_Duplicate;
         }
 
         FWTPM_FREE_VAR(hashCtx);
@@ -11745,6 +12057,15 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 sizeof(publicInfo.nvPublic.authPolicy.buffer)) {
             rc = TPM_RC_SIZE;
         }
+    }
+
+    /* A platform NV index cannot be created while phEnableNV is clear, even
+     * though the new index handle is not yet in the handle area for the
+     * generic disabled-hierarchy gate (TPM 2.0 Part 3 Sec.31.3). */
+    if (rc == 0 &&
+        (publicInfo.nvPublic.attributes & TPMA_NV_PLATFORMCREATE) &&
+        ctx->phNvDisabled) {
+        rc = TPM_RC_HIERARCHY;
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, publicInfo.nvPublic.authPolicy.buffer,
@@ -16354,6 +16675,7 @@ typedef struct {
     UINT8 outHandleCnt;     /* Number of output handles in response */
     UINT8 encDecFlags;      /* Bit 0: first cmd param is TPM2B (can decrypt) */
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
+                            /* Bit 2: first auth handle has DUP role */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -16363,6 +16685,9 @@ typedef struct {
 #define FW_CMD_FLAG_ENC  0      /* Param encryption disabled */
 #define FW_CMD_FLAG_DEC  0      /* Param encryption disabled */
 #endif
+/* DUP role (TPM 2.0 Part 3): the first auth handle may only be authorized by
+ * a policy session, never a password or HMAC session. */
+#define FW_CMD_FLAG_AUTH_DUP  0x04
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -16460,7 +16785,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_NV
     { TPM_CC_PolicyNV,           FwCmd_PolicyNV,             3, 1, 0, 0 },
 #endif
+#ifndef FWTPM_NO_PP
     { TPM_CC_PolicyPhysicalPresence, FwCmd_PolicyPhysicalPresence, 1, 0, 0, 0 },
+#endif
     { TPM_CC_PolicyCpHash,       FwCmd_PolicyCpHash,         1, 0, 0, 0 },
     { TPM_CC_PolicyNameHash,     FwCmd_PolicyNameHash,       1, 0, 0, 0 },
     { TPM_CC_PolicyDuplicationSelect, FwCmd_PolicyDuplicationSelect, 1, 0, 0, 0 },
@@ -16476,7 +16803,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_LoadExternal,       FwCmd_LoadExternal,         0, 0, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
 #ifndef FWTPM_NO_KEY_MIGRATION
     { TPM_CC_Import,             FwCmd_Import,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
     { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
 #endif /* !FWTPM_NO_KEY_MIGRATION */
     { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -16724,6 +17051,142 @@ static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 }
 #endif /* !FWTPM_NO_DA */
 
+#ifndef FWTPM_NO_PP
+/* Physical presence is asserted when a PP HAL is registered and reports it, or
+ * otherwise via the platform-channel latch. It is never settable from the
+ * command channel, so PP-requiring authorization fails closed by default
+ * (TPM 2.0 Part 1 Sec.23.2). */
+static int FwPhysicalPresenceAsserted(FWTPM_CTX* ctx)
+{
+    if (ctx->ppHal.get_pp != NULL) {
+        return ctx->ppHal.get_pp(ctx->ppHal.ctx) != 0;
+    }
+    return ctx->physicalPresence != 0;
+}
+#endif /* !FWTPM_NO_PP */
+
+/* nameHash = H(name1 || ... || nameN) over the command's handles
+ * (TPM 2.0 Part 1 Sec.19.7.11) */
+static int FwComputeNameHash(FWTPM_CTX* ctx, TPMI_ALG_HASH hashAlg,
+    const TPM_HANDLE* handles, int handleCnt, byte* hashOut, int* hashOutSz)
+{
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int dSize = TPM2_GetHashDigestSize(hashAlg);
+    int rc = TPM_RC_SUCCESS;
+    int inited = 0;
+    int i;
+
+    if (dSize <= 0)
+        return TPM_RC_FAILURE;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    if (rc == 0) {
+        rc = wc_HashInit(hashCtx, wcHash);
+        inited = (rc == 0);
+    }
+    for (i = 0; i < handleCnt && rc == 0; i++) {
+        byte hName[2 + TPM_MAX_DIGEST_SIZE];
+        int hNameSz = FwGetEntityName(ctx, handles[i],
+            hName, (int)sizeof(hName));
+        if (hNameSz > 0)
+            rc = wc_HashUpdate(hashCtx, wcHash, hName, hNameSz);
+    }
+    if (rc == 0)
+        rc = wc_HashFinal(hashCtx, wcHash, hashOut);
+    if (rc == 0)
+        *hashOutSz = dSize;
+
+    if (inited)
+        wc_HashFree(hashCtx, wcHash);
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+
+/* templateHash = H(inPublic contents) for Create/CreatePrimary/CreateLoaded,
+ * whose parameters are inSensitive (TPM2B) then inPublic (TPM2B) */
+static int FwComputeTemplateHash(TPMI_ALG_HASH hashAlg,
+    const byte* cmdBuf, int cmdSize, int cpStart,
+    byte* hashOut, int* hashOutSz)
+{
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int dSize = TPM2_GetHashDigestSize(hashAlg);
+    int pos = cpStart;
+    int tmplSz;
+    int rc;
+
+    if (dSize <= 0 || pos <= 0 || pos + 2 > cmdSize)
+        return TPM_RC_FAILURE;
+    pos += 2 + (int)((cmdBuf[pos] << 8) | cmdBuf[pos + 1]);
+    if (pos + 2 > cmdSize)
+        return TPM_RC_FAILURE;
+    tmplSz = (int)((cmdBuf[pos] << 8) | cmdBuf[pos + 1]);
+    pos += 2;
+    if (tmplSz <= 0 || pos + tmplSz > cmdSize)
+        return TPM_RC_FAILURE;
+
+    rc = wc_Hash(wcHash, cmdBuf + pos, (word32)tmplSz, hashOut,
+        (word32)dSize);
+    if (rc == 0)
+        *hashOutSz = dSize;
+    return rc;
+}
+
+/* Enforce the deferred assertions a policy session carries: command code,
+ * name hash, creation template and NV written state (Part 1 Sec.19.7). */
+static TPM_RC FwCheckPolicyAssertions(FWTPM_CTX* ctx,
+    const FWTPM_Session* sess, TPM_CC cmdCode,
+    const byte* cmdBuf, int cmdSize, int cpStart,
+    const TPM_HANDLE* handles, int handleCnt, TPM_HANDLE entityH)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    int digestSz = 0;
+
+    if (sess->commandCode != 0 && sess->commandCode != cmdCode) {
+        rc = TPM_RC_POLICY_CC;
+    }
+    if (rc == 0 && sess->nameHash.size > 0) {
+        if (FwComputeNameHash(ctx, sess->authHash, handles, handleCnt,
+                digest, &digestSz) != 0 ||
+            (int)sess->nameHash.size != digestSz ||
+            TPM2_ConstantCompare(sess->nameHash.buffer, digest,
+                (word32)digestSz) != 0) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    }
+    /* PolicyTemplate binds only the creation template (Part 3 Sec.23.19);
+     * it does not restrict the command, that is PolicyCommandCode's role. */
+    if (rc == 0 && sess->templateHash.size > 0 &&
+        (cmdCode == TPM_CC_Create || cmdCode == TPM_CC_CreatePrimary ||
+         cmdCode == TPM_CC_CreateLoaded)) {
+        if (FwComputeTemplateHash(sess->authHash, cmdBuf, cmdSize, cpStart,
+                digest, &digestSz) != 0 ||
+            (int)sess->templateHash.size != digestSz ||
+            TPM2_ConstantCompare(sess->templateHash.buffer, digest,
+                (word32)digestSz) != 0) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    }
+    if (rc == 0 && sess->checkNvWritten) {
+    #ifndef FWTPM_NO_NV
+        FWTPM_NvIndex* nv = NULL;
+        if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
+            nv = FwFindNvIndex(ctx, entityH);
+        }
+        if (nv == NULL ||
+            (nv->written != 0) != (sess->nvWrittenState != 0)) {
+            rc = TPM_RC_POLICY_FAIL;
+        }
+    #else
+        (void)entityH;
+        rc = TPM_RC_POLICY_FAIL;
+    #endif
+    }
+    return rc;
+}
+
 /* ================================================================== */
 /* Public API: FWTPM_ProcessCommand                                    */
 /* ================================================================== */
@@ -16833,6 +17296,27 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
             TPM_RC_AUTH_MISSING);
         return TPM_RC_SUCCESS;
+    }
+
+    /* A disabled hierarchy makes its objects, NV indices and hierarchy handle
+     * unusable (TPM 2.0 Part 1 Sec.14.2). Reject any command whose input
+     * handles reference a disabled hierarchy. FlushContext is exempt so stale
+     * handles can still be cleaned up. A permanent hierarchy handle returns
+     * TPM_RC_HIERARCHY; an object or NV handle returns TPM_RC_HANDLE so a
+     * disabled index's existence is not disclosed (Part 2). */
+    if (cmdCode != TPM_CC_FlushContext) {
+        int hi;
+        for (hi = 0; hi < (int)entry->inHandleCnt && hi < 4; hi++) {
+            TPM_HANDLE h = FwLoadU32BE(cmdBuf + TPM2_HEADER_SIZE + hi * 4);
+            if (FwHandleHierarchyDisabled(ctx, h)) {
+                TPM_RC hrc = (h == TPM_RH_OWNER || h == TPM_RH_ENDORSEMENT ||
+                    h == TPM_RH_PLATFORM || h == TPM_RH_PLATFORM_NV) ?
+                    TPM_RC_HIERARCHY : TPM_RC_HANDLE;
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, hrc);
+                return TPM_RC_SUCCESS;
+            }
+        }
     }
 
     /* Track all auth sessions from command for response auth generation */
@@ -17122,6 +17606,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         TPM_ST_NO_SESSIONS, TPM_RC_LOCALITY);
                     return TPM_RC_SUCCESS;
                 }
+#ifndef FWTPM_NO_PP
+                /* Enforce PolicyPhysicalPresence: the platform PP signal must
+                 * be asserted now (Part 1 Sec.23.2). */
+                if (pSess->isPPRequired &&
+                        !FwPhysicalPresenceAsserted(ctx)) {
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                        TPM_ST_NO_SESSIONS, TPM_RC_PP);
+                    return TPM_RC_SUCCESS;
+                }
+#endif /* !FWTPM_NO_PP */
                 /* Enforce any PolicyCpHash command binding: the command's
                  * cpHash must equal the value the policy committed to. */
                 if (pSess->cpHashA.size > 0) {
@@ -17165,6 +17659,20 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                     TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                return TPM_RC_SUCCESS;
+            }
+
+            /* Deferred assertions bind the session to a command, handles,
+             * template or NV state and must hold for this command. */
+            rc = FwCheckPolicyAssertions(ctx, pSess, cmdCode, cmdBuf,
+                cmdSize, cpStart, cmdHandles, cmdHandleCnt, entityH);
+            if (rc != TPM_RC_SUCCESS) {
+            #ifdef DEBUG_WOLFTPM
+                printf("fwTPM: Policy assertion failed for handle 0x%x "
+                    "(CC=0x%x, rc=0x%x)\n", entityH, cmdCode, rc);
+            #endif
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, rc);
                 return TPM_RC_SUCCESS;
             }
         }
@@ -17246,6 +17754,23 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         }
     }
 #endif
+
+    /* DUP-role enforcement: per TPM 2.0 Part 3, the first handle of
+     * TPM2_Duplicate has role DUP and may only be authorized by a policy
+     * session. Reject password/HMAC auth so key material cannot be exported
+     * with ordinary user authorization. */
+    if ((entry->encDecFlags & FW_CMD_FLAG_AUTH_DUP) && cmdAuthCnt > 0 &&
+            (cmdAuths[0].handle == TPM_RS_PW ||
+             (cmdAuths[0].sess != NULL &&
+              cmdAuths[0].sess->sessionType != TPM_SE_POLICY))) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: DUP role requires a policy session (CC=0x%x)\n",
+            cmdCode);
+    #endif
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+            TPM_ST_NO_SESSIONS, TPM_RC_AUTH_TYPE);
+        return TPM_RC_SUCCESS;
+    }
 
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a

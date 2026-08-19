@@ -109,6 +109,32 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
     int ret;
     long fileSize;
 
+    /* The journal holds plaintext hierarchy seeds, auth values and private
+     * keys, so it must never be created (or left) group/other readable. */
+#if !defined(_WIN32)
+    int fd;
+    int oflags = O_RDWR | O_CREAT;
+    #ifdef O_CLOEXEC
+    oflags |= O_CLOEXEC;
+    #endif
+    #ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+    #endif
+    fd = open(path, oflags, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        return TPM_RC_FAILURE;
+    }
+    /* Tighten an existing journal a prior umask left too permissive. */
+    if (fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    f = fdopen(fd, "r+b");
+    if (f == NULL) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+#else
     /* Open for read+write if exists, otherwise create */
     f = fopen(path, "r+b");
     if (f == NULL) {
@@ -117,6 +143,7 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
             return TPM_RC_FAILURE;
         }
     }
+#endif
 
     /* If writing past current end, extend with zeros */
     fseek(f, 0, SEEK_END);
@@ -161,16 +188,45 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
 static int FwNvFileErase(void* ctx, word32 offset, word32 size)
 {
     const char* path = (const char*)ctx;
+#if !defined(_WIN32)
+    int fd;
+    int oflags = O_WRONLY | O_CREAT;
+#else
     FILE* f;
+#endif
     (void)offset;
     (void)size;
 
-    /* For file-based backend, truncate the file */
+    /* For file-based backend, truncate the file (owner-only, see write).
+     * Truncate only after the permission check so a failed hardening does
+     * not destroy an existing journal. */
+#if !defined(_WIN32)
+    #ifdef O_CLOEXEC
+    oflags |= O_CLOEXEC;
+    #endif
+    #ifdef O_NOFOLLOW
+    oflags |= O_NOFOLLOW;
+    #endif
+    fd = open(path, oflags, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        return TPM_RC_FAILURE;
+    }
+    if (fchmod(fd, S_IRUSR | S_IWUSR) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    if (ftruncate(fd, 0) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+    close(fd);
+#else
     f = fopen(path, "wb");
     if (f == NULL) {
         return TPM_RC_FAILURE;
     }
     fclose(f);
+#endif
     return TPM_RC_SUCCESS;
 }
 
@@ -576,6 +632,12 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvMarshalName(buf, pos, maxSz, &obj->name);
     }
+    /* Hierarchy trails the historic layout so a pre-existing journal (which
+     * lacks it) still unmarshals; access control needs it to enforce a
+     * disabled hierarchy against reloaded persistent objects. */
+    if (rc == 0) {
+        rc = FwNvMarshalU32(buf, pos, maxSz, obj->hierarchy);
+    }
     return rc;
 }
 
@@ -616,6 +678,17 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     if (rc == 0) {
         rc = FwNvUnmarshalName(buf, pos, maxSz, &obj->name);
+    }
+    /* Optional trailing hierarchy. A pre-existing journal lacks it: a
+     * platform-range record is unambiguously platform, but an owner-range
+     * record's owner-vs-endorsement provenance is unknown, so it is left 0
+     * and the access-control gate enforces both storage and endorsement
+     * disables conservatively for it. */
+    if (rc == 0 && *pos + 4 <= maxSz) {
+        rc = FwNvUnmarshalU32(buf, pos, maxSz, &obj->hierarchy);
+    }
+    else if (rc == 0 && obj->handle >= PLATFORM_PERSISTENT) {
+        obj->hierarchy = TPM_RH_PLATFORM;
     }
     if (rc == 0) {
         obj->used = 1;
@@ -1223,6 +1296,12 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
             FwNvUnmarshalU8(value, &vPos, vMax, &flags8);
             ctx->disableClear = (flags8 & 0x01) ? 1 : 0;
             ctx->globalNvWriteLock = (flags8 & 0x02) ? 1 : 0;
+            /* Inverted bits: a pre-existing journal (clear) leaves every
+             * hierarchy enabled. */
+            ctx->shDisabled = (flags8 & 0x10) ? 1 : 0;
+            ctx->ehDisabled = (flags8 & 0x20) ? 1 : 0;
+            ctx->phDisabled = (flags8 & 0x40) ? 1 : 0;
+            ctx->phNvDisabled = (flags8 & 0x80) ? 1 : 0;
         #ifndef FWTPM_NO_DA
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daMaxTries);
             FwNvUnmarshalU32(value, &vPos, vMax, &ctx->daRecoveryTime);
@@ -1995,6 +2074,12 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             | (ctx->orderly ? 0x04 : 0x00)
             | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
         #endif
+            /* Hierarchy-disabled bits are inverted so a pre-existing journal
+             * (bits clear) loads as all hierarchies enabled. */
+            | (ctx->shDisabled ? 0x10 : 0x00)
+            | (ctx->ehDisabled ? 0x20 : 0x00)
+            | (ctx->phDisabled ? 0x40 : 0x00)
+            | (ctx->phNvDisabled ? 0x80 : 0x00)
             ));
     #ifndef FWTPM_NO_DA
         FwNvMarshalU32(buf, &pos, bufSz, ctx->daMaxTries);
@@ -2308,6 +2393,10 @@ int FWTPM_NV_SaveFlags(FWTPM_CTX* ctx)
             | (ctx->orderly ? 0x04 : 0x00)
             | (ctx->lockoutAuthFailed ? 0x08 : 0x00)
 #endif
+            | (ctx->shDisabled ? 0x10 : 0x00)
+            | (ctx->ehDisabled ? 0x20 : 0x00)
+            | (ctx->phDisabled ? 0x40 : 0x00)
+            | (ctx->phNvDisabled ? 0x80 : 0x00)
             ));
 #ifndef FWTPM_NO_DA
     FwNvMarshalU32(buf, &pos, sizeof(buf), ctx->daMaxTries);

@@ -1083,10 +1083,15 @@ TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
         *sensDataSize = dataSz;
     }
     /* Ensure packet pos is aligned to end of TPM2B_SENSITIVE_CREATE, even if
-     * inner fields didn't consume all bytes (prevents desync on malformed input) */
-    if (rc == 0 && inSensSize > 0) {
+     * inner fields didn't consume all bytes (prevents desync on malformed input).
+     * Inner fields that overrun the declared size are rejected so the
+     * following inPublic always starts at the declared boundary. */
+    if (rc == 0) {
         int expectedEnd = sensStartPos + (int)inSensSize;
-        if (packet->pos < expectedEnd && expectedEnd <= maxSize) {
+        if (packet->pos > expectedEnd) {
+            rc = TPM_RC_SIZE;
+        }
+        else if (packet->pos < expectedEnd && expectedEnd <= maxSize) {
             packet->pos = expectedEnd;
         }
     }
