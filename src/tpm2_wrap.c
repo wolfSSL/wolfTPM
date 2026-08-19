@@ -11091,8 +11091,13 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
         pcrDigestSz > (word32)sizeof(buf) - (word32)packet.pos) {
         return BUFFER_E;
     }
-    XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
-    packet.pos += pcrDigestSz;
+    if (pcrDigestSz > 0) {
+        if (pcrDigest == NULL) {
+            return BAD_FUNC_ARG;
+        }
+        XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
+        packet.pos += pcrDigestSz;
+    }
 
     rc = wolfTPM2_PolicyHash(pcrAlg, digest, digestSz, TPM_CC_PolicyPCR,
         buf, packet.pos);
