@@ -4897,20 +4897,24 @@ WOLFTPM_API int wolfTPM2_PolicyRefMake(TPM_ALG_ID pcrAlg, byte* digest, word32* 
 
     \brief Utility for generating a policy PCR digest.
 
+    \note To start a fresh policy chain, zero the digest buffer and set
+        digestSz to the selected hash size before calling.
+
     \return TPM_RC_SUCCESS: successful
     \return BUFFER_E: digest is too small for the selected hash or the PCR
         policy input exceeds the internal assembly buffer
     \return BAD_FUNC_ARG: check the provided arguments
 
-    \param pcrAlg the hash algorithm to use with pcr policy
-    \param pcrArray optional array of pcrs to be used when creating the tpm object
-    \param pcrArraySz length of the pcrArray
+    \param pcrAlg the supported hash algorithm to use with the PCR policy
+    \param pcrArray non-NULL array of PCRs to include in the policy
+    \param pcrArraySz number of entries in pcrArray; must be greater than zero
     \param pcrDigest digest for the PCR(s) collected (can get using
         wolfTPM2_PCRGetDigest); required when pcrDigestSz is nonzero
     \param pcrDigestSz size of the PCR digest
     \param digest input/output policy digest buffer
     \param digestSz input/output: current digest size and buffer capacity on
-        input, selected hash size on output
+        input, which must be at least the selected hash size; selected hash
+        size on output
 
     \sa wolfTPM2_PolicyPCRMake
     \sa wolfTPM2_PolicyAuthorizeMake

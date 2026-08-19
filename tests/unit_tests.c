@@ -1165,7 +1165,13 @@ static void test_TPM2_Policy_NULL_Args(void)
 {
     int rc;
     #ifndef WOLFTPM2_NO_WOLFCRYPT
-    byte pcrArray[1] = {TPM2_DEMO_PCR_INDEX};
+    const byte expectedDigest[TPM_SHA256_DIGEST_SIZE] = {
+        0x4e, 0x35, 0x3a, 0xbb, 0x5b, 0x73, 0xa0, 0x8b,
+        0x9c, 0x1c, 0x53, 0x1e, 0x02, 0x27, 0x9a, 0xa9,
+        0x39, 0xb6, 0xb5, 0x61, 0x2d, 0xe3, 0x59, 0x6d,
+        0x74, 0xfe, 0xd8, 0x99, 0x9b, 0xef, 0x13, 0xdf
+    };
+    byte pcrArray[1] = {0};
     byte pcrDigest[sizeof(TPML_PCR_SELECTION) + WC_MAX_DIGEST_SIZE + 1] = {0};
     byte digest[TPM_SHA256_DIGEST_SIZE];
     word32 digestSz = (word32)sizeof(digest);
@@ -1182,6 +1188,26 @@ static void test_TPM2_Policy_NULL_Args(void)
     AssertIntEQ(rc, BAD_FUNC_ARG);
 
     #ifndef WOLFTPM2_NO_WOLFCRYPT
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 0, NULL, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 0, digest, NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, NULL,
+        (word32)sizeof(pcrArray), NULL, 0, digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray, 0,
+        NULL, 0, digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_NULL, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 0, digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
     /* A nonzero PCR digest size requires backing digest data. */
     rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
         (word32)sizeof(pcrArray), NULL, 1, digest, &digestSz);
@@ -1193,6 +1219,8 @@ static void test_TPM2_Policy_NULL_Args(void)
     rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
         (word32)sizeof(pcrArray), NULL, 0, digest, &digestSz);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(digestSz, (word32)sizeof(expectedDigest));
+    AssertIntEQ(XMEMCMP(digest, expectedDigest, sizeof(expectedDigest)), 0);
 
     /* Reject a caller-declared output capacity below the hash size. */
     digestSz = (word32)sizeof(digest) - 1;
