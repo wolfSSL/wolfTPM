@@ -4904,7 +4904,8 @@ WOLFTPM_API int wolfTPM2_PolicyRefMake(TPM_ALG_ID pcrAlg, byte* digest, word32* 
     \param pcrAlg the hash algorithm to use with pcr policy
     \param pcrArray optional array of pcrs to be used when creating the tpm object
     \param pcrArraySz length of the pcrArray
-    \param pcrDigest digest for the PCR(s) collected (can get using wolfTPM2_PCRGetDigest)
+    \param pcrDigest digest for the PCR(s) collected (can get using
+        wolfTPM2_PCRGetDigest); required when pcrDigestSz is nonzero
     \param pcrDigestSz size of the PCR digest
     \param digest input/out digest
     \param digestSz input/out digest size

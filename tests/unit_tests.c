@@ -1164,6 +1164,11 @@ static void test_TPM2_PCRSel(void)
 static void test_TPM2_Policy_NULL_Args(void)
 {
     int rc;
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    byte pcrArray[1] = {TPM2_DEMO_PCR_INDEX};
+    byte digest[TPM_SHA256_DIGEST_SIZE];
+    word32 digestSz = (word32)sizeof(digest);
+    #endif
 
     /* Test NULL input handling for policy commands */
     rc = TPM2_PolicyPhysicalPresence(NULL);
@@ -1174,6 +1179,13 @@ static void test_TPM2_Policy_NULL_Args(void)
 
     rc = TPM2_PolicyPassword(NULL);
     AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+    /* A nonzero PCR digest size requires backing digest data. */
+    rc = wolfTPM2_PolicyPCRMake(TPM_ALG_SHA256, pcrArray,
+        (word32)sizeof(pcrArray), NULL, 1, digest, &digestSz);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+    #endif
 
     printf("Test TPM2:        %-40s Passed\n", "Policy NULL Args:");
 }
