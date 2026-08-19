@@ -5361,7 +5361,7 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
     ticketHmacInSz += obj->name.size;
     metaBytes[0] = (byte)(TPM_ALG_SHA256 >> 8);
     metaBytes[1] = (byte)(TPM_ALG_SHA256);
-    rc = FwComputeTicketHmac(&ctx, valHier, obj->pub.nameAlg,
+    rc = FwComputeTicketHmac(&ctx, valHier, CONTEXT_INTEGRITY_HASH_ALG,
         TPM_ST_DIGEST_VERIFIED,
         ticketHmacIn, ticketHmacInSz,
         metaBytes, 2,
@@ -5379,6 +5379,194 @@ static void test_fwtpm_verifydigest_ticket_hmac_eq5_compliance(void)
     FWTPM_FREE_BUF(sig);
     fwtpm_pass("VerifyDigestSig ticket Eq(5) HMAC parity:", 1);
 }
+
+/* Requires SHA-384 as a working object name algorithm distinct from the
+ * (SHA-256) context integrity hash. */
+#ifdef WOLFSSL_SHA384
+/* Build an ECC P-256 ECDSA-SHA256 signing primary in TPM_RH_OWNER with a
+ * caller-chosen nameAlg, to exercise verified-ticket HMAC algorithm selection
+ * independently of the signing scheme. */
+static int BuildEccP256SignPrimaryNameAlg(byte* buf, TPM_ALG_ID nameAlg)
+{
+    int pos = 0, pubAreaStart, pubAreaLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 4); pos += 2;   /* sensitive size */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(buf + pos, nameAlg); pos += 2;
+    PutU32BE(buf + pos, 0x00040072); pos += 4; /* sign|fixed*|userWithAuth */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;   /* sym */
+    PutU16BE(buf + pos, TPM_ALG_ECDSA); pos += 2;  /* scheme */
+    PutU16BE(buf + pos, TPM_ALG_SHA256); pos += 2; /* scheme.hashAlg */
+    PutU16BE(buf + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;   /* kdf */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* The verified-ticket HMAC is fixed to the TPM's context integrity hash
+ * (CONTEXT_INTEGRITY_HASH_ALG) per TPM 2.0 Part 2, independent of the signing
+ * key's nameAlg. An ECDSA key whose nameAlg differs from the context hash must
+ * still emit a DIGEST_VERIFIED ticket whose HMAC is context-hash sized. */
+static void test_fwtpm_verifydigest_ticket_uses_context_hash(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 keyHandle;
+    UINT16 valTag, hmacSz, rSz, sSz, metaAlg;
+    TPM_ALG_ID diffAlg;
+    UINT32 ticketHier;
+    byte digest[32];
+    byte rBuf[66], sBuf[66];
+    byte hmacWire[TPM_MAX_DIGEST_SIZE];
+    byte hmacExp[TPM_MAX_DIGEST_SIZE];
+    int hmacExpSz = 0;
+    byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
+    int ticketDataSz = 0;
+    byte metaBytes[2];
+    FWTPM_Object* obj;
+    int oi;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    /* Object nameAlg guaranteed to differ (in digest size) from the context
+     * integrity hash, so the ticket length observably tracks the context hash
+     * rather than nameAlg. */
+    diffAlg = (CONTEXT_INTEGRITY_HASH_ALG == TPM_ALG_SHA256) ?
+        TPM_ALG_SHA384 : TPM_ALG_SHA256;
+
+    /* ECDSA-SHA256 P-256 signing key with the differing nameAlg. */
+    cmdSz = BuildEccP256SignPrimaryNameAlg(gCmd, diffAlg);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    memset(digest, 0xAB, sizeof(digest));
+
+    /* SignDigest to obtain a real ECDSA signature over the 32-byte digest. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU32BE(gCmd + pos, 9); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0; PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* header | paramSize | sigAlg | hashAlg | rSz | r | sSz | s */
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2;
+    rSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)rSz <= (int)sizeof(rBuf), 1);
+    memcpy(rBuf, gRsp + pos, rSz); pos += rSz;
+    sSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)sSz <= (int)sizeof(sBuf), 1);
+    memcpy(sBuf, gRsp + pos, sSz);
+
+    /* VerifyDigestSignature emits the DIGEST_VERIFIED ticket under test. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifyDigestSignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU16BE(gCmd + pos, sizeof(digest)); pos += 2;
+    memcpy(gCmd + pos, digest, sizeof(digest)); pos += sizeof(digest);
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA256); pos += 2;
+    PutU16BE(gCmd + pos, rSz); pos += 2;
+    memcpy(gCmd + pos, rBuf, rSz); pos += rSz;
+    PutU16BE(gCmd + pos, sSz); pos += 2;
+    memcpy(gCmd + pos, sBuf, sSz); pos += sSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Ticket wire: tag(2) | hierarchy(4) | metadata(2) | hmacSize(2) | hmac.
+     * HMAC is context-integrity-hash sized (SHA-256 => 32), NOT the key's
+     * nameAlg (SHA-384 => 48). */
+    pos = TPM2_HEADER_SIZE;
+    valTag = GetU16BE(gRsp + pos); pos += 2;
+    ticketHier = GetU32BE(gRsp + pos); pos += 4;
+    metaAlg = GetU16BE(gRsp + pos); pos += 2;
+    hmacSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(valTag, TPM_ST_DIGEST_VERIFIED);
+    AssertIntEQ((int)hmacSz,
+        TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG));
+    AssertIntNE((int)hmacSz, TPM2_GetHashDigestSize(diffAlg));
+    AssertIntEQ((int)hmacSz <= (int)sizeof(hmacWire), 1);
+    memcpy(hmacWire, gRsp + pos, hmacSz);
+
+    /* Recompute Eq(5) with the context hash and byte-compare, so a producer
+     * using any other same-size algorithm (for example sigHashAlg) is caught,
+     * not just one with a different digest length. */
+    obj = NULL;
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == keyHandle) {
+            obj = &ctx.objects[oi];
+            break;
+        }
+    }
+    AssertNotNull(obj);
+    if (obj->name.size == 0) {
+        FwComputeObjectName(obj);
+    }
+    memcpy(ticketData, digest, sizeof(digest));
+    ticketDataSz = sizeof(digest);
+    memcpy(ticketData + ticketDataSz, obj->name.name, obj->name.size);
+    ticketDataSz += obj->name.size;
+    metaBytes[0] = (byte)(metaAlg >> 8);
+    metaBytes[1] = (byte)(metaAlg);
+    rc = FwComputeTicketHmac(&ctx, ticketHier, CONTEXT_INTEGRITY_HASH_ALG,
+        TPM_ST_DIGEST_VERIFIED, ticketData, ticketDataSz, metaBytes, 2,
+        hmacExp, &hmacExpSz);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(hmacExpSz, (int)hmacSz);
+    AssertIntEQ(XMEMCMP(hmacWire, hmacExp, hmacSz), 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 14, TPM_CC_FlushContext);
+    PutU32BE(gCmd + 10, keyHandle);
+    rspSize = 0;
+    FWTPM_ProcessCommand(&ctx, gCmd, 14, gRsp, &rspSize, 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifyDigestSig ticket uses context hash:", 1);
+}
+#endif /* WOLFSSL_SHA384 */
 
 /* Build a Hash-MLDSA-65/SHA-256 CreatePrimary in a caller-chosen
  * hierarchy. Used to exercise the per-object hierarchy capture path
@@ -6429,7 +6617,7 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     memcpy(ticketData + ticketDataSz, keyObj->name.name, keyObj->name.size);
     ticketDataSz += keyObj->name.size;
 
-    rc = FwComputeTicketHmac(&ctx, ticketHier, keyObj->pub.nameAlg,
+    rc = FwComputeTicketHmac(&ctx, ticketHier, CONTEXT_INTEGRITY_HASH_ALG,
         TPM_ST_MESSAGE_VERIFIED,
         ticketData, ticketDataSz,
         NULL, 0,
@@ -7770,6 +7958,188 @@ static void test_fwtpm_flushcontext_sessions_tag(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("FlushContext(SESSIONS) parameter handle:", 0);
 }
+
+#if defined(WOLFTPM_V185) && defined(WOLFSSL_SHA384)
+/* ECC P-256 signing primary with nameAlg = SHA-384 and scheme ECDSA-SHA384,
+ * so its object name and the PolicyAuthorize aHash both use SHA-384, distinct
+ * from the SHA-256 context integrity hash. */
+static int BuildEccP256Sha384SignPrimary(byte* buf)
+{
+    int pos = 0, pubAreaStart, pubAreaLen;
+
+    PutU16BE(buf + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + pos, TPM_CC_CreatePrimary); pos += 4;
+    PutU32BE(buf + pos, TPM_RH_OWNER); pos += 4;
+    PutU32BE(buf + pos, 9); pos += 4;
+    PutU32BE(buf + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(buf + pos, 0); pos += 2;
+    buf[pos++] = 0;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 4); pos += 2;   /* sensitive size */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaStart = pos;
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_ECC); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_SHA384); pos += 2;   /* nameAlg */
+    PutU32BE(buf + pos, 0x00040072); pos += 4; /* sign|fixed*|userWithAuth */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;     /* sym */
+    PutU16BE(buf + pos, TPM_ALG_ECDSA); pos += 2;    /* scheme */
+    PutU16BE(buf + pos, TPM_ALG_SHA384); pos += 2;   /* scheme.hashAlg */
+    PutU16BE(buf + pos, TPM_ECC_NIST_P256); pos += 2;
+    PutU16BE(buf + pos, TPM_ALG_NULL); pos += 2;     /* kdf */
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU16BE(buf + pos, 0); pos += 2;
+    pubAreaLen = pos - pubAreaStart - 2;
+    PutU16BE(buf + pubAreaStart, (UINT16)pubAreaLen);
+    PutU16BE(buf + pos, 0); pos += 2;
+    PutU32BE(buf + pos, 0); pos += 4;
+    PutU32BE(buf + 2, (UINT32)pos);
+    return pos;
+}
+
+/* End-to-end: a TPM_ST_VERIFIED ticket produced by VerifySignature on a
+ * non-SHA-256 nameAlg key must be accepted by PolicyAuthorize. Both sides
+ * derive the ticket HMAC from CONTEXT_INTEGRITY_HASH_ALG, so an inconsistent
+ * change between producer and consumer would break this roundtrip. */
+static void test_fwtpm_verifysignature_policyauthorize_roundtrip(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, pos, oi;
+    UINT32 keyHandle, sessH;
+    UINT16 rSz, sSz, ticketTag, hmacSz, keyNameSz;
+    UINT32 ticketHier;
+    byte approvedPolicy[32];
+    byte aHash[TPM_MAX_DIGEST_SIZE];
+    byte rBuf[80], sBuf[80];
+    byte ticketHmac[TPM_MAX_DIGEST_SIZE];
+    byte keyName[sizeof(TPM2B_NAME)];
+    wc_HashAlg h;
+    FWTPM_Object* obj;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    pos = BuildEccP256Sha384SignPrimary(gCmd);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    keyHandle = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    /* Capture the key's TPM name (algId SHA-384 + 48-byte hash) for keySign. */
+    obj = NULL;
+    for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
+        if (ctx.objects[oi].handle == keyHandle) {
+            obj = &ctx.objects[oi];
+            break;
+        }
+    }
+    AssertNotNull(obj);
+    if (obj->name.size == 0) {
+        FwComputeObjectName(obj);
+    }
+    keyNameSz = obj->name.size;
+    memcpy(keyName, obj->name.name, keyNameSz);
+
+    /* approvedPolicy = a fresh SHA-256 policy session's all-zero digest.
+     * aHash = SHA-384(approvedPolicy || policyRef[empty]). */
+    memset(approvedPolicy, 0, sizeof(approvedPolicy));
+    AssertIntEQ(wc_HashInit(&h, WC_HASH_TYPE_SHA384), 0);
+    AssertIntEQ(wc_HashUpdate(&h, WC_HASH_TYPE_SHA384,
+        approvedPolicy, sizeof(approvedPolicy)), 0);
+    AssertIntEQ(wc_HashFinal(&h, WC_HASH_TYPE_SHA384, aHash), 0);
+    wc_HashFree(&h, WC_HASH_TYPE_SHA384);
+
+    /* SignDigest(aHash) to obtain a real ECDSA-SHA384 signature. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_SignDigest); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* context empty */
+    PutU16BE(gCmd + pos, 48); pos += 2;
+    memcpy(gCmd + pos, aHash, 48); pos += 48;
+    PutU16BE(gCmd + pos, TPM_ST_HASHCHECK); pos += 2;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4 + 2 + 2; /* paramSize | sigAlg | hashAlg */
+    rSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)rSz <= (int)sizeof(rBuf), 1);
+    memcpy(rBuf, gRsp + pos, rSz); pos += rSz;
+    sSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ((int)sSz <= (int)sizeof(sBuf), 1);
+    memcpy(sBuf, gRsp + pos, sSz);
+
+    /* VerifySignature(digest=aHash, sig) -> TPM_ST_VERIFIED ticket. */
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_NO_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_VerifySignature); pos += 4;
+    PutU32BE(gCmd + pos, keyHandle); pos += 4;
+    PutU16BE(gCmd + pos, 48); pos += 2;
+    memcpy(gCmd + pos, aHash, 48); pos += 48;
+    PutU16BE(gCmd + pos, TPM_ALG_ECDSA); pos += 2;
+    PutU16BE(gCmd + pos, TPM_ALG_SHA384); pos += 2;
+    PutU16BE(gCmd + pos, rSz); pos += 2;
+    memcpy(gCmd + pos, rBuf, rSz); pos += rSz;
+    PutU16BE(gCmd + pos, sSz); pos += 2;
+    memcpy(gCmd + pos, sBuf, sSz); pos += sSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    /* Ticket (NO_SESSIONS response): tag | hierarchy | hmacSize | hmac. */
+    pos = TPM2_HEADER_SIZE;
+    ticketTag = GetU16BE(gRsp + pos); pos += 2;
+    ticketHier = GetU32BE(gRsp + pos); pos += 4;
+    hmacSz = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntEQ(ticketTag, TPM_ST_VERIFIED);
+    AssertIntGT(hmacSz, 0);
+    AssertIntEQ((int)hmacSz <= (int)sizeof(ticketHmac), 1);
+    memcpy(ticketHmac, gRsp + pos, hmacSz);
+
+    /* PolicyAuthorize on a fresh policy session must accept the ticket. */
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_PolicyAuthorize); pos += 4;
+    PutU32BE(gCmd + pos, sessH); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    PutU16BE(gCmd + pos, sizeof(approvedPolicy)); pos += 2;
+    memcpy(gCmd + pos, approvedPolicy, sizeof(approvedPolicy));
+    pos += sizeof(approvedPolicy);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* policyRef size = 0 */
+    PutU16BE(gCmd + pos, keyNameSz); pos += 2;
+    memcpy(gCmd + pos, keyName, keyNameSz); pos += keyNameSz;
+    PutU16BE(gCmd + pos, ticketTag); pos += 2;
+    PutU32BE(gCmd + pos, ticketHier); pos += 4;
+    PutU16BE(gCmd + pos, hmacSz); pos += 2;
+    memcpy(gCmd + pos, ticketHmac, hmacSz); pos += hmacSz;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, sessH);
+    FlushHandle(&ctx, keyHandle);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("VerifySignature to PolicyAuthorize roundtrip:", 1);
+}
+#endif /* WOLFTPM_V185 && WOLFSSL_SHA384 */
 
 static void test_fwtpm_start_hmac_session(void)
 {
@@ -12317,6 +12687,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sign_x509sign_returns_attributes();
     test_fwtpm_signseqcomplete_restricted_generated_value_returns_value();
     test_fwtpm_verifydigest_ticket_hmac_eq5_compliance();
+#ifdef WOLFSSL_SHA384
+    test_fwtpm_verifydigest_ticket_uses_context_hash();
+#endif
     test_fwtpm_verifydigest_ticket_hierarchy_tracks_key();
     test_fwtpm_verifyseqcomplete_ticket_hierarchy_tracks_key();
     test_fwtpm_decapsulate_no_sessions_returns_auth_missing();
@@ -12372,6 +12745,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Sessions */
     test_fwtpm_flushcontext_sessions_tag();
+#if defined(WOLFTPM_V185) && defined(WOLFSSL_SHA384)
+    test_fwtpm_verifysignature_policyauthorize_roundtrip();
+#endif
     test_fwtpm_start_hmac_session();
     test_fwtpm_start_policy_session();
     test_fwtpm_start_trial_session();

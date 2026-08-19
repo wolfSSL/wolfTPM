@@ -7596,7 +7596,7 @@ static TPM_RC FwCmd_VerifySignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ticketDataSz += obj->name.size;
 
         rc = FwAppendTicket(ctx, rsp, TPM_ST_VERIFIED,
-            ticketHier, obj->pub.nameAlg, ticketData, ticketDataSz,
+            ticketHier, CONTEXT_INTEGRITY_HASH_ALG, ticketData, ticketDataSz,
             NULL, 0);
 
         if (rc == 0) {
@@ -10318,7 +10318,8 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Step 3: verify ticket HMAC — always run TPM2_ConstantCompare
              * so timing doesn't leak size match */
             if (rc == 0) {
-                hmacRc = FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
+                hmacRc = FwComputeTicketHmac(ctx, ticketHier,
+                    CONTEXT_INTEGRITY_HASH_ALG,
                     TPM_ST_VERIFIED,
                     ticketInput, ticketInputSz,
                     NULL, 0,
@@ -16171,7 +16172,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = FwAppendTicket(ctx, rsp,
                 TPM_ST_MESSAGE_VERIFIED,
                 ticketHier,
-                keyObj->pub.nameAlg,
+                CONTEXT_INTEGRITY_HASH_ALG,
                 ticketData, ticketDataSz,
                 NULL, 0);
         }
@@ -16651,7 +16652,7 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = FwAppendTicket(ctx, rsp,
                 TPM_ST_DIGEST_VERIFIED,
                 ticketHier,
-                obj->pub.nameAlg,
+                CONTEXT_INTEGRITY_HASH_ALG,
                 ticketData, ticketDataSz,
                 metaBytes, 2);
         }
