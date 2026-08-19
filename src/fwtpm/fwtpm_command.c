@@ -16676,6 +16676,7 @@ typedef struct {
     UINT8 encDecFlags;      /* Bit 0: first cmd param is TPM2B (can decrypt) */
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
                             /* Bit 2: first auth handle has DUP role */
+                            /* Bit 3: command flushes its handle (TPMA_CC.F) */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -16688,6 +16689,10 @@ typedef struct {
 /* DUP role (TPM 2.0 Part 3): the first auth handle may only be authorized by
  * a policy session, never a password or HMAC session. */
 #define FW_CMD_FLAG_AUTH_DUP  0x04
+
+/* Part 3 command-description modifier reported through TPMA_CC. {F}: the
+ * object or sequence named by the command's handle is flushed on success. */
+#define FW_CMD_MOD_FLUSHED  0x08
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -16754,8 +16759,8 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
      * SignSequenceComplete / VerifySequenceComplete, so it is never advertised
      * once the hash commands (and their sequence producers) are gated out. */
 #ifndef FWTPM_NO_HASH_CMDS
-    { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_MOD_FLUSHED },
+    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED },
 #endif /* !FWTPM_NO_HASH_CMDS */
     /* --- ECC --- */
 #ifdef HAVE_ECC
@@ -16869,12 +16874,12 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
 #ifdef WOLFTPM_MLDSA_SIGN
     { TPM_CC_SignSequenceStart,      FwCmd_SignSequenceStart,      1, 0, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED },
     { TPM_CC_SignDigest,             FwCmd_SignDigest,             1, 1, 0, FW_CMD_FLAG_ENC },
 #endif
 #ifdef WOLFTPM_MLDSA_VERIFY
     { TPM_CC_VerifySequenceStart,    FwCmd_VerifySequenceStart,    1, 0, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, 0 },
+    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, FW_CMD_MOD_FLUSHED },
     { TPM_CC_VerifyDigestSignature,  FwCmd_VerifyDigestSignature,  1, 0, 0, FW_CMD_FLAG_ENC },
 #endif
 };
@@ -16908,6 +16913,8 @@ static UINT32 FwGetCmdAttrsAt(int idx)
     attrs |= ((UINT32)(e->inHandleCnt) & 0x7u) << 25; /* cHandles */
     if (e->outHandleCnt > 0)
         attrs |= ((UINT32)1 << 28);                 /* rHandle */
+    if (e->encDecFlags & FW_CMD_MOD_FLUSHED)
+        attrs |= ((UINT32)1 << 24);                 /* flushed */
     if ((UINT32)e->cc & (UINT32)CC_VEND)
         attrs |= (UINT32)CC_VEND;                   /* V */
     return attrs;

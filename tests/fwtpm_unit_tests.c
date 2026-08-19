@@ -137,6 +137,14 @@ static UINT32 TpmaCcRHandle(UINT32 tpma)
     return (tpma >> 28) & 0x1u;
 }
 
+#ifndef FWTPM_NO_HASH_CMDS
+/* flushed bit (handle's object/sequence is flushed on success), bit 24. */
+static UINT32 TpmaCcFlushed(UINT32 tpma)
+{
+    return (tpma >> 24) & 0x1u;
+}
+#endif /* !FWTPM_NO_HASH_CMDS */
+
 /* Build a TPM command header. Returns TPM2_HEADER_SIZE (10). */
 static int BuildCmdHeader(byte* buf, UINT16 tag, UINT32 totalSize, UINT32 cc)
 {
@@ -780,6 +788,107 @@ static void test_fwtpm_getcap_commands_tpma(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("GetCapability(COMMANDS) TPMA_CC:", 0);
 }
+
+
+/* TPM_CAP_COMMANDS must set TPMA_CC.flushed for every {F} command (the
+ * handle's object/sequence is flushed on success): SequenceComplete and
+ * EventSequenceComplete per TPM 2.0 Part 3. Both live under the hash-command
+ * group, so this check follows that gate. */
+#ifndef FWTPM_NO_HASH_CMDS
+static void test_fwtpm_getcap_commands_flushed(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 tpma;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_SequenceComplete); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_SequenceComplete);
+    AssertIntEQ(TpmaCcFlushed(tpma), 1);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_EventSequenceComplete); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_EventSequenceComplete);
+    AssertIntEQ(TpmaCcFlushed(tpma), 1);
+
+    /* SequenceUpdate updates a sequence but does not complete or flush it, so
+     * its flushed bit must be clear. Guards against an unconditional set. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_SequenceUpdate); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(GetU32BE(gRsp + TPM2_HEADER_SIZE + 5), 1); /* count */
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_SequenceUpdate);
+    AssertIntEQ(TpmaCcFlushed(tpma), 0);
+
+#ifdef WOLFTPM_MLDSA_SIGN
+    /* SignSequenceComplete flushes its sign sequence on success. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_SignSequenceComplete); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_SignSequenceComplete);
+    AssertIntEQ(TpmaCcFlushed(tpma), 1);
+#endif /* WOLFTPM_MLDSA_SIGN */
+#ifdef WOLFTPM_MLDSA_VERIFY
+    /* VerifySequenceComplete flushes its verify sequence on success. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_COMMANDS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_VerifySequenceComplete); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    tpma = GetU32BE(gRsp + TPM2_HEADER_SIZE + 9);
+    AssertIntEQ(TpmaCcToCmdCode(tpma), (UINT32)TPM_CC_VerifySequenceComplete);
+    AssertIntEQ(TpmaCcFlushed(tpma), 1);
+#endif /* WOLFTPM_MLDSA_VERIFY */
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetCapability(COMMANDS) flushed bit:", 0);
+}
+#endif /* !FWTPM_NO_HASH_CMDS */
 
 /* Command codes with reserved bits set must be rejected with
  * TPM_RC_COMMAND_CODE, never aliased onto a permitted command. */
@@ -12021,6 +12130,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_getcap_algorithms();
     test_fwtpm_getcap_commands();
     test_fwtpm_getcap_commands_tpma();
+#ifndef FWTPM_NO_HASH_CMDS
+    test_fwtpm_getcap_commands_flushed();
+#endif
     test_fwtpm_getcap_properties();
     test_fwtpm_getcap_pcrs();
     test_fwtpm_getcap_paging();
