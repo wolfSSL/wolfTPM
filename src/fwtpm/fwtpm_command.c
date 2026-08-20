@@ -4396,13 +4396,20 @@ static TPM_RC FwCmd_ClearControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
+        int oldDisableClear = ctx->disableClear;
+
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: ClearControl(auth=0x%x, disable=%d)\n",
             authHandle, disable);
     #endif
         ctx->disableClear = (int)disable;
-        FWTPM_NV_SaveFlags(ctx);
-        FwRspNoParams(rsp, cmdTag);
+        rc = FWTPM_NV_SaveFlags(ctx);
+        if (rc != 0) {
+            ctx->disableClear = oldDisableClear;
+        }
+        else {
+            FwRspNoParams(rsp, cmdTag);
+        }
     }
 
     return rc;

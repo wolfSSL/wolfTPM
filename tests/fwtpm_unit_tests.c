@@ -9686,6 +9686,54 @@ static void test_fwtpm_clear(void)
     fwtpm_pass("Clear(LOCKOUT):", 0);
 }
 
+#ifndef FWTPM_NO_NV
+static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
+    word32 size)
+{
+    (void)ctx;
+    (void)offset;
+    (void)buf;
+    (void)size;
+    return TPM_RC_FAILURE;
+}
+
+/* ClearControl must not change disableClear or return success when its NV
+ * update fails. */
+static void test_fwtpm_clear_control_nv_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL oldHal, failHal;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.disableClear, 0);
+
+    oldHal = ctx.nvHal;
+    failHal = oldHal;
+    failHal.write = fail_nv_write;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ClearControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.disableClear, 0);
+
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ClearControl NV failure rollback:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
 /* Per Part 3 Sec.24.6 Table 134, TPM2_Clear has Auth Index 1, Auth Role USER
  * on @authHandle (TPM_RH_LOCKOUT or TPM_RH_PLATFORM). NO_SESSIONS leaves
  * cmdAuthCnt at 0, skipping every auth enforcement loop in
@@ -12302,6 +12350,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sessions_short_authcount_rejected();
 #endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_sessions_missing_authsize_command_size();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_clear_control_nv_failure();
+#endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
 
     printf("\nAll fwTPM unit tests passed!\n");
