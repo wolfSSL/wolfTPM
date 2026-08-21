@@ -296,9 +296,8 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
     }
 
     /* Save quote blob to the disk */
-    data = (UINT8*)&cmdOut.quoteResult.quoted;
-    data += sizeof(UINT16); /* skip the size field of TPMS_ATTEST */
-    dataSz = (int)sizeof(TPMS_ATTEST) - sizeof(UINT16);
+    data = cmdOut.quoteResult.quoted.attestationData;
+    dataSz = cmdOut.quoteResult.quoted.size;
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     f = XFOPEN(outputFile, "wb");
     if (f != XBADFILE) {
