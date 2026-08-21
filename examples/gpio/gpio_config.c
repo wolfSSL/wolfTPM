@@ -169,6 +169,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_GetCapabilities failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        goto exit;
     }
 
     /* Confirm the TPM vendor */
