@@ -377,32 +377,32 @@ int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
 
     rc = TPM2_TIS_Read(ctx, TPM_INTF_CAPS(ctx->locality), (byte*)&reg,
         sizeof(reg));
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 #ifdef BIG_ENDIAN_ORDER
     reg = ByteReverseWord32(reg);
 #endif
-    if (rc == TPM_RC_SUCCESS) {
-        ctx->caps = reg;
-    }
+    ctx->caps = reg;
 
     rc = TPM2_TIS_Read(ctx, TPM_DID_VID(ctx->locality), (byte*)&reg,
         sizeof(reg));
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 #ifdef BIG_ENDIAN_ORDER
     reg = ByteReverseWord32(reg);
 #endif
-    if (rc == TPM_RC_SUCCESS) {
-        ctx->did_vid = reg;
-    }
+    ctx->did_vid = reg;
 
     reg = 0;
     rc = TPM2_TIS_Read(ctx, TPM_RID(ctx->locality), (byte*)&reg, 1);
+    if (rc != TPM_RC_SUCCESS)
+        return rc;
 #ifdef BIG_ENDIAN_ORDER
     reg = ByteReverseWord32(reg);
 #endif
-    if (rc == TPM_RC_SUCCESS) {
-        ctx->rid = reg;
-    }
+    ctx->rid = reg;
 
-    return rc;
+    return TPM_RC_SUCCESS;
 }
 
 int TPM2_TIS_Status(TPM2_CTX* ctx, byte* status)
