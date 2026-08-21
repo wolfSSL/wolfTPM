@@ -531,11 +531,13 @@ tls_setup:
         if (wolfSSL_CTX_load_verify_locations(ctx, CA_RSA_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading %s cert\n", CA_RSA_CERT_PATH);
+            rc = -1;
             goto exit;
         }
         if (wolfSSL_CTX_load_verify_locations(ctx, WOLF_CA_RSA_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading %s cert\n", WOLF_CA_RSA_CERT_PATH);
+            rc = -1;
             goto exit;
         }
     #else
@@ -550,12 +552,14 @@ tls_setup:
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading %s cert\n", CA_ECC_CERT_PATH);
         #ifndef WOLFTPM_MFG_IDENTITY /* not fatal if using mfg identity */
+            rc = -1;
             goto exit;
         #endif
         }
         if (wolfSSL_CTX_load_verify_locations(ctx, WOLF_CA_ECC_CERT_PATH,
                                               0) != WOLFSSL_SUCCESS) {
             printf("Error loading %s cert\n", WOLF_CA_ECC_CERT_PATH);
+            rc = -1;
             goto exit;
         }
     #else
@@ -591,6 +595,7 @@ tls_setup:
     if (wolfSSL_CTX_use_PrivateKey_buffer(ctx, der, derSz,
                                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
         printf("Failed to set RSA key!\n");
+        rc = -1;
         goto exit;
     }
 
@@ -618,6 +623,7 @@ tls_setup:
         #else
             printf("Error loading RSA client cert\n");
         #endif
+            rc = -1;
             goto exit;
         }
 #else
@@ -657,6 +663,7 @@ tls_setup:
         #else
             printf("Error loading ECC client cert\n");
         #endif
+            rc = -1;
             goto exit;
         }
 #else
@@ -674,6 +681,7 @@ tls_setup:
     /* Optionally choose the cipher suite */
     rc = wolfSSL_CTX_set_cipher_list(ctx, TLS_CIPHER_SUITE);
     if (rc != WOLFSSL_SUCCESS) {
+        rc = -1;
         goto exit;
     }
 #endif
