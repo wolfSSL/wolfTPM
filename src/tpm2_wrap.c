@@ -2151,7 +2151,8 @@ int wolfTPM2_Cleanup(WOLFTPM2_DEV* dev)
 }
 
 #if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(HAVE_ECC) && \
-    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP) && \
+    defined(ECC_TIMING_RESISTANT)
 /* TPM2_KDFe is now in tpm2_param_enc.c (shared with fwTPM) */
 
 #ifdef ALT_ECC_SIZE
@@ -2525,7 +2526,8 @@ int wolfTPM2_EncryptSecret(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpmKey,
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     switch (tpmKey->pub.publicArea.type) {
-    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && defined(WOLFSSL_PUBLIC_MP)
+    #if defined(HAVE_ECC) && !defined(WC_NO_RNG) && \
+        defined(WOLFSSL_PUBLIC_MP) && defined(ECC_TIMING_RESISTANT)
         case TPM_ALG_ECC:
             rc = wolfTPM2_EncryptSecret_ECC(dev, tpmKey, data, secret, label);
             break;
