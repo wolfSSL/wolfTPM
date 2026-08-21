@@ -2034,16 +2034,25 @@ static TPM_RC FwValidateMlTemplate(const TPMT_PUBLIC* pub, int checkPubSize)
         case TPM_ALG_MLKEM: {
             int sz = FwMlkemPubKeySize(
                 pub->parameters.mlkemDetail.parameterSet);
+            int restrictedDecrypt =
+                (pub->objectAttributes & TPMA_OBJECT_restricted) != 0 &&
+                (pub->objectAttributes & TPMA_OBJECT_decrypt) != 0;
             if (sz < 0) {
                 rc = TPM_RC_PARMS;
             }
             /* symmetric is TPMT_SYM_DEF_OBJECT+: TPM_ALG_NULL (unrestricted)
              * or a supported cipher (restricted decryption key). Propagate
              * the field-specific error (key size / mode / algorithm). */
-            else if (pub->parameters.mlkemDetail.symmetric.algorithm
-                        != TPM_ALG_NULL) {
+            else if (pub->parameters.mlkemDetail.symmetric.algorithm !=
+                    TPM_ALG_NULL) {
                 rc = FwTestSymDef((const TPMT_SYM_DEF*)
                         &pub->parameters.mlkemDetail.symmetric);
+                if (rc == TPM_RC_SUCCESS && !restrictedDecrypt) {
+                    rc = TPM_RC_SYMMETRIC;
+                }
+            }
+            else if (restrictedDecrypt) {
+                rc = TPM_RC_SYMMETRIC;
             }
             if (rc == TPM_RC_SUCCESS && checkPubSize &&
                     pub->unique.mlkem.size != (UINT16)sz) {
@@ -2177,6 +2186,9 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             #endif
                 if (!psSupported) {
                     rc = TPM_RC_PARMS;
+                }
+                else {
+                    rc = FwTestSymDef((const TPMT_SYM_DEF*)&symmetric);
                 }
                 break;
             }
@@ -3217,6 +3229,10 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse inPublic (TPM2B_PUBLIC) */
     if (rc == 0) {
         TPM2_Packet_ParsePublic(cmd, inPublic);
+    }
+
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
 
     /* Parse outsideInfo (TPM2B_DATA) - skip */
@@ -5032,6 +5048,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     /* Parse inPublic */
     if (rc == 0) {
         TPM2_Packet_ParsePublic(cmd, inPublic);
+    }
+
+    if (rc == 0) {
+        rc = FwValidateMlTemplate(&inPublic->publicArea, 0);
     }
 
     /* Skip outsideInfo */

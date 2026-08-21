@@ -6376,8 +6376,17 @@ int wolfTPM2_GetKeyTemplate_MLKEM_ex(TPMT_PUBLIC* publicTemplate,
     publicTemplate->nameAlg = nameAlg;
     publicTemplate->objectAttributes = objectAttributes;
     publicTemplate->parameters.mlkemDetail.parameterSet = parameterSet;
-    /* symmetric field: TPM_ALG_NULL for unrestricted key */
-    publicTemplate->parameters.mlkemDetail.symmetric.algorithm = TPM_ALG_NULL;
+    if ((objectAttributes & TPMA_OBJECT_decrypt) &&
+            (objectAttributes & TPMA_OBJECT_restricted)) {
+        publicTemplate->parameters.mlkemDetail.symmetric.algorithm =
+            TPM_ALG_AES;
+        publicTemplate->parameters.mlkemDetail.symmetric.keyBits.aes = 128;
+        publicTemplate->parameters.mlkemDetail.symmetric.mode.aes = TPM_ALG_CFB;
+    }
+    else {
+        publicTemplate->parameters.mlkemDetail.symmetric.algorithm =
+            TPM_ALG_NULL;
+    }
     return TPM_RC_SUCCESS;
 }
 
