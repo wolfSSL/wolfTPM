@@ -221,6 +221,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         if (bytes_read != sizeof(key->pub.size)) {
             printf("Read %zu, expected size marker of %zu bytes\n",
                 bytes_read, sizeof(key->pub.size));
+            rc = BUFFER_E;
             goto exit;
         }
         fileSz -= bytes_read;
@@ -233,6 +234,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
         if (bytes_read != (sizeof(UINT16) + key->pub.size)) {
             printf("Read %zu, expected public blob %zu bytes\n",
                 bytes_read, sizeof(UINT16) + key->pub.size);
+            rc = BUFFER_E;
             goto exit;
         }
         fileSz -= bytes_read; /* Reminder bytes for private key part */
