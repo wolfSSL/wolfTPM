@@ -8511,13 +8511,9 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     dataBuf, take);
                 signSeq->firstBytesSz += take;
             }
-            /* Hash-ML-DSA, RSA, ECC: feed bytes into the hash accumulator
-             * only — the verify-side ticket binds the computed digest
-             * (matches TPM2_VerifySignature pattern), which removes the
-             * msgBuf cap for arbitrarily long sequences.
-             * KEYEDHASH (HMAC): stream into hmacCtx similarly.
-             * Pure ML-DSA: no digest exists, so accumulate raw message
-             * bytes in msgBuf (capped at FWTPM_MAX_DATA_BUF). */
+            /* Hash-ML-DSA, RSA, ECC: stream into the hash accumulator.
+             * KEYEDHASH (HMAC): stream into hmacCtx. Pure ML-DSA retains
+             * the raw message because its signature operates on it. */
             if (signSeq->sigScheme == TPM_ALG_HASH_MLDSA ||
                     signSeq->sigScheme == TPM_ALG_RSA ||
                     signSeq->sigScheme == TPM_ALG_ECC) {
@@ -8551,6 +8547,16 @@ static TPM_RC FwCmd_SequenceUpdate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 XMEMCPY(signSeq->msgBuf + signSeq->msgBufSz,
                     dataBuf, dataSize);
                 signSeq->msgBufSz += dataSize;
+            }
+            /* MESSAGE_VERIFIED authenticates the raw message, not the
+             * scheme's internal digest. Keep its HMAC streaming so verify
+             * sequences remain unbounded by FWTPM_MAX_DATA_BUF. */
+            if (rc == 0 && signSeq->isVerifySeq &&
+                    signSeq->ticketHmacCtxInit && dataSize > 0) {
+                if (wc_HmacUpdate(&signSeq->ticketHmacCtx,
+                        dataBuf, dataSize) != 0) {
+                    rc = TPM_RC_FAILURE;
+                }
             }
         }
     #ifndef FWTPM_NO_HASH_CMDS
@@ -15198,6 +15204,9 @@ static void FwFreeSignSeq(FWTPM_SignSeq* seq)
     if (seq->hmacCtxInit) {
         wc_HmacFree(&seq->hmacCtx);
     }
+    if (seq->ticketHmacCtxInit) {
+        wc_HmacFree(&seq->ticketHmacCtx);
+    }
 #endif
     XMEMSET(seq, 0, sizeof(*seq));
 }
@@ -15227,6 +15236,48 @@ static TPM_RC FwSignSeqInitHashCtx(FWTPM_SignSeq* seq, TPMI_ALG_HASH hashAlg)
     seq->hashAlg = hashAlg;
     seq->hashCtxInit = 1;
     return TPM_RC_SUCCESS;
+}
+
+/* Start the HMAC for a MESSAGE_VERIFIED ticket. SequenceUpdate streams the
+ * raw message into this context and VerifySequenceComplete appends keyName. */
+static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
+    UINT32 hierarchy)
+{
+    byte proof[TPM_MAX_DIGEST_SIZE];
+    byte tagBytes[2];
+    int proofSz = TPM2_GetHashDigestSize(CONTEXT_INTEGRITY_HASH_ALG);
+    int rc = TPM_RC_SUCCESS;
+
+    seq->ticketHierarchy = hierarchy;
+    if (hierarchy == TPM_RH_NULL) {
+        return TPM_RC_SUCCESS;
+    }
+    if (proofSz <= 0) {
+        return TPM_RC_HASH;
+    }
+
+    rc = FwComputeProofValue(ctx, hierarchy, CONTEXT_INTEGRITY_HASH_ALG,
+        proof, proofSz);
+    if (rc == 0) {
+        rc = wc_HmacInit(&seq->ticketHmacCtx, NULL, INVALID_DEVID);
+        if (rc == 0) {
+            seq->ticketHmacCtxInit = 1;
+        }
+    }
+    if (rc == 0) {
+        rc = wc_HmacSetKey(&seq->ticketHmacCtx,
+            (int)FwGetWcHashType(CONTEXT_INTEGRITY_HASH_ALG),
+            proof, (word32)proofSz);
+    }
+    if (rc == 0) {
+        tagBytes[0] = (byte)(TPM_ST_MESSAGE_VERIFIED >> 8);
+        tagBytes[1] = (byte)TPM_ST_MESSAGE_VERIFIED;
+        rc = wc_HmacUpdate(&seq->ticketHmacCtx,
+            tagBytes, sizeof(tagBytes));
+    }
+
+    TPM2_ForceZero(proof, sizeof(proof));
+    return (rc == 0) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
 }
 #endif /* WOLFTPM_MLDSA */
 
@@ -15513,10 +15564,9 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         if (obj->name.size == 0) FwComputeObjectName(obj);
         XMEMCPY(&seq->keyName, &obj->name, sizeof(seq->keyName));
         seq->sigScheme = obj->pub.type;
-        /* Verify sequences always accept SequenceUpdate — the message has
-         * to accumulate somewhere since VerifySequenceComplete carries no
-         * buffer parameter (Part 3 Sec.20.3 Table 118). Hash-ML-DSA verify
-         * sequences accumulate into a hash ctx; Pure ML-DSA into msgBuf. */
+        /* Verify sequences always accept SequenceUpdate. Signature checking
+         * uses hashCtx, hmacCtx, or msgBuf according to the scheme; the raw
+         * message also streams into ticketHmacCtx for the verified ticket. */
         seq->oneShot = 0;
         if (obj->pub.type == TPM_ALG_HASH_MLDSA) {
             rc = FwSignSeqInitHashCtx(seq,
@@ -15568,6 +15618,9 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
         }
+    }
+    if (rc == 0) {
+        rc = FwSignSeqInitTicketHmac(ctx, seq, obj->hierarchy);
     }
 
     if (rc == 0) {
@@ -15945,23 +15998,16 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_Object* keyObj = NULL;
     UINT16 sigAlg = 0, sigHashAlg = 0, wireSize = 0;
     FWTPM_DECLARE_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
-    FWTPM_DECLARE_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
+    byte ticketHmac[TPM_MAX_DIGEST_SIZE];
     int sigSz = 0;
     int paramSzPos, paramStart;
     UINT32 ticketHier = 0;
-    int ticketDataSz = 0;
+    int ticketHmacSz = 0;
     int sigStartPos = 0;
     TPMT_SIGNATURE classicalSig;
-    /* Snapshot the computed digest for hash-then-sign verify paths so the
-     * ticket builder can bind it (Part 2 Sec.10.6.5). Pure ML-DSA leaves
-     * verifiedDigestSz==0 and falls back to seq->msgBuf. */
-    byte verifiedDigest[TPM_MAX_DIGEST_SIZE];
-    int verifiedDigestSz = 0;
-
     FWTPM_ALLOC_BUF(sigBuf, MAX_MLDSA_SIG_SIZE);
-    FWTPM_ALLOC_BUF(ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME));
     XMEMSET(&classicalSig, 0, sizeof(classicalSig));
-    XMEMSET(verifiedDigest, 0, sizeof(verifiedDigest));
+    XMEMSET(ticketHmac, 0, sizeof(ticketHmac));
 
     if (cmdSize < TPM2_HEADER_SIZE + 8) {
         rc = TPM_RC_COMMAND_SIZE;
@@ -16001,7 +16047,8 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
      * transient slot between Start and Complete by binding to keyName. */
     if (rc == 0) {
         if (keyObj->name.size == 0) FwComputeObjectName(keyObj);
-        if (keyObj->name.size != seq->keyName.size ||
+        if (keyObj->hierarchy != seq->ticketHierarchy ||
+                keyObj->name.size != seq->keyName.size ||
                 XMEMCMP(keyObj->name.name, seq->keyName.name,
                         keyObj->name.size) != 0) {
             rc = TPM_RC_SIGN_CONTEXT_KEY;
@@ -16104,8 +16151,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 sigBuf, sigSz);
         }
         else if (sigAlg == TPM_ALG_HASH_MLDSA) {
-            /* Finalize accumulated hash, snapshot it for the ticket
-             * builder, then verify. */
+            /* Finalize the accumulated hash, then verify. */
             byte digestOut[TPM_MAX_DIGEST_SIZE];
             int digestSz;
             enum wc_HashType wcHash = FwGetWcHashType(seq->hashAlg);
@@ -16126,8 +16172,6 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
             if (rc == 0) {
                 digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
-                XMEMCPY(verifiedDigest, digestOut, digestSz);
-                verifiedDigestSz = digestSz;
                 rc = FwVerifyMldsaHash(
                     keyObj->pub.parameters.hash_mldsaDetail.parameterSet,
                     &keyObj->pub.unique.mldsa,
@@ -16158,10 +16202,6 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         TPM2_ConstantCompare(hmacOut, sigBuf,
                             (word32)digestSz) != 0) {
                     rc = TPM_RC_SIGNATURE;
-                }
-                else {
-                    XMEMCPY(verifiedDigest, hmacOut, digestSz);
-                    verifiedDigestSz = digestSz;
                 }
             }
             TPM2_ForceZero(hmacOut, sizeof(hmacOut));
@@ -16202,8 +16242,6 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
             if (rc == 0) {
                 digestSz = TPM2_GetHashDigestSize(seq->hashAlg);
-                XMEMCPY(verifiedDigest, digestOut, digestSz);
-                verifiedDigestSz = digestSz;
                 rc = FwVerifySignatureCore(keyObj, digestOut, digestSz,
                     &classicalSig);
             }
@@ -16218,37 +16256,10 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * Sec.10.6.5 Table 112 the ticket hierarchy is the hierarchy of
          * keyName, and Eq (5) requires the HMAC use that hierarchy's
          * proofValue. Pull the value captured at object load/create time. */
-        ticketHier = keyObj->hierarchy;
+        ticketHier = seq->ticketHierarchy;
 
         if (keyObj->name.size == 0) {
             FwComputeObjectName(keyObj);
-        }
-
-        /* Hash-then-sign verify (Hash-ML-DSA, RSA, ECC) binds the
-         * computed digest per the existing TPM2_VerifySignature pattern;
-         * Pure ML-DSA has no digest, so it binds the raw message accumulated
-         * in seq->msgBuf (capped at FWTPM_MAX_DATA_BUF). */
-        if (verifiedDigestSz > 0) {
-            XMEMCPY(ticketData, verifiedDigest, (size_t)verifiedDigestSz);
-            ticketDataSz = verifiedDigestSz;
-        }
-        else if (seq->msgBufSz <= FWTPM_SIZEOF_BUF(ticketData,
-                FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
-            XMEMCPY(ticketData, seq->msgBuf, seq->msgBufSz);
-            ticketDataSz = (int)seq->msgBufSz;
-        }
-        else {
-            rc = TPM_RC_FAILURE;
-        }
-        if (rc == 0 &&
-            ticketDataSz + keyObj->name.size <= (int)FWTPM_SIZEOF_BUF(
-                ticketData, FWTPM_MAX_DATA_BUF + sizeof(TPM2B_NAME))) {
-            XMEMCPY(ticketData + ticketDataSz,
-                keyObj->name.name, keyObj->name.size);
-            ticketDataSz += keyObj->name.size;
-        }
-        else if (rc == 0) {
-            rc = TPM_RC_FAILURE;
         }
 
         /* Per Part 3 Sec.20.3.1 + Part 2 Sec.10.6.5 Table 111: every
@@ -16256,14 +16267,30 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
          * tag = TPM_ST_MESSAGE_VERIFIED regardless of signing scheme,
          * with TPMU_TK_VERIFIED_META = TPMS_EMPTY (no wire bytes).
          * Digest-verification tickets live on TPM2_VerifyDigestSignature,
-         * not here. */
-        if (rc == 0) {
-            rc = FwAppendTicket(ctx, rsp,
-                TPM_ST_MESSAGE_VERIFIED,
-                ticketHier,
-                CONTEXT_INTEGRITY_HASH_ALG,
-                ticketData, ticketDataSz,
-                NULL, 0);
+         * not here. SequenceUpdate has already streamed the raw message into
+         * ticketHmacCtx; append keyName to complete Eq (5). */
+        if (ticketHier == TPM_RH_NULL) {
+            TPM2_Packet_AppendU16(rsp, TPM_ST_MESSAGE_VERIFIED);
+            TPM2_Packet_AppendU32(rsp, TPM_RH_NULL);
+            TPM2_Packet_AppendU16(rsp, 0);
+        }
+        else if (!seq->ticketHmacCtxInit) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            if (wc_HmacUpdate(&seq->ticketHmacCtx,
+                    keyObj->name.name, keyObj->name.size) != 0 ||
+                    wc_HmacFinal(&seq->ticketHmacCtx, ticketHmac) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+            if (rc == 0) {
+                ticketHmacSz = TPM2_GetHashDigestSize(
+                    CONTEXT_INTEGRITY_HASH_ALG);
+                TPM2_Packet_AppendU16(rsp, TPM_ST_MESSAGE_VERIFIED);
+                TPM2_Packet_AppendU32(rsp, ticketHier);
+                TPM2_Packet_AppendU16(rsp, (UINT16)ticketHmacSz);
+                TPM2_Packet_AppendBytes(rsp, ticketHmac, ticketHmacSz);
+            }
         }
 
         FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
@@ -16277,8 +16304,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         FwFreeSignSeq(seq);
     }
 
-    TPM2_ForceZero(verifiedDigest, sizeof(verifiedDigest));
-    FWTPM_FREE_BUF(ticketData);
+    TPM2_ForceZero(ticketHmac, sizeof(ticketHmac));
     FWTPM_FREE_BUF(sigBuf);
     return rc;
 }

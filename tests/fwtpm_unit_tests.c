@@ -6104,13 +6104,13 @@ static void test_fwtpm_getcap_pqc_algorithm_attrs(void)
     fwtpm_pass("GetCap ALGS PQC signing/encrypting bits:", 1);
 }
 
-/* Hash-ML-DSA verify ticket must bind the verified digest, not just
+/* Hash-ML-DSA verify ticket must bind the verified message, not just
  * keyName. Pre-fix the ticket data was {keyName} for Hash-ML-DSA
  * because seq->msgBuf is never populated on that path (SequenceUpdate
  * routes the bytes into seq->hashCtx). Two distinct messages signed by
  * the same key produced byte-identical tickets, breaking
  * TPM2_PolicyAuthorize's chain of trust (Part 2 Sec.10.6.5 Eq (5)). */
-static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
+static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes(void)
 {
     FWTPM_CTX ctx;
     int rc, rspSize, pos, cmdSz;
@@ -6328,7 +6328,7 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest(void)
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sigA);
     FWTPM_FREE_BUF(sigB);
-    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds digest:", 1);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket changes with message:", 1);
 }
 
 /* Per Part 3 Sec.20.3.1 + Part 2 Sec.10.6.5 Table 111: every successful
@@ -6485,8 +6485,6 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     UINT32 signSeqHandle, verifySeqHandle;
     FWTPM_Object* keyObj;
     int oi;
-    wc_HashAlg msgHash;
-    byte msgDigest[WC_SHA256_DIGEST_SIZE];
 
     FWTPM_ALLOC_BUF(sig, MAX_MLDSA_SIG_SIZE);
     memset(&ctx, 0, sizeof(ctx));
@@ -6597,10 +6595,8 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     AssertIntEQ((int)hmacSz <= (int)sizeof(hmac), 1);
     memcpy(hmac, gRsp + pos, hmacSz);
 
-    /* Recompute expected HMAC over SHA-256(msg)||keyName. Hash-then-sign
-     * sequences bind the computed digest in the ticket (matches the
-     * TPM2_VerifySignature pattern; supports arbitrary-length sequences).
-     * FwFindObject is static-local so walk ctx.objects[] directly. */
+    /* Recompute the expected HMAC over msg||keyName. FwFindObject is
+     * static-local, so walk ctx.objects[] directly. */
     keyObj = NULL;
     for (oi = 0; oi < FWTPM_MAX_OBJECTS; oi++) {
         if (ctx.objects[oi].handle == keyHandle) {
@@ -6612,13 +6608,8 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
     if (keyObj->name.size == 0) {
         FwComputeObjectName(keyObj);
     }
-    AssertIntEQ(wc_HashInit(&msgHash, WC_HASH_TYPE_SHA256), 0);
-    AssertIntEQ(wc_HashUpdate(&msgHash, WC_HASH_TYPE_SHA256,
-        msg, sizeof(msg) - 1), 0);
-    AssertIntEQ(wc_HashFinal(&msgHash, WC_HASH_TYPE_SHA256, msgDigest), 0);
-    wc_HashFree(&msgHash, WC_HASH_TYPE_SHA256);
-    memcpy(ticketData, msgDigest, sizeof(msgDigest));
-    ticketDataSz = sizeof(msgDigest);
+    memcpy(ticketData, msg, sizeof(msg) - 1);
+    ticketDataSz = sizeof(msg) - 1;
     memcpy(ticketData + ticketDataSz, keyObj->name.name, keyObj->name.size);
     ticketDataSz += keyObj->name.size;
 
@@ -6633,7 +6624,7 @@ static void test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message(void)
 
     FWTPM_Cleanup(&ctx);
     FWTPM_FREE_BUF(sig);
-    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds DIGEST:", 1);
+    fwtpm_pass("VerifySeqComplete Hash-MLDSA ticket binds MESSAGE:", 1);
 }
 
 /* Per Part 3 Sec.20.6.1 a restricted signing key MUST NOT sign a message
@@ -12882,7 +12873,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_verifyseqcomplete_no_sessions_returns_auth_missing();
     test_fwtpm_verifydigestsig_no_sign_attr_returns_key();
     test_fwtpm_getcap_pqc_algorithm_attrs();
-    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_digest();
+    test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_changes();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_tag_digest();
     test_fwtpm_verifyseqcomplete_hash_mldsa_ticket_binds_message();
     test_fwtpm_signseqcomplete_hash_mldsa_genvalue_via_update_returns_value();

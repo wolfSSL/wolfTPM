@@ -569,6 +569,10 @@ typedef struct FWTPM_SignSeq {
     /* HMAC accumulator for KEYEDHASH (HMAC) signing/verifying sequences. */
     Hmac hmacCtx;
     int hmacCtxInit;                /* 1 when hmacCtx is live */
+    /* Incremental MESSAGE_VERIFIED ticket HMAC for verify sequences. */
+    Hmac ticketHmacCtx;
+    int ticketHmacCtxInit;
+    UINT32 ticketHierarchy;
 #endif
 } FWTPM_SignSeq;
 
