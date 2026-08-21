@@ -3642,9 +3642,16 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 flushHandle = 0;
 
-    (void)cmdTag;
-
     if (cmdSize < TPM2_HEADER_SIZE + 4) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+    /* flushHandle lives in the parameter area, not the handle area (Part 3),
+     * so for a sessions tag skip the authorization area before reading it. */
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS) {
+        rc = FwSkipAuthArea(cmd, cmdSize);
+    }
+    if (rc == 0 && cmd->pos + 4 > cmdSize) {
         rc = TPM_RC_COMMAND_SIZE;
     }
 
@@ -3662,9 +3669,11 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (sess == NULL) {
                 rc = TPM_RC_HANDLE;
             }
-            else {
+            else if (cmdTag != TPM_ST_SESSIONS) {
                 FwFreeSession(sess);
             }
+            /* For a sessions-tagged command, the dispatcher keeps the target
+             * alive until it has generated the response authorization area. */
         }
         else if ((flushHandle & 0xFF000000) ==
                  (PERSISTENT_FIRST & 0xFF000000)) {
@@ -3697,8 +3706,10 @@ static TPM_RC FwCmd_FlushContext(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
 
+    /* Match the response tag to the command tag so a sessions-tagged request
+     * gets its response auth area from the dispatcher (Part 1 Sec.18). */
     if (rc == 0) {
-        FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
+        FwRspNoParams(rsp, cmdTag);
     }
 
     return rc;
@@ -7589,7 +7600,7 @@ static TPM_RC FwCmd_VerifySignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         ticketDataSz += obj->name.size;
 
         rc = FwAppendTicket(ctx, rsp, TPM_ST_VERIFIED,
-            ticketHier, obj->pub.nameAlg, ticketData, ticketDataSz,
+            ticketHier, CONTEXT_INTEGRITY_HASH_ALG, ticketData, ticketDataSz,
             NULL, 0);
 
         if (rc == 0) {
@@ -10311,7 +10322,8 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             /* Step 3: verify ticket HMAC — always run TPM2_ConstantCompare
              * so timing doesn't leak size match */
             if (rc == 0) {
-                hmacRc = FwComputeTicketHmac(ctx, ticketHier, keyNameAlg,
+                hmacRc = FwComputeTicketHmac(ctx, ticketHier,
+                    CONTEXT_INTEGRITY_HASH_ALG,
                     TPM_ST_VERIFIED,
                     ticketInput, ticketInputSz,
                     NULL, 0,
@@ -16164,7 +16176,7 @@ static TPM_RC FwCmd_VerifySequenceComplete(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = FwAppendTicket(ctx, rsp,
                 TPM_ST_MESSAGE_VERIFIED,
                 ticketHier,
-                keyObj->pub.nameAlg,
+                CONTEXT_INTEGRITY_HASH_ALG,
                 ticketData, ticketDataSz,
                 NULL, 0);
         }
@@ -16644,7 +16656,7 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = FwAppendTicket(ctx, rsp,
                 TPM_ST_DIGEST_VERIFIED,
                 ticketHier,
-                obj->pub.nameAlg,
+                CONTEXT_INTEGRITY_HASH_ALG,
                 ticketData, ticketDataSz,
                 metaBytes, 2);
         }
@@ -16676,6 +16688,7 @@ typedef struct {
     UINT8 encDecFlags;      /* Bit 0: first cmd param is TPM2B (can decrypt) */
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
                             /* Bit 2: first auth handle has DUP role */
+                            /* Bit 3: command flushes its handle (TPMA_CC.F) */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -16688,6 +16701,10 @@ typedef struct {
 /* DUP role (TPM 2.0 Part 3): the first auth handle may only be authorized by
  * a policy session, never a password or HMAC session. */
 #define FW_CMD_FLAG_AUTH_DUP  0x04
+
+/* Part 3 command-description modifier reported through TPMA_CC. {F}: the
+ * object or sequence named by the command's handle is flushed on success. */
+#define FW_CMD_MOD_FLUSHED  0x08
 
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
@@ -16715,7 +16732,9 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif /* !FWTPM_NO_CLOCK */
     /* --- Key management (always enabled, algorithm checks inside) --- */
     { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_FlushContext,       FwCmd_FlushContext,         1, 0, 0, 0 },
+    /* flushHandle is a parameter, not a handle-area handle (Part 3): zero
+     * command handles so the dispatcher locates the auth area correctly. */
+    { TPM_CC_FlushContext,       FwCmd_FlushContext,         0, 0, 0, 0 },
 #ifndef FWTPM_NO_CONTEXT
     { TPM_CC_ContextSave,        FwCmd_ContextSave,          1, 0, 0, 0 },
     { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, 0 },
@@ -16754,8 +16773,8 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
      * SignSequenceComplete / VerifySequenceComplete, so it is never advertised
      * once the hash commands (and their sequence producers) are gated out. */
 #ifndef FWTPM_NO_HASH_CMDS
-    { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_SequenceComplete,   FwCmd_SequenceComplete,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_MOD_FLUSHED },
+    { TPM_CC_EventSequenceComplete, FwCmd_EventSequenceComplete, 2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED },
 #endif /* !FWTPM_NO_HASH_CMDS */
     /* --- ECC --- */
 #ifdef HAVE_ECC
@@ -16869,12 +16888,12 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
 #ifdef WOLFTPM_MLDSA_SIGN
     { TPM_CC_SignSequenceStart,      FwCmd_SignSequenceStart,      1, 0, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_SignSequenceComplete,   FwCmd_SignSequenceComplete,   2, 2, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_FLUSHED },
     { TPM_CC_SignDigest,             FwCmd_SignDigest,             1, 1, 0, FW_CMD_FLAG_ENC },
 #endif
 #ifdef WOLFTPM_MLDSA_VERIFY
     { TPM_CC_VerifySequenceStart,    FwCmd_VerifySequenceStart,    1, 0, 1, FW_CMD_FLAG_ENC },
-    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, 0 },
+    { TPM_CC_VerifySequenceComplete, FwCmd_VerifySequenceComplete, 2, 1, 0, FW_CMD_MOD_FLUSHED },
     { TPM_CC_VerifyDigestSignature,  FwCmd_VerifyDigestSignature,  1, 0, 0, FW_CMD_FLAG_ENC },
 #endif
 };
@@ -16908,6 +16927,8 @@ static UINT32 FwGetCmdAttrsAt(int idx)
     attrs |= ((UINT32)(e->inHandleCnt) & 0x7u) << 25; /* cHandles */
     if (e->outHandleCnt > 0)
         attrs |= ((UINT32)1 << 28);                 /* rHandle */
+    if (e->encDecFlags & FW_CMD_MOD_FLUSHED)
+        attrs |= ((UINT32)1 << 24);                 /* flushed */
     if ((UINT32)e->cc & (UINT32)CC_VEND)
         attrs |= (UINT32)CC_VEND;                   /* V */
     return attrs;
@@ -17211,6 +17232,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     int authFail;                   /* Password comparison result */
     int rspCap;                     /* Caller's response buffer capacity */
     int rspTruncated = 0;           /* Response did not fit the buffer */
+    FWTPM_Session* pendingFlushSess = NULL;
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSize == NULL) {
         return BAD_FUNC_ARG;
@@ -17354,15 +17376,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         if (cmdPkt.pos + 4 <= cmdSize) {
             TPM2_Packet_ParseU32(&cmdPkt, &authAreaSz);
 
+            /* cpBuffer starts after authorizationSize and the auth area,
+             * including when that area is empty. */
+            if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
+                return TPM_RC_SUCCESS;
+            }
+            cpStart = cmdPkt.pos + (int)authAreaSz;
+
             if (authAreaSz > 0) {
                 int authEnd;
-                /* Reject if authAreaSz exceeds remaining command bytes */
-                if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                        TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
-                    return TPM_RC_SUCCESS;
-                }
-                authEnd = cmdPkt.pos + (int)authAreaSz;
+                authEnd = cpStart;
 
                 while (cmdPkt.pos + 7 <= authEnd && cmdPkt.pos < cmdSize &&
                        cmdAuthCnt < FWTPM_MAX_CMD_AUTHS) {
@@ -17484,8 +17509,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
                     cmdAuthCnt++;
                 }
-
-                cpStart = authEnd; /* cpBuffer starts after auth area */
             }
         }
         else if (entry->authHandleCnt > 0) {
@@ -17951,6 +17974,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     FwRspInit(&rspPkt, rspBuf, rspCap);
 
     rc = entry->handler(ctx, &cmdPkt, cmdSize, &rspPkt, cmdTag);
+    /* A sessions-tagged FlushContext leaves its target session alive so the
+     * dispatcher can use it to generate the response authorization area. */
+    if (rc == TPM_RC_SUCCESS && cmdCode == TPM_CC_FlushContext &&
+        cmdTag == TPM_ST_SESSIONS && cpStart > 0 &&
+        cpStart + 4 <= cmdSize) {
+        pendingFlushSess = FwFindSession(ctx,
+            FwLoadU32BE(cmdBuf + cpStart));
+    }
     /* The packet layer drops appends that would overrun the buffer, so
      * report the truncation instead of returning a malformed packet. The
      * session flush and deferred clear below must still run. */
@@ -18157,9 +18188,16 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     for (pj = 0; pj < cmdAuthCnt; pj++) {
         if (cmdAuths[pj].sess != NULL &&
             !(cmdAuths[pj].attributes & TPMA_SESSION_continueSession)) {
+            if (cmdAuths[pj].sess == pendingFlushSess) {
+                pendingFlushSess = NULL;
+            }
             FwFreeSession(cmdAuths[pj].sess);
         }
     }
+
+    /* FlushContext succeeds before response authorization is generated, but
+     * its session target must not be released until that work is complete. */
+    FwFreeSession(pendingFlushSess);
 
     /* Deferred clear: flush transient objects after response auth is built. */
     if (ctx->pendingClear) {
