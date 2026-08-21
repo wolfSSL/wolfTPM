@@ -86,6 +86,8 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #define TPM2_INTERNAL_CLEANUP(ctx)
 #endif
 
+#define TPM2_LOCALITY_UNINITIALIZED (-1)
+
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/
@@ -713,10 +715,12 @@ static inline int TPM2_WolfCrypt_Init(void)
     #endif
     #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
         !defined(WOLFSSL_MUTEX_INITIALIZER)
-        wc_InitMutex(&gHwLock);
+        if (rc == 0)
+            wc_InitMutex(&gHwLock);
     #endif
     }
-    gWolfCryptRefCount++;
+    if (rc == 0)
+        gWolfCryptRefCount++;
 
 #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
     defined(WOLFSSL_MUTEX_INITIALIZER)
@@ -892,7 +896,11 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return BAD_FUNC_ARG;
     }
 
+    if (TPM2_GetActiveCtx() == ctx)
+        TPM2_SetActiveCtx(NULL);
+
     XMEMSET(ctx, 0, sizeof(TPM2_CTX));
+    ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
 
 #if defined(WOLFTPM_SWTPM)
     /* set before any early return so cleanup cannot act on fd 0 */
@@ -912,14 +920,15 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
     defined(WOLFTPM_WINAPI)
     if (ioCb != NULL || userCtx != NULL) {
-        return BAD_FUNC_ARG;
+        rc = BAD_FUNC_ARG;
+        goto exit;
     }
 #elif defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     /* Accept IO callback for SPI fallback path */
     if (ioCb != NULL) {
         rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
         if (rc != TPM_RC_SUCCESS)
-            return rc;
+            goto exit;
     }
 #else
     #ifdef WOLFTPM_MMIO
@@ -929,15 +938,12 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     /* Setup HAL IO Callback */
     rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
     if (rc != TPM_RC_SUCCESS)
-        return rc;
+        goto exit;
 #endif
 
 #if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     ctx->fd = -1;
 #endif
-
-    /* Set the active TPM global */
-    TPM2_SetActiveCtx(ctx);
 
 #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
     /* Probe here, not only in wolfTPM2_Init_ex, so the native API autodetects
@@ -954,7 +960,8 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     #ifdef DEBUG_WOLFTPM
         printf("TPM2: Kernel driver not available and no IO callback for SPI\n");
     #endif
-        return TPM_RC_FAILURE;
+        rc = TPM_RC_FAILURE;
+        goto exit;
     }
     rc = TPM_RC_SUCCESS;
 #endif
@@ -973,6 +980,17 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
     }
 
+    if (rc == TPM_RC_SUCCESS)
+        TPM2_SetActiveCtx(ctx);
+
+exit:
+    if (rc != TPM_RC_SUCCESS) {
+        ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
+    #ifndef WOLFTPM2_NO_WOLFCRYPT
+        TPM2_WolfCrypt_Cleanup();
+    #endif
+    }
+
     return rc;
 }
 
@@ -989,16 +1007,32 @@ TPM_RC TPM2_Init(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx)
 TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 {
     TPM_RC rc;
+    int lockCtx = 1;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int wolfCryptInit;
+#endif
 
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    wolfCryptInit = (ctx->locality != TPM2_LOCALITY_UNINITIALIZED);
+    #if !defined(WOLFTPM_NO_LOCK) && !defined(SINGLE_THREADED) && \
+        !defined(WOLFSSL_MUTEX_INITIALIZER)
+    lockCtx = wolfCryptInit;
+    #endif
+#endif
+
     /* clear global */
-    rc = TPM2_AcquireLock(ctx);
+    if (lockCtx)
+        rc = TPM2_AcquireLock(ctx);
+    else
+        rc = TPM_RC_SUCCESS;
     if (rc == TPM_RC_SUCCESS) {
 
         if (TPM2_GetActiveCtx() == ctx) {
-            TPM2_INTERNAL_CLEANUP(ctx);
+            if (lockCtx)
+                TPM2_INTERNAL_CLEANUP(ctx);
             /* set non-active */
             TPM2_SetActiveCtx(NULL);
         }
@@ -1007,7 +1041,8 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
          * auth values, decrypted parameters) */
         TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
 
-        TPM2_ReleaseLock(ctx);
+        if (lockCtx)
+            TPM2_ReleaseLock(ctx);
     }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
@@ -1018,7 +1053,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
     #endif
 
-    TPM2_WolfCrypt_Cleanup();
+    if (wolfCryptInit) {
+        TPM2_WolfCrypt_Cleanup();
+    }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
 #if (defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)) \
@@ -1032,6 +1069,8 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
 #ifdef WOLFTPM_SWTPM
     TPM2_SwtpmClose(ctx);
 #endif
+
+    ctx->locality = TPM2_LOCALITY_UNINITIALIZED;
 
     return TPM_RC_SUCCESS;
 }
