@@ -2376,6 +2376,8 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
     UINT16 hashAlg;
     int bank, dSize, pcrIndex;
     enum wc_HashType wcHash;
+    FWTPM_DECLARE_BUF(pcrDigest,
+        FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
     byte newDigest[TPM_MAX_DIGEST_SIZE];
     byte concat[TPM_MAX_DIGEST_SIZE * 2];
 
@@ -2418,6 +2420,14 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             pcrHandle - PCR_FIRST, digestCount);
     #endif
     }
+    if (rc == 0) {
+        FWTPM_ALLOC_BUF(pcrDigest,
+            FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    }
+    if (rc == 0) {
+        XMEMCPY(pcrDigest, ctx->pcrDigest[pcrIndex],
+            FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
+    }
 
     for (d = 0; d < digestCount && rc == 0; d++) {
         pcrIndex = pcrHandle - PCR_FIRST;
@@ -2437,35 +2447,37 @@ static TPM_RC FwCmd_PCR_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             rc = TPM_RC_HASH;
             break;
         }
+        if (cmd->pos + dSize > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+            break;
+        }
         if (bank < 0) {
             /* Known algorithm but unsupported bank — skip the digest bytes */
             cmd->pos += dSize;
             continue;
         }
 
-        if (cmd->pos + dSize > cmdSize) {
-            rc = TPM_RC_COMMAND_SIZE;
-            break;
-        }
-
         /* PCR_new = H(PCR_old || digest_in) */
         wcHash = FwGetWcHashType(hashAlg);
-        XMEMCPY(concat, ctx->pcrDigest[pcrIndex][bank], dSize);
+        XMEMCPY(concat, pcrDigest + bank * TPM_MAX_DIGEST_SIZE, dSize);
         XMEMCPY(concat + dSize, cmd->buf + cmd->pos, dSize);
         rc = wc_Hash(wcHash, concat, dSize * 2, newDigest, dSize);
         if (rc != 0) {
             rc = TPM_RC_FAILURE;
             break;
         }
-        XMEMCPY(ctx->pcrDigest[pcrIndex][bank], newDigest, dSize);
+        XMEMCPY(pcrDigest + bank * TPM_MAX_DIGEST_SIZE, newDigest, dSize);
         cmd->pos += dSize;
     }
 
     if (rc == 0) {
+        XMEMCPY(ctx->pcrDigest[pcrIndex], pcrDigest,
+            FWTPM_PCR_BANKS * TPM_MAX_DIGEST_SIZE);
         ctx->pcrUpdateCounter++;
         FwRspNoParams(rsp, cmdTag);
     }
 
+    FWTPM_FREE_BUF(pcrDigest);
     return rc;
 }
 
