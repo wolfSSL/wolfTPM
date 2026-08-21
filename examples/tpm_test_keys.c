@@ -681,6 +681,8 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
             *buf = (byte*)XMALLOC(fileSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             if (*buf == NULL)
                 ret = MEMORY_E;
+        #else
+            ret = MEMORY_E;
         #endif
         }
         else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {
