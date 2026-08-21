@@ -17565,6 +17565,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             FWTPM_Session* pSess = cmdAuths[pj].sess;
             TPM_HANDLE entityH = cmdHandles[pj];
             TPM2B_DIGEST* authPolicy = NULL;
+            TPMI_ALG_HASH authPolicyAlg = TPM_ALG_NULL;
             int sizeMismatch;
             int policyDiff;
             word32 cmpSz;
@@ -17609,6 +17610,7 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             /* PCR handles: check PCR_SetAuthPolicy-assigned policy */
             else if (entityH <= PCR_LAST) {
                 authPolicy = &ctx->pcrPolicy[entityH - PCR_FIRST];
+                authPolicyAlg = ctx->pcrPolicyAlg[entityH - PCR_FIRST];
             }
 
             /* If entity has a non-empty authPolicy, it must match */
@@ -17619,7 +17621,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                     pSess->policyDigest.size : authPolicy->size;
                 policyDiff = TPM2_ConstantCompare(pSess->policyDigest.buffer,
                     authPolicy->buffer, cmpSz);
-                if (sizeMismatch | policyDiff) {
+                if ((authPolicyAlg != TPM_ALG_NULL &&
+                     pSess->authHash != authPolicyAlg) |
+                    sizeMismatch | policyDiff) {
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: Policy digest mismatch for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
