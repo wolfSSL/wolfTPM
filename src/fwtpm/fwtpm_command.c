@@ -10201,13 +10201,21 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     byte approvedPolicy[TPM_MAX_DIGEST_SIZE];
     byte policyRef[64];
     byte keySignName[sizeof(TPM2B_NAME)];
-    UINT16 ticketTag, ticketDigestSz;
+    UINT16 ticketTag, ticketDigestSz = 0;
+#ifdef WOLFTPM_PQC
+    TPMI_ALG_HASH ticketMetaAlg = TPM_ALG_NULL;
+#endif
+    byte ticketMetadata[2];
+    int ticketMetadataSz = 0;
+    int validTicketTag;
     UINT32 ticketHier;
     byte ticketDigest[TPM_MAX_DIGEST_SIZE];
     FWTPM_Session* sess = NULL;
     int dSz = 0;
     int match = 0;
     FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    FWTPM_DECLARE_BUF(ticketInput,
+        TPM_MAX_DIGEST_SIZE + sizeof(policyRef) + sizeof(TPM2B_NAME));
     int hashInit = 0;
     enum wc_HashType wcHash = WC_HASH_TYPE_NONE;
     byte ccBuf[4];
@@ -10217,9 +10225,12 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     (void)cmdSize;
 
     FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+    FWTPM_ALLOC_BUF(ticketInput,
+        TPM_MAX_DIGEST_SIZE + sizeof(policyRef) + sizeof(TPM2B_NAME));
 
     TPM2_Packet_ParseU32(cmd, &sessHandle);
-    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+    if (rc == 0 && cmdTag == TPM_ST_SESSIONS)
+        rc = FwSkipAuthArea(cmd, cmdSize);
 
     TPM2_Packet_ParseU16(cmd, &approvedPolicySz);
     if (approvedPolicySz > sizeof(approvedPolicy)) {
@@ -10248,7 +10259,7 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_ParseBytes(cmd, keySignName, keySignNameSz);
 
         /* Extract nameAlg from keySignName (first 2 bytes, big-endian).
-         * This determines the hash algorithm for aHash and ticket HMAC. A
+         * This determines the hash algorithm for legacy verified tickets. A
          * valid Name is a supported hash selector followed by exactly that
          * algorithm's digest. */
         if (keySignNameSz >= 2) {
@@ -10268,12 +10279,35 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
 
-        /* checkTicket: TPMT_TK_VERIFIED: tag(2) + hierarchy(4) + digest(TPM2B)
-         * Per TPM 2.0 Part 3 Section 23.16: verify ticket was produced by
-         * VerifySignature for the approvedPolicy + keySignName. */
+        /* checkTicket: tag(2) + hierarchy(4) + tag-selected metadata +
+         * hmac(TPM2B). DIGEST_VERIFIED carries its hash algorithm before
+         * the HMAC, while VERIFIED and MESSAGE_VERIFIED carry no metadata. */
         TPM2_Packet_ParseU16(cmd, &ticketTag);
         TPM2_Packet_ParseU32(cmd, &ticketHier);
-        TPM2_Packet_ParseU16(cmd, &ticketDigestSz);
+        validTicketTag = (ticketTag == TPM_ST_VERIFIED);
+    #ifdef WOLFTPM_PQC
+        validTicketTag |= (ticketTag == TPM_ST_MESSAGE_VERIFIED ||
+                           ticketTag == TPM_ST_DIGEST_VERIFIED);
+    #endif
+        if (!validTicketTag) {
+            rc = TPM_RC_TAG;
+        }
+    #ifdef WOLFTPM_PQC
+        if (rc == 0 && ticketTag == TPM_ST_DIGEST_VERIFIED &&
+            ticketHier != TPM_RH_NULL) {
+            TPM2_Packet_ParseU16(cmd, &ticketMetaAlg);
+            if (TPM2_GetHashDigestSize(ticketMetaAlg) <= 0) {
+                rc = TPM_RC_HASH;
+            }
+            else {
+                ticketMetadata[0] = (byte)(ticketMetaAlg >> 8);
+                ticketMetadata[1] = (byte)ticketMetaAlg;
+                ticketMetadataSz = sizeof(ticketMetadata);
+            }
+        }
+    #endif
+        if (rc == 0)
+            TPM2_Packet_ParseU16(cmd, &ticketDigestSz);
         if (ticketDigestSz > sizeof(ticketDigest)) {
             rc = TPM_RC_SIZE;
         }
@@ -10285,10 +10319,6 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 TPM2_Packet_ParseBytes(cmd, ticketDigest, ticketDigestSz);
             }
         }
-        if (rc == 0 && ticketTag != TPM_ST_VERIFIED) {
-            rc = TPM_RC_TICKET;
-        }
-
         /* Look up the session before ticket verification so the ticket
          * policy below can branch on the session type. */
         if (rc == 0) {
@@ -10320,39 +10350,55 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             rc = TPM_RC_TICKET;
         }
         if (rc == 0 && ticketDigestSz > 0) {
-            byte aHash[TPM_MAX_DIGEST_SIZE];
-            int aHashSz = 0;
-            byte ticketInput[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
             int ticketInputSz = 0;
             byte expectedHmac[TPM_MAX_DIGEST_SIZE];
             int expectedSz = 0;
             wc_HashAlg aCtx;
             enum wc_HashType aWcHash;
+            TPMI_ALG_HASH signedHashAlg = keyNameAlg;
             int hmacRc;
             int sizeMismatch;
             int ticketDiff;
             word32 cmpSz;
+            int isMessageTicket = 0;
 
-            /* Step 1: aHash = H(approvedPolicy || policyRef)
-             * Hash algorithm comes from signing key's nameAlg */
-            aWcHash = FwGetWcHashType(keyNameAlg);
-            aHashSz = TPM2_GetHashDigestSize(keyNameAlg);
-            if (wc_HashInit(&aCtx, aWcHash) == 0) {
-                wc_HashUpdate(&aCtx, aWcHash,
-                    approvedPolicy, approvedPolicySz);
-                if (policyRefSz > 0)
-                    wc_HashUpdate(&aCtx, aWcHash, policyRef, policyRefSz);
-                wc_HashFinal(&aCtx, aWcHash, aHash);
-                wc_HashFree(&aCtx, aWcHash);
+            /* MESSAGE_VERIFIED authenticates the raw toBeSigned value.
+             * VERIFIED authenticates its nameAlg digest, and
+             * DIGEST_VERIFIED authenticates the metadata-selected digest. */
+        #ifdef WOLFTPM_PQC
+            isMessageTicket = (ticketTag == TPM_ST_MESSAGE_VERIFIED);
+            if (ticketTag == TPM_ST_DIGEST_VERIFIED)
+                signedHashAlg = ticketMetaAlg;
+        #endif
+            if (isMessageTicket) {
+                XMEMCPY(ticketInput, approvedPolicy, approvedPolicySz);
+                ticketInputSz = approvedPolicySz;
+                if (policyRefSz > 0) {
+                    XMEMCPY(ticketInput + ticketInputSz,
+                        policyRef, policyRefSz);
+                    ticketInputSz += policyRefSz;
+                }
             }
             else {
-                rc = TPM_RC_FAILURE;
+                aWcHash = FwGetWcHashType(signedHashAlg);
+                ticketInputSz = TPM2_GetHashDigestSize(signedHashAlg);
+                if (wc_HashInit(&aCtx, aWcHash) == 0) {
+                    wc_HashUpdate(&aCtx, aWcHash,
+                        approvedPolicy, approvedPolicySz);
+                    if (policyRefSz > 0) {
+                        wc_HashUpdate(&aCtx, aWcHash,
+                            policyRef, policyRefSz);
+                    }
+                    wc_HashFinal(&aCtx, aWcHash, ticketInput);
+                    wc_HashFree(&aCtx, aWcHash);
+                }
+                else {
+                    rc = TPM_RC_FAILURE;
+                }
             }
 
-            /* Step 2: ticketInput = aHash || keySignName */
+            /* Append keySignName to digestOrMessage. */
             if (rc == 0) {
-                XMEMCPY(ticketInput, aHash, aHashSz);
-                ticketInputSz = aHashSz;
                 XMEMCPY(ticketInput + ticketInputSz,
                     keySignName, keySignNameSz);
                 ticketInputSz += keySignNameSz;
@@ -10363,9 +10409,9 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             if (rc == 0) {
                 hmacRc = FwComputeTicketHmac(ctx, ticketHier,
                     CONTEXT_INTEGRITY_HASH_ALG,
-                    TPM_ST_VERIFIED,
+                    ticketTag,
                     ticketInput, ticketInputSz,
-                    NULL, 0,
+                    ticketMetadata, ticketMetadataSz,
                     expectedHmac, &expectedSz);
                 sizeMismatch = (ticketDigestSz != (UINT16)expectedSz);
                 cmpSz = (ticketDigestSz < (UINT16)expectedSz) ?
@@ -10381,7 +10427,6 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     rc = TPM_RC_VALUE;
                 }
             }
-            TPM2_ForceZero(aHash, sizeof(aHash));
             TPM2_ForceZero(expectedHmac, sizeof(expectedHmac));
         }
     }
@@ -10484,6 +10529,7 @@ static TPM_RC FwCmd_PolicyAuthorize(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0) {
         FwRspNoParams(rsp, cmdTag);
     }
+    FWTPM_FREE_BUF(ticketInput);
     FWTPM_FREE_VAR(hashCtx);
     return rc;
 }
