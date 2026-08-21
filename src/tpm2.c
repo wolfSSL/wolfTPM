@@ -7433,13 +7433,14 @@ int TPM2_ParseAttest(const TPM2B_ATTEST* in, TPMS_ATTEST* out)
 
     if (in == NULL || out == NULL)
         return BAD_FUNC_ARG;
+    if (in->size > sizeof(in->attestationData))
+        return TPM_RC_SIZE;
 
     XMEMSET(&packet, 0, sizeof(packet));
     packet.buf = (byte*)in->attestationData;
     packet.size = in->size;
 
-    TPM2_Packet_ParseAttest(&packet, out);
-    return TPM_RC_SUCCESS;
+    return TPM2_Packet_ParseAttest(&packet, out);
 }
 
 UINT16 TPM2_GetVendorID(void)

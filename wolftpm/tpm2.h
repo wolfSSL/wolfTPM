@@ -4239,6 +4239,8 @@ WOLFTPM_API int TPM2_GetWolfCurve(int curve_id);
 
     \return TPM_RC_SUCCESS: successful
     \return BAD_FUNC_ARG: check the provided arguments
+    \return TPM_RC_VALUE: invalid attestation magic or type
+    \return TPM_RC_SIZE: malformed or truncated attestation data
 
     \param in pointer to a structure of a TPM2B_ATTEST type
     \param out pointer to a structure of a TPMS_ATTEST type
