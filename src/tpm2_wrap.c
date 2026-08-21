@@ -11069,13 +11069,21 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     const byte* pcrDigest, word32 pcrDigestSz, byte* digest, word32* digestSz)
 {
     int rc;
+    int hashSz;
     TPM2_Packet packet;
     byte buf[sizeof(TPML_PCR_SELECTION)+WC_MAX_DIGEST_SIZE];
     TPML_PCR_SELECTION pcr;
 
     if (digest == NULL || digestSz == NULL || pcrArray == NULL ||
-        pcrArraySz == 0) {
+        pcrArraySz == 0 || (pcrDigest == NULL && pcrDigestSz > 0)) {
         return BAD_FUNC_ARG;
+    }
+    hashSz = TPM2_GetHashDigestSize(pcrAlg);
+    if (hashSz <= 0) {
+        return BAD_FUNC_ARG;
+    }
+    if (*digestSz < (word32)hashSz) {
+        return BUFFER_E;
     }
 
     /* Build PCRS (PCR Count and PCR Selection) */
@@ -11087,12 +11095,14 @@ int wolfTPM2_PolicyPCRMake(TPM_ALG_ID pcrAlg, byte* pcrArray, word32 pcrArraySz,
     TPM2_Packet_AppendPCR(&packet, &pcr);
 
     /* Copy the pcrDigest to the end of buffer */
-    if (packet.pos < 0 || (word32)packet.pos > (word32)sizeof(buf) ||
-        pcrDigestSz > (word32)sizeof(buf) - (word32)packet.pos) {
+    if (packet.overflow || packet.pos > packet.size ||
+        pcrDigestSz > (word32)(packet.size - packet.pos)) {
         return BUFFER_E;
     }
-    XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
-    packet.pos += pcrDigestSz;
+    if (pcrDigestSz > 0) {
+        XMEMCPY(buf + packet.pos, pcrDigest, pcrDigestSz);
+        packet.pos += (int)pcrDigestSz;
+    }
 
     rc = wolfTPM2_PolicyHash(pcrAlg, digest, digestSz, TPM_CC_PolicyPCR,
         buf, packet.pos);

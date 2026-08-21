@@ -10161,7 +10161,13 @@ static void test_fwtpm_pcr_properties_capability(void)
     rspSize = 0;
     FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
-    AssertTrue(rspSize > 0 && rspSize <= (int)sizeof(gRsp));
+    if (rspSize < TPM2_HEADER_SIZE + 9 ||
+        rspSize > (int)sizeof(gRsp)) {
+        AssertTrue(rspSize >= TPM2_HEADER_SIZE + 9 &&
+            rspSize <= (int)sizeof(gRsp));
+        FWTPM_Cleanup(&ctx);
+        return;
+    }
 
     /* header(10) + moreData(1) + capability(4) + count(4) + properties */
     p = TPM2_HEADER_SIZE + 1;
@@ -10169,28 +10175,39 @@ static void test_fwtpm_pcr_properties_capability(void)
     AssertIntEQ(cap, TPM_CAP_PCR_PROPERTIES);
     count = GetU32BE(gRsp + p); p += 4;
     AssertIntGT((int)count, 0);
-    AssertTrue((int)count <= 32); /* bounded by the 32 records requested above */
+    if (count == 0 || count > 32) {
+        AssertTrue(count > 0 && count <= 32);
+        FWTPM_Cleanup(&ctx);
+        return;
+    }
 
     for (i = 0; i < (int)count; i++) {
-        AssertTrue(p + 5 <= rspSize); /* room for tag(4)+size(1) */
+        if (p > rspSize || rspSize - p < 5) {
+            AssertTrue(p <= rspSize && rspSize - p >= 5);
+            FWTPM_Cleanup(&ctx);
+            return;
+        }
         tag = GetU32BE(gRsp + p); p += 4;
         wireSz = gRsp[p]; p += 1;
+        if (wireSz <= 0 || p > rspSize || wireSz > rspSize - p) {
+            AssertTrue(wireSz > 0 && p <= rspSize &&
+                wireSz <= rspSize - p);
+            FWTPM_Cleanup(&ctx);
+            return;
+        }
         selSz = (wireSz > 8) ? 8 : wireSz;
-        AssertTrue(selSz > 0); /* select bytes present; keeps p inside gRsp */
-        AssertTrue(p + selSz <= rspSize);
         if (tag == TPM_PT_PCR_RESET_L0) {
-            memcpy(resetL0, gRsp + p, selSz); gotResetL0 = 1;
+            XMEMCPY(resetL0, gRsp + p, selSz); gotResetL0 = 1;
         }
         else if (tag == TPM_PT_PCR_RESET_L4) {
-            memcpy(resetL4, gRsp + p, selSz); gotResetL4 = 1;
+            XMEMCPY(resetL4, gRsp + p, selSz); gotResetL4 = 1;
         }
         else if (tag == TPM_PT_PCR_EXTEND_L0) {
-            memcpy(extendL0, gRsp + p, selSz); gotExtendL0 = 1;
+            XMEMCPY(extendL0, gRsp + p, selSz); gotExtendL0 = 1;
         }
         else if (tag == TPM_PT_PCR_DRTM_RESET) {
-            memcpy(drtm, gRsp + p, selSz); gotDrtm = 1;
+            XMEMCPY(drtm, gRsp + p, selSz); gotDrtm = 1;
         }
-        AssertTrue(p + wireSz <= rspSize); /* full record present on the wire */
         p += wireSz; /* advance past the select bytes */
     }
 
@@ -10335,6 +10352,54 @@ static void test_fwtpm_clear(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("Clear(LOCKOUT):", 0);
 }
+
+#ifndef FWTPM_NO_NV
+static int fail_nv_write(void* ctx, word32 offset, const byte* buf,
+    word32 size)
+{
+    (void)ctx;
+    (void)offset;
+    (void)buf;
+    (void)size;
+    return TPM_RC_FAILURE;
+}
+
+/* ClearControl must not change disableClear or return success when its NV
+ * update fails. */
+static void test_fwtpm_clear_control_nv_failure(void)
+{
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL oldHal, failHal;
+    int rc, rspSize, pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    AssertIntEQ(ctx.disableClear, 0);
+
+    oldHal = ctx.nvHal;
+    failHal = oldHal;
+    failHal.write = fail_nv_write;
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &failHal), TPM_RC_SUCCESS);
+
+    pos = 0;
+    PutU16BE(gCmd + pos, TPM_ST_SESSIONS); pos += 2;
+    PutU32BE(gCmd + pos, 0); pos += 4;
+    PutU32BE(gCmd + pos, TPM_CC_ClearControl); pos += 4;
+    PutU32BE(gCmd + pos, TPM_RH_PLATFORM); pos += 4;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    gCmd[pos++] = 1;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_FAILURE);
+    AssertIntEQ(ctx.disableClear, 0);
+
+    AssertIntEQ(FWTPM_NV_SetHAL(&ctx, &oldHal), TPM_RC_SUCCESS);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ClearControl NV failure rollback:", 0);
+}
+#endif /* !FWTPM_NO_NV */
 
 /* Per Part 3 Sec.24.6 Table 134, TPM2_Clear has Auth Index 1, Auth Role USER
  * on @authHandle (TPM_RH_LOCKOUT or TPM_RH_PLATFORM). NO_SESSIONS leaves
@@ -12966,6 +13031,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_sessions_short_authcount_rejected();
 #endif /* !FWTPM_NO_HASH_CMDS */
     test_fwtpm_sessions_missing_authsize_command_size();
+#ifndef FWTPM_NO_NV
+    test_fwtpm_clear_control_nv_failure();
+#endif /* !FWTPM_NO_NV */
     test_fwtpm_clear();
 
     printf("\nAll fwTPM unit tests passed!\n");
