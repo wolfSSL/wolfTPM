@@ -7857,6 +7857,7 @@ int wolfTPM2_HashStart(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         printf("TPM2_HashSequenceStart failed 0x%x: %s\n", rc,
             TPM2_GetRCString(rc));
     #endif
+        TPM2_ForceZero(&hash->handle.auth, sizeof(hash->handle.auth));
         return rc;
     }
 
@@ -7945,15 +7946,21 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
     #endif
         /* handle is only consumed by the TPM on success */
         wolfTPM2_UnloadHandle(dev, &hash->handle);
-        return rc;
+        if (hash->handle.hndl == TPM_RH_NULL) {
+            TPM2_ForceZero(&hash->handle.auth,
+                sizeof(hash->handle.auth));
+        }
+        goto exit;
     }
 
     /* mark hash handle as done */
     hash->handle.hndl = TPM_RH_NULL;
+    TPM2_ForceZero(&hash->handle.auth, sizeof(hash->handle.auth));
 
     if (out.result.size > *digestSz) {
         *digestSz = out.result.size;
-        return BUFFER_E;
+        rc = BUFFER_E;
+        goto exit;
     }
     *digestSz = out.result.size;
     XMEMCPY(digest, out.result.buffer, *digestSz);
@@ -7963,6 +7970,8 @@ int wolfTPM2_HashFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HASH* hash,
         (word32)in.sequenceHandle, *digestSz);
 #endif
 
+exit:
+    TPM2_ForceZero(&out, sizeof(out));
     return rc;
 }
 
@@ -8487,6 +8496,11 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
     if (!hmac->hmacKeyKeep) {
         /* unload HMAC key */
         wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+        if (hmac->key.handle.hndl == 0 ||
+                hmac->key.handle.hndl == TPM_RH_NULL) {
+            TPM2_ForceZero(&hmac->key.handle.auth,
+                sizeof(hmac->key.handle.auth));
+        }
         hmac->hmacKeyLoaded = 0;
     }
 
