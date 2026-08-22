@@ -7510,10 +7510,12 @@ int wolfTPM2_NVOpen(WOLFTPM2_DEV* dev, WOLFTPM2_NV* nv, word32 nvIndex,
     nv->handle.hndl = nvIndex;
     /* auth can also be set already via nv->handle */
     if (auth != NULL && authSz > 0) {
-        nv->handle.auth.size = authSz;
-        if (nv->handle.auth.size > sizeof(nv->handle.auth.buffer))
-            nv->handle.auth.size = sizeof(nv->handle.auth.buffer); /* truncate */
-        XMEMCPY(nv->handle.auth.buffer, auth, nv->handle.auth.size);
+        XMEMMOVE(nv->handle.auth.buffer, auth, authSz);
+        if (authSz < sizeof(nv->handle.auth.buffer)) {
+            TPM2_ForceZero(&nv->handle.auth.buffer[authSz],
+                (word32)sizeof(nv->handle.auth.buffer) - authSz);
+        }
+        nv->handle.auth.size = (UINT16)authSz;
     }
 
     /* Read the NV Index publicArea to have up to date NV Index Name */
