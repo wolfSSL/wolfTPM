@@ -2094,8 +2094,11 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 #ifdef WOLFTPM_CRYPTOCB
     /* make sure crypto dev callback is unregistered */
     rc = wolfTPM2_ClearCryptoDevCb(dev, INVALID_DEVID);
-    if (rc != 0)
+    if (rc != 0) {
+        TPM2_ForceZero(dev->session, sizeof(dev->session));
+        dev->ctx.session = NULL;
         return rc;
+    }
 #endif
 
     if (doShutdown && TPM2_GetActiveCtx() != NULL)  {
@@ -2137,6 +2140,8 @@ int wolfTPM2_Cleanup_ex(WOLFTPM2_DEV* dev, int doShutdown)
 #endif
 
     TPM2_Cleanup(&dev->ctx);
+    TPM2_ForceZero(dev->session, sizeof(dev->session));
+    dev->ctx.session = NULL;
 
     return rc;
 }
