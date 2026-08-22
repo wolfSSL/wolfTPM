@@ -4951,6 +4951,29 @@ int wolfTPM2_EccKey_TpmToWolf(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
 }
 #endif /* HAVE_ECC_KEY_IMPORT */
 #ifdef HAVE_ECC_KEY_EXPORT
+static int wolfTPM2_EccMakePubBlinded(ecc_key* key, ecc_point* point)
+{
+#if defined(ECC_TIMING_RESISTANT) && !defined(WC_NO_RNG)
+    WC_RNG rng;
+    int rc;
+
+    XMEMSET(&rng, 0, sizeof(rng));
+    rc = wc_InitRng(&rng);
+    if (rc == 0) {
+        rc = wc_ecc_make_pub_ex(key, point, &rng);
+        wc_FreeRng(&rng);
+    }
+
+    return rc;
+#else
+    (void)key;
+    (void)point;
+    /* Private-only imports require blinded scalar multiplication. Callers
+     * must provide the public point when that protection is unavailable. */
+    return NOT_COMPILED_IN;
+#endif
+}
+
 int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     ecc_key* wolfKey, WOLFTPM2_KEYBLOB* tpmKey)
 {
@@ -4989,11 +5012,7 @@ int wolfTPM2_CreateEccKeyBlob(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
             rc = MEMORY_E;
         }
         if (rc == 0) {
-        #ifdef ECC_TIMING_RESISTANT
-            rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
-        #else
-            rc = wc_ecc_make_pub(wolfKey, point);
-        #endif
+            rc = wolfTPM2_EccMakePubBlinded(wolfKey, point);
             if (rc == 0)
                 rc = wc_export_int(point->x, qx, &qxSz, keySz,
                     WC_TYPE_UNSIGNED_BIN);
@@ -5066,11 +5085,7 @@ int wolfTPM2_EccKey_WolfToTpm_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
                 rc = MEMORY_E;
             }
             if (rc == 0) {
-            #ifdef ECC_TIMING_RESISTANT
-                rc = wc_ecc_make_pub_ex(wolfKey, point, wolfKey->rng);
-            #else
-                rc = wc_ecc_make_pub(wolfKey, point);
-            #endif
+                rc = wolfTPM2_EccMakePubBlinded(wolfKey, point);
                 if (rc == 0)
                     rc = wc_export_int(point->x, qx, &qxSz, keySz,
                         WC_TYPE_UNSIGNED_BIN);
