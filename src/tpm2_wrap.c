@@ -8574,13 +8574,18 @@ int wolfTPM2_HmacFinish(WOLFTPM2_DEV* dev, WOLFTPM2_HMAC* hmac,
 
     if (!hmac->hmacKeyKeep) {
         /* unload HMAC key */
-        wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
+        (void)wolfTPM2_UnloadHandle(dev, &hmac->key.handle);
         if (hmac->key.handle.hndl == 0 ||
                 hmac->key.handle.hndl == TPM_RH_NULL) {
-            TPM2_ForceZero(&hmac->key.handle.auth,
-                sizeof(hmac->key.handle.auth));
+            hmac->hmacKeyLoaded = 0;
         }
-        hmac->hmacKeyLoaded = 0;
+        if (hmac->hash.handle.hndl == 0 ||
+                hmac->hash.handle.hndl == TPM_RH_NULL) {
+            TPM2_ForceZero(&hmac->hash.handle.auth,
+                sizeof(hmac->hash.handle.auth));
+        }
+        TPM2_ForceZero(&hmac->key.handle.auth,
+            sizeof(hmac->key.handle.auth));
     }
 
     return rc;
