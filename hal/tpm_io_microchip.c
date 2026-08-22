@@ -76,8 +76,8 @@
     static byte i2cXferBuf[MAX_SPI_FRAMESIZE+1];
     static byte i2cRdBuf[MAX_SPI_FRAMESIZE];
     /* Set when a busy timeout leaves plaintext in a staging buffer that could
-     * not be scrubbed; cleared by the next call that finds the engine idle. */
-    static int  i2cXferDirty = 0;
+     * not be scrubbed; cleared on completion or once polling finds idle. */
+    static volatile int i2cXferDirty = 0;
 
     /* Scrub staging left dirty by a previous busy timeout. Only safe once the
      * engine is idle, so callers must check I2C_BB_IsBusy() first. */
@@ -90,10 +90,12 @@
         }
     }
 
-    static void dummy_callback(uintptr_t context)
+    static void i2c_completion_callback(uintptr_t context)
     {
         (void) context;
-        return;
+        /* Successful transfers leave this clear. A timed-out transfer sets
+         * it while the engine still owns the staging buffers. */
+        i2c_scrub_stale();
     }
 
     /* Wait for time_ms using Microchip Harmony SYS_TIME API. */
@@ -114,6 +116,18 @@
         }
 
         return;
+    }
+
+    static void i2c_timeout_cleanup(void)
+    {
+        int busy_retry = TPM_I2C_TRIES;
+
+        while (i2cXferDirty && I2C_BB_IsBusy() && --busy_retry > 0) {
+            microchip_wait(250);
+        }
+        if (!I2C_BB_IsBusy()) {
+            i2c_scrub_stale();
+        }
     }
 
     /* Microchip Harmony I2C */
@@ -198,8 +212,11 @@
 
             if (I2C_BB_IsBusy()) {
                 /* Engine still owns i2cRdBuf; it cannot be scrubbed here, so
-                 * flag it for the next call that finds the engine idle */
+                 * defer scrubbing until the completion callback. */
                 i2cXferDirty = 1;
+                if (!I2C_BB_IsBusy()) {
+                    i2c_scrub_stale();
+                }
                 printf("error: i2c_read: busy wait timed out\n");
                 return -1;
             }
@@ -269,9 +286,11 @@
 
             if (I2C_BB_IsBusy()) {
                 /* Engine is still clocking out i2cXferBuf, so it cannot be
-                 * scrubbed here; flag it for the next call that finds the
-                 * engine idle */
+                 * scrubbed here; defer until the completion callback. */
                 i2cXferDirty = 1;
+                if (!I2C_BB_IsBusy()) {
+                    i2c_scrub_stale();
+                }
                 printf("error: i2c_write: busy wait timed out\n");
                 return -1;
             }
@@ -305,13 +324,20 @@
          * even if not used.
          * */
         I2C_BB_Initialize();
-        I2C_BB_CallbackRegister(dummy_callback, dummy_context);
+        I2C_BB_CallbackRegister(i2c_completion_callback, dummy_context);
 
         if (isRead) {
             ret = i2c_read(userCtx, addr, buf, size);
         }
         else {
             ret = i2c_write(userCtx, addr, buf, size);
+        }
+
+        /* A timed-out transfer may complete after i2c_read/write returns.
+         * Poll once more here; the registered callback handles completion
+         * after this bounded cleanup wait. */
+        if (i2cXferDirty) {
+            i2c_timeout_cleanup();
         }
 
         (void)userCtx;
