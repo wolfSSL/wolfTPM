@@ -2767,14 +2767,15 @@ WOLFTPM_API int wolfTPM2_ReadPCR(WOLFTPM2_DEV* dev,
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Reset a PCR register to its default value
-    \note Only PCR registers 0-15 can be reset, and this operation requires platform authorization
+    \note Reset permission depends on the selected PCR's TPM attributes and
+    locality.
 
     \return TPM_RC_SUCCESS: successful
     \return TPM_RC_FAILURE: generic failure (check TPM IO and TPM return code)
     \return BAD_FUNC_ARG: check the provided arguments
 
     \param dev pointer to a TPM2_DEV struct
-    \param pcrIndex integer value, specifying a valid PCR index between 0 and 15
+    \param pcrIndex integer value from PCR_FIRST through PCR_LAST
 
     \sa wolfTPM2_ReadPCR
     \sa wolfTPM2_ExtendPCR
