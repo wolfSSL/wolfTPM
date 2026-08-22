@@ -880,7 +880,6 @@ int TPM2_GetCommandRetries(TPM2_CTX* ctx)
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
-    /* atomic int read, no lock needed; the setter takes the lock */
     return ctx->retries;
 }
 #endif /* !WOLFTPM_NO_RETRY */

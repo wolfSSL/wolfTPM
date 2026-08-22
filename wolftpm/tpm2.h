@@ -3808,6 +3808,8 @@ WOLFTPM_API TPM_RC TPM2_SetCommandRetries(TPM2_CTX* ctx, int retries);
 /*!
     \ingroup TPM2_Proprietary
     \brief Returns the number of times a command is transparently resubmitted on TPM_RC_RETRY
+    \note Callers must synchronize concurrent calls to this function and
+    TPM2_SetCommandRetries.
 
     \return the configured retry count on success
     \return BAD_FUNC_ARG: the TPM2 context is a NULL pointer
