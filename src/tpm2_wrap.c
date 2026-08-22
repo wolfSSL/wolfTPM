@@ -5729,6 +5729,19 @@ int wolfTPM2_SignSequenceComplete(WOLFTPM2_DEV* dev,
                 rc = BUFFER_E;
             }
         }
+        else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_HMAC) {
+            int sigOutSz = TPM2_GetHashDigestSize(
+                signSeqCompleteOut.signature.signature.hmac.hashAlg);
+            if (sigOutSz > 0 && *sigSz >= sigOutSz) {
+                XMEMCPY(sig,
+                    signSeqCompleteOut.signature.signature.hmac.digest.H,
+                    sigOutSz);
+                *sigSz = sigOutSz;
+            }
+            else {
+                rc = BUFFER_E;
+            }
+        }
 #ifdef WOLFTPM_MLDSA
         else if (signSeqCompleteOut.signature.sigAlg == TPM_ALG_MLDSA) {
             /* Pure ML-DSA: bare TPM2B, no hash field. */
@@ -5877,6 +5890,15 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
             return BUFFER_E;
         }
     }
+    else if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
+        TPMT_KEYEDHASH_SCHEME* scheme =
+            &key->pub.publicArea.parameters.keyedHashDetail.scheme;
+        int hmacSz = TPM2_GetHashDigestSize(scheme->details.hmac.hashAlg);
+        if (scheme->scheme != TPM_ALG_HMAC || hmacSz <= 0 ||
+                sigSz != hmacSz) {
+            return BAD_FUNC_ARG;
+        }
+    }
 #ifdef WOLFTPM_MLDSA
     else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
         if (sigSz > (int)sizeof(((TPMT_SIGNATURE*)0)->signature.mldsa.buffer)) {
@@ -5950,6 +5972,12 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         }
         signature.signature.rsassa.sig.size = (UINT16)sigSz;
         XMEMCPY(signature.signature.rsassa.sig.buffer, sig, sigSz);
+    }
+    else if (key->pub.publicArea.type == TPM_ALG_KEYEDHASH) {
+        signature.sigAlg = TPM_ALG_HMAC;
+        signature.signature.hmac.hashAlg = key->pub.publicArea.parameters
+            .keyedHashDetail.scheme.details.hmac.hashAlg;
+        XMEMCPY(signature.signature.hmac.digest.H, sig, sigSz);
     }
 #ifdef WOLFTPM_MLDSA
     else if (key->pub.publicArea.type == TPM_ALG_MLDSA) {
