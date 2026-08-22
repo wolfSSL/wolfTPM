@@ -11322,6 +11322,7 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
 
     /* Only copy digest to handle auth when hashing succeeded — otherwise
      * `digest` contains uninitialized stack data. */
+    TPM2_ForceZero(&handle->auth, sizeof(handle->auth));
     if (rc == 0) {
         /* Hash Final truncate to 16 bytes — use 16-byte auth for key access */
         handle->auth.size = 16;
@@ -11333,10 +11334,6 @@ int wolfTPM2_SetIdentityAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* handle,
         #endif
     #endif
     }
-    else {
-        handle->auth.size = 0;
-    }
-
     TPM2_ForceZero(digest, sizeof(digest));
     TPM2_ForceZero(serialNum, sizeof(serialNum));
 
