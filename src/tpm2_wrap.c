@@ -725,10 +725,18 @@ int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
     if (authSz > (int)sizeof(key->handle.auth.buffer)) {
         return BUFFER_E;
     }
-    key->handle.auth.size = (UINT16)authSz;
     if (auth != NULL) {
-        XMEMCPY(key->handle.auth.buffer, auth, authSz);
+        XMEMMOVE(key->handle.auth.buffer, auth, authSz);
+        if ((word32)authSz < sizeof(key->handle.auth.buffer)) {
+            TPM2_ForceZero(&key->handle.auth.buffer[authSz],
+                (word32)sizeof(key->handle.auth.buffer) - (word32)authSz);
+        }
     }
+    else {
+        TPM2_ForceZero(key->handle.auth.buffer,
+            sizeof(key->handle.auth.buffer));
+    }
+    key->handle.auth.size = (UINT16)authSz;
 
     return TPM_RC_SUCCESS;
 }
