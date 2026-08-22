@@ -129,6 +129,7 @@ int TPM2_Keyload_Example(void* userCtx, int argc, char *argv[])
 #else
     /* TODO: Option to load hex blob */
     printf("Loading blob from disk not supported. Enable wolfcrypt support.\n");
+    rc = NOT_COMPILED_IN;
     goto exit;
 #endif
 
