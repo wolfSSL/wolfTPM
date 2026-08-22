@@ -355,6 +355,19 @@ int wolfSPDM_Disconnect(WOLFSPDM_CTX* ctx)
         rxSz = sizeof(rxBuf);
         rc = wolfSPDM_SecuredExchange(ctx, txBuf, txSz, rxBuf, &rxSz);
     }
+    if (rc == WOLFSPDM_SUCCESS) {
+        if (rxSz < 4) {
+            rc = WOLFSPDM_E_BUFFER_SMALL;
+        }
+        else if (wolfSPDM_CheckError(rxBuf, rxSz, NULL)) {
+            rc = WOLFSPDM_E_PEER_ERROR;
+        }
+        else if (rxSz != 4 || rxBuf[0] != ctx->spdmVersion ||
+                 rxBuf[1] != SPDM_END_SESSION_ACK ||
+                 rxBuf[2] != 0 || rxBuf[3] != 0) {
+            rc = WOLFSPDM_E_PEER_ERROR;
+        }
+    }
 
     /* Reset state and zero ALL key material */
     ctx->state = WOLFSPDM_STATE_INIT;

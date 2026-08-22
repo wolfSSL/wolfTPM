@@ -893,7 +893,7 @@ static int RespBuildEndSessionAck(WOLFSPDM_CTX* ctx,
         return WOLFSPDM_E_BUFFER_SMALL;
     }
     out[0] = ctx->spdmVersion;
-    out[1] = 0x6B;  /* END_SESSION_ACK */
+    out[1] = SPDM_END_SESSION_ACK;
     out[2] = 0x00;
     out[3] = 0x00;
     *outSz = 4;

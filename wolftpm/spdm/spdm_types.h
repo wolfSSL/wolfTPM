@@ -58,6 +58,7 @@ extern "C" {
 #define SPDM_VERSION                0x04
 #define SPDM_KEY_EXCHANGE_RSP       0x64
 #define SPDM_FINISH_RSP             0x65
+#define SPDM_END_SESSION_ACK        0x6C
 #define SPDM_ERROR                  0x7F
 
 /* SPDM Error Codes (in Param1 of ERROR response) */
