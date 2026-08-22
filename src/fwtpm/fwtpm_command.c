@@ -16236,6 +16236,31 @@ static TPM_RC FwSignSeqInitTicketHmac(FWTPM_CTX* ctx, FWTPM_SignSeq* seq,
     TPM2_ForceZero(proof, sizeof(proof));
     return (rc == 0) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
 }
+
+static TPM_RC FwValidateSignatureContext(const FWTPM_Object* obj,
+    UINT16 contextSz)
+{
+    UINT16 scheme = obj->pub.type;
+
+    if (obj->pub.type == TPM_ALG_RSA) {
+        scheme = obj->pub.parameters.rsaDetail.scheme.scheme;
+    }
+    else if (obj->pub.type == TPM_ALG_ECC) {
+        scheme = obj->pub.parameters.eccDetail.scheme.scheme;
+    }
+    else if (obj->pub.type == TPM_ALG_KEYEDHASH) {
+        scheme = obj->pub.parameters.keyedHashDetail.scheme.scheme;
+    }
+
+    if (scheme == TPM_ALG_MLDSA || scheme == TPM_ALG_HASH_MLDSA) {
+        return TPM_RC_SUCCESS;
+    }
+    if (scheme == TPM_ALG_ECDAA) {
+        return (contextSz == sizeof(UINT16)) ?
+            TPM_RC_SUCCESS : TPM_RC_SIZE;
+    }
+    return (contextSz == 0) ? TPM_RC_SUCCESS : TPM_RC_SIZE;
+}
 #endif /* WOLFTPM_MLDSA */
 
 #ifdef WOLFTPM_MLDSA_SIGN
@@ -16326,6 +16351,9 @@ static TPM_RC FwCmd_SignSequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (cmd->pos + ctxSz > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
+        }
+        else {
+            rc = FwValidateSignatureContext(obj, ctxSz);
         }
     }
     if (rc == 0) {
@@ -16518,6 +16546,9 @@ static TPM_RC FwCmd_VerifySequenceStart(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (cmd->pos + ctxSz > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
+        }
+        else {
+            rc = FwValidateSignatureContext(obj, ctxSz);
         }
     }
     if (rc == 0) {
@@ -17362,6 +17393,9 @@ static TPM_RC FwCmd_SignDigest(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
         else if (cmd->pos + sigCtx->size > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
+        else {
+            rc = FwValidateSignatureContext(obj, sigCtx->size);
+        }
     }
     if (rc == 0) {
         TPM2_Packet_ParseBytes(cmd, sigCtx->buffer, sigCtx->size);
@@ -17583,6 +17617,9 @@ static TPM_RC FwCmd_VerifyDigestSignature(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (cmd->pos + sigCtx->size > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
+        }
+        else {
+            rc = FwValidateSignatureContext(obj, sigCtx->size);
         }
     }
     if (rc == 0) {
