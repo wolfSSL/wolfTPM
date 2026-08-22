@@ -1044,6 +1044,9 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         if (lockCtx)
             TPM2_ReleaseLock(ctx);
     }
+    else {
+        TPM2_ForceZero(ctx->cmdBuf, sizeof(ctx->cmdBuf));
+    }
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     #ifdef WOLFTPM2_USE_WOLF_RNG
