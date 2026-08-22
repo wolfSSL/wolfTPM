@@ -2152,6 +2152,9 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
                 if (!psSupported) {
                     rc = TPM_RC_PARMS;
                 }
+                else if (allowExtMu != NO && allowExtMu != YES) {
+                    rc = TPM_RC_VALUE;
+                }
                 else if (allowExtMu == YES) {
                     rc = TPM_RC_EXT_MU;
                 }
