@@ -80,6 +80,7 @@ static TPM_RC FwNvCheckAccess(TPM_HANDLE authHandle,
 #endif
 static FWTPM_Object* FwFindObject(FWTPM_CTX* ctx, TPM_HANDLE handle);
 #ifndef FWTPM_NO_DA
+static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle);
 static UINT64 FwDaNowMs(FWTPM_CTX* ctx);
 #endif
 #ifdef WOLFTPM_MLDSA
@@ -10213,36 +10214,28 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         if (bind != TPM_RH_NULL) {
             TPM2B_AUTH bindAuth;
+            const byte* bindAuthVal = NULL;
+            int bindAuthSz = 0;
+
             XMEMSET(&bindAuth, 0, sizeof(bindAuth));
-            sess->bindHandle = bind;
-            /* Hierarchy handles: use hierarchy auth from ctx */
-            if (bind == TPM_RH_OWNER) {
-                XMEMCPY(&bindAuth, &ctx->ownerAuth, sizeof(TPM2B_AUTH));
+            FwLookupEntityAuth(ctx, bind, &bindAuthVal, &bindAuthSz);
+            if (bindAuthVal == NULL) {
+                rc = TPM_RC_HANDLE;
             }
-            else if (bind == TPM_RH_ENDORSEMENT) {
-                XMEMCPY(&bindAuth, &ctx->endorsementAuth, sizeof(TPM2B_AUTH));
-            }
-            else if (bind == TPM_RH_PLATFORM) {
-                XMEMCPY(&bindAuth, &ctx->platformAuth, sizeof(TPM2B_AUTH));
-            }
-#ifndef FWTPM_NO_NV
-            else if ((bind & 0xFF000000)
-                == (NV_INDEX_FIRST & 0xFF000000)) {
-                /* NV index: look up auth value from NV index slot */
-                FWTPM_NvIndex* nvBind = FwFindNvIndex(ctx, bind);
-                if (nvBind != NULL) {
-                    XMEMCPY(&bindAuth, &nvBind->authValue, sizeof(TPM2B_AUTH));
-                }
-            }
-#endif /* !FWTPM_NO_NV */
-            else {
-                FWTPM_Object* bindObj = FwFindObject(ctx, bind);
-                if (bindObj != NULL) {
-                    XMEMCPY(&bindAuth, &bindObj->authValue, sizeof(TPM2B_AUTH));
-                }
-            }
-            if (bindAuth.size > sizeof(bindAuth.buffer)) {
+            else if (bindAuthSz < 0 ||
+                    bindAuthSz > (int)sizeof(bindAuth.buffer)) {
                 rc = TPM_RC_FAILURE;
+            }
+            else {
+                bindAuth.size = (UINT16)bindAuthSz;
+                if (bindAuthSz > 0) {
+                    XMEMCPY(bindAuth.buffer, bindAuthVal, bindAuthSz);
+                }
+                sess->bindHandle = bind;
+            #ifndef FWTPM_NO_DA
+                sess->isLockoutBound = bind == TPM_RH_LOCKOUT;
+                sess->isDaBound = !FwHandleIsNoDA(ctx, bind);
+            #endif
             }
             if (rc == 0 && bindAuth.size > 0) {
                 if (keyInSz + bindAuth.size <= (int)sizeof(keyIn)) {
@@ -10266,11 +10259,11 @@ static TPM_RC FwCmd_StartAuthSession(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
 
-        if (saltSize == 0 && bind == TPM_RH_NULL) {
+        if (rc == 0 && saltSize == 0 && bind == TPM_RH_NULL) {
             /* Unsalted AND unbound: sessionKey is empty per spec */
             sess->sessionKey.size = 0;
         }
-        else {
+        else if (rc == 0) {
             /* Salted and/or bound: compute the sessionKey. For a session
              * bound to an entity with an EmptyAuth, keyInSz is 0 here and
              * KDFa runs over a zero-length key input - the sessionKey is
@@ -17968,13 +17961,31 @@ static const FWTPM_CMD_ENTRY* FwFindCmdEntry(TPM_CC cc)
 
 #ifndef FWTPM_NO_DA
 /* Return 1 if the handle names an entity exempt from dictionary-attack
- * lockout: an NV index with TPMA_NV_NO_DA, or an object with
- * TPMA_OBJECT_noDA (Part 1 Sec.19.8.4). Such entities never feed the
- * failed-tries counter and remain usable during lockout. */
+ * lockout: a permanent hierarchy other than lockout, a sequence, an NV index
+ * with TPMA_NV_NO_DA, or an object with TPMA_OBJECT_noDA (Part 1 Sec.19.8.4).
+ * Such entities never feed the failed-tries counter and remain usable during
+ * lockout. */
 static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
 {
     FWTPM_Object* obj;
 
+    if (handle <= PCR_LAST) {
+        return 1;
+    }
+    if ((handle & HR_RANGE_MASK) == HR_PERMANENT &&
+            handle != TPM_RH_LOCKOUT) {
+        return 1;
+    }
+#ifndef FWTPM_NO_HASH_CMDS
+    if (FwFindHashSeq(ctx, handle) != NULL) {
+        return 1;
+    }
+#endif
+#ifdef WOLFTPM_MLDSA
+    if (FwFindSignSeq(ctx, handle) != NULL) {
+        return 1;
+    }
+#endif
     if ((handle & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
         (handle & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
         obj = FwFindObject(ctx, handle);
@@ -17991,6 +18002,66 @@ static int FwHandleIsNoDA(FWTPM_CTX* ctx, TPM_HANDLE handle)
     }
 #endif
     return 0;
+}
+
+enum {
+    FW_AUTH_USES_LOCKOUT = 0x01,
+    FW_AUTH_USES_ENTITY_DA = 0x02,
+    FW_AUTH_USES_BIND_DA = 0x04
+};
+
+/* Classify the authValues used by one authorization slot. A pure policy
+ * session does not use the target authValue, but any command HMAC from a bound
+ * session still depends on the bind authValue. failHandle preserves lockout
+ * precedence when attributing an authorization failure. */
+static int FwAuthSlotDAUse(FWTPM_CTX* ctx, TPM_HANDLE entityH,
+    int isPassword, const FWTPM_Session* sess, UINT16 cmdHmacSize,
+    TPM_HANDLE* failHandle)
+{
+    int daUse = 0;
+    int usesEntityAuth = isPassword;
+    int usesBindAuth;
+
+    if (sess != NULL &&
+            (sess->sessionType == TPM_SE_HMAC ||
+             (sess->sessionType == TPM_SE_POLICY &&
+              (sess->isPasswordPolicy || sess->isAuthValuePolicy)))) {
+        usesEntityAuth = 1;
+    }
+    usesBindAuth = sess != NULL && cmdHmacSize > 0 &&
+        sess->bindHandle != 0;
+    if (usesEntityAuth) {
+        if (entityH == TPM_RH_LOCKOUT) {
+            daUse |= FW_AUTH_USES_LOCKOUT;
+        }
+        else if (!FwHandleIsNoDA(ctx, entityH)) {
+            daUse |= FW_AUTH_USES_ENTITY_DA;
+        }
+    }
+    if (usesBindAuth) {
+        if (sess->isLockoutBound) {
+            daUse |= FW_AUTH_USES_LOCKOUT;
+        }
+        else if (sess->isDaBound) {
+            daUse |= FW_AUTH_USES_BIND_DA;
+        }
+    }
+
+    if (failHandle != NULL) {
+        if (daUse & FW_AUTH_USES_LOCKOUT) {
+            *failHandle = TPM_RH_LOCKOUT;
+        }
+        else if (daUse & FW_AUTH_USES_ENTITY_DA) {
+            *failHandle = entityH;
+        }
+        else if (daUse & FW_AUTH_USES_BIND_DA) {
+            *failHandle = sess->bindHandle;
+        }
+        else {
+            *failHandle = 0;
+        }
+    }
+    return daUse;
 }
 
 /* DA timing uses the volatile, reset-on-boot millisecond source (the raw clock
@@ -18053,13 +18124,13 @@ static void FwDaSelfHeal(FWTPM_CTX* ctx)
 /* Record an authorization failure for DA accounting. Returns 1 only when the
  * failing command must itself be answered with TPM_RC_LOCKOUT (the failedTries
  * threshold was just reached); otherwise returns 0 (the caller reports
- * TPM_RC_AUTH_FAIL). The platform hierarchy is exempt (Part 1 Sec.19.8); a
- * failed lockoutAuth arms the lockout-hierarchy lock once but still reports
- * AUTH_FAIL — subsequent reset/parameter attempts are rejected by the gate. */
+ * TPM_RC_AUTH_FAIL). Permanent hierarchies other than lockout are exempt
+ * (Part 1 Sec.19.8); a failed lockoutAuth arms the lockout-hierarchy lock once
+ * but still reports AUTH_FAIL — subsequent attempts are rejected by the gate. */
 static int FwDaRegisterFailure(FWTPM_CTX* ctx, TPM_HANDLE entityH)
 {
-    /* The platform hierarchy is not DA-protected: a failed platformAuth must
-     * not feed the counter or trigger lockout. */
+    /* Platform authorization is not DA-protected. The other exempt permanent
+     * hierarchies are handled by FwHandleIsNoDA below. */
     if (entityH == TPM_RH_PLATFORM) {
         return 0;
     }
@@ -18735,17 +18806,36 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
     /* A failed lockoutAuth locks the lockout hierarchy itself for
      * daLockoutRecovery seconds, so lockoutAuth cannot be brute-forced
-     * (Part 1 Sec.19.8.2). Reject any command that authorizes via lockoutAuth
-     * (auth handle == TPM_RH_LOCKOUT: LockReset, Parameters, Clear/lockout,
-     * etc.) — but not Clear via platformAuth, which is the recovery path. */
-    if (ctx->lockoutAuthFailed && entry->authHandleCnt > 0 &&
-            cmdHandleCnt > 0 && cmdHandles[0] == TPM_RH_LOCKOUT) {
-        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-        return TPM_RC_SUCCESS;
+     * (Part 1 Sec.19.8.2). Reject any authorization slot that uses
+     * lockoutAuth, directly or through a bound session, but not Clear via
+     * platformAuth, which is the recovery path. */
+    if (ctx->lockoutAuthFailed) {
+        for (pj = 0; pj < cmdAuthCnt &&
+                pj < (int)entry->authHandleCnt; pj++) {
+            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+                    cmdAuths[pj].handle == TPM_RS_PW,
+                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize,
+                    NULL) & FW_AUTH_USES_LOCKOUT) != 0) {
+                *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                    TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                return TPM_RC_SUCCESS;
+            }
+        }
     }
 
     if (ctx->daFailedTries >= ctx->daMaxTries && ctx->daMaxTries > 0) {
+        int hasDaAuth = 0;
+
+        for (pj = 0; pj < cmdAuthCnt &&
+                pj < (int)entry->authHandleCnt; pj++) {
+            if ((FwAuthSlotDAUse(ctx, cmdHandles[pj],
+                    cmdAuths[pj].handle == TPM_RS_PW,
+                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL) &
+                    (FW_AUTH_USES_ENTITY_DA | FW_AUTH_USES_BIND_DA)) != 0) {
+                hasDaAuth = 1;
+                break;
+            }
+        }
         /* Startup/Shutdown are lifecycle commands and must never be DA-gated:
          * with failedTries persisted, gating Startup would brick a TPM that
          * power-cycled while in lockout (Startup blocked, so LockReset can
@@ -18762,30 +18852,46 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             cmdCode != TPM_CC_DictionaryAttackParameters &&
             cmdCode != TPM_CC_StartAuthSession &&
             cmdCode != TPM_CC_FlushContext &&
-            !(cmdHandleCnt > 0 && FwHandleIsNoDA(ctx, cmdHandles[0]))) {
+            hasDaAuth) {
             *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                 TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
             return TPM_RC_SUCCESS;
         }
     }
 
-    /* daUsed: the first use of a DA-protected (non-noDA) object/NV auth after
-     * startup must persist that DA tracking is armed, so a later power loss is
-     * penalized (Part 1 Sec.19.8.5). A real TPM returns TPM_RC_RETRY while it
-     * writes NV; emulate that under FWTPM_DA_USED_RETRY so callers exercise
-     * resubmit. The flag/orderly-state is persisted regardless of the macro. */
+    /* daUsed: the first use of a DA-protected object/NV authValue, directly or
+     * through a bound session, must persist that DA tracking is armed so a
+     * later power loss is penalized (Part 1 Sec.19.8.5). A real TPM returns
+     * TPM_RC_RETRY while it writes NV; emulate that under FWTPM_DA_USED_RETRY
+     * so callers exercise resubmit. The flag/orderly-state is persisted
+     * regardless of the macro. */
     if (!ctx->daUsed) {
         int armDa = 0;
         for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
-            TPM_HANDLE eH = cmdHandles[pj];
-            int isObj =
-                (eH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000) ||
-                (eH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000) ||
-                (eH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000);
-            if ((cmdAuths[pj].handle == TPM_RS_PW ||
-                 (cmdAuths[pj].sess != NULL &&
-                  cmdAuths[pj].sess->sessionType == TPM_SE_HMAC)) &&
-                isObj && !FwHandleIsNoDA(ctx, eH)) {
+            int daUse;
+            TPM_HANDLE entityH = cmdHandles[pj];
+            TPM_HANDLE bindH = cmdAuths[pj].sess != NULL ?
+                cmdAuths[pj].sess->bindHandle : 0;
+            int entityIsObj =
+                (entityH & 0xFF000000) ==
+                    (TRANSIENT_FIRST & 0xFF000000) ||
+                (entityH & 0xFF000000) ==
+                    (PERSISTENT_FIRST & 0xFF000000) ||
+                (entityH & 0xFF000000) ==
+                    (NV_INDEX_FIRST & 0xFF000000);
+            int bindIsObj =
+                (bindH & 0xFF000000) ==
+                    (TRANSIENT_FIRST & 0xFF000000) ||
+                (bindH & 0xFF000000) ==
+                    (PERSISTENT_FIRST & 0xFF000000) ||
+                (bindH & 0xFF000000) ==
+                    (NV_INDEX_FIRST & 0xFF000000);
+
+            daUse = FwAuthSlotDAUse(ctx, entityH,
+                    cmdAuths[pj].handle == TPM_RS_PW,
+                    cmdAuths[pj].sess, cmdAuths[pj].cmdHmacSize, NULL);
+            if (((daUse & FW_AUTH_USES_ENTITY_DA) && entityIsObj) ||
+                    ((daUse & FW_AUTH_USES_BIND_DA) && bindIsObj)) {
                 armDa = 1;
                 break;
             }
@@ -18863,19 +18969,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             authFail = FwCtAuthCompare(cmdAuths[pj].password,
                 (int)cmdAuths[pj].passwordSize, authVal, authValSz);
             if (authFail) {
+                TPM_RC authRc = TPM_RC_BAD_AUTH;
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                if (FwDaRegisterFailure(ctx, entityH)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                    return TPM_RC_SUCCESS;
+                TPM_HANDLE daHandle;
+                if (FwAuthSlotDAUse(ctx, entityH, 1, NULL, 0,
+                        &daHandle) != 0) {
+                    authRc = TPM_RC_AUTH_FAIL;
+                    if (FwDaRegisterFailure(ctx, daHandle)) {
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        return TPM_RC_SUCCESS;
+                    }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
+                    TPM_ST_NO_SESSIONS, authRc);
                 return TPM_RC_SUCCESS;
             }
         }
@@ -18919,12 +19031,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 hSess->sessionKey.size == 0) {
                 if (FwCtAuthCompare(cmdAuths[hj].cmdHmac,
                         (int)cmdAuths[hj].cmdHmacSize, authVal, authValSz)) {
+                    TPM_RC authRc = TPM_RC_BAD_AUTH;
                 #ifdef DEBUG_WOLFTPM
                     printf("fwTPM: PolicyPassword auth failed for handle "
                         "0x%x (CC=0x%x)\n", entityH, cmdCode);
                 #endif
+                #ifndef FWTPM_NO_DA
+                    TPM_HANDLE daHandle;
+                    if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
+                            cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
+                        authRc = TPM_RC_AUTH_FAIL;
+                        if (FwDaRegisterFailure(ctx, daHandle)) {
+                            *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                                TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                            return TPM_RC_SUCCESS;
+                        }
+                    }
+                #endif
                     *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                        TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
+                        TPM_ST_NO_SESSIONS, authRc);
                     return TPM_RC_SUCCESS;
                 }
                 TPM2_ForceZero(cpHash, sizeof(cpHash));
@@ -18952,19 +19077,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             hmacDiff = TPM2_ConstantCompare(cmdAuths[hj].cmdHmac,
                 expectedHmac, cmpSz);
             if (sizeMismatch | hmacDiff) {
+                TPM_RC authRc = TPM_RC_BAD_AUTH;
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: HMAC session auth failed for handle "
                     "0x%x (CC=0x%x)\n", entityH, cmdCode);
             #endif
             #ifndef FWTPM_NO_DA
-                if (FwDaRegisterFailure(ctx, entityH)) {
-                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                        TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
-                    return TPM_RC_SUCCESS;
+                TPM_HANDLE daHandle;
+                if (FwAuthSlotDAUse(ctx, entityH, 0, hSess,
+                        cmdAuths[hj].cmdHmacSize, &daHandle) != 0) {
+                    authRc = TPM_RC_AUTH_FAIL;
+                    if (FwDaRegisterFailure(ctx, daHandle)) {
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                            TPM_ST_NO_SESSIONS, TPM_RC_LOCKOUT);
+                        return TPM_RC_SUCCESS;
+                    }
                 }
             #endif
                 *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
-                    TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
+                    TPM_ST_NO_SESSIONS, authRc);
                 return TPM_RC_SUCCESS;
             }
 

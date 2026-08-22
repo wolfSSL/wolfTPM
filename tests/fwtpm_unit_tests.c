@@ -1641,7 +1641,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     rspSize = 0;
     rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
     AssertIntEQ(rc, TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_BAD_AUTH);
 
     /* Restore PCR 16 to empty auth so the NV journal doesn't contaminate
      * later tests that share FWTPM_NV_FILE. */
@@ -1664,7 +1664,7 @@ static void test_fwtpm_pcr_extend_empty_pw_rejected_after_setauth(void)
     AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
 
     FWTPM_Cleanup(&ctx);
-    fwtpm_pass("PCR_Extend empty-pw after SetAuth (AUTH_FAIL):", 0);
+    fwtpm_pass("PCR_Extend empty-pw after SetAuth (BAD_AUTH):", 0);
 }
 
 /* ================================================================== */
@@ -10695,7 +10695,7 @@ static TPM_RC DaSendBadAuthTo(FWTPM_CTX* ctx, UINT32 cc, UINT32 handle)
 }
 
 /* The platform hierarchy is not DA-protected: a failed platformAuth reports
- * AUTH_FAIL (not LOCKOUT) and never feeds the counter. */
+ * BAD_AUTH (not LOCKOUT) and never feeds the counter. */
 static void test_fwtpm_da_platform_exempt(void)
 {
     FWTPM_CTX ctx;
@@ -10703,11 +10703,11 @@ static void test_fwtpm_da_platform_exempt(void)
     AssertIntEQ(fwtpm_test_startup(&ctx), 0);
 
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_AUTH_FAIL);
+        TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     /* Repeated failures must neither count nor lock. */
     AssertIntEQ(DaSendBadAuthTo(&ctx, TPM_CC_Clear, TPM_RH_PLATFORM),
-        TPM_RC_AUTH_FAIL);
+        TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.lockoutAuthFailed, 0);
 
@@ -10815,7 +10815,7 @@ static void test_fwtpm_da_noda_object_exempt(void)
     /* noDA sign key (attr includes TPMA_OBJECT_noDA = 0x400) */
     noDaKey = DaMakeEccSignKey(&ctx, 0x00040472);
     AssertIntNE(noDaKey, 0);
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 0);
     AssertIntEQ(ctx.daUsed, 0);
 
@@ -10877,7 +10877,7 @@ static void test_fwtpm_da_lockout_and_reset(void)
 }
 
 /* A noDA key stays usable during active lockout (gate exempts it): a wrong-auth
- * use yields AUTH_FAIL, not LOCKOUT. */
+ * use yields BAD_AUTH, not LOCKOUT. */
 static void test_fwtpm_da_noda_usable_during_lockout(void)
 {
     FWTPM_CTX ctx;
@@ -10896,9 +10896,9 @@ static void test_fwtpm_da_noda_usable_during_lockout(void)
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
     /* The DA key is now gated... */
     AssertIntEQ(DaSignWrongAuth(&ctx, daKey), TPM_RC_LOCKOUT);
-    /* ...but the noDA key is still processed (AUTH_FAIL, not LOCKOUT) and does
+    /* ...but the noDA key is still processed (BAD_AUTH, not LOCKOUT) and does
      * not feed the counter. */
-    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_AUTH_FAIL);
+    AssertIntEQ(DaSignWrongAuth(&ctx, noDaKey), TPM_RC_BAD_AUTH);
     AssertIntEQ((int)ctx.daFailedTries, 2);
 
     FWTPM_Cleanup(&ctx);

@@ -597,6 +597,10 @@ typedef struct FWTPM_Session {
     TPM2B_AUTH sessionKey;          /* Session HMAC key (from KDFa) */
     TPM2B_AUTH bindAuth;            /* Auth of bound entity */
     TPM_HANDLE bindHandle;          /* Bound entity handle (0 if unbound) */
+#ifndef FWTPM_NO_DA
+    int isDaBound;                  /* Bound authValue has DA protection */
+    int isLockoutBound;             /* Bound to the lockout hierarchy */
+#endif
     TPM2B_DIGEST policyDigest;      /* Running policy digest (policy sessions) */
     int isPasswordPolicy;           /* 1 if PolicyPassword was called */
     int isAuthValuePolicy;          /* 1 if PolicyAuthValue was called */
